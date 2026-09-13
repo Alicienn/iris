@@ -60,27 +60,27 @@ testés contre des serveurs simulés en mémoire.
 
 ## E7 — `iris-thread` : regroupement en fils
 
-- [ ] **S7.1** Algorithme JWZ sur `Message-ID`, `In-Reply-To`, `References`.
-- [ ] **S7.2** Repli par sujet normalisé et fenêtre temporelle.
-- [ ] **S7.3** Recollage inter-comptes, activable.
+- [x] **S7.1** Algorithme JWZ sur `Message-ID`, `In-Reply-To`, `References`.
+- [x] **S7.2** Repli par sujet normalisé et fenêtre temporelle.
+- [x] **S7.3** Recollage inter-comptes, activable.
 
 ## E8 — `iris-workflow` : machine à états
 
-- [ ] **S8.1** Transitions manuelles avec pile d'annulation.
-- [ ] **S8.2** Transitions automatiques, chacune désactivable.
-- [ ] **S8.3** Report (snooze) et relance à échéance.
+- [x] **S8.1** Transitions manuelles avec pile d'annulation.
+- [x] **S8.2** Transitions automatiques, chacune désactivable.
+- [x] **S8.3** Report (snooze) et relance à échéance.
 
 ## E9 — `iris-rules` : moteur de règles
 
-- [ ] **S9.1** Modèle de règle : conditions, actions, ordre, arrêt.
-- [ ] **S9.2** Évaluation sur un message.
-- [ ] **S9.3** Simulation à blanc sur l'historique, avec échantillon.
+- [x] **S9.1** Modèle de règle : conditions, actions, ordre, arrêt.
+- [x] **S9.2** Évaluation sur un message.
+- [x] **S9.3** Simulation à blanc sur l'historique, avec échantillon.
 
 ## E10 — `iris-search` : langage de requête
 
-- [ ] **S10.1** Analyse lexicale et syntaxique (`from:`, `has:`, `older_than:`, `state:`, texte libre).
-- [ ] **S10.2** Planification : ce qui va au store, ce qui va à l'index.
-- [ ] **S10.3** Recherches épinglées comme vues persistantes.
+- [x] **S10.1** Analyse lexicale et syntaxique (`from:`, `has:`, `older_than:`, `state:`, texte libre).
+- [x] **S10.2** Planification : ce qui va au store, ce qui va à l'index.
+- [x] **S10.3** Recherches épinglées comme vues persistantes.
 
 ## E11 — `iris-discover` : configuration automatique
 

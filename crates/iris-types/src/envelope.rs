@@ -13,7 +13,7 @@ use std::fmt;
 ///
 /// Un type dédié plutôt qu'un `i64` nu : les dates de mails proviennent d'en-têtes
 /// non fiables et se mélangent facilement avec les dates de réception locales.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Timestamp(pub i64);
 

@@ -695,6 +695,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-rules"
+version = "0.1.0"
+dependencies = [
+ "iris-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "iris-search"
+version = "0.1.0"
+dependencies = [
+ "iris-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iris-store"
 version = "0.1.0"
 dependencies = [
@@ -707,11 +725,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-thread"
+version = "0.1.0"
+dependencies = [
+ "iris-types",
+]
+
+[[package]]
 name = "iris-types"
 version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "iris-workflow"
+version = "0.1.0"
+dependencies = [
+ "iris-kernel",
+ "iris-store",
+ "iris-types",
 ]
 
 [[package]]
