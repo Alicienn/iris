@@ -27,11 +27,11 @@ testés contre des serveurs simulés en mémoire.
 
 ## E2 — `iris-kernel` : noyau modulaire
 
-- [ ] **S2.1** Bus d'événements typé, multi-abonnés, asynchrone.
-- [ ] **S2.2** Coalescence temporelle des diffs (fenêtre de 16 ms).
-- [ ] **S2.3** Registre de modules et cycle de vie (`init` / `start` / `stop`).
-- [ ] **S2.4** Capacités : déclaration, octroi, refus.
-- [ ] **S2.5** Configuration typée, rechargeable.
+- [x] **S2.1** Bus d'événements typé, multi-abonnés, asynchrone.
+- [x] **S2.2** Coalescence temporelle des diffs (fenêtre de 16 ms).
+- [x] **S2.3** Registre de modules et cycle de vie (`init` / `start` / `stop`).
+- [x] **S2.4** Capacités : déclaration, octroi, refus.
+- [x] **S2.5** Configuration typée, rechargeable.
 
 ## E3 — `iris-store` : métadonnées
 
