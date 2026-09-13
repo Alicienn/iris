@@ -1,0 +1,18 @@
+[package]
+name = "iris-discover"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+iris-types = { workspace = true }
+serde = { workspace = true }
+async-trait = "0.1"
+tokio = { workspace = true, features = ["net", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
+hickory-resolver = "0.25"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }

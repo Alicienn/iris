@@ -84,14 +84,14 @@ testés contre des serveurs simulés en mémoire.
 
 ## E11 — `iris-discover` : configuration automatique
 
-- [ ] **S11.1** Base ISPDB de Mozilla et autoconfig du domaine.
-- [ ] **S11.2** Enregistrements SRV, puis MX, puis sondage des ports usuels.
-- [ ] **S11.3** Repli manuel guidé et validation de la configuration.
+- [x] **S11.1** Base ISPDB de Mozilla et autoconfig du domaine.
+- [x] **S11.2** Enregistrements SRV, puis MX, puis sondage des ports usuels.
+- [x] **S11.3** Repli manuel guidé et validation de la configuration.
 
 ## E12 — `iris-secrets`
 
-- [ ] **S12.1** Trousseau de l'OS.
-- [ ] **S12.2** Repli chiffré (Argon2 + AEAD).
+- [x] **S12.1** Trousseau de l'OS.
+- [x] **S12.2** Repli chiffré (Argon2 + AEAD).
 
 ## E13 — Protocoles
 
@@ -116,9 +116,9 @@ testés contre des serveurs simulés en mémoire.
 
 ## E16 — `iris-theme`
 
-- [ ] **S16.1** Schéma des tokens et chargement TOML.
-- [ ] **S16.2** Les trois thèmes livrés : `mono`, `ice`, `sand`.
-- [ ] **S16.3** Rechargement à chaud par surveillance de fichiers.
+- [x] **S16.1** Schéma des tokens et chargement TOML.
+- [x] **S16.2** Les trois thèmes livrés : `mono`, `ice`, `sand`.
+- [x] **S16.3** Rechargement à chaud par surveillance de fichiers.
 
 ## E17 — Plugins
 

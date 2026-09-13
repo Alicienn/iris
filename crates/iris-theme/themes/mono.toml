@@ -1,0 +1,89 @@
+# Thème « mono » — verre profond monochrome. Thème par défaut d'Iris.
+#
+# Aucune couleur d'accent : la hiérarchie repose uniquement sur la luminosité et la
+# transparence. L'élément actif est simplement le plus clair. Les signaux
+# fonctionnels passent par la forme, la graisse et l'icône — à la seule exception du
+# rouge d'erreur, qui reste une exception fonctionnelle et non un choix esthétique.
+
+name = "mono"
+label = "Verre profond"
+dark = true
+
+[color]
+# Fond de la fenêtre. Le halo est peint par-dessus, très dilué, pour donner au verre
+# quelque chose à réfracter.
+background     = "#0a0b0d"
+glow           = "#ffffff0d"
+
+# Les trois niveaux de surface correspondent aux trois colonnes : barre latérale,
+# liste, lecture. Chacune est translucide, la plus proche de l'œil étant la plus dense.
+surface_high   = "#ffffff0e"
+surface        = "#ffffff06"
+surface_low    = "#ffffff03"
+surface_hover  = "#ffffff10"
+surface_active = "#ffffff17"
+
+border         = "#ffffff13"
+border_strong  = "#ffffff26"
+# Arête lumineuse d'un pixel sur le bord supérieur des panneaux de verre.
+edge_light     = "#ffffff1f"
+
+text           = "#f0f2f6"
+text_secondary = "#949bab"
+text_muted     = "#5a6070"
+text_inverse   = "#0a0b0d"
+
+# L'accent est un blanc : le thème n'a pas de teinte.
+accent         = "#f0f2f6"
+accent_text    = "#0a0b0d"
+
+error          = "#e5484d"
+warning        = "#d9a441"
+success        = "#5cb87a"
+
+[radius]
+small  = 6.0
+medium = 9.0
+large  = 14.0
+pill   = 999.0
+
+[spacing]
+# Échelle de quatre en quatre : toute marge de l'interface est un multiple.
+unit = 4.0
+
+[typography]
+family      = "Inter"
+family_mono = "JetBrains Mono"
+size_small  = 11.0
+size_body   = 13.0
+size_title  = 15.0
+weight_body = 400
+weight_bold = 620
+tracking    = -0.01
+line_height = 1.45
+
+[density]
+# Hauteur d'une ligne de la liste, en pixels. Trois densités sont proposées dans les
+# réglages ; celle-ci est la valeur par défaut.
+row_height    = 58.0
+row_padding_x = 12.0
+
+[glass]
+# Le flou est appliqué aux panneaux fixes et aux surfaces flottantes, jamais à ce qui
+# se déplace pendant un défilement : un flou sur un élément en mouvement se recalcule
+# à chaque frame.
+blur          = 30.0
+blur_floating = 24.0
+opacity       = 0.86
+saturation    = 1.15
+# Bruit très fin appliqué au verre. Supprime les bandes de dégradé et rend la surface
+# crédible au lieu d'un aplat translucide. Coût : trois lignes de shader.
+grain         = 0.035
+
+[motion]
+# Durées en millisecondes. Volontairement courtes : une interface dense est jugée sur
+# sa réactivité, pas sur ses animations.
+instant  = 90.0
+quick    = 140.0
+moderate = 220.0
+easing   = "cubic-bezier(0.2, 0, 0, 1)"
