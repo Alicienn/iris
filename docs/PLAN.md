@@ -35,11 +35,11 @@ testés contre des serveurs simulés en mémoire.
 
 ## E3 — `iris-store` : métadonnées
 
-- [ ] **S3.1** Ouverture SQLite en WAL, réglages de performance, migrations versionnées.
-- [ ] **S3.2** Schéma : comptes, dossiers, messages, fils, états, correspondants connus.
-- [ ] **S3.3** Pagination par curseur (`keyset`) sur la liste principale.
-- [ ] **S3.4** Journal d'opérations idempotent : écriture, lecture, acquittement.
-- [ ] **S3.5** Jeu de données synthétique et mesure sur 1 M de messages.
+- [x] **S3.1** Ouverture SQLite en WAL, réglages de performance, migrations versionnées.
+- [x] **S3.2** Schéma : comptes, dossiers, messages, fils, états, correspondants connus.
+- [x] **S3.3** Pagination par curseur (`keyset`) sur la liste principale.
+- [x] **S3.4** Journal d'opérations idempotent : écriture, lecture, acquittement.
+- [x] **S3.5** Jeu de données synthétique et mesure sur 1 M de messages.
 
 ## E4 — `iris-blobs` : corps et pièces jointes
 
