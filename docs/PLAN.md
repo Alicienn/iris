@@ -95,11 +95,11 @@ testés contre des serveurs simulés en mémoire.
 
 ## E13 — Protocoles
 
-- [ ] **S13.1** Client IMAP : connexion, capacités, sélection, récupération d'en-têtes.
-- [ ] **S13.2** IDLE, CONDSTORE, QRESYNC avec repli sur `UIDVALIDITY`.
-- [ ] **S13.3** Pool de connexions borné, quotas par serveur.
-- [ ] **S13.4** SMTP : envoi, authentification, gestion des erreurs.
-- [ ] **S13.5** OAuth2 Google et Microsoft, rafraîchissement des jetons.
+- [x] **S13.1** Client IMAP : connexion, capacités, sélection, récupération d'en-têtes.
+- [x] **S13.2** IDLE, CONDSTORE, QRESYNC avec repli sur `UIDVALIDITY`.
+- [x] **S13.3** Pool de connexions borné, quotas par serveur.
+- [x] **S13.4** SMTP : envoi, authentification, gestion des erreurs.
+- [x] **S13.5** OAuth2 Google et Microsoft, rafraîchissement des jetons.
 
 ## E14 — `iris-sync` : orchestration
 

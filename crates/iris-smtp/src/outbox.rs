@@ -1,0 +1,290 @@
+//! La file d'envoi, avec son délai d'annulation.
+//!
+//! Envoyer immédiatement est une erreur d'ergonomie : la faute de frappe, la pièce
+//! jointe oubliée et le mauvais destinataire se remarquent dans les secondes qui
+//! suivent le clic, jamais avant. Un message part donc après un délai — dix secondes
+//! par défaut — pendant lequel un seul geste le retient.
+//!
+//! Le délai est **avant l'envoi, pas après** : rappeler un message déjà parti est
+//! impossible, et prétendre le contraire serait mentir à l'utilisateur.
+
+use crate::compose::Outgoing;
+use crate::transport::{Mailer, SendOutcome};
+use iris_types::Error;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
+
+/// Délai d'annulation par défaut.
+pub const DEFAULT_DELAY: Duration = Duration::from_secs(10);
+
+/// Référence à un message en attente d'envoi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SendHandle(pub u64);
+
+/// Ce qui arrive à un message de la file.
+#[derive(Debug)]
+pub enum OutboxEvent {
+    Queued { handle: SendHandle, subject: String },
+    Cancelled { handle: SendHandle },
+    Sent { handle: SendHandle, outcome: SendOutcome },
+    Failed { handle: SendHandle, error: Error },
+}
+
+impl OutboxEvent {
+    pub fn handle(&self) -> SendHandle {
+        match self {
+            Self::Queued { handle, .. }
+            | Self::Cancelled { handle }
+            | Self::Sent { handle, .. }
+            | Self::Failed { handle, .. } => *handle,
+        }
+    }
+}
+
+/// La file d'envoi.
+#[derive(Debug)]
+pub struct Outbox {
+    mailer: Arc<dyn Mailer>,
+    delay: Duration,
+    pending: Arc<Mutex<HashMap<SendHandle, oneshot::Sender<()>>>>,
+    next: AtomicU64,
+    events: mpsc::UnboundedSender<OutboxEvent>,
+}
+
+impl Outbox {
+    /// Crée la file et rend le flux d'événements.
+    pub fn new(mailer: Arc<dyn Mailer>, delay: Duration) -> (Self, mpsc::UnboundedReceiver<OutboxEvent>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (
+            Self {
+                mailer,
+                delay,
+                pending: Arc::new(Mutex::new(HashMap::new())),
+                next: AtomicU64::new(1),
+                events: tx,
+            },
+            rx,
+        )
+    }
+
+    pub fn delay(&self) -> Duration {
+        self.delay
+    }
+
+    /// Met un message en file. Il partira après le délai, sauf annulation.
+    pub fn queue(&self, message: Outgoing) -> SendHandle {
+        let handle = SendHandle(self.next.fetch_add(1, Ordering::Relaxed));
+        let (annuler_tx, annuler_rx) = oneshot::channel();
+
+        self.pending.lock().expect("file empoisonnée").insert(handle, annuler_tx);
+        let _ = self
+            .events
+            .send(OutboxEvent::Queued { handle, subject: message.subject.clone() });
+
+        let mailer = Arc::clone(&self.mailer);
+        let pending = Arc::clone(&self.pending);
+        let events = self.events.clone();
+        let delay = self.delay;
+
+        tokio::spawn(async move {
+            // Course entre l'échéance et l'annulation. Le premier qui arrive gagne.
+            let annule = tokio::select! {
+                _ = tokio::time::sleep(delay) => false,
+                _ = annuler_rx => true,
+            };
+
+            // Dans les deux cas, le message quitte la file des annulables : passé ce
+            // point, plus rien ne peut être retenu.
+            pending.lock().expect("file empoisonnée").remove(&handle);
+
+            if annule {
+                let _ = events.send(OutboxEvent::Cancelled { handle });
+                return;
+            }
+
+            match mailer.send(&message).await {
+                Ok(outcome) => {
+                    let _ = events.send(OutboxEvent::Sent { handle, outcome });
+                }
+                Err(error) => {
+                    let _ = events.send(OutboxEvent::Failed { handle, error });
+                }
+            }
+        });
+
+        handle
+    }
+
+    /// Retient un message encore en attente.
+    ///
+    /// Retourne `false` s'il est déjà parti — auquel cas il faut le dire à
+    /// l'utilisateur, et non faire semblant.
+    pub fn cancel(&self, handle: SendHandle) -> bool {
+        let envoyeur = self.pending.lock().expect("file empoisonnée").remove(&handle);
+        match envoyeur {
+            Some(tx) => tx.send(()).is_ok(),
+            None => false,
+        }
+    }
+
+    pub fn pending_count(&self) -> usize {
+        self.pending.lock().expect("file empoisonnée").len()
+    }
+
+    pub fn is_pending(&self, handle: SendHandle) -> bool {
+        self.pending.lock().expect("file empoisonnée").contains_key(&handle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::FakeMailer;
+    use iris_types::Address;
+
+    fn message(sujet: &str) -> Outgoing {
+        Outgoing::new(
+            Address::new("moi@example.com"),
+            vec![Address::new("marie@example.com")],
+            sujet,
+        )
+        .body("Bonjour")
+    }
+
+    fn file(delay: Duration) -> (Outbox, mpsc::UnboundedReceiver<OutboxEvent>, Arc<FakeMailer>) {
+        let mailer = Arc::new(FakeMailer::new());
+        let (outbox, rx) = Outbox::new(Arc::clone(&mailer) as Arc<dyn Mailer>, delay);
+        (outbox, rx, mailer)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn un_message_part_apres_le_delai() {
+        let (outbox, mut evenements, mailer) = file(DEFAULT_DELAY);
+        let h = outbox.queue(message("Devis"));
+
+        assert!(matches!(evenements.recv().await, Some(OutboxEvent::Queued { .. })));
+        assert_eq!(mailer.count(), 0, "rien ne doit partir immédiatement");
+
+        tokio::time::advance(Duration::from_secs(11)).await;
+
+        match evenements.recv().await {
+            Some(OutboxEvent::Sent { handle, .. }) => assert_eq!(handle, h),
+            autre => panic!("attendu un envoi, obtenu {autre:?}"),
+        }
+        assert_eq!(mailer.count(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn une_annulation_pendant_le_delai_retient_le_message() {
+        let (outbox, mut evenements, mailer) = file(DEFAULT_DELAY);
+        let h = outbox.queue(message("Devis"));
+        let _ = evenements.recv().await;
+
+        tokio::time::advance(Duration::from_secs(3)).await;
+        assert!(outbox.cancel(h));
+
+        match evenements.recv().await {
+            Some(OutboxEvent::Cancelled { handle }) => assert_eq!(handle, h),
+            autre => panic!("attendu une annulation, obtenu {autre:?}"),
+        }
+
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert_eq!(mailer.count(), 0, "le message ne doit jamais partir");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn annuler_un_message_deja_parti_echoue_franchement() {
+        // Prétendre rappeler un message déjà envoyé serait mentir à l'utilisateur.
+        let (outbox, mut evenements, _) = file(Duration::from_secs(1));
+        let h = outbox.queue(message("Devis"));
+        let _ = evenements.recv().await;
+
+        tokio::time::advance(Duration::from_secs(2)).await;
+        let _ = evenements.recv().await;
+
+        assert!(!outbox.cancel(h));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn plusieurs_messages_coexistent() {
+        let (outbox, mut evenements, mailer) = file(DEFAULT_DELAY);
+        let a = outbox.queue(message("Premier"));
+        let b = outbox.queue(message("Second"));
+        let c = outbox.queue(message("Troisième"));
+
+        for _ in 0..3 {
+            let _ = evenements.recv().await;
+        }
+        assert_eq!(outbox.pending_count(), 3);
+
+        assert!(outbox.cancel(b));
+        tokio::time::advance(Duration::from_secs(11)).await;
+
+        // Deux envois et une annulation, dans un ordre non garanti.
+        let mut envoyes = Vec::new();
+        let mut annules = Vec::new();
+        for _ in 0..3 {
+            match evenements.recv().await {
+                Some(OutboxEvent::Sent { handle, .. }) => envoyes.push(handle),
+                Some(OutboxEvent::Cancelled { handle }) => annules.push(handle),
+                autre => panic!("événement inattendu : {autre:?}"),
+            }
+        }
+        envoyes.sort();
+        assert_eq!(envoyes, [a, c]);
+        assert_eq!(annules, [b]);
+        assert_eq!(mailer.count(), 2);
+        assert_eq!(outbox.pending_count(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn un_echec_d_envoi_est_rapporte() {
+        let (outbox, mut evenements, mailer) = file(Duration::from_secs(1));
+        mailer.fail_next(Error::network("serveur injoignable"));
+
+        outbox.queue(message("Devis"));
+        let _ = evenements.recv().await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+
+        match evenements.recv().await {
+            Some(OutboxEvent::Failed { error, .. }) => assert!(error.is_transient()),
+            autre => panic!("attendu un échec, obtenu {autre:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn un_delai_nul_envoie_sans_attendre() {
+        // Réglage possible pour qui trouve le délai pénible.
+        let (outbox, mut evenements, mailer) = file(Duration::ZERO);
+        outbox.queue(message("Devis"));
+        let _ = evenements.recv().await;
+
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert!(matches!(evenements.recv().await, Some(OutboxEvent::Sent { .. })));
+        assert_eq!(mailer.count(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn l_etat_d_attente_est_consultable() {
+        let (outbox, mut evenements, _) = file(DEFAULT_DELAY);
+        let h = outbox.queue(message("Devis"));
+        let _ = evenements.recv().await;
+
+        assert!(outbox.is_pending(h));
+        outbox.cancel(h);
+        assert!(!outbox.is_pending(h));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn annuler_deux_fois_ne_produit_qu_une_annulation() {
+        let (outbox, mut evenements, _) = file(DEFAULT_DELAY);
+        let h = outbox.queue(message("Devis"));
+        let _ = evenements.recv().await;
+
+        assert!(outbox.cancel(h));
+        assert!(!outbox.cancel(h));
+    }
+}

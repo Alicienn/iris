@@ -1,0 +1,354 @@
+//! L'envoi proprement dit.
+
+use crate::compose::Outgoing;
+use async_trait::async_trait;
+use iris_types::{Error, Result, RfcMessageId};
+use std::sync::{Arc, Mutex};
+
+/// Ce qu'un envoi rapporte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendOutcome {
+    /// Identifiant réellement attribué au message.
+    pub message_id: RfcMessageId,
+    /// Message brut, à déposer dans le dossier des messages envoyés.
+    pub raw: Vec<u8>,
+}
+
+/// Ce qui sait envoyer.
+#[async_trait]
+pub trait Mailer: Send + Sync + std::fmt::Debug {
+    async fn send(&self, message: &Outgoing) -> Result<SendOutcome>;
+}
+
+/// Envoi réel, au-dessus de `lettre`.
+#[derive(Debug)]
+pub struct LettreMailer {
+    transport: lettre::AsyncSmtpTransport<lettre::Tokio1Executor>,
+    /// Domaine utilisé pour engendrer les identifiants de message.
+    domain: String,
+}
+
+impl LettreMailer {
+    /// Construit un expéditeur pour un serveur en TLS direct.
+    pub fn tls(host: &str, port: u16, user: &str, password: &str) -> Result<Self> {
+        let credentials =
+            lettre::transport::smtp::authentication::Credentials::new(user.into(), password.into());
+
+        let transport =
+            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
+                .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
+                .port(port)
+                .credentials(credentials)
+                .build();
+
+        Ok(Self { transport, domain: domain_of(user) })
+    }
+
+    /// Construit un expéditeur pour un serveur en `STARTTLS`.
+    pub fn starttls(host: &str, port: u16, user: &str, password: &str) -> Result<Self> {
+        let credentials =
+            lettre::transport::smtp::authentication::Credentials::new(user.into(), password.into());
+
+        let transport =
+            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
+                .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
+                .port(port)
+                .credentials(credentials)
+                .build();
+
+        Ok(Self { transport, domain: domain_of(user) })
+    }
+}
+
+fn domain_of(address: &str) -> String {
+    address.rsplit_once('@').map(|(_, d)| d.to_string()).unwrap_or_default()
+}
+
+#[async_trait]
+impl Mailer for LettreMailer {
+    async fn send(&self, message: &Outgoing) -> Result<SendOutcome> {
+        use lettre::AsyncTransport;
+
+        message.validate().map_err(Error::Config)?;
+
+        let (courrier, message_id) = build_lettre_message(message, &self.domain)?;
+        let brut = courrier.formatted();
+
+        self.transport.send(courrier).await.map_err(|e| {
+            let texte = e.to_string();
+            // Un refus permanent du serveur ne doit pas être retenté indéfiniment :
+            // l'utilisateur doit corriger l'adresse ou ses identifiants.
+            if e.is_permanent() {
+                Error::Protocol { protocol: "SMTP", message: texte }
+            } else {
+                Error::network(format!("envoi : {texte}"))
+            }
+        })?;
+
+        Ok(SendOutcome { message_id, raw: brut })
+    }
+}
+
+/// Traduit notre message vers celui de `lettre`.
+fn build_lettre_message(
+    message: &Outgoing,
+    domain: &str,
+) -> Result<(lettre::Message, RfcMessageId)> {
+    use lettre::message::{header, Mailbox, MultiPart, SinglePart};
+
+    let vers_mailbox = |a: &iris_types::Address| -> Result<Mailbox> {
+        let adresse: lettre::Address = a
+            .addr
+            .parse()
+            .map_err(|e| Error::Config(format!("adresse « {} » : {e}", a.addr)))?;
+        Ok(Mailbox::new(a.name.clone(), adresse))
+    };
+
+    let mut builder = lettre::Message::builder().from(vers_mailbox(&message.from)?);
+
+    for a in &message.to {
+        builder = builder.to(vers_mailbox(a)?);
+    }
+    for a in &message.cc {
+        builder = builder.cc(vers_mailbox(a)?);
+    }
+    for a in &message.bcc {
+        builder = builder.bcc(vers_mailbox(a)?);
+    }
+
+    builder = builder.subject(&message.subject);
+
+    let message_id = message
+        .message_id
+        .clone()
+        .unwrap_or_else(|| crate::compose::generate_message_id(domain, message.to.len() as u64));
+    builder = builder.message_id(Some(format!("<{}>", message_id.as_str())));
+
+    if let Some(parent) = &message.in_reply_to {
+        builder = builder.in_reply_to(format!("<{}>", parent.as_str()));
+    }
+    if !message.references.is_empty() {
+        let chaine = message
+            .references
+            .iter()
+            .map(|r| format!("<{}>", r.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        builder = builder.references(chaine);
+    }
+
+    // Le corps : texte seul, ou alternative texte + HTML. Une alternative texte est
+    // toujours jointe, car un message uniquement HTML est souvent classé indésirable.
+    let corps = match (&message.html_body, message.attachments.is_empty()) {
+        (None, true) => {
+            return builder
+                .body(message.text_body.clone())
+                .map(|m| (m, message_id))
+                .map_err(|e| Error::Config(format!("construction du message : {e}")));
+        }
+        (Some(html), _) => MultiPart::alternative()
+            .singlepart(
+                SinglePart::builder()
+                    .header(header::ContentType::TEXT_PLAIN)
+                    .body(message.text_body.clone()),
+            )
+            .singlepart(
+                SinglePart::builder()
+                    .header(header::ContentType::TEXT_HTML)
+                    .body(html.clone()),
+            ),
+        (None, false) => MultiPart::mixed().singlepart(
+            SinglePart::builder()
+                .header(header::ContentType::TEXT_PLAIN)
+                .body(message.text_body.clone()),
+        ),
+    };
+
+    let mut assemble = if message.attachments.is_empty() {
+        corps
+    } else {
+        let mut mixte = MultiPart::mixed().multipart(corps);
+        for piece in &message.attachments {
+            let type_mime: header::ContentType = piece
+                .mime_type
+                .parse()
+                .unwrap_or(header::ContentType::TEXT_PLAIN);
+            mixte = mixte.singlepart(
+                lettre::message::Attachment::new(piece.filename.clone())
+                    .body(piece.content.clone(), type_mime),
+            );
+        }
+        mixte
+    };
+
+    // Emprunt inutile évité : `multipart` consomme la valeur.
+    let courrier = builder
+        .multipart(std::mem::replace(&mut assemble, MultiPart::mixed().build()))
+        .map_err(|e| Error::Config(format!("construction du message : {e}")))?;
+
+    Ok((courrier, message_id))
+}
+
+/// Expéditeur simulé.
+#[derive(Debug, Clone, Default)]
+pub struct FakeMailer {
+    sent: Arc<Mutex<Vec<Outgoing>>>,
+    /// Erreur à renvoyer au prochain envoi, puis effacée.
+    next_error: Arc<Mutex<Option<Error>>>,
+}
+
+impl FakeMailer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn sent(&self) -> Vec<Outgoing> {
+        self.sent.lock().unwrap().clone()
+    }
+
+    pub fn count(&self) -> usize {
+        self.sent.lock().unwrap().len()
+    }
+
+    pub fn fail_next(&self, error: Error) {
+        *self.next_error.lock().unwrap() = Some(error);
+    }
+}
+
+#[async_trait]
+impl Mailer for FakeMailer {
+    async fn send(&self, message: &Outgoing) -> Result<SendOutcome> {
+        if let Some(e) = self.next_error.lock().unwrap().take() {
+            return Err(e);
+        }
+        message.validate().map_err(Error::Config)?;
+
+        self.sent.lock().unwrap().push(message.clone());
+        let message_id = message
+            .message_id
+            .clone()
+            .unwrap_or_else(|| RfcMessageId(format!("simule-{}@iris.test", self.count())));
+
+        Ok(SendOutcome {
+            message_id,
+            raw: format!("Subject: {}\r\n\r\n{}", message.subject, message.text_body)
+                .into_bytes(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iris_types::Address;
+
+    fn message() -> Outgoing {
+        Outgoing::new(
+            Address::named("Moi", "moi@example.com"),
+            vec![Address::new("marie@example.com")],
+            "Devis",
+        )
+        .body("Bonjour Marie")
+    }
+
+    #[tokio::test]
+    async fn l_expediteur_simule_conserve_les_messages() {
+        let m = FakeMailer::new();
+        m.send(&message()).await.unwrap();
+        assert_eq!(m.count(), 1);
+        assert_eq!(m.sent()[0].subject, "Devis");
+    }
+
+    #[tokio::test]
+    async fn un_message_invalide_est_refuse_avant_l_envoi() {
+        let m = FakeMailer::new();
+        let vide = Outgoing::new(Address::new("moi@example.com"), vec![], "Sujet");
+        assert!(m.send(&vide).await.is_err());
+        assert_eq!(m.count(), 0, "rien ne doit partir");
+    }
+
+    #[tokio::test]
+    async fn une_erreur_programmee_ne_frappe_qu_une_fois() {
+        let m = FakeMailer::new();
+        m.fail_next(Error::network("serveur injoignable"));
+
+        assert!(m.send(&message()).await.is_err());
+        assert!(m.send(&message()).await.is_ok());
+        assert_eq!(m.count(), 1);
+    }
+
+    #[test]
+    fn le_message_construit_porte_les_en_tetes_de_fil() {
+        let mut m = message();
+        m.in_reply_to = RfcMessageId::parse("parent@example.com");
+        m.references = vec![
+            RfcMessageId("racine@example.com".into()),
+            RfcMessageId("parent@example.com".into()),
+        ];
+
+        let (courrier, _) = build_lettre_message(&m, "example.com").unwrap();
+        let brut = String::from_utf8_lossy(&courrier.formatted()).to_string();
+
+        assert!(brut.contains("In-Reply-To: <parent@example.com>"));
+        assert!(brut.contains("racine@example.com"));
+        assert!(brut.contains("Subject: Devis"));
+    }
+
+    #[test]
+    fn un_identifiant_est_engendre_s_il_manque() {
+        let (_, id) = build_lettre_message(&message(), "example.com").unwrap();
+        assert!(id.as_str().ends_with("@example.com"));
+    }
+
+    #[test]
+    fn un_identifiant_fourni_est_respecte() {
+        let mut m = message();
+        m.message_id = RfcMessageId::parse("choisi@example.com");
+        let (_, id) = build_lettre_message(&m, "example.com").unwrap();
+        assert_eq!(id.as_str(), "choisi@example.com");
+    }
+
+    #[test]
+    fn un_corps_html_est_accompagne_de_son_alternative_texte() {
+        // Un message uniquement HTML est souvent classé indésirable.
+        let mut m = message();
+        m.html_body = Some("<p>Bonjour Marie</p>".into());
+
+        let (courrier, _) = build_lettre_message(&m, "example.com").unwrap();
+        let brut = String::from_utf8_lossy(&courrier.formatted()).to_string();
+
+        assert!(brut.contains("multipart/alternative"));
+        assert!(brut.contains("text/plain"));
+        assert!(brut.contains("text/html"));
+    }
+
+    #[test]
+    fn une_piece_jointe_est_incluse() {
+        let mut m = message();
+        m.attachments.push(crate::compose::Attachment {
+            filename: "devis.pdf".into(),
+            mime_type: "application/pdf".into(),
+            content: b"%PDF-1.4".to_vec(),
+        });
+
+        let (courrier, _) = build_lettre_message(&m, "example.com").unwrap();
+        let brut = String::from_utf8_lossy(&courrier.formatted()).to_string();
+
+        assert!(brut.contains("multipart/mixed"));
+        assert!(brut.contains("devis.pdf"));
+    }
+
+    #[test]
+    fn une_adresse_invalide_est_signalee_avec_son_texte() {
+        let mut m = message();
+        m.to = vec![Address::new("pas valide du tout")];
+        let e = build_lettre_message(&m, "example.com").unwrap_err();
+        assert!(e.to_string().contains("pas valide du tout"));
+    }
+
+    #[test]
+    fn le_domaine_se_deduit_de_l_adresse() {
+        assert_eq!(domain_of("moi@example.com"), "example.com");
+        assert_eq!(domain_of("sans-arobase"), "");
+    }
+}
