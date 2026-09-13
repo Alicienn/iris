@@ -1,0 +1,15 @@
+[package]
+name = "iris-blobs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+iris-types = { workspace = true }
+zstd = "0.13"
+blake3 = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

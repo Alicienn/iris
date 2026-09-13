@@ -43,13 +43,13 @@ testés contre des serveurs simulés en mémoire.
 
 ## E4 — `iris-blobs` : corps et pièces jointes
 
-- [ ] **S4.1** Écriture et lecture compressées zstd, adressage par identifiant.
-- [ ] **S4.2** Cache LRU borné en taille, éviction, statistiques.
+- [x] **S4.1** Écriture et lecture compressées zstd, adressage par identifiant.
+- [x] **S4.2** Cache LRU borné en taille, éviction, statistiques.
 
 ## E5 — `iris-index` : recherche plein texte
 
-- [ ] **S5.1** Schéma Tantivy, écrivain incrémental, validation.
-- [ ] **S5.2** Requêtes, pagination, surlignage des correspondances.
+- [x] **S5.1** Schéma Tantivy, écrivain incrémental, validation.
+- [x] **S5.2** Requêtes, pagination, surlignage des correspondances.
 
 ## E6 — `iris-mime` : analyse des messages
 
