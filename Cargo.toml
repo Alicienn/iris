@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/iris-mail/iris"
+
+[workspace.dependencies]
+iris-types = { path = "crates/iris-types" }
+iris-kernel = { path = "crates/iris-kernel" }
+iris-store = { path = "crates/iris-store" }
+iris-blobs = { path = "crates/iris-blobs" }
+iris-mime = { path = "crates/iris-mime" }
+iris-thread = { path = "crates/iris-thread" }
+iris-workflow = { path = "crates/iris-workflow" }
+iris-rules = { path = "crates/iris-rules" }
+iris-search = { path = "crates/iris-search" }
+iris-theme = { path = "crates/iris-theme" }
+iris-viewmodel = { path = "crates/iris-viewmodel" }
+
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+
+# Le profil de release vise la taille et la prévisibilité des temps de frame :
+# une seule unité de codegen permet l'inlining inter-crate sur les chemins chauds.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+# Les mesures de performance doivent être faites sur du code optimisé, mais
+# rester débogables.
+[profile.bench]
+inherits = "release"
+debug = true
+strip = "none"
+
+# Compiler les dépendances en optimisé même en debug : sans cela, zstd, tantivy
+# et le rendu sont inutilisables pendant le développement.
+[profile.dev.package."*"]
+opt-level = 2
