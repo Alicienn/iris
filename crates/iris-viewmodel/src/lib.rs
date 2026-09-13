@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn la_navigation_au_clavier_suit_la_liste() {
         let f = fixture();
-        let _ = f.seed(10);
+        let fils = f.seed(10);
         let mut vm = f.vm();
         vm.bootstrap().unwrap();
 
