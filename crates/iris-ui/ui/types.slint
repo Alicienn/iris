@@ -1,0 +1,62 @@
+// Les structures échangées entre Rust et l'interface.
+//
+// Chaque champ est **pré-calculé côté Rust** : la date est déjà formatée, le nom
+// d'affichage déjà résolu, l'aperçu déjà tronqué. L'interface ne fait aucun travail
+// au défilement — c'est l'invariant n° 1, exprimé dans la forme même des données.
+
+export struct ThreadRowData {
+    id: int,
+    from: string,
+    subject: string,
+    preview: string,
+    // Déjà formatée : « 14:32 », « hier », « 12 mars ».
+    date: string,
+    unread: bool,
+    flagged: bool,
+    has-attachment: bool,
+    has-tracker: bool,
+    snoozed: bool,
+    message-count: int,
+    // Couleur d'identité du compte, pour distinguer cent boîtes d'un coup d'œil.
+    account-tint: color,
+}
+
+export struct AccountRowData {
+    id: int,
+    label: string,
+    count: int,
+    pinned: bool,
+    // Le compte est suspendu et attend une intervention.
+    needs-attention: bool,
+    tint: color,
+}
+
+export struct MessageBlockData {
+    // "paragraph", "heading", "list", "quote", "code", "rule", "image", "table"
+    kind: string,
+    text: string,
+    level: int,
+    depth: int,
+    bold: bool,
+    italic: bool,
+    link: string,
+}
+
+export struct MessageData {
+    from: string,
+    from-address: string,
+    to: string,
+    date: string,
+    subject: string,
+    blocks: [MessageBlockData],
+    blocked-images: int,
+    has-tracker: bool,
+    attachments: [string],
+}
+
+export struct CommandData {
+    id: string,
+    label: string,
+    shortcut: string,
+    group: string,
+}

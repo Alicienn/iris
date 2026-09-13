@@ -1,0 +1,16 @@
+//! `iris-app` — l'assemblage.
+//!
+//! Le binaire ne fait qu'appeler ce qui se trouve ici, pour que tout l'assemblage
+//! reste testable : un exécutable ne se teste pas, une bibliothèque si.
+
+#![deny(unsafe_code)]
+
+pub mod accounts;
+pub mod controller;
+pub mod paths;
+pub mod services;
+pub mod shell;
+
+pub use controller::{Controller, Request, Snapshot};
+pub use paths::Paths;
+pub use services::{now, Services};

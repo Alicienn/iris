@@ -28,6 +28,8 @@ iris-sync = { path = "crates/iris-sync" }
 iris-discover = { path = "crates/iris-discover" }
 iris-secrets = { path = "crates/iris-secrets" }
 iris-oauth = { path = "crates/iris-oauth" }
+iris-htmlview = { path = "crates/iris-htmlview" }
+iris-ui = { path = "crates/iris-ui" }
 
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

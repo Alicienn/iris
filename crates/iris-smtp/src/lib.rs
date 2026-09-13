@@ -19,7 +19,7 @@ pub use compose::{
     build_references, forward, generate_message_id, reply, Attachment, Outgoing, ReplyScope,
     ReplyTarget,
 };
-pub use outbox::{Outbox, OutboxEvent, SendHandle};
+pub use outbox::{Outbox, OutboxEvent, SendHandle, DEFAULT_DELAY};
 pub use transport::{FakeMailer, LettreMailer, Mailer, SendOutcome};
 
 #[cfg(test)]

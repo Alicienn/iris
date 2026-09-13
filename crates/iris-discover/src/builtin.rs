@@ -10,6 +10,7 @@
 use crate::{Auth, ServerConfig, Transport};
 
 /// Une entrée de la table.
+#[derive(Debug)]
 pub struct Provider {
     /// Domaines desservis, y compris les alias historiques.
     pub domains: &'static [&'static str],

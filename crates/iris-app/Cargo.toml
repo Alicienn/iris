@@ -1,0 +1,38 @@
+[package]
+name = "iris-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "iris"
+path = "src/main.rs"
+
+[dependencies]
+iris-types = { workspace = true }
+iris-kernel = { workspace = true }
+iris-store = { workspace = true }
+iris-blobs = { workspace = true }
+iris-index = { workspace = true }
+iris-mime = { workspace = true }
+iris-imap = { workspace = true }
+iris-smtp = { workspace = true }
+iris-sync = { workspace = true }
+iris-theme = { workspace = true }
+iris-secrets = { workspace = true }
+iris-discover = { workspace = true }
+iris-htmlview = { workspace = true }
+iris-viewmodel = { workspace = true }
+iris-ui = { workspace = true }
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }
+tokio = { workspace = true }
+async-trait = "0.1"
+directories = "6"
+rpassword = "7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

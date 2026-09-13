@@ -1,0 +1,295 @@
+import { Tokens } from "tokens.slint";
+import { Glass, Backdrop, Floating } from "glass.slint";
+import { ThreadRowData, AccountRowData, MessageData, CommandData } from "types.slint";
+import { ThreadListView } from "list.slint";
+import { Sidebar } from "sidebar.slint";
+import { ConversationView } from "conversation.slint";
+import { ListView, LineEdit } from "std-widgets.slint";
+
+export { Tokens }
+
+// La palette de commandes.
+//
+// Une seule entrée pour tout ce que l'application sait faire. C'est ce qui permet à
+// l'interface de rester dépouillée : aucune fonction n'a besoin d'un bouton pour
+// être atteignable.
+component CommandPalette inherits Rectangle {
+    in property <[CommandData]> commands;
+    in property <int> highlighted;
+    in-out property <string> query;
+
+    callback accepted(string);
+    callback dismissed();
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: parent.height * 0.12;
+        width: min(560px, parent.width - 80px);
+        height: min(420px, parent.height * 0.6);
+
+        VerticalLayout {
+            padding: Tokens.space-3;
+            spacing: Tokens.space-2;
+
+            input := LineEdit {
+                placeholder-text: "Commande, compte, recherche…";
+                font-size: Tokens.size-title;
+                text <=> root.query;
+                accepted => {
+                    if (root.commands.length > 0) {
+                        root.accepted(root.commands[root.highlighted].id);
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Tokens.border;
+            }
+
+            ListView {
+                for command[i] in root.commands: Rectangle {
+                    height: 30px;
+                    border-radius: Tokens.radius-small;
+                    background: i == root.highlighted ? Tokens.surface-active : transparent;
+
+                    HorizontalLayout {
+                        padding-left: Tokens.space-2;
+                        padding-right: Tokens.space-2;
+                        spacing: Tokens.space-2;
+
+                        Text {
+                            text: command.label;
+                            font-size: Tokens.size-body;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Rectangle {}
+                        Text {
+                            text: command.group;
+                            font-size: Tokens.size-small;
+                            color: Tokens.text-muted;
+                            vertical-alignment: center;
+                        }
+                        if command.shortcut != "": Rectangle {
+                            width: shortcut.preferred-width + Tokens.space-3;
+                            height: 18px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: Tokens.radius-small;
+                            background: Tokens.surface;
+                            shortcut := Text {
+                                text: command.shortcut;
+                                font-size: 10px;
+                                color: Tokens.text-secondary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: 100%;
+                                height: 100%;
+                            }
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { root.accepted(command.id); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Bandeau d'état, en bas : synchronisation, erreurs, annulation.
+component StatusBar inherits Rectangle {
+    in property <string> status;
+    in property <bool> syncing;
+    in property <int> pending-ops;
+
+    height: 22px;
+
+    HorizontalLayout {
+        padding-left: Tokens.space-3;
+        padding-right: Tokens.space-3;
+        spacing: Tokens.space-2;
+
+        Text {
+            text: root.status;
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {}
+
+        // Les opérations en attente de réconciliation sont annoncées, sans alarmer :
+        // l'utilisateur doit savoir que quelque chose reste à transmettre, mais ce
+        // n'est pas une erreur.
+        if root.pending-ops > 0: Text {
+            text: root.pending-ops + " en attente de transmission";
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+
+        if root.syncing: Text {
+            text: "Synchronisation…";
+            font-size: 10px;
+            color: Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Iris";
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    min-width: 720px;
+    min-height: 480px;
+    background: Tokens.background;
+
+    // --- Données ---
+    in property <[ThreadRowData]> rows;
+    in property <[AccountRowData]> pinned-accounts;
+    in property <[AccountRowData]> other-accounts;
+    in property <MessageData> message;
+    in property <[CommandData]> commands;
+    in property <[int]> counts: [0, 0, 0];
+
+    in property <int> selected-thread: -1;
+    in property <int> selected-account: 0;
+    in property <int> active-tab: 0;
+    in property <int> unified-count;
+    in property <bool> conversation-empty: true;
+    in property <bool> loading;
+    in property <bool> syncing;
+    in property <int> pending-ops;
+    in property <string> status;
+    in property <bool> sending;
+    in property <int> undo-seconds;
+
+    in-out property <bool> palette-open;
+    in-out property <string> palette-query;
+    in property <int> palette-highlighted;
+    in-out property <string> reply-text;
+    in-out property <string> account-filter;
+
+    // --- Événements ---
+    callback thread-selected(int);
+    callback tab-selected(int);
+    callback account-selected(int);
+    callback unified-selected();
+    callback scrolled-near-end();
+    callback command-invoked(string);
+    callback key-pressed(string);
+    callback send-reply();
+    callback cancel-send();
+    callback reply-all();
+    callback load-images();
+    callback palette-query-changed(string);
+
+    forward-focus: shortcuts;
+
+    Backdrop {
+        width: 100%;
+        height: 100%;
+
+        VerticalLayout {
+            HorizontalLayout {
+                // Colonne 1 : les comptes.
+                Sidebar {
+                    width: 200px;
+                    pinned: root.pinned-accounts;
+                    others: root.other-accounts;
+                    selected-id: root.selected-account;
+                    unified-count: root.unified-count;
+                    filter <=> root.account-filter;
+                    account-selected(id) => { root.account-selected(id); }
+                    unified-selected => { root.unified-selected(); }
+                }
+
+                Rectangle { width: 1px; background: Tokens.border; }
+
+                // Colonne 2 : la file de travail.
+                Glass {
+                    width: 340px;
+                    radius: 0px;
+                    border-width: 0px;
+
+                    ThreadListView {
+                        width: 100%;
+                        height: 100%;
+                        rows: root.rows;
+                        selected-id: root.selected-thread;
+                        active-tab: root.active-tab;
+                        counts: root.counts;
+                        loading: root.loading;
+                        row-clicked(id) => { root.thread-selected(id); }
+                        tab-selected(i) => { root.tab-selected(i); }
+                        scrolled-near-end => { root.scrolled-near-end(); }
+                    }
+                }
+
+                Rectangle { width: 1px; background: Tokens.border; }
+
+                // Colonne 3 : la conversation.
+                ConversationView {
+                    message: root.message;
+                    empty: root.conversation-empty;
+                    reply-text <=> root.reply-text;
+                    sending: root.sending;
+                    undo-seconds: root.undo-seconds;
+                    send => { root.send-reply(); }
+                    cancel-send => { root.cancel-send(); }
+                    reply-all => { root.reply-all(); }
+                    load-images => { root.load-images(); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            StatusBar {
+                status: root.status;
+                syncing: root.syncing;
+                pending-ops: root.pending-ops;
+            }
+        }
+    }
+
+    if root.palette-open: CommandPalette {
+        width: 100%;
+        height: 100%;
+        commands: root.commands;
+        highlighted: root.palette-highlighted;
+        query <=> root.palette-query;
+        accepted(id) => {
+            root.palette-open = false;
+            root.command-invoked(id);
+        }
+        dismissed => { root.palette-open = false; }
+    }
+
+    // Toutes les touches passent par Rust : les raccourcis sont des données, pas du
+    // code d'interface, et restent donc reconfigurables.
+    shortcuts := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "k" && event.modifiers.control) {
+                root.palette-open = !root.palette-open;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.palette-open) {
+                root.palette-open = false;
+                return accept;
+            }
+            root.key-pressed(event.text);
+            return accept;
+        }
+    }
+}

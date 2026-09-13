@@ -431,8 +431,9 @@ impl ImapConnection for ImapClient {
             .uid_copy(&sequence, target)
             .await
             .map_err(|e| protocol_error("copie", e))?;
-        drop(session);
 
+        // L'emprunt de la session doit prendre fin avant l'appel suivant, qui la
+        // réemprunte.
         self.store_flags(uids, Flags::DELETED, true).await?;
 
         let session = self.session()?;

@@ -1,0 +1,10 @@
+[package]
+name = "iris-htmlview"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+iris-types = { workspace = true }
+tracing = "0.1"

@@ -1,0 +1,293 @@
+import { Tokens } from "tokens.slint";
+import { MessageData, MessageBlockData } from "types.slint";
+import { Glass } from "glass.slint";
+import { ScrollView, TextEdit, Button } from "std-widgets.slint";
+
+// Un bloc du corps du message.
+//
+// Le corps arrive déjà découpé en blocs par le moteur de rendu : l'interface ne voit
+// jamais de HTML, et ne peut donc rien en exécuter.
+component MessageBlock inherits Rectangle {
+    in property <MessageBlockData> block;
+
+    height: layout.preferred-height;
+
+    layout := VerticalLayout {
+        if root.block.kind == "rule": Rectangle {
+            height: 1px;
+            background: Tokens.border;
+        }
+
+        if root.block.kind == "image": HorizontalLayout {
+            spacing: Tokens.space-2;
+            Text {
+                text: "▣";
+                color: Tokens.text-muted;
+                font-size: Tokens.size-body;
+            }
+            Text {
+                text: root.block.text;
+                color: Tokens.text-muted;
+                font-size: Tokens.size-small;
+                font-italic: true;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.block.kind == "heading": Text {
+            text: root.block.text;
+            font-size: Tokens.size-title + (3 - min(root.block.level, 3)) * 2px;
+            font-weight: Tokens.weight-bold;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+
+        if root.block.kind == "code": Rectangle {
+            background: Tokens.surface;
+            border-radius: Tokens.radius-small;
+            height: code-text.preferred-height + Tokens.space-4;
+            code-text := Text {
+                x: Tokens.space-2;
+                y: Tokens.space-2;
+                width: parent.width - Tokens.space-4;
+                text: root.block.text;
+                font-family: Tokens.font-mono;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+        }
+
+        // Une citation est repliée par défaut au-delà du premier niveau : dans un fil
+        // de dix réponses, afficher les neuf précédentes noie la seule ligne utile.
+        if root.block.kind == "quote": HorizontalLayout {
+            spacing: Tokens.space-2;
+            Rectangle {
+                width: 2px;
+                background: Tokens.border-strong;
+            }
+            Text {
+                text: root.block.text;
+                font-size: Tokens.size-body;
+                color: Tokens.text-muted;
+                wrap: word-wrap;
+            }
+        }
+
+        if root.block.kind == "list": HorizontalLayout {
+            padding-left: root.block.depth * Tokens.space-4;
+            spacing: Tokens.space-2;
+            Text {
+                text: "•";
+                color: Tokens.text-secondary;
+            }
+            Text {
+                text: root.block.text;
+                font-size: Tokens.size-body;
+                color: Tokens.text;
+                wrap: word-wrap;
+            }
+        }
+
+        if root.block.kind == "table": Text {
+            text: root.block.text;
+            font-family: Tokens.font-mono;
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            wrap: no-wrap;
+        }
+
+        if root.block.kind == "paragraph": Text {
+            text: root.block.text;
+            font-size: Tokens.size-body;
+            font-weight: root.block.bold ? Tokens.weight-bold : Tokens.weight-body;
+            font-italic: root.block.italic;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// Le bandeau d'avertissement des contenus distants.
+component RemoteContentBanner inherits Rectangle {
+    in property <int> blocked-images;
+    in property <bool> has-tracker;
+
+    callback load-images();
+
+    height: 32px;
+    border-radius: Tokens.radius-small;
+    background: Tokens.surface;
+    border-width: 1px;
+    border-color: Tokens.border;
+
+    HorizontalLayout {
+        padding-left: Tokens.space-3;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        Text {
+            text: root.has-tracker
+                ? "Cet expéditeur cherche à savoir quand vous lisez ce message."
+                : root.blocked-images + " image(s) distante(s) bloquée(s).";
+            font-size: Tokens.size-small;
+            color: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {}
+
+        Button {
+            text: "Afficher";
+            clicked => { root.load-images(); }
+        }
+    }
+}
+
+// La colonne de lecture, avec la réponse intégrée au bas du fil.
+export component ConversationView inherits VerticalLayout {
+    in property <MessageData> message;
+    in property <bool> empty: true;
+    in-out property <string> reply-text;
+    in property <bool> sending;
+    in property <int> undo-seconds;
+
+    callback send();
+    callback cancel-send();
+    callback load-images();
+    callback reply-all();
+
+    if root.empty: Rectangle {
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: "Aucune conversation sélectionnée.";
+                color: Tokens.text-muted;
+                font-size: Tokens.size-body;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    if !root.empty: VerticalLayout {
+        padding: Tokens.space-4;
+        spacing: Tokens.space-3;
+
+        // En-tête.
+        VerticalLayout {
+            spacing: 2px;
+            Text {
+                text: root.message.subject;
+                font-size: Tokens.size-title;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.text;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                Text {
+                    text: root.message.from;
+                    font-size: Tokens.size-small;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text-secondary;
+                }
+                Text {
+                    text: root.message.from-address;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                }
+                Rectangle {}
+                Text {
+                    text: root.message.date;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                }
+            }
+        }
+
+        if root.message.blocked-images > 0 || root.message.has-tracker: RemoteContentBanner {
+            blocked-images: root.message.blocked-images;
+            has-tracker: root.message.has-tracker;
+            load-images => { root.load-images(); }
+        }
+
+        // Corps.
+        ScrollView {
+            VerticalLayout {
+                spacing: Tokens.space-2;
+                for block in root.message.blocks: MessageBlock {
+                    block: block;
+                }
+            }
+        }
+
+        if root.message.attachments.length > 0: HorizontalLayout {
+            spacing: Tokens.space-2;
+            for name in root.message.attachments: Rectangle {
+                height: 24px;
+                border-radius: Tokens.radius-small;
+                background: Tokens.surface;
+                border-width: 1px;
+                border-color: Tokens.border;
+                HorizontalLayout {
+                    padding-left: Tokens.space-2;
+                    padding-right: Tokens.space-2;
+                    Text {
+                        text: name;
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            Rectangle {}
+        }
+
+        // La réponse est intégrée au bas du fil, jamais dans une fenêtre à part :
+        // répondre est le geste qui fait avancer le workflow, il ne doit rien
+        // recouvrir.
+        Glass {
+            elevated: true;
+            radius: Tokens.radius-medium;
+            height: 140px;
+
+            VerticalLayout {
+                padding: Tokens.space-2;
+                spacing: Tokens.space-2;
+
+                TextEdit {
+                    text <=> root.reply-text;
+                    placeholder-text: "Répondre…";
+                    font-size: Tokens.size-body;
+                }
+
+                HorizontalLayout {
+                    spacing: Tokens.space-2;
+
+                    // Pendant le délai d'annulation, le bouton d'envoi devient un
+                    // bouton d'annulation : c'est le même endroit à l'écran, donc le
+                    // geste de rattrapage est immédiat.
+                    if root.sending: Button {
+                        text: "Annuler l'envoi (" + root.undo-seconds + " s)";
+                        clicked => { root.cancel-send(); }
+                    }
+                    if !root.sending: Button {
+                        text: "Envoyer";
+                        primary: true;
+                        enabled: root.reply-text != "";
+                        clicked => { root.send(); }
+                    }
+
+                    Button {
+                        text: "Répondre à tous";
+                        enabled: !root.sending;
+                        clicked => { root.reply-all(); }
+                    }
+
+                    Rectangle {}
+                }
+            }
+        }
+    }
+}

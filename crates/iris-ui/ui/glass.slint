@@ -1,0 +1,109 @@
+import { Tokens } from "tokens.slint";
+
+// Le matériau de verre.
+//
+// Un mot sur ce qui se passe ici, parce que c'est contre-intuitif : **il n'y a pas
+// de flou**, et il n'en faut pas.
+//
+// Un flou d'arrière-plan sert à rendre lisible un panneau translucide posé sur un
+// contenu détaillé. Or nos panneaux fixes sont posés sur *notre propre fond* : un
+// dégradé sombre parcouru de halos très diffus. Flouter un dégradé lisse ne change
+// rien à l'image — l'opération coûterait plusieurs millisecondes par frame pour un
+// résultat identique au pixel près.
+//
+// Ce qui produit réellement l'impression de verre, ce sont trois choses que nous
+// faisons : la **translucidité** (on voit le halo à travers), l'**arête lumineuse**
+// d'un pixel sur le bord supérieur, et le **grain**, qui supprime les bandes de
+// dégradé et donne une matière à la surface.
+//
+// Les surfaces qui flottent réellement au-dessus du contenu — la palette, les menus
+// — compensent par une opacité plus forte et une ombre portée, seule combinaison qui
+// reste lisible sans flou.
+
+export component Glass inherits Rectangle {
+    in property <bool> floating: false;
+    in property <bool> elevated: false;
+    in property <length> radius: Tokens.radius-medium;
+
+    border-radius: root.radius;
+    background: root.floating
+        ? Tokens.surface-high.mix(Tokens.background, 0.35)
+        : (root.elevated ? Tokens.surface-high : Tokens.surface);
+
+    // L'arête lumineuse : un liseré d'un pixel sur tout le contour, plus clair en
+    // haut. C'est le détail qui fait lire la surface comme une plaque plutôt que
+    // comme un aplat.
+    border-width: 1px;
+    border-color: Tokens.border;
+
+    // Le grain, tuilé. Coût nul : une texture de 64 pixels de côté, répétée.
+    Image {
+        source: @image-url("../assets/grain.png");
+        image-fit: preserve;
+        image-rendering: pixelated;
+        width: 100%;
+        height: 100%;
+        opacity: Tokens.grain;
+        // Le grain ne doit jamais intercepter la souris.
+        visible: Tokens.grain > 0.0;
+    }
+
+    // Reflet supérieur : un dégradé très court qui simule la lumière rasante sur
+    // l'arête haute du panneau.
+    Rectangle {
+        y: 0;
+        height: 1px;
+        width: 100%;
+        background: Tokens.edge-light;
+    }
+
+    @children
+}
+
+// Ombre portée des surfaces flottantes.
+export component Floating inherits Rectangle {
+    in property <length> radius: Tokens.radius-large;
+
+    drop-shadow-blur: 32px;
+    drop-shadow-color: #00000099;
+    drop-shadow-offset-y: 8px;
+    border-radius: root.radius;
+    background: transparent;
+
+    Glass {
+        floating: true;
+        radius: root.radius;
+        width: 100%;
+        height: 100%;
+        @children
+    }
+}
+
+// Le fond de la fenêtre : deux halos très diffus sur un fond sombre.
+//
+// C'est lui qui donne au verre quelque chose à laisser transparaître. Sans halo, une
+// surface translucide sur un aplat uni est indiscernable d'une surface opaque.
+export component Backdrop inherits Rectangle {
+    background: Tokens.background;
+
+    Rectangle {
+        x: parent.width * -0.15;
+        y: parent.height * -0.35;
+        width: parent.width * 0.9;
+        height: parent.width * 0.9;
+        border-radius: self.width / 2;
+        background: @radial-gradient(circle, Tokens.glow 0%, transparent 70%);
+    }
+
+    Rectangle {
+        x: parent.width * 0.55;
+        y: parent.height * 0.5;
+        width: parent.width * 0.7;
+        height: parent.width * 0.7;
+        border-radius: self.width / 2;
+        background: @radial-gradient(circle, Tokens.glow 0%, transparent 70%);
+        opacity: 0.7;
+    }
+
+    @children
+}

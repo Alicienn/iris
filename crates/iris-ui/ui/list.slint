@@ -1,0 +1,244 @@
+import { Tokens } from "tokens.slint";
+import { ThreadRowData } from "types.slint";
+import { ListView } from "std-widgets.slint";
+
+// Une ligne de la liste.
+//
+// Elle ne calcule rien : tous ses champs arrivent prêts à dessiner. Une ligne qui
+// formaterait sa date ferait ce travail soixante fois par seconde pendant un
+// défilement, pour un texte qui ne change pas.
+component ThreadRow inherits Rectangle {
+    in property <ThreadRowData> data;
+    in property <bool> selected;
+
+    callback clicked();
+
+    height: Tokens.row-height;
+    background: root.selected
+        ? Tokens.surface-active
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+
+    animate background { duration: Tokens.instant; }
+
+    // Le marqueur de sélection : un trait vertical, pas un fond coloré. Sur une
+    // liste dense, un aplat de couleur écrase la lisibilité du texte.
+    Rectangle {
+        x: 0;
+        width: root.selected ? 2px : 0px;
+        height: 100%;
+        background: Tokens.accent;
+        animate width { duration: Tokens.instant; }
+    }
+
+    // Pastille d'identité du compte, à gauche. Indispensable en vue unifiée : sans
+    // elle, cent boîtes se ressemblent toutes.
+    Rectangle {
+        x: Tokens.space-1;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: 24px;
+        border-radius: 2px;
+        background: root.data.account-tint;
+        opacity: 0.8;
+    }
+
+    HorizontalLayout {
+        padding-left: Tokens.row-padding-x;
+        padding-right: Tokens.row-padding-x;
+        spacing: Tokens.space-2;
+
+        VerticalLayout {
+            padding-top: Tokens.space-2;
+            padding-bottom: Tokens.space-2;
+            spacing: 2px;
+
+            // Ligne du haut : expéditeur, marqueurs, date.
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                Text {
+                    text: root.data.from;
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-body;
+                    font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
+
+                // Compteur de messages du fil. Absent quand il n'y en a qu'un :
+                // afficher « 1 » partout n'apprend rien et encombre.
+                if root.data.message-count > 1: Text {
+                    text: root.data.message-count;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {} // pousse la suite à droite
+
+                if root.data.flagged: Text {
+                    text: "◆";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+                if root.data.has-attachment: Text {
+                    text: "▣";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                // Le traqueur se signale par la forme, pas par la couleur : le thème
+                // par défaut n'en a pas.
+                if root.data.has-tracker: Text {
+                    text: "◉";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                if root.data.snoozed: Text {
+                    text: "⏱";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.data.date;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: root.data.subject;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-body;
+                font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
+                color: root.data.unread ? Tokens.text : Tokens.text-secondary;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.data.preview;
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Tokens.border;
+        opacity: 0.5;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Les onglets d'état.
+export component StateTabs inherits HorizontalLayout {
+    in property <int> active;
+    in property <[int]> counts;
+
+    callback selected(int);
+
+    padding: Tokens.space-2;
+    spacing: Tokens.space-1;
+
+    for label[i] in ["À traiter", "En attente", "Traité"]: Rectangle {
+        height: 24px;
+        border-radius: 99px;
+        background: root.active == i
+            ? Tokens.accent
+            : (tab-touch.has-hover ? Tokens.surface-hover : Tokens.surface);
+        animate background { duration: Tokens.instant; }
+
+        HorizontalLayout {
+            padding-left: Tokens.space-3;
+            padding-right: Tokens.space-3;
+            spacing: Tokens.space-2;
+
+            Text {
+                text: label;
+                font-size: Tokens.size-small;
+                font-weight: root.active == i ? Tokens.weight-bold : Tokens.weight-body;
+                color: root.active == i ? Tokens.accent-text : Tokens.text-secondary;
+                vertical-alignment: center;
+            }
+
+            // Le compteur n'apparaît que s'il y a quelque chose à compter. Un « 0 »
+            // permanent est un bruit visuel sans information.
+            if root.counts[i] > 0: Text {
+                text: root.counts[i];
+                font-size: Tokens.size-small;
+                color: root.active == i ? Tokens.accent-text : Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+
+        tab-touch := TouchArea {
+            clicked => { root.selected(i); }
+        }
+    }
+
+    Rectangle {}
+}
+
+// La liste des conversations.
+export component ThreadListView inherits VerticalLayout {
+    in property <[ThreadRowData]> rows;
+    in property <int> selected-id;
+    in property <int> active-tab;
+    in property <[int]> counts;
+    in property <bool> loading;
+    in property <string> empty-message: "Rien à traiter.";
+
+    callback row-clicked(int);
+    callback tab-selected(int);
+    callback scrolled-near-end();
+
+    StateTabs {
+        active: root.active-tab;
+        counts: root.counts;
+        selected(i) => { root.tab-selected(i); }
+    }
+
+    Rectangle {
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    if root.rows.length == 0 && !root.loading: Rectangle {
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.empty-message;
+                font-size: Tokens.size-body;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    if root.rows.length > 0: list := ListView {
+        for entry in root.rows: ThreadRow {
+            data: entry;
+            selected: entry.id == root.selected-id;
+            clicked => { root.row-clicked(entry.id); }
+        }
+
+        // Le chargement de la suite est déclenché par la position du défilement, pas
+        // par un bouton : la liste doit paraître infinie.
+        changed viewport-y => {
+            if (-self.viewport-y + self.visible-height > self.viewport-height - 400px) {
+                root.scrolled-near-end();
+            }
+        }
+    }
+}

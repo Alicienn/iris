@@ -1,0 +1,18 @@
+[package]
+name = "iris-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+iris-types = { workspace = true }
+iris-store = { workspace = true }
+iris-theme = { workspace = true }
+iris-htmlview = { path = "../iris-htmlview" }
+iris-viewmodel = { workspace = true }
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }
+tracing = "0.1"
+
+[build-dependencies]
+slint-build = "1.17"

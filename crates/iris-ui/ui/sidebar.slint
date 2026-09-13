@@ -1,0 +1,136 @@
+import { Tokens } from "tokens.slint";
+import { AccountRowData } from "types.slint";
+import { Glass } from "glass.slint";
+import { ListView, LineEdit } from "std-widgets.slint";
+
+component SectionLabel inherits Text {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: Tokens.text-muted;
+}
+
+component AccountRow inherits Rectangle {
+    in property <AccountRowData> account;
+    in property <bool> selected;
+
+    callback clicked();
+
+    height: 26px;
+    border-radius: Tokens.radius-small;
+    background: root.selected
+        ? Tokens.surface-active
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    animate background { duration: Tokens.instant; }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        Rectangle {
+            width: 3px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 2px;
+            background: root.account.tint;
+        }
+
+        Text {
+            text: root.account.label;
+            font-size: Tokens.size-body;
+            font-weight: root.selected ? Tokens.weight-bold : Tokens.weight-body;
+            color: root.selected ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {}
+
+        // Un compte suspendu se signale par une forme, pas seulement par une
+        // couleur : le thème par défaut n'a pas d'accent, et l'utilisateur doit
+        // pouvoir repérer le problème sans distinguer les teintes.
+        if root.account.needs-attention: Text {
+            text: "!";
+            font-size: Tokens.size-small;
+            font-weight: Tokens.weight-bold;
+            color: Tokens.error;
+            vertical-alignment: center;
+        }
+
+        if root.account.count > 0: Text {
+            text: root.account.count;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// La barre latérale : les comptes.
+//
+// Avec cent boîtes, l'ordre de création n'a aucun sens. Trois sections seulement :
+// la vue unifiée, les comptes épinglés, puis le reste — filtrable, parce qu'on ne
+// parcourt pas cent lignes à l'œil.
+export component Sidebar inherits Glass {
+    in property <[AccountRowData]> pinned;
+    in property <[AccountRowData]> others;
+    in property <int> selected-id;
+    in property <int> unified-count;
+    in-out property <string> filter;
+
+    callback account-selected(int);
+    callback unified-selected();
+
+    radius: 0px;
+    border-width: 0px;
+
+    VerticalLayout {
+        padding: Tokens.space-2;
+        spacing: Tokens.space-1;
+
+        LineEdit {
+            placeholder-text: "Filtrer les comptes…";
+            font-size: Tokens.size-small;
+            text <=> root.filter;
+        }
+
+        SectionLabel { text: "TOUS COMPTES"; }
+
+        AccountRow {
+            account: {
+                id: 0,
+                label: "Unifié",
+                count: root.unified-count,
+                pinned: false,
+                needs-attention: false,
+                tint: Tokens.text-muted,
+            };
+            selected: root.selected-id == 0;
+            clicked => { root.unified-selected(); }
+        }
+
+        if root.pinned.length > 0: SectionLabel { text: "ÉPINGLÉS"; }
+
+        for account in root.pinned: AccountRow {
+            account: account;
+            selected: account.id == root.selected-id;
+            clicked => { root.account-selected(account.id); }
+        }
+
+        if root.others.length > 0: SectionLabel { text: "COMPTES"; }
+
+        // La liste des autres comptes est virtualisée : cent lignes ne doivent pas
+        // coûter cent éléments vivants.
+        ListView {
+            for account in root.others: AccountRow {
+                account: account;
+                selected: account.id == root.selected-id;
+                clicked => { root.account-selected(account.id); }
+            }
+        }
+    }
+}

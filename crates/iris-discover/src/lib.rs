@@ -25,7 +25,9 @@ pub mod autoconfig;
 pub mod builtin;
 mod io;
 
-pub use io::{DnsResolver, HttpFetcher, MockIo, Prober, Resolver, SrvRecord, TcpProber, Fetcher};
+pub use io::{
+    DnsResolver, Fetcher, HttpFetcher, MockIo, Prober, RealIo, Resolver, SrvRecord, TcpProber,
+};
 
 use async_trait::async_trait;
 use iris_types::{Error, Result};
