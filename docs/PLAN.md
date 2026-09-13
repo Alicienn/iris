@@ -103,10 +103,10 @@ testés contre des serveurs simulés en mémoire.
 
 ## E14 — `iris-sync` : orchestration
 
-- [ ] **S14.1** Ordonnanceur par priorité de compte.
-- [ ] **S14.2** Attribution de l'IDLE et polling adaptatif.
-- [ ] **S14.3** Réconciliation incrémentale et détection des divergences.
-- [ ] **S14.4** Rejeu du journal d'opérations et résolution de conflits.
+- [x] **S14.1** Ordonnanceur par priorité de compte.
+- [x] **S14.2** Attribution de l'IDLE et polling adaptatif.
+- [x] **S14.3** Réconciliation incrémentale et détection des divergences.
+- [x] **S14.4** Rejeu du journal d'opérations et résolution de conflits.
 
 ## E15 — `iris-viewmodel`
 

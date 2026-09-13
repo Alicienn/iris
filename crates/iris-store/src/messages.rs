@@ -168,6 +168,128 @@ impl Store {
         })
     }
 
+    /// UID connus localement pour un dossier, triés.
+    ///
+    /// Sert à détecter les suppressions faites ailleurs : on compare cette liste à
+    /// celle que le serveur rapporte.
+    pub fn folder_uids(&self, folder: FolderId) -> Result<Vec<u32>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached("SELECT uid FROM messages WHERE folder_id = ?1 ORDER BY uid")
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map(params![folder.get()], |r| Ok(r.get::<_, i64>(0)? as u32))
+                .map_err(|e| sql_err("UID du dossier", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| sql_err("UID du dossier", e))
+        })
+    }
+
+    /// Plus grand UID connu localement pour un dossier.
+    pub fn max_uid(&self, folder: FolderId) -> Result<u32> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT coalesce(max(uid), 0) FROM messages WHERE folder_id = ?1",
+                params![folder.get()],
+                |r| Ok(r.get::<_, i64>(0)? as u32),
+            )
+            .map_err(|e| sql_err("UID maximal", e))
+        })
+    }
+
+    /// Identifiant local d'un message désigné par son UID.
+    pub fn message_by_uid(&self, folder: FolderId, uid: u32) -> Result<Option<MessageId>> {
+        self.with_conn(|c| {
+            match c.query_row(
+                "SELECT id FROM messages WHERE folder_id = ?1 AND uid = ?2",
+                params![folder.get(), uid as i64],
+                |r| r.get::<_, i64>(0),
+            ) {
+                Ok(id) => Ok(Some(MessageId(id))),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(sql_err("recherche par UID", e)),
+            }
+        })
+    }
+
+    /// Applique un lot de changements de drapeaux venus du serveur.
+    ///
+    /// En une transaction, et avec un seul rafraîchissement par fil touché : un
+    /// serveur peut annoncer des milliers de changements après une absence.
+    pub fn apply_flag_changes(&self, folder: FolderId, changes: &[(u32, Flags)]) -> Result<usize> {
+        if changes.is_empty() {
+            return Ok(0);
+        }
+        self.with_tx(|tx| {
+            let mut touches = std::collections::BTreeSet::new();
+            let mut appliques = 0;
+
+            for (uid, flags) in changes {
+                let existant: Option<(i64, i64)> = {
+                    let mut stmt = tx
+                        .prepare_cached(
+                            "SELECT thread_id, flags FROM messages WHERE folder_id = ?1 AND uid = ?2",
+                        )
+                        .map_err(|e| sql_err("préparation", e))?;
+                    stmt.query_row(params![folder.get(), *uid as i64], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })
+                    .ok()
+                };
+                let Some((thread, actuels)) = existant else { continue };
+
+                // Ne rien écrire quand rien ne change : sur une resynchronisation
+                // complète, la quasi-totalité des drapeaux sont identiques.
+                if actuels == flags.0 as i64 {
+                    continue;
+                }
+
+                let mut stmt = tx
+                    .prepare_cached(
+                        "UPDATE messages SET flags = ?1 WHERE folder_id = ?2 AND uid = ?3",
+                    )
+                    .map_err(|e| sql_err("préparation", e))?;
+                stmt.execute(params![flags.0 as i64, folder.get(), *uid as i64])
+                    .map_err(|e| sql_err("mise à jour des drapeaux", e))?;
+
+                touches.insert(ThreadId(thread));
+                appliques += 1;
+            }
+
+            for t in touches {
+                refresh_thread(tx, t)?;
+            }
+            Ok(appliques)
+        })
+    }
+
+    /// Supprime tous les messages d'un dossier.
+    ///
+    /// Utilisé quand le serveur a changé son `UIDVALIDITY` : les UID connus ne
+    /// désignent plus rien, et les conserver produirait des doublons.
+    pub fn clear_folder(&self, folder: FolderId) -> Result<usize> {
+        self.with_tx(|tx| {
+            let threads: Vec<ThreadId> = {
+                let mut stmt = tx
+                    .prepare_cached("SELECT DISTINCT thread_id FROM messages WHERE folder_id = ?1")
+                    .map_err(|e| sql_err("préparation", e))?;
+                let rows = stmt
+                    .query_map(params![folder.get()], |r| r.get::<_, i64>(0).map(ThreadId))
+                    .map_err(|e| sql_err("fils du dossier", e))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|e| sql_err("fils du dossier", e))?
+            };
+
+            let n = tx
+                .execute("DELETE FROM messages WHERE folder_id = ?1", params![folder.get()])
+                .map_err(|e| sql_err("vidage du dossier", e))?;
+
+            for t in threads {
+                refresh_thread(tx, t)?;
+            }
+            Ok(n)
+        })
+    }
+
     /// Nombre de messages, tous comptes confondus. Utile aux mesures.
     pub fn message_count(&self) -> Result<u64> {
         self.with_conn(|c| {

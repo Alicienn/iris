@@ -1,0 +1,25 @@
+[package]
+name = "iris-sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+iris-types = { workspace = true }
+iris-store = { workspace = true }
+iris-kernel = { workspace = true }
+iris-imap = { workspace = true }
+iris-mime = { workspace = true }
+iris-index = { workspace = true }
+iris-blobs = { workspace = true }
+iris-smtp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = "0.1"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "test-util"] }
+tempfile = "3"

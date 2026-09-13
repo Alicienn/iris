@@ -1520,6 +1520,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-sync"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "iris-blobs",
+ "iris-imap",
+ "iris-index",
+ "iris-kernel",
+ "iris-mime",
+ "iris-smtp",
+ "iris-store",
+ "iris-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "iris-theme"
 version = "0.1.0"
 dependencies = [
