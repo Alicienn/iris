@@ -278,6 +278,24 @@ mod tests {
         rx.recv_timeout(std::time::Duration::from_secs(5)).expect("un instantané")
     }
 
+    /// Attend un instantane satisfaisant une condition.
+    ///
+    /// Plusieurs requetes peuvent produire chacune leur instantane ; attendre le
+    /// premier venu rendrait le test dependant de leur ordre d'arrivee.
+    fn attendre_que(
+        rx: &mpsc::Receiver<Snapshot>,
+        condition: impl Fn(&Snapshot) -> bool,
+    ) -> Snapshot {
+        let echeance = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let restant = echeance.saturating_duration_since(std::time::Instant::now());
+            let s = rx.recv_timeout(restant).expect("un instantané satisfaisant la condition");
+            if condition(&s) {
+                return s;
+            }
+        }
+    }
+
     #[test]
     fn le_demarrage_produit_un_instantane() {
         let f = fixture();
@@ -439,21 +457,23 @@ mod tests {
 
     #[test]
     fn une_erreur_ne_tue_pas_le_fil() {
-        // Sinon l'interface resterait figée sans explication.
+        // Sinon l'interface resterait figee sans explication.
         let f = fixture();
+        f.thread();
         let (c, rx, fil) = demarrer(Arc::clone(&f.store));
 
         c.send(Request::Bootstrap);
-        attendre(&rx);
+        assert_eq!(attendre(&rx).rows.len(), 1);
 
-        // Sélectionner un fil inexistant, puis agir dessus : l'action échoue.
+        // Selectionner un fil inexistant, puis agir dessus : l'action echoue.
         c.send(Request::SelectThread(ThreadId(9999)));
         c.send(Request::Apply(Action::Done));
 
-        // Le fil répond toujours.
+        // Le fil repond toujours : un nouveau message finit par apparaitre.
         f.thread();
         c.send(Request::Diff(Box::new(ViewDiff { full_refresh: true, ..Default::default() })));
-        assert!(!attendre(&rx).rows.is_empty());
+        let apres = attendre_que(&rx, |s| s.rows.len() == 2);
+        assert_eq!(apres.rows.len(), 2);
 
         c.shutdown();
         fil.join().unwrap();

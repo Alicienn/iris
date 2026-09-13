@@ -128,21 +128,21 @@ testés contre des serveurs simulés en mémoire.
 
 ## E18 — `iris-ui` : interface Slint
 
-- [ ] **S18.1** Shell à trois colonnes, ancrage des tokens de thème.
-- [ ] **S18.2** Barre latérale : unifié, épinglés, groupes, recherche de compte.
-- [ ] **S18.3** Liste virtualisée alimentée par la fenêtre de lignes.
-- [ ] **S18.4** Vue de conversation et fils repliés.
-- [ ] **S18.5** Palette de commandes.
-- [ ] **S18.6** Réponse inline et envoi avec annulation de 10 s.
-- [ ] **S18.7** Matériau verre : flou, arêtes, grain.
+- [x] **S18.1** Shell à trois colonnes, ancrage des tokens de thème.
+- [x] **S18.2** Barre latérale : unifié, épinglés, groupes, recherche de compte.
+- [x] **S18.3** Liste virtualisée alimentée par la fenêtre de lignes.
+- [x] **S18.4** Vue de conversation et fils repliés.
+- [x] **S18.5** Palette de commandes.
+- [x] **S18.6** Réponse inline et envoi avec annulation de 10 s.
+- [x] **S18.7** Matériau verre : flou, arêtes, grain.
 
 ## E19 — `iris-htmlview` : rendu du corps
 
-- [ ] **S19.1** Trait `HtmlRenderer` et implémentation de repli en texte riche.
+- [x] **S19.1** Trait `HtmlRenderer` et implémentation de repli en texte riche.
 - [ ] **S19.2** Adaptateur Blitz vers texture wgpu partagée.
 
 ## E20 — `iris-app`
 
-- [ ] **S20.1** Assemblage des modules, configuration, points d'entrée.
-- [ ] **S20.2** Ajout de compte de bout en bout.
+- [x] **S20.1** Assemblage des modules, configuration, points d'entrée.
+- [x] **S20.2** Ajout de compte de bout en bout.
 - [ ] **S20.3** Mesures de performance face aux budgets de la spécification.

@@ -185,14 +185,27 @@ mod tests {
         assert_eq!(s.store.accounts().unwrap().len(), 1);
     }
 
+    /// Un coffre isole par test.
+    ///
+    /// Les tests ne doivent jamais toucher le trousseau reel : il est partage par
+    /// toute la machine, les tests s'executent en parallele, et l'un ecraserait les
+    /// secrets de l'autre — sans parler des traces laissees sur le poste.
+    fn coffre_isole() -> (Arc<dyn SecretStore>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let coffre =
+            iris_secrets::EncryptedVault::open(dir.path().join("coffre.json"), &Secret::new("m"))
+                .unwrap();
+        (Arc::new(coffre), dir)
+    }
+
     #[tokio::test]
     async fn les_identifiants_viennent_du_magasin() {
-        let (s, _dir) = services();
-        s.secrets
+        let (secrets, _dir) = coffre_isole();
+        secrets
             .set("a@x.fr", SecretKind::Password, &Secret::new("motdepasse"))
             .unwrap();
 
-        let fournisseur = StoredCredentials { secrets: Arc::clone(&s.secrets) };
+        let fournisseur = StoredCredentials { secrets };
         let identifiants = fournisseur.credentials(AccountId(1), "a@x.fr").await.unwrap();
 
         match identifiants {
@@ -206,23 +219,23 @@ mod tests {
 
     #[tokio::test]
     async fn un_jeton_oauth_prime_sur_le_mot_de_passe() {
-        // Quand les deux existent, c'est que le compte a migré.
-        let (s, _dir) = services();
-        s.secrets.set("a@x.fr", SecretKind::Password, &Secret::new("ancien")).unwrap();
-        s.secrets.set("a@x.fr", SecretKind::AccessToken, &Secret::new("jeton")).unwrap();
+        // Quand les deux existent, c'est que le compte a migre.
+        let (secrets, _dir) = coffre_isole();
+        secrets.set("a@x.fr", SecretKind::Password, &Secret::new("ancien")).unwrap();
+        secrets.set("a@x.fr", SecretKind::AccessToken, &Secret::new("jeton")).unwrap();
 
-        let fournisseur = StoredCredentials { secrets: Arc::clone(&s.secrets) };
+        let fournisseur = StoredCredentials { secrets };
         let identifiants = fournisseur.credentials(AccountId(1), "a@x.fr").await.unwrap();
         assert!(matches!(identifiants, iris_imap::Credentials::OAuth2 { .. }));
     }
 
     #[tokio::test]
     async fn un_compte_sans_secret_echoue_explicitement() {
-        let (s, _dir) = services();
-        let fournisseur = StoredCredentials { secrets: Arc::clone(&s.secrets) };
+        let (secrets, _dir) = coffre_isole();
+        let fournisseur = StoredCredentials { secrets };
 
         let e = fournisseur.credentials(AccountId(1), "inconnu@x.fr").await.unwrap_err();
-        assert!(e.needs_user_action(), "l'utilisateur doit être invité à se reconnecter");
+        assert!(e.needs_user_action(), "l'utilisateur doit etre invite a se reconnecter");
     }
 
     #[test]

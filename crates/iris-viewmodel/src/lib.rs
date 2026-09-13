@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn la_navigation_au_clavier_suit_la_liste() {
         let f = fixture();
-        let fils = f.seed(10);
+        let _ = f.seed(10);
         let mut vm = f.vm();
         vm.bootstrap().unwrap();
 
@@ -504,7 +504,7 @@ mod tests {
     fn la_selection_survit_a_la_disparition_de_son_fil() {
         // Sans cela, le triage au clavier s'interromprait à chaque action.
         let f = fixture();
-        let fils = f.seed(10);
+        let _ = f.seed(10);
         let mut vm = f.vm();
         vm.bootstrap().unwrap();
 
