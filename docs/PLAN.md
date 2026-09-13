@@ -53,10 +53,10 @@ testés contre des serveurs simulés en mémoire.
 
 ## E6 — `iris-mime` : analyse des messages
 
-- [ ] **S6.1** Parsing MIME : enveloppe, parties, pièces jointes, encodages.
-- [ ] **S6.2** Sanitisation HTML : suppression des scripts, formulaires, ressources externes.
-- [ ] **S6.3** Détection des pixels espions et des traqueurs connus.
-- [ ] **S6.4** Extraction du désabonnement (RFC 2369 et RFC 8058).
+- [x] **S6.1** Parsing MIME : enveloppe, parties, pièces jointes, encodages.
+- [x] **S6.2** Sanitisation HTML : suppression des scripts, formulaires, ressources externes.
+- [x] **S6.3** Détection des pixels espions et des traqueurs connus.
+- [x] **S6.4** Extraction du désabonnement (RFC 2369 et RFC 8058).
 
 ## E7 — `iris-thread` : regroupement en fils
 
