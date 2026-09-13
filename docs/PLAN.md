@@ -110,9 +110,9 @@ testés contre des serveurs simulés en mémoire.
 
 ## E15 — `iris-viewmodel`
 
-- [ ] **S15.1** Fenêtre de lignes, préchargement, invalidation ciblée.
-- [ ] **S15.2** Sélecteurs d'état et diffs pour l'interface.
-- [ ] **S15.3** Actions utilisateur : application locale immédiate, journalisation.
+- [x] **S15.1** Fenêtre de lignes, préchargement, invalidation ciblée.
+- [x] **S15.2** Sélecteurs d'état et diffs pour l'interface.
+- [x] **S15.3** Actions utilisateur : application locale immédiate, journalisation.
 
 ## E16 — `iris-theme`
 

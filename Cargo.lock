@@ -1569,6 +1569,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-viewmodel"
+version = "0.1.0"
+dependencies = [
+ "iris-kernel",
+ "iris-store",
+ "iris-types",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "iris-workflow"
 version = "0.1.0"
 dependencies = [
