@@ -1,8 +1,8 @@
-// Les structures échangées entre Rust et l'interface.
+// The structures exchanged between Rust and the interface.
 //
-// Chaque champ est **pré-calculé côté Rust** : la date est déjà formatée, le nom
-// d'affichage déjà résolu, l'aperçu déjà tronqué. L'interface ne fait aucun travail
-// au défilement — c'est l'invariant n° 1, exprimé dans la forme même des données.
+// Every field is **precomputed on the Rust side**: the date is already formatted, the
+// display name already resolved, the preview already truncated. The interface does no
+// work while scrolling — that is invariant 1, expressed in the shape of the data.
 
 export struct ThreadRowData {
     id: int,
@@ -64,4 +64,27 @@ export struct CommandData {
     label: string,
     shortcut: string,
     group: string,
+}
+
+// A rule, as the modules screen shows it.
+export struct RuleRowData {
+    id: string,
+    name: string,
+    enabled: bool,
+    // "when X, then Y" in plain words, so a rule can be checked without opening it.
+    summary: string,
+    // How many messages it has acted on since it was created.
+    applied: int,
+}
+
+// An installed plugin.
+export struct PluginRowData {
+    id: string,
+    name: string,
+    version: string,
+    description: string,
+    // What it was allowed to do, in plain words.
+    permissions: string,
+    // Set when the host took it out of circulation, with the reason.
+    disabled-reason: string,
 }

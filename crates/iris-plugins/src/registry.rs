@@ -132,6 +132,18 @@ impl PluginRegistry {
         self.plugins.is_empty()
     }
 
+    /// Ce que chaque plugin a déclaré, avec la raison s'il est hors circuit.
+    ///
+    /// L'écran des modules en a besoin pour dire à l'utilisateur ce que chaque
+    /// extension a le droit de faire : une permission qu'on ne montre pas est une
+    /// permission que personne n'a accordée en connaissance de cause.
+    pub fn manifests(&self) -> Vec<(&crate::Manifest, Option<&str>)> {
+        self.plugins
+            .values()
+            .map(|p| (p.manifest(), p.disabled_reason()))
+            .collect()
+    }
+
     /// Plugins actuellement hors circuit, avec la raison.
     pub fn disabled(&self) -> Vec<(&str, &str)> {
         self.plugins

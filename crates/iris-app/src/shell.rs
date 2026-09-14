@@ -393,6 +393,11 @@ fn dispatch(
                 fenetre.set_add_account_open(true);
             }
         }
+        CommandKind::Modules => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                fenetre.set_modules_open(true);
+            }
+        }
         CommandKind::Settings => {
             if let Some(fenetre) = fenetre.upgrade() {
                 fenetre.set_settings_open(true);
@@ -1288,6 +1293,197 @@ fn nom_sur(nom: &str) -> String {
     }
 }
 
+/// Wires the modules screen: rules and plugins.
+///
+/// The list is rebuilt from the store after every change rather than patched in
+/// place. It holds tens of rows, and a screen that recomputes itself cannot show
+/// something the database does not contain.
+pub fn wire_modules(
+    fenetre: &AppWindow,
+    services: &Services,
+    plugins: Vec<crate::modules::PluginView>,
+) {
+    fenetre.set_plugin_folder(services.paths.plugins().display().to_string().into());
+    fenetre.set_plugins(ModelRc::new(VecModel::from(
+        plugins.iter().map(plugin_row).collect::<Vec<_>>(),
+    )));
+    refresh_rules(fenetre, services);
+
+    // --- Enable or disable ---
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_rule_toggled(move |id, enabled| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Ok(rules) = services.store.rules() else {
+                return;
+            };
+            let Some(mut rule) = rules.into_iter().find(|r| r.id == id.as_str()) else {
+                return;
+            };
+
+            rule.enabled = enabled;
+            match services.store.upsert_rule(&rule) {
+                Ok(()) => refresh_rules(&fenetre, &services),
+                Err(e) => fenetre.set_status(format!("Could not save the rule: {e}").into()),
+            }
+        });
+    }
+
+    // --- Delete ---
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_rule_removed(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            match services.store.delete_rule(id.as_str()) {
+                Ok(true) => {
+                    fenetre.set_status("Rule deleted.".into());
+                    refresh_rules(&fenetre, &services);
+                }
+                Ok(false) => {}
+                Err(e) => fenetre.set_status(format!("Could not delete the rule: {e}").into()),
+            }
+        });
+    }
+
+    // --- Add ---
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_rule_added(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let position = services.store.rules().map(|r| r.len() as u32).unwrap_or(0);
+
+            let rule = match crate::modules::quick_rule(
+                fenetre.get_new_rule_name().as_str(),
+                fenetre.get_new_rule_sender().as_str(),
+                position,
+            ) {
+                Ok(rule) => rule,
+                Err(message) => {
+                    fenetre.set_simulation(message.into());
+                    return;
+                }
+            };
+
+            match services.store.upsert_rule(&rule) {
+                Ok(()) => {
+                    fenetre.set_new_rule_name(Default::default());
+                    fenetre.set_new_rule_sender(Default::default());
+                    // The dry run runs on its own after adding: the first question
+                    // anyone has about a new rule is what it would have caught.
+                    show_simulation(&fenetre, &services, &rule.id);
+                    refresh_rules(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_simulation(format!("Could not save: {e}").into()),
+            }
+        });
+    }
+
+    // --- Dry run ---
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_rule_simulated(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            show_simulation(&fenetre, &services, id.as_str());
+        });
+    }
+
+    // --- Reload the plugin folder ---
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_plugins_reloaded(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // Loading WebAssembly into a running host mid-session is a restart-shaped
+            // problem; saying so is better than pretending to reload and doing
+            // nothing.
+            fenetre
+                .set_status("Plugins are loaded at startup — restart to pick up changes.".into());
+        });
+    }
+}
+
+/// A rule row, ready to draw.
+///
+/// The conversion lives here rather than in the bridge because the view types belong
+/// to the application: the interface crate does not know what a rule is, and should
+/// not have to.
+fn rule_row(view: &crate::modules::RuleView) -> iris_ui::RuleRowData {
+    iris_ui::RuleRowData {
+        id: view.id.as_str().into(),
+        name: view.name.as_str().into(),
+        enabled: view.enabled,
+        summary: view.summary.as_str().into(),
+        applied: view.applied.min(i32::MAX as u64) as i32,
+    }
+}
+
+/// A plugin row, ready to draw.
+fn plugin_row(view: &crate::modules::PluginView) -> iris_ui::PluginRowData {
+    iris_ui::PluginRowData {
+        id: view.id.as_str().into(),
+        name: view.name.as_str().into(),
+        version: view.version.as_str().into(),
+        description: view.description.as_str().into(),
+        permissions: view.permissions.as_str().into(),
+        disabled_reason: view.disabled_reason.as_str().into(),
+    }
+}
+
+/// Rebuilds the rule list from the store.
+fn refresh_rules(fenetre: &AppWindow, services: &Services) {
+    let views = crate::modules::rule_views(&services.store).unwrap_or_default();
+    fenetre.set_rules(ModelRc::new(VecModel::from(
+        views.iter().map(rule_row).collect::<Vec<_>>(),
+    )));
+}
+
+/// Runs one rule over recent history and reports what it would have touched.
+fn show_simulation(fenetre: &AppWindow, services: &Services, id: &str) {
+    let rules = match services.store.rules() {
+        Ok(r) => r,
+        Err(e) => {
+            fenetre.set_simulation(format!("Could not read the rules: {e}").into());
+            return;
+        }
+    };
+
+    let Some(row) = rules.into_iter().find(|r| r.id == id) else {
+        return;
+    };
+    let rule: iris_rules::Rule = match serde_json::from_str(&row.definition) {
+        Ok(rule) => rule,
+        Err(e) => {
+            fenetre.set_simulation(format!("This rule cannot be read: {e}").into());
+            return;
+        }
+    };
+
+    match services.engine.simulate_rules(Some(&rule), 5_000, now()) {
+        Ok(simulation) => {
+            let mut text = simulation.summary();
+            // A count on its own is not evidence. Two examples are.
+            for hit in simulation.sample.iter().take(2) {
+                text.push_str(&format!("\n  · {} — {}", hit.from, hit.subject));
+            }
+            fenetre.set_simulation(text.into());
+        }
+        Err(e) => fenetre.set_simulation(format!("Dry run failed: {e}").into()),
+    }
+}
+
 /// Modèle vide, pour initialiser une liste avant le premier instantané.
 pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
     ModelRc::from(Rc::new(VecModel::from(Vec::<T>::new())))
@@ -1311,6 +1507,7 @@ mod tests {
                 | CommandKind::Undo
                 | CommandKind::Search
                 | CommandKind::AddAccount
+                | CommandKind::Modules
                 | CommandKind::Plugin { .. }
                 | CommandKind::Quit => {}
                 CommandKind::Settings | CommandKind::Reload => {}

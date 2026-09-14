@@ -511,6 +511,11 @@ fn run_gui() -> Result<()> {
             },
         );
 
+        // What the modules screen shows: every plugin the registry accepted, with the
+        // powers its manifest asked for.
+        let vues = iris_app::modules::plugin_views(&service.manifests());
+        shell::wire_modules(&fenetre, &services, vues);
+
         let rapport = service.report();
         if !rapport.loaded.is_empty() || !rapport.rejected.is_empty() {
             tracing::info!(bilan = %rapport.summary(), "plugins");

@@ -1,11 +1,14 @@
 import { Tokens } from "tokens.slint";
 import { Glass, Backdrop, Floating } from "glass.slint";
-import { ThreadRowData, AccountRowData, MessageData, CommandData } from "types.slint";
+import {
+    ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData
+} from "types.slint";
 import { ThreadListView } from "list.slint";
 import { Sidebar } from "sidebar.slint";
 import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
+import { ModulesPanel } from "modules.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -178,6 +181,14 @@ export component AppWindow inherits Window {
     in property <bool> sending;
     in property <int> undo-seconds;
 
+    in-out property <bool> modules-open;
+    in property <[RuleRowData]> rules;
+    in property <[PluginRowData]> plugins;
+    in property <string> plugin-folder;
+    in property <string> simulation;
+    in-out property <string> new-rule-name;
+    in-out property <string> new-rule-sender;
+
     in-out property <bool> add-account-open;
     in property <bool> add-account-busy;
     in property <bool> add-account-manual;
@@ -234,6 +245,11 @@ export component AppWindow inherits Window {
     callback add-account-discover();
     callback add-account-save();
     callback add-account-manual-requested();
+    callback rule-toggled(string, bool);
+    callback rule-simulated(string);
+    callback rule-removed(string);
+    callback rule-added();
+    callback plugins-reloaded();
 
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
@@ -318,6 +334,23 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.modules-open: ModulesPanel {
+        width: 100%;
+        height: 100%;
+        rules: root.rules;
+        plugins: root.plugins;
+        plugin-folder: root.plugin-folder;
+        simulation: root.simulation;
+        new-rule-name <=> root.new-rule-name;
+        new-rule-sender <=> root.new-rule-sender;
+        rule-toggled(id, on) => { root.rule-toggled(id, on); }
+        rule-simulated(id) => { root.rule-simulated(id); }
+        rule-removed(id) => { root.rule-removed(id); }
+        rule-added => { root.rule-added(); }
+        plugins-reloaded => { root.plugins-reloaded(); }
+        dismissed => { root.modules-open = false; }
+    }
+
     if root.add-account-open: AccountSetupPanel {
         width: 100%;
         height: 100%;
@@ -374,6 +407,10 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == "k" && event.modifiers.control) {
                 root.palette-open = !root.palette-open;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.modules-open) {
+                root.modules-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.add-account-open) {

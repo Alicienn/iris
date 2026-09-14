@@ -31,6 +31,7 @@ iris-discover = { workspace = true }
 iris-htmlview = { workspace = true, default-features = false }
 iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }
+iris-rules = { workspace = true }
 iris-ui = { workspace = true }
 iris-plugins = { workspace = true }
 slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }
@@ -49,4 +50,5 @@ tempfile = "3"
 wat = "1"
 iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }
+iris-rules = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

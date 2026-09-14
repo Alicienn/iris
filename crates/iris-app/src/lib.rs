@@ -7,6 +7,7 @@
 
 pub mod accounts;
 pub mod controller;
+pub mod modules;
 pub mod oauth;
 pub mod paths;
 pub mod plugins;

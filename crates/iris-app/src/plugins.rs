@@ -70,6 +70,8 @@ pub struct PluginService {
     requests: Sender<PluginRequest>,
     /// Ce que le chargement a donné, pour l'afficher une fois au démarrage.
     report: LoadReport,
+    /// Ce que chaque plugin a déclaré, pour l'écran des modules.
+    manifests: Vec<(iris_plugins::Manifest, Option<String>)>,
 }
 
 impl PluginService {
@@ -98,6 +100,15 @@ impl PluginService {
             tracing::warn!(plugin = %nom, raison = %raison, "plugin écarté");
         }
 
+        // What every loaded plugin declared, captured before the registry moves into
+        // its own thread: the modules screen must be able to list them without
+        // reaching across that boundary.
+        let manifests: Vec<(iris_plugins::Manifest, Option<String>)> = registre
+            .manifests()
+            .into_iter()
+            .map(|(m, reason)| (m.clone(), reason.map(str::to_string)))
+            .collect();
+
         let (tx, rx) = std::sync::mpsc::channel();
 
         // Sans plugin, aucun fil : un exécuteur WebAssembly qui ne fera jamais rien
@@ -107,6 +118,7 @@ impl PluginService {
                 Self {
                     requests: tx,
                     report,
+                    manifests,
                 },
                 None,
             );
@@ -130,6 +142,7 @@ impl PluginService {
             Self {
                 requests: tx,
                 report,
+                manifests,
             },
             Some(fil),
         )
@@ -137,6 +150,15 @@ impl PluginService {
 
     pub fn report(&self) -> &LoadReport {
         &self.report
+    }
+
+    /// The manifests of everything that loaded, with the reason any of them is out of
+    /// circulation.
+    ///
+    /// Kept separately from the registry so the modules screen can list plugins
+    /// without reaching into the thread that runs them.
+    pub fn manifests(&self) -> Vec<(iris_plugins::Manifest, Option<String>)> {
+        self.manifests.clone()
     }
 
     /// Transmet un événement du bus, s'il intéresse les plugins.

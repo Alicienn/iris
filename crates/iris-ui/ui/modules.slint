@@ -1,0 +1,319 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { RuleRowData, PluginRowData } from "types.slint";
+import { ListView, LineEdit, CheckBox } from "std-widgets.slint";
+
+// A section heading.
+component GroupLabel inherits Text {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: Tokens.text-muted;
+}
+
+// A small text button.
+component SmallButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> danger;
+
+    callback clicked();
+
+    height: 24px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : Tokens.surface;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        Text {
+            text: root.label;
+            font-size: Tokens.size-small;
+            color: root.danger ? Tokens.error : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// One rule in the list.
+//
+// The summary is the point of this row. A rule you cannot read at a glance is a rule
+// you stop trusting, and a rule you stop trusting you disable — so the list shows what
+// each one does in words rather than a name and an icon.
+component RuleRow inherits Rectangle {
+    in property <RuleRowData> rule;
+
+    callback toggled(bool);
+    callback simulate();
+    callback removed();
+
+    height: 62px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.rule.name;
+    accessible-description: root.rule.summary;
+
+    touch := TouchArea {}
+
+    HorizontalLayout {
+        padding: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        CheckBox {
+            checked: root.rule.enabled;
+            accessible-label: "Enable " + root.rule.name;
+            toggled => { root.toggled(self.checked); }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            Text {
+                text: root.rule.name;
+                font-size: Tokens.size-body;
+                font-weight: Tokens.weight-bold;
+                color: root.rule.enabled ? Tokens.text : Tokens.text-muted;
+                overflow: elide;
+            }
+            Text {
+                text: root.rule.summary;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                overflow: elide;
+            }
+            Text {
+                text: root.rule.applied == 0
+                    ? "Has not acted yet"
+                    : root.rule.applied + " message(s) so far";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+            }
+        }
+
+        SmallButton {
+            label: "Try it";
+            clicked => { root.simulate(); }
+        }
+        SmallButton {
+            label: "Delete";
+            danger: true;
+            clicked => { root.removed(); }
+        }
+    }
+}
+
+// One installed plugin.
+component PluginRow inherits Rectangle {
+    in property <PluginRowData> plugin;
+
+    height: 62px;
+    border-radius: Tokens.radius-small;
+
+    accessible-role: list-item;
+    accessible-label: root.plugin.name;
+    accessible-description: root.plugin.disabled-reason != ""
+        ? "Out of circulation: " + root.plugin.disabled-reason
+        : root.plugin.permissions;
+
+    HorizontalLayout {
+        padding: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        VerticalLayout {
+            spacing: 2px;
+
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                Text {
+                    text: root.plugin.name;
+                    font-size: Tokens.size-body;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                }
+                Text {
+                    text: root.plugin.version;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                Rectangle {}
+            }
+
+            Text {
+                text: root.plugin.description;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                overflow: elide;
+            }
+
+            // Permissions are shown, always. A plugin's power is the thing worth
+            // knowing about it, and burying it one click away is how people end up
+            // running code they never agreed to.
+            Text {
+                text: root.plugin.disabled-reason != ""
+                    ? "Out of circulation: " + root.plugin.disabled-reason
+                    : root.plugin.permissions;
+                font-size: Tokens.size-small;
+                color: root.plugin.disabled-reason != "" ? Tokens.error : Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// The modules screen: rules and plugins, in one place.
+//
+// Both are "things that act on your mail without you". Putting them behind one door
+// means there is a single answer to "what is this application doing on its own?", and
+// a single place to make it stop.
+export component ModulesPanel inherits Rectangle {
+    in property <[RuleRowData]> rules;
+    in property <[PluginRowData]> plugins;
+    in property <string> plugin-folder;
+    // Result of the last dry run, if any.
+    in property <string> simulation;
+    in-out property <string> new-rule-name;
+    in-out property <string> new-rule-sender;
+
+    callback rule-toggled(string, bool);
+    callback rule-simulated(string);
+    callback rule-removed(string);
+    callback rule-added();
+    callback plugins-reloaded();
+    callback dismissed();
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(680px, parent.width - 80px);
+        height: min(640px, parent.height - 80px);
+
+        // The panel swallows clicks, so editing a field does not close the window by
+        // touching the veil behind it.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                Text {
+                    text: "Modules";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                }
+                Rectangle {}
+                SmallButton {
+                    label: "Close";
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            GroupLabel { text: "RULES"; }
+
+            // Creating a rule is deliberately one line: sender and a name. Anything
+            // richer belongs in an editor, and an editor nobody opens is worse than a
+            // single field people actually use.
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                LineEdit {
+                    accessible-label: "Rule name";
+                    placeholder-text: "Rule name";
+                    font-size: Tokens.size-small;
+                    text <=> root.new-rule-name;
+                }
+                LineEdit {
+                    accessible-label: "From sender or domain";
+                    placeholder-text: "from sender or domain";
+                    font-size: Tokens.size-small;
+                    text <=> root.new-rule-sender;
+                    accepted => { root.rule-added(); }
+                }
+                SmallButton {
+                    label: "Add rule";
+                    clicked => { root.rule-added(); }
+                }
+            }
+
+            if root.simulation != "": Text {
+                text: root.simulation;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+
+            if root.rules.length == 0: Text {
+                text: "No rules yet. A rule acts on mail as it arrives.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+            }
+
+            if root.rules.length > 0: ListView {
+                height: 180px;
+                for rule in root.rules: RuleRow {
+                    rule: rule;
+                    toggled(on) => { root.rule-toggled(rule.id, on); }
+                    simulate => { root.rule-simulated(rule.id); }
+                    removed => { root.rule-removed(rule.id); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            HorizontalLayout {
+                GroupLabel { text: "PLUGINS"; }
+                Rectangle {}
+                SmallButton {
+                    label: "Reload";
+                    clicked => { root.plugins-reloaded(); }
+                }
+            }
+
+            if root.plugins.length == 0: VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "No plugins installed.";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                }
+                // Telling people where to put one is the whole of the install flow:
+                // a folder is a distribution channel that needs no store.
+                Text {
+                    text: "Drop a plugin folder in " + root.plugin-folder;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.plugins.length > 0: ListView {
+                for plugin in root.plugins: PluginRow {
+                    plugin: plugin;
+                }
+            }
+
+            Rectangle {}
+        }
+    }
+}

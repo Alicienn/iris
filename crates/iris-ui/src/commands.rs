@@ -21,6 +21,8 @@ pub enum CommandKind {
     Undo,
     Search,
     AddAccount,
+    /// Rules and plugins: everything that acts on mail without the user.
+    Modules,
     /// Fournie par un plugin. La charge est renvoyée telle quelle au plugin qui
     /// l'a déclarée : l'hôte n'a pas à comprendre ce qu'elle veut dire.
     Plugin {
