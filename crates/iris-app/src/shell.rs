@@ -114,24 +114,40 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
 
     {
         let c = Arc::clone(&controller);
-        let commandes = Arc::clone(&commandes);
-        fenetre.on_command_invoked(move |id| {
-            let Some(commande) = commandes.iter().find(|x| x.id == id.as_str()) else { return };
-            dispatch(&c, &commande.kind);
+        fenetre.on_search_submitted(move |requete| {
+            c.send(Request::Search(requete.to_string()));
         });
     }
 
     {
         let c = Arc::clone(&controller);
+        fenetre.on_search_cleared(move || {
+            c.send(Request::ClearSearch);
+        });
+    }
+
+    {
+        let c = Arc::clone(&controller);
+        let commandes = Arc::clone(&commandes);
+        let faible = fenetre.as_weak();
+        fenetre.on_command_invoked(move |id| {
+            let Some(commande) = commandes.iter().find(|x| x.id == id.as_str()) else { return };
+            dispatch(&c, &commande.kind, &faible);
+        });
+    }
+
+    {
+        let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
         fenetre.on_key_pressed(move |touche| match keymap.resolve(touche.as_str()) {
             KeyOutcome::Move(m) => c.send(Request::Move(m)),
-            KeyOutcome::Command(kind) => dispatch(&c, &kind),
+            KeyOutcome::Command(kind) => dispatch(&c, &kind, &faible),
             KeyOutcome::OpenPalette | KeyOutcome::Ignored => {}
         });
     }
 }
 
-fn dispatch(controller: &Controller, kind: &CommandKind) {
+fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<AppWindow>) {
     match kind {
         CommandKind::Thread(action) => controller.send(Request::Apply(*action)),
         CommandKind::SwitchTab(state) => controller.send(Request::SwitchTab(*state)),
@@ -144,9 +160,16 @@ fn dispatch(controller: &Controller, kind: &CommandKind) {
             controller.shutdown();
             let _ = slint::quit_event_loop();
         }
+        // Chercher, c'est mettre le curseur dans la barre : le champ est déjà à
+        // l'écran, l'ouvrir ailleurs ferait deux endroits pour la même chose.
+        CommandKind::Search => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                fenetre.invoke_focus_search();
+            }
+        }
         // Ces commandes appartiennent à des écrans qui ne sont pas encore là ; les
         // ignorer silencieusement vaut mieux qu'ouvrir une fenêtre vide.
-        CommandKind::Search | CommandKind::Settings | CommandKind::Reload => {}
+        CommandKind::Settings | CommandKind::Reload => {}
     }
 }
 
@@ -182,6 +205,21 @@ pub fn apply_snapshot(
     fenetre.set_unified_count(snapshot.counts[0] as i32);
     fenetre.set_pending_ops(snapshot.pending_ops as i32);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
+
+    match &snapshot.search {
+        Some(recherche) => {
+            fenetre.set_searching(true);
+            fenetre.set_search_summary(recherche.summary.as_str().into());
+            fenetre.set_search_explanation(recherche.explanation.as_str().into());
+            // Le champ n'est pas réécrit : l'utilisateur peut être en train d'y
+            // taper la requête suivante pendant que les résultats arrivent.
+        }
+        None => {
+            fenetre.set_searching(false);
+            fenetre.set_search_summary(Default::default());
+            fenetre.set_search_explanation(Default::default());
+        }
+    }
 
     if let Some(message) = snapshot.messages.last() {
         let corps = corps_du_message(services, renderer, message);
@@ -428,8 +466,9 @@ mod tests {
                 | CommandKind::SelectAccount(_)
                 | CommandKind::UnifiedView
                 | CommandKind::Undo
+                | CommandKind::Search
                 | CommandKind::Quit => {}
-                CommandKind::Search | CommandKind::Settings | CommandKind::Reload => {
+                CommandKind::Settings | CommandKind::Reload => {
                     // Écrans non encore construits, ignorés à dessein.
                 }
             }

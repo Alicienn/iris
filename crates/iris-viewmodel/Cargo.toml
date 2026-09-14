@@ -9,6 +9,8 @@ license.workspace = true
 iris-types = { workspace = true }
 iris-store = { workspace = true }
 iris-kernel = { workspace = true }
+iris-index = { workspace = true }
+iris-search = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = "0.1"

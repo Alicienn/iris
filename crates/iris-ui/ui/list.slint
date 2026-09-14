@@ -1,6 +1,6 @@
 import { Tokens } from "tokens.slint";
 import { ThreadRowData } from "types.slint";
-import { ListView } from "std-widgets.slint";
+import { ListView, LineEdit } from "std-widgets.slint";
 
 // Une ligne de la liste.
 //
@@ -190,6 +190,86 @@ export component StateTabs inherits HorizontalLayout {
     Rectangle {}
 }
 
+// La barre de recherche.
+//
+// Elle est au-dessus des onglets et non dans une fenêtre à part : chercher, c'est
+// filtrer la colonne du milieu, et le résultat doit apparaître là où le regard est
+// déjà posé.
+export component SearchBar inherits VerticalLayout {
+    in property <string> summary;
+    in property <string> explanation;
+    in property <bool> active;
+    in-out property <string> query;
+
+    callback submitted(string);
+    callback cleared();
+
+    public function focus-field() {
+        field.focus();
+        field.select-all();
+    }
+
+    padding-left: Tokens.space-2;
+    padding-right: Tokens.space-2;
+    padding-top: Tokens.space-2;
+    spacing: Tokens.space-1;
+
+    HorizontalLayout {
+        spacing: Tokens.space-1;
+
+        field := LineEdit {
+            placeholder-text: "Rechercher — de:marie is:unread…";
+            font-size: Tokens.size-small;
+            text <=> root.query;
+            accepted(t) => { root.submitted(t); }
+            // Vider le champ suffit à sortir : demander un second geste pour revenir
+            // à la file serait une porte qui ne s'ouvre que dans un sens.
+            edited(t) => {
+                if (t == "" && root.active) { root.cleared(); }
+            }
+        }
+
+        if root.active: Rectangle {
+            width: 24px;
+            border-radius: Tokens.radius-small;
+            background: close-touch.has-hover ? Tokens.surface-hover : transparent;
+
+            Text {
+                text: "✕";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            close-touch := TouchArea {
+                clicked => {
+                    root.query = "";
+                    root.cleared();
+                }
+            }
+        }
+    }
+
+    // Ce qui a été compris, rendu à l'utilisateur. Une syntaxe de recherche que
+    // personne ne confirme est une syntaxe que personne n'apprend.
+    if root.active: HorizontalLayout {
+        spacing: Tokens.space-2;
+
+        Text {
+            text: root.summary;
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+        }
+        Text {
+            text: root.explanation;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            overflow: elide;
+        }
+    }
+}
+
 // La liste des conversations.
 export component ThreadListView inherits VerticalLayout {
     in property <[ThreadRowData]> rows;
@@ -198,12 +278,34 @@ export component ThreadListView inherits VerticalLayout {
     in property <[int]> counts;
     in property <bool> loading;
     in property <string> empty-message: "Rien à traiter.";
+    in property <bool> searching;
+    in property <string> search-summary;
+    in property <string> search-explanation;
+    in-out property <string> search-query;
 
     callback row-clicked(int);
     callback tab-selected(int);
     callback scrolled-near-end();
+    callback search-submitted(string);
+    callback search-cleared();
 
-    StateTabs {
+    public function focus-search() {
+        bar.focus-field();
+    }
+
+    bar := SearchBar {
+        active: root.searching;
+        summary: root.search-summary;
+        explanation: root.search-explanation;
+        query <=> root.search-query;
+        submitted(q) => { root.search-submitted(q); }
+        cleared => { root.search-cleared(); }
+    }
+
+    // Pendant une recherche, les onglets disparaissent : les résultats ne sont pas
+    // rangés par file, et laisser un onglet allumé au-dessus d'eux désignerait une
+    // liste qui n'est pas celle qu'on regarde.
+    if !root.searching: StateTabs {
         active: root.active-tab;
         counts: root.counts;
         selected(i) => { root.tab-selected(i); }
@@ -218,7 +320,7 @@ export component ThreadListView inherits VerticalLayout {
         VerticalLayout {
             alignment: center;
             Text {
-                text: root.empty-message;
+                text: root.searching ? "Aucun résultat." : root.empty-message;
                 font-size: Tokens.size-body;
                 color: Tokens.text-muted;
                 horizontal-alignment: center;

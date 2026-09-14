@@ -28,6 +28,10 @@ pub enum Request {
     EnsureLoaded(usize),
     Apply(Action),
     Undo,
+    /// Cherche. Une requête vide quitte la recherche.
+    Search(String),
+    /// Quitte la recherche et revient à la file.
+    ClearSearch,
     /// Un lot de changements est arrivé du noyau.
     Diff(Box<ViewDiff>),
     /// Change l'instant de référence, pour les dates relatives et les reports.
@@ -54,6 +58,19 @@ pub struct Snapshot {
     /// Message affiché dans la colonne de lecture, s'il y en a un.
     pub messages: Vec<iris_store::StoredMessage>,
     pub pending_ops: u64,
+    /// La recherche en cours, s'il y en a une. Les lignes en sont alors issues, et
+    /// les compteurs d'onglets continuent de décrire les files, pas les résultats.
+    pub search: Option<SearchSummary>,
+}
+
+/// Ce que l'interface doit dire de la recherche en cours.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchSummary {
+    pub query: String,
+    /// Le décompte, en une phrase.
+    pub summary: String,
+    /// Ce que la requête a été comprise vouloir dire.
+    pub explanation: String,
 }
 
 impl Snapshot {
@@ -79,12 +96,26 @@ impl Controller {
         now: Timestamp,
         on_snapshot: impl Fn(Snapshot) + Send + 'static,
     ) -> (Self, std::thread::JoinHandle<()>) {
+        Self::spawn_with_index(store, None, settings, now, on_snapshot)
+    }
+
+    /// Même chose, avec l'index plein texte.
+    ///
+    /// Sans lui la recherche ne sait faire que du structurel — les non-lus, les
+    /// vieux fils — et le dit à l'utilisateur plutôt que de rendre une liste vide.
+    pub fn spawn_with_index(
+        store: Arc<Store>,
+        index: Option<Arc<iris_index::SearchIndex>>,
+        settings: AutomationSettings,
+        now: Timestamp,
+        on_snapshot: impl Fn(Snapshot) + Send + 'static,
+    ) -> (Self, std::thread::JoinHandle<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
 
         let fil = std::thread::Builder::new()
             .name("iris-viewmodel".into())
             .spawn(move || {
-                run(store, settings, now, rx, on_snapshot);
+                run(store, index, settings, now, rx, on_snapshot);
             })
             .expect("création du fil du vue-modèle");
 
@@ -105,12 +136,16 @@ impl Controller {
 
 fn run(
     store: Arc<Store>,
+    index: Option<Arc<iris_index::SearchIndex>>,
     settings: AutomationSettings,
     now: Timestamp,
     requests: Receiver<Request>,
     on_snapshot: impl Fn(Snapshot),
 ) {
     let mut vm = ViewModel::new(Arc::clone(&store), now);
+    if let Some(index) = index {
+        vm = vm.with_index(index);
+    }
     let mut actions = Actions::new(Arc::clone(&store), settings);
 
     while let Ok(request) = requests.recv() {
@@ -163,6 +198,8 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             vm.apply_diff(&diff)?;
             Ok(true)
         }
+        Request::Search(query) => Ok(!vm.search(&query)?.is_empty()),
+        Request::ClearSearch => Ok(!vm.clear_search().is_empty()),
         Request::Diff(diff) => Ok(!vm.apply_diff(&diff)?.is_empty()),
         Request::Tick(now) => {
             vm.set_now(now);
@@ -179,15 +216,30 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         .and_then(|t| store.thread_messages(t).ok())
         .unwrap_or_default();
 
+    let recherche = vm.search_state().map(|s| SearchSummary {
+        query: s.query.clone(),
+        summary: s.summary(),
+        explanation: s.explanation.clone(),
+    });
+
+    // Pendant une recherche, les résultats sont tous là : « chargé » et « total »
+    // se confondent, et la barre de défilement dit la vérité sans mentir sur une
+    // suite qui n'existe pas.
+    let (charge, total) = match vm.search_state() {
+        Some(s) => (s.len(), s.len() as u32),
+        None => (vm.list().loaded(), vm.list().total()),
+    };
+
     Snapshot {
-        rows: vm.list().rows().to_vec(),
+        rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),
         active_tab: vm.active_tab(),
         counts: vm.counts(),
-        loaded: vm.list().loaded(),
-        total: vm.list().total(),
+        loaded: charge,
+        total,
         messages,
         pending_ops: store.pending_op_count().unwrap_or(0),
+        search: recherche,
     }
 }
 
@@ -474,6 +526,97 @@ mod tests {
         c.send(Request::Diff(Box::new(ViewDiff { full_refresh: true, ..Default::default() })));
         let apres = attendre_que(&rx, |s| s.rows.len() == 2);
         assert_eq!(apres.rows.len(), 2);
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn une_recherche_remplace_les_lignes_de_l_instantane() {
+        let f = fixture();
+        let fil_id = f.thread();
+        f.thread();
+        f.store.set_thread_state(fil_id, WorkflowState::Done).unwrap();
+
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+        c.send(Request::Bootstrap);
+        assert_eq!(attendre(&rx).rows.len(), 1);
+
+        c.send(Request::Search("etat:traite".into()));
+        let s = attendre_que(&rx, |s| s.search.is_some());
+
+        assert_eq!(s.rows.len(), 1);
+        assert_eq!(s.rows[0].id, fil_id);
+        let recherche = s.search.expect("un résumé de recherche");
+        assert_eq!(recherche.query, "etat:traite");
+        assert_eq!(recherche.summary, "1 conversation.");
+        assert_eq!(recherche.explanation, "traité");
+
+        // Les compteurs continuent de décrire les files, pas les résultats.
+        assert_eq!(s.counts[0], 1);
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn quitter_la_recherche_rend_la_file() {
+        let f = fixture();
+        f.thread();
+        f.thread();
+
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        c.send(Request::Search("etat:traite".into()));
+        attendre_que(&rx, |s| s.search.is_some());
+
+        c.send(Request::ClearSearch);
+        let s = attendre_que(&rx, |s| s.search.is_none());
+        assert_eq!(s.rows.len(), 2);
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn une_recherche_vide_ne_change_rien() {
+        // Sinon appuyer sur Entrée dans une barre vide redessinerait l'écran.
+        let f = fixture();
+        f.thread();
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        c.send(Request::Search("  ".into()));
+        assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn trier_depuis_les_resultats_les_met_a_jour() {
+        let f = fixture();
+        let a = f.thread();
+        f.thread();
+
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        c.send(Request::Search("etat:a_traiter".into()));
+        let s = attendre_que(&rx, |s| s.search.is_some());
+        assert_eq!(s.rows.len(), 2);
+
+        c.send(Request::SelectThread(a));
+        c.send(Request::Apply(Action::Done));
+        let apres = attendre_que(&rx, |s| s.rows.len() == 1);
+
+        assert!(apres.search.is_some(), "on reste dans la recherche");
+        assert_ne!(apres.rows[0].id, a);
 
         c.shutdown();
         fil.join().unwrap();

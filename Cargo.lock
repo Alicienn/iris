@@ -3999,7 +3999,9 @@ dependencies = [
 name = "iris-viewmodel"
 version = "0.1.0"
 dependencies = [
+ "iris-index",
  "iris-kernel",
+ "iris-search",
  "iris-store",
  "iris-types",
  "serde",

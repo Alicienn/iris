@@ -160,7 +160,7 @@ qu'en théorie.
 - [x] **S21.2** Téléchargement du corps à l'ouverture, mise en cache et rattachement.
 - [x] **S21.3** Envoi d'une réponse : composition, file d'envoi, passage en attente.
 - [x] **S21.4** Réveil des reports échus et relances, dans la boucle de fond.
-- [ ] **S21.5** Recherche depuis l'interface, branchée sur le planificateur.
+- [x] **S21.5** Recherche depuis l'interface, branchée sur le planificateur.
 
 ## E22 — Les écrans manquants
 

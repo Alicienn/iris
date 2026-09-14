@@ -14,12 +14,15 @@
 
 pub mod actions;
 pub mod list;
+pub mod search;
 pub mod selection;
 
 pub use actions::{Action, ActionOutcome, Actions};
 pub use list::{ListUpdate, ThreadList, PAGE_SIZE, PREFETCH};
+pub use search::{SearchState, MAX_RESULTS};
 pub use selection::{Movement, Selection};
 
+use iris_index::SearchIndex;
 use iris_kernel::ViewDiff;
 use iris_store::{Store, ThreadRow};
 use iris_types::{AccountId, Result, ThreadId, Timestamp, WorkflowState};
@@ -35,6 +38,12 @@ pub struct ViewModel {
     accounts: Vec<AccountId>,
     counts: [u32; 3],
     now: Timestamp,
+    /// L'index plein texte, quand il est disponible.
+    index: Option<Arc<SearchIndex>>,
+    /// La recherche en cours. Tant qu'elle est là, elle **remplace** la liste
+    /// affichée : une recherche sans effet visible sur la colonne du milieu ne
+    /// servirait à rien.
+    search: Option<SearchState>,
 }
 
 /// Ce qui a changé après une mise à jour, tel que l'interface doit le traiter.
@@ -45,11 +54,16 @@ pub struct ViewUpdate {
     pub counts_changed: bool,
     /// La sélection a changé de fil.
     pub selection_changed: bool,
+    /// On est entré ou sorti de la recherche.
+    pub search_changed: bool,
 }
 
 impl ViewUpdate {
     pub fn is_empty(&self) -> bool {
-        self.list.is_empty() && !self.counts_changed && !self.selection_changed
+        self.list.is_empty()
+            && !self.counts_changed
+            && !self.selection_changed
+            && !self.search_changed
     }
 }
 
@@ -67,7 +81,18 @@ impl ViewModel {
             accounts: Vec::new(),
             counts: [0; 3],
             now,
+            index: None,
+            search: None,
         }
+    }
+
+    /// Attache l'index plein texte.
+    ///
+    /// Il reste facultatif : sans lui, les recherches structurelles fonctionnent
+    /// encore, et le vue-modèle se teste sans monter de moteur d'indexation.
+    pub fn with_index(mut self, index: Arc<SearchIndex>) -> Self {
+        self.index = Some(index);
+        self
     }
 
     pub fn store(&self) -> &Arc<Store> {
@@ -106,6 +131,87 @@ impl ViewModel {
         &self.lists[state.as_i64() as usize]
     }
 
+    // --- Ce qui est réellement affiché ---
+    //
+    // Pendant une recherche, la colonne du milieu montre les résultats et non la
+    // file. Toute la navigation passe par ces trois méthodes, pour qu'il n'existe pas
+    // un chemin qui oublierait la recherche et sélectionnerait une ligne invisible.
+
+    /// Les lignes affichées : les résultats de recherche, ou la file active.
+    pub fn rows(&self) -> &[ThreadRow] {
+        match &self.search {
+            Some(s) => &s.results,
+            None => self.list().rows(),
+        }
+    }
+
+    fn row_at(&self, index: usize) -> Option<&ThreadRow> {
+        self.rows().get(index)
+    }
+
+    fn index_of(&self, thread: ThreadId) -> Option<usize> {
+        match &self.search {
+            Some(s) => s.results.iter().position(|r| r.id == thread),
+            None => self.list().index_of(thread),
+        }
+    }
+
+    /// La recherche en cours, s'il y en a une.
+    pub fn search_state(&self) -> Option<&SearchState> {
+        self.search.as_ref()
+    }
+
+    pub fn is_searching(&self) -> bool {
+        self.search.is_some()
+    }
+
+    /// Lance une recherche. Une requête vide en sort.
+    pub fn search(&mut self, query: &str) -> Result<ViewUpdate> {
+        if query.trim().is_empty() {
+            return Ok(self.clear_search());
+        }
+
+        let etat =
+            search::run(&self.store, self.index.as_ref(), query, &self.accounts, self.now)?;
+        self.search = Some(etat);
+        self.select_first();
+
+        Ok(ViewUpdate {
+            list: ListUpdate { reordered: true, ..Default::default() },
+            counts_changed: false,
+            selection_changed: true,
+            search_changed: true,
+        })
+    }
+
+    /// Quitte la recherche et revient à la file.
+    pub fn clear_search(&mut self) -> ViewUpdate {
+        if self.search.take().is_none() {
+            return ViewUpdate::default();
+        }
+        self.select_first();
+        ViewUpdate {
+            list: ListUpdate { reordered: true, ..Default::default() },
+            counts_changed: false,
+            selection_changed: true,
+            search_changed: true,
+        }
+    }
+
+    /// Rejoue la recherche courante sur l'état actuel du store.
+    ///
+    /// Sans cela, trier depuis les résultats laisserait à l'écran des lignes qui ne
+    /// correspondent plus : un fil marqué traité y resterait affiché comme à traiter.
+    fn refresh_search(&mut self) -> Result<bool> {
+        let Some(courante) = &self.search else { return Ok(false) };
+        let requete = courante.query.clone();
+        let etat =
+            search::run(&self.store, self.index.as_ref(), &requete, &self.accounts, self.now)?;
+        let change = etat.results != courante.results;
+        self.search = Some(etat);
+        Ok(change)
+    }
+
     /// Charge l'état initial : la première page de l'onglet actif et les compteurs.
     ///
     /// Seul l'onglet visible est chargé. Précharger les trois multiplierait par trois
@@ -133,12 +239,21 @@ impl ViewModel {
             return Ok(ViewUpdate::default());
         }
         self.active_tab = state;
+        // Changer d'onglet est une sortie de recherche : les résultats ne sont pas
+        // rangés par file, et les garder afficherait la mauvaise chose sous le
+        // mauvais titre.
+        let recherche = self.search.take().is_some();
 
         let store = Arc::clone(&self.store);
         self.list_mut(state).ensure_loaded(&store, 0)?;
         self.select_first();
 
-        Ok(ViewUpdate { list: ListUpdate { reordered: true, ..Default::default() }, counts_changed: false, selection_changed: true })
+        Ok(ViewUpdate {
+            list: ListUpdate { reordered: true, ..Default::default() },
+            counts_changed: false,
+            selection_changed: true,
+            search_changed: recherche,
+        })
     }
 
     /// Restreint l'affichage à certains comptes.
@@ -153,6 +268,9 @@ impl ViewModel {
             liste.set_accounts(accounts.clone());
             liste.reload(&store)?;
         }
+        // Le filtre par compte s'applique aussi aux résultats : rejouer la recherche
+        // vaut mieux que la fermer sans prévenir.
+        self.refresh_search()?;
         self.select_first();
         self.refresh_counts()?;
 
@@ -160,6 +278,7 @@ impl ViewModel {
             list: ListUpdate { reordered: true, ..Default::default() },
             counts_changed: true,
             selection_changed: true,
+            search_changed: false,
         })
     }
 
@@ -191,16 +310,22 @@ impl ViewModel {
             }
         }
 
+        let recherche = self.refresh_search()?;
         let compteurs = self.refresh_counts()?;
         let selection = self.reconcile_selection();
 
-        Ok(ViewUpdate { list: liste, counts_changed: compteurs, selection_changed: selection })
+        Ok(ViewUpdate {
+            list: ListUpdate { reordered: liste.reordered || recherche, ..liste },
+            counts_changed: compteurs,
+            selection_changed: selection,
+            search_changed: false,
+        })
     }
 
     // --- Sélection ---
 
     pub fn select_first(&mut self) {
-        let premier = self.list().row(0).map(|r| r.id);
+        let premier = self.row_at(0).map(|r| r.id);
         self.selection.set(premier);
         self.selection.remember_index(0);
     }
@@ -208,7 +333,7 @@ impl ViewModel {
     pub fn select(&mut self, thread: ThreadId) -> bool {
         // La position est mémorisée en même temps que le fil : c'est elle qui permet
         // de reprendre au même endroit quand le fil quitte la liste.
-        if let Some(index) = self.list().index_of(thread) {
+        if let Some(index) = self.index_of(thread) {
             self.selection.remember_index(index);
         }
         self.selection.set(Some(thread))
@@ -216,10 +341,7 @@ impl ViewModel {
 
     /// Déplace la sélection. Charge les lignes nécessaires en chemin.
     pub fn move_selection(&mut self, movement: Movement) -> Result<bool> {
-        let courant = self
-            .selection
-            .thread()
-            .and_then(|t| self.list().index_of(t));
+        let courant = self.selection.thread().and_then(|t| self.index_of(t));
 
         let cible = match (courant, movement) {
             (None, Movement::Next) | (None, Movement::First) => 0,
@@ -231,6 +353,16 @@ impl ViewModel {
             (Some(i), Movement::PageUp) => i.saturating_sub(20),
             (Some(_), Movement::Last) => usize::MAX,
         };
+
+        // Les résultats de recherche sont bornés et déjà tous en mémoire : rien à
+        // charger, et « aller à la fin » désigne la dernière ligne trouvée.
+        if self.search.is_some() {
+            let dernier = self.rows().len().saturating_sub(1);
+            let cible = cible.min(dernier);
+            let Some(id) = self.row_at(cible).map(|r| r.id) else { return Ok(false) };
+            self.selection.remember_index(cible);
+            return Ok(self.selection.set(Some(id)));
+        }
 
         if cible == usize::MAX {
             // Aller à la fin oblige à tout charger : c'est un geste rare et
@@ -261,11 +393,11 @@ impl ViewModel {
     /// Remet la sélection sur une ligne existante après un rechargement.
     fn reconcile_selection(&mut self) -> bool {
         let Some(courant) = self.selection.thread() else {
-            let premier = self.list().row(0).map(|r| r.id);
+            let premier = self.row_at(0).map(|r| r.id);
             return self.selection.set(premier);
         };
 
-        if let Some(index) = self.list().index_of(courant) {
+        if let Some(index) = self.index_of(courant) {
             self.selection.remember_index(index);
             return false;
         }
@@ -273,8 +405,8 @@ impl ViewModel {
         // Le fil sélectionné a quitté la liste : on reprend à la position la plus
         // proche plutôt que de tout désélectionner, ce qui interromprait le triage
         // au clavier à chaque action.
-        let position = self.selection.last_index().min(self.list().loaded().saturating_sub(1));
-        let remplacant = self.list().row(position).map(|r| r.id);
+        let position = self.selection.last_index().min(self.rows().len().saturating_sub(1));
+        let remplacant = self.row_at(position).map(|r| r.id);
         self.selection.remember_index(position);
         self.selection.set(remplacant)
     }
@@ -282,8 +414,8 @@ impl ViewModel {
     /// La ligne actuellement sélectionnée.
     pub fn selected_row(&self) -> Option<&ThreadRow> {
         let thread = self.selection.thread()?;
-        let index = self.list().index_of(thread)?;
-        self.list().row(index)
+        let index = self.index_of(thread)?;
+        self.row_at(index)
     }
 
     pub fn set_now(&mut self, now: Timestamp) {
@@ -575,6 +707,159 @@ mod tests {
 
         vm.set_accounts_filter(vec![f.account]).unwrap();
         assert!(vm.set_accounts_filter(vec![f.account]).unwrap().is_empty());
+    }
+
+    // --- La recherche vue depuis le vue-modèle ---
+
+    #[test]
+    fn une_recherche_remplace_la_liste_affichee() {
+        let f = fixture();
+        f.seed(5);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        assert_eq!(vm.rows().len(), 5);
+
+        // « Sujet 1 » n'existe que sur le premier fil.
+        let update = vm.search("etat:a_traiter").unwrap();
+        assert!(update.search_changed);
+        assert!(vm.is_searching());
+        assert_eq!(vm.rows().len(), 5);
+    }
+
+    #[test]
+    fn quitter_la_recherche_rend_la_file() {
+        let f = fixture();
+        f.seed(4);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+
+        vm.search("etat:traite").unwrap();
+        assert_eq!(vm.rows().len(), 0, "aucun fil traité");
+
+        let update = vm.clear_search();
+        assert!(update.search_changed);
+        assert!(!vm.is_searching());
+        assert_eq!(vm.rows().len(), 4);
+    }
+
+    #[test]
+    fn une_requete_vide_sort_de_la_recherche() {
+        let f = fixture();
+        f.seed(3);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+
+        vm.search("etat:traite").unwrap();
+        vm.search("   ").unwrap();
+        assert!(!vm.is_searching());
+    }
+
+    #[test]
+    fn quitter_une_recherche_inexistante_ne_fait_rien() {
+        let f = fixture();
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        assert!(vm.clear_search().is_empty());
+    }
+
+    #[test]
+    fn la_navigation_suit_les_resultats_et_pas_la_file() {
+        // Sans cela, une flèche dans les résultats sélectionnerait une ligne
+        // invisible, prise dans la file d'en dessous.
+        let f = fixture();
+        let fils = f.seed(10);
+        for fil in &fils[..8] {
+            f.store.set_thread_state(*fil, WorkflowState::Done).unwrap();
+        }
+
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        vm.search("etat:a_traiter").unwrap();
+        assert_eq!(vm.rows().len(), 2);
+
+        vm.move_selection(Movement::Next).unwrap();
+        let second = vm.selection().thread().unwrap();
+        assert_eq!(vm.rows()[1].id, second);
+
+        // Au-delà du dernier résultat, la sélection ne s'échappe pas.
+        for _ in 0..5 {
+            vm.move_selection(Movement::Next).unwrap();
+        }
+        assert_eq!(vm.selection().thread(), Some(second));
+    }
+
+    #[test]
+    fn aller_a_la_fin_des_resultats_ne_charge_rien() {
+        let f = fixture();
+        f.seed(6);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        vm.search("etat:a_traiter").unwrap();
+
+        vm.move_selection(Movement::Last).unwrap();
+        let dernier = vm.rows().last().unwrap().id;
+        assert_eq!(vm.selection().thread(), Some(dernier));
+    }
+
+    #[test]
+    fn trier_depuis_les_resultats_les_met_a_jour() {
+        // Sinon un fil marqué traité resterait affiché comme à traiter.
+        let f = fixture();
+        let fils = f.seed(3);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        vm.search("etat:a_traiter").unwrap();
+        assert_eq!(vm.rows().len(), 3);
+
+        f.store.set_thread_state(fils[0], WorkflowState::Done).unwrap();
+        let mut diff = ViewDiff::default();
+        diff.threads.insert(fils[0]);
+        vm.apply_diff(&diff).unwrap();
+
+        assert_eq!(vm.rows().len(), 2, "le fil traité quitte les résultats");
+        assert!(vm.is_searching(), "on reste dans la recherche");
+    }
+
+    #[test]
+    fn changer_d_onglet_quitte_la_recherche() {
+        // Les résultats ne sont pas rangés par file : les garder afficherait la
+        // mauvaise chose sous le mauvais titre.
+        let f = fixture();
+        f.seed(3);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        vm.search("etat:a_traiter").unwrap();
+
+        let update = vm.set_tab(WorkflowState::Done).unwrap();
+        assert!(update.search_changed);
+        assert!(!vm.is_searching());
+    }
+
+    #[test]
+    fn la_ligne_selectionnee_vient_des_resultats() {
+        let f = fixture();
+        let fils = f.seed(4);
+        f.store.set_thread_state(fils[3], WorkflowState::Waiting).unwrap();
+
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+        vm.search("etat:en_attente").unwrap();
+
+        let ligne = vm.selected_row().expect("un résultat sélectionné");
+        assert_eq!(ligne.id, fils[3]);
+        assert_eq!(ligne.state, WorkflowState::Waiting);
+    }
+
+    #[test]
+    fn sans_index_la_recherche_structurelle_marche_encore() {
+        // Le vue-modèle se teste sans monter de moteur d'indexation.
+        let f = fixture();
+        f.seed(3);
+        let mut vm = f.vm();
+        vm.bootstrap().unwrap();
+
+        vm.search("is:unread").unwrap();
+        assert_eq!(vm.rows().len(), 3);
     }
 
     #[test]

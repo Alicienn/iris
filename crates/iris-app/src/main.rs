@@ -368,8 +368,9 @@ fn run_gui() -> Result<()> {
         }
     };
 
-    let (controller, _fil) = Controller::spawn(
+    let (controller, _fil) = Controller::spawn_with_index(
         Arc::clone(&services.store),
+        Some(Arc::clone(&services.index)),
         iris_types::AutomationSettings::default(),
         now(),
         puits,
