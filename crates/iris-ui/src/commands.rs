@@ -102,7 +102,7 @@ pub fn builtin_commands() -> Vec<Command> {
     vec![
         Command::new(
             "thread.done",
-            "Marquer traité",
+            "Mark as done",
             "E",
             "Conversation",
             CommandKind::Thread(Action::Done),
@@ -110,7 +110,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.todo",
-            "Remettre à traiter",
+            "Move back to inbox",
             "U",
             "Conversation",
             CommandKind::Thread(Action::Todo),
@@ -118,7 +118,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.waiting",
-            "Mettre en attente",
+            "Mark as waiting",
             "W",
             "Conversation",
             CommandKind::Thread(Action::Waiting),
@@ -126,7 +126,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.snooze.3h",
-            "Reporter de 3 heures",
+            "Snooze for 3 hours",
             "",
             "Conversation",
             CommandKind::Thread(Action::SnoozeHours(3)),
@@ -134,7 +134,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.snooze.tomorrow",
-            "Reporter à demain",
+            "Snooze until tomorrow",
             "S",
             "Conversation",
             CommandKind::Thread(Action::SnoozeHours(24)),
@@ -142,7 +142,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.snooze.week",
-            "Reporter d'une semaine",
+            "Snooze for a week",
             "",
             "Conversation",
             CommandKind::Thread(Action::SnoozeHours(24 * 7)),
@@ -150,7 +150,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.unsnooze",
-            "Annuler le report",
+            "Cancel snooze",
             "",
             "Conversation",
             CommandKind::Thread(Action::Unsnooze),
@@ -158,7 +158,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.read",
-            "Marquer comme lu",
+            "Mark as read",
             "R",
             "Conversation",
             CommandKind::Thread(Action::MarkRead),
@@ -166,7 +166,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.unread",
-            "Marquer comme non lu",
+            "Mark as unread",
             "Maj+R",
             "Conversation",
             CommandKind::Thread(Action::MarkUnread),
@@ -174,7 +174,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "thread.flag",
-            "Épingler la conversation",
+            "Star the conversation",
             "F",
             "Conversation",
             CommandKind::Thread(Action::ToggleFlag),
@@ -184,13 +184,13 @@ pub fn builtin_commands() -> Vec<Command> {
             "edit.undo",
             "Annuler",
             "Ctrl+Z",
-            "Édition",
+            "Edit",
             CommandKind::Undo,
             false,
         ),
         Command::new(
             "view.todo",
-            "Aller à : À traiter",
+            "Go to: To do",
             "Ctrl+1",
             "Navigation",
             CommandKind::SwitchTab(WorkflowState::Todo),
@@ -198,7 +198,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "view.waiting",
-            "Aller à : En attente",
+            "Go to: Waiting",
             "Ctrl+2",
             "Navigation",
             CommandKind::SwitchTab(WorkflowState::Waiting),
@@ -206,7 +206,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "view.done",
-            "Aller à : Traité",
+            "Go to: Done",
             "Ctrl+3",
             "Navigation",
             CommandKind::SwitchTab(WorkflowState::Done),
@@ -214,7 +214,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "view.unified",
-            "Vue unifiée",
+            "All accounts",
             "",
             "Navigation",
             CommandKind::UnifiedView,
@@ -222,7 +222,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "app.search",
-            "Rechercher…",
+            "Search…",
             "Ctrl+F",
             "Application",
             CommandKind::Search,
@@ -230,7 +230,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "app.add-account",
-            "Ajouter un compte…",
+            "Add an account…",
             "",
             "Application",
             CommandKind::AddAccount,
@@ -238,7 +238,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "app.reload",
-            "Synchroniser maintenant",
+            "Sync now",
             "F5",
             "Application",
             CommandKind::Reload,
@@ -246,7 +246,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "app.settings",
-            "Réglages",
+            "Settings",
             "Ctrl+,",
             "Application",
             CommandKind::Settings,
@@ -254,7 +254,7 @@ pub fn builtin_commands() -> Vec<Command> {
         ),
         Command::new(
             "app.quit",
-            "Quitter",
+            "Quit",
             "Ctrl+Q",
             "Application",
             CommandKind::Quit,
@@ -395,7 +395,7 @@ mod tests {
     fn le_filtrage_est_par_sous_sequence() {
         // C'est la différence entre une palette qu'on utilise et une qu'on referme.
         let c = commandes();
-        let r = filter(&c, "mtr", true);
+        let r = filter(&c, "mad", true);
         assert_eq!(r.first().map(|x| x.id.as_str()), Some("thread.done"));
     }
 
@@ -416,8 +416,8 @@ mod tests {
     fn le_filtrage_ignore_la_casse_et_les_espaces() {
         let c = commandes();
         assert_eq!(
-            filter(&c, "  TRAITÉ ", true).len(),
-            filter(&c, "traité", true).len()
+            filter(&c, "  DONE ", true).len(),
+            filter(&c, "done", true).len()
         );
     }
 
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn le_score_est_absent_quand_les_lettres_manquent() {
-        assert!(score("marquer traité", "xyz").is_none());
+        assert!(score("mark as done", "xyz").is_none());
         // L'ordre compte : les lettres doivent apparaître dans le bon sens.
         assert!(score("abc", "cba").is_none());
     }

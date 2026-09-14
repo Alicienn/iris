@@ -107,7 +107,7 @@ impl KeyringStore {
 
     fn entry(&self, account: &str, kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(&self.service, &entry_key(account, kind))
-            .map_err(|e| Error::Config(format!("trousseau : {e}")))
+            .map_err(|e| Error::Config(format!("keyring: {e}")))
     }
 }
 
@@ -138,7 +138,7 @@ impl SecretStore for KeyringStore {
     }
 
     fn backend(&self) -> &'static str {
-        "trousseau du système"
+        "system keyring"
     }
 }
 

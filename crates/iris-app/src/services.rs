@@ -124,7 +124,7 @@ impl Services {
 fn open_secrets(paths: &Paths, master: Option<Secret>) -> Result<Arc<dyn SecretStore>> {
     let trousseau = KeyringStore::new("Iris");
     if trousseau.is_available() {
-        tracing::info!("secrets : trousseau du système");
+        tracing::info!("secrets: system keyring");
         return Ok(Arc::new(trousseau));
     }
 
@@ -190,7 +190,7 @@ impl iris_sync::CredentialsProvider for StoredCredentials {
             )
             .await?;
 
-            tracing::info!(compte = %email, "jeton OAuth renouvelé");
+            tracing::info!(account = %email, "OAuth token refreshed");
             return Ok(iris_imap::Credentials::OAuth2 {
                 user: email.to_string(),
                 token: jeton,

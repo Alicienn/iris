@@ -120,7 +120,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
             Block::Image { alt, blocked } => MessageBlockData {
                 kind: "image".into(),
                 text: if *blocked {
-                    format!("{alt} — image distante bloquée").into()
+                    format!("{alt} — remote image blocked").into()
                 } else {
                     alt.as_str().into()
                 },
@@ -433,7 +433,7 @@ mod tests {
             blocked_images: 1,
         };
         let blocs = message_blocks(&rich);
-        assert!(blocs[0].text.as_str().contains("bloquée"));
+        assert!(blocs[0].text.as_str().contains("blocked"));
     }
 
     #[test]

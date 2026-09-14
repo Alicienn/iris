@@ -75,7 +75,7 @@ export component AccountSetupPanel inherits Rectangle {
             spacing: Tokens.space-3;
 
             Text {
-                text: "Ajouter un compte";
+                text: "Add an account";
                 font-family: Tokens.font-family;
                 font-size: Tokens.size-title;
                 font-weight: Tokens.weight-bold;
@@ -83,14 +83,14 @@ export component AccountSetupPanel inherits Rectangle {
             }
 
             Field {
-                label: "Adresse";
-                placeholder: "prenom@exemple.fr";
+                label: "Email address";
+                placeholder: "you@example.com";
                 value <=> root.email;
                 accepted => { root.discover(); }
             }
 
             Field {
-                label: "Mot de passe";
+                label: "Password";
                 password: true;
                 value <=> root.password;
                 accepted => { root.manual ? root.save-manual() : root.discover(); }
@@ -117,8 +117,8 @@ export component AccountSetupPanel inherits Rectangle {
                 spacing: Tokens.space-2;
 
                 Field {
-                    label: "Serveur IMAP";
-                    placeholder: "imap.exemple.fr";
+                    label: "IMAP server";
+                    placeholder: "imap.example.com";
                     value <=> root.imap-host;
                 }
                 VerticalLayout {
@@ -131,7 +131,7 @@ export component AccountSetupPanel inherits Rectangle {
             }
 
             if root.manual: CheckBox {
-                text: "IMAP chiffré (TLS)";
+                text: "IMAP over TLS";
                 checked <=> root.imap-tls;
             }
 
@@ -139,8 +139,8 @@ export component AccountSetupPanel inherits Rectangle {
                 spacing: Tokens.space-2;
 
                 Field {
-                    label: "Serveur SMTP";
-                    placeholder: "smtp.exemple.fr";
+                    label: "SMTP server";
+                    placeholder: "smtp.example.com";
                     value <=> root.smtp-host;
                 }
                 VerticalLayout {
@@ -153,7 +153,7 @@ export component AccountSetupPanel inherits Rectangle {
             }
 
             if root.manual: CheckBox {
-                text: "SMTP chiffré (TLS)";
+                text: "SMTP over TLS";
                 checked <=> root.smtp-tls;
             }
 
@@ -171,14 +171,14 @@ export component AccountSetupPanel inherits Rectangle {
                     background: manuel.has-hover ? Tokens.surface-hover : transparent;
 
                     accessible-role: button;
-                    accessible-label: "Configurer à la main";
+                    accessible-label: "Configure manually";
                     accessible-action-default => { root.switch-to-manual(); }
 
                     HorizontalLayout {
                         padding-left: Tokens.space-2;
                         padding-right: Tokens.space-2;
                         Text {
-                            text: "Configurer à la main";
+                            text: "Configure manually";
                             font-size: Tokens.size-small;
                             color: Tokens.text-secondary;
                             vertical-alignment: center;
@@ -199,11 +199,11 @@ export component AccountSetupPanel inherits Rectangle {
                     background: annuler.has-hover ? Tokens.surface-hover : Tokens.surface;
 
                     accessible-role: button;
-                    accessible-label: "Annuler";
+                    accessible-label: "Cancel";
                     accessible-action-default => { root.dismissed(); }
 
                     Text {
-                        text: "Annuler";
+                        text: "Cancel";
                         font-size: Tokens.size-small;
                         color: Tokens.text-secondary;
                         horizontal-alignment: center;
@@ -223,7 +223,7 @@ export component AccountSetupPanel inherits Rectangle {
                     opacity: root.busy ? 0.5 : 1.0;
 
                     accessible-role: button;
-                    accessible-label: root.manual ? "Enregistrer" : "Ajouter";
+                    accessible-label: root.manual ? "Save" : "Add";
                     accessible-enabled: !root.busy;
                     accessible-action-default => {
                         if (!root.busy) {
@@ -233,8 +233,8 @@ export component AccountSetupPanel inherits Rectangle {
 
                     Text {
                         text: root.busy
-                            ? "Recherche…"
-                            : (root.manual ? "Enregistrer" : "Ajouter");
+                            ? "Looking up…"
+                            : (root.manual ? "Save" : "Add");
                         font-size: Tokens.size-small;
                         font-weight: Tokens.weight-bold;
                         color: Tokens.accent-text;

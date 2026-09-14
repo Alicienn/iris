@@ -198,7 +198,7 @@ impl SecretStore for EncryptedVault {
     }
 
     fn backend(&self) -> &'static str {
-        "coffre chiffré"
+        "encrypted vault"
     }
 }
 

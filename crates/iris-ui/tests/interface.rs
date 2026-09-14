@@ -108,7 +108,7 @@ fn une_conversation_s_annonce_par_qui_ecrit_de_quoi_et_quand() {
     );
     assert_eq!(
         element.accessible_description().map(|d| d.to_string()),
-        Some("Non lu".into())
+        Some("Unread".into())
     );
 }
 
@@ -119,7 +119,7 @@ fn une_conversation_lue_le_dit() {
     let element = par_libelle(&f, "Marie, Devis, 12:30").unwrap();
     assert_eq!(
         element.accessible_description().map(|d| d.to_string()),
-        Some("Lu".into())
+        Some("Read".into())
     );
 }
 
@@ -172,7 +172,7 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
     let dit_vide = textes
         .iter()
         .filter_map(|t| t.accessible_label())
-        .any(|l| l.contains("Rien à traiter"));
+        .any(|l| l.contains("Nothing to do"));
     assert!(
         !dit_vide,
         "l'application ne doit rien affirmer avant d'avoir lu"
@@ -186,9 +186,9 @@ fn les_trois_files_sont_annoncees_avec_leur_compte() {
     f.set_counts(modele(vec![12, 3, 40]));
 
     let onglets = libelles(&f, testing::AccessibleRole::Tab);
-    assert_eq!(onglets, ["À traiter", "En attente", "Traité"]);
+    assert_eq!(onglets, ["To do", "Waiting", "Done"]);
 
-    let a_traiter = par_libelle(&f, "À traiter").unwrap();
+    let a_traiter = par_libelle(&f, "To do").unwrap();
     assert_eq!(
         a_traiter.accessible_description().map(|d| d.to_string()),
         Some("12 conversations".into())
@@ -203,7 +203,7 @@ fn actionner_un_onglet_change_de_file() {
         f.on_tab_selected(move |i| choisi.borrow_mut().push(i));
     }
 
-    par_libelle(&f, "En attente")
+    par_libelle(&f, "Waiting")
         .unwrap()
         .invoke_accessible_default_action();
     assert_eq!(*choisi.borrow(), [1]);
@@ -214,15 +214,11 @@ fn l_onglet_actif_est_annonce_comme_selectionne() {
     f.set_active_tab(2);
 
     assert_eq!(
-        par_libelle(&f, "Traité")
-            .unwrap()
-            .accessible_item_selected(),
+        par_libelle(&f, "Done").unwrap().accessible_item_selected(),
         Some(true)
     );
     assert_eq!(
-        par_libelle(&f, "À traiter")
-            .unwrap()
-            .accessible_item_selected(),
+        par_libelle(&f, "To do").unwrap().accessible_item_selected(),
         Some(false)
     );
 }
@@ -252,7 +248,7 @@ fn quitter_la_recherche_est_atteignable() {
         f.on_search_cleared(move || *quitte.borrow_mut() += 1);
     }
 
-    par_libelle(&f, "Quitter la recherche")
+    par_libelle(&f, "Leave search")
         .expect("le bouton de sortie doit exister")
         .invoke_accessible_default_action();
 
@@ -262,12 +258,12 @@ fn quitter_la_recherche_est_atteignable() {
 
 fn le_bouton_de_sortie_n_existe_pas_hors_recherche() {
     let f = fenetre();
-    assert!(par_libelle(&f, "Quitter la recherche").is_none());
+    assert!(par_libelle(&f, "Leave search").is_none());
 }
 
 fn la_barre_de_recherche_est_nommee() {
     let f = fenetre();
-    assert!(par_libelle(&f, "Rechercher").is_some());
+    assert!(par_libelle(&f, "Search").is_some());
 }
 
 // --- Les comptes ---
@@ -281,7 +277,7 @@ fn un_compte_en_panne_le_dit_a_voix_haute() {
     let ligne = par_libelle(&f, "moi@exemple.fr").unwrap();
     assert_eq!(
         ligne.accessible_description().map(|d| d.to_string()),
-        Some("En pause après des échecs répétés".into())
+        Some("Paused after repeated failures".into())
     );
 }
 
@@ -292,7 +288,7 @@ fn un_compte_sain_annonce_ce_qu_il_reste_a_traiter() {
     let ligne = par_libelle(&f, "moi@exemple.fr").unwrap();
     assert_eq!(
         ligne.accessible_description().map(|d| d.to_string()),
-        Some("12 à traiter".into())
+        Some("12 to do".into())
     );
 }
 
@@ -308,7 +304,7 @@ fn la_reprise_d_un_compte_en_panne_est_un_bouton() {
         f.on_resume_account(move |id| repris.borrow_mut().push(id));
     }
 
-    par_libelle(&f, "Réessayer casse@exemple.fr")
+    par_libelle(&f, "Retry casse@exemple.fr")
         .expect("le marqueur doit être actionnable")
         .invoke_accessible_default_action();
 
@@ -318,14 +314,14 @@ fn la_reprise_d_un_compte_en_panne_est_un_bouton() {
 fn un_compte_sain_n_offre_pas_de_reprise() {
     let f = fenetre();
     f.set_other_accounts(modele(vec![compte(3, "sain@exemple.fr", 0, false)]));
-    assert!(par_libelle(&f, "Réessayer sain@exemple.fr").is_none());
+    assert!(par_libelle(&f, "Retry sain@exemple.fr").is_none());
 }
 
 fn ajouter_un_compte_est_atteignable_depuis_la_barre_laterale() {
     let f = fenetre();
     assert!(!f.get_add_account_open());
 
-    par_libelle(&f, "Ajouter un compte")
+    par_libelle(&f, "Add an account")
         .expect("le bouton d'ajout doit exister")
         .invoke_accessible_default_action();
 
@@ -351,7 +347,7 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
         f.on_save_attachment(move |i| enregistres.borrow_mut().push(i));
     }
 
-    par_libelle(&f, "Enregistrer plan.png")
+    par_libelle(&f, "Save plan.png")
         .expect("la pastille doit être un bouton")
         .invoke_accessible_default_action();
 
@@ -367,17 +363,17 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
 fn les_reglages_n_existent_pas_avant_d_etre_ouverts() {
     // Un panneau construit en permanence coûterait sa mise en page à chaque frame.
     let f = fenetre();
-    assert!(par_libelle(&f, "Fermer les réglages").is_none());
+    assert!(par_libelle(&f, "Close settings").is_none());
 
     f.set_settings_open(true);
-    assert!(par_libelle(&f, "Fermer les réglages").is_some());
+    assert!(par_libelle(&f, "Close settings").is_some());
 }
 
 fn fermer_les_reglages_les_ferme() {
     let f = fenetre();
     f.set_settings_open(true);
 
-    par_libelle(&f, "Fermer les réglages")
+    par_libelle(&f, "Close settings")
         .unwrap()
         .invoke_accessible_default_action();
     assert!(!f.get_settings_open());
@@ -389,13 +385,13 @@ fn les_densites_sont_proposees_et_la_courante_est_marquee() {
     f.set_density(0);
 
     assert_eq!(
-        par_libelle(&f, "Compacte")
+        par_libelle(&f, "Compact")
             .unwrap()
             .accessible_item_selected(),
         Some(true)
     );
     assert_eq!(
-        par_libelle(&f, "Normale")
+        par_libelle(&f, "Normal")
             .unwrap()
             .accessible_item_selected(),
         Some(false)
@@ -412,7 +408,7 @@ fn changer_de_densite_est_rapporte() {
         f.on_density_chosen(move |i| choisi.borrow_mut().push(i));
     }
 
-    par_libelle(&f, "Confortable")
+    par_libelle(&f, "Comfortable")
         .unwrap()
         .invoke_accessible_default_action();
     assert_eq!(*choisi.borrow(), [2]);
@@ -430,7 +426,7 @@ fn l_ecran_d_ajout_propose_la_porte_de_secours_avant_l_echec() {
         f.on_add_account_manual_requested(move || *demande.borrow_mut() += 1);
     }
 
-    par_libelle(&f, "Configurer à la main")
+    par_libelle(&f, "Configure manually")
         .expect("la porte de secours doit être visible d'emblée")
         .invoke_accessible_default_action();
     assert_eq!(*demande.borrow(), 1);
@@ -441,9 +437,9 @@ fn la_porte_de_secours_disparait_une_fois_franchie() {
     f.set_add_account_open(true);
     f.set_add_account_manual(true);
 
-    assert!(par_libelle(&f, "Configurer à la main").is_none());
+    assert!(par_libelle(&f, "Configure manually").is_none());
     assert!(
-        par_libelle(&f, "Serveur IMAP").is_some(),
+        par_libelle(&f, "IMAP server").is_some(),
         "les champs prennent sa place"
     );
 }
@@ -451,10 +447,10 @@ fn la_porte_de_secours_disparait_une_fois_franchie() {
 fn le_bouton_d_ajout_change_de_nom_selon_le_mode() {
     let f = fenetre();
     f.set_add_account_open(true);
-    assert!(par_libelle(&f, "Ajouter").is_some());
+    assert!(par_libelle(&f, "Add").is_some());
 
     f.set_add_account_manual(true);
-    assert!(par_libelle(&f, "Enregistrer").is_some());
+    assert!(par_libelle(&f, "Save").is_some());
 }
 
 fn pendant_la_recherche_de_configuration_le_bouton_est_inactif() {
@@ -463,7 +459,7 @@ fn pendant_la_recherche_de_configuration_le_bouton_est_inactif() {
     f.set_add_account_open(true);
     f.set_add_account_busy(true);
 
-    let bouton = par_libelle(&f, "Ajouter").unwrap();
+    let bouton = par_libelle(&f, "Add").unwrap();
     assert_eq!(bouton.accessible_enabled(), Some(false));
 }
 
@@ -473,8 +469,8 @@ fn les_champs_de_l_ecran_d_ajout_sont_nommes() {
     let f = fenetre();
     f.set_add_account_open(true);
 
-    assert!(par_libelle(&f, "Adresse").is_some());
-    assert!(par_libelle(&f, "Mot de passe").is_some());
+    assert!(par_libelle(&f, "Email address").is_some());
+    assert!(par_libelle(&f, "Password").is_some());
 }
 
 // --- Ce qui doit rester vrai partout ---
@@ -649,7 +645,7 @@ fn main() {
         match resultat {
             Ok(()) => println!("ok    {nom}"),
             Err(_) => {
-                println!("ÉCHEC {nom}");
+                println!("FAIL  {nom}");
                 echecs.push(nom);
             }
         }
@@ -657,9 +653,9 @@ fn main() {
 
     println!();
     if echecs.is_empty() {
-        println!("interface : {total} scénarios, aucun échec");
+        println!("interface: {total} scenarios, no failures");
     } else {
-        println!("interface : {} échec(s) sur {total}", echecs.len());
+        println!("interface: {} failure(s) out of {total}", echecs.len());
         for nom in &echecs {
             println!("  - {nom}");
         }

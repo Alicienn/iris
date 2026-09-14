@@ -104,13 +104,13 @@ fn message_suspension(
     // laisse pas pour autant l'utilisateur sans message.
     let combien = noms.len().max(suspendus.len());
     let qui = match noms.len() {
-        0 => format!("{combien} compte{}", if combien > 1 { "s" } else { "" }),
+        0 => format!("{combien} account{}", if combien > 1 { "s" } else { "" }),
         1..=3 => noms.join(", "),
-        n => format!("{n} comptes"),
+        n => format!("{n} accounts"),
     };
 
     Some(format!(
-        "{qui} en pause après des échecs répétés — cliquez sur le « ! » pour réessayer."
+        "{qui} paused after repeated failures — click the \"!\" to try again."
     ))
 }
 
@@ -126,7 +126,7 @@ pub fn wire_account_recovery(
             return;
         };
         let compte = iris_types::AccountId(id as i64);
-        fenetre.set_status("Nouvelle tentative…".into());
+        fenetre.set_status("Trying again…".into());
 
         let engine = Arc::clone(&engine);
         runtime.spawn(async move {
@@ -656,7 +656,7 @@ pub fn wire_reply(
                 Ok(m) => m,
                 Err(e) => {
                     tracing::warn!(erreur = %e, "composition de la réponse");
-                    fenetre.set_status(format!("Réponse impossible : {e}").into());
+                    fenetre.set_status(format!("Cannot reply: {e}").into());
                     return;
                 }
             };
@@ -670,7 +670,7 @@ pub fn wire_reply(
                     fenetre.set_undo_seconds(send.status().delay_secs as i32);
                     fenetre.set_reply_text(Default::default());
                 }
-                Err(e) => fenetre.set_status(format!("Envoi refusé : {e}").into()),
+                Err(e) => fenetre.set_status(format!("Send refused: {e}").into()),
             }
         });
     }
@@ -689,12 +689,12 @@ pub fn wire_reply(
             match handle.map(|h| send.cancel(h)) {
                 Some(true) => {
                     fenetre.set_sending(false);
-                    fenetre.set_status("Envoi annulé.".into());
+                    fenetre.set_status("Send cancelled.".into());
                 }
                 // Déjà parti : le dire franchement plutôt que faire semblant.
                 Some(false) => {
                     fenetre.set_sending(false);
-                    fenetre.set_status("Trop tard : le message est parti.".into());
+                    fenetre.set_status("Too late — the message has gone.".into());
                 }
                 None => fenetre.set_sending(false),
             }
@@ -767,7 +767,7 @@ pub fn wire_settings(
                     // Un thème qui refuse de se charger laisse l'ancien en place :
                     // mieux vaut l'apparence précédente qu'un écran à moitié peint.
                     tracing::warn!(theme = %nom, erreur = %e, "thème refusé");
-                    fenetre.set_status(format!("Thème « {nom} » illisible.").into());
+                    fenetre.set_status(format!("Theme \"{nom}\" could not be read.").into());
                     return;
                 }
             };
@@ -936,7 +936,7 @@ pub fn wire_account_setup(
                         // qu'il lui faut à cet instant, ce sont les champs.
                         Err(e) => {
                             fenetre.set_add_account_error(
-                                format!("Configuration introuvable : {e}").into(),
+                                format!("No configuration found: {e}").into(),
                             );
                             prefill_manual(&fenetre);
                         }
@@ -990,7 +990,7 @@ pub fn wire_account_setup(
                     fenetre.set_add_account_error(Default::default());
                     fenetre.set_new_email(Default::default());
                     fenetre.set_new_password(Default::default());
-                    fenetre.set_status(format!("{} ajouté.", config.email).into());
+                    fenetre.set_status(format!("{} added.", config.email).into());
                     refresh_accounts(&fenetre, &services_ui, &[]);
                     controller.send(Request::Bootstrap);
 
@@ -1001,7 +1001,9 @@ pub fn wire_account_setup(
                         }
                     });
                 }
-                Err(e) => fenetre.set_add_account_error(format!("Ajout refusé : {e}").into()),
+                Err(e) => {
+                    fenetre.set_add_account_error(format!("Could not add the account: {e}").into())
+                }
             }
         });
     }
@@ -1055,9 +1057,7 @@ async fn ajouter(
         }
         None => {
             if motdepasse.is_empty() {
-                return Err(iris_types::Error::Config(
-                    "Le mot de passe est vide.".into(),
-                ));
+                return Err(iris_types::Error::Config("The password is empty.".into()));
             }
             if store.account_by_email(&config.email)?.is_some() {
                 return Err(iris_types::Error::Config(format!(
@@ -1090,9 +1090,7 @@ fn prefill_manual(fenetre: &AppWindow) {
     let defauts = crate::accounts::manual_defaults(fenetre.get_new_email().as_str());
 
     fenetre.set_add_account_manual(true);
-    fenetre.set_add_account_hint(
-        "Vérifiez les serveurs : ils sont proposés d'après votre domaine.".into(),
-    );
+    fenetre.set_add_account_hint("Check the servers — they are guessed from your domain.".into());
     // Ce que l'utilisateur a déjà tapé n'est pas écrasé : une bascule qui efface la
     // saisie punit celui qui avait deviné juste.
     if fenetre.get_new_imap_host().is_empty() {
@@ -1108,7 +1106,7 @@ fn prefill_manual(fenetre: &AppWindow) {
 /// Vérifie l'adresse, sans réseau.
 fn valider_adresse(email: &str) -> std::result::Result<(), String> {
     if !email.contains('@') || email.trim().len() < 3 {
-        return Err("Cette adresse ne ressemble pas à une adresse électronique.".into());
+        return Err("That does not look like an email address.".into());
     }
     Ok(())
 }
@@ -1117,7 +1115,7 @@ fn valider_adresse(email: &str) -> std::result::Result<(), String> {
 fn valider_saisie(email: &str, motdepasse: &str) -> std::result::Result<(), String> {
     valider_adresse(email)?;
     if motdepasse.is_empty() {
-        return Err("Le mot de passe est vide.".into());
+        return Err("The password is empty.".into());
     }
     Ok(())
 }
@@ -1133,13 +1131,13 @@ fn config_saisie(
             .parse::<u16>()
             .ok()
             .filter(|p| *p > 0)
-            .ok_or_else(|| format!("Le port {quoi} n'est pas un nombre valide."))
+            .ok_or_else(|| format!("The {quoi} port is not a valid number."))
     };
 
     let imap_host = fenetre.get_new_imap_host().trim().to_string();
     let smtp_host = fenetre.get_new_smtp_host().trim().to_string();
     if imap_host.is_empty() || smtp_host.is_empty() {
-        return Err("Les deux serveurs sont nécessaires.".into());
+        return Err("Both servers are required.".into());
     }
 
     let transport = |chiffre: bool| {
@@ -1187,8 +1185,8 @@ pub fn wire_attachments(
         };
 
         match enregistrer_piece(&services, thread, rang as usize) {
-            Ok(chemin) => fenetre.set_status(format!("Enregistré : {}", chemin.display()).into()),
-            Err(e) => fenetre.set_status(format!("Enregistrement impossible : {e}").into()),
+            Ok(chemin) => fenetre.set_status(format!("Saved to {}", chemin.display()).into()),
+            Err(e) => fenetre.set_status(format!("Could not save: {e}").into()),
         }
     });
 }
@@ -1354,8 +1352,8 @@ mod tests {
     fn un_compte_suspendu_est_nomme() {
         let comptes = vec![compte(1, "a@x.fr"), compte(2, "b@x.fr")];
         let message = message_suspension(&comptes, &ensemble(&[2])).unwrap();
-        assert!(message.starts_with("b@x.fr en pause"));
-        assert!(message.contains("réessayer"));
+        assert!(message.starts_with("b@x.fr paused"));
+        assert!(message.contains("try again"));
     }
 
     #[test]
@@ -1363,20 +1361,14 @@ mod tests {
         // Une liste de quarante adresses dans une barre d'état n'informe personne.
         let comptes: Vec<_> = (1..=5).map(|i| compte(i, &format!("c{i}@x.fr"))).collect();
         let message = message_suspension(&comptes, &ensemble(&[1, 2, 3, 4, 5])).unwrap();
-        assert!(
-            message.starts_with("5 comptes en pause"),
-            "obtenu : {message}"
-        );
+        assert!(message.starts_with("5 accounts paused"), "got: {message}");
     }
 
     #[test]
     fn un_compte_suspendu_inconnu_du_store_est_quand_meme_signale() {
         // Sinon la panne resterait muette au moment où elle est la plus étrange.
         let message = message_suspension(&[], &ensemble(&[7])).unwrap();
-        assert!(
-            message.starts_with("1 compte en pause"),
-            "obtenu : {message}"
-        );
+        assert!(message.starts_with("1 account paused"), "got: {message}");
     }
 
     #[test]
@@ -1483,7 +1475,7 @@ mod tests {
     #[test]
     fn un_mot_de_passe_vide_est_refuse() {
         let erreur = valider_saisie("bob@exemple.fr", "").unwrap_err();
-        assert!(erreur.contains("mot de passe"));
+        assert!(erreur.contains("password"));
     }
 
     #[test]

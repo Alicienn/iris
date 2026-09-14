@@ -128,8 +128,8 @@ component RemoteContentBanner inherits Rectangle {
 
         Text {
             text: root.has-tracker
-                ? "Cet expéditeur cherche à savoir quand vous lisez ce message."
-                : root.blocked-images + " image(s) distante(s) bloquée(s).";
+                ? "This sender is trying to learn when you read this message."
+                : root.blocked-images + " remote image(s) blocked.";
             font-size: Tokens.size-small;
             color: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
             vertical-alignment: center;
@@ -139,7 +139,7 @@ component RemoteContentBanner inherits Rectangle {
         Rectangle {}
 
         Button {
-            text: "Afficher";
+            text: "Show";
             clicked => { root.load-images(); }
         }
     }
@@ -163,7 +163,7 @@ export component ConversationView inherits VerticalLayout {
         VerticalLayout {
             alignment: center;
             Text {
-                text: "Aucune conversation sélectionnée.";
+                text: "No conversation selected.";
                 color: Tokens.text-muted;
                 font-size: Tokens.size-body;
                 horizontal-alignment: center;
@@ -246,7 +246,7 @@ export component ConversationView inherits VerticalLayout {
                 animate background { duration: Tokens.instant; }
 
                 accessible-role: button;
-                accessible-label: "Enregistrer " + name;
+                accessible-label: "Save " + name;
                 accessible-action-default => { root.save-attachment(i); }
 
                 HorizontalLayout {
@@ -288,9 +288,9 @@ export component ConversationView inherits VerticalLayout {
                 spacing: Tokens.space-2;
 
                 TextEdit {
-                    accessible-label: "Votre réponse";
+                    accessible-label: "Your reply";
                     text <=> root.reply-text;
-                    placeholder-text: "Répondre…";
+                    placeholder-text: "Reply…";
                     font-size: Tokens.size-body;
                 }
 
@@ -301,18 +301,18 @@ export component ConversationView inherits VerticalLayout {
                     // bouton d'annulation : c'est le même endroit à l'écran, donc le
                     // geste de rattrapage est immédiat.
                     if root.sending: Button {
-                        text: "Annuler l'envoi (" + root.undo-seconds + " s)";
+                        text: "Undo send (" + root.undo-seconds + " s)";
                         clicked => { root.cancel-send(); }
                     }
                     if !root.sending: Button {
-                        text: "Envoyer";
+                        text: "Send";
                         primary: true;
                         enabled: root.reply-text != "";
                         clicked => { root.send(); }
                     }
 
                     Button {
-                        text: "Répondre à tous";
+                        text: "Reply all";
                         enabled: !root.sending;
                         clicked => { root.reply-all(); }
                     }

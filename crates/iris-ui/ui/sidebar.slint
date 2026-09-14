@@ -28,8 +28,8 @@ component AccountRow inherits Rectangle {
     // Le compte en panne le dit dans sa description : un lecteur d'écran ne voit
     // pas le point d'exclamation, et c'est précisément l'information qui presse.
     accessible-description: root.account.needs-attention
-        ? "En pause après des échecs répétés"
-        : root.account.count + " à traiter";
+        ? "Paused after repeated failures"
+        : root.account.count + " to do";
     accessible-item-selected: root.selected;
     accessible-item-selectable: true;
     accessible-action-default => { root.clicked(); }
@@ -70,7 +70,7 @@ component AccountRow inherits Rectangle {
             background: reprise.has-hover ? Tokens.surface-hover : transparent;
 
             accessible-role: button;
-            accessible-label: "Réessayer " + root.account.label;
+            accessible-label: "Retry " + root.account.label;
             accessible-action-default => { root.resume(); }
 
             Text {
@@ -128,8 +128,8 @@ export component Sidebar inherits Glass {
             spacing: Tokens.space-1;
 
             LineEdit {
-                accessible-label: "Filtrer les comptes";
-                placeholder-text: "Filtrer les comptes…";
+                accessible-label: "Filter accounts";
+                placeholder-text: "Filter accounts…";
                 font-size: Tokens.size-small;
                 text <=> root.filter;
             }
@@ -142,7 +142,7 @@ export component Sidebar inherits Glass {
                 background: ajout.has-hover ? Tokens.surface-hover : Tokens.surface;
 
                 accessible-role: button;
-                accessible-label: "Ajouter un compte";
+                accessible-label: "Add an account";
                 accessible-action-default => { root.add-account(); }
 
                 Text {
@@ -159,12 +159,12 @@ export component Sidebar inherits Glass {
             }
         }
 
-        SectionLabel { text: "TOUS COMPTES"; }
+        SectionLabel { text: "UNIFIED"; }
 
         AccountRow {
             account: {
                 id: 0,
-                label: "Unifié",
+                label: "All accounts",
                 count: root.unified-count,
                 pinned: false,
                 needs-attention: false,
@@ -174,7 +174,7 @@ export component Sidebar inherits Glass {
             clicked => { root.unified-selected(); }
         }
 
-        if root.pinned.length > 0: SectionLabel { text: "ÉPINGLÉS"; }
+        if root.pinned.length > 0: SectionLabel { text: "PINNED"; }
 
         for account in root.pinned: AccountRow {
             account: account;
@@ -183,7 +183,7 @@ export component Sidebar inherits Glass {
             resume => { root.resume-account(account.id); }
         }
 
-        if root.others.length > 0: SectionLabel { text: "COMPTES"; }
+        if root.others.length > 0: SectionLabel { text: "ACCOUNTS"; }
 
         // La liste des autres comptes est virtualisée : cent lignes ne doivent pas
         // coûter cent éléments vivants.

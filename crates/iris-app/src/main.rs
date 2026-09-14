@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("iris : {e}");
+        eprintln!("iris: {e}");
         std::process::exit(1);
     }
 }
@@ -36,7 +36,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         autre => {
-            eprintln!("commande inconnue : « {autre} »\n");
+            eprintln!("unknown command: \"{autre}\"\n");
             print_help();
             std::process::exit(2);
         }
@@ -45,17 +45,17 @@ fn run() -> Result<()> {
 
 fn print_help() {
     println!(
-        "Iris — client de messagerie\n\
+        "Iris — a mail client\n\
          \n\
-         Usage :\n\
-         \x20 iris [run]                     Lance l'application\n\
-         \x20 iris add-account <adresse>     Ajoute un compte (mot de passe demandé)\n\
-         \x20 iris import <fichier>          Ajoute des comptes en lot\n\
-         \x20 iris accounts                  Liste les comptes configurés\n\
-         \x20 iris sync                      Synchronise une fois, sans interface\n\
-         \x20 iris doctor                    Vérifie l'installation\n\
+         Usage:\n\
+         \x20 iris [run]                     Start the application\n\
+         \x20 iris add-account <address>     Add an account (prompts for the password)\n\
+         \x20 iris import <file>             Add accounts in bulk\n\
+         \x20 iris accounts                  List configured accounts\n\
+         \x20 iris sync                      Synchronise once, without the interface\n\
+         \x20 iris doctor                    Check the installation\n\
          \n\
-         Format d'import : une ligne par compte, « adresse;mot de passe;groupe ».\n"
+         Import format: one line per account, \"address;password;group\".\n"
     );
 }
 
@@ -117,7 +117,7 @@ fn cmd_add_account(args: &[String]) -> Result<()> {
         now(),
     ))?;
 
-    println!("Compte ajouté : {}", ajoute.email);
+    println!("Account added: {}", ajoute.email);
     println!(
         "  IMAP  {}:{}\n  SMTP  {}:{}\n  Source : {}",
         ajoute.config.imap_host,
@@ -149,7 +149,7 @@ fn cmd_import(args: &[String]) -> Result<()> {
     let (entrees, erreurs) = accounts::parse_bulk(&contenu);
 
     for e in &erreurs {
-        eprintln!("  ignoré : {e}");
+        eprintln!("  skipped: {e}");
     }
     if entrees.is_empty() {
         return Err(iris_types::Error::Config(
@@ -157,7 +157,7 @@ fn cmd_import(args: &[String]) -> Result<()> {
         ));
     }
 
-    println!("{} compte(s) à ajouter…", entrees.len());
+    println!("{} account(s) to add…", entrees.len());
     let services = open_services()?;
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
@@ -173,7 +173,7 @@ fn cmd_import(args: &[String]) -> Result<()> {
         println!("  ✓ {}", compte.email);
     }
     for (adresse, raison) in &rapport.failed {
-        println!("  ✗ {adresse} : {raison}");
+        println!("  ✗ {adresse}: {raison}");
     }
     println!("\n{}", rapport.summary());
     Ok(())
@@ -184,7 +184,7 @@ fn cmd_list_accounts() -> Result<()> {
     let comptes = services.store.accounts()?;
 
     if comptes.is_empty() {
-        println!("Aucun compte configuré. « iris add-account <adresse> » pour commencer.");
+        println!("No accounts configured. Run \"iris add-account <address>\" to begin.");
         return Ok(());
     }
 
@@ -206,7 +206,7 @@ fn cmd_sync() -> Result<()> {
 
     runtime.block_on(async {
         let inscrits = services.engine.load_accounts(now()).await?;
-        println!("{inscrits} compte(s) à synchroniser…");
+        println!("{inscrits} account(s) to synchronise…");
 
         let rapport = services.engine.tick(now()).await;
         println!(
@@ -214,7 +214,7 @@ fn cmd_sync() -> Result<()> {
             rapport.accounts_synced, rapport.messages_added, rapport.flags_updated
         );
         for (compte, erreur) in &rapport.failures {
-            println!("  ✗ compte {compte} : {erreur}");
+            println!("  ✗ account {compte}: {erreur}");
         }
         Ok::<(), iris_types::Error>(())
     })?;
@@ -224,15 +224,15 @@ fn cmd_sync() -> Result<()> {
 
 fn cmd_doctor() -> Result<()> {
     let chemins = Paths::system()?;
-    println!("Emplacements");
-    println!("  données        {}", chemins.data.display());
+    println!("Locations");
+    println!("  data           {}", chemins.data.display());
     println!("  cache          {}", chemins.cache.display());
-    println!("  configuration  {}", chemins.config.display());
+    println!("  config         {}", chemins.config.display());
 
     let services = open_services()?;
     println!("\nServices");
     println!(
-        "  base           schéma {}",
+        "  database       schema {}",
         services.store.schema_version()?
     );
     println!("  secrets        {}", services.secrets_backend());
@@ -241,16 +241,16 @@ fn cmd_doctor() -> Result<()> {
         services.index.document_count()
     );
     println!(
-        "  contenus       {} objet(s)",
+        "  blobs          {} object(s)",
         services.blobs.stats()?.count
     );
-    println!("  thèmes         {}", services.themes.names().join(", "));
+    println!("  themes         {}", services.themes.names().join(", "));
 
     let comptes = services.store.accounts()?;
-    println!("\nComptes         {}", comptes.len());
+    println!("\nAccounts        {}", comptes.len());
     println!("Messages        {}", services.store.message_count()?);
     println!(
-        "En attente      {} opération(s)",
+        "Pending         {} operation(s)",
         services.store.pending_op_count()?
     );
 
@@ -336,12 +336,12 @@ impl iris_sync::SendContext for SendTracker {
     fn finished(&self, handle: iris_smtp::SendHandle, outcome: Result<iris_sync::SentOutcome>) {
         match outcome {
             Ok(bilan) => tracing::info!(
-                envoi = handle.0,
-                archive = bilan.archived,
-                en_attente = bilan.moved_to_waiting,
-                "message envoyé"
+                send = handle.0,
+                archived = bilan.archived,
+                waiting = bilan.moved_to_waiting,
+                "message sent"
             ),
-            Err(e) => tracing::warn!(envoi = handle.0, erreur = %e, "envoi en échec"),
+            Err(e) => tracing::warn!(send = handle.0, error = %e, "send failed"),
         }
         if let Ok(mut e) = self.entries.lock() {
             e.remove(&handle);
@@ -371,7 +371,7 @@ fn run_gui() -> Result<()> {
     if let Ok(theme) = services.themes.set_active(&reglages.theme) {
         let _ = theme;
     } else {
-        tracing::warn!(theme = %reglages.theme, "thème introuvable, retour au thème par défaut");
+        tracing::warn!(theme = %reglages.theme, "theme not found, falling back to the default");
     }
 
     let fenetre = shell::build(&services)?;
@@ -457,7 +457,7 @@ fn run_gui() -> Result<()> {
         }
         // Sans compte configuré, il n'y a rien à envoyer : l'application reste
         // parfaitement utilisable pour lire.
-        Err(e) => tracing::info!(raison = %e, "envoi indisponible"),
+        Err(e) => tracing::info!(reason = %e, "sending unavailable"),
     }
 
     controller.send(Request::Bootstrap);
@@ -498,7 +498,7 @@ fn run_gui() -> Result<()> {
                 // atteignable depuis la palette, sans redémarrage.
                 if let iris_app::plugins::PluginEffect::Command { plugin, spec } = &effet {
                     if carnet_effets.add_plugin(plugin, spec).is_none() {
-                        tracing::warn!(plugin = %plugin, "commande de plugin invalide");
+                        tracing::warn!(plugin = %plugin, "invalid plugin command");
                     }
                 }
 
@@ -523,7 +523,7 @@ fn run_gui() -> Result<()> {
             {
                 let service = Arc::clone(&service);
                 carnet.set_sink(move |plugin, spec| {
-                    tracing::info!(plugin = %plugin, "commande de plugin invoquée");
+                    tracing::info!(plugin = %plugin, "plugin command invoked");
                     service.invoke(spec, None);
                 });
             }
@@ -543,17 +543,17 @@ fn run_gui() -> Result<()> {
         let faible = fenetre.as_weak();
         runtime.spawn(async move {
             if let Err(e) = engine.load_accounts(now()).await {
-                tracing::error!(erreur = %e, "chargement des comptes");
+                tracing::error!(error = %e, "loading accounts");
             }
             loop {
                 // Le travail que fait le temps précède celui du réseau : un report
                 // échu doit réapparaître même quand le serveur est injoignable.
                 match engine.run_maintenance(now()) {
                     Ok(m) if m.changed() => {
-                        tracing::info!(reveilles = m.woken, relances = m.followed_up, "échéances")
+                        tracing::info!(woken = m.woken, followed_up = m.followed_up, "due work")
                     }
                     Ok(_) => {}
-                    Err(e) => tracing::warn!(erreur = %e, "échéances"),
+                    Err(e) => tracing::warn!(error = %e, "due work"),
                 }
 
                 // « En cours » est allumé pendant le tour, éteint après : sans ce
@@ -565,8 +565,8 @@ fn run_gui() -> Result<()> {
 
                 if rapport.changed() {
                     tracing::info!(
-                        ajoutes = rapport.messages_added,
-                        drapeaux = rapport.flags_updated,
+                        added = rapport.messages_added,
+                        flags = rapport.flags_updated,
                         "synchronisation"
                     );
                 }

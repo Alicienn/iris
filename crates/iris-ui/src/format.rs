@@ -25,7 +25,7 @@ pub fn relative_date(date: Timestamp, now: Timestamp) -> String {
 
     match jours {
         0 => time_of_day(date),
-        1 => "hier".to_string(),
+        1 => "Yesterday".to_string(),
         2..=6 => weekday(date).to_string(),
         _ => absolute_date(date),
     }
@@ -36,21 +36,26 @@ fn time_of_day(t: Timestamp) -> String {
     format!("{:02}:{:02}", reste / 3600, (reste % 3600) / 60)
 }
 
-/// Jour de la semaine. Le 1ᵉʳ janvier 1970 était un jeudi.
+/// Day of the week. 1 January 1970 was a Thursday.
 fn weekday(t: Timestamp) -> &'static str {
-    const JOURS: [&str; 7] = [
-        "jeudi", "vendredi", "samedi", "dimanche", "lundi", "mardi", "mercredi",
+    const DAYS: [&str; 7] = [
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
     ];
-    JOURS[t.seconds().div_euclid(86_400).rem_euclid(7) as usize]
+    DAYS[t.seconds().div_euclid(86_400).rem_euclid(7) as usize]
 }
 
 fn absolute_date(t: Timestamp) -> String {
-    const MOIS: [&str; 12] = [
-        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
-        "déc.",
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
-    let (annee, mois, jour) = civil_from_days(t.seconds().div_euclid(86_400));
-    format!("{jour} {} {annee}", MOIS[(mois - 1) as usize])
+    let (year, month, day) = civil_from_days(t.seconds().div_euclid(86_400));
+    format!("{} {day}, {year}", MONTHS[(month - 1) as usize])
 }
 
 /// Conversion jours depuis l'époque → date civile (algorithme de Howard Hinnant).
@@ -153,19 +158,19 @@ mod tests {
 
     #[test]
     fn hier_est_nomme() {
-        assert_eq!(relative_date(il_y_a(86_400), now()), "hier");
+        assert_eq!(relative_date(il_y_a(86_400), now()), "Yesterday");
     }
 
     #[test]
     fn la_semaine_ecoulee_affiche_le_jour() {
         let d = relative_date(il_y_a(3 * 86_400), now());
-        assert_eq!(d, "samedi");
+        assert_eq!(d, "Saturday");
     }
 
     #[test]
     fn au_dela_la_date_est_absolue() {
         let d = relative_date(il_y_a(30 * 86_400), now());
-        assert_eq!(d, "15 oct. 2023");
+        assert_eq!(d, "Oct 15, 2023");
     }
 
     #[test]
@@ -179,9 +184,9 @@ mod tests {
 
     #[test]
     fn les_jours_de_la_semaine_sont_corrects() {
-        // 1ᵉʳ janvier 1970 : un jeudi.
-        assert_eq!(weekday(Timestamp::from_millis(0)), "jeudi");
-        assert_eq!(weekday(Timestamp::from_millis(86_400_000)), "vendredi");
+        // 1 January 1970 was a Thursday.
+        assert_eq!(weekday(Timestamp::from_millis(0)), "Thursday");
+        assert_eq!(weekday(Timestamp::from_millis(86_400_000)), "Friday");
     }
 
     #[test]

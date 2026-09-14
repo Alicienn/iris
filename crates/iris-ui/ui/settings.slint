@@ -124,7 +124,7 @@ export component SettingsPanel inherits Rectangle {
 
             HorizontalLayout {
                 Text {
-                    text: "Réglages";
+                    text: "Settings";
                     font-family: Tokens.font-family;
                     font-size: Tokens.size-title;
                     font-weight: Tokens.weight-bold;
@@ -140,7 +140,7 @@ export component SettingsPanel inherits Rectangle {
                     background: fermer.has-hover ? Tokens.surface-hover : transparent;
 
                     accessible-role: button;
-                    accessible-label: "Fermer les réglages";
+                    accessible-label: "Close settings";
                     accessible-action-default => { root.dismissed(); }
 
                     Text {
@@ -159,7 +159,7 @@ export component SettingsPanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Tokens.border; }
 
-            GroupLabel { text: "THÈME"; }
+            GroupLabel { text: "THEME"; }
 
             ChipRow {
                 options: root.themes;
@@ -167,33 +167,33 @@ export component SettingsPanel inherits Rectangle {
                 chosen(i) => { root.theme-chosen(i); }
             }
 
-            GroupLabel { text: "DENSITÉ DE LA LISTE"; }
+            GroupLabel { text: "LIST DENSITY"; }
 
             ChipRow {
-                options: ["Compacte", "Normale", "Confortable"];
+                options: ["Compact", "Normal", "Comfortable"];
                 selected: root.density;
                 chosen(i) => { root.density-chosen(i); }
             }
 
-            GroupLabel { text: "AUTOMATISMES"; }
+            GroupLabel { text: "AUTOMATIONS"; }
 
             SettingToggle {
-                label: "Répondre met le fil en attente";
-                hint: "Le fil quitte la file de travail et attend la réponse d'en face.";
+                label: "Replying marks the thread as waiting";
+                hint: "The thread leaves your queue and waits for the other side.";
                 value <=> root.reply-marks-waiting;
                 toggled => { root.automation-changed(); }
             }
 
             SettingToggle {
-                label: "Un nouveau message rouvre le fil";
-                hint: "Un fil traité qui reçoit une suite revient dans la file.";
+                label: "A new message reopens the thread";
+                hint: "A finished thread that gets a follow-up comes back to your queue.";
                 value <=> root.new-message-reopens;
                 toggled => { root.automation-changed(); }
             }
 
             SettingToggle {
-                label: "Relancer les fils sans réponse";
-                hint: "Un fil en attente trop longtemps revient de lui-même.";
+                label: "Follow up on unanswered threads";
+                hint: "A thread waiting too long comes back on its own.";
                 value <=> root.follow-up-enabled;
                 toggled => { root.automation-changed(); }
             }
@@ -202,7 +202,7 @@ export component SettingsPanel inherits Rectangle {
                 spacing: Tokens.space-2;
 
                 Text {
-                    text: "Après";
+                    text: "After";
                     font-size: Tokens.size-body;
                     color: Tokens.text-secondary;
                     vertical-alignment: center;
@@ -216,7 +216,7 @@ export component SettingsPanel inherits Rectangle {
                 }
 
                 Text {
-                    text: "jours";
+                    text: "days";
                     font-size: Tokens.size-body;
                     color: Tokens.text-secondary;
                     vertical-alignment: center;
@@ -228,7 +228,7 @@ export component SettingsPanel inherits Rectangle {
             Rectangle {}
 
             Text {
-                text: "Les réglages sont enregistrés au moment où vous les changez.";
+                text: "Settings are saved as you change them.";
                 font-size: Tokens.size-small;
                 color: Tokens.text-muted;
             }
