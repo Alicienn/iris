@@ -477,6 +477,12 @@ fn run_gui() -> Result<()> {
     )));
 
     shell::wire_window_controls(&fenetre);
+    shell::wire_sync(
+        &fenetre,
+        &services,
+        Arc::clone(&controller),
+        runtime.handle().clone(),
+    );
     let carnet = shell::wire_callbacks(
         &fenetre,
         Arc::clone(&controller),
@@ -531,11 +537,7 @@ fn run_gui() -> Result<()> {
         Arc::clone(&controller),
         runtime.handle().clone(),
     );
-    shell::wire_account_recovery(
-        &fenetre,
-        Arc::clone(&services.engine),
-        runtime.handle().clone(),
-    );
+    shell::wire_account_recovery(&fenetre, &services, runtime.handle().clone());
 
     // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
     // son carburant, pas une frame ni un tour de synchronisation.
@@ -652,6 +654,32 @@ fn run_gui() -> Result<()> {
     }
 
     // Réveil périodique de l'horloge : dates relatives et reports échus.
+    //
+    // The same timer carries the status bar's two live figures. They are cheap to
+    // read and neither justifies a thread of its own.
+    {
+        let faible_vitals = fenetre.as_weak();
+        let lecteur = Arc::new(std::sync::Mutex::new(iris_app::vitals::VitalsReader::new()));
+        let store_vitals = Arc::clone(&services.store);
+
+        runtime.spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                let derniere = store_vitals
+                    .accounts()
+                    .ok()
+                    .and_then(|c| c.iter().map(|a| a.last_activity_at).max())
+                    .filter(|t| t.millis() > 0);
+                let lecteur = Arc::clone(&lecteur);
+                let _ = faible_vitals.upgrade_in_event_loop(move |fenetre| {
+                    if let Ok(mut l) = lecteur.lock() {
+                        shell::refresh_vitals(&fenetre, &mut l, derniere);
+                    }
+                });
+            }
+        });
+    }
+
     {
         let controller_horloge = Arc::clone(&controller);
         runtime.spawn(async move {

@@ -94,6 +94,32 @@ pub struct SyncEngine {
     /// The state machine, when one is attached. The time-based passes delegate to it
     /// rather than reimplementing the rules a second time.
     workflow: Option<Arc<iris_workflow::Workflow>>,
+    /// Why each account last failed, so the interface can say more than "!".
+    ///
+    /// A marker that reports a fault without naming it leaves the user with nothing
+    /// to act on, which is exactly what the exclamation mark in the sidebar was.
+    failures: std::sync::RwLock<std::collections::BTreeMap<AccountId, AccountFailure>>,
+}
+
+/// Why an account last failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountFailure {
+    pub message: String,
+    /// The credentials were refused, as opposed to the server being unreachable.
+    /// The distinction decides whether retrying can ever help.
+    pub needs_password: bool,
+    pub at: Timestamp,
+}
+
+impl AccountFailure {
+    /// What to put in front of the user.
+    pub fn advice(&self) -> &'static str {
+        if self.needs_password {
+            "The server refused these credentials. Re-enter the password to try again."
+        } else {
+            "The server could not be reached. This usually clears on its own."
+        }
+    }
 }
 
 impl SyncEngine {
@@ -117,6 +143,7 @@ impl SyncEngine {
             blobs: None,
             automation: std::sync::RwLock::new(iris_types::AutomationSettings::default()),
             workflow: None,
+            failures: std::sync::RwLock::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -312,6 +339,111 @@ impl SyncEngine {
         self.scheduler.lock().await.next_wakeup(now)
     }
 
+    /// Synchronises one account now, whatever the schedule had planned.
+    ///
+    /// The schedule exists so a hundred mailboxes do not all wake at once; it is not
+    /// a reason to make someone wait when they have asked for one of them.
+    pub async fn sync_now(&self, account: AccountId, now: Timestamp) -> Result<usize> {
+        let compte = self
+            .store
+            .account(account)?
+            .ok_or_else(|| Error::store(format!("account {account} not found")))?;
+
+        // A manual refresh looks for deletions too: it is the gesture someone makes
+        // precisely when they suspect the local copy has drifted.
+        let resultat = self.sync_account(compte.id, now, true).await;
+        self.note_failure(account, resultat.as_ref().err());
+        let rapport = resultat?;
+        self.scheduler.lock().await.resume(account, now);
+        Ok(rapport.added)
+    }
+
+    /// Synchronises every enabled account, reporting progress as it goes.
+    ///
+    /// Sequential rather than all at once, and that is the point: a hundred mailboxes
+    /// opened simultaneously is a hundred TLS handshakes, and the pool would queue
+    /// them anyway. Going in order means the count shown to the user is the truth
+    /// rather than an estimate, and the first mailbox is refreshed in a second rather
+    /// than everything being refreshed in a minute.
+    pub async fn sync_all(
+        &self,
+        now: Timestamp,
+        mut progress: impl FnMut(usize, usize, &str),
+    ) -> SyncAllReport {
+        let comptes: Vec<_> = self
+            .store
+            .accounts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| c.enabled)
+            .collect();
+
+        let total = comptes.len();
+        let mut rapport = SyncAllReport {
+            total,
+            ..Default::default()
+        };
+
+        for (index, compte) in comptes.into_iter().enumerate() {
+            progress(index, total, &compte.email);
+
+            let resultat = self.sync_account(compte.id, now, true).await;
+            self.note_failure(compte.id, resultat.as_ref().err());
+
+            match resultat {
+                Ok(bilan) => {
+                    rapport.synced += 1;
+                    rapport.added += bilan.added;
+                }
+                // One unreachable server must not stop the other ninety-nine.
+                Err(e) => {
+                    tracing::warn!(account = %compte.email, error = %e, "sync failed");
+                    rapport.failed.push((compte.email, e.to_string()));
+                }
+            }
+        }
+
+        progress(total, total, "");
+        rapport
+    }
+
+    /// Why this account last failed, if it did.
+    pub fn failure(&self, account: AccountId) -> Option<AccountFailure> {
+        self.failures.read().ok()?.get(&account).cloned()
+    }
+
+    /// Every account currently in trouble.
+    pub fn failures(&self) -> Vec<(AccountId, AccountFailure)> {
+        self.failures
+            .read()
+            .map(|f| f.iter().map(|(k, v)| (*k, v.clone())).collect())
+            .unwrap_or_default()
+    }
+
+    /// Records a failure, or clears one when the account works again.
+    pub(crate) fn note_failure(&self, account: AccountId, error: Option<&Error>) {
+        let Ok(mut failures) = self.failures.write() else {
+            return;
+        };
+        match error {
+            Some(e) => {
+                failures.insert(
+                    account,
+                    AccountFailure {
+                        message: e.to_string(),
+                        needs_password: e.needs_user_action(),
+                        at: now_utc(),
+                    },
+                );
+            }
+            // Success clears it. A stale complaint about a problem that has gone is
+            // as misleading as no complaint about one that has not.
+            None => {
+                failures.remove(&account);
+            }
+        }
+    }
+
     pub fn pool_stats(&self) -> iris_imap::pool::PoolStats {
         self.pool.stats()
     }
@@ -332,7 +464,12 @@ impl SyncEngine {
         let mut rapport = TickReport::default();
 
         for account in dus.into_iter().take(self.config.concurrency) {
-            match self.sync_account(account, now, releve_suppressions).await {
+            let resultat = self.sync_account(account, now, releve_suppressions).await;
+            // The scheduled pass records outcomes too, so an account that only ever
+            // fails in the background still has something to show the user.
+            self.note_failure(account, resultat.as_ref().err());
+
+            match resultat {
                 Ok(bilan) => {
                     rapport.accounts_synced += 1;
                     rapport.messages_added += bilan.added;
@@ -534,6 +671,28 @@ impl SyncEngine {
 
     fn publish_phase(&self, account: AccountId, phase: SyncPhase) {
         self.bus.publish(Event::SyncPhaseChanged { account, phase });
+    }
+}
+
+/// What a full pass over every mailbox produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SyncAllReport {
+    pub total: usize,
+    pub synced: usize,
+    pub added: usize,
+    /// Accounts that could not be reached, with the reason.
+    pub failed: Vec<(String, String)>,
+}
+
+impl SyncAllReport {
+    /// One line for the status bar.
+    pub fn summary(&self) -> String {
+        match (self.added, self.failed.len()) {
+            (0, 0) => "Up to date.".into(),
+            (n, 0) => format!("{n} new message(s)."),
+            (0, f) => format!("{f} account(s) could not be reached."),
+            (n, f) => format!("{n} new message(s), {f} account(s) unreachable."),
+        }
     }
 }
 

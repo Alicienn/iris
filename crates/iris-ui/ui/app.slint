@@ -4,7 +4,7 @@ import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
     ThemeSwatchData
 } from "types.slint";
-import { ThreadListView } from "list.slint";
+import { ThreadListView, ThreadContextMenu } from "list.slint";
 import { Sidebar } from "sidebar.slint";
 import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
@@ -12,6 +12,7 @@ import { AccountSetupPanel } from "account.slint";
 import { ModulesPanel } from "modules.slint";
 import { ComposePanel } from "compose.slint";
 import { TitleBar } from "titlebar.slint";
+import { AccountProblemPanel } from "account-problem.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -119,6 +120,8 @@ component StatusBar inherits Rectangle {
     in property <string> status;
     in property <bool> syncing;
     in property <int> pending-ops;
+    in property <string> vitals;
+    in property <string> last-sync;
 
     height: 22px;
 
@@ -141,7 +144,26 @@ component StatusBar inherits Rectangle {
         // l'utilisateur doit savoir que quelque chose reste à transmettre, mais ce
         // n'est pas une erreur.
         if root.pending-ops > 0: Text {
-            text: root.pending-ops + " en attente de transmission";
+            text: root.pending-ops + " waiting to be sent";
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+
+        // When the servers were last heard from. An application that syncs on its own
+        // schedule owes the reader an answer to "is this current", and the only
+        // honest one is the time.
+        if root.last-sync != "": Text {
+            text: root.last-sync;
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+
+        // What it is costing. Same reasoning: it works in the background, so it
+        // should say what that costs rather than leave it to the task manager.
+        if root.vitals != "": Text {
+            text: root.vitals;
             font-size: 10px;
             color: Tokens.text-muted;
             vertical-alignment: center;
@@ -181,6 +203,9 @@ export component AppWindow inherits Window {
     in property <int> active-tab: 0;
     in property <int> unified-count;
     in property <int> spam-count;
+    in property <bool> syncing-all;
+    in property <string> sync-progress;
+    in-out property <bool> sidebar-collapsed;
     in property <bool> showing-spam;
     in property <bool> conversation-empty: true;
     in property <bool> window-maximised;
@@ -190,8 +215,23 @@ export component AppWindow inherits Window {
     in property <bool> syncing;
     in property <int> pending-ops;
     in property <string> status;
+    in property <string> vitals;
+    in property <string> last-sync;
     in property <bool> sending;
     in property <int> undo-seconds;
+
+    in-out property <bool> problem-open;
+    in property <string> problem-account;
+    in property <string> problem-message;
+    in property <string> problem-advice;
+    in property <bool> problem-needs-password;
+    in property <bool> problem-busy;
+    in property <string> problem-result;
+    in-out property <string> problem-password;
+
+    in-out property <bool> context-menu-open;
+    in-out property <length> context-menu-x;
+    in-out property <length> context-menu-y;
 
     in-out property <bool> compose-open;
     in property <string> compose-sender;
@@ -247,6 +287,13 @@ export component AppWindow inherits Window {
     callback thread-selected(int);
     callback tab-selected(int);
     callback spam-selected();
+    callback account-filter-changed(string);
+    callback problem-retry();
+    callback problem-save-password();
+    callback problem-disable();
+    callback sync-account(int);
+    callback sync-all();
+    callback open-settings();
     callback window-minimise();
     callback window-toggle-maximise();
     callback window-close();
@@ -323,16 +370,24 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 // Colonne 1 : les comptes.
                 Sidebar {
-                    width: 200px;
+                    width: root.sidebar-collapsed ? 44px : 200px;
+                    animate width { duration: Tokens.quick; easing: ease-in-out; }
                     pinned: root.pinned-accounts;
                     others: root.other-accounts;
                     selected-id: root.selected-account;
                     unified-count: root.unified-count;
                     filter <=> root.account-filter;
+                    syncing: root.syncing-all;
+                    sync-progress: root.sync-progress;
+                    collapsed <=> root.sidebar-collapsed;
                     account-selected(id) => { root.account-selected(id); }
                     unified-selected => { root.unified-selected(); }
                     resume-account(id) => { root.resume-account(id); }
                     add-account => { root.add-account-open = true; }
+                    filter-changed(t) => { root.account-filter-changed(t); }
+                    sync-account(id) => { root.sync-account(id); }
+                    sync-all => { root.sync-all(); }
+                    open-settings => { root.settings-open = true; }
                 }
 
                 Rectangle { width: 1px; background: Tokens.border; }
@@ -356,6 +411,15 @@ export component AppWindow inherits Window {
                         search-query <=> root.search-query;
                         search-submitted(q) => { root.search-submitted(q); }
                         search-cleared => { root.search-cleared(); }
+                        row-context-menu(id, mx, my) => {
+                            root.thread-selected(id);
+                            // The coordinates arrive relative to the list column, so
+                            // the sidebar's width has to be added back before the
+                            // menu is placed against the window.
+                            root.context-menu-x = mx + (root.sidebar-collapsed ? 44px : 200px) + 1px;
+                            root.context-menu-y = my + 32px;
+                            root.context-menu-open = true;
+                        }
                         selected-id: root.selected-thread;
                         active-tab: root.active-tab;
                         counts: root.counts;
@@ -395,10 +459,45 @@ export component AppWindow inherits Window {
 
             StatusBar {
                 status: root.status;
+                vitals: root.vitals;
+                last-sync: root.last-sync;
                 syncing: root.syncing;
                 pending-ops: root.pending-ops;
             }
         }
+    }
+
+    if root.problem-open: AccountProblemPanel {
+        width: 100%;
+        height: 100%;
+        account: root.problem-account;
+        message: root.problem-message;
+        advice: root.problem-advice;
+        needs-password: root.problem-needs-password;
+        busy: root.problem-busy;
+        result: root.problem-result;
+        password <=> root.problem-password;
+        retry => { root.problem-retry(); }
+        save-password => { root.problem-save-password(); }
+        disable-account => { root.problem-disable(); }
+        dismissed => { root.problem-open = false; }
+    }
+
+    if root.context-menu-open: ThreadContextMenu {
+        width: 100%;
+        height: 100%;
+        menu-x: root.context-menu-x;
+        menu-y: root.context-menu-y;
+        unread: root.selected-unread;
+        starred: root.selected-starred;
+        open-thread => { root.context-menu-open = false; }
+        mark-done => { root.thread-done(); }
+        archive => { root.thread-archive(); }
+        snooze => { root.thread-snooze(); }
+        toggle-unread => { root.thread-toggle-unread(); }
+        toggle-star => { root.thread-toggle-star(); }
+        delete-thread => { root.thread-delete(); }
+        dismissed => { root.context-menu-open = false; }
     }
 
     if root.compose-open: ComposePanel {
@@ -498,6 +597,14 @@ export component AppWindow inherits Window {
             }
             // Escape does not throw away a draft: leaving the window open is
             // recoverable, losing what someone wrote is not.
+            if (event.text == Key.Escape && root.problem-open) {
+                root.problem-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.context-menu-open) {
+                root.context-menu-open = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.compose-open) {
                 root.compose-open = false;
                 return accept;

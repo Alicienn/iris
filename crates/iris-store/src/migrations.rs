@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 2;
+pub const CURRENT_VERSION: i64 = 3;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -28,7 +28,46 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "rules",
         sql: SCHEMA_V2,
     },
+    Migration {
+        version: 3,
+        name: "backfill spam",
+        sql: SCHEMA_V3,
+    },
 ];
+
+/// Marks mail that was already in the database when spam detection arrived.
+///
+/// A flag only set on arrival would have left every message received before the
+/// feature looking like ordinary mail for ever — which is exactly what a user sees
+/// as "the spam filter does not work".
+///
+/// Only the subject marker is available here: the headers are not stored, and
+/// re-fetching every message to read them would take hours. That is the weaker of
+/// the two signals, but it is the one that put `***Potentiel-SPAM***` on screen, and
+/// anything it misses gets caught on the next sync.
+///
+/// 512 is `Flags::SPAM`, checked against the constant by a test in this module.
+const SCHEMA_V3: &str = r#"
+UPDATE messages
+SET flags = flags | 512
+WHERE lower(subject) LIKE '%***spam***%'
+   OR lower(subject) LIKE '%***potentiel-spam***%'
+   OR lower(subject) LIKE '%***potential-spam***%'
+   OR lower(subject) LIKE '%[spam]%'
+   OR lower(subject) LIKE '%[spam?]%'
+   OR lower(subject) LIKE '%{spam}%';
+
+-- The list reads the thread, not the message, so the union needs the bit too.
+-- Only ever setting it, never clearing, means this cannot disturb any other flag:
+-- SQLite has no bitwise-or aggregate, and rebuilding the union with arithmetic
+-- would quietly corrupt every thread it touched.
+UPDATE threads
+SET flags_union = flags_union | 512
+WHERE EXISTS (
+    SELECT 1 FROM messages
+    WHERE messages.thread_id = threads.id AND (messages.flags & 512) != 0
+);
+"#;
 
 /// Rules, and where they have already been applied.
 ///
@@ -297,5 +336,92 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn the_spam_bit_in_sql_matches_the_constant() {
+        // The migration interpolates 512 into query text; if the flag ever moves,
+        // this catches it before the wrong bit is set on someone's mailbox.
+        assert_eq!(iris_types::Flags::SPAM.0, 512);
+    }
+
+    #[test]
+    fn the_backfill_marks_mail_that_arrived_before_the_feature() {
+        // A flag only set on arrival leaves everything already downloaded looking
+        // like ordinary mail for ever, which reads as "the spam filter is broken".
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO accounts (id, email, imap_host, imap_port, smtp_host, smtp_port, created_at)
+             VALUES (1, 'a@x.fr', 'i', 993, 's', 465, 0);
+             INSERT INTO folders (id, account_id, path, role) VALUES (1, 1, 'INBOX', 'inbox');
+             INSERT INTO threads (id, subject_norm, state, last_activity_at, flags_union)
+             VALUES (1, 'a', 0, 0, 0), (2, 'b', 0, 0, 0);
+             INSERT INTO messages
+                (id, account_id, folder_id, thread_id, uid, subject, from_name, from_addr,
+                 recipients, date, received, size, flags, preview)
+             VALUES
+                (1, 1, 1, 1, 1, '***Potentiel-SPAM*** Virement', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, ''),
+                (2, 1, 1, 2, 2, 'Quote for the cylinders', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, '');",
+        )
+        .unwrap();
+
+        conn.execute_batch(SCHEMA_V3).unwrap();
+
+        let spam: i64 = conn
+            .query_row("SELECT flags FROM messages WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        let ordinary: i64 = conn
+            .query_row("SELECT flags FROM messages WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+
+        assert_eq!(spam & 512, 512, "the tagged subject must be marked");
+        assert_eq!(ordinary & 512, 0, "ordinary mail must be left alone");
+
+        // And the thread, because the list reads the thread rather than the message.
+        let thread: i64 = conn
+            .query_row("SELECT flags_union FROM threads WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(thread & 512, 512);
+    }
+
+    #[test]
+    fn the_backfill_leaves_other_flags_untouched() {
+        // SQLite has no bitwise-or aggregate; rebuilding the union with arithmetic
+        // would quietly corrupt every thread it touched.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO accounts (id, email, imap_host, imap_port, smtp_host, smtp_port, created_at)
+             VALUES (1, 'a@x.fr', 'i', 993, 's', 465, 0);
+             INSERT INTO folders (id, account_id, path, role) VALUES (1, 1, 'INBOX', 'inbox');
+             INSERT INTO threads (id, subject_norm, state, last_activity_at, flags_union)
+             VALUES (1, 'a', 0, 0, 5);
+             INSERT INTO messages
+                (id, account_id, folder_id, thread_id, uid, subject, from_name, from_addr,
+                 recipients, date, received, size, flags, preview)
+             VALUES (1, 1, 1, 1, 1, '[SPAM] hello', 'x', 'x@y.fr', '[]', 0, 0, 1, 5, '');",
+        )
+        .unwrap();
+
+        conn.execute_batch(SCHEMA_V3).unwrap();
+
+        let flags: i64 = conn
+            .query_row("SELECT flags FROM messages WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(flags, 5 | 512, "seen and flagged must survive");
+
+        let union: i64 = conn
+            .query_row("SELECT flags_union FROM threads WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(union, 5 | 512);
     }
 }

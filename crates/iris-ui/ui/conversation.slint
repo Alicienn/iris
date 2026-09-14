@@ -1,4 +1,5 @@
 import { Tokens } from "tokens.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
 import { MessageData, MessageBlockData } from "types.slint";
 import { Glass } from "glass.slint";
 import { ScrollView, TextEdit, Button } from "std-widgets.slint";
@@ -145,68 +146,6 @@ component RemoteContentBanner inherits Rectangle {
     }
 }
 
-// One action in the toolbar.
-//
-// Glyph plus tooltip rather than glyph plus label: six labelled buttons would take
-// the width the subject needs, and the keyboard shortcut in the tooltip is how
-// someone graduates from clicking to typing.
-component ToolButton inherits Rectangle {
-    in property <string> glyph;
-    in property <string> label;
-    in property <string> shortcut;
-    in property <bool> danger;
-    in property <bool> active;
-
-    callback clicked();
-
-    width: 28px;
-    height: 26px;
-    border-radius: Tokens.radius-small;
-    background: root.active
-        ? Tokens.surface-active
-        : (touch.has-hover ? Tokens.surface-hover : transparent);
-    animate background { duration: Tokens.instant; }
-
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-description: root.shortcut;
-    accessible-action-default => { root.clicked(); }
-
-    Text {
-        text: root.glyph;
-        font-size: Tokens.size-body;
-        color: root.danger && touch.has-hover
-            ? Tokens.error
-            : (root.active ? Tokens.text : Tokens.text-secondary);
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-    }
-
-    // The tooltip carries the shortcut, so the toolbar teaches the keyboard rather
-    // than competing with it.
-    if touch.has-hover: Rectangle {
-        y: parent.height + 4px;
-        width: tip.preferred-width + 12px;
-        height: 20px;
-        border-radius: Tokens.radius-small;
-        background: Tokens.surface-high;
-        border-width: 1px;
-        border-color: Tokens.border;
-
-        tip := Text {
-            text: root.shortcut == "" ? root.label : root.label + "  " + root.shortcut;
-            font-size: Tokens.size-small;
-            color: Tokens.text-secondary;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
-}
-
 // La colonne de lecture, avec la réponse intégrée au bas du fil.
 export component ConversationView inherits VerticalLayout {
     in property <MessageData> message;
@@ -284,20 +223,20 @@ export component ConversationView inherits VerticalLayout {
             spacing: 2px;
             vertical-stretch: 0;
 
-            ToolButton {
-                glyph: "✓";
+            IconButton {
+                icon: Icons.check;
                 label: "Mark as done";
                 shortcut: "E";
                 clicked => { root.mark-done(); }
             }
-            ToolButton {
-                glyph: "▤";
+            IconButton {
+                icon: Icons.archive;
                 label: "Archive";
                 shortcut: "A";
                 clicked => { root.archive(); }
             }
-            ToolButton {
-                glyph: "⏱";
+            IconButton {
+                icon: Icons.clock;
                 label: "Snooze until tomorrow";
                 shortcut: "S";
                 clicked => { root.snooze(); }
@@ -305,14 +244,14 @@ export component ConversationView inherits VerticalLayout {
 
             Rectangle { width: Tokens.space-2; }
 
-            ToolButton {
-                glyph: root.unread ? "●" : "○";
+            IconButton {
+                icon: root.unread ? Icons.envelope-closed : Icons.envelope-open;
                 label: root.unread ? "Mark as read" : "Mark as unread";
                 shortcut: "R";
                 clicked => { root.toggle-unread(); }
             }
-            ToolButton {
-                glyph: "◆";
+            IconButton {
+                icon: Icons.star;
                 label: root.starred ? "Remove star" : "Star";
                 shortcut: "F";
                 active: root.starred;
@@ -321,8 +260,8 @@ export component ConversationView inherits VerticalLayout {
 
             Rectangle {}
 
-            ToolButton {
-                glyph: "🗑";
+            IconButton {
+                icon: Icons.trash;
                 label: "Delete";
                 shortcut: "Shift+3";
                 danger: true;

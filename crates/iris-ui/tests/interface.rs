@@ -307,7 +307,7 @@ fn la_reprise_d_un_compte_en_panne_est_un_bouton() {
         f.on_resume_account(move |id| repris.borrow_mut().push(id));
     }
 
-    par_libelle(&f, "Retry casse@exemple.fr")
+    par_libelle(&f, "Fix casse@exemple.fr")
         .expect("le marqueur doit être actionnable")
         .invoke_accessible_default_action();
 
@@ -317,7 +317,7 @@ fn la_reprise_d_un_compte_en_panne_est_un_bouton() {
 fn un_compte_sain_n_offre_pas_de_reprise() {
     let f = fenetre();
     f.set_other_accounts(modele(vec![compte(3, "sain@exemple.fr", 0, false)]));
-    assert!(par_libelle(&f, "Retry sain@exemple.fr").is_none());
+    assert!(par_libelle(&f, "Fix sain@exemple.fr").is_none());
 }
 
 fn ajouter_un_compte_est_atteignable_depuis_la_barre_laterale() {

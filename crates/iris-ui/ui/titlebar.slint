@@ -1,4 +1,5 @@
 import { Tokens } from "tokens.slint";
+import { Icon, Icons } from "icons.slint";
 
 // A window control.
 //
@@ -25,15 +26,15 @@ component WindowButton inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
 
-    Text {
-        text: root.glyph;
-        // The system frame draws these in Segoe MDL2; matching it is what keeps them
-        // from looking like text that happens to be shaped like a cross.
-        font-family: "Segoe Fluent Icons, Segoe MDL2 Assets";
-        font-size: 10px;
-        color: (root.closes && touch.has-hover) ? #ffffff : Tokens.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    // Drawn, not typed. The previous version asked for glyphs from Segoe Fluent
+    // Icons; where that font is absent the buttons came out as empty squares, which
+    // is exactly what happened.
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        data: root.glyph;
+        size: 14px;
+        tint: (root.closes && touch.has-hover) ? #ffffff : Tokens.text-secondary;
     }
 
     touch := TouchArea {
@@ -108,19 +109,19 @@ export component TitleBar inherits Rectangle {
         }
 
         WindowButton {
-            glyph: "\u{e921}";
+            glyph: Icons.window-minimise;
             label: "Minimise";
             clicked => { root.minimise(); }
         }
         WindowButton {
-            // Two distinct glyphs, because "restore" and "maximise" are different
+            // Two distinct icons, because "restore" and "maximise" are different
             // actions and a button that does not say which it will do is a guess.
-            glyph: root.maximised ? "\u{e923}" : "\u{e922}";
+            glyph: root.maximised ? Icons.window-restore : Icons.window-maximise;
             label: root.maximised ? "Restore" : "Maximise";
             clicked => { root.toggle-maximise(); }
         }
         WindowButton {
-            glyph: "\u{e8bb}";
+            glyph: Icons.window-close;
             label: "Close";
             closes: true;
             clicked => { root.close(); }

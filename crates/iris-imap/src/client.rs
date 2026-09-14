@@ -162,11 +162,29 @@ impl async_imap::Authenticator for XOAuth2 {
 fn translate_login_error(e: async_imap::error::Error, account: &str) -> Error {
     let texte = e.to_string();
     let minuscules = texte.to_lowercase();
-    if minuscules.contains("authenticationfailed")
-        || minuscules.contains("invalid credentials")
-        || minuscules.contains("login failed")
-        || minuscules.contains("authentication failed")
-    {
+    // Servers phrase this a dozen ways and agree on none of them. Getting the
+    // classification wrong costs the user either a password prompt they do not need
+    // or an account retried for ever against a password that will never work.
+    const REFUSALS: &[&str] = &[
+        "authenticationfailed",
+        "authentication failed",
+        "invalid credentials",
+        "login failed",
+        "invalid login",
+        "invalid user",
+        "invalid password",
+        "incorrect password",
+        "bad username or password",
+        "username and password not accepted",
+        "authentication unsuccessful",
+        "login denied",
+        "auth failed",
+        "[authenticationfailed]",
+        "webalias",
+        "application-specific password required",
+    ];
+
+    if REFUSALS.iter().any(|m| minuscules.contains(m)) {
         Error::AuthFailed {
             account: account.to_string(),
         }

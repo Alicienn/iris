@@ -55,7 +55,25 @@ pub fn refresh_accounts(
         .todo_counts_by_account(now())
         .unwrap_or_default();
 
-    let (epingles, autres): (Vec<_>, Vec<_>) = comptes.iter().partition(|c| c.pinned);
+    // The filter is applied here, over the real list. It was previously applied
+    // nowhere at all: the field existed and was bound to nothing, so typing in it
+    // changed the text and not the list.
+    let recherche = fenetre.get_account_filter().to_lowercase();
+    let recherche = recherche.trim();
+
+    let retenus: Vec<&iris_store::Account> = comptes
+        .iter()
+        .filter(|c| {
+            recherche.is_empty()
+                || c.email.to_lowercase().contains(recherche)
+                || c.display_name.to_lowercase().contains(recherche)
+                || c.group
+                    .as_deref()
+                    .is_some_and(|g| g.to_lowercase().contains(recherche))
+        })
+        .collect();
+
+    let (epingles, autres): (Vec<_>, Vec<_>) = retenus.into_iter().partition(|c| c.pinned);
 
     let vers_modele = |liste: Vec<&iris_store::Account>| {
         ModelRc::new(VecModel::from(
@@ -114,26 +132,136 @@ fn message_suspension(
     ))
 }
 
-/// Branche la reprise d'un compte suspendu.
-pub fn wire_account_recovery(
+/// Wires the refresh buttons and the account filter.
+///
+/// Refreshing is deliberately not "everything, now". One mailbox on demand is the
+/// common case and finishes in a second; refreshing all of them walks the list in
+/// order and reports where it has got to, because a progress count that is a
+/// guess is worse than no count.
+pub fn wire_sync(
     fenetre: &AppWindow,
-    engine: Arc<iris_sync::SyncEngine>,
+    services: &Services,
+    controller: Arc<Controller>,
     runtime: tokio::runtime::Handle,
 ) {
-    let faible = fenetre.as_weak();
-    fenetre.on_resume_account(move |id| {
-        let Some(fenetre) = faible.upgrade() else {
-            return;
-        };
-        let compte = iris_types::AccountId(id as i64);
-        fenetre.set_status("Trying again…".into());
-
-        let engine = Arc::clone(&engine);
-        runtime.spawn(async move {
-            // La reprise remet le compte dans l'ordonnanceur ; le tour suivant dira
-            // si la panne a disparu. On ne promet donc rien de plus qu'un essai.
-            engine.resume_account(compte, iris_sync::now_utc()).await;
+    // --- The account filter, applied over the real list ---
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_filter_changed(move |_texte| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            refresh_accounts(&fenetre, &services, &[]);
         });
+    }
+
+    // --- One mailbox ---
+    {
+        let engine = Arc::clone(&services.engine);
+        let controller = Arc::clone(&controller);
+        let runtime_un = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_sync_account(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let compte = iris_types::AccountId(id as i64);
+            fenetre.set_syncing(true);
+
+            let engine = Arc::clone(&engine);
+            let controller = Arc::clone(&controller);
+            let faible = fenetre.as_weak();
+
+            runtime_un.spawn(async move {
+                let resultat = engine.sync_now(compte, now()).await;
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_syncing(false);
+                    match resultat {
+                        Ok(0) => fenetre.set_status("Up to date.".into()),
+                        Ok(n) => fenetre.set_status(format!("{n} new message(s).").into()),
+                        Err(e) => fenetre.set_status(format!("Sync failed: {e}").into()),
+                    }
+                });
+                controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
+                    full_refresh: true,
+                    ..Default::default()
+                })));
+            });
+        });
+    }
+
+    // --- Every mailbox, in order, saying where it has got to ---
+    {
+        let engine = Arc::clone(&services.engine);
+        let services_all = services.clone();
+        let controller = Arc::clone(&controller);
+        let runtime_tous = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_sync_all(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            if fenetre.get_syncing_all() {
+                return;
+            }
+            fenetre.set_syncing_all(true);
+            fenetre.set_sync_progress("0/…".into());
+
+            let engine = Arc::clone(&engine);
+            let services_all = services_all.clone();
+            let controller = Arc::clone(&controller);
+            let faible = fenetre.as_weak();
+
+            runtime_tous.spawn(async move {
+                let faible_progres = faible.clone();
+                let rapport = engine
+                    .sync_all(now(), move |done, total, _account| {
+                        let texte = if done >= total {
+                            String::new()
+                        } else {
+                            format!("{}/{}", done + 1, total)
+                        };
+                        let _ = faible_progres.upgrade_in_event_loop(move |fenetre| {
+                            fenetre.set_sync_progress(texte.into());
+                        });
+                    })
+                    .await;
+
+                let suspendus = engine.suspended_accounts().await;
+                let resume = rapport.summary();
+
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_syncing_all(false);
+                    fenetre.set_sync_progress(Default::default());
+                    fenetre.set_status(resume.into());
+                    refresh_accounts(&fenetre, &services_all, &suspendus);
+                });
+
+                controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
+                    full_refresh: true,
+                    ..Default::default()
+                })));
+            });
+        });
+    }
+}
+
+/// Reports what the process is costing, and how fresh the mailboxes are.
+///
+/// Both are cheap to read and neither is worth a thread of its own, so they share the
+/// timer that was already redrawing the clock-relative dates.
+pub fn refresh_vitals(
+    fenetre: &AppWindow,
+    reader: &mut crate::vitals::VitalsReader,
+    last_sync: Option<iris_types::Timestamp>,
+) {
+    fenetre.set_vitals(reader.sample().summary().into());
+    fenetre.set_last_sync(match last_sync {
+        Some(t) => format!("synced {}", crate::vitals::ago(t, now())).into(),
+        None => slint::SharedString::default(),
     });
 }
 
@@ -1466,8 +1594,10 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
     // pressed, and the window moves by the same amount. The position is re-read at
     // the start of each drag rather than tracked continuously, so a window moved by
     // any other means — snapped, moved by the keyboard — is not fought over.
-    let origine: Arc<std::sync::Mutex<Option<slint::PhysicalPosition>>> =
-        Arc::new(std::sync::Mutex::new(None));
+    /// Where the window and the pointer both were when the drag began.
+    type DragOrigin = Arc<std::sync::Mutex<Option<(slint::PhysicalPosition, (i32, i32))>>>;
+
+    let origine: DragOrigin = Arc::new(std::sync::Mutex::new(None));
 
     {
         let origine = Arc::clone(&origine);
@@ -1476,35 +1606,240 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            *origine.lock().expect("poisoned drag") = Some(fenetre.window().position());
+            let Some(pointeur) = cursor_position() else {
+                return;
+            };
+            *origine.lock().expect("poisoned drag") = Some((fenetre.window().position(), pointeur));
         });
     }
 
     {
         let origine = Arc::clone(&origine);
         let faible = fenetre.as_weak();
-        fenetre.on_window_drag(move |dx, dy| {
+        fenetre.on_window_drag(move |_dx, _dy| {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let Some(depart) = *origine.lock().expect("poisoned drag") else {
-                return;
-            };
 
-            // A maximised window being dragged should come loose and follow the
-            // pointer, which is what every other window on the desktop does.
+            // A maximised window pulled by its bar comes loose and follows the
+            // pointer, which is what every other window on this desktop does.
             if fenetre.window().is_maximized() {
                 fenetre.window().set_maximized(false);
                 fenetre.set_window_maximised(false);
-                *origine.lock().expect("poisoned drag") = Some(fenetre.window().position());
+                if let Some(pointeur) = cursor_position() {
+                    *origine.lock().expect("poisoned drag") =
+                        Some((fenetre.window().position(), pointeur));
+                }
                 return;
             }
 
-            let echelle = fenetre.window().scale_factor();
+            let depart = *origine.lock().expect("poisoned drag");
+            let Some((fenetre_depart, pointeur_depart)) = depart else {
+                return;
+            };
+            let Some((x, y)) = cursor_position() else {
+                return;
+            };
+
             fenetre.window().set_position(slint::PhysicalPosition::new(
-                depart.x + (dx * echelle) as i32,
-                depart.y + (dy * echelle) as i32,
+                fenetre_depart.x + (x - pointeur_depart.0),
+                fenetre_depart.y + (y - pointeur_depart.1),
             ));
+        });
+    }
+}
+
+/// Wires the account-problem panel behind the sidebar's warning marker.
+///
+/// The marker used to call `resume` and nothing else: the scheduler forgot the
+/// account had failed, the next pass failed the same way, and from the outside
+/// clicking it did nothing at all. Which, for a wrong password, is exactly right —
+/// retrying a password that will never work cannot help. So the marker now opens
+/// something that can.
+pub fn wire_account_recovery(
+    fenetre: &AppWindow,
+    services: &Services,
+    runtime: tokio::runtime::Handle,
+) {
+    // Which account the panel is talking about.
+    let sujet: Arc<std::sync::Mutex<Option<iris_types::AccountId>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_resume_account(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let compte = iris_types::AccountId(id as i64);
+            *sujet.lock().expect("poisoned") = Some(compte);
+
+            let email = services
+                .store
+                .account(compte)
+                .ok()
+                .flatten()
+                .map(|c| c.email)
+                .unwrap_or_default();
+
+            // What the engine last saw. Without a recorded failure the account is
+            // merely paused, which is still worth explaining.
+            let panne = services.engine.failure(compte);
+
+            fenetre.set_problem_account(email.into());
+            fenetre.set_problem_message(
+                panne
+                    .as_ref()
+                    .map(|p| p.message.clone())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            fenetre.set_problem_advice(
+                panne
+                    .as_ref()
+                    .map(|p| p.advice().to_string())
+                    .unwrap_or_else(|| "This mailbox was paused after repeated failures.".into())
+                    .into(),
+            );
+            fenetre.set_problem_needs_password(
+                panne.as_ref().map(|p| p.needs_password).unwrap_or(false),
+            );
+            fenetre.set_problem_result(Default::default());
+            fenetre.set_problem_password(Default::default());
+            fenetre.set_problem_open(true);
+        });
+    }
+
+    // --- Try again, without touching the password ---
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let runtime_retry = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_problem_retry(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(compte) = *sujet.lock().expect("poisoned") else {
+                return;
+            };
+            fenetre.set_problem_busy(true);
+
+            let engine = Arc::clone(&services.engine);
+            let services_apres = services.clone();
+            let faible = fenetre.as_weak();
+
+            runtime_retry.spawn(async move {
+                engine.resume_account(compte, now()).await;
+                let resultat = engine.sync_now(compte, now()).await;
+                let suspendus = engine.suspended_accounts().await;
+
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_problem_busy(false);
+                    match resultat {
+                        Ok(n) => {
+                            fenetre.set_problem_result(
+                                format!("Working again — {n} message(s) fetched.").into(),
+                            );
+                            fenetre.set_problem_open(false);
+                        }
+                        Err(e) => fenetre.set_problem_result(format!("Still failing: {e}").into()),
+                    }
+                    refresh_accounts(&fenetre, &services_apres, &suspendus);
+                });
+            });
+        });
+    }
+
+    // --- Save a new password, then try again ---
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let runtime_save = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_problem_save_password(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(compte) = *sujet.lock().expect("poisoned") else {
+                return;
+            };
+
+            let motdepasse = fenetre.get_problem_password().to_string();
+            if motdepasse.is_empty() {
+                fenetre.set_problem_result("Enter the password first.".into());
+                return;
+            }
+
+            let Some(details) = services.store.account(compte).ok().flatten() else {
+                return;
+            };
+
+            if let Err(e) = services.secrets.set(
+                &details.email,
+                iris_secrets::SecretKind::Password,
+                &iris_secrets::Secret::new(motdepasse),
+            ) {
+                fenetre.set_problem_result(format!("Could not save the password: {e}").into());
+                return;
+            }
+
+            fenetre.set_problem_busy(true);
+            fenetre.set_problem_password(Default::default());
+
+            let engine = Arc::clone(&services.engine);
+            let services_apres = services.clone();
+            let faible = fenetre.as_weak();
+
+            runtime_save.spawn(async move {
+                engine.resume_account(compte, now()).await;
+                let resultat = engine.sync_now(compte, now()).await;
+                let suspendus = engine.suspended_accounts().await;
+
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_problem_busy(false);
+                    match resultat {
+                        Ok(n) => {
+                            fenetre.set_problem_open(false);
+                            fenetre.set_status(
+                                format!("Account working again — {n} message(s).").into(),
+                            );
+                        }
+                        Err(e) => fenetre.set_problem_result(format!("Still refused: {e}").into()),
+                    }
+                    refresh_accounts(&fenetre, &services_apres, &suspendus);
+                });
+            });
+        });
+    }
+
+    // --- Or switch it off and stop being told about it ---
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_problem_disable(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(compte) = *sujet.lock().expect("poisoned") else {
+                return;
+            };
+
+            match services.store.set_account_enabled(compte, false) {
+                Ok(()) => {
+                    fenetre.set_problem_open(false);
+                    fenetre.set_status("Account disabled.".into());
+                    refresh_accounts(&fenetre, &services, &[]);
+                }
+                Err(e) => fenetre.set_problem_result(format!("Could not disable it: {e}").into()),
+            }
         });
     }
 }
@@ -1793,6 +2128,39 @@ fn show_simulation(fenetre: &AppWindow, services: &Services, id: &str) {
         }
         Err(e) => fenetre.set_simulation(format!("Dry run failed: {e}").into()),
     }
+}
+
+/// Where the pointer is on the desktop, in physical pixels.
+///
+/// Screen coordinates rather than window-relative ones. A window being dragged moves
+/// under the pointer, so an offset measured inside it changes meaning between one
+/// report and the next — the window chases its own tail, which is exactly the
+/// glitching this replaces.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn cursor_position() -> Option<(i32, i32)> {
+    #[repr(C)]
+    #[derive(Default)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetCursorPos(point: *mut Point) -> i32;
+    }
+
+    let mut point = Point::default();
+    // SAFETY: one out-parameter owned by this frame, of exactly the size the API
+    // expects. Failure is reported through the return value.
+    let ok = unsafe { GetCursorPos(&mut point) };
+    (ok != 0).then_some((point.x, point.y))
+}
+
+#[cfg(not(windows))]
+fn cursor_position() -> Option<(i32, i32)> {
+    None
 }
 
 /// Modèle vide, pour initialiser une liste avant le premier instantané.

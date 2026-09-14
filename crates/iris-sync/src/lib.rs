@@ -10,7 +10,8 @@ pub mod send;
 
 pub use body::{purge_orphan_bodies, FetchedBody};
 pub use engine::{
-    now_utc, CredentialsProvider, EngineConfig, StaticCredentials, SyncEngine, TickReport,
+    now_utc, AccountFailure, CredentialsProvider, EngineConfig, StaticCredentials, SyncAllReport,
+    SyncEngine, TickReport,
 };
 pub use folder::{sync_folder, FolderReport, FolderSyncOptions};
 pub use maintenance::MaintenanceReport;

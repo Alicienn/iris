@@ -1,6 +1,7 @@
 import { Tokens } from "tokens.slint";
 import { ThreadRowData } from "types.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
 
 // Une ligne de la liste.
 //
@@ -12,6 +13,7 @@ component ThreadRow inherits Rectangle {
     in property <bool> selected;
 
     callback clicked();
+    callback context-menu(length, length);
 
     height: Tokens.row-height;
     background: root.selected
@@ -147,7 +149,165 @@ component ThreadRow inherits Rectangle {
     }
 
     touch := TouchArea {
+        // Right-click is how everyone expects to reach the actions on a list row,
+        // and it was reaching nothing.
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right
+                && event.kind == PointerEventKind.down) {
+                root.clicked();
+                root.context-menu(self.mouse-x + root.x, self.mouse-y + root.y);
+            }
+        }
         clicked => { root.clicked(); }
+    }
+}
+
+// One line of the context menu.
+component MenuEntry inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> danger;
+
+    callback activated();
+
+    height: 26px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.activated(); }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 14px;
+            tint: root.danger && touch.has-hover ? Tokens.error : Tokens.text-muted;
+        }
+        Text {
+            text: root.label;
+            font-size: Tokens.size-small;
+            color: root.danger && touch.has-hover ? Tokens.error : Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {}
+        if root.shortcut != "": Text {
+            text: root.shortcut;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.activated(); }
+    }
+}
+
+// The menu a right-click opens.
+//
+// It carries the same actions as the reading toolbar and the same shortcuts, because
+// three ways to do a thing that disagree about what it is called is worse than one.
+export component ThreadContextMenu inherits Rectangle {
+    in property <bool> unread;
+    in property <bool> starred;
+    in property <length> menu-x;
+    in property <length> menu-y;
+
+    callback open-thread();
+    callback mark-done();
+    callback archive();
+    callback snooze();
+    callback toggle-unread();
+    callback toggle-star();
+    callback delete-thread();
+    callback dismissed();
+
+    // The veil catches the click that closes the menu. Without it the menu stays up
+    // until something else happens to take the focus.
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    Rectangle {
+        // Kept inside the window: a menu opened near an edge must not fall off it.
+        x: min(root.menu-x, root.width - self.width - 8px);
+        y: min(root.menu-y, root.height - self.height - 8px);
+        width: 200px;
+        height: entries.preferred-height + 8px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface-high;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000066;
+        drop-shadow-offset-y: 6px;
+
+        // Swallows clicks, so choosing an item does not also hit the veil behind it.
+        TouchArea {}
+
+        entries := VerticalLayout {
+            padding: 4px;
+
+            MenuEntry {
+                icon: Icons.envelope-open;
+                label: "Open";
+                activated => { root.open-thread(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.check;
+                label: "Mark as done";
+                shortcut: "E";
+                activated => { root.mark-done(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.archive;
+                label: "Archive";
+                shortcut: "A";
+                activated => { root.archive(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Snooze until tomorrow";
+                shortcut: "S";
+                activated => { root.snooze(); root.dismissed(); }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            MenuEntry {
+                icon: root.unread ? Icons.envelope-open : Icons.envelope-closed;
+                label: root.unread ? "Mark as read" : "Mark as unread";
+                shortcut: "R";
+                activated => { root.toggle-unread(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.star;
+                label: root.starred ? "Remove star" : "Star";
+                shortcut: "F";
+                activated => { root.toggle-star(); root.dismissed(); }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            MenuEntry {
+                icon: Icons.trash;
+                label: "Delete";
+                shortcut: "Shift+3";
+                danger: true;
+                activated => { root.delete-thread(); root.dismissed(); }
+            }
+        }
     }
 }
 
@@ -161,13 +321,13 @@ export component StateTabs inherits HorizontalLayout {
     callback selected(int);
     callback spam-selected();
 
-    padding: Tokens.space-2;
-    spacing: Tokens.space-1;
+    padding: 3px;
+    spacing: 2px;
     vertical-stretch: 0;
+    height: 30px;
 
     for label[i] in ["To do", "Waiting", "Done"]: Rectangle {
-        height: 24px;
-        border-radius: 99px;
+        border-radius: Tokens.radius-small;
 
         accessible-role: tab;
         accessible-label: label;
@@ -220,8 +380,7 @@ export component StateTabs inherits HorizontalLayout {
     // work: it is everything the work was spared. It only appears once there is
     // something in it — an empty tab is a permanent reminder of nothing.
     if root.spam-count > 0: Rectangle {
-        height: 24px;
-        border-radius: 99px;
+        border-radius: Tokens.radius-small;
         background: root.showing-spam
             ? Tokens.accent
             : (spam-touch.has-hover ? Tokens.surface-hover : transparent);
@@ -375,6 +534,7 @@ export component ThreadListView inherits VerticalLayout {
     callback search-submitted(string);
     callback search-cleared();
     callback spam-selected();
+    callback row-context-menu(int, length, length);
 
     public function focus-search() {
         bar.focus-field();
@@ -392,13 +552,48 @@ export component ThreadListView inherits VerticalLayout {
     // Pendant une recherche, les onglets disparaissent : les résultats ne sont pas
     // rangés par file, et laisser un onglet allumé au-dessus d'eux désignerait une
     // liste qui n'est pas celle qu'on regarde.
-    if !root.searching: StateTabs {
-        active: root.active-tab;
-        counts: root.counts;
-        spam-count: root.spam-count;
-        showing-spam: root.showing-spam;
-        selected(i) => { root.tab-selected(i); }
-        spam-selected => { root.spam-selected(); }
+    // The tabs sit on a plate of their own rather than floating: three lozenges on
+    // bare background read as debris, which is exactly how they looked.
+    if !root.searching: Rectangle {
+        vertical-stretch: 0;
+        height: 38px;
+
+        Rectangle {
+            x: Tokens.space-2;
+            y: 4px;
+            width: parent.width - 2 * Tokens.space-2;
+            height: 30px;
+            border-radius: Tokens.radius-medium;
+            background: Tokens.surface-low;
+            border-width: 1px;
+            border-color: Tokens.border;
+
+            // The same short fall of light the glass panels get, so the strip belongs
+            // to the same material as everything around it.
+            Rectangle {
+                y: 1px;
+                height: 12px;
+                width: 100%;
+                border-top-left-radius: Tokens.radius-medium;
+                border-top-right-radius: Tokens.radius-medium;
+                background: @linear-gradient(180deg,
+                    Tokens.edge-light.transparentize(0.82) 0%,
+                    Tokens.edge-light.transparentize(1.0) 100%);
+            }
+        }
+
+        StateTabs {
+            x: Tokens.space-2;
+            y: 4px;
+            width: parent.width - 2 * Tokens.space-2;
+            height: 30px;
+            active: root.active-tab;
+            counts: root.counts;
+            spam-count: root.spam-count;
+            showing-spam: root.showing-spam;
+            selected(i) => { root.tab-selected(i); }
+            spam-selected => { root.spam-selected(); }
+        }
     }
 
     Rectangle {
@@ -427,6 +622,7 @@ export component ThreadListView inherits VerticalLayout {
             data: entry;
             selected: entry.id == root.selected-id;
             clicked => { root.row-clicked(entry.id); }
+            context-menu(x, y) => { root.row-context-menu(entry.id, x, y); }
         }
 
         // Le chargement de la suite est déclenché par la position du défilement, pas

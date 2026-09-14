@@ -1,6 +1,7 @@
 import { Tokens } from "tokens.slint";
 import { AccountRowData } from "types.slint";
 import { Glass } from "glass.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 component SectionLabel inherits Text {
@@ -12,9 +13,11 @@ component SectionLabel inherits Text {
 component AccountRow inherits Rectangle {
     in property <AccountRowData> account;
     in property <bool> selected;
+    in property <bool> compact;
 
     callback clicked();
     callback resume();
+    callback sync();
 
     height: 26px;
     border-radius: Tokens.radius-small;
@@ -25,18 +28,27 @@ component AccountRow inherits Rectangle {
 
     accessible-role: list-item;
     accessible-label: root.account.label;
-    // Le compte en panne le dit dans sa description : un lecteur d'écran ne voit
-    // pas le point d'exclamation, et c'est précisément l'information qui presse.
+    accessible-item-selected: root.selected;
     accessible-description: root.account.needs-attention
         ? "Paused after repeated failures"
         : root.account.count + " to do";
-    accessible-item-selected: root.selected;
-    accessible-item-selectable: true;
     accessible-action-default => { root.clicked(); }
+
+    // The selected account gets a bar on its left edge, the same marker the message
+    // list uses. Colour alone was carrying this before, and at these opacities it was
+    // not carrying it at all.
+    Rectangle {
+        x: 0;
+        width: root.selected ? 2px : 0px;
+        height: 100%;
+        border-radius: 1px;
+        background: Tokens.accent;
+        animate width { duration: Tokens.instant; }
+    }
 
     HorizontalLayout {
         padding-left: Tokens.space-2;
-        padding-right: Tokens.space-2;
+        padding-right: Tokens.space-1;
         spacing: Tokens.space-2;
 
         Rectangle {
@@ -47,7 +59,7 @@ component AccountRow inherits Rectangle {
             background: root.account.tint;
         }
 
-        Text {
+        if !root.compact: Text {
             text: root.account.label;
             font-size: Tokens.size-body;
             font-weight: root.selected ? Tokens.weight-bold : Tokens.weight-body;
@@ -58,36 +70,29 @@ component AccountRow inherits Rectangle {
 
         Rectangle {}
 
-        // Un compte suspendu se signale par une forme, pas seulement par une
-        // couleur : le thème par défaut n'a pas d'accent, et l'utilisateur doit
-        // pouvoir repérer le problème sans distinguer les teintes.
-        //
-        // Le marqueur est aussi le bouton de reprise. Signaler une panne sans offrir
-        // le geste qui la répare oblige à chercher ailleurs ce qui est déjà là.
-        if root.account.needs-attention: Rectangle {
-            width: 16px;
-            border-radius: Tokens.radius-small;
-            background: reprise.has-hover ? Tokens.surface-hover : transparent;
-
-            accessible-role: button;
-            accessible-label: "Retry " + root.account.label;
-            accessible-action-default => { root.resume(); }
-
-            Text {
-                text: reprise.has-hover ? "↻" : "!";
-                font-size: Tokens.size-small;
-                font-weight: Tokens.weight-bold;
-                color: Tokens.error;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-
-            reprise := TouchArea {
-                clicked => { root.resume(); }
-            }
+        // A paused account is a problem the user has to be able to act on, so the
+        // marker is a button. Signalling a fault without offering the gesture that
+        // repairs it sends people hunting for something that is already on screen.
+        if root.account.needs-attention: IconButton {
+            icon: Icons.warning;
+            label: "Fix " + root.account.label;
+            icon-size: 13px;
+            button-size: 20px;
+            danger: true;
+            clicked => { root.resume(); }
         }
 
-        if root.account.count > 0: Text {
+        // Syncing one mailbox on demand, without waiting for the schedule or
+        // dragging the other ninety-nine along with it.
+        if touch.has-hover && !root.compact && !root.account.needs-attention: IconButton {
+            icon: Icons.refresh;
+            label: "Sync " + root.account.label;
+            icon-size: 13px;
+            button-size: 20px;
+            clicked => { root.sync(); }
+        }
+
+        if !root.compact && root.account.count > 0 && !touch.has-hover: Text {
             text: root.account.count;
             font-size: Tokens.size-small;
             color: Tokens.text-muted;
@@ -105,17 +110,28 @@ component AccountRow inherits Rectangle {
 // Avec cent boîtes, l'ordre de création n'a aucun sens. Trois sections seulement :
 // la vue unifiée, les comptes épinglés, puis le reste — filtrable, parce qu'on ne
 // parcourt pas cent lignes à l'œil.
+//
+// It collapses to a strip of colour bars. On a laptop the accounts column is the
+// least useful two hundred pixels on screen once you know which mailbox you are in,
+// and it is the obvious thing to give back to the message list.
 export component Sidebar inherits Glass {
     in property <[AccountRowData]> pinned;
     in property <[AccountRowData]> others;
     in property <int> selected-id;
     in property <int> unified-count;
+    in property <bool> syncing;
+    in property <string> sync-progress;
     in-out property <string> filter;
+    in-out property <bool> collapsed;
 
     callback account-selected(int);
     callback unified-selected();
     callback resume-account(int);
     callback add-account();
+    callback filter-changed(string);
+    callback sync-account(int);
+    callback sync-all();
+    callback open-settings();
 
     radius: 0px;
     border-width: 0px;
@@ -124,44 +140,42 @@ export component Sidebar inherits Glass {
         padding: Tokens.space-2;
         spacing: Tokens.space-1;
 
+        // --- Top row: filter, add, collapse ---
         HorizontalLayout {
             spacing: Tokens.space-1;
+            vertical-stretch: 0;
+            height: 26px;
 
-            LineEdit {
+            if !root.collapsed: LineEdit {
                 accessible-label: "Filter accounts";
                 placeholder-text: "Filter accounts…";
                 font-size: Tokens.size-small;
                 text <=> root.filter;
+                // The filtering happens in Rust, over the real list. Doing it here
+                // would mean the interface deciding what exists, and it was doing
+                // neither: the field was wired to nothing at all.
+                edited(t) => { root.filter-changed(t); }
             }
 
-            // Ajouter une boîte est le geste par lequel tout commence : il a sa
-            // place ici, à côté de la liste qu'il allonge.
-            Rectangle {
-                width: 24px;
-                border-radius: Tokens.radius-small;
-                background: ajout.has-hover ? Tokens.surface-hover : Tokens.surface;
+            if !root.collapsed: IconButton {
+                icon: Icons.plus;
+                label: "Add an account";
+                button-size: 24px;
+                clicked => { root.add-account(); }
+            }
 
-                accessible-role: button;
-                accessible-label: "Add an account";
-                accessible-action-default => { root.add-account(); }
-
-                Text {
-                    text: "+";
-                    font-size: Tokens.size-title;
-                    color: Tokens.text-secondary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                ajout := TouchArea {
-                    clicked => { root.add-account(); }
-                }
+            IconButton {
+                icon: root.collapsed ? Icons.chevron-right : Icons.chevron-left;
+                label: root.collapsed ? "Show account names" : "Collapse the accounts";
+                button-size: 24px;
+                clicked => { root.collapsed = !root.collapsed; }
             }
         }
 
-        SectionLabel { text: "UNIFIED"; }
+        if !root.collapsed: SectionLabel { text: "UNIFIED"; }
 
         AccountRow {
+            compact: root.collapsed;
             account: {
                 id: 0,
                 label: "All accounts",
@@ -172,27 +186,78 @@ export component Sidebar inherits Glass {
             };
             selected: root.selected-id == 0;
             clicked => { root.unified-selected(); }
+            sync => { root.sync-all(); }
         }
 
-        if root.pinned.length > 0: SectionLabel { text: "PINNED"; }
+        if !root.collapsed && root.pinned.length > 0: SectionLabel { text: "PINNED"; }
 
         for account in root.pinned: AccountRow {
             account: account;
+            compact: root.collapsed;
             selected: account.id == root.selected-id;
             clicked => { root.account-selected(account.id); }
             resume => { root.resume-account(account.id); }
+            sync => { root.sync-account(account.id); }
         }
 
-        if root.others.length > 0: SectionLabel { text: "ACCOUNTS"; }
+        if !root.collapsed && root.others.length > 0: SectionLabel { text: "ACCOUNTS"; }
 
         // La liste des autres comptes est virtualisée : cent lignes ne doivent pas
         // coûter cent éléments vivants.
         ListView {
+            vertical-stretch: 1;
             for account in root.others: AccountRow {
                 account: account;
+                compact: root.collapsed;
                 selected: account.id == root.selected-id;
                 clicked => { root.account-selected(account.id); }
                 resume => { root.resume-account(account.id); }
+                sync => { root.sync-account(account.id); }
+            }
+        }
+
+        // Nothing matched the filter. Saying so beats an empty column, which reads as
+        // "there are no accounts" rather than "none of them are called that".
+        if !root.collapsed && root.others.length == 0 && root.pinned.length == 0
+            && root.filter != "": Text {
+            text: "No account matches.";
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+        }
+
+        // --- Bottom row: sync everything, and the way into settings ---
+        Rectangle { height: 1px; background: Tokens.border; }
+
+        HorizontalLayout {
+            spacing: Tokens.space-1;
+            vertical-stretch: 0;
+            height: 26px;
+
+            IconButton {
+                icon: Icons.refresh;
+                label: root.syncing ? "Syncing…" : "Sync all accounts";
+                shortcut: "F5";
+                button-size: 24px;
+                active: root.syncing;
+                clicked => { root.sync-all(); }
+            }
+
+            if !root.collapsed && root.sync-progress != "": Text {
+                text: root.sync-progress;
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {}
+
+            IconButton {
+                icon: Icons.settings;
+                label: "Settings";
+                shortcut: "Ctrl+,";
+                button-size: 24px;
+                clicked => { root.open-settings(); }
             }
         }
     }

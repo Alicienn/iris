@@ -1,0 +1,153 @@
+// The icon set, as path data.
+//
+// Three approaches were possible and only one of them works here. The `icons` crate
+// targets Leptos and Dioxus, expanding to web component macros a Slint interface
+// cannot use. Slint 1.17 ships no SVG decoder, so `@image-url` on an `.svg` is out.
+// What Slint does have is `Path`, which takes SVG path syntax and renders it
+// natively — no decoding, no asset files, resolution-independent, and tinted per
+// theme. That is better than either alternative, not a fallback from them.
+//
+// One family throughout: a 24-unit grid, a 1.75-unit stroke, round caps and joins.
+// That consistency is what makes a toolbar look designed rather than collected, and
+// it is the first thing lost when icons are picked one at a time from different sets.
+//
+// Generated. Edit the generator, not this file.
+
+import { Tokens } from "tokens.slint";
+
+export global Icons {
+    out property <string> window-minimise: "M 5 12 L 19 12";
+    out property <string> window-maximise: "M 7.0 5.5 H 17.0 A 1.5 1.5 0 0 1 18.5 7.0 V 17.0 A 1.5 1.5 0 0 1 17.0 18.5 H 7.0 A 1.5 1.5 0 0 1 5.5 17.0 V 7.0 A 1.5 1.5 0 0 1 7.0 5.5 Z";
+    out property <string> window-restore: "M 6.0 8 H 14.5 A 1.5 1.5 0 0 1 16.0 9.5 V 18.0 A 1.5 1.5 0 0 1 14.5 19.5 H 6.0 A 1.5 1.5 0 0 1 4.5 18.0 V 9.5 A 1.5 1.5 0 0 1 6.0 8 Z M 8.5 8 V 6 A 1.5 1.5 0 0 1 10 4.5 H 18 A 1.5 1.5 0 0 1 19.5 6 V 14 A 1.5 1.5 0 0 1 18 15.5 H 16";
+    out property <string> window-close: "M 6 6 L 18 18 M 18 6 L 6 18";
+    out property <string> check: "M 4.5 12.5 L 9.5 17.5 L 19.5 6.5";
+    out property <string> archive: "M 4.2 4 H 19.8 A 1.2 1.2 0 0 1 21 5.2 V 7.3 A 1.2 1.2 0 0 1 19.8 8.5 H 4.2 A 1.2 1.2 0 0 1 3 7.3 V 5.2 A 1.2 1.2 0 0 1 4.2 4 Z M 5 8.5 V 19 A 1.5 1.5 0 0 0 6.5 20.5 H 17.5 A 1.5 1.5 0 0 0 19 19 V 8.5 M 10 13 L 14 13";
+    out property <string> trash: "M 3.5 6.5 L 20.5 6.5 M 9 6.5 V 5 A 1.5 1.5 0 0 1 10.5 3.5 H 13.5 A 1.5 1.5 0 0 1 15 5 V 6.5 M 6 6.5 V 19 A 1.5 1.5 0 0 0 7.5 20.5 H 16.5 A 1.5 1.5 0 0 0 18 19 V 6.5 M 10.5 10.5 L 10.5 16.5 M 13.5 10.5 L 13.5 16.5";
+    out property <string> clock: "M 3.5 12 A 8.5 8.5 0 1 0 20.5 12 A 8.5 8.5 0 1 0 3.5 12 Z M 12 7 V 12.2 L 15.4 14.2";
+    out property <string> star: "M 12 3.6 L 14.6 9 L 20.5 9.8 L 16.2 13.9 L 17.2 19.8 L 12 17 L 6.8 19.8 L 7.8 13.9 L 3.5 9.8 L 9.4 9 Z";
+    out property <string> envelope-open: "M 3.5 10.5 L 12 4.5 L 20.5 10.5 M 3.5 10.5 V 18 A 1.5 1.5 0 0 0 5 19.5 H 19 A 1.5 1.5 0 0 0 20.5 18 V 10.5 M 3.5 10.5 L 12 16 L 20.5 10.5";
+    out property <string> envelope-closed: "M 5.0 5.5 H 19.0 A 1.5 1.5 0 0 1 20.5 7.0 V 17.0 A 1.5 1.5 0 0 1 19.0 18.5 H 5.0 A 1.5 1.5 0 0 1 3.5 17.0 V 7.0 A 1.5 1.5 0 0 1 5.0 5.5 Z M 3.5 8 L 12 13.5 L 20.5 8";
+    out property <string> reply: "M 9.5 6.5 L 4 12 L 9.5 17.5 M 4 12 H 13 A 7 7 0 0 1 20 19 V 20";
+    out property <string> reply-all: "M 8 6.5 L 2.5 12 L 8 17.5 M 13 6.5 L 7.5 12 L 13 17.5 M 7.5 12 H 14.5 A 6 6 0 0 1 20.5 18 V 19";
+    out property <string> send: "M 20.5 3.5 L 10.5 13.5 M 20.5 3.5 L 14 20.5 L 10.5 13.5 L 3.5 10 Z";
+    out property <string> forward: "M 14.5 6.5 L 20 12 L 14.5 17.5 M 20 12 H 11 A 7 7 0 0 0 4 19 V 20";
+    out property <string> search: "M 4.0 10.5 A 6.5 6.5 0 1 0 17.0 10.5 A 6.5 6.5 0 1 0 4.0 10.5 Z M 15.2 15.2 L 20 20";
+    out property <string> settings: "M 9 12 A 3 3 0 1 0 15 12 A 3 3 0 1 0 9 12 Z M 12 2.5 V 5 M 12 19 V 21.5 M 21.5 12 H 19 M 5 12 H 2.5 M 18.7 5.3 L 16.9 7.1 M 7.1 16.9 L 5.3 18.7 M 18.7 18.7 L 16.9 16.9 M 7.1 7.1 L 5.3 5.3";
+    out property <string> refresh: "M 20 12 A 8 8 0 1 1 17.6 6.3 M 20 4 V 9 H 15";
+    out property <string> plus: "M 12 5 L 12 19 M 5 12 L 19 12";
+    out property <string> minus: "M 5 12 L 19 12";
+    out property <string> chevron-left: "M 14.5 5.5 L 8 12 L 14.5 18.5";
+    out property <string> chevron-right: "M 9.5 5.5 L 16 12 L 9.5 18.5";
+    out property <string> chevron-down: "M 5.5 9.5 L 12 16 L 18.5 9.5";
+    out property <string> more: "M 3.7 12 A 1.3 1.3 0 1 0 6.3 12 A 1.3 1.3 0 1 0 3.7 12 Z M 10.7 12 A 1.3 1.3 0 1 0 13.3 12 A 1.3 1.3 0 1 0 10.7 12 Z M 17.7 12 A 1.3 1.3 0 1 0 20.3 12 A 1.3 1.3 0 1 0 17.7 12 Z";
+    out property <string> warning: "M 12 4.5 L 20.5 19 H 3.5 Z M 12 9.5 L 12 13.8 M 11.15 16.6 A 0.85 0.85 0 1 0 12.85 16.6 A 0.85 0.85 0 1 0 11.15 16.6 Z";
+    out property <string> sidebar: "M 5.5 4.5 H 18.5 A 2 2 0 0 1 20.5 6.5 V 17.5 A 2 2 0 0 1 18.5 19.5 H 5.5 A 2 2 0 0 1 3.5 17.5 V 6.5 A 2 2 0 0 1 5.5 4.5 Z M 9.5 4.5 L 9.5 19.5";
+    out property <string> inbox: "M 3.5 13 H 8 L 9.5 15.5 H 14.5 L 16 13 H 20.5 M 3.5 13 L 6 5.5 A 1.5 1.5 0 0 1 7.4 4.5 H 16.6 A 1.5 1.5 0 0 1 18 5.5 L 20.5 13 V 18 A 1.5 1.5 0 0 1 19 19.5 H 5 A 1.5 1.5 0 0 1 3.5 18 Z";
+    out property <string> paperclip: "M 20 11.5 L 11.6 19.9 A 5 5 0 0 1 4.5 12.8 L 13.4 3.9 A 3.4 3.4 0 0 1 18.2 8.7 L 9.3 17.6 A 1.7 1.7 0 0 1 6.9 15.2 L 15 7.1";
+    out property <string> image: "M 5.5 5 H 18.5 A 2 2 0 0 1 20.5 7 V 17 A 2 2 0 0 1 18.5 19 H 5.5 A 2 2 0 0 1 3.5 17 V 7 A 2 2 0 0 1 5.5 5 Z M 6.9 10 A 1.6 1.6 0 1 0 10.1 10 A 1.6 1.6 0 1 0 6.9 10 Z M 20.5 16 L 16 11.5 L 6 19";
+    out property <string> bold: "M 7.5 5 H 13.3 A 3.8 3.8 0 0 1 13.3 12.5 H 7.5 Z M 7.5 12.5 H 14.1 A 3.9 3.9 0 0 1 14.1 20 H 7.5 Z";
+    out property <string> italic: "M 15.5 5 L 10.5 19 M 9 5 L 16 5 M 8 19 L 15 19";
+    out property <string> underline: "M 7 4.5 V 11 A 5 5 0 0 0 17 11 V 4.5 M 5.5 20 L 18.5 20";
+    out property <string> strikethrough: "M 7 6.5 A 4 4 0 0 1 15 6.5 M 9 17.5 A 4 4 0 0 0 17 17 M 3.5 12 L 20.5 12";
+    out property <string> link: "M 10.5 13.5 A 4 4 0 0 0 16.2 13.5 L 19.2 10.5 A 4 4 0 1 0 13.5 4.8 L 11.8 6.5 M 13.5 10.5 A 4 4 0 0 0 7.8 10.5 L 4.8 13.5 A 4 4 0 1 0 10.5 19.2 L 12.2 17.5";
+    out property <string> list: "M 9 7 L 20 7 M 9 12 L 20 12 M 9 17 L 20 17 M 3.5999999999999996 7 A 1.2 1.2 0 1 0 6.0 7 A 1.2 1.2 0 1 0 3.5999999999999996 7 Z M 3.5999999999999996 12 A 1.2 1.2 0 1 0 6.0 12 A 1.2 1.2 0 1 0 3.5999999999999996 12 Z M 3.5999999999999996 17 A 1.2 1.2 0 1 0 6.0 17 A 1.2 1.2 0 1 0 3.5999999999999996 17 Z";
+    out property <string> list-numbered: "M 10 7 L 20 7 M 10 12 L 20 12 M 10 17 L 20 17 M 4 5.5 L 5.5 5 V 9 M 3.8 9 H 6.4 M 3.8 13 A 1.3 1.3 0 1 1 6.2 13.7 L 3.8 16.5 H 6.5";
+    out property <string> quote: "M 9 6.5 A 7 7 0 0 0 4.5 13 V 17.5 H 10.5 V 11 H 7.8 A 3.6 3.6 0 0 1 10.2 8 M 19 6.5 A 7 7 0 0 0 14.5 13 V 17.5 H 20.5 V 11 H 17.8 A 3.6 3.6 0 0 1 20.2 8";
+    out property <string> code: "M 8.5 8 L 4 12 L 8.5 16 M 15.5 8 L 20 12 L 15.5 16 M 13.5 5 L 10.5 19";
+}
+
+// One icon.
+//
+// The stroke width is expressed in grid units and scaled with the icon, so a 14-pixel
+// icon and a 20-pixel one look like the same pen rather than two different ones.
+export component Icon inherits Rectangle {
+    in property <string> data;
+    in property <length> size: 16px;
+    in property <brush> tint: Tokens.text-secondary;
+    in property <float> alpha: 1.0;
+    in property <float> weight: 1.75;
+
+    width: root.size;
+    height: root.size;
+    opacity: root.alpha;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.data;
+        stroke: root.tint;
+        stroke-width: root.weight / 24 * root.size;
+        fill: transparent;
+    }
+}
+
+// A square button whose whole content is one icon.
+//
+// Having one of these rather than a dozen near-copies is what stops the hover states
+// drifting apart from each other over time.
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> danger;
+    in property <bool> active;
+    in property <bool> enabled: true;
+    in property <length> icon-size: 16px;
+    in property <length> button-size: 28px;
+
+    callback clicked();
+
+    width: root.button-size;
+    height: root.button-size - 2px;
+    border-radius: Tokens.radius-small;
+    background: root.active
+        ? Tokens.surface-active
+        : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        data: root.icon;
+        size: root.icon-size;
+        tint: root.danger && touch.has-hover
+            ? Tokens.error
+            : (root.active ? Tokens.text : Tokens.text-secondary);
+        alpha: root.enabled ? 1.0 : 0.4;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+
+    // The tooltip carries the shortcut, so the toolbar teaches the keyboard rather
+    // than competing with it.
+    if touch.has-hover && root.label != "": Rectangle {
+        y: parent.height + 4px;
+        width: tip.preferred-width + 12px;
+        height: 20px;
+        border-radius: Tokens.radius-small;
+        background: Tokens.surface-high;
+        border-width: 1px;
+        border-color: Tokens.border;
+
+        tip := Text {
+            text: root.shortcut == "" ? root.label : root.label + "  " + root.shortcut;
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}

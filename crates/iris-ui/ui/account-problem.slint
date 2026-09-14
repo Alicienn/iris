@@ -1,0 +1,220 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { Icon, Icons } from "icons.slint";
+import { LineEdit } from "std-widgets.slint";
+
+// What an account in trouble looks like when you click on it.
+//
+// The exclamation mark in the sidebar used to be the whole story: it said something
+// was wrong and offered nothing to do about it, which is the worst of both — the user
+// knows they have a problem and has no way to touch it.
+//
+// So this says three things. What went wrong, in the server's own words. What that
+// means, in ours. And the one action that can fix it, right there, rather than
+// somewhere in settings.
+export component AccountProblemPanel inherits Rectangle {
+    in property <string> account;
+    in property <string> message;
+    in property <string> advice;
+    in property <bool> needs-password;
+    in property <bool> busy;
+    in property <string> result;
+    in-out property <string> password;
+
+    callback retry();
+    callback save-password();
+    callback disable-account();
+    callback dismissed();
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(480px, parent.width - 80px);
+        height: min(root.needs-password ? 340px : 260px, parent.height - 80px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                Icon {
+                    y: 2px;
+                    data: Icons.warning;
+                    size: 18px;
+                    tint: Tokens.error;
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: root.account;
+                        font-family: Tokens.font-family;
+                        font-size: Tokens.size-title;
+                        font-weight: Tokens.weight-bold;
+                        color: Tokens.text;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: "This mailbox is not syncing.";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            // Our reading of it first, because that is what tells the user whether
+            // this is theirs to fix or the server's to recover from.
+            Text {
+                text: root.advice;
+                font-size: Tokens.size-body;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+
+            // Then the server's own words, which are ugly but are the only thing that
+            // helps when our reading of them is wrong.
+            if root.message != "": Rectangle {
+                height: detail.preferred-height + 2 * Tokens.space-2;
+                border-radius: Tokens.radius-small;
+                background: Tokens.surface-low;
+                border-width: 1px;
+                border-color: Tokens.border;
+
+                detail := Text {
+                    x: Tokens.space-2;
+                    y: Tokens.space-2;
+                    width: parent.width - 2 * Tokens.space-2;
+                    text: root.message;
+                    font-family: Tokens.font-mono;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.needs-password: VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "New password";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                }
+                LineEdit {
+                    accessible-label: "New password";
+                    input-type: InputType.password;
+                    font-size: Tokens.size-body;
+                    text <=> root.password;
+                    accepted => { root.save-password(); }
+                }
+            }
+
+            if root.result != "": Text {
+                text: root.result;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+
+            Rectangle {}
+
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                // Turning the account off is a legitimate answer to "this is broken
+                // and I do not want to deal with it now", and hiding it would leave
+                // the marker blinking for ever.
+                Rectangle {
+                    width: 110px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: eteindre.has-hover ? Tokens.surface-hover : transparent;
+
+                    accessible-role: button;
+                    accessible-label: "Disable this account";
+                    accessible-action-default => { root.disable-account(); }
+
+                    Text {
+                        text: "Disable";
+                        font-size: Tokens.size-small;
+                        color: eteindre.has-hover ? Tokens.error : Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    eteindre := TouchArea {
+                        clicked => { root.disable-account(); }
+                    }
+                }
+
+                Rectangle {}
+
+                Rectangle {
+                    width: 90px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: fermer.has-hover ? Tokens.surface-hover : Tokens.surface;
+
+                    accessible-role: button;
+                    accessible-label: "Close";
+                    accessible-action-default => { root.dismissed(); }
+
+                    Text {
+                        text: "Close";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    fermer := TouchArea {
+                        clicked => { root.dismissed(); }
+                    }
+                }
+
+                Rectangle {
+                    width: 150px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: Tokens.accent;
+                    opacity: root.busy ? 0.5 : 1.0;
+
+                    accessible-role: button;
+                    accessible-label: root.needs-password ? "Save and retry" : "Try again";
+                    accessible-enabled: !root.busy;
+                    accessible-action-default => {
+                        root.needs-password ? root.save-password() : root.retry();
+                    }
+
+                    Text {
+                        text: root.busy
+                            ? "Trying…"
+                            : (root.needs-password ? "Save and retry" : "Try again");
+                        font-size: Tokens.size-small;
+                        font-weight: Tokens.weight-bold;
+                        color: Tokens.accent-text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            if (!root.busy) {
+                                root.needs-password ? root.save-password() : root.retry();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

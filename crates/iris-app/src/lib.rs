@@ -14,6 +14,7 @@ pub mod plugins;
 pub mod services;
 pub mod settings;
 pub mod shell;
+pub mod vitals;
 
 pub use controller::{Controller, Request, Snapshot};
 pub use paths::Paths;
