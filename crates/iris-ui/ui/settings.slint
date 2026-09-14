@@ -1,0 +1,227 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { CheckBox, SpinBox } from "std-widgets.slint";
+
+// Un intitulé de section.
+component GroupLabel inherits Text {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: Tokens.text-muted;
+}
+
+// Un choix parmi quelques-uns, en pastilles.
+//
+// Une liste déroulante cacherait les options ; ici il y en a trois ou quatre, et
+// les montrer toutes coûte moins cher qu'un clic pour découvrir ce qui existe.
+component ChipRow inherits HorizontalLayout {
+    in property <[string]> options;
+    in property <int> selected;
+
+    callback chosen(int);
+
+    spacing: Tokens.space-1;
+
+    for label[i] in root.options: Rectangle {
+        height: 26px;
+        border-radius: 99px;
+        background: root.selected == i
+            ? Tokens.accent
+            : (touch.has-hover ? Tokens.surface-hover : Tokens.surface);
+        animate background { duration: Tokens.instant; }
+
+        HorizontalLayout {
+            padding-left: Tokens.space-3;
+            padding-right: Tokens.space-3;
+
+            Text {
+                text: label;
+                font-size: Tokens.size-small;
+                font-weight: root.selected == i ? Tokens.weight-bold : Tokens.weight-body;
+                color: root.selected == i ? Tokens.accent-text : Tokens.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        touch := TouchArea {
+            clicked => { root.chosen(i); }
+        }
+    }
+
+    Rectangle {}
+}
+
+// Un interrupteur avec son explication.
+//
+// L'explication n'est pas décorative : un automatisme qu'on ne comprend pas, on le
+// coupe par précaution, et l'application perd ce qui la rend utile.
+component SettingToggle inherits VerticalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in-out property <bool> value;
+
+    callback toggled(bool);
+
+    spacing: 2px;
+
+    CheckBox {
+        text: root.label;
+        checked <=> root.value;
+        toggled => { root.toggled(self.checked); }
+    }
+
+    Text {
+        text: root.hint;
+        font-size: Tokens.size-small;
+        color: Tokens.text-muted;
+        wrap: word-wrap;
+    }
+}
+
+// Les réglages.
+//
+// Trois sections, parce que ce sont les trois choses qui se règlent : l'apparence,
+// la densité, et ce que l'application fait toute seule. Tout le reste appartient au
+// thème, qui est un fichier.
+export component SettingsPanel inherits Rectangle {
+    in property <[string]> themes;
+    in property <int> active-theme;
+    in property <int> density;
+    in-out property <bool> reply-marks-waiting;
+    in-out property <bool> new-message-reopens;
+    in-out property <bool> follow-up-enabled;
+    in-out property <int> follow-up-days;
+
+    callback theme-chosen(int);
+    callback density-chosen(int);
+    callback automation-changed();
+    callback dismissed();
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(520px, parent.width - 80px);
+        height: min(560px, parent.height - 80px);
+
+        // Le panneau avale les clics : sans cela, régler une case fermerait la
+        // fenêtre en touchant le voile derrière.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                Text {
+                    text: "Réglages";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                }
+
+                Rectangle {}
+
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: Tokens.radius-small;
+                    background: fermer.has-hover ? Tokens.surface-hover : transparent;
+
+                    Text {
+                        text: "✕";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    fermer := TouchArea {
+                        clicked => { root.dismissed(); }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            GroupLabel { text: "THÈME"; }
+
+            ChipRow {
+                options: root.themes;
+                selected: root.active-theme;
+                chosen(i) => { root.theme-chosen(i); }
+            }
+
+            GroupLabel { text: "DENSITÉ DE LA LISTE"; }
+
+            ChipRow {
+                options: ["Compacte", "Normale", "Confortable"];
+                selected: root.density;
+                chosen(i) => { root.density-chosen(i); }
+            }
+
+            GroupLabel { text: "AUTOMATISMES"; }
+
+            SettingToggle {
+                label: "Répondre met le fil en attente";
+                hint: "Le fil quitte la file de travail et attend la réponse d'en face.";
+                value <=> root.reply-marks-waiting;
+                toggled => { root.automation-changed(); }
+            }
+
+            SettingToggle {
+                label: "Un nouveau message rouvre le fil";
+                hint: "Un fil traité qui reçoit une suite revient dans la file.";
+                value <=> root.new-message-reopens;
+                toggled => { root.automation-changed(); }
+            }
+
+            SettingToggle {
+                label: "Relancer les fils sans réponse";
+                hint: "Un fil en attente trop longtemps revient de lui-même.";
+                value <=> root.follow-up-enabled;
+                toggled => { root.automation-changed(); }
+            }
+
+            if root.follow-up-enabled: HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                Text {
+                    text: "Après";
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                SpinBox {
+                    minimum: 1;
+                    maximum: 365;
+                    value <=> root.follow-up-days;
+                    edited => { root.automation-changed(); }
+                }
+
+                Text {
+                    text: "jours";
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {}
+            }
+
+            Rectangle {}
+
+            Text {
+                text: "Les réglages sont enregistrés au moment où vous les changez.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+            }
+        }
+    }
+}

@@ -165,5 +165,5 @@ qu'en théorie.
 ## E22 — Les écrans manquants
 
 - [ ] **S22.1** Configuration manuelle d'un compte, quand la découverte échoue.
-- [ ] **S22.2** Réglages : thème, densité, automatismes du workflow.
-- [ ] **S22.3** Comptes suspendus : signalement et reprise.
+- [x] **S22.2** Réglages : thème, densité, automatismes du workflow.
+- [x] **S22.3** Comptes suspendus : signalement et reprise.

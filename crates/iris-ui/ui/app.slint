@@ -4,6 +4,7 @@ import { ThreadRowData, AccountRowData, MessageData, CommandData } from "types.s
 import { ThreadListView } from "list.slint";
 import { Sidebar } from "sidebar.slint";
 import { ConversationView } from "conversation.slint";
+import { SettingsPanel } from "settings.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -175,6 +176,15 @@ export component AppWindow inherits Window {
     in property <bool> sending;
     in property <int> undo-seconds;
 
+    in-out property <bool> settings-open;
+    in property <[string]> themes;
+    in property <int> active-theme;
+    in property <int> density;
+    in-out property <bool> reply-marks-waiting: true;
+    in-out property <bool> new-message-reopens: true;
+    in-out property <bool> follow-up-enabled: true;
+    in-out property <int> follow-up-days: 3;
+
     in-out property <bool> palette-open;
     in-out property <string> palette-query;
     in property <int> palette-highlighted;
@@ -189,6 +199,7 @@ export component AppWindow inherits Window {
     callback thread-selected(int);
     callback tab-selected(int);
     callback account-selected(int);
+    callback resume-account(int);
     callback unified-selected();
     callback scrolled-near-end();
     callback command-invoked(string);
@@ -200,6 +211,9 @@ export component AppWindow inherits Window {
     callback palette-query-changed(string);
     callback search-submitted(string);
     callback search-cleared();
+    callback theme-chosen(int);
+    callback density-chosen(int);
+    callback automation-changed();
 
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
@@ -225,6 +239,7 @@ export component AppWindow inherits Window {
                     filter <=> root.account-filter;
                     account-selected(id) => { root.account-selected(id); }
                     unified-selected => { root.unified-selected(); }
+                    resume-account(id) => { root.resume-account(id); }
                 }
 
                 Rectangle { width: 1px; background: Tokens.border; }
@@ -281,6 +296,22 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.settings-open: SettingsPanel {
+        width: 100%;
+        height: 100%;
+        themes: root.themes;
+        active-theme: root.active-theme;
+        density: root.density;
+        reply-marks-waiting <=> root.reply-marks-waiting;
+        new-message-reopens <=> root.new-message-reopens;
+        follow-up-enabled <=> root.follow-up-enabled;
+        follow-up-days <=> root.follow-up-days;
+        theme-chosen(i) => { root.theme-chosen(i); }
+        density-chosen(i) => { root.density-chosen(i); }
+        automation-changed => { root.automation-changed(); }
+        dismissed => { root.settings-open = false; }
+    }
+
     if root.palette-open: CommandPalette {
         width: 100%;
         height: 100%;
@@ -300,6 +331,10 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == "k" && event.modifiers.control) {
                 root.palette-open = !root.palette-open;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.settings-open) {
+                root.settings-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.palette-open) {

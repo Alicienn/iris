@@ -9,6 +9,7 @@ pub mod accounts;
 pub mod controller;
 pub mod paths;
 pub mod services;
+pub mod settings;
 pub mod shell;
 
 pub use controller::{Controller, Request, Snapshot};

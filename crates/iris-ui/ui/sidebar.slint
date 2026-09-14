@@ -14,6 +14,7 @@ component AccountRow inherits Rectangle {
     in property <bool> selected;
 
     callback clicked();
+    callback resume();
 
     height: 26px;
     border-radius: Tokens.radius-small;
@@ -49,12 +50,26 @@ component AccountRow inherits Rectangle {
         // Un compte suspendu se signale par une forme, pas seulement par une
         // couleur : le thème par défaut n'a pas d'accent, et l'utilisateur doit
         // pouvoir repérer le problème sans distinguer les teintes.
-        if root.account.needs-attention: Text {
-            text: "!";
-            font-size: Tokens.size-small;
-            font-weight: Tokens.weight-bold;
-            color: Tokens.error;
-            vertical-alignment: center;
+        //
+        // Le marqueur est aussi le bouton de reprise. Signaler une panne sans offrir
+        // le geste qui la répare oblige à chercher ailleurs ce qui est déjà là.
+        if root.account.needs-attention: Rectangle {
+            width: 16px;
+            border-radius: Tokens.radius-small;
+            background: reprise.has-hover ? Tokens.surface-hover : transparent;
+
+            Text {
+                text: reprise.has-hover ? "↻" : "!";
+                font-size: Tokens.size-small;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.error;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            reprise := TouchArea {
+                clicked => { root.resume(); }
+            }
         }
 
         if root.account.count > 0: Text {
@@ -84,6 +99,7 @@ export component Sidebar inherits Glass {
 
     callback account-selected(int);
     callback unified-selected();
+    callback resume-account(int);
 
     radius: 0px;
     border-width: 0px;
@@ -119,6 +135,7 @@ export component Sidebar inherits Glass {
             account: account;
             selected: account.id == root.selected-id;
             clicked => { root.account-selected(account.id); }
+            resume => { root.resume-account(account.id); }
         }
 
         if root.others.length > 0: SectionLabel { text: "COMPTES"; }
@@ -130,6 +147,7 @@ export component Sidebar inherits Glass {
                 account: account;
                 selected: account.id == root.selected-id;
                 clicked => { root.account-selected(account.id); }
+                resume => { root.resume-account(account.id); }
             }
         }
     }

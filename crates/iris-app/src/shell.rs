@@ -7,6 +7,7 @@
 
 use crate::controller::{Controller, Request, Snapshot};
 use crate::services::{now, Services};
+use crate::settings::{Density, Settings};
 use iris_kernel::ViewDiff;
 use iris_sync::SendService;
 use iris_types::ThreadId as ThreadIdent;
@@ -25,16 +26,23 @@ pub fn build(services: &Services) -> iris_types::Result<AppWindow> {
         .map_err(|e| iris_types::Error::other(format!("création de la fenêtre : {e}")))?;
 
     bridge::apply_theme(&fenetre.global::<Tokens>(), &services.themes.active());
-    wire_accounts(&fenetre, services);
+    refresh_accounts(&fenetre, services, &[]);
 
     Ok(fenetre)
 }
 
 /// Remplit la barre latérale.
-fn wire_accounts(fenetre: &AppWindow, services: &Services) {
+///
+/// Appelée au démarrage puis à chaque tour de synchronisation : c'est par là qu'un
+/// compte tombé en panne se signale, et qu'il cesse de le faire une fois réparé.
+pub fn refresh_accounts(
+    fenetre: &AppWindow,
+    services: &Services,
+    suspendus: &[iris_types::AccountId],
+) {
     let comptes = services.store.accounts().unwrap_or_default();
-    // Les comptes suspendus viendront de l'ordonnanceur ; d'ici la, aucun.
-    let suspendus: std::collections::BTreeSet<iris_types::AccountId> = Default::default();
+    let suspendus: std::collections::BTreeSet<iris_types::AccountId> =
+        suspendus.iter().copied().collect();
 
     let (epingles, autres): (Vec<_>, Vec<_>) = comptes.iter().partition(|c| c.pinned);
 
@@ -50,6 +58,64 @@ fn wire_accounts(fenetre: &AppWindow, services: &Services) {
     fenetre.set_pinned_accounts(vers_modele(epingles));
     fenetre.set_other_accounts(vers_modele(autres));
     fenetre.set_unified_count(0);
+
+    if let Some(message) = message_suspension(&comptes, &suspendus) {
+        fenetre.set_status(message.into());
+    }
+}
+
+/// Le message de la barre d'état quand des comptes sont en pause.
+///
+/// Le marqueur « ! » seul est discret : quand une boîte ne se synchronise plus,
+/// l'application le dit en toutes lettres. Au-delà de trois comptes, elle compte
+/// plutôt que d'énumérer — une liste de quarante adresses n'informe personne.
+fn message_suspension(
+    comptes: &[iris_store::Account],
+    suspendus: &std::collections::BTreeSet<iris_types::AccountId>,
+) -> Option<String> {
+    if suspendus.is_empty() {
+        return None;
+    }
+
+    let noms: Vec<&str> = comptes
+        .iter()
+        .filter(|c| suspendus.contains(&c.id))
+        .map(|c| c.email.as_str())
+        .collect();
+
+    // Un compte suspendu que le store ne connaît pas ne peut pas être nommé ; on ne
+    // laisse pas pour autant l'utilisateur sans message.
+    let combien = noms.len().max(suspendus.len());
+    let qui = match noms.len() {
+        0 => format!("{combien} compte{}", if combien > 1 { "s" } else { "" }),
+        1..=3 => noms.join(", "),
+        n => format!("{n} comptes"),
+    };
+
+    Some(format!(
+        "{qui} en pause après des échecs répétés — cliquez sur le « ! » pour réessayer."
+    ))
+}
+
+/// Branche la reprise d'un compte suspendu.
+pub fn wire_account_recovery(
+    fenetre: &AppWindow,
+    engine: Arc<iris_sync::SyncEngine>,
+    runtime: tokio::runtime::Handle,
+) {
+    let faible = fenetre.as_weak();
+    fenetre.on_resume_account(move |id| {
+        let Some(fenetre) = faible.upgrade() else { return };
+        let compte = iris_types::AccountId(id as i64);
+        fenetre.set_status("Nouvelle tentative…".into());
+
+        let engine = Arc::clone(&engine);
+        runtime.spawn(async move {
+            // La reprise remet le compte dans l'ordonnanceur ; le tour suivant dira
+            // si la panne a disparu. On ne promet donc rien de plus qu'un essai.
+            engine.resume_account(compte, iris_sync::now_utc()).await;
+        });
+    });
 }
 
 /// Branche les rappels de la fenêtre sur le contrôleur.
@@ -167,9 +233,14 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
                 fenetre.invoke_focus_search();
             }
         }
-        // Ces commandes appartiennent à des écrans qui ne sont pas encore là ; les
-        // ignorer silencieusement vaut mieux qu'ouvrir une fenêtre vide.
-        CommandKind::Settings | CommandKind::Reload => {}
+        CommandKind::Settings => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                fenetre.set_settings_open(true);
+            }
+        }
+        // Le rechargement des thèmes appartient à la surveillance de fichiers, qui
+        // le fait déjà toute seule ; la commande n'a rien à ajouter.
+        CommandKind::Reload => {}
     }
 }
 
@@ -445,6 +516,138 @@ pub fn wire_reply(
     }
 }
 
+/// Branche l'écran des réglages.
+///
+/// Chaque changement est appliqué **et enregistré** immédiatement : un panneau de
+/// réglages avec un bouton « Valider » invite à se demander si l'on a bien validé,
+/// et cette question ne devrait pas exister pour trois cases à cocher.
+pub fn wire_settings(
+    fenetre: &AppWindow,
+    services: &Services,
+    controller: Arc<Controller>,
+    engine: Arc<iris_sync::SyncEngine>,
+    runtime: tokio::runtime::Handle,
+    reglages: Settings,
+    chemin: std::path::PathBuf,
+) {
+    let noms = services.themes.names();
+    let courant = Arc::new(std::sync::Mutex::new(reglages));
+
+    // L'état initial du panneau.
+    {
+        let reglages = courant.lock().expect("réglages empoisonnés").clone();
+        fenetre.set_themes(ModelRc::new(VecModel::from(
+            noms.iter().map(|n| slint::SharedString::from(n.as_str())).collect::<Vec<_>>(),
+        )));
+        fenetre.set_active_theme(
+            noms.iter().position(|n| *n == reglages.theme).unwrap_or(0) as i32,
+        );
+        fenetre.set_density(reglages.density.index() as i32);
+        fenetre.set_reply_marks_waiting(reglages.automation.reply_marks_waiting);
+        fenetre.set_new_message_reopens(reglages.automation.new_message_reopens);
+        fenetre.set_follow_up_enabled(reglages.automation.follow_up_enabled);
+        fenetre.set_follow_up_days(reglages.automation.follow_up_days as i32);
+    }
+
+    let enregistrer = {
+        let chemin = chemin.clone();
+        move |reglages: &Settings| {
+            if let Err(e) = reglages.save(&chemin) {
+                tracing::warn!(erreur = %e, "enregistrement des réglages");
+            }
+        }
+    };
+
+    // --- Le thème ---
+    {
+        let noms = noms.clone();
+        let themes = Arc::clone(&services.themes);
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_theme_chosen(move |index| {
+            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(nom) = noms.get(index as usize) else { return };
+
+            let theme = match themes.set_active(nom) {
+                Ok(t) => t,
+                Err(e) => {
+                    // Un thème qui refuse de se charger laisse l'ancien en place :
+                    // mieux vaut l'apparence précédente qu'un écran à moitié peint.
+                    tracing::warn!(theme = %nom, erreur = %e, "thème refusé");
+                    fenetre.set_status(format!("Thème « {nom} » illisible.").into());
+                    return;
+                }
+            };
+
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.theme = nom.clone();
+            appliquer_apparence(&fenetre, &theme, reglages.density);
+            fenetre.set_active_theme(index);
+            enregistrer(&reglages);
+        });
+    }
+
+    // --- La densité ---
+    {
+        let themes = Arc::clone(&services.themes);
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_density_chosen(move |index| {
+            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(densite) = Density::from_index(index as usize) else { return };
+
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.density = densite;
+            appliquer_apparence(&fenetre, &themes.active(), densite);
+            fenetre.set_density(index);
+            enregistrer(&reglages);
+        });
+    }
+
+    // --- Les automatismes ---
+    {
+        let courant = Arc::clone(&courant);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_automation_changed(move || {
+            let Some(fenetre) = faible.upgrade() else { return };
+
+            let automatismes = iris_types::AutomationSettings {
+                reply_marks_waiting: fenetre.get_reply_marks_waiting(),
+                new_message_reopens: fenetre.get_new_message_reopens(),
+                follow_up_enabled: fenetre.get_follow_up_enabled(),
+                follow_up_days: fenetre.get_follow_up_days().clamp(1, 365) as u16,
+            };
+
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.automation = automatismes;
+            enregistrer(&reglages);
+
+            // Les deux moteurs qui obéissent à ces réglages : celui des actions de
+            // l'utilisateur, et celui du temps. Les oublier ferait un panneau qui
+            // sauvegarde bien et ne change rien.
+            controller.send(Request::SetAutomation(automatismes));
+            let engine = Arc::clone(&engine);
+            runtime.spawn(async move {
+                engine.set_automation(automatismes);
+            });
+        });
+    }
+}
+
+/// Applique thème et densité aux jetons de l'interface.
+pub fn appliquer_apparence(fenetre: &AppWindow, theme: &iris_theme::Theme, densite: Density) {
+    let tokens = fenetre.global::<Tokens>();
+    bridge::apply_theme(&tokens, theme);
+    // La densité multiplie la hauteur du thème au lieu de la remplacer : un thème
+    // aux lignes hautes reste plus aéré que les autres à densité égale.
+    tokens.set_row_height(theme.density.row_height * densite.factor());
+}
+
 /// Modèle vide, pour initialiser une liste avant le premier instantané.
 pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
     ModelRc::from(Rc::new(VecModel::from(Vec::<T>::new())))
@@ -473,6 +676,59 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn compte(id: i64, email: &str) -> iris_store::Account {
+        iris_store::Account {
+            id: iris_types::AccountId(id),
+            email: email.into(),
+            display_name: email.into(),
+            imap_host: "i".into(),
+            imap_port: 993,
+            imap_tls: true,
+            smtp_host: "s".into(),
+            smtp_port: 465,
+            smtp_tls: true,
+            auth: iris_store::AuthKind::Password,
+            group: None,
+            enabled: true,
+            pinned: false,
+            created_at: iris_types::Timestamp::EPOCH,
+            last_activity_at: iris_types::Timestamp::EPOCH,
+        }
+    }
+
+    fn ensemble(ids: &[i64]) -> std::collections::BTreeSet<iris_types::AccountId> {
+        ids.iter().map(|i| iris_types::AccountId(*i)).collect()
+    }
+
+    #[test]
+    fn sans_compte_suspendu_la_barre_ne_dit_rien() {
+        let comptes = vec![compte(1, "a@x.fr")];
+        assert!(message_suspension(&comptes, &ensemble(&[])).is_none());
+    }
+
+    #[test]
+    fn un_compte_suspendu_est_nomme() {
+        let comptes = vec![compte(1, "a@x.fr"), compte(2, "b@x.fr")];
+        let message = message_suspension(&comptes, &ensemble(&[2])).unwrap();
+        assert!(message.starts_with("b@x.fr en pause"));
+        assert!(message.contains("réessayer"));
+    }
+
+    #[test]
+    fn au_dela_de_trois_comptes_on_compte_au_lieu_d_enumerer() {
+        // Une liste de quarante adresses dans une barre d'état n'informe personne.
+        let comptes: Vec<_> = (1..=5).map(|i| compte(i, &format!("c{i}@x.fr"))).collect();
+        let message = message_suspension(&comptes, &ensemble(&[1, 2, 3, 4, 5])).unwrap();
+        assert!(message.starts_with("5 comptes en pause"), "obtenu : {message}");
+    }
+
+    #[test]
+    fn un_compte_suspendu_inconnu_du_store_est_quand_meme_signale() {
+        // Sinon la panne resterait muette au moment où elle est la plus étrange.
+        let message = message_suspension(&[], &ensemble(&[7])).unwrap();
+        assert!(message.starts_with("1 compte en pause"), "obtenu : {message}");
     }
 
     #[test]

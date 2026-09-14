@@ -332,7 +332,18 @@ fn run_gui() -> Result<()> {
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
 
+    // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
+    // la première image, et non apparaître après un clignotement.
+    let reglages = iris_app::settings::Settings::load(services.paths.settings());
+    if let Ok(theme) = services.themes.set_active(&reglages.theme) {
+        let _ = theme;
+    } else {
+        tracing::warn!(theme = %reglages.theme, "thème introuvable, retour au thème par défaut");
+    }
+
     let fenetre = shell::build(&services)?;
+    shell::appliquer_apparence(&fenetre, &services.themes.active(), reglages.density);
+    services.engine.set_automation(reglages.automation);
 
     // Le moteur de rendu des corps est construit une fois : ouvrir un peripherique
     // graphique par message serait absurde.
@@ -371,7 +382,7 @@ fn run_gui() -> Result<()> {
     let (controller, _fil) = Controller::spawn_with_index(
         Arc::clone(&services.store),
         Some(Arc::clone(&services.index)),
-        iris_types::AutomationSettings::default(),
+        reglages.automation,
         now(),
         puits,
     );
@@ -384,6 +395,15 @@ fn run_gui() -> Result<()> {
     )));
 
     shell::wire_callbacks(&fenetre, Arc::clone(&controller), iris_ui::Keymap::standard());
+    shell::wire_settings(
+        &fenetre,
+        &services,
+        Arc::clone(&controller),
+        Arc::clone(&services.engine),
+        runtime.handle().clone(),
+        reglages.clone(),
+        services.paths.settings(),
+    );
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui
@@ -410,9 +430,17 @@ fn run_gui() -> Result<()> {
         });
     }
 
+    shell::wire_account_recovery(
+        &fenetre,
+        Arc::clone(&services.engine),
+        runtime.handle().clone(),
+    );
+
     // La boucle de synchronisation.
     {
         let engine = Arc::clone(&services.engine);
+        let services_sync = services.clone();
+        let faible = fenetre.as_weak();
         runtime.spawn(async move {
             if let Err(e) = engine.load_accounts(now()).await {
                 tracing::error!(erreur = %e, "chargement des comptes");
@@ -436,6 +464,17 @@ fn run_gui() -> Result<()> {
                         "synchronisation"
                     );
                 }
+                // La barre latérale reflète l'état de l'ordonnanceur : un compte
+                // qui ne se synchronise plus doit le dire là où on regarde les
+                // comptes, et non seulement dans un journal.
+                let suspendus = engine.suspended_accounts().await;
+                {
+                    let services = services_sync.clone();
+                    let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                        shell::refresh_accounts(&fenetre, &services, &suspendus);
+                    });
+                }
+
                 // On dort exactement le temps utile plutôt que de se réveiller
                 // chaque seconde pour ne rien faire.
                 let attente = engine

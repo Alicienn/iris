@@ -28,6 +28,8 @@ pub enum Request {
     EnsureLoaded(usize),
     Apply(Action),
     Undo,
+    /// Change les automatismes du flux de travail.
+    SetAutomation(AutomationSettings),
     /// Cherche. Une requête vide quitte la recherche.
     Search(String),
     /// Quitte la recherche et revient à la file.
@@ -197,6 +199,10 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             diff.lists.insert(vm.active_tab());
             vm.apply_diff(&diff)?;
             Ok(true)
+        }
+        Request::SetAutomation(settings) => {
+            actions.set_settings(settings);
+            Ok(false)
         }
         Request::Search(query) => Ok(!vm.search(&query)?.is_empty()),
         Request::ClearSearch => Ok(!vm.clear_search().is_empty()),
@@ -617,6 +623,50 @@ mod tests {
 
         assert!(apres.search.is_some(), "on reste dans la recherche");
         assert_ne!(apres.rows[0].id, a);
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn changer_les_automatismes_change_le_comportement_des_actions() {
+        // Un panneau de réglages qui enregistre bien et ne change rien serait pire
+        // qu'absent.
+        let f = fixture();
+        let fil_id = f.thread();
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        // Par défaut, répondre met en attente ; sans l'automatisme, l'état ne bouge
+        // plus tout seul.
+        c.send(Request::SetAutomation(AutomationSettings::MANUAL_ONLY));
+        c.send(Request::Apply(Action::Waiting));
+        attendre_que(&rx, |s| s.counts[1] == 1);
+
+        assert_eq!(
+            f.store.thread_row(fil_id).unwrap().unwrap().state,
+            WorkflowState::Waiting,
+            "l'action manuelle reste possible"
+        );
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn changer_les_automatismes_n_emet_pas_d_instantane() {
+        // Rien n'a bougé à l'écran : redessiner serait du bruit.
+        let f = fixture();
+        f.thread();
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        c.send(Request::SetAutomation(AutomationSettings::MANUAL_ONLY));
+        assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
 
         c.shutdown();
         fil.join().unwrap();
