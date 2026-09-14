@@ -31,12 +31,31 @@ use blitz_traits::shell::{ColorScheme, Viewport};
 use iris_types::{Error, Result};
 use std::sync::Mutex;
 
-/// Hauteur maximale rendue, en pixels.
+/// Hauteur maximale d'une texture, en pixels.
 ///
-/// Une infolettre déraisonnable ne doit pas faire allouer une texture de plusieurs
-/// centaines de mégaoctets. Au-delà, le message est tronqué — et il l'était déjà à
-/// l'écran.
-const MAX_HEIGHT: u32 = 20_000;
+/// **Ce n'est pas un réglage de confort, c'est une limite matérielle.** Elle valait
+/// 20 000, et une carte graphique qui n'accepte pas plus de 8 192 refusait la demande
+/// — wgpu répond à un refus par une panique, et le programme s'arrêtait. Deux fois,
+/// sur deux messages longs :
+///
+/// ```text
+/// In Device::create_texture
+///   Dimension Y value 20000 exceeds the limit of 8192
+/// ```
+///
+/// 8 192 est la garantie de la quasi-totalité du matériel de bureau, et le minimum
+/// exigé par la spécification WebGPU au niveau « default ». Une carte plus généreuse
+/// n'y perd rien : ce qui dépasse ne va pas au moteur complet, il va au texte riche,
+/// qui n'a pas de texture et défile sans limite.
+const MAX_HEIGHT: u32 = 8_192;
+
+/// La mise en page dépasse-t-elle ce qu'une texture peut porter ?
+///
+/// Séparé du rendu pour être testable sans carte graphique : c'est la décision qui a
+/// planté l'application, et elle doit pouvoir être vérifiée là où il n'y a pas de GPU.
+fn trop_haut(hauteur_contenu: f32, scale: f32) -> bool {
+    (hauteur_contenu * scale).ceil() as u32 > MAX_HEIGHT
+}
 
 /// Largeurs minimale et maximale de rendu.
 const MIN_WIDTH: u32 = 320;
@@ -145,8 +164,20 @@ impl HtmlRenderer for BlitzRenderer {
 
         document.resolve(0.0);
 
-        // 2. Hauteur réelle du contenu, bornée.
+        // 2. Hauteur réelle du contenu.
+        //
+        // Trop haute pour une texture : on rend la main plutôt que de tronquer. Le
+        // moteur adaptatif retombe alors sur le texte riche, qui n'a pas de texture et
+        // défile sans limite — un message long y est **entier**, ce qu'il ne serait pas
+        // ici. Tronquer serait le seul cas où l'application déciderait toute seule que
+        // la fin d'un message ne mérite pas d'être lue.
         let hauteur_contenu = document.root_element().final_layout.size.height;
+        if trop_haut(hauteur_contenu, self.scale) {
+            return Err(Error::other(format!(
+                "message trop long pour une texture ({} px) : rendu en texte riche",
+                (hauteur_contenu * self.scale).ceil() as u32
+            )));
+        }
         let hauteur = ((hauteur_contenu * self.scale).ceil() as u32).clamp(1, MAX_HEIGHT);
 
         // 3. Rendu dans une image.
@@ -200,6 +231,33 @@ mod tests {
     /// plutôt que d'échouer : leur absence de GPU n'est pas un défaut du code.
     fn moteur() -> Option<BlitzRenderer> {
         BlitzRenderer::is_available().then(|| BlitzRenderer::new(1.0, true))
+    }
+
+    #[test]
+    fn la_limite_de_texture_est_celle_du_materiel() {
+        // Elle valait 20 000. Une carte qui s'arrête à 8 192 refusait la demande, wgpu
+        // répondait au refus par une panique, et l'application s'arrêtait — deux fois,
+        // sur deux messages longs. 8 192 est le plancher garanti par la spécification.
+        assert_eq!(MAX_HEIGHT, 8_192);
+    }
+
+    #[test]
+    fn un_document_trop_haut_est_refuse_avant_le_gpu() {
+        // Refusé, pas tronqué : le moteur adaptatif retombe sur le texte riche, où le
+        // message est entier. Le tronquer serait le seul endroit de l'application qui
+        // déciderait tout seul que la fin d'un message ne mérite pas d'être lue.
+        assert!(trop_haut(20_000.0, 1.0));
+        assert!(trop_haut(8_193.0, 1.0));
+        assert!(!trop_haut(8_192.0, 1.0));
+        assert!(!trop_haut(600.0, 1.0));
+    }
+
+    #[test]
+    fn l_echelle_compte_dans_la_limite() {
+        // C'est la texture qui est bornée, pas la mise en page : sur un écran à 200 %,
+        // un document de 5 000 points en fait 10 000 en pixels.
+        assert!(trop_haut(5_000.0, 2.0));
+        assert!(!trop_haut(5_000.0, 1.0));
     }
 
     #[test]
