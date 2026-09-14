@@ -39,7 +39,14 @@ fn run() -> Result<()> {
     if commande != "run" {
         attach_parent_console();
     }
-    init_tracing();
+
+    // The log goes to a file from the very first line. A release build has no console
+    // and aborts on panic: without this, a crash leaves nothing behind but an event
+    // viewer entry saying `0xc0000409` at an offset in a stripped binary.
+    match Paths::system() {
+        Ok(chemins) => iris_app::logging::install(&chemins),
+        Err(_) => init_tracing(),
+    }
 
     match commande {
         "run" => run_gui(),
@@ -104,6 +111,7 @@ fn print_help() {
     );
 }
 
+/// Le repli, quand on ne sait même pas où écrire.
 fn init_tracing() {
     // Le niveau se règle par la variable d'environnement usuelle ; par défaut, on
     // n'affiche que ce qui mérite l'attention de l'utilisateur.

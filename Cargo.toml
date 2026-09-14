@@ -45,7 +45,10 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"
-strip = "symbols"
+# Les symboles restent. « symbols » les retirait, et le crochet de panique n'aurait
+# alors écrit qu'une pile d'adresses hexadécimales — c'est-à-dire rien. La table des
+# symboles coûte quelques mégaoctets ; une trace lisible vaut plus que ça.
+strip = "debuginfo"
 
 # Les mesures de performance doivent être faites sur du code optimisé, mais
 # rester débogables.

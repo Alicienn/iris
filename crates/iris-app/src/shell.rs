@@ -833,7 +833,13 @@ fn corps_du_message(
     // HTML first when both are offered: it is what the sender laid out. The parser has
     // already sanitised it, so nothing here needs to sanitise it again.
     let html = match (&analyse.html_body, &analyse.text_body) {
-        (Some(sanitized), _) => sanitized.html.clone(),
+        // Les images que le message transporte lui-même sont remises dans le corps.
+        // Une signature d'entreprise est un logo joint au message et référencé par
+        // `cid:` : rien ne peut aller le chercher, il est déjà là, et sans cela toutes
+        // les signatures HTML s'affichaient sans leur image.
+        (Some(sanitized), _) => {
+            iris_mime::inline_images(&sanitized.html, &analyse.inline_parts)
+        }
         (None, Some(texte)) => plain_text_to_html(texte),
         // A message with neither part is not broken — a bare attachment carrier looks
         // exactly like this — so the preview stands in rather than an error.

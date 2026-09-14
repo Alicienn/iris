@@ -14,11 +14,13 @@
 #![warn(missing_debug_implementations)]
 
 pub mod parse;
+pub mod cid;
 pub mod sanitize;
 pub mod unsubscribe;
 
 pub mod spam;
 
-pub use parse::{attachment_bytes, parse, parse_with, strip_tags, Parsed};
+pub use cid::inline_images;
+pub use parse::{attachment_bytes, parse, parse_with, strip_tags, InlinePart, Parsed};
 pub use sanitize::{sanitize, sanitize_with, Sanitized, Tracker, TrackerReason};
 pub use spam::{headers_say_spam, strip_marker, subject_is_tagged};

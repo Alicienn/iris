@@ -27,6 +27,13 @@ pub struct Parsed {
     /// Corps HTML, déjà assaini.
     pub html_body: Option<sanitize::Sanitized>,
     pub attachments: Vec<AttachmentMeta>,
+    /// Les parties que le corps HTML référence par `cid:`.
+    ///
+    /// Séparées des pièces jointes parce qu'elles n'en sont pas, du point de vue du
+    /// lecteur : le logo d'une signature n'est pas un document reçu. Elles portent
+    /// leurs octets, parce que c'est le corps qui en a besoin et qu'aller les
+    /// rechercher plus tard voudrait dire réanalyser le message une seconde fois.
+    pub inline_parts: Vec<InlinePart>,
     pub unsubscribe: Option<Unsubscribe>,
     /// Aperçu court, dérivé du corps texte ou du HTML.
     pub preview: String,
@@ -45,6 +52,15 @@ impl Parsed {
             .map(|h| strip_tags(&h.html))
             .unwrap_or_default()
     }
+}
+
+/// Une partie référencée depuis le corps par son `Content-ID`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlinePart {
+    /// Le `Content-ID`, débarrassé de ses chevrons. C'est ce qui suit `cid:`.
+    pub content_id: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
 }
 
 /// Analyse un message brut au format RFC 5322.
@@ -127,6 +143,35 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
         })
         .collect();
 
+    // Les parties incrustées, avec leurs octets. Bornées : une signature pèse quelques
+    // dizaines de kilooctets, et un message qui prétend en avoir dix mégaoctets essaie
+    // autre chose que de nous montrer un logo.
+    const MAX_INLINE: usize = 2 * 1024 * 1024;
+    let inline_parts: Vec<InlinePart> = message
+        .attachments()
+        .filter_map(|part| {
+            let content_id = part.content_id()?.trim().trim_matches(['<', '>']).to_string();
+            if content_id.is_empty() {
+                return None;
+            }
+            let bytes = part.contents();
+            if bytes.len() > MAX_INLINE {
+                return None;
+            }
+            Some(InlinePart {
+                content_id,
+                mime_type: part
+                    .content_type()
+                    .map(|c| match c.subtype() {
+                        Some(sub) => format!("{}/{}", c.ctype(), sub),
+                        None => c.ctype().to_string(),
+                    })
+                    .unwrap_or_else(|| "application/octet-stream".to_string()),
+                bytes: bytes.to_vec(),
+            })
+        })
+        .collect();
+
     let unsubscribe = unsubscribe::parse(
         header_text(&message, "List-Unsubscribe").as_deref(),
         header_text(&message, "List-Unsubscribe-Post").as_deref(),
@@ -158,6 +203,7 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
         text_body,
         html_body,
         attachments,
+        inline_parts,
         unsubscribe,
         preview,
         derived_flags,
