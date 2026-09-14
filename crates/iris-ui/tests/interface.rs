@@ -928,6 +928,122 @@ fn la_barre_d_actions_est_absente_sans_conversation() {
     assert!(par_libelle(&f, "Archive").is_none());
 }
 
+fn message(id: i32, de: &str, deplie: bool) -> MessageData {
+    MessageData {
+        id,
+        from: de.into(),
+        from_address: "x@y.fr".into(),
+        to: SharedString::new(),
+        date: "12:30".into(),
+        subject: "Devis".into(),
+        preview: "Bonjour…".into(),
+        expanded: deplie,
+        blocks: modele(Vec::new()),
+        attachments: modele(Vec::new()),
+        blocked_images: 0,
+        has_tracker: false,
+        body_is_image: false,
+        body_image: slint::Image::default(),
+    }
+}
+
+fn un_fil_montre_tous_ses_messages() {
+    // Il n'en montrait qu'un : le dernier. Un échange de douze en cachait onze
+    // pendant que la liste affichait « 12 » à côté du sujet — le compte promettait
+    // une conversation, la colonne livrait un message.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_messages(modele(vec![
+        message(1, "Marie", false),
+        message(2, "Luc", false),
+        message(3, "Marie", true),
+    ]));
+
+    for qui in ["Marie", "Luc"] {
+        assert!(
+            par_libelle(&f, &format!("Expand {qui}, 12:30")).is_some()
+                || par_libelle(&f, &format!("Collapse {qui}, 12:30")).is_some(),
+            "« {qui} » doit apparaître dans le fil"
+        );
+    }
+}
+
+fn un_message_replie_s_annonce_comme_tel() {
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_messages(modele(vec![
+        message(1, "Marie", false),
+        message(2, "Luc", true),
+    ]));
+
+    let replie = par_libelle(&f, "Expand Marie, 12:30").expect("l'en-tête replié");
+    assert_eq!(replie.accessible_expanded(), Some(false));
+
+    let deplie = par_libelle(&f, "Collapse Luc, 12:30").expect("l'en-tête déplié");
+    assert_eq!(deplie.accessible_expanded(), Some(true));
+}
+
+fn deplier_un_message_est_rapporte() {
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_messages(modele(vec![message(7, "Marie", false)]));
+
+    let demandes = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let demandes = Rc::clone(&demandes);
+        f.on_toggle_message(move |id| demandes.borrow_mut().push(id));
+    }
+
+    par_libelle(&f, "Expand Marie, 12:30")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*demandes.borrow(), [7]);
+}
+
+fn le_compte_choisi_est_celui_qui_est_allume() {
+    // Cliquer un compte filtrait bien la liste et « All accounts » restait allumé :
+    // l'écran désignait une vue qui n'était pas celle affichée.
+    let f = fenetre();
+    f.set_other_accounts(modele(vec![compte(4, "moi@exemple.fr", 2, false)]));
+
+    f.set_selected_account(0);
+    assert_eq!(
+        par_libelle(&f, "All accounts").unwrap().accessible_item_selected(),
+        Some(true)
+    );
+
+    f.set_selected_account(4);
+    assert_eq!(
+        par_libelle(&f, "All accounts").unwrap().accessible_item_selected(),
+        Some(false),
+        "la vue unifiée s'éteint"
+    );
+    assert_eq!(
+        par_libelle(&f, "moi@exemple.fr").unwrap().accessible_item_selected(),
+        Some(true),
+        "et le compte choisi s'allume"
+    );
+}
+
+fn la_version_est_toujours_affichee() {
+    // C'est la première question posée quand quelque chose ne va pas, et la seule
+    // réponse qui rende un rapport exploitable.
+    let f = fenetre();
+    f.set_version("Iris 0.1.0".into());
+
+    let textes = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_type_name("Text")
+        .find_all();
+    assert!(
+        textes
+            .iter()
+            .filter_map(|t| t.accessible_label())
+            .any(|l| l.contains("Iris 0.1.0")),
+        "le numéro de version doit être lisible dans la barre du bas"
+    );
+}
+
 fn chaque_action_de_lecture_est_atteignable() {
     // All of these existed already, reachable only by a key nobody had been told
     // about.
@@ -1401,6 +1517,26 @@ fn main() {
         (
             "un_grand_compteur_est_abrege",
             un_grand_compteur_est_abrege as fn(),
+        ),
+        (
+            "un_fil_montre_tous_ses_messages",
+            un_fil_montre_tous_ses_messages as fn(),
+        ),
+        (
+            "un_message_replie_s_annonce_comme_tel",
+            un_message_replie_s_annonce_comme_tel as fn(),
+        ),
+        (
+            "deplier_un_message_est_rapporte",
+            deplier_un_message_est_rapporte as fn(),
+        ),
+        (
+            "le_compte_choisi_est_celui_qui_est_allume",
+            le_compte_choisi_est_celui_qui_est_allume as fn(),
+        ),
+        (
+            "la_version_est_toujours_affichee",
+            la_version_est_toujours_affichee as fn(),
         ),
         (
             "aucun_bouton_ne_reste_sans_nom",

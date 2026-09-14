@@ -30,6 +30,10 @@ pub fn build(services: &Services) -> iris_types::Result<AppWindow> {
     // lue — pas parce qu'il n'y a rien. Annoncer « Rien à traiter » à ce moment-là
     // serait un mensonge d'un dixième de seconde, mais un mensonge quand même.
     fenetre.set_loading(true);
+    // La version, en permanence dans la barre du bas. C'est la première question
+    // posée quand quelque chose ne va pas, et la seule réponse qui rende un rapport
+    // exploitable — « ça plante » sans numéro de version ne se corrige pas.
+    fenetre.set_version(format!("Iris {}", env!("CARGO_PKG_VERSION")).into());
     refresh_accounts(&fenetre, services, &[]);
 
     Ok(fenetre)
@@ -663,6 +667,17 @@ pub fn apply_snapshot(
     // sur le même écran.
     fenetre.set_folder_name(crate::folders::scope_name(&snapshot.scope).into());
 
+    // Quel compte est allumé dans la barre latérale.
+    //
+    // Zéro veut dire « tous », ce qui est aussi l'identifiant de la ligne unifiée.
+    // Plusieurs comptes filtrés à la fois — ce qu'aucun geste de l'interface ne
+    // produit aujourd'hui — retombent sur « tous » plutôt que d'en désigner un au
+    // hasard parmi eux.
+    fenetre.set_selected_account(match snapshot.accounts.as_slice() {
+        [seul] => seul.get() as i32,
+        _ => 0,
+    });
+
     // What the toolbar's two toggles should say. Taken from the row rather than the
     // message, because both are properties of the conversation as the list shows it.
     let selectionne = snapshot
@@ -691,22 +706,74 @@ pub fn apply_snapshot(
         }
     }
 
-    if let Some(message) = snapshot.messages.last() {
-        let montrer = images_shown().contains(&message.id.get());
-        let corps = corps_du_message(services, renderer, message, montrer);
-        // Les pièces incrustées sont écartées : une image de signature n'est pas un
-        // document reçu, et la lister ferait chercher un fichier qui n'existe pas.
-        let pieces: Vec<String> = services
-            .store
-            .visible_attachments(message.id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.meta.filename)
-            .collect();
-        fenetre.set_message(bridge::message_view_rendered(
-            message, &corps, &pieces, maintenant,
-        ));
+    remplir_conversation(fenetre, services, renderer, &snapshot.messages, maintenant);
+}
+
+/// Remplit la colonne de lecture avec le fil entier.
+///
+/// Le dernier message est déplié, les précédents sont repliés — sauf ceux que le
+/// lecteur a ouverts. C'est ce qui rend un fil de douze messages tenable : un corps
+/// rendu coûte une rasterisation, et en calculer douze pour en lire un paierait onze
+/// fois pour rien.
+pub fn remplir_conversation(
+    fenetre: &AppWindow,
+    services: &Services,
+    renderer: &dyn iris_htmlview::HtmlRenderer,
+    messages: &[iris_store::StoredMessage],
+    maintenant: iris_types::Timestamp,
+) {
+    let Some(dernier) = messages.last() else {
+        fenetre.set_messages(ModelRc::new(VecModel::from(Vec::<
+            iris_ui::MessageData,
+        >::new())));
+        return;
+    };
+
+    let ouverts = expanded_messages();
+    let vues: Vec<iris_ui::MessageData> = messages
+        .iter()
+        .map(|message| {
+            // Le dernier est toujours déplié : c'est celui qu'on vient lire.
+            if message.id != dernier.id && !ouverts.contains(&message.id.get()) {
+                return bridge::message_header(message, maintenant);
+            }
+
+            let montrer = images_shown().contains(&message.id.get());
+            let corps = corps_du_message(services, renderer, message, montrer);
+            // Les pièces incrustées sont écartées : une image de signature n'est pas
+            // un document reçu, et la lister ferait chercher un fichier qui n'existe
+            // pas.
+            let pieces: Vec<String> = services
+                .store
+                .visible_attachments(message.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| p.meta.filename)
+                .collect();
+            bridge::message_view_rendered(message, &corps, &pieces, maintenant)
+        })
+        .collect();
+
+    // L'en-tête et la barre d'actions décrivent le dernier message, parce que c'est de
+    // lui qu'on décide : répondre, archiver, reporter portent sur la conversation, et
+    // la conversation est ce que le dernier message a laissé.
+    if let Some(vue) = vues.last() {
+        fenetre.set_message(vue.clone());
     }
+    fenetre.set_messages(ModelRc::new(VecModel::from(vues)));
+}
+
+/// Les messages que le lecteur a dépliés.
+///
+/// Pour cette session seulement, et volontairement : un fil rouvert le lendemain doit
+/// se présenter comme un fil, pas comme la trace de ce qu'on avait ouvert la veille.
+fn expanded_messages() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<i64>> {
+    static OUVERTS: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<i64>>> =
+        std::sync::OnceLock::new();
+    OUVERTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 /// Les messages dont le lecteur a accepté le contenu distant.
@@ -734,6 +801,45 @@ pub fn wire_remote_images(
     services: Services,
     renderer: Arc<dyn iris_htmlview::HtmlRenderer>,
 ) {
+    // Déplier ou replier un message du fil.
+    //
+    // Le redessin passe par le même chemin que l'affichage initial : rien du fil n'a
+    // changé, seulement ce qu'on accepte d'en rendre, et demander un instantané au
+    // vue-modèle reconstruirait une liste pour repeindre un panneau.
+    {
+        let services_pli = services.clone();
+        let renderer_pli = Arc::clone(&renderer);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_toggle_message(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            {
+                let mut ouverts = expanded_messages();
+                if !ouverts.remove(&(id as i64)) {
+                    ouverts.insert(id as i64);
+                }
+            }
+
+            let fil = fenetre.get_selected_thread();
+            if fil < 0 {
+                return;
+            }
+            let messages = services_pli
+                .store
+                .thread_messages(iris_types::ThreadId(fil as i64))
+                .unwrap_or_default();
+            remplir_conversation(
+                &fenetre,
+                &services_pli,
+                renderer_pli.as_ref(),
+                &messages,
+                now(),
+            );
+        });
+    }
+
     let faible = fenetre.as_weak();
 
     fenetre.on_load_images(move || {

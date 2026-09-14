@@ -121,18 +121,53 @@ component CommandPalette inherits Rectangle {
 
 // Bandeau d'état, en bas : synchronisation, erreurs, annulation.
 component StatusBar inherits Rectangle {
-    in property <string> status;
+    in-out property <string> status;
     in property <bool> syncing;
     in property <int> pending-ops;
     in property <string> vitals;
     in property <string> last-sync;
+    in property <string> version;
 
     height: 22px;
+
+    // Un message d'état a une durée de vie.
+    //
+    // « Creating the folder on 2 mailbox(es)… » est resté affiché des heures après que
+    // l'opération eut réussi. Un message de progression qui ne s'efface jamais finit
+    // par décrire quelque chose de faux, et le lecteur apprend à ne plus lire la barre
+    // — ce qui coûte le prochain message, celui qui comptait.
+    //
+    // Dix secondes : le temps de lire une phrase sans la chercher, et pas au-delà.
+    // Le compteur repart à chaque nouveau message, sinon le second hériterait de ce
+    // qui restait au premier.
+    changed status => {
+        if (root.status != "") {
+            expiration.restart();
+        }
+    }
+
+    expiration := Timer {
+        interval: 10s;
+        running: root.status != "";
+        triggered() => {
+            root.status = "";
+        }
+    }
 
     HorizontalLayout {
         padding-left: Tokens.space-3;
         padding-right: Tokens.space-3;
         spacing: Tokens.space-2;
+
+        // La version, toujours là. C'est la première question posée quand quelque
+        // chose ne va pas, et la seule réponse qui rende un rapport exploitable.
+        Text {
+            text: root.version;
+            font-size: 10px;
+            color: Tokens.text-muted;
+            opacity: 0.65;
+            vertical-alignment: center;
+        }
 
         Text {
             text: root.status;
@@ -199,6 +234,8 @@ export component AppWindow inherits Window {
     in property <[AccountRowData]> pinned-accounts;
     in property <[AccountRowData]> other-accounts;
     in property <MessageData> message;
+    /// Le fil entier, du plus ancien au plus récent.
+    in property <[MessageData]> messages;
     in property <[CommandData]> commands;
     in property <[int]> counts: [0, 0, 0];
     in property <[string]> count-labels: ["0", "0", "0"];
@@ -228,7 +265,9 @@ export component AppWindow inherits Window {
     in property <bool> loading;
     in property <bool> syncing;
     in property <int> pending-ops;
-    in property <string> status;
+    in-out property <string> status;
+    /// Le numéro de version, affiché en permanence en bas à gauche.
+    in property <string> version;
     in property <string> vitals;
     in property <string> last-sync;
     in property <bool> sending;
@@ -394,6 +433,7 @@ export component AppWindow inherits Window {
     callback cancel-send();
     callback reply-all();
     callback load-images();
+    callback toggle-message(int);
     callback save-attachment(int);
     callback palette-query-changed(string);
     callback search-submitted(string);
@@ -570,6 +610,8 @@ export component AppWindow inherits Window {
                 // Colonne 3 : la conversation.
                 ConversationView {
                     message: root.message;
+                    messages: root.messages;
+                    toggle-message(id) => { root.toggle-message(id); }
                     empty: root.conversation-empty;
                     unread: root.selected-unread;
                     starred: root.selected-starred;
@@ -593,7 +635,8 @@ export component AppWindow inherits Window {
             Rectangle { height: 1px; background: Tokens.border; }
 
             StatusBar {
-                status: root.status;
+                status <=> root.status;
+                version: root.version;
                 vitals: root.vitals;
                 last-sync: root.last-sync;
                 syncing: root.syncing;

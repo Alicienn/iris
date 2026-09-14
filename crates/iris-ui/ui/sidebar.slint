@@ -53,9 +53,12 @@ component AccountRow inherits Rectangle {
         padding-right: Tokens.space-1;
         spacing: Tokens.space-2;
 
+        // La même pastille que dans la liste, à la même taille : c'est la seule chose
+        // qui relie une ligne de message à sa boîte, et deux tailles différentes pour
+        // la même couleur en font deux repères au lieu d'un.
         Rectangle {
-            width: 3px;
-            height: 12px;
+            width: 4px;
+            height: 16px;
             y: (parent.height - self.height) / 2;
             border-radius: 2px;
             background: root.account.tint;

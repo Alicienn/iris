@@ -227,6 +227,41 @@ pub fn message_view(
                 .map(SharedString::from)
                 .collect::<Vec<_>>(),
         )),
+        id: message.id.get() as i32,
+        // Déplié par défaut : cette fonction n'est appelée que pour un message dont on
+        // veut le corps. Les messages repliés passent par `message_header`, qui ne
+        // rend rien.
+        expanded: true,
+        preview: message.preview.as_str().into(),
+    }
+}
+
+/// L'en-tête seul d'un message, sans son corps.
+///
+/// Ce qu'un fil montre de ses messages précédents. La distinction n'est pas cosmétique
+/// : rendre un corps coûte une rasterisation, et un échange de douze messages dont on
+/// lit un en paierait onze pour rien. L'aperçu suffit à retrouver le bon, et le corps
+/// arrive quand on le déplie.
+pub fn message_header(message: &StoredMessage, now: Timestamp) -> MessageData {
+    MessageData {
+        body_image: Image::default(),
+        body_is_image: false,
+        from: if message.from_name.trim().is_empty() {
+            message.from_addr.as_str().into()
+        } else {
+            message.from_name.as_str().into()
+        },
+        from_address: message.from_addr.as_str().into(),
+        to: SharedString::default(),
+        date: relative_date(message.received, now).into(),
+        subject: display_subject(&message.subject).into(),
+        blocks: ModelRc::new(VecModel::from(Vec::<MessageBlockData>::new())),
+        blocked_images: 0,
+        has_tracker: message.flags.contains(Flags::HAS_TRACKER),
+        attachments: ModelRc::new(VecModel::from(Vec::<SharedString>::new())),
+        id: message.id.get() as i32,
+        expanded: false,
+        preview: message.preview.as_str().into(),
     }
 }
 

@@ -90,6 +90,12 @@ pub struct Snapshot {
     pub marked: std::collections::BTreeSet<ThreadId>,
     /// Ce que la colonne du milieu montre : une file, ou un dossier.
     pub scope: iris_store::Scope,
+    /// Les comptes montrés. Vide signifie « tous ».
+    ///
+    /// L'interface s'en sert pour marquer la bonne ligne dans la barre latérale.
+    /// Cliquer un compte filtrait bien la liste, et « All accounts » restait allumé :
+    /// l'écran désignait une vue qui n'était pas celle affichée.
+    pub accounts: Vec<iris_types::AccountId>,
     /// What went wrong with the last request, if anything did.
     ///
     /// An action that fails has to say so. This was a `tracing::error!` and nothing
@@ -340,6 +346,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         error: None,
         marked: vm.selection().marked().clone(),
         scope: vm.scope().clone(),
+        accounts: vm.accounts_filter().to_vec(),
         rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),
         active_tab: vm.active_tab(),

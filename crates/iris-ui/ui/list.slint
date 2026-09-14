@@ -50,14 +50,17 @@ component ThreadRow inherits Rectangle {
 
     // Pastille d'identité du compte, à gauche. Indispensable en vue unifiée : sans
     // elle, cent boîtes se ressemblent toutes.
+    //
+    // Pleine opacité et un pixel de plus. Elle faisait trois pixels à 80 %, sur une
+    // teinte déjà pâle : la somme des deux discrétions donnait une barre qu'on ne
+    // voyait pas, c'est-à-dire trois pixels de marge et aucune information.
     Rectangle {
         x: Tokens.space-1;
         y: (parent.height - self.height) / 2;
-        width: 3px;
-        height: 24px;
+        width: 4px;
+        height: 28px;
         border-radius: 2px;
         background: root.data.account-tint;
-        opacity: 0.8;
     }
 
     HorizontalLayout {
@@ -484,25 +487,11 @@ export component StateTabs inherits HorizontalLayout {
 
         // Only where the shortening actually hid something. A tooltip that repeats
         // the label teaches the user that tooltips are not worth waiting for.
-        if tab-touch.has-hover && root.count-labels[i] != root.count-fulls[i]: Rectangle {
-            y: parent.height + 4px;
-            width: exact.preferred-width + 12px;
-            height: 20px;
-            border-radius: Tokens.radius-small;
-            background: Tokens.panel-high;
-            border-width: 1px;
-            border-color: Tokens.border-strong;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: #00000066;
-            drop-shadow-offset-y: 3px;
-
-            exact := Text {
-                text: root.count-fulls[i];
-                font-size: Tokens.size-small;
-                color: Tokens.text;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+        // L'élément natif, comme partout ailleurs : composé au-dessus de tout et
+        // replié dans la fenêtre. Le rectangle qu'il remplace passait sous la liste
+        // et pouvait sortir de l'écran.
+        if root.count-labels[i] != root.count-fulls[i]: Tooltip {
+            text: @markdown("\{root.count-fulls[i]}");
         }
     }
 

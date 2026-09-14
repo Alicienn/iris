@@ -155,9 +155,12 @@ export component FolderTree inherits VerticalLayout {
             padding-left: Tokens.space-2;
             spacing: Tokens.space-1;
 
+            // Une pile de dossiers, pas l'icône de la boîte de réception : celle-ci
+            // est juste en dessous, sur la ligne « Inbox », et deux lignes voisines
+            // avec le même dessin donnent deux fois la même promesse.
             Icon {
                 y: (parent.height - self.height) / 2;
-                data: Icons.inbox;
+                data: Icons.layers;
                 size: 13px;
                 tint: root.selected-path == "" ? Tokens.text : Tokens.text-muted;
             }

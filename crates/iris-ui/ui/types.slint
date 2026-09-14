@@ -65,6 +65,16 @@ export struct MessageData {
     blocked-images: int,
     has-tracker: bool,
     attachments: [string],
+    // L'identifiant du message, pour le déplier ou le replier.
+    id: int,
+    // Le corps est-il rendu ?
+    //
+    // Un fil de douze messages ne rasterise pas douze corps pour en montrer un. Les
+    // messages repliés n'ont que leur en-tête et leur aperçu, et le corps n'est
+    // calculé qu'au dépliage.
+    expanded: bool,
+    // Une ligne de texte, quand il est replié.
+    preview: string,
 }
 
 export struct CommandData {

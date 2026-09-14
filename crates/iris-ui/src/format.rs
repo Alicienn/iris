@@ -75,9 +75,13 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 /// Couleur d'identité d'un compte, dérivée de son adresse.
 ///
 /// Le thème par défaut n'a pas d'accent : c'est la seule couleur de l'interface, et
-/// elle sert uniquement à distinguer cent boîtes d'un coup d'œil. Les teintes sont
-/// donc **peu saturées et de luminosité constante** — assez pour se différencier,
-/// pas assez pour attirer l'œil ni pour rompre la neutralité du thème.
+/// elle sert uniquement à distinguer cent boîtes d'un coup d'œil.
+///
+/// Elle était à 32 % de saturation, ce qui, sur une barre de trois pixels posée sur un
+/// fond presque noir, ne se distinguait de rien. La discrétion visée était atteinte au
+/// point de supprimer la fonction : une couleur qu'on ne voit pas ne distingue pas
+/// cent boîtes, elle ne fait que coûter trois pixels par ligne. À 58 % elle se lit
+/// sans dominer, ce qui est le point où elle commence à servir.
 pub fn account_tint(email: &str) -> (u8, u8, u8) {
     // Répartition sur le cercle chromatique par un condensé stable : le même compte
     // garde sa couleur d'une session à l'autre.
@@ -87,7 +91,7 @@ pub fn account_tint(email: &str) -> (u8, u8, u8) {
         hash = hash.wrapping_mul(0x1000_0000_01b3);
     }
     let teinte = (hash % 360) as f32;
-    hsl_to_rgb(teinte, 0.32, 0.62)
+    hsl_to_rgb(teinte, 0.58, 0.66)
 }
 
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
@@ -210,18 +214,25 @@ mod tests {
     }
 
     #[test]
-    fn les_teintes_restent_discretes() {
-        // Assez pour distinguer, pas assez pour rompre la neutralité du thème.
+    fn les_teintes_sont_visibles_sans_dominer() {
+        // Les deux bornes ont chacune leur défaut. Trop peu saturée, la couleur ne se
+        // distingue de rien sur une barre de trois pixels et la fonction disparaît —
+        // c'est ce qui se passait à 32 %. Trop saturée, elle attire l'œil que la liste
+        // veut garder sur le texte.
         for adresse in ["a@x.fr", "b@y.fr", "c@z.fr", "compta@entreprise.com"] {
             let (r, g, b) = account_tint(adresse);
             let max = r.max(g).max(b) as i32;
             let min = r.min(g).min(b) as i32;
             assert!(
-                max - min < 110,
+                max - min >= 60,
+                "« {adresse} » donne une teinte invisible : {r},{g},{b}"
+            );
+            assert!(
+                max - min < 190,
                 "« {adresse} » donne une teinte trop saturée : {r},{g},{b}"
             );
             assert!(
-                max > 100 && max < 220,
+                max > 100 && max < 240,
                 "luminosité hors plage pour « {adresse} »"
             );
         }

@@ -174,7 +174,11 @@ component RemoteContentBanner inherits Rectangle {
 
 // La colonne de lecture, avec la réponse intégrée au bas du fil.
 export component ConversationView inherits VerticalLayout {
+    /// Le message le plus récent : c'est lui que l'en-tête et la barre d'actions
+    /// décrivent, parce que c'est de lui qu'on décide.
     in property <MessageData> message;
+    /// Le fil entier, du plus ancien au plus récent.
+    in property <[MessageData]> messages;
     in property <bool> empty: true;
     in-out property <string> reply-text;
     in property <bool> sending;
@@ -194,6 +198,7 @@ export component ConversationView inherits VerticalLayout {
     callback toggle-star();
     callback snooze();
     callback mark-done();
+    callback toggle-message(int);
 
     if root.empty: Rectangle {
         VerticalLayout {
@@ -295,38 +300,117 @@ export component ConversationView inherits VerticalLayout {
             }
         }
 
-        if root.message.blocked-images > 0 || root.message.has-tracker: RemoteContentBanner {
-            blocked-images: root.message.blocked-images;
-            has-tracker: root.message.has-tracker;
-            load-images => { root.load-images(); }
-        }
-
-        // Corps. Rendu par le moteur complet quand la mise en page l'exige,
-        // dessine bloc par bloc sinon.
-        // A scroll view only scrolls when its viewport is taller than the frame, and
-        // the viewport does not grow on its own: it has to be told how tall the
-        // content is. Without this binding the body was silently clipped at the
-        // window height, with no way to reach the rest of a long message.
+        // Le fil, du plus ancien au plus récent.
+        //
+        // C'était **un seul message** : le dernier. Un échange de douze en montrait un
+        // et cachait onze, alors que la liste affichait « 12 » à côté du sujet — le
+        // compte promettait une conversation et la colonne livrait un message.
+        //
+        // Les précédents sont repliés : en-tête et une ligne d'aperçu. Ce n'est pas
+        // seulement une question de place, c'est ce qui rend la chose tenable — un
+        // corps rendu coûte une rasterisation, et en faire douze pour en lire un
+        // paierait onze fois pour rien. Le corps arrive au dépliage.
         ScrollView {
             vertical-stretch: 1;
-            viewport-height: corps.preferred-height;
+            viewport-height: fil.preferred-height;
 
-            corps := VerticalLayout {
+            fil := VerticalLayout {
                 spacing: Tokens.space-2;
 
-                if root.message.body-is-image: Image {
-                    source: root.message.body-image;
-                    // Rendered at the width of the panel: it takes its natural
-                    // height rather than being stretched.
-                    image-fit: contain;
-                    width: 100%;
-                    height: self.source.height * 1px;
-                }
-
-                if !root.message.body-is-image: VerticalLayout {
+                for message[i] in root.messages: VerticalLayout {
                     spacing: Tokens.space-2;
-                    for block in root.message.blocks: MessageBlock {
-                        block: block;
+
+                    // Un séparateur avant chaque message sauf le premier : c'est ce
+                    // qui dit qu'on change d'auteur sans avoir à relire l'en-tête.
+                    if i > 0: Rectangle {
+                        height: 1px;
+                        background: Tokens.border;
+                    }
+
+                    // L'en-tête, toujours là, et cliquable : c'est la poignée qui
+                    // déplie et replie.
+                    Rectangle {
+                        height: 34px;
+                        border-radius: Tokens.radius-small;
+                        background: entete.has-hover ? Tokens.surface-hover : transparent;
+                        animate background { duration: Tokens.instant; }
+
+                        accessible-role: button;
+                        accessible-label: (message.expanded ? "Collapse " : "Expand ")
+                            + message.from + ", " + message.date;
+                        accessible-expanded: message.expanded;
+                        accessible-action-default => { root.toggle-message(message.id); }
+
+                        HorizontalLayout {
+                            padding-left: Tokens.space-1;
+                            padding-right: Tokens.space-1;
+                            spacing: Tokens.space-2;
+
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: message.expanded
+                                    ? Icons.chevron-down
+                                    : Icons.chevron-right;
+                                size: 12px;
+                                tint: Tokens.text-muted;
+                            }
+
+                            Text {
+                                text: message.from;
+                                font-size: Tokens.size-body;
+                                font-weight: Tokens.weight-bold;
+                                color: Tokens.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            // Replié, l'aperçu prend la place laissée libre : c'est ce
+                            // qui permet de retrouver un message dans un fil sans en
+                            // ouvrir quatre.
+                            if !message.expanded: Text {
+                                text: message.preview;
+                                font-size: Tokens.size-small;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            if message.expanded: Rectangle { horizontal-stretch: 1; }
+
+                            Text {
+                                text: message.date;
+                                font-size: Tokens.size-small;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        entete := TouchArea {
+                            clicked => { root.toggle-message(message.id); }
+                        }
+                    }
+
+                    if message.expanded && (message.blocked-images > 0
+                        || message.has-tracker): RemoteContentBanner {
+                        blocked-images: message.blocked-images;
+                        has-tracker: message.has-tracker;
+                        load-images => { root.load-images(); }
+                    }
+
+                    if message.expanded && message.body-is-image: Image {
+                        source: message.body-image;
+                        // Rendered at the width of the panel: it takes its natural
+                        // height rather than being stretched.
+                        image-fit: contain;
+                        width: 100%;
+                        height: self.source.height * 1px;
+                    }
+
+                    if message.expanded && !message.body-is-image: VerticalLayout {
+                        spacing: Tokens.space-2;
+                        for block in message.blocks: MessageBlock {
+                            block: block;
+                        }
                     }
                 }
             }
