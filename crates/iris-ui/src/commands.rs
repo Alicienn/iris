@@ -21,6 +21,9 @@ pub enum CommandKind {
     Undo,
     Search,
     AddAccount,
+    /// Fournie par un plugin. La charge est renvoyée telle quelle au plugin qui
+    /// l'a déclarée : l'hôte n'a pas à comprendre ce qu'elle veut dire.
+    Plugin { plugin: String, spec: String },
     Settings,
     Reload,
     Quit,
@@ -39,6 +42,32 @@ pub struct Command {
 }
 
 impl Command {
+    /// Construit une commande déclarée par un plugin.
+    ///
+    /// L'intitulé est préfixé du nom du plugin : dans une palette, l'utilisateur
+    /// doit pouvoir distinguer ce que l'application sait faire de ce qu'une
+    /// extension a ajouté.
+    pub fn from_plugin(plugin: &str, spec: &str) -> Option<Self> {
+        let valeur: serde_json::Value = serde_json::from_str(spec).ok()?;
+        let id = valeur.get("id")?.as_str()?.trim();
+        let label = valeur.get("label").and_then(|l| l.as_str()).unwrap_or(id).trim();
+        if id.is_empty() || label.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            id: format!("plugin:{plugin}:{id}"),
+            label: label.to_string(),
+            shortcut: String::new(),
+            group: plugin.to_string(),
+            kind: CommandKind::Plugin { plugin: plugin.to_string(), spec: spec.to_string() },
+            needs_thread: valeur
+                .get("needs_thread")
+                .and_then(|n| n.as_bool())
+                .unwrap_or(false),
+        })
+    }
+
     fn new(
         id: &str,
         label: &str,
@@ -248,6 +277,53 @@ fn score(label: &str, query: &str) -> Option<i32> {
 
     // À correspondance égale, le libellé le plus court est le plus probable.
     Some(score - (etiquette.len() as i32) / 8)
+}
+
+#[cfg(test)]
+mod tests_plugins {
+    use super::*;
+
+    #[test]
+    fn une_commande_de_plugin_est_attribuee() {
+        // Dans une palette, l'utilisateur doit distinguer ce que l'application sait
+        // faire de ce qu'une extension a ajouté.
+        let c = Command::from_plugin("tri", r#"{"id":"vider","label":"Vider la file"}"#).unwrap();
+        assert_eq!(c.id, "plugin:tri:vider");
+        assert_eq!(c.label, "Vider la file");
+        assert_eq!(c.group, "tri");
+        assert!(!c.needs_thread);
+    }
+
+    #[test]
+    fn l_intitule_retombe_sur_l_identifiant() {
+        let c = Command::from_plugin("tri", r#"{"id":"vider"}"#).unwrap();
+        assert_eq!(c.label, "vider");
+    }
+
+    #[test]
+    fn une_commande_de_plugin_peut_exiger_un_fil() {
+        let c =
+            Command::from_plugin("tri", r#"{"id":"x","label":"X","needs_thread":true}"#).unwrap();
+        assert!(c.needs_thread);
+    }
+
+    #[test]
+    fn une_declaration_invalide_est_refusee() {
+        // Une entrée de palette sans nom ni cible ne rend service à personne.
+        assert!(Command::from_plugin("tri", "pas du json").is_none());
+        assert!(Command::from_plugin("tri", r#"{"label":"sans identifiant"}"#).is_none());
+        assert!(Command::from_plugin("tri", r#"{"id":"  "}"#).is_none());
+    }
+
+    #[test]
+    fn une_commande_de_plugin_se_trouve_dans_la_palette() {
+        let mut toutes = builtin_commands();
+        toutes.push(Command::from_plugin("tri", r#"{"id":"vider","label":"Vider"}"#).unwrap());
+
+        let trouvees = filter(&toutes, "vider", false);
+        assert_eq!(trouvees.len(), 1);
+        assert_eq!(trouvees[0].group, "tri");
+    }
 }
 
 #[cfg(test)]

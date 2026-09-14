@@ -394,7 +394,8 @@ fn run_gui() -> Result<()> {
         runtime.handle().clone(),
     )));
 
-    shell::wire_callbacks(&fenetre, Arc::clone(&controller), iris_ui::Keymap::standard());
+    let carnet =
+        shell::wire_callbacks(&fenetre, Arc::clone(&controller), iris_ui::Keymap::standard());
     shell::wire_settings(
         &fenetre,
         &services,
@@ -441,6 +442,58 @@ fn run_gui() -> Result<()> {
         Arc::clone(&services.engine),
         runtime.handle().clone(),
     );
+
+    // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
+    // son carburant, pas une frame ni un tour de synchronisation.
+    {
+        let controller_plugins = Arc::clone(&controller);
+        let carnet_effets = Arc::clone(&carnet);
+        let faible = fenetre.as_weak();
+        let (service, _fil) = iris_app::plugins::PluginService::spawn(
+            iris_app::plugins::ensure_dir(services.paths.plugins()),
+            Arc::clone(&services.store),
+            move |effet| {
+                // Une commande déclarée entre dans le carnet : c'est ce qui la rend
+                // atteignable depuis la palette, sans redémarrage.
+                if let iris_app::plugins::PluginEffect::Command { plugin, spec } = &effet {
+                    if carnet_effets.add_plugin(plugin, spec).is_none() {
+                        tracing::warn!(plugin = %plugin, "commande de plugin invalide");
+                    }
+                }
+
+                let message = iris_app::plugins::apply_effect(&effet, &controller_plugins);
+                if let Some(message) = message {
+                    let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                        fenetre.set_status(message.into());
+                    });
+                }
+            },
+        );
+
+        let rapport = service.report();
+        if !rapport.loaded.is_empty() || !rapport.rejected.is_empty() {
+            tracing::info!(bilan = %rapport.summary(), "plugins");
+        }
+
+        if _fil.is_some() {
+            let service = Arc::new(service);
+
+            // La palette rend les commandes de plugin à leur auteur.
+            {
+                let service = Arc::clone(&service);
+                carnet.set_sink(move |plugin, spec| {
+                    tracing::info!(plugin = %plugin, "commande de plugin invoquée");
+                    service.invoke(spec, None);
+                });
+            }
+
+            let bus = services.bus.clone();
+            let store = Arc::clone(&services.store);
+            runtime.spawn(async move {
+                iris_app::plugins::pump(&bus, store, service).await;
+            });
+        }
+    }
 
     // La boucle de synchronisation.
     {

@@ -9,6 +9,7 @@ license.workspace = true
 iris-types = { workspace = true }
 iris-store = { workspace = true }
 iris-theme = { workspace = true }
+serde_json = { workspace = true }
 iris-htmlview = { path = "../iris-htmlview" }
 iris-viewmodel = { workspace = true }
 slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }

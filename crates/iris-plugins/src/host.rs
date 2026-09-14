@@ -396,13 +396,13 @@ mod tests {
     #[test]
     fn un_plugin_minimal_se_charge_et_s_appelle() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (call $log (local.get 0) (local.get 1))
                  (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste("read_mail = true\n"), &wasm).unwrap();
 
-        let trace = p.call("on_event", "{\"kind\":\"message\"}").unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, "{\"kind\":\"message\"}").unwrap();
         assert_eq!(trace.logs, ["{\"kind\":\"message\"}"]);
         assert!(trace.denied.is_empty());
     }
@@ -412,14 +412,14 @@ mod tests {
         // La question « un plugin peut-il figer l'application ? » doit avoir une
         // réponse définitive.
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (loop $encore (br $encore))
                  (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
         let debut = std::time::Instant::now();
-        let e = p.call("on_event", "{}").unwrap_err();
+        let e = p.call(crate::entry_points::ON_EVENT, "{}").unwrap_err();
         let duree = debut.elapsed();
 
         assert!(e.to_string().contains("budget d'exécution"));
@@ -429,61 +429,61 @@ mod tests {
     #[test]
     fn un_plugin_qui_echoue_est_desactive_apres_le_seuil() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (loop $encore (br $encore))
                  (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
         for _ in 0..3 {
-            let _ = p.call("on_event", "{}");
+            let _ = p.call(crate::entry_points::ON_EVENT, "{}");
         }
         assert!(p.is_disabled());
         assert!(p.disabled_reason().unwrap().contains("budget d'exécution"));
 
         // Une fois désactivé, il n'est plus appelé du tout.
-        let e = p.call("on_event", "{}").unwrap_err();
+        let e = p.call(crate::entry_points::ON_EVENT, "{}").unwrap_err();
         assert!(e.to_string().contains("désactivé"));
     }
 
     #[test]
     fn un_plugin_desactive_peut_etre_reactive() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32) (i32.const 0))"#,
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32) (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
         p.disabled = Some("essai".into());
 
         p.enable();
         assert!(!p.is_disabled());
-        assert!(p.call("on_event", "{}").is_ok());
+        assert!(p.call(crate::entry_points::ON_EVENT, "{}").is_ok());
     }
 
     #[test]
     fn un_appel_reussi_remet_le_compteur_d_echecs_a_zero() {
         let wasm = module_wat(
-            r#"(func (export "ok") (param i32 i32) (result i32) (i32.const 0))
-               (func (export "casse") (param i32 i32) (result i32) (unreachable))"#,
+            r#"(func (export "iris_ok") (param i32 i32) (result i32) (i32.const 0))
+               (func (export "iris_casse") (param i32 i32) (result i32) (unreachable))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
-        let _ = p.call("casse", "{}");
+        let _ = p.call("iris_casse", "{}");
         assert_eq!(p.failures(), 1);
-        p.call("ok", "{}").unwrap();
+        p.call("iris_ok", "{}").unwrap();
         assert_eq!(p.failures(), 0);
     }
 
     #[test]
     fn une_action_sans_permission_est_refusee() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (drop (call $act (local.get 0) (local.get 1)))
                  (i32.const 0))"#,
         );
         // Lecture seule : l'action doit être refusée.
         let mut p = Plugin::load(manifeste("read_mail = true\n"), &wasm).unwrap();
 
-        let trace = p.call("on_event", "{\"action\":\"done\"}").unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, "{\"action\":\"done\"}").unwrap();
         assert!(trace.actions.is_empty(), "aucune action ne doit passer");
         assert_eq!(trace.denied, ["write_mail"]);
     }
@@ -491,14 +491,14 @@ mod tests {
     #[test]
     fn une_action_avec_permission_est_acceptee() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (drop (call $act (local.get 0) (local.get 1)))
                  (i32.const 0))"#,
         );
         let mut p =
             Plugin::load(manifeste("read_mail = true\nwrite_mail = true\n"), &wasm).unwrap();
 
-        let trace = p.call("on_event", "{\"action\":\"done\"}").unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, "{\"action\":\"done\"}").unwrap();
         assert_eq!(trace.actions, ["{\"action\":\"done\"}"]);
         assert!(trace.denied.is_empty());
     }
@@ -508,26 +508,26 @@ mod tests {
         // Un refus silencieux le laisserait croire à un succès.
         let wasm = module_wat(
             r#"(global $resultat (mut i32) (i32.const -1))
-               (func (export "on_event") (param i32 i32) (result i32)
+               (func (export "iris_on_event") (param i32 i32) (result i32)
                  (global.set $resultat (call $act (local.get 0) (local.get 1)))
                  (global.get $resultat))"#,
         );
         let mut p = Plugin::load(manifeste("read_mail = true\n"), &wasm).unwrap();
-        let trace = p.call("on_event", "{}").unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, "{}").unwrap();
         assert_eq!(trace.denied.len(), 1);
     }
 
     #[test]
     fn les_notifications_et_les_commandes_sont_gardees_separement() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (drop (call $add_command (local.get 0) (local.get 1)))
                  (drop (call $notify (local.get 0) (local.get 1)))
                  (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste("commands = true\n"), &wasm).unwrap();
 
-        let trace = p.call("on_event", "x").unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, "x").unwrap();
         assert_eq!(trace.actions, ["command:x"], "la commande passe");
         assert_eq!(trace.denied, ["notifications"], "la notification est refusée");
     }
@@ -535,11 +535,11 @@ mod tests {
     #[test]
     fn une_fonction_absente_est_signalee_clairement() {
         let wasm = module_wat(
-            r#"(func (export "autre") (param i32 i32) (result i32) (i32.const 0))"#,
+            r#"(func (export "iris_autre") (param i32 i32) (result i32) (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
-        let e = p.call("on_event", "{}").unwrap_err();
+        let e = p.call(crate::entry_points::ON_EVENT, "{}").unwrap_err();
         assert!(e.to_string().contains("on_event"));
     }
 
@@ -547,11 +547,11 @@ mod tests {
     fn un_plugin_sans_allocateur_est_refuse() {
         let source = r#"(module
             (memory (export "memory") 1)
-            (func (export "on_event") (param i32 i32) (result i32) (i32.const 0)))"#;
+            (func (export "iris_on_event") (param i32 i32) (result i32) (i32.const 0)))"#;
         let wasm = wat::parse_str(source).unwrap();
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
-        let e = p.call("on_event", "{}").unwrap_err();
+        let e = p.call(crate::entry_points::ON_EVENT, "{}").unwrap_err();
         assert!(e.to_string().contains("iris_alloc"));
     }
 
@@ -564,13 +564,13 @@ mod tests {
     #[test]
     fn un_acces_memoire_hors_limites_est_intercepte() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (i32.store (i32.const 1000000) (i32.const 1))
                  (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
-        let e = p.call("on_event", "{}").unwrap_err();
+        let e = p.call(crate::entry_points::ON_EVENT, "{}").unwrap_err();
         assert!(e.to_string().contains("hors limites"));
     }
 
@@ -586,7 +586,7 @@ mod tests {
             (global $next (mut i32) (i32.const 1024))
             (func (export "iris_alloc") (param i32) (result i32)
               (local.get 0) (drop) (global.get $next))
-            (func (export "on_event") (param i32 i32) (result i32)
+            (func (export "iris_on_event") (param i32 i32) (result i32)
               ;; Réclame 10 000 pages, soit 640 Mio : bien au-delà du plafond.
               (drop (memory.grow (i32.const 10000)))
               (i32.const 0)))"#;
@@ -598,30 +598,30 @@ mod tests {
 
         // `memory.grow` renvoie -1 quand il est refusé : le plugin continue avec sa
         // mémoire initiale, l'application n'a rien alloué.
-        let trace = p.call("on_event", "{}").unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, "{}").unwrap();
         assert!(trace.logs.is_empty());
     }
 
     #[test]
     fn la_charge_est_transmise_telle_quelle() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32)
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32)
                  (call $log (local.get 0) (local.get 1))
                  (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
 
         let charge = r#"{"thread":42,"subject":"Devis « refonte »"}"#;
-        let trace = p.call("on_event", charge).unwrap();
+        let trace = p.call(crate::entry_points::ON_EVENT, charge).unwrap();
         assert_eq!(trace.logs, [charge]);
     }
 
     #[test]
     fn une_charge_vide_est_admise() {
         let wasm = module_wat(
-            r#"(func (export "on_event") (param i32 i32) (result i32) (i32.const 0))"#,
+            r#"(func (export "iris_on_event") (param i32 i32) (result i32) (i32.const 0))"#,
         );
         let mut p = Plugin::load(manifeste(""), &wasm).unwrap();
-        assert!(p.call("on_event", "").is_ok());
+        assert!(p.call(crate::entry_points::ON_EVENT, "").is_ok());
     }
 }

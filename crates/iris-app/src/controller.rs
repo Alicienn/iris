@@ -27,6 +27,10 @@ pub enum Request {
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
+    /// Agit sur un fil désigné plutôt que sur la sélection. C'est par là que
+    /// passent les plugins : ils agissent sur ce qu'on leur a montré, pas sur ce que
+    /// l'utilisateur regarde au moment où ils répondent.
+    ApplyTo(iris_types::ThreadId, Action),
     Undo,
     /// Change les automatismes du flux de travail.
     SetAutomation(AutomationSettings),
@@ -179,19 +183,9 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         Request::EnsureLoaded(index) => Ok(vm.ensure_loaded(index)? > 0),
         Request::Apply(action) => {
             let Some(thread) = vm.selection().thread() else { return Ok(false) };
-            let resultat = actions.apply(thread, action, Timestamp::from_millis(now_millis()))?;
-            if !resultat.changed {
-                return Ok(false);
-            }
-            // L'action a modifié l'état : la liste doit être recomposée. On passe par
-            // le même chemin qu'un diff venu du réseau, pour qu'il n'y ait qu'une
-            // seule façon de mettre la vue à jour.
-            let mut diff = ViewDiff::default();
-            diff.threads.insert(thread);
-            diff.lists.insert(vm.active_tab());
-            vm.apply_diff(&diff)?;
-            Ok(true)
+            appliquer(vm, actions, thread, action)
         }
+        Request::ApplyTo(thread, action) => appliquer(vm, actions, thread, action),
         Request::Undo => {
             let Some(record) = actions.undo()? else { return Ok(false) };
             let mut diff = ViewDiff::default();
@@ -213,6 +207,29 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         }
         Request::Shutdown => Ok(false),
     }
+}
+
+/// Applique une action à un fil désigné.
+///
+/// Chemin unique, partagé par le clavier, la palette et les plugins : l'action passe
+/// ensuite par le même diff qu'un changement venu du réseau, pour qu'il n'y ait
+/// qu'une seule façon de mettre la vue à jour.
+fn appliquer(
+    vm: &mut ViewModel,
+    actions: &mut Actions,
+    thread: ThreadId,
+    action: Action,
+) -> Result<bool> {
+    let resultat = actions.apply(thread, action, Timestamp::from_millis(now_millis()))?;
+    if !resultat.changed {
+        return Ok(false);
+    }
+
+    let mut diff = ViewDiff::default();
+    diff.threads.insert(thread);
+    diff.lists.insert(vm.active_tab());
+    vm.apply_diff(&diff)?;
+    Ok(true)
 }
 
 fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {

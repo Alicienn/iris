@@ -118,9 +118,114 @@ pub fn wire_account_recovery(
     });
 }
 
+/// Les commandes disponibles, celles de l'application et celles des plugins.
+///
+/// La liste doit pouvoir grandir : un plugin déclare ses commandes en s'exécutant,
+/// c'est-à-dire après que la palette a été branchée. Un tableau figé au démarrage
+/// obligerait à redémarrer pour voir une extension apparaître.
+pub struct CommandBook {
+    commandes: std::sync::Mutex<Vec<commands::Command>>,
+    /// Ce que la palette doit envoyer aux plugins, par identifiant de commande.
+    plugin_specs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
+    /// Où acheminer une commande de plugin. Rempli une fois, quand le service des
+    /// plugins existe — c'est-à-dire après que la palette a été branchée.
+    #[allow(clippy::type_complexity)]
+    sink: std::sync::OnceLock<Box<dyn Fn(&str, &str) + Send + Sync>>,
+}
+
+impl CommandBook {
+    pub fn new() -> Self {
+        Self {
+            commandes: std::sync::Mutex::new(commands::builtin_commands()),
+            plugin_specs: std::sync::Mutex::new(Default::default()),
+            sink: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// Désigne le destinataire des commandes de plugin.
+    pub fn set_sink(&self, sink: impl Fn(&str, &str) + Send + Sync + 'static) {
+        let _ = self.sink.set(Box::new(sink));
+    }
+
+    /// Achemine une commande de plugin, si un destinataire est en place.
+    ///
+    /// Sans destinataire, la commande est perdue plutôt que mise en attente : une
+    /// commande qui s'exécuterait plus tard, à un moment que l'utilisateur n'a pas
+    /// choisi, serait pire qu'une commande sans effet.
+    fn route(&self, plugin: &str, spec: &str) -> bool {
+        match self.sink.get() {
+            Some(sink) => {
+                sink(plugin, spec);
+                true
+            }
+            None => {
+                tracing::warn!(plugin = %plugin, "commande de plugin sans destinataire");
+                false
+            }
+        }
+    }
+
+    /// Ajoute une commande déclarée par un plugin. Rend son intitulé.
+    ///
+    /// Redéclarer la même commande la remplace : un plugin qui se réinitialise ne
+    /// doit pas laisser deux entrées identiques dans la palette.
+    pub fn add_plugin(&self, plugin: &str, spec: &str) -> Option<String> {
+        let commande = commands::Command::from_plugin(plugin, spec)?;
+        let id = commande.id.clone();
+        let label = commande.label.clone();
+
+        let mut liste = self.commandes.lock().ok()?;
+        liste.retain(|c| c.id != id);
+        liste.push(commande);
+        self.plugin_specs.lock().ok()?.insert(id, spec.to_string());
+        Some(label)
+    }
+
+    /// Filtre les commandes pour la palette.
+    pub fn filter(&self, query: &str, has_thread: bool) -> Vec<commands::Command> {
+        let liste = self.commandes.lock().expect("commandes empoisonnées");
+        commands::filter(&liste, query, has_thread).into_iter().cloned().collect()
+    }
+
+    pub fn find(&self, id: &str) -> Option<commands::Command> {
+        let liste = self.commandes.lock().ok()?;
+        liste.iter().find(|c| c.id == id).cloned()
+    }
+
+    pub fn len(&self) -> usize {
+        self.commandes.lock().map(|l| l.len()).unwrap_or(0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl std::fmt::Debug for CommandBook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandBook")
+            .field("commandes", &self.len())
+            .field("destinataire", &self.sink.get().is_some())
+            .finish()
+    }
+}
+
+impl Default for CommandBook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Branche les rappels de la fenêtre sur le contrôleur.
-pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: Keymap) {
-    let commandes = Arc::new(commands::builtin_commands());
+///
+/// Rend le carnet de commandes, pour que les plugins puissent y ajouter les leurs
+/// une fois qu'ils tournent.
+pub fn wire_callbacks(
+    fenetre: &AppWindow,
+    controller: Arc<Controller>,
+    keymap: Keymap,
+) -> Arc<CommandBook> {
+    let commandes = Arc::new(CommandBook::new());
 
     // Palette : la liste est recalculée à chaque frappe, côté Rust.
     {
@@ -129,8 +234,9 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
         fenetre.on_palette_query_changed(move |requete| {
             let Some(fenetre) = faible.upgrade() else { return };
             let a_un_fil = fenetre.get_selected_thread() >= 0;
-            let filtrees: Vec<_> = commands::filter(&commandes, requete.as_str(), a_un_fil)
-                .into_iter()
+            let filtrees: Vec<_> = commandes
+                .filter(requete.as_str(), a_un_fil)
+                .iter()
                 .map(bridge::command_row)
                 .collect();
             fenetre.set_commands(ModelRc::new(VecModel::from(filtrees)));
@@ -197,24 +303,43 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
         let commandes = Arc::clone(&commandes);
         let faible = fenetre.as_weak();
         fenetre.on_command_invoked(move |id| {
-            let Some(commande) = commandes.iter().find(|x| x.id == id.as_str()) else { return };
-            dispatch(&c, &commande.kind, &faible);
+            let Some(commande) = commandes.find(id.as_str()) else { return };
+            dispatch(&c, &commande.kind, &faible, &commandes);
         });
     }
 
     {
         let c = Arc::clone(&controller);
+        let carnet = Arc::clone(&commandes);
         let faible = fenetre.as_weak();
         fenetre.on_key_pressed(move |touche| match keymap.resolve(touche.as_str()) {
             KeyOutcome::Move(m) => c.send(Request::Move(m)),
-            KeyOutcome::Command(kind) => dispatch(&c, &kind, &faible),
+            KeyOutcome::Command(kind) => dispatch(&c, &kind, &faible, &carnet),
             KeyOutcome::OpenPalette | KeyOutcome::Ignored => {}
         });
     }
+
+    commandes
 }
 
-fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<AppWindow>) {
+/// Reconnaît une commande de plugin, pour les tests et les appelants curieux.
+pub fn plugin_command(kind: &CommandKind) -> Option<(&str, &str)> {
     match kind {
+        CommandKind::Plugin { plugin, spec } => Some((plugin, spec)),
+        _ => None,
+    }
+}
+
+fn dispatch(
+    controller: &Controller,
+    kind: &CommandKind,
+    fenetre: &slint::Weak<AppWindow>,
+    carnet: &CommandBook,
+) {
+    match kind {
+        CommandKind::Plugin { plugin, spec } => {
+            carnet.route(plugin, spec);
+        }
         CommandKind::Thread(action) => controller.send(Request::Apply(*action)),
         CommandKind::SwitchTab(state) => controller.send(Request::SwitchTab(*state)),
         CommandKind::SelectAccount(id) => {
@@ -912,6 +1037,7 @@ mod tests {
                 | CommandKind::Undo
                 | CommandKind::Search
                 | CommandKind::AddAccount
+                | CommandKind::Plugin { .. }
                 | CommandKind::Quit => {}
                 CommandKind::Settings | CommandKind::Reload => {
                     // Écrans non encore construits, ignorés à dessein.
@@ -971,6 +1097,52 @@ mod tests {
         // Sinon la panne resterait muette au moment où elle est la plus étrange.
         let message = message_suspension(&[], &ensemble(&[7])).unwrap();
         assert!(message.starts_with("1 compte en pause"), "obtenu : {message}");
+    }
+
+    #[test]
+    fn le_carnet_accueille_une_commande_de_plugin() {
+        // Un plugin déclare ses commandes en s'exécutant, donc après que la palette
+        // a été branchée : une liste figée obligerait à redémarrer.
+        let carnet = CommandBook::new();
+        let avant = carnet.len();
+
+        let label = carnet.add_plugin("tri", r#"{"id":"vider","label":"Vider"}"#);
+        assert_eq!(label.as_deref(), Some("Vider"));
+        assert_eq!(carnet.len(), avant + 1);
+        assert!(carnet.find("plugin:tri:vider").is_some());
+    }
+
+    #[test]
+    fn redeclarer_une_commande_la_remplace() {
+        // Un plugin qui se réinitialise ne doit pas laisser deux entrées identiques.
+        let carnet = CommandBook::new();
+        carnet.add_plugin("tri", r#"{"id":"x","label":"Ancien"}"#);
+        carnet.add_plugin("tri", r#"{"id":"x","label":"Nouveau"}"#);
+
+        assert_eq!(carnet.find("plugin:tri:x").unwrap().label, "Nouveau");
+        assert_eq!(carnet.filter("Ancien", false).len(), 0);
+    }
+
+    #[test]
+    fn une_declaration_invalide_n_entre_pas_dans_le_carnet() {
+        let carnet = CommandBook::new();
+        let avant = carnet.len();
+        assert!(carnet.add_plugin("tri", "n'importe quoi").is_none());
+        assert_eq!(carnet.len(), avant);
+    }
+
+    #[test]
+    fn une_commande_de_plugin_se_reconnait() {
+        let carnet = CommandBook::new();
+        carnet.add_plugin("tri", r#"{"id":"vider","label":"Vider"}"#);
+        let commande = carnet.find("plugin:tri:vider").unwrap();
+
+        let (plugin, spec) = plugin_command(&commande.kind).expect("une commande de plugin");
+        assert_eq!(plugin, "tri");
+        assert!(spec.contains("vider"));
+
+        let ordinaire = carnet.find("app.quit").unwrap();
+        assert!(plugin_command(&ordinaire.kind).is_none());
     }
 
     #[test]

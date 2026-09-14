@@ -8,6 +8,7 @@
 pub mod accounts;
 pub mod controller;
 pub mod paths;
+pub mod plugins;
 pub mod services;
 pub mod settings;
 pub mod shell;

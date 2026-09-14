@@ -179,7 +179,7 @@ l'application sait faire.
 Deux d'entre elles touchent des exigences posées dès le départ : le support de
 Google, et « tout est un module ».
 
-- [ ] **S23.1** Les plugins tournent : chargés au démarrage, abonnés au bus, leurs
+- [x] **S23.1** Les plugins tournent : chargés au démarrage, abonnés au bus, leurs
       commandes dans la palette.
 - [ ] **S23.2** OAuth Google et Microsoft depuis l'écran d'ajout de compte.
 - [ ] **S23.3** Pièces jointes : recensées au téléchargement, listées, enregistrables.
