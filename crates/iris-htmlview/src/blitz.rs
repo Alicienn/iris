@@ -116,16 +116,33 @@ impl HtmlRenderer for BlitzRenderer {
         // Le chargeur de ressources. Il ne va sur le réseau que si le lecteur l'a
         // demandé pour ce message ; sans lui, aucune image ne s'affichait, pas même
         // celles que le message transportait lui-même.
+        let (fournisseur, en_attente) = crate::fetch::MailNetProvider::new(allow_remote);
         let mut document = HtmlDocument::from_html(
             sanitized_html,
             DocumentConfig {
                 viewport: Some(viewport),
-                net_provider: Some(std::sync::Arc::new(crate::fetch::MailNetProvider::new(
-                    allow_remote,
-                ))),
+                net_provider: Some(fournisseur),
                 ..Default::default()
             },
         );
+
+        // Les ressources arrivées pendant l'analyse sont remises au document
+        // maintenant, parce que le fournisseur ne peut pas le faire : il est appelé
+        // pendant sa construction. Une feuille de style peut en demander d'autres, et
+        // ces autres à leur tour ; trois tours suffisent à tout ce qui ressemble à du
+        // courrier, et la borne empêche une page bâtie en boucle de nous y enfermer.
+        for _ in 0..3 {
+            let arrivees: Vec<_> = std::mem::take(
+                &mut *en_attente.lock().unwrap_or_else(|e| e.into_inner()),
+            );
+            if arrivees.is_empty() {
+                break;
+            }
+            for ressource in arrivees {
+                document.load_resource(ressource);
+            }
+        }
+
         document.resolve(0.0);
 
         // 2. Hauteur réelle du contenu, bornée.

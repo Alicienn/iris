@@ -688,12 +688,21 @@ mod tests {
 
     impl Fixture {
         fn thread(&self) -> ThreadId {
+            self.thread_in(self.folder)
+        }
+
+        /// Un fil dont le message se trouve dans le dossier indiqué.
+        ///
+        /// Une boîte déjà triée ailleurs a la plupart de ses messages hors de la
+        /// boîte de réception, et ce qui s'y passe n'est pas ce qui se passe dans
+        /// l'INBOX : c'est le cas que les tests doivent pouvoir écrire.
+        fn thread_in(&self, folder: FolderId) -> ThreadId {
             let uid = self.uid.get();
             self.uid.set(uid + 1);
             self.store
                 .insert_message(&NewMessage {
                     account: self.account,
-                    folder: self.folder,
+                    folder,
                     uid,
                     rfc_message_id: Some(format!("m{uid}@x")),
                     in_reply_to: None,
@@ -1047,6 +1056,50 @@ mod tests {
             1,
             "the message still exists locally until the server confirms"
         );
+    }
+
+    #[test]
+    fn deleting_a_thread_already_in_the_bin_still_clears_the_queue() {
+        // Most of a mailbox that has been triaged in another client is already in
+        // the bin. Moving those messages produces no journal entry, and the action
+        // used to report "nothing changed" — so the Delete button did nothing at
+        // all, repeatedly, with no way to find out why. The thread still has to
+        // leave the queue: that is what was asked, and the server has nothing left
+        // to be told.
+        let f = fixture();
+        let bin = f
+            .store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+        let thread = f.thread_in(bin);
+        let before = f.store.pending_op_count().unwrap();
+
+        assert!(
+            f.workflow.delete(thread, t(1)).unwrap(),
+            "the thread has to leave the queue"
+        );
+        assert_eq!(f.state(thread), WorkflowState::Done);
+        assert_eq!(
+            f.store.pending_op_count().unwrap(),
+            before,
+            "the server has nothing to do: the message is already there"
+        );
+    }
+
+    #[test]
+    fn deleting_it_a_second_time_changes_nothing() {
+        // Once it is both in the bin and out of the queue there is nothing left to
+        // do, and saying otherwise would push an undo entry for an action that did
+        // not happen.
+        let f = fixture();
+        let bin = f
+            .store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+        let thread = f.thread_in(bin);
+
+        assert!(f.workflow.delete(thread, t(1)).unwrap());
+        assert!(!f.workflow.delete(thread, t(2)).unwrap());
     }
 
     #[test]

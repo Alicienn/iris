@@ -299,6 +299,60 @@ mod tests {
     }
 
     #[test]
+    fn reecrire_les_serveurs_conserve_l_identifiant() {
+        // Un hébergeur qui renomme ses serveurs ne doit pas coûter à l'utilisateur
+        // l'historique de sa boîte. Supprimer puis recréer le compte serait plus
+        // court à écrire et emporterait ses dossiers, ses messages et leurs états.
+        let s = store();
+        let id = s
+            .create_account(&NewAccount::new("marie@x.fr", "imap.x.fr", "smtp.x.fr"), now())
+            .unwrap();
+
+        s.update_account_servers(
+            id,
+            &AccountServers {
+                email: "marie@y.fr".into(),
+                imap_host: "mail.y.fr".into(),
+                imap_port: 143,
+                imap_tls: false,
+                smtp_host: "mail.y.fr".into(),
+                smtp_port: 587,
+                smtp_tls: true,
+            },
+        )
+        .unwrap();
+
+        let relu = s.account(id).unwrap().unwrap();
+        assert_eq!(relu.id, id, "l'identifiant survit");
+        assert_eq!(relu.email, "marie@y.fr");
+        assert_eq!(relu.imap_host, "mail.y.fr");
+        assert_eq!(relu.imap_port, 143);
+        assert!(!relu.imap_tls);
+        assert_eq!(relu.smtp_port, 587);
+        assert!(relu.smtp_tls);
+    }
+
+    #[test]
+    fn reecrire_un_compte_disparu_le_dit() {
+        // Écrire zéro ligne et rendre « c'est fait » laisserait l'écran des réglages
+        // annoncer une sauvegarde qui n'a rien sauvegardé.
+        let s = store();
+        let erreur = s.update_account_servers(
+            AccountId(4242),
+            &AccountServers {
+                email: "personne@x.fr".into(),
+                imap_host: "i".into(),
+                imap_port: 993,
+                imap_tls: true,
+                smtp_host: "s".into(),
+                smtp_port: 465,
+                smtp_tls: true,
+            },
+        );
+        assert!(erreur.is_err());
+    }
+
+    #[test]
     fn creer_puis_relire_un_compte() {
         let s = store();
         let id = s

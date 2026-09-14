@@ -211,7 +211,9 @@ export component AppWindow inherits Window {
     in property <bool> account-menu-open;
     in property <string> account-menu-label;
     in property <bool> account-menu-pinned;
-    in property <bool> account-menu-enabled;
+    // Enabled unless told otherwise: a menu that offers "Enable" on a working
+    // mailbox describes a state the account is not in.
+    in property <bool> account-menu-enabled: true;
     in-out property <length> account-menu-x;
     in-out property <length> account-menu-y;
     in property <int> spam-count;

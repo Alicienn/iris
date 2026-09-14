@@ -1011,6 +1011,81 @@ fn l_onglet_spam_se_marque_comme_actif() {
     );
 }
 
+// --- Le menu contextuel d'un compte ---
+
+fn le_menu_d_un_compte_n_existe_pas_avant_d_etre_ouvert() {
+    let f = fenetre();
+    assert!(par_libelle(&f, "Change password…").is_none());
+}
+
+fn le_menu_d_un_compte_offre_de_changer_le_mot_de_passe() {
+    // C'était le trou : changer un mot de passe exigeait que la boîte tombe en panne
+    // d'abord, pour que le marqueur d'alerte apparaisse. L'application demandait de
+    // casser quelque chose avant d'accepter qu'on le répare.
+    let f = fenetre();
+    f.set_account_menu_open(true);
+    f.set_account_menu_label("moi@exemple.fr".into());
+
+    for attendu in [
+        "Sync now",
+        "Change password…",
+        "Edit account…",
+        "Disable",
+        "Remove from Iris…",
+    ] {
+        assert!(
+            par_libelle(&f, attendu).is_some(),
+            "« {attendu} » manque au menu du compte"
+        );
+    }
+}
+
+fn choisir_dans_le_menu_d_un_compte_est_rapporte() {
+    let f = fenetre();
+    f.set_account_menu_open(true);
+
+    let appels = Rc::new(RefCell::new(0));
+    {
+        let appels = Rc::clone(&appels);
+        f.on_account_menu_password(move || *appels.borrow_mut() += 1);
+    }
+
+    par_libelle(&f, "Change password…")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*appels.borrow(), 1);
+}
+
+fn un_compte_epingle_propose_de_le_desepingler() {
+    // Un menu qui propose « Épingler » sur un compte déjà épinglé ment sur l'état
+    // qu'il décrit, et c'est le seul endroit où cet état est visible.
+    let f = fenetre();
+    f.set_account_menu_open(true);
+    f.set_account_menu_pinned(true);
+    assert!(par_libelle(&f, "Unpin").is_some());
+
+    f.set_account_menu_pinned(false);
+    assert!(par_libelle(&f, "Pin to the top").is_some());
+}
+
+// --- Les compteurs ---
+
+fn un_grand_compteur_est_abrege() {
+    // « 1250 » ne tient pas dans une pastille, et l'écart avec « 1240 » n'apprend
+    // rien à personne. La valeur exacte reste à un survol.
+    let f = fenetre();
+    f.set_counts(modele(vec![1250, 0, 0]));
+    f.set_count_labels(modele(vec!["1.2k".into()]));
+    f.set_count_fulls(modele(vec!["1 250".into()]));
+
+    let onglet = par_libelle(&f, "To do").expect("l'onglet À faire");
+    assert_eq!(
+        onglet.accessible_description().as_deref(),
+        Some("1250 conversations"),
+        "le lecteur d'écran garde le nombre exact"
+    );
+}
+
 // --- Ce qui doit rester vrai partout ---
 
 fn aucun_bouton_ne_reste_sans_nom() {
@@ -1294,6 +1369,26 @@ fn main() {
         (
             "ajouter_une_regle_est_atteignable",
             ajouter_une_regle_est_atteignable as fn(),
+        ),
+        (
+            "le_menu_d_un_compte_n_existe_pas_avant_d_etre_ouvert",
+            le_menu_d_un_compte_n_existe_pas_avant_d_etre_ouvert as fn(),
+        ),
+        (
+            "le_menu_d_un_compte_offre_de_changer_le_mot_de_passe",
+            le_menu_d_un_compte_offre_de_changer_le_mot_de_passe as fn(),
+        ),
+        (
+            "choisir_dans_le_menu_d_un_compte_est_rapporte",
+            choisir_dans_le_menu_d_un_compte_est_rapporte as fn(),
+        ),
+        (
+            "un_compte_epingle_propose_de_le_desepingler",
+            un_compte_epingle_propose_de_le_desepingler as fn(),
+        ),
+        (
+            "un_grand_compteur_est_abrege",
+            un_grand_compteur_est_abrege as fn(),
         ),
         (
             "aucun_bouton_ne_reste_sans_nom",

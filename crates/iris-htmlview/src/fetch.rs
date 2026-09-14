@@ -9,41 +9,57 @@
 //! Celui-ci résout trois choses et refuse tout le reste :
 //!
 //! - `data:` — les octets sont dans l'URL. Aucun réseau, donc aucun risque, et c'est
-//!   la forme sous laquelle les pièces incrustées d'un message arrivent une fois
-//!   inlinées. Toujours autorisé.
+//!   la forme sous laquelle un message transporte ses propres images. Toujours
+//!   autorisé.
 //! - `http:` et `https:` — **uniquement** quand le lecteur l'a demandé pour ce
 //!   message. Une image distante est un accusé de lecture adressé à l'expéditeur ;
 //!   c'est une décision, pas un détail de rendu.
 //! - tout le reste — refusé sans bruit. Un moteur de rendu n'a rien à faire dans le
 //!   système de fichiers.
+//!
+//! Les ressources ne sont pas remises au document depuis le fournisseur : celui-ci
+//! ne le voit pas, et le document est en train d'être construit quand il appelle.
+//! Elles sont **mises en attente**, et [`Pending::drain`] les remet une fois la
+//! construction finie. C'est le même schéma que la boucle d'événements de Blitz,
+//! réduit à un seul tour parce que nous rendons une image et nous arrêtons là.
 
+use blitz_dom::net::Resource;
 use blitz_traits::net::{BoxedHandler, NetProvider, Request, SharedCallback};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Au-delà, ce n'est plus un logo de signature.
 ///
 /// Une limite en octets et non en pixels : ce qui coûte ici est le transfert, pas la
-/// surface, et un fichier de dix mégaoctets bloque le rendu du message pendant qu'on
-/// le télécharge.
+/// surface, et un fichier de dix mégaoctets retient le message pendant qu'on le
+/// télécharge.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Un message doit s'afficher, même quand le serveur d'en face ne répond pas.
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
 
+/// Les ressources chargées, en attente d'être remises au document.
+pub type Pending = Arc<Mutex<Vec<Resource>>>;
+
 /// Le fournisseur de ressources.
 #[derive(Debug)]
 pub struct MailNetProvider {
     allow_remote: bool,
+    pending: Pending,
 }
 
 impl MailNetProvider {
-    pub fn new(allow_remote: bool) -> Self {
-        Self { allow_remote }
+    pub fn new(allow_remote: bool) -> (Arc<Self>, Pending) {
+        let pending: Pending = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(Self {
+            allow_remote,
+            pending: Arc::clone(&pending),
+        });
+        (provider, pending)
     }
 }
 
-impl<D: 'static> NetProvider<D> for MailNetProvider {
-    fn fetch(&self, doc_id: usize, request: Request, handler: BoxedHandler<D>) {
+impl NetProvider<Resource> for MailNetProvider {
+    fn fetch(&self, doc_id: usize, request: Request, handler: BoxedHandler<Resource>) {
         let url = request.url;
 
         let octets = match url.scheme() {
@@ -52,15 +68,25 @@ impl<D: 'static> NetProvider<D> for MailNetProvider {
             _ => None,
         };
 
-        // Le rendu est synchrone : la ressource doit être livrée avant que la mise en
-        // page ne reprenne, sinon l'image arrive après l'image qui la contient.
-        if let Some(octets) = octets {
-            handler.bytes(
-                doc_id,
-                octets.into(),
-                Arc::new(|_, _| {}) as SharedCallback<D>,
-            );
-        }
+        let Some(octets) = octets else {
+            return;
+        };
+
+        // Le décodage appartient au gestionnaire — c'est lui qui sait si ces octets
+        // sont une image, une police ou une feuille de style. Nous n'en récoltons que
+        // le résultat.
+        let file = Arc::clone(&self.pending);
+        handler.bytes(
+            doc_id,
+            octets.into(),
+            Arc::new(move |_, resultat: Result<Resource, Option<String>>| {
+                if let Ok(ressource) = resultat {
+                    file.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(ressource);
+                }
+            }) as SharedCallback<Resource>,
+        );
     }
 }
 
@@ -119,18 +145,15 @@ fn base64_decode(texte: &str) -> Option<Vec<u8>> {
 /// Va chercher une ressource distante.
 ///
 /// Bloquant, et volontairement : la mise en page a besoin des octets maintenant. La
-/// requête est anonyme au possible — pas de cookie, pas de redirection vers un autre
-/// schéma, pas de référent — parce que tout ce qui l'accompagne est une information
-/// de plus donnée à qui cherchait déjà à savoir si le message avait été ouvert.
+/// requête est aussi anonyme que possible — pas de redirection, pas de référent, pas
+/// de cookie — parce que tout ce qui l'accompagne est une information de plus donnée
+/// à qui cherchait déjà à savoir si le message avait été ouvert.
 #[cfg(feature = "remote-images")]
 fn fetch_remote(url: &str) -> Option<Vec<u8>> {
-    // Un client par appel : on en fait un par image demandée, ce qui n'arrive que
-    // lorsque le lecteur a cliqué, et jamais pendant un défilement.
     let client = reqwest::blocking::Client::builder()
         .timeout(TIMEOUT)
-        // Pas de redirection : une image qui renvoie ailleurs est le comportement des
-        // pixels de suivi, et suivre la chaîne revient à confirmer la lecture deux
-        // fois plutôt qu'une.
+        // Une image qui renvoie ailleurs est le comportement d'un pixel de suivi, et
+        // suivre la chaîne revient à confirmer la lecture deux fois plutôt qu'une.
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .ok()?;
@@ -162,15 +185,19 @@ mod tests {
 
     #[test]
     fn decode_une_image_inline() {
-        // "Hi" en base64.
-        let url = "data:image/png;base64,SGk=";
-        assert_eq!(decode_data_url(url).as_deref(), Some(&b"Hi"[..]));
+        // « Hi » en base64.
+        assert_eq!(
+            decode_data_url("data:image/png;base64,SGk=").as_deref(),
+            Some(&b"Hi"[..])
+        );
     }
 
     #[test]
     fn les_blancs_ne_cassent_pas_le_decodage() {
-        let url = "data:image/png;base64,SG\n k =";
-        assert_eq!(decode_data_url(url).as_deref(), Some(&b"Hi"[..]));
+        assert_eq!(
+            decode_data_url("data:image/png;base64,SG\n k =").as_deref(),
+            Some(&b"Hi"[..])
+        );
     }
 
     #[test]
@@ -181,10 +208,11 @@ mod tests {
     }
 
     #[test]
-    fn le_distant_est_refuse_par_defaut() {
-        // Sans autorisation explicite du lecteur, rien ne part sur le réseau. C'est
-        // la propriété que le bandeau de contenu bloqué promet.
-        let provider = MailNetProvider::new(false);
+    fn le_distant_est_refuse_sans_autorisation() {
+        // C'est la propriété que le bandeau de contenu bloqué promet : tant que le
+        // lecteur n'a rien demandé, rien ne part sur le réseau.
+        let (provider, attente) = MailNetProvider::new(false);
         assert!(!provider.allow_remote);
+        assert!(attente.lock().unwrap().is_empty());
     }
 }
