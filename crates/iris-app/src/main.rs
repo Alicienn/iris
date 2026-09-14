@@ -321,6 +321,49 @@ fn cmd_sync() -> Result<()> {
     Ok(())
 }
 
+/// La place restante sur le volume qui porte ce chemin.
+///
+/// `None` quand le système refuse de le dire : c'est un diagnostic, et un diagnostic
+/// qui échoue ne doit pas emporter le rapport dont il fait partie.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn free_space(path: &std::path::Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory: *const u16,
+            free_to_caller: *mut u64,
+            total: *mut u64,
+            free: *mut u64,
+        ) -> i32;
+    }
+
+    let large: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut disponible: u64 = 0;
+
+    // SÛRETÉ : `large` vit jusqu'au retour, et les trois sorties sont des entiers que
+    // nous possédons. L'appel ne conserve rien.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            large.as_ptr(),
+            &mut disponible,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(disponible)
+}
+
+#[cfg(not(windows))]
+fn free_space(_path: &std::path::Path) -> Option<u64> {
+    None
+}
+
 fn cmd_doctor() -> Result<()> {
     let chemins = Paths::system()?;
     println!("Locations");
@@ -352,6 +395,25 @@ fn cmd_doctor() -> Result<()> {
         "Pending         {} operation(s)",
         services.store.pending_op_count()?
     );
+
+    // La place disponible.
+    //
+    // Elle est ici parce qu'elle a manqué : un disque plein fait échouer une écriture
+    // SQLite, et une écriture SQLite qui échoue au mauvais endroit fait tomber
+    // l'application. C'est la panne la moins soupçonnée et la plus facile à vérifier,
+    // et le seul écran qui existe pour vérifier des choses est celui-ci.
+    match free_space(&chemins.data) {
+        Some(octets) => {
+            let gio = octets as f64 / (1024.0 * 1024.0 * 1024.0);
+            println!("\nDisk            {gio:.1} GiB free");
+            if gio < 1.0 {
+                println!("  ⚠ Under a gibibyte. Writes will start failing.");
+            }
+        }
+        None => println!("\nDisk            free space unknown"),
+    }
+
+    println!("Log             {}", iris_app::logging::current(&chemins).display());
 
     // Un thème invalide ne bloque pas le démarrage, mais l'utilisateur doit pouvoir
     // savoir pourquoi son thème n'a pas l'air de fonctionner.
@@ -610,6 +672,7 @@ fn run_gui(
     shell::wire_remote_images(&fenetre, services.clone(), Arc::clone(&renderer));
     shell::wire_folders(&fenetre, &services, Arc::clone(&controller));
     shell::wire_bulk(&fenetre, Arc::clone(&controller));
+    shell::wire_plugin_browser(&fenetre, &services);
 
     // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
     // son carburant, pas une frame ni un tour de synchronisation.

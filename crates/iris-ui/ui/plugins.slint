@@ -1,0 +1,409 @@
+import { Tokens } from "tokens.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import { Floating } from "glass.slint";
+import { ListView, LineEdit, CheckBox } from "std-widgets.slint";
+
+// Un module proposé par un catalogue.
+export struct CatalogueRowData {
+    id: string,
+    name: string,
+    version: string,
+    description: string,
+    author: string,
+    // Les permissions, déjà mises en phrase.
+    permissions: string,
+    installed: bool,
+}
+
+// Un réglage déclaré par un module.
+export struct PluginSettingData {
+    key: string,
+    label: string,
+    hint: string,
+    // "text", "number" ou "toggle".
+    kind: string,
+    value: string,
+}
+
+// Une entrée du catalogue.
+//
+// Les permissions sont montrées **avant** le bouton d'installation, pas après ni
+// ailleurs : c'est la seule information qui doive changer la décision, et une liste
+// qu'il faut aller chercher est une liste que personne ne lit.
+component CatalogueRow inherits Rectangle {
+    in property <CatalogueRowData> entry;
+
+    callback install();
+
+    height: contenu.preferred-height + 2 * Tokens.space-3;
+    border-radius: Tokens.radius-small;
+    background: Tokens.surface;
+    border-width: 1px;
+    border-color: Tokens.border;
+
+    contenu := VerticalLayout {
+        x: Tokens.space-3;
+        y: Tokens.space-3;
+        width: parent.width - 2 * Tokens.space-3;
+        spacing: 3px;
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+
+            Text {
+                text: root.entry.name;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-body;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.entry.version;
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+
+            Rectangle {}
+
+            if root.entry.installed: Text {
+                text: "Installed";
+                font-size: Tokens.size-small;
+                color: Tokens.success;
+                vertical-alignment: center;
+            }
+
+            if !root.entry.installed: Rectangle {
+                width: 88px;
+                height: 24px;
+                border-radius: Tokens.radius-small;
+                background: poser.has-hover ? Tokens.accent : Tokens.accent.transparentize(0.15);
+
+                accessible-role: button;
+                accessible-label: "Install " + root.entry.name;
+                accessible-action-default => { root.install(); }
+
+                Text {
+                    text: "Install";
+                    font-size: Tokens.size-small;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.accent-text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                poser := TouchArea {
+                    clicked => { root.install(); }
+                }
+            }
+        }
+
+        if root.entry.description != "": Text {
+            text: root.entry.description;
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // Ce qu'il pourra faire. Toujours affiché, jamais replié.
+        HorizontalLayout {
+            spacing: Tokens.space-1;
+
+            Icon {
+                y: 1px;
+                data: Icons.key;
+                size: 12px;
+                tint: Tokens.text-muted;
+            }
+            Text {
+                text: root.entry.permissions;
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// L'écran de découverte des modules.
+export component PluginBrowser inherits Rectangle {
+    in property <[CatalogueRowData]> entries;
+    in property <bool> loading;
+    in property <string> error;
+    in property <string> note;
+    in-out property <string> catalogue-url;
+
+    callback refresh();
+    callback install(string);
+    callback install-from-folder();
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(640px, parent.width - 80px);
+        height: min(620px, parent.height - 80px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 26px;
+                spacing: Tokens.space-2;
+
+                Text {
+                    text: "Add modules";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Rectangle {}
+                IconButton {
+                    icon: Icons.window-close;
+                    label: "Close";
+                    button-size: 24px;
+                    icon-size: 13px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            // Le chemin qui ne demande rien à personne, en premier. Un développeur
+            // teste son propre module par là, et une entreprise distribue les siens
+            // par un partage réseau sans que nous ayons à le savoir.
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 28px;
+                spacing: Tokens.space-2;
+
+                Rectangle {
+                    width: 150px;
+                    border-radius: Tokens.radius-small;
+                    background: dossier.has-hover ? Tokens.surface-hover : Tokens.surface;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+
+                    accessible-role: button;
+                    accessible-label: "Install from a folder";
+                    accessible-action-default => { root.install-from-folder(); }
+
+                    Text {
+                        text: "Install from a folder…";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    dossier := TouchArea {
+                        clicked => { root.install-from-folder(); }
+                    }
+                }
+                Rectangle {}
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 28px;
+                spacing: Tokens.space-2;
+
+                LineEdit {
+                    accessible-label: "Catalogue address";
+                    placeholder-text: "https://…/catalogue.json";
+                    font-size: Tokens.size-small;
+                    min-width: 60px;
+                    horizontal-stretch: 1;
+                    text <=> root.catalogue-url;
+                    accepted => { root.refresh(); }
+                }
+
+                IconButton {
+                    icon: Icons.refresh;
+                    label: root.loading ? "Loading…" : "Fetch the catalogue";
+                    button-size: 26px;
+                    active: root.loading;
+                    horizontal-stretch: 0;
+                    clicked => { root.refresh(); }
+                }
+            }
+
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+
+            if root.entries.length == 0 && root.error == "": VerticalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+                spacing: Tokens.space-2;
+
+                Text {
+                    text: root.loading ? "Fetching…" : "No catalogue yet.";
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: root.note;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.entries.length > 0: ListView {
+                vertical-stretch: 1;
+                for entry in root.entries: VerticalLayout {
+                    padding-bottom: Tokens.space-2;
+                    CatalogueRow {
+                        entry: entry;
+                        install => { root.install(entry.id); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Les réglages d'un module.
+//
+// Dessinés à partir de ce que son manifeste déclare : l'application ne sait rien de
+// ce qu'un module a besoin de demander, et ne doit rien en savoir.
+export component PluginSettingsPanel inherits Rectangle {
+    in property <string> plugin-name;
+    in property <[PluginSettingData]> settings;
+    in property <string> error;
+
+    callback changed(string, string);
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(480px, parent.width - 80px);
+        height: min(520px, parent.height - 80px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 26px;
+
+                Text {
+                    text: root.plugin-name;
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Rectangle {}
+                IconButton {
+                    icon: Icons.window-close;
+                    label: "Close";
+                    button-size: 24px;
+                    icon-size: 13px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            if root.settings.length == 0: VerticalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+                Text {
+                    text: "This module has nothing to configure.";
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                }
+            }
+
+            if root.settings.length > 0: ListView {
+                vertical-stretch: 1;
+                for reglage in root.settings: VerticalLayout {
+                    padding-bottom: Tokens.space-3;
+                    spacing: 2px;
+
+                    if reglage.kind == "toggle": CheckBox {
+                        text: reglage.label;
+                        checked: reglage.value == "true";
+                        toggled => {
+                            root.changed(reglage.key, self.checked ? "true" : "false");
+                        }
+                    }
+
+                    if reglage.kind != "toggle": Text {
+                        text: reglage.label;
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                    }
+
+                    if reglage.kind != "toggle": LineEdit {
+                        accessible-label: reglage.label;
+                        input-type: reglage.kind == "number"
+                            ? InputType.number
+                            : InputType.text;
+                        font-size: Tokens.size-body;
+                        text: reglage.value;
+                        edited(t) => { root.changed(reglage.key, t); }
+                    }
+
+                    if reglage.hint != "": Text {
+                        text: reglage.hint;
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+
+            // Dit une fois, ici, plutôt que découvert autrement : un champ de réglage
+            // est un fichier en clair à côté d'un .wasm.
+            Text {
+                text: "Saved as you type. Not a place for passwords — the file sits "
+                    + "beside the module, unencrypted.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

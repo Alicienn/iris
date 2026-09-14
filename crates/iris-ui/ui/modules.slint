@@ -1,4 +1,5 @@
 import { Tokens } from "tokens.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
 import { RuleRowData, PluginRowData } from "types.slint";
 import { ListView, LineEdit, CheckBox } from "std-widgets.slint";
@@ -116,7 +117,11 @@ component RuleRow inherits Rectangle {
 component PluginRow inherits Rectangle {
     in property <PluginRowData> plugin;
 
+    callback configure();
+
     height: 62px;
+    background: survol.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
     border-radius: Tokens.radius-small;
 
     accessible-role: list-item;
@@ -168,6 +173,23 @@ component PluginRow inherits Rectangle {
                 overflow: elide;
             }
         }
+
+        // Le bouton n'apparaît qu'au survol. Un module sans réglage ouvrira un
+        // panneau qui le dit — c'est plus honnête qu'un bouton grisé, qui laisse
+        // croire qu'il y a quelque chose derrière et qu'on n'y a pas droit.
+        if survol.has-hover: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.gear;
+            label: "Configure " + root.plugin.name;
+            button-size: 26px;
+            icon-size: 14px;
+            clicked => { root.configure(); }
+        }
+    }
+
+    survol := TouchArea {
+        // Sous le contenu : la zone sert au survol, pas à intercepter le bouton.
+        clicked => { root.configure(); }
     }
 }
 
@@ -190,6 +212,8 @@ export component ModulesPanel inherits Rectangle {
     callback rule-removed(string);
     callback rule-added();
     callback plugins-reloaded();
+    callback browse-plugins();
+    callback configure-plugin(string);
     callback dismissed();
 
     background: Tokens.scrim;
@@ -282,8 +306,16 @@ export component ModulesPanel inherits Rectangle {
             Rectangle { height: 1px; background: Tokens.border; }
 
             HorizontalLayout {
+                spacing: Tokens.space-1;
                 GroupLabel { text: "PLUGINS"; }
                 Rectangle {}
+                // « Ajouter » avant « Recharger » : découvrir ce qui existe est ce
+                // qu'on vient chercher ici la première fois, recharger ce qu'on fait
+                // ensuite en développant le sien.
+                SmallButton {
+                    label: "Add…";
+                    clicked => { root.browse-plugins(); }
+                }
                 SmallButton {
                     label: "Reload";
                     clicked => { root.plugins-reloaded(); }
@@ -310,6 +342,7 @@ export component ModulesPanel inherits Rectangle {
             if root.plugins.length > 0: ListView {
                 for plugin in root.plugins: PluginRow {
                     plugin: plugin;
+                    configure => { root.configure-plugin(plugin.id); }
                 }
             }
 

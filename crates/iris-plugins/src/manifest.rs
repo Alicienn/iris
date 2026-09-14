@@ -36,6 +36,13 @@ pub struct Manifest {
     /// Limites, éventuellement resserrées par rapport aux valeurs par défaut.
     #[serde(default)]
     pub limits: Limits,
+    /// Ce que le plugin demande à l'utilisateur de choisir.
+    ///
+    /// Déclaré ici et non inventé à l'exécution : l'écran de réglages dessine ce
+    /// qu'il trouve dans le manifeste, et un plugin qui n'aurait pas encore tourné
+    /// n'aurait sinon aucun réglage à montrer au premier lancement.
+    #[serde(default)]
+    pub settings: Vec<crate::settings::SettingSpec>,
 }
 
 fn entree_par_defaut() -> String {

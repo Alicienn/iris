@@ -57,7 +57,23 @@ inherits = "release"
 debug = true
 strip = "none"
 
+# Le profil de développement.
+#
+# `debug = "line-tables-only"` plutôt que l'information complète. Le répertoire de
+# compilation avait atteint **188 gigaoctets** et rempli le disque, ce qui a fini par
+# faire tomber l'application : quatre-vingt-quinze gigaoctets d'objets et de binaires
+# de test, et soixante-dix-huit de cache incrémental. Une pile d'appels avec des noms
+# de fonctions et des numéros de ligne suffit à déboguer ; les types de chaque variable
+# locale de chaque dépendance ne servent à personne ici et coûtent l'essentiel de cette
+# place.
+[profile.dev]
+debug = "line-tables-only"
+
 # Compiler les dépendances en optimisé même en debug : sans cela, zstd, tantivy
 # et le rendu sont inutilisables pendant le développement.
 [profile.dev.package."*"]
 opt-level = 2
+# Aucune information de débogage pour les dépendances. On ne pose pas de point d'arrêt
+# dans « wasmtime » ; en garder les symboles complets revient à payer plusieurs
+# dizaines de gigaoctets pour un pas-à-pas que personne ne fera.
+debug = false

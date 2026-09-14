@@ -15,7 +15,7 @@ use iris_types::{ThreadId, WorkflowState};
 use iris_ui::bridge;
 use iris_ui::commands::{self, CommandKind};
 use iris_ui::keymap::{KeyOutcome, Keymap};
-use iris_ui::{AppWindow, FolderNodeData, Tokens};
+use iris_ui::{AppWindow, FolderNodeData, PluginSettingData, Tokens};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -2098,6 +2098,206 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
         let controller = Arc::clone(&controller);
         fenetre.on_bulk_unread(move || controller.send(Request::ApplyToMarked(Action::MarkUnread)));
     }
+}
+
+/// Wires the module browser and the per-module settings.
+///
+/// Deux écrans, un seul répertoire : celui des plugins. Installer y écrit, régler y
+/// écrit, désinstaller l'efface. Rien n'est réparti ailleurs, ce qui veut dire qu'un
+/// module retiré ne laisse rien derrière lui — pas d'entrée orpheline dans la base,
+/// pas de réglage qui ressusciterait si on le réinstalle.
+pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
+    let repertoire = crate::plugins::ensure_dir(services.paths.plugins());
+
+    // --- Ouvrir et fermer ---
+    {
+        let faible = fenetre.as_weak();
+        let dossier = repertoire.clone();
+        fenetre.on_browser_requested(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_browser_error(Default::default());
+            fenetre.set_browser_note(
+                format!(
+                    "Modules live in {}. A folder with a plugin.toml and its .wasm \
+                     installs without a catalogue and without a network.",
+                    dossier.display()
+                )
+                .into(),
+            );
+            fenetre.set_browser_open(true);
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_browser_dismissed(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_browser_open(false);
+            }
+        });
+    }
+
+    // --- Installer depuis un répertoire ---
+    {
+        let dossier = repertoire.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_browser_install_folder(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(source) = rfd::FileDialog::new().pick_folder() else {
+                return;
+            };
+
+            match crate::catalogue::install_from_dir(&source, &dossier) {
+                Ok(manifeste) => {
+                    fenetre.set_browser_error(Default::default());
+                    fenetre.set_browser_open(false);
+                    // Chargé au démarrage, comme les autres : mettre du
+                    // WebAssembly dans un hôte qui tourne est un problème en forme de
+                    // redémarrage, et le dire vaut mieux que de faire semblant.
+                    fenetre.set_status(
+                        format!("{} installed — restart Iris to load it.", manifeste.name)
+                            .into(),
+                    );
+                }
+                Err(e) => fenetre.set_browser_error(e.to_string().into()),
+            }
+        });
+    }
+
+    // --- Le catalogue distant ---
+    //
+    // Aucune adresse par défaut, à dessein : en livrer une ferait d'Iris l'arbitre de
+    // ce qui est installable, et de nous les responsables du code que d'autres y
+    // publieraient.
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_browser_refresh(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let adresse = fenetre.get_catalogue_url().to_string();
+
+            if let Err(message) = crate::catalogue::validate_url(&adresse) {
+                fenetre.set_browser_error(message.into());
+                return;
+            }
+
+            // Le téléchargement lui-même n'est pas branché : il demande un catalogue
+            // qui existe, et il n'en existe aucun. Le dire vaut mieux qu'un bouton
+            // qui tourne indéfiniment sur une adresse que personne ne sert.
+            fenetre.set_browser_error(
+                "No catalogue is reachable yet. Install from a folder in the meantime."
+                    .into(),
+            );
+        });
+    }
+
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_browser_install(move |_id| {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_browser_error(
+                    "Installing from a catalogue needs a catalogue.".into(),
+                );
+            }
+        });
+    }
+
+    // --- Les réglages d'un module ---
+    {
+        let dossier = repertoire.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_plugin_settings_requested(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let id = id.to_string();
+            if crate::catalogue::validate_id(&id).is_err() {
+                return;
+            }
+
+            let module = dossier.join(&id);
+            let Some(manifeste) = lire_manifeste(&module) else {
+                fenetre.set_plugin_settings_error("Its manifest could not be read.".into());
+                fenetre.set_plugin_settings_open(true);
+                return;
+            };
+
+            let valeurs = iris_plugins::SettingValues::load(&module);
+            let lignes: Vec<PluginSettingData> = manifeste
+                .settings
+                .iter()
+                .filter(|s| s.is_valid_key())
+                .map(|s| PluginSettingData {
+                    key: s.key.as_str().into(),
+                    label: s.display_label().into(),
+                    hint: s.hint.as_str().into(),
+                    kind: s.kind.as_str().into(),
+                    value: valeurs.get(s).into(),
+                })
+                .collect();
+
+            fenetre.set_plugin_settings_name(manifeste.name.as_str().into());
+            fenetre.set_plugin_settings(ModelRc::new(VecModel::from(lignes)));
+            fenetre.set_plugin_settings_error(Default::default());
+            fenetre.set_plugin_settings_id(id.as_str().into());
+            fenetre.set_plugin_settings_open(true);
+        });
+    }
+
+    {
+        let dossier = repertoire.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_plugin_setting_changed(move |cle, valeur| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let id = fenetre.get_plugin_settings_id().to_string();
+            if crate::catalogue::validate_id(&id).is_err() {
+                return;
+            }
+
+            let module = dossier.join(&id);
+            let Some(manifeste) = lire_manifeste(&module) else {
+                return;
+            };
+            let Some(spec) = manifeste.settings.iter().find(|s| s.key == cle.as_str()) else {
+                // Une clé que le manifeste ne déclare pas n'a pas de place dans le
+                // fichier : elle viendrait d'un module qui a changé sous nos pieds, et
+                // l'écrire y laisserait une entrée que plus rien ne lit.
+                return;
+            };
+
+            let mut valeurs = iris_plugins::SettingValues::load(&module);
+            valeurs.set(spec, valeur.as_str());
+            if let Err(e) = valeurs.save(&module) {
+                fenetre.set_plugin_settings_error(format!("Could not save: {e}").into());
+            } else {
+                fenetre.set_plugin_settings_error(Default::default());
+            }
+        });
+    }
+
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_plugin_settings_dismissed(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_plugin_settings_open(false);
+            }
+        });
+    }
+}
+
+/// Lit le manifeste d'un module installé.
+fn lire_manifeste(dir: &std::path::Path) -> Option<iris_plugins::Manifest> {
+    let texte = std::fs::read_to_string(dir.join("plugin.toml")).ok()?;
+    toml::from_str(&texte).ok()
 }
 
 /// Wires the menu a right-click on an account opens.

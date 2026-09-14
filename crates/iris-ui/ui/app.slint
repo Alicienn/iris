@@ -12,6 +12,8 @@ import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
 import { ModulesPanel } from "modules.slint";
+import { PluginBrowser, PluginSettingsPanel, CatalogueRowData, PluginSettingData }
+    from "plugins.slint";
 import { ComposePanel } from "compose.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
@@ -339,11 +341,30 @@ export component AppWindow inherits Window {
     in property <int> account-count;
     in property <int> marked-count;
     in property <string> marked-label;
+    in property <bool> browser-open;
+    in property <bool> browser-loading;
+    in property <string> browser-error;
+    in property <string> browser-note;
+    in property <[CatalogueRowData]> catalogue;
+    in-out property <string> catalogue-url;
+    in property <bool> plugin-settings-open;
+    in property <string> plugin-settings-name;
+    in-out property <string> plugin-settings-id;
+    in property <string> plugin-settings-error;
+    in property <[PluginSettingData]> plugin-settings;
     in property <bool> new-folder-open;
     in property <string> new-folder-error;
     in-out property <string> new-folder-name;
     callback folder-selected(string);
     callback folder-cleared();
+    callback browser-requested();
+    callback browser-refresh();
+    callback browser-install(string);
+    callback browser-install-folder();
+    callback browser-dismissed();
+    callback plugin-settings-requested(string);
+    callback plugin-setting-changed(string, string);
+    callback plugin-settings-dismissed();
     callback new-folder-requested();
     callback new-folder-create();
     callback new-folder-dismissed();
@@ -599,6 +620,30 @@ export component AppWindow inherits Window {
         dismissed => { root.problem-open = false; }
     }
 
+    if root.browser-open: PluginBrowser {
+        width: 100%;
+        height: 100%;
+        entries: root.catalogue;
+        loading: root.browser-loading;
+        error: root.browser-error;
+        note: root.browser-note;
+        catalogue-url <=> root.catalogue-url;
+        refresh => { root.browser-refresh(); }
+        install(id) => { root.browser-install(id); }
+        install-from-folder => { root.browser-install-folder(); }
+        dismissed => { root.browser-dismissed(); }
+    }
+
+    if root.plugin-settings-open: PluginSettingsPanel {
+        width: 100%;
+        height: 100%;
+        plugin-name: root.plugin-settings-name;
+        settings: root.plugin-settings;
+        error: root.plugin-settings-error;
+        changed(k, v) => { root.plugin-setting-changed(k, v); }
+        dismissed => { root.plugin-settings-dismissed(); }
+    }
+
     if root.new-folder-open: NewFolderPanel {
         width: 100%;
         height: 100%;
@@ -684,6 +729,8 @@ export component AppWindow inherits Window {
         rule-removed(id) => { root.rule-removed(id); }
         rule-added => { root.rule-added(); }
         plugins-reloaded => { root.plugins-reloaded(); }
+        browse-plugins => { root.browser-requested(); }
+        configure-plugin(id) => { root.plugin-settings-requested(id); }
         dismissed => { root.modules-open = false; }
     }
 

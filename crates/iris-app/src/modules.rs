@@ -402,6 +402,7 @@ mod tests {
             api_version: 1,
             permissions: Permissions::default(),
             limits: Default::default(),
+            settings: Vec::new(),
         };
 
         let views = plugin_views(&[(manifest, None)]);
@@ -420,6 +421,7 @@ mod tests {
             api_version: 1,
             permissions: Permissions::default(),
             limits: Default::default(),
+            settings: Vec::new(),
         };
 
         let views = plugin_views(&[(manifest, Some("ran out of fuel".into()))]);

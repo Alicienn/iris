@@ -19,11 +19,13 @@
 
 pub mod host;
 pub mod manifest;
+pub mod settings;
 mod registry;
 
 pub use host::{CallTrace, Plugin};
 pub use manifest::{Limits, Manifest, Permissions, API_VERSION};
 pub use registry::{LoadReport, PluginRegistry};
+pub use settings::{SettingKind, SettingSpec, SettingValues};
 
 /// Fichier de manifeste attendu dans le répertoire d'un plugin.
 pub const MANIFEST_FILE: &str = "plugin.toml";
