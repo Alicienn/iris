@@ -33,6 +33,8 @@ const BUILTIN: &[(&str, &str)] = &[
     ("mono", include_str!("../themes/mono.toml")),
     ("ice", include_str!("../themes/ice.toml")),
     ("sand", include_str!("../themes/sand.toml")),
+    ("forest", include_str!("../themes/forest.toml")),
+    ("paper", include_str!("../themes/paper.toml")),
 ];
 
 pub const DEFAULT_THEME: &str = "mono";
@@ -178,9 +180,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn les_trois_themes_livres_se_chargent() {
+    fn les_themes_livres_se_chargent() {
         let r = ThemeRegistry::builtin().unwrap();
-        assert_eq!(r.names(), ["ice", "mono", "sand"]);
+        assert_eq!(r.names(), ["forest", "ice", "mono", "paper", "sand"]);
+    }
+
+    #[test]
+    fn un_theme_clair_est_livre() {
+        // Every other theme is dark, which is a preference and not a fact: plenty of
+        // people read mail in daylight, where a dark interface is simply unreadable.
+        let r = ThemeRegistry::builtin().unwrap();
+        let paper = r.get("paper").expect("the light theme must ship");
+        assert!(!paper.dark);
+    }
+
+    #[test]
+    fn chaque_theme_livre_passe_son_propre_controle() {
+        // A shipped theme with an unreadable contrast would be our mistake, not the
+        // user's.
+        let r = ThemeRegistry::builtin().unwrap();
+        for name in r.names() {
+            let theme = r.get(&name).unwrap();
+            let complaints = theme.lint();
+            assert!(complaints.is_empty(), "{name}: {complaints:?}");
+        }
     }
 
     #[test]
@@ -283,7 +306,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let inexistant = dir.path().join("pas-la");
         let r = ThemeRegistry::with_user_dir(&inexistant).unwrap();
-        assert_eq!(r.names().len(), 3);
+        assert_eq!(r.names().len(), BUILTIN.len());
     }
 
     #[test]
@@ -291,6 +314,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("notes.txt"), "name = \"pirate\"").unwrap();
         let r = ThemeRegistry::with_user_dir(dir.path()).unwrap();
-        assert_eq!(r.names().len(), 3);
+        assert_eq!(r.names().len(), BUILTIN.len());
     }
 }

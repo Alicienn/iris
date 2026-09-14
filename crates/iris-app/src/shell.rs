@@ -497,10 +497,10 @@ pub fn build_renderer() -> iris_htmlview::AdaptiveRenderer {
     #[cfg(feature = "blitz")]
     {
         if iris_htmlview::BlitzRenderer::is_available() {
-            tracing::info!("rendu des corps : moteur complet disponible");
+            tracing::info!("body rendering: full engine available");
             return simple.with_full_engine(Box::new(iris_htmlview::BlitzRenderer::new(1.0, true)));
         }
-        tracing::info!("rendu des corps : texte riche seulement (pas de périphérique graphique)");
+        tracing::info!("body rendering: rich text only (no graphics device)");
     }
 
     simple
@@ -734,7 +734,7 @@ pub fn wire_settings(
         let reglages = courant.lock().expect("réglages empoisonnés").clone();
         fenetre.set_themes(ModelRc::new(VecModel::from(
             noms.iter()
-                .map(|n| slint::SharedString::from(n.as_str()))
+                .filter_map(|n| services.themes.get(n).map(|t| theme_swatch(n, &t)))
                 .collect::<Vec<_>>(),
         )));
         fenetre
@@ -843,6 +843,29 @@ pub fn wire_settings(
                 engine.set_automation(automatismes);
             });
         });
+    }
+}
+
+/// A theme, reduced to what the picker draws.
+///
+/// Three colours and a label. Showing the theme is what stops people trying each one
+/// to find out what it looks like, and every trial repaints the whole window.
+fn theme_swatch(name: &str, theme: &iris_theme::Theme) -> iris_ui::ThemeSwatchData {
+    let colour = |c: iris_theme::Color| slint::Color::from_argb_u8(c.a, c.r, c.g, c.b);
+
+    iris_ui::ThemeSwatchData {
+        name: name.into(),
+        label: if theme.label.trim().is_empty() {
+            name.into()
+        } else {
+            theme.label.as_str().into()
+        },
+        // The surface is drawn over the background, so a translucent surface shown on
+        // its own would be nearly invisible: it is flattened against the ground first.
+        background: colour(theme.color.background),
+        surface: colour(theme.color.surface_high),
+        accent: colour(theme.color.accent),
+        text: colour(theme.color.text),
     }
 }
 

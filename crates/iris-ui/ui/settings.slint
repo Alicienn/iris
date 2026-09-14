@@ -1,5 +1,6 @@
 import { Tokens } from "tokens.slint";
 import { Floating } from "glass.slint";
+import { ThemeSwatchData } from "types.slint";
 import { CheckBox, SpinBox } from "std-widgets.slint";
 
 // Un intitulé de section.
@@ -56,6 +57,69 @@ component ChipRow inherits HorizontalLayout {
     Rectangle {}
 }
 
+// The theme picker.
+//
+// Each entry shows the theme rather than naming it: three bands of its own colours,
+// in the order the eye meets them on screen — ground, surface, accent. Naming alone
+// makes people try each one to find out, and every trial repaints the window.
+component ThemePicker inherits HorizontalLayout {
+    in property <[ThemeSwatchData]> themes;
+    in property <int> selected;
+
+    callback chosen(int);
+
+    spacing: Tokens.space-2;
+
+    for theme[i] in root.themes: Rectangle {
+        width: 78px;
+        height: 46px;
+        border-radius: Tokens.radius-small;
+        background: theme.background;
+        border-width: root.selected == i ? 2px : 1px;
+        border-color: root.selected == i ? Tokens.accent : Tokens.border;
+        clip: true;
+
+        accessible-role: tab;
+        accessible-label: theme.label;
+        accessible-item-selected: root.selected == i;
+        accessible-action-default => { root.chosen(i); }
+
+        VerticalLayout {
+            padding: Tokens.space-1;
+            spacing: 3px;
+
+            // A band of the surface colour, then one of the accent: the two things
+            // that actually differ between themes at a glance.
+            Rectangle {
+                height: 8px;
+                border-radius: 2px;
+                background: theme.surface;
+            }
+            Rectangle {
+                height: 5px;
+                width: 26px;
+                border-radius: 2px;
+                background: theme.accent;
+            }
+
+            Rectangle {}
+
+            Text {
+                text: theme.label;
+                font-size: 9px;
+                color: theme.text;
+                overflow: elide;
+            }
+        }
+
+        touch := TouchArea {
+            clicked => { root.chosen(i); }
+        }
+    }
+
+    Rectangle {}
+}
+
 // Un interrupteur avec son explication.
 //
 // L'explication n'est pas décorative : un automatisme qu'on ne comprend pas, on le
@@ -89,7 +153,7 @@ component SettingToggle inherits VerticalLayout {
 // la densité, et ce que l'application fait toute seule. Tout le reste appartient au
 // thème, qui est un fichier.
 export component SettingsPanel inherits Rectangle {
-    in property <[string]> themes;
+    in property <[ThemeSwatchData]> themes;
     in property <int> active-theme;
     in property <int> density;
     in-out property <bool> reply-marks-waiting;
@@ -161,8 +225,8 @@ export component SettingsPanel inherits Rectangle {
 
             GroupLabel { text: "THEME"; }
 
-            ChipRow {
-                options: root.themes;
+            ThemePicker {
+                themes: root.themes;
                 selected: root.active-theme;
                 chosen(i) => { root.theme-chosen(i); }
             }

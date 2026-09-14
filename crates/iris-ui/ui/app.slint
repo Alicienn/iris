@@ -1,7 +1,8 @@
 import { Tokens } from "tokens.slint";
 import { Glass, Backdrop, Floating } from "glass.slint";
 import {
-    ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData
+    ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
+    ThemeSwatchData
 } from "types.slint";
 import { ThreadListView } from "list.slint";
 import { Sidebar } from "sidebar.slint";
@@ -214,7 +215,7 @@ export component AppWindow inherits Window {
     in-out property <bool> new-smtp-tls: true;
 
     in-out property <bool> settings-open;
-    in property <[string]> themes;
+    in property <[ThemeSwatchData]> themes;
     in property <int> active-theme;
     in property <int> density;
     in-out property <bool> reply-marks-waiting: true;

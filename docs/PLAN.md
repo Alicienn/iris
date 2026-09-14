@@ -219,4 +219,4 @@ application can do on top.
       command line, doctor report, log lines, error messages, dates.
 - [x] **S26.2** A modules screen: rules read as sentences, plugins with their powers.
 - [x] **S26.3** Compose: a new message, not only a reply.
-- [ ] **S26.4** More themes, and a picker that shows them.
+- [x] **S26.4** More themes, and a picker that shows them.

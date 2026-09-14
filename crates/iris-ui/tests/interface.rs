@@ -16,7 +16,10 @@
 //! suivants, ce qui est tout l'intérêt d'en avoir plusieurs.
 
 use i_slint_backend_testing as testing;
-use iris_ui::{AccountRowData, AppWindow, MessageData, PluginRowData, RuleRowData, ThreadRowData};
+use iris_ui::{
+    AccountRowData, AppWindow, MessageData, PluginRowData, RuleRowData, ThemeSwatchData,
+    ThreadRowData,
+};
 use slint::{Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -662,6 +665,73 @@ fn ajouter_une_regle_est_atteignable() {
     assert!(par_libelle(&f, "From sender or domain").is_some());
 }
 
+// --- Themes ---
+
+fn swatch(name: &str, label: &str) -> ThemeSwatchData {
+    ThemeSwatchData {
+        name: name.into(),
+        label: label.into(),
+        background: slint::Color::from_rgb_u8(10, 11, 13),
+        surface: slint::Color::from_rgb_u8(30, 31, 33),
+        accent: slint::Color::from_rgb_u8(240, 242, 246),
+        text: slint::Color::from_rgb_u8(240, 242, 246),
+    }
+}
+
+fn les_themes_sont_montres_pas_seulement_nommes() {
+    // Naming alone makes people try each one to find out what it looks like.
+    let f = fenetre();
+    f.set_settings_open(true);
+    f.set_themes(modele(vec![
+        swatch("mono", "Deep glass"),
+        swatch("paper", "Paper"),
+    ]));
+
+    assert!(par_libelle(&f, "Deep glass").is_some());
+    assert!(par_libelle(&f, "Paper").is_some());
+}
+
+fn le_theme_actif_est_marque() {
+    let f = fenetre();
+    f.set_settings_open(true);
+    f.set_themes(modele(vec![
+        swatch("mono", "Deep glass"),
+        swatch("paper", "Paper"),
+    ]));
+    f.set_active_theme(1);
+
+    assert_eq!(
+        par_libelle(&f, "Paper").unwrap().accessible_item_selected(),
+        Some(true)
+    );
+    assert_eq!(
+        par_libelle(&f, "Deep glass")
+            .unwrap()
+            .accessible_item_selected(),
+        Some(false)
+    );
+}
+
+fn choisir_un_theme_est_rapporte() {
+    let f = fenetre();
+    f.set_settings_open(true);
+    f.set_themes(modele(vec![
+        swatch("mono", "Deep glass"),
+        swatch("paper", "Paper"),
+    ]));
+
+    let choisis = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let choisis = Rc::clone(&choisis);
+        f.on_theme_chosen(move |i| choisis.borrow_mut().push(i));
+    }
+
+    par_libelle(&f, "Paper")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*choisis.borrow(), [1]);
+}
+
 // --- Writing a new message ---
 
 fn ecrire_un_message_n_existe_pas_avant_d_etre_demande() {
@@ -917,6 +987,18 @@ fn main() {
         (
             "les_champs_de_l_ecran_d_ajout_sont_nommes",
             les_champs_de_l_ecran_d_ajout_sont_nommes as fn(),
+        ),
+        (
+            "les_themes_sont_montres_pas_seulement_nommes",
+            les_themes_sont_montres_pas_seulement_nommes as fn(),
+        ),
+        (
+            "le_theme_actif_est_marque",
+            le_theme_actif_est_marque as fn(),
+        ),
+        (
+            "choisir_un_theme_est_rapporte",
+            choisir_un_theme_est_rapporte as fn(),
         ),
         (
             "ecrire_un_message_n_existe_pas_avant_d_etre_demande",

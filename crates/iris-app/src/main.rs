@@ -292,7 +292,7 @@ fn build_send_service(
         .accounts()?
         .into_iter()
         .find(|c| c.enabled)
-        .ok_or_else(|| iris_types::Error::Config("aucun compte configuré".into()))?;
+        .ok_or_else(|| iris_types::Error::Config("no account configured".into()))?;
 
     let motdepasse = services
         .secrets

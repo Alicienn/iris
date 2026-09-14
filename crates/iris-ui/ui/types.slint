@@ -88,3 +88,17 @@ export struct PluginRowData {
     // Set when the host took it out of circulation, with the reason.
     disabled-reason: string,
 }
+
+// A theme, as the picker shows it.
+//
+// The colours travel with the name because a theme picker that only lists names makes
+// people try each one to find out what it looks like — and every trial repaints the
+// whole window.
+export struct ThemeSwatchData {
+    name: string,
+    label: string,
+    background: color,
+    surface: color,
+    accent: color,
+    text: color,
+}
