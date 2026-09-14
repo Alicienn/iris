@@ -6,6 +6,8 @@ import {
 } from "types.slint";
 import { ThreadListView, ThreadContextMenu } from "list.slint";
 import { Sidebar, AccountContextMenu } from "sidebar.slint";
+import { FolderTree, NewFolderPanel } from "folders.slint";
+import { FolderNodeData } from "types.slint";
 import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
@@ -328,6 +330,28 @@ export component AppWindow inherits Window {
     callback account-selected(int);
     callback resume-account(int);
     in property <bool> add-account-editing;
+    in property <[FolderNodeData]> folders;
+    in property <string> selected-folder;
+    in property <int> account-count;
+    in property <int> marked-count;
+    in property <string> marked-label;
+    in property <bool> new-folder-open;
+    in property <string> new-folder-error;
+    in-out property <string> new-folder-name;
+    callback folder-selected(string);
+    callback folder-cleared();
+    callback new-folder-requested();
+    callback new-folder-create();
+    callback new-folder-dismissed();
+    callback row-mark-toggled(int);
+    callback row-mark-extended(int);
+    callback bulk-done();
+    callback bulk-archive();
+    callback bulk-delete();
+    callback bulk-read();
+    callback bulk-unread();
+    callback bulk-select-all();
+    callback bulk-clear();
     callback account-menu-requested(int);
     callback account-menu-sync();
     callback account-menu-edit();
@@ -434,6 +458,36 @@ export component AppWindow inherits Window {
 
                 Rectangle { width: 1px; background: Tokens.border; }
 
+                // Colonne 1 bis : les dossiers.
+                //
+                // Une colonne à eux plutôt qu'une section de plus dans la barre des
+                // comptes : les deux se croisent — « ce compte-là, dans ce
+                // dossier-là » — et une liste où l'on choisit tantôt l'un tantôt
+                // l'autre ne montre jamais les deux choix en même temps.
+                if !root.sidebar-collapsed: Glass {
+                    width: 170px;
+                    radius: 0px;
+                    border-width: 0px;
+
+                    VerticalLayout {
+                        padding: Tokens.space-2;
+
+                        FolderTree {
+                            folders: root.folders;
+                            selected-path: root.selected-folder;
+                            accounts-total: root.account-count;
+                            folder-selected(p) => { root.folder-selected(p); }
+                            all-selected => { root.folder-cleared(); }
+                            new-folder => { root.new-folder-requested(); }
+                        }
+                    }
+                }
+
+                if !root.sidebar-collapsed: Rectangle {
+                    width: 1px;
+                    background: Tokens.border;
+                }
+
                 // Colonne 2 : la file de travail.
                 Glass {
                     width: 340px;
@@ -469,6 +523,17 @@ export component AppWindow inherits Window {
                         count-fulls: root.count-fulls;
                         spam-label: root.spam-label;
                         spam-full: root.spam-full;
+                        marked-count: root.marked-count;
+                        marked-label: root.marked-label;
+                        row-mark-toggled(id) => { root.row-mark-toggled(id); }
+                        row-mark-extended(id) => { root.row-mark-extended(id); }
+                        bulk-done => { root.bulk-done(); }
+                        bulk-archive => { root.bulk-archive(); }
+                        bulk-delete => { root.bulk-delete(); }
+                        bulk-read => { root.bulk-read(); }
+                        bulk-unread => { root.bulk-unread(); }
+                        bulk-select-all => { root.bulk-select-all(); }
+                        bulk-clear => { root.bulk-clear(); }
                         loading: root.loading;
                         row-clicked(id) => { root.thread-selected(id); }
                         tab-selected(i) => { root.tab-selected(i); }
@@ -527,6 +592,17 @@ export component AppWindow inherits Window {
         save-password => { root.problem-save-password(); }
         disable-account => { root.problem-disable(); }
         dismissed => { root.problem-open = false; }
+    }
+
+    if root.new-folder-open: NewFolderPanel {
+        width: 100%;
+        height: 100%;
+        account-count: root.account-count;
+        parent-path: root.selected-folder;
+        error: root.new-folder-error;
+        name <=> root.new-folder-name;
+        create => { root.new-folder-create(); }
+        dismissed => { root.new-folder-dismissed(); }
     }
 
     if root.account-menu-open: AccountContextMenu {

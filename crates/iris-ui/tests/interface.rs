@@ -40,6 +40,7 @@ fn ligne(id: i32, de: &str, sujet: &str, non_lu: bool) -> ThreadRowData {
         has_attachment: false,
         has_tracker: false,
         snoozed: false,
+        marked: false,
         message_count: 1,
         account_tint: slint::Color::from_rgb_u8(0, 0, 0),
     }

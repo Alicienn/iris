@@ -14,12 +14,17 @@ component ThreadRow inherits Rectangle {
     in property <bool> selected;
 
     callback clicked();
+    callback mark-toggled();
+    callback mark-extended();
+
+    // Vrai entre un appui modifié et le relâchement qui le suit.
+    property <bool> modified-click;
     callback context-menu(length, length);
 
     height: Tokens.row-height;
     background: root.selected
         ? Tokens.surface-active
-        : (touch.has-hover ? Tokens.surface-hover : transparent);
+        : (row-touch.has-hover ? Tokens.surface-hover : transparent);
 
     animate background { duration: Tokens.instant; }
 
@@ -59,6 +64,38 @@ component ThreadRow inherits Rectangle {
         padding-left: Tokens.row-padding-x;
         padding-right: Tokens.row-padding-x;
         spacing: Tokens.space-2;
+
+        // La case à cocher. Elle n'apparaît qu'au survol ou quand elle est cochée :
+        // une colonne de cases vides devant chaque ligne fait passer la liste pour un
+        // formulaire, et le cas courant reste de lire un message, pas d'en cocher
+        // quarante.
+        if root.data.marked || row-touch.has-hover: Rectangle {
+            width: 15px;
+            height: 15px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: root.data.marked ? Tokens.accent : Tokens.border-strong;
+            background: root.data.marked ? Tokens.accent : transparent;
+
+            accessible-role: checkbox;
+            accessible-label: "Select this conversation";
+            accessible-checked: root.data.marked;
+            accessible-action-default => { root.mark-toggled(); }
+
+            if root.data.marked: Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                data: Icons.check;
+                size: 11px;
+                weight: 3.0;
+                tint: Tokens.accent-text;
+            }
+
+            TouchArea {
+                clicked => { root.mark-toggled(); }
+            }
+        }
 
         VerticalLayout {
             padding-top: Tokens.space-2;
@@ -155,17 +192,39 @@ component ThreadRow inherits Rectangle {
         opacity: 0.5;
     }
 
-    touch := TouchArea {
+    row-touch := TouchArea {
         // Right-click is how everyone expects to reach the actions on a list row,
         // and it was reaching nothing.
+        //
+        // Ctrl and Shift are read here rather than in Rust: which row was clicked and
+        // which keys were down are one event, and splitting them across the boundary
+        // would mean guessing afterwards which click a modifier belonged to.
         pointer-event(event) => {
             if (event.button == PointerEventButton.right
                 && event.kind == PointerEventKind.down) {
                 root.clicked();
                 root.context-menu(self.mouse-x + root.x, self.mouse-y + root.y);
+            } else if (event.button == PointerEventButton.left
+                && event.kind == PointerEventKind.down) {
+                if (event.modifiers.shift) {
+                    root.modified-click = true;
+                    root.mark-extended();
+                } else if (event.modifiers.control) {
+                    root.modified-click = true;
+                    root.mark-toggled();
+                }
             }
         }
-        clicked => { root.clicked(); }
+        clicked => {
+            // Un clic simple ouvre. Un clic modifié a déjà été traité à l'appui :
+            // ouvrir en plus ferait deux choses pour un seul geste, et la seconde
+            // serait celle que l'utilisateur n'a pas demandée.
+            if (root.modified-click) {
+                root.modified-click = false;
+            } else {
+                root.clicked();
+            }
+        }
     }
 }
 
@@ -255,6 +314,106 @@ export component ThreadContextMenu inherits Rectangle {
                 danger: true;
                 activated => { root.delete-thread(); root.dismissed(); }
             }
+        }
+    }
+}
+
+// La barre des actions groupées.
+//
+// Elle **remplace** les onglets tant qu'un lot est coché, au lieu de s'ajouter au
+// dessus. Deux raisons : la place, et le fait qu'un lot coché est un mode — ce qui va
+// se passer ensuite porte sur les lignes cochées et sur rien d'autre, et une barre
+// d'onglets encore visible au-dessus laisserait croire qu'on peut changer de file
+// sans conséquence pour la sélection.
+export component BulkBar inherits Rectangle {
+    in property <int> count;
+    in property <string> count-label;
+
+    callback mark-done();
+    callback archive();
+    callback delete-selected();
+    callback mark-read();
+    callback mark-unread();
+    callback select-all();
+    callback clear();
+
+    height: 30px;
+    border-radius: Tokens.radius-medium;
+    background: Tokens.surface-low;
+    border-width: 1px;
+    border-color: Tokens.border-strong;
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: 3px;
+        spacing: Tokens.space-1;
+
+        Text {
+            text: root.count-label + " selected";
+            font-size: Tokens.size-small;
+            font-weight: Tokens.weight-bold;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+
+        Rectangle { width: Tokens.space-1; }
+
+        IconButton {
+            icon: Icons.check;
+            label: "Mark as done";
+            shortcut: "E";
+            button-size: 24px;
+            icon-size: 14px;
+            clicked => { root.mark-done(); }
+        }
+        IconButton {
+            icon: Icons.archive;
+            label: "Archive";
+            shortcut: "A";
+            button-size: 24px;
+            icon-size: 14px;
+            clicked => { root.archive(); }
+        }
+        IconButton {
+            icon: Icons.envelope-open;
+            label: "Mark as read";
+            button-size: 24px;
+            icon-size: 14px;
+            clicked => { root.mark-read(); }
+        }
+        IconButton {
+            icon: Icons.envelope-closed;
+            label: "Mark as unread";
+            button-size: 24px;
+            icon-size: 14px;
+            clicked => { root.mark-unread(); }
+        }
+        IconButton {
+            icon: Icons.trash;
+            label: "Delete";
+            button-size: 24px;
+            icon-size: 14px;
+            danger: true;
+            clicked => { root.delete-selected(); }
+        }
+
+        Rectangle {}
+
+        IconButton {
+            icon: Icons.list;
+            label: "Select everything loaded";
+            shortcut: "Ctrl+A";
+            button-size: 24px;
+            icon-size: 14px;
+            clicked => { root.select-all(); }
+        }
+        IconButton {
+            icon: Icons.window-close;
+            label: "Clear the selection";
+            shortcut: "Esc";
+            button-size: 24px;
+            icon-size: 14px;
+            clicked => { root.clear(); }
         }
     }
 }
@@ -529,6 +688,8 @@ export component ThreadListView inherits VerticalLayout {
     in property <bool> showing-spam;
     in property <string> search-summary;
     in property <string> search-explanation;
+    in property <int> marked-count;
+    in property <string> marked-label;
     in-out property <string> search-query;
 
     callback row-clicked(int);
@@ -538,6 +699,15 @@ export component ThreadListView inherits VerticalLayout {
     callback search-cleared();
     callback spam-selected();
     callback row-context-menu(int, length, length);
+    callback row-mark-toggled(int);
+    callback row-mark-extended(int);
+    callback bulk-done();
+    callback bulk-archive();
+    callback bulk-delete();
+    callback bulk-read();
+    callback bulk-unread();
+    callback bulk-select-all();
+    callback bulk-clear();
 
     public function focus-search() {
         bar.focus-field();
@@ -557,7 +727,27 @@ export component ThreadListView inherits VerticalLayout {
     // liste qui n'est pas celle qu'on regarde.
     // The tabs sit on a plate of their own rather than floating: three lozenges on
     // bare background read as debris, which is exactly how they looked.
-    if !root.searching: Rectangle {
+    if root.marked-count > 0: Rectangle {
+        vertical-stretch: 0;
+        height: 38px;
+
+        BulkBar {
+            x: Tokens.space-2;
+            y: 4px;
+            width: parent.width - 2 * Tokens.space-2;
+            count: root.marked-count;
+            count-label: root.marked-label;
+            mark-done => { root.bulk-done(); }
+            archive => { root.bulk-archive(); }
+            delete-selected => { root.bulk-delete(); }
+            mark-read => { root.bulk-read(); }
+            mark-unread => { root.bulk-unread(); }
+            select-all => { root.bulk-select-all(); }
+            clear => { root.bulk-clear(); }
+        }
+    }
+
+    if !root.searching && root.marked-count == 0: Rectangle {
         vertical-stretch: 0;
         height: 38px;
 
@@ -630,6 +820,8 @@ export component ThreadListView inherits VerticalLayout {
             selected: entry.id == root.selected-id;
             clicked => { root.row-clicked(entry.id); }
             context-menu(x, y) => { root.row-context-menu(entry.id, x, y); }
+            mark-toggled => { root.row-mark-toggled(entry.id); }
+            mark-extended => { root.row-mark-extended(entry.id); }
         }
 
         // Le chargement de la suite est déclenché par la position du défilement, pas

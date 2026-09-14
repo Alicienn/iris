@@ -559,6 +559,8 @@ fn run_gui() -> Result<()> {
         runtime.handle().clone(),
     );
     shell::wire_remote_images(&fenetre, services.clone(), Arc::clone(&renderer));
+    shell::wire_folders(&fenetre, &services, Arc::clone(&controller));
+    shell::wire_bulk(&fenetre, Arc::clone(&controller));
 
     // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
     // son carburant, pas une frame ni un tour de synchronisation.

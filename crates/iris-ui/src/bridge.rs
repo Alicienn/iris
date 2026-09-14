@@ -15,7 +15,12 @@ use iris_types::{Flags, Timestamp};
 use slint::{Color, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 /// Convertit une ligne du store en ligne affichable.
-pub fn thread_row(row: &ThreadRow, account_email: &str, now: Timestamp) -> ThreadRowData {
+pub fn thread_row(
+    row: &ThreadRow,
+    account_email: &str,
+    now: Timestamp,
+    marked: bool,
+) -> ThreadRowData {
     let (r, g, b) = account_tint(account_email);
 
     ThreadRowData {
@@ -29,6 +34,7 @@ pub fn thread_row(row: &ThreadRow, account_email: &str, now: Timestamp) -> Threa
         has_attachment: row.has_attachment(),
         has_tracker: row.flags_union.contains(Flags::HAS_TRACKER),
         snoozed: row.snoozed_until.is_some(),
+        marked,
         message_count: row.message_count as i32,
         account_tint: Color::from_rgb_u8(r, g, b),
     }
@@ -314,7 +320,7 @@ mod tests {
 
     #[test]
     fn une_ligne_est_convertie_avec_ses_marqueurs() {
-        let d = thread_row(&ligne(), "marie@example.com", now());
+        let d = thread_row(&ligne(), "marie@example.com", now(), false);
         assert_eq!(d.id, 7);
         assert_eq!(d.from.as_str(), "Marie");
         assert_eq!(d.subject.as_str(), "Devis refonte");
@@ -329,7 +335,7 @@ mod tests {
     fn la_date_arrive_deja_formatee() {
         // L'interface ne doit jamais formater : elle referait ce travail à chaque
         // frame de défilement.
-        let d = thread_row(&ligne(), "a@x.fr", now());
+        let d = thread_row(&ligne(), "a@x.fr", now(), false);
         assert_eq!(d.date.as_str(), "22:13");
     }
 
@@ -338,15 +344,15 @@ mod tests {
         let mut l = ligne();
         l.subject = String::new();
         assert_eq!(
-            thread_row(&l, "a@x.fr", now()).subject.as_str(),
+            thread_row(&l, "a@x.fr", now(), false).subject.as_str(),
             "(sans objet)"
         );
     }
 
     #[test]
     fn deux_comptes_donnent_deux_teintes() {
-        let a = thread_row(&ligne(), "contact@x.fr", now()).account_tint;
-        let b = thread_row(&ligne(), "facturation@x.fr", now()).account_tint;
+        let a = thread_row(&ligne(), "contact@x.fr", now(), false).account_tint;
+        let b = thread_row(&ligne(), "facturation@x.fr", now(), false).account_tint;
         assert_ne!(
             (a.red(), a.green(), a.blue()),
             (b.red(), b.green(), b.blue())

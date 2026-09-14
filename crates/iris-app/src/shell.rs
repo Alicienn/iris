@@ -15,7 +15,7 @@ use iris_types::{ThreadId, WorkflowState};
 use iris_ui::bridge;
 use iris_ui::commands::{self, CommandKind};
 use iris_ui::keymap::{KeyOutcome, Keymap};
-use iris_ui::{AppWindow, Tokens};
+use iris_ui::{AppWindow, FolderNodeData, Tokens};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -615,7 +615,7 @@ pub fn apply_snapshot(
     let lignes: Vec<_> = snapshot
         .rows
         .iter()
-        .map(|r| bridge::thread_row(r, &adresse_par_defaut, maintenant))
+        .map(|r| bridge::thread_row(r, &adresse_par_defaut, maintenant, snapshot.marked.contains(&r.id)))
         .collect();
 
     // An action that failed says so where the user is looking, and stays there until
@@ -634,6 +634,10 @@ pub fn apply_snapshot(
             .map(|c| *c as i32)
             .collect::<Vec<_>>(),
     )));
+    fenetre.set_marked_count(snapshot.marked.len() as i32);
+    fenetre.set_marked_label(iris_ui::format::short_count(snapshot.marked.len() as u64).into());
+    fenetre.set_selected_folder(snapshot.folder.clone().unwrap_or_default().into());
+
     fenetre.set_count_labels(ModelRc::new(VecModel::from(
         snapshot
             .counts
@@ -1872,6 +1876,165 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
                 fenetre_depart.y + (y - pointeur_depart.1),
             ));
         });
+    }
+}
+
+/// Rafraîchit l'arborescence des dossiers.
+///
+/// Appelée après une synchronisation et après une création : ce sont les deux seuls
+/// moments où la liste des dossiers change, et la recalculer à chaque instantané
+/// ferait une agrégation SQL par frappe de clavier dans la liste.
+pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
+    let dossiers = services.store.unified_folders().unwrap_or_default();
+    let arbre = crate::folders::tree(&dossiers);
+
+    let lignes: Vec<FolderNodeData> = arbre
+        .iter()
+        .map(|n| FolderNodeData {
+            path: n.path.as_str().into(),
+            name: n.name.as_str().into(),
+            depth: n.depth as i32,
+            count: n.threads as i32,
+            count_label: iris_ui::format::short_count(n.threads as u64).into(),
+            accounts: n.accounts as i32,
+            // Le rôle, pas l'icône : c'est l'interface qui possède le jeu d'icônes, et
+            // le lui faire traverser en sens inverse mettrait des chemins SVG dans du
+            // code Rust, où plus personne ne penserait à les tenir à jour.
+            role: n.role.as_str().into(),
+        })
+        .collect();
+
+    fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
+    fenetre.set_account_count(services.store.accounts().map(|c| c.len()).unwrap_or(0) as i32);
+}
+
+/// Wires the folder tree and the folder-creation panel.
+///
+/// Créer un dossier le crée **partout**. C'est le choix central de tout ce module :
+/// un dossier est un nom, pas un endroit, et un « Devis » qui n'existerait que sur une
+/// boîte rangerait le courrier à moitié.
+pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Controller>) {
+    refresh_folders(fenetre, services);
+
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_folder_selected(move |chemin| {
+            controller.send(Request::FilterFolder(Some(chemin.to_string())));
+        });
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_folder_cleared(move || controller.send(Request::FilterFolder(None)));
+    }
+
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_new_folder_requested(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_new_folder_name(Default::default());
+                fenetre.set_new_folder_error(Default::default());
+                fenetre.set_new_folder_open(true);
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_new_folder_dismissed(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_new_folder_open(false);
+            }
+        });
+    }
+
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_new_folder_create(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+
+            let nom = fenetre.get_new_folder_name().to_string();
+            // Le dossier choisi devient le parent : créer « 2026 » alors qu'on regarde
+            // « Devis » veut dire « Devis.2026 », qui est ce qu'on attend d'un bouton
+            // « nouveau dossier » pressé depuis un dossier.
+            let parent = fenetre.get_selected_folder().to_string();
+            let parent = (!parent.is_empty()).then_some(parent);
+
+            match crate::folders::create_everywhere(
+                &services.store,
+                parent.as_deref(),
+                &nom,
+                now(),
+            ) {
+                // Zéro compte à prévenir veut dire qu'il est déjà partout, ce qui est
+                // l'état recherché — mais silence sur un bouton pressé serait pris
+                // pour une panne, alors on le dit.
+                Ok(0) => {
+                    fenetre.set_new_folder_error("That folder already exists everywhere.".into());
+                }
+                Ok(n) => {
+                    fenetre.set_new_folder_open(false);
+                    fenetre.set_status(
+                        format!("Creating the folder on {n} mailbox(es)…").into(),
+                    );
+                    refresh_folders(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_new_folder_error(e.to_string().into()),
+            }
+        });
+    }
+}
+
+/// Wires marking rows and acting on the batch.
+///
+/// Chaque action passe par la même requête, qui décide seule de sa cible : le lot
+/// coché s'il y en a un, la ligne courante sinon. Une seule règle, partagée par le
+/// clavier, la barre d'outils et le menu contextuel — sans elle, « archiver » ne
+/// voudrait pas dire la même chose selon l'endroit d'où on le demande.
+pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
+    use iris_viewmodel::Action;
+
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_row_mark_toggled(move |id| {
+            controller.send(Request::ToggleMark(iris_types::ThreadId(id as i64)));
+        });
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_row_mark_extended(move |id| {
+            controller.send(Request::ExtendMark(iris_types::ThreadId(id as i64)));
+        });
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_select_all(move || controller.send(Request::MarkAll));
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_clear(move || controller.send(Request::ClearMarks));
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_done(move || controller.send(Request::ApplyToMarked(Action::Done)));
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_archive(move || controller.send(Request::ApplyToMarked(Action::Archive)));
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_delete(move || controller.send(Request::ApplyToMarked(Action::Delete)));
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_read(move || controller.send(Request::ApplyToMarked(Action::MarkRead)));
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_bulk_unread(move || controller.send(Request::ApplyToMarked(Action::MarkUnread)));
     }
 }
 

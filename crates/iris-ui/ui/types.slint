@@ -16,6 +16,10 @@ export struct ThreadRowData {
     has-attachment: bool,
     has-tracker: bool,
     snoozed: bool,
+    /// Coché pour une action groupée. Distinct de « sélectionné », qui désigne la
+    /// ligne dont le volet de lecture montre le contenu : on doit pouvoir lire un
+    /// message sans le retirer du lot qu'on prépare.
+    marked: bool,
     message-count: int,
     // Couleur d'identité du compte, pour distinguer cent boîtes d'un coup d'œil.
     account-tint: color,
@@ -105,4 +109,22 @@ export struct ThemeSwatchData {
     surface: color,
     accent: color,
     text: color,
+}
+
+export struct FolderNodeData {
+    // Le chemin complet, qui est l'identité du dossier.
+    path: string,
+    // Le dernier segment, qui est ce qu'on affiche.
+    name: string,
+    depth: int,
+    // Combien de conversations, déjà mis en forme.
+    count-label: string,
+    count: int,
+    // Sur combien de boîtes il existe. Un dossier qui n'est pas partout se signale.
+    accounts: int,
+    // Le rôle du dossier : « inbox », « sent », « trash »… L'interface en déduit
+    // l'icône. Le rôle traverse la frontière, pas le dessin : le jeu d'icônes
+    // appartient à l'interface, et des chemins SVG dans du code Rust sont des chemins
+    // SVG que plus personne ne tient à jour.
+    role: string,
 }
