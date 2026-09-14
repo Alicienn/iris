@@ -1,0 +1,77 @@
+# Intégration continue.
+#
+# Trois exigences, dans l'ordre où elles font gagner du temps : le format et les
+# lints d'abord, parce qu'ils échouent en une minute ; la compilation ensuite ; les
+# tests en dernier, parce qu'ils sont les plus longs.
+#
+# Windows d'abord, macOS ensuite : c'est l'ordre de priorité du produit, et un échec
+# sur la plateforme principale doit se voir sans attendre la seconde.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Un avertissement laissé passer devient un avertissement permanent, puis mille.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # Ce qui ne dépend d'aucune plateforme n'est vérifié qu'une fois.
+  forme:
+    name: Format et lints
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets
+
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Un échec sur une plateforme ne doit pas annuler l'autre : savoir si le
+      # problème est propre à un système fait la moitié du diagnostic.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Le rendu HTML complet demande un périphérique graphique. Les tests savent
+      # s'en passer — `BlitzRenderer::is_available` le vérifie — mais compiler la
+      # dépendance sur chaque exécution coûte plusieurs minutes pour un chemin que
+      # l'intégration continue ne peut de toute façon pas exercer.
+      - name: Compilation
+        run: cargo build --workspace --no-default-features
+
+      - name: Tests
+        run: cargo test --workspace --no-default-features
+
+  # Le binaire complet, avec le moteur de rendu, sur la plateforme prioritaire.
+  # Il ne s'exécute pas ici : sans écran, il n'y a rien à ouvrir. On vérifie qu'il
+  # se construit, ce qui est la panne la plus fréquente et la plus bête.
+  binaire:
+    name: Binaire complet
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Compilation en release
+        run: cargo build --release -p iris-app

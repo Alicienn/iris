@@ -31,7 +31,10 @@ pub enum Error {
     Network(String),
 
     #[error("protocole {protocol} : {message}")]
-    Protocol { protocol: &'static str, message: String },
+    Protocol {
+        protocol: &'static str,
+        message: String,
+    },
 
     #[error("authentification refusée pour {account}")]
     AuthFailed { account: String },
@@ -49,7 +52,10 @@ pub enum Error {
     ModuleMissing(String),
 
     #[error("capacité « {capability} » refusée à « {requester} »")]
-    CapabilityDenied { capability: String, requester: String },
+    CapabilityDenied {
+        capability: String,
+        requester: String,
+    },
 
     #[error("plugin « {plugin} » : {message}")]
     Plugin { plugin: String, message: String },
@@ -111,27 +117,43 @@ mod tests {
     #[test]
     fn les_pannes_reseau_sont_retentables() {
         assert!(Error::network("connexion perdue").is_transient());
-        assert!(Error::Throttled { retry_after_secs: 30 }.is_transient());
-        assert!(Error::TokenExpired { account: "a".into() }.is_transient());
+        assert!(Error::Throttled {
+            retry_after_secs: 30
+        }
+        .is_transient());
+        assert!(Error::TokenExpired {
+            account: "a".into()
+        }
+        .is_transient());
     }
 
     #[test]
     fn un_mot_de_passe_faux_ne_l_est_pas() {
-        let e = Error::AuthFailed { account: "contact@example.com".into() };
+        let e = Error::AuthFailed {
+            account: "contact@example.com".into(),
+        };
         assert!(!e.is_transient());
         assert!(e.needs_user_action());
     }
 
     #[test]
     fn le_delai_conseille_est_transmis() {
-        assert_eq!(Error::Throttled { retry_after_secs: 120 }.retry_after_secs(), Some(120));
+        assert_eq!(
+            Error::Throttled {
+                retry_after_secs: 120
+            }
+            .retry_after_secs(),
+            Some(120)
+        );
         assert_eq!(Error::network("x").retry_after_secs(), None);
     }
 
     #[test]
     fn une_resynchronisation_requise_n_est_pas_une_panne_passagere() {
         // Retenter à l'identique reproduirait l'erreur : il faut changer de stratégie.
-        let e = Error::ResyncRequired { reason: "UIDVALIDITY".into() };
+        let e = Error::ResyncRequired {
+            reason: "UIDVALIDITY".into(),
+        };
         assert!(!e.is_transient());
         assert!(!e.needs_user_action());
     }

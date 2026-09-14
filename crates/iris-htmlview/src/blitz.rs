@@ -53,14 +53,21 @@ pub struct BlitzRenderer {
 
 impl std::fmt::Debug for BlitzRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BlitzRenderer").field("scale", &self.scale).field("dark", &self.dark).finish()
+        f.debug_struct("BlitzRenderer")
+            .field("scale", &self.scale)
+            .field("dark", &self.dark)
+            .finish()
     }
 }
 
 impl BlitzRenderer {
     /// Construit le moteur sans encore ouvrir de device.
     pub fn new(scale: f32, dark: bool) -> Self {
-        Self { renderer: Mutex::new(None), scale: scale.clamp(0.5, 4.0), dark }
+        Self {
+            renderer: Mutex::new(None),
+            scale: scale.clamp(0.5, 4.0),
+            dark,
+        }
     }
 
     /// Vérifie que la machine peut réellement rendre.
@@ -91,11 +98,18 @@ impl HtmlRenderer for BlitzRenderer {
             largeur,
             MAX_HEIGHT,
             self.scale,
-            if self.dark { ColorScheme::Dark } else { ColorScheme::Light },
+            if self.dark {
+                ColorScheme::Dark
+            } else {
+                ColorScheme::Light
+            },
         );
         let mut document = HtmlDocument::from_html(
             sanitized_html,
-            DocumentConfig { viewport: Some(viewport), ..Default::default() },
+            DocumentConfig {
+                viewport: Some(viewport),
+                ..Default::default()
+            },
         );
         document.resolve(0.0);
 
@@ -129,7 +143,11 @@ impl HtmlRenderer for BlitzRenderer {
             &mut pixels,
         );
 
-        Ok(Rendered::Texture { width: largeur, height: hauteur, rgba: pixels })
+        Ok(Rendered::Texture {
+            width: largeur,
+            height: hauteur,
+            rgba: pixels,
+        })
     }
 
     fn name(&self) -> &'static str {
@@ -161,7 +179,11 @@ mod tests {
 
         let rendu = m.render("<p>Bonjour Marie</p>", 800.0).unwrap();
         match rendu {
-            Rendered::Texture { width, height, rgba } => {
+            Rendered::Texture {
+                width,
+                height,
+                rgba,
+            } => {
                 assert_eq!(width, 800);
                 assert!(height > 0);
                 assert_eq!(rgba.len(), (width * height * 4) as usize);

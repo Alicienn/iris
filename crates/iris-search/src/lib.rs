@@ -158,7 +158,10 @@ pub fn parse(input: &str) -> Query {
         terms.push(Term { negated, kind });
     }
 
-    Query { terms, raw: input.trim().to_string() }
+    Query {
+        terms,
+        raw: input.trim().to_string(),
+    }
 }
 
 /// Découpe la saisie en jetons, en respectant les guillemets.
@@ -239,7 +242,14 @@ fn parse_days(v: &str) -> Option<u32> {
 /// Accepte « 500 » (ko), « 500ko », « 2mo », « 1go ».
 fn parse_size_kb(v: &str) -> Option<u64> {
     let v = v.trim().to_lowercase().replace(' ', "");
-    for (suffixe, facteur) in [("go", 1024 * 1024), ("gb", 1024 * 1024), ("mo", 1024), ("mb", 1024), ("ko", 1), ("kb", 1)] {
+    for (suffixe, facteur) in [
+        ("go", 1024 * 1024),
+        ("gb", 1024 * 1024),
+        ("mo", 1024),
+        ("mb", 1024),
+        ("ko", 1),
+        ("kb", 1),
+    ] {
         if let Some(n) = v.strip_suffix(suffixe) {
             return n.parse::<u64>().ok().map(|x| x * facteur);
         }
@@ -280,7 +290,11 @@ pub fn plan(query: &Query) -> Plan {
                     Filter::Subject(v) => format!("subject:{}", escape(v)),
                     _ => unreachable!("is_textual restreint aux trois cas ci-dessus"),
                 };
-                morceaux.push(if term.negated { format!("-{champ}") } else { champ });
+                morceaux.push(if term.negated {
+                    format!("-{champ}")
+                } else {
+                    champ
+                });
             }
             TermKind::Filter(f) => store_filters.push((f.clone(), term.negated)),
             TermKind::Text(t) => {
@@ -303,7 +317,12 @@ fn escape(s: &str) -> String {
     let besoin_guillemets = s.contains(char::is_whitespace);
     let nettoye: String = s
         .chars()
-        .filter(|c| !matches!(c, '"' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '~' | '\\'))
+        .filter(|c| {
+            !matches!(
+                c,
+                '"' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '~' | '\\'
+            )
+        })
         .collect();
     if besoin_guillemets {
         format!("\"{nettoye}\"")
@@ -324,7 +343,12 @@ pub struct SavedSearch {
 
 impl SavedSearch {
     pub fn new(id: impl Into<String>, name: impl Into<String>, query: impl Into<String>) -> Self {
-        Self { id: id.into(), name: name.into(), query: query.into(), position: 0 }
+        Self {
+            id: id.into(),
+            name: name.into(),
+            query: query.into(),
+            position: 0,
+        }
     }
 
     pub fn parsed(&self) -> Query {
@@ -332,21 +356,37 @@ impl SavedSearch {
     }
 }
 
+/// Ce sur quoi les filtres structurels se prononcent.
+///
+/// Regroupé en une structure plutôt qu'égrené en arguments : neuf paramètres du même
+/// type se confondent à l'appel, et une inversion entre deux d'entre eux produirait
+/// un filtre qui répond faux sans jamais échouer.
+#[derive(Debug, Clone, Copy)]
+pub struct Subject<'a> {
+    pub flags: Flags,
+    pub state: WorkflowState,
+    pub received: Timestamp,
+    pub size: u64,
+    pub account: &'a str,
+    pub folder: &'a str,
+    pub snoozed: bool,
+}
+
 /// Évalue les filtres non textuels sur un message donné.
 ///
 /// Utilisé pour vérifier un message isolé — après réception, par exemple — sans
 /// repasser par le store.
-pub fn matches_filters(
-    filters: &[(Filter, bool)],
-    flags: Flags,
-    state: WorkflowState,
-    received: Timestamp,
-    size: u64,
-    account: &str,
-    folder: &str,
-    snoozed: bool,
-    now: Timestamp,
-) -> bool {
+pub fn matches_filters(filters: &[(Filter, bool)], subject: Subject<'_>, now: Timestamp) -> bool {
+    let Subject {
+        flags,
+        state,
+        received,
+        size,
+        account,
+        folder,
+        snoozed,
+    } = subject;
+
     filters.iter().all(|(f, negated)| {
         let brut = match f {
             Filter::State(s) => state == *s,
@@ -357,9 +397,7 @@ pub fn matches_filters(
             Filter::Snoozed => snoozed,
             Filter::Account(a) => account.eq_ignore_ascii_case(a),
             Filter::Folder(d) => folder.eq_ignore_ascii_case(d),
-            Filter::OlderThanDays(d) => {
-                received.millis() < now.millis() - (*d as i64) * 86_400_000
-            }
+            Filter::OlderThanDays(d) => received.millis() < now.millis() - (*d as i64) * 86_400_000,
             Filter::NewerThanDays(d) => {
                 received.millis() >= now.millis() - (*d as i64) * 86_400_000
             }
@@ -445,8 +483,14 @@ mod tests {
             parse("etat:a_traiter").filters().next().unwrap().0,
             &Filter::State(WorkflowState::Todo)
         );
-        assert_eq!(parse("is:unread").filters().next().unwrap().0, &Filter::Unread);
-        assert_eq!(parse("état:reporté").filters().next().unwrap().0, &Filter::Snoozed);
+        assert_eq!(
+            parse("is:unread").filters().next().unwrap().0,
+            &Filter::Unread
+        );
+        assert_eq!(
+            parse("état:reporté").filters().next().unwrap().0,
+            &Filter::Snoozed
+        );
     }
 
     #[test]
@@ -480,7 +524,11 @@ mod tests {
         let q = parse("devis etat:a_traiter has:pj de:marie");
         let p = plan(&q);
 
-        assert_eq!(p.store_filters.len(), 2, "l'état et la pièce jointe vont au store");
+        assert_eq!(
+            p.store_filters.len(),
+            2,
+            "l'état et la pièce jointe vont au store"
+        );
         assert!(p.index_query.contains("devis"));
         assert!(p.index_query.contains("from:marie"));
         assert!(!p.store_only);
@@ -525,6 +573,19 @@ mod tests {
         assert!(d.contains("texte « devis »"));
     }
 
+    /// Un message ordinaire, que chaque test ajuste sur le seul point qu'il teste.
+    fn sujet() -> Subject<'static> {
+        Subject {
+            flags: Flags::NONE,
+            state: WorkflowState::Todo,
+            received: Timestamp::from_millis(1_000_000_000_000),
+            size: 0,
+            account: "a@x.fr",
+            folder: "INBOX",
+            snoozed: false,
+        }
+    }
+
     #[test]
     fn les_filtres_structurels_s_evaluent_sur_un_message() {
         let now = Timestamp::from_millis(1_000_000_000_000);
@@ -533,25 +594,20 @@ mod tests {
         let filtres = plan(&parse("is:unread plus_vieux:30j")).store_filters;
         assert!(matches_filters(
             &filtres,
-            Flags::NONE,
-            WorkflowState::Todo,
-            vieux,
-            0,
-            "a@x.fr",
-            "INBOX",
-            false,
+            Subject {
+                received: vieux,
+                ..sujet()
+            },
             now
         ));
         // Lu : le filtre « non lu » rejette.
         assert!(!matches_filters(
             &filtres,
-            Flags::SEEN,
-            WorkflowState::Todo,
-            vieux,
-            0,
-            "a@x.fr",
-            "INBOX",
-            false,
+            Subject {
+                flags: Flags::SEEN,
+                received: vieux,
+                ..sujet()
+            },
             now
         ));
     }
@@ -560,26 +616,13 @@ mod tests {
     fn la_negation_inverse_l_evaluation() {
         let now = Timestamp::from_millis(1_000_000_000_000);
         let filtres = plan(&parse("-has:pj")).store_filters;
-        assert!(matches_filters(
-            &filtres,
-            Flags::NONE,
-            WorkflowState::Todo,
-            now,
-            0,
-            "a",
-            "INBOX",
-            false,
-            now
-        ));
+        assert!(matches_filters(&filtres, sujet(), now));
         assert!(!matches_filters(
             &filtres,
-            Flags::HAS_ATTACHMENT,
-            WorkflowState::Todo,
-            now,
-            0,
-            "a",
-            "INBOX",
-            false,
+            Subject {
+                flags: Flags::HAS_ATTACHMENT,
+                ..sujet()
+            },
             now
         ));
     }
@@ -589,22 +632,16 @@ mod tests {
         // Il appartient à l'index ; l'évaluer ici reviendrait à tout rejeter.
         let now = Timestamp::from_millis(0);
         let filtres = vec![(Filter::From("marie".into()), false)];
-        assert!(matches_filters(
-            &filtres,
-            Flags::NONE,
-            WorkflowState::Todo,
-            now,
-            0,
-            "a",
-            "INBOX",
-            false,
-            now
-        ));
+        assert!(matches_filters(&filtres, sujet(), now));
     }
 
     #[test]
     fn une_recherche_epinglee_se_reanalyse() {
-        let s = SavedSearch::new("factures", "Factures en attente", "sujet:facture etat:en_attente");
+        let s = SavedSearch::new(
+            "factures",
+            "Factures en attente",
+            "sujet:facture etat:en_attente",
+        );
         let q = s.parsed();
         assert_eq!(q.filters().count(), 2);
     }

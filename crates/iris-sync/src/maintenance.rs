@@ -41,10 +41,11 @@ const MAX_FOLLOW_UPS: u32 = 50;
 impl SyncEngine {
     /// Réveille les reports échus et lance les relances dues.
     pub fn run_maintenance(&self, now: Timestamp) -> Result<MaintenanceReport> {
-        let mut rapport = MaintenanceReport::default();
-        rapport.woken = self.wake_due_snoozes(now)?;
-        rapport.followed_up = self.run_follow_ups(now)?;
-        Ok(rapport)
+        Ok(MaintenanceReport {
+            woken: self.wake_due_snoozes(now)?,
+            followed_up: self.run_follow_ups(now)?,
+            purged_bodies: 0,
+        })
     }
 
     /// Rend visibles les fils dont le report est arrivé à échéance.
@@ -60,7 +61,9 @@ impl SyncEngine {
             self.store().clear_snooze(thread)?;
             self.bus().publish(Event::ThreadUnsnoozed { thread });
 
-            let Some(ligne) = self.store().thread_row(thread)? else { continue };
+            let Some(ligne) = self.store().thread_row(thread)? else {
+                continue;
+            };
             let resultat = transition(
                 ligne.state,
                 TransitionCause::SnoozeExpired,
@@ -91,13 +94,15 @@ impl SyncEngine {
         }
 
         let candidats =
-            self.store().threads_needing_follow_up(now, reglages.follow_up_days, MAX_FOLLOW_UPS)?;
+            self.store()
+                .threads_needing_follow_up(now, reglages.follow_up_days, MAX_FOLLOW_UPS)?;
 
         let mut relances = 0;
         for thread in candidats {
-            let Some(ligne) = self.store().thread_row(thread)? else { continue };
-            let resultat =
-                transition(ligne.state, TransitionCause::FollowUpDue, None, &reglages);
+            let Some(ligne) = self.store().thread_row(thread)? else {
+                continue;
+            };
+            let resultat = transition(ligne.state, TransitionCause::FollowUpDue, None, &reglages);
 
             if let TransitionOutcome::Moved { from, to } = resultat {
                 self.store().set_thread_state(thread, to)?;
@@ -116,7 +121,9 @@ impl SyncEngine {
 
     /// Supprime les contenus dont plus aucun message ne se réclame.
     pub fn purge_bodies(&self) -> Result<usize> {
-        let Some(blobs) = self.blobs() else { return Ok(0) };
+        let Some(blobs) = self.blobs() else {
+            return Ok(0);
+        };
         crate::body::purge_orphan_bodies(self.store(), blobs)
     }
 }
@@ -142,9 +149,14 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let compte = store
-            .create_account(&NewAccount::new("a@x.fr", "imap.x.fr", "s"), Timestamp::EPOCH)
+            .create_account(
+                &NewAccount::new("a@x.fr", "imap.x.fr", "s"),
+                Timestamp::EPOCH,
+            )
             .unwrap();
-        store.upsert_folder(compte, "INBOX", FolderRole::Inbox).unwrap();
+        store
+            .upsert_folder(compte, "INBOX", FolderRole::Inbox)
+            .unwrap();
 
         let bus = EventBus::new();
         let engine = SyncEngine::new(
@@ -155,7 +167,12 @@ mod tests {
             EngineConfig::default(),
         );
 
-        Fixture { engine, store, bus, uid: std::cell::Cell::new(1) }
+        Fixture {
+            engine,
+            store,
+            bus,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -201,12 +218,24 @@ mod tests {
         let f = fixture();
         let fil = f.fil(1000);
         f.store
-            .snooze_thread(fil, Snooze { until: t(5000), restore_to: WorkflowState::Todo })
+            .snooze_thread(
+                fil,
+                Snooze {
+                    until: t(5000),
+                    restore_to: WorkflowState::Todo,
+                },
+            )
             .unwrap();
 
         assert_eq!(f.engine.run_maintenance(t(4999)).unwrap().woken, 0);
         assert_eq!(f.engine.run_maintenance(t(5000)).unwrap().woken, 1);
-        assert!(f.store.thread_row(fil).unwrap().unwrap().snoozed_until.is_none());
+        assert!(f
+            .store
+            .thread_row(fil)
+            .unwrap()
+            .unwrap()
+            .snoozed_until
+            .is_none());
     }
 
     #[test]
@@ -215,9 +244,17 @@ mod tests {
         // côté, il ne requalifie pas.
         let f = fixture();
         let fil = f.fil(1000);
-        f.store.set_thread_state(fil, WorkflowState::Waiting).unwrap();
         f.store
-            .snooze_thread(fil, Snooze { until: t(5000), restore_to: WorkflowState::Waiting })
+            .set_thread_state(fil, WorkflowState::Waiting)
+            .unwrap();
+        f.store
+            .snooze_thread(
+                fil,
+                Snooze {
+                    until: t(5000),
+                    restore_to: WorkflowState::Waiting,
+                },
+            )
             .unwrap();
 
         f.engine.run_maintenance(t(6000)).unwrap();
@@ -229,17 +266,28 @@ mod tests {
         let f = fixture();
         let fil = f.fil(1000);
         f.store
-            .snooze_thread(fil, Snooze { until: t(1), restore_to: WorkflowState::Done })
+            .snooze_thread(
+                fil,
+                Snooze {
+                    until: t(1),
+                    restore_to: WorkflowState::Done,
+                },
+            )
             .unwrap();
         let mut abonne = f.bus.subscribe_kind(EventKind::Workflow);
 
         f.engine.run_maintenance(t(100)).unwrap();
         let evenements = abonne.drain();
 
-        assert!(evenements.iter().any(|e| matches!(e, Event::ThreadUnsnoozed { .. })));
+        assert!(evenements
+            .iter()
+            .any(|e| matches!(e, Event::ThreadUnsnoozed { .. })));
         assert!(evenements.iter().any(|e| matches!(
             e,
-            Event::ThreadStateChanged { cause: TransitionCause::SnoozeExpired, .. }
+            Event::ThreadStateChanged {
+                cause: TransitionCause::SnoozeExpired,
+                ..
+            }
         )));
     }
 
@@ -247,7 +295,9 @@ mod tests {
     fn un_fil_sans_reponse_est_relance() {
         let f = fixture();
         let fil = f.fil(1_000);
-        f.store.set_thread_state(fil, WorkflowState::Waiting).unwrap();
+        f.store
+            .set_thread_state(fil, WorkflowState::Waiting)
+            .unwrap();
 
         // Trois jours plus tard, le délai par défaut est dépassé.
         let plus_tard = t(1 + 4 * 86_400);
@@ -259,9 +309,14 @@ mod tests {
     fn un_fil_recemment_repondu_n_est_pas_relance() {
         let f = fixture();
         let fil = f.fil(1_000_000_000);
-        f.store.set_thread_state(fil, WorkflowState::Waiting).unwrap();
+        f.store
+            .set_thread_state(fil, WorkflowState::Waiting)
+            .unwrap();
 
-        let rapport = f.engine.run_maintenance(Timestamp::from_millis(1_000_100_000)).unwrap();
+        let rapport = f
+            .engine
+            .run_maintenance(Timestamp::from_millis(1_000_100_000))
+            .unwrap();
         assert_eq!(rapport.followed_up, 0);
     }
 
@@ -273,7 +328,9 @@ mod tests {
             ..Default::default()
         });
         let fil = f.fil(1_000);
-        f.store.set_thread_state(fil, WorkflowState::Waiting).unwrap();
+        f.store
+            .set_thread_state(fil, WorkflowState::Waiting)
+            .unwrap();
 
         assert_eq!(f.engine.run_maintenance(t(999_999)).unwrap().followed_up, 0);
         assert_eq!(f.etat(fil), WorkflowState::Waiting);
@@ -285,7 +342,9 @@ mod tests {
         // produire de plus.
         let f = fixture();
         let fil = f.fil(1_000);
-        f.store.set_thread_state(fil, WorkflowState::Waiting).unwrap();
+        f.store
+            .set_thread_state(fil, WorkflowState::Waiting)
+            .unwrap();
 
         let plus_tard = t(1 + 10 * 86_400);
         assert_eq!(f.engine.run_maintenance(plus_tard).unwrap().followed_up, 1);
@@ -299,7 +358,9 @@ mod tests {
         let f = fixture();
         for i in 0..80 {
             let fil = f.fil(1_000 + i);
-            f.store.set_thread_state(fil, WorkflowState::Waiting).unwrap();
+            f.store
+                .set_thread_state(fil, WorkflowState::Waiting)
+                .unwrap();
         }
 
         let plus_tard = t(1 + 30 * 86_400);

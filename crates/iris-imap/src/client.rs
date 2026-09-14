@@ -55,13 +55,23 @@ impl RustlsConnector {
             .with_root_certificates(roots)
             .with_no_client_auth();
 
-        Self { config: Arc::new(config) }
+        Self {
+            config: Arc::new(config),
+        }
     }
 
-    async fn tls_stream(&self, endpoint: &Endpoint) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
+    async fn tls_stream(
+        &self,
+        endpoint: &Endpoint,
+    ) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
         let tcp = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
             .await
-            .map_err(|e| Error::network(format!("connexion à {}:{} : {e}", endpoint.host, endpoint.port)))?;
+            .map_err(|e| {
+                Error::network(format!(
+                    "connexion à {}:{} : {e}",
+                    endpoint.host, endpoint.port
+                ))
+            })?;
 
         // Nagle retarde les petites commandes IMAP de plusieurs dizaines de
         // millisecondes ; sur une synchronisation bavarde, cela se voit.
@@ -111,7 +121,10 @@ impl Connector for RustlsConnector {
                 .await
                 .map_err(|(e, _)| translate_login_error(e, user))?,
             Credentials::OAuth2 { user, token } => {
-                let auth = XOAuth2 { user: user.clone(), token: token.clone() };
+                let auth = XOAuth2 {
+                    user: user.clone(),
+                    token: token.clone(),
+                };
                 client
                     .authenticate("XOAUTH2", auth)
                     .await
@@ -119,7 +132,10 @@ impl Connector for RustlsConnector {
             }
         };
 
-        let mut connection = ImapClient { session: Some(session), capabilities: Capabilities::default() };
+        let mut connection = ImapClient {
+            session: Some(session),
+            capabilities: Capabilities::default(),
+        };
         connection.load_capabilities().await?;
         Ok(Box::new(connection))
     }
@@ -151,7 +167,9 @@ fn translate_login_error(e: async_imap::error::Error, account: &str) -> Error {
         || minuscules.contains("login failed")
         || minuscules.contains("authentication failed")
     {
-        Error::AuthFailed { account: account.to_string() }
+        Error::AuthFailed {
+            account: account.to_string(),
+        }
     } else {
         Error::network(format!("connexion de {account} : {texte}"))
     }
@@ -179,14 +197,20 @@ impl ImapClient {
             .capabilities()
             .await
             .map_err(|e| protocol_error("lecture des capacités", e))?;
-        let noms: Vec<String> = caps.iter().map(|c| format!("{c:?}").to_uppercase()).collect();
+        let noms: Vec<String> = caps
+            .iter()
+            .map(|c| format!("{c:?}").to_uppercase())
+            .collect();
         self.capabilities = Capabilities::from_names(noms);
         Ok(())
     }
 }
 
 fn protocol_error(quoi: &str, e: async_imap::error::Error) -> Error {
-    Error::Protocol { protocol: "IMAP", message: format!("{quoi} : {e}") }
+    Error::Protocol {
+        protocol: "IMAP",
+        message: format!("{quoi} : {e}"),
+    }
 }
 
 /// Traduit les drapeaux du protocole vers les nôtres.
@@ -282,7 +306,10 @@ impl ImapConnection for ImapClient {
             if kind == FolderKind::NoSelect {
                 continue;
             }
-            out.push(RemoteFolder { path: nom.name().to_string(), kind });
+            out.push(RemoteFolder {
+                path: nom.name().to_string(),
+                kind,
+            });
         }
         Ok(out)
     }
@@ -347,7 +374,10 @@ impl ImapConnection for ImapClient {
                 return Ok(corps.to_vec());
             }
         }
-        Err(Error::Protocol { protocol: "IMAP", message: format!("corps de l'UID {uid} absent") })
+        Err(Error::Protocol {
+            protocol: "IMAP",
+            message: format!("corps de l'UID {uid} absent"),
+        })
     }
 
     async fn existing_uids(&mut self, range: UidRange) -> Result<Vec<u32>> {
@@ -390,9 +420,16 @@ impl ImapConnection for ImapClient {
         if uids.is_empty() {
             return Ok(());
         }
-        let sequence =
-            uids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
-        let commande = if add { "+FLAGS.SILENT" } else { "-FLAGS.SILENT" };
+        let sequence = uids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let commande = if add {
+            "+FLAGS.SILENT"
+        } else {
+            "-FLAGS.SILENT"
+        };
 
         let session = self.session()?;
         let mut flux = session
@@ -412,7 +449,11 @@ impl ImapConnection for ImapClient {
         if uids.is_empty() {
             return Ok(());
         }
-        let sequence = uids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        let sequence = uids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
         let atomique = self.capabilities.r#move;
         let session = self.session()?;
 
@@ -440,7 +481,10 @@ impl ImapConnection for ImapClient {
         // Le flux d'expurgation n'est pas « Unpin » : il doit être épinglé avant
         // d'être parcouru.
         let mut purge = Box::pin(
-            session.uid_expunge(&sequence).await.map_err(|e| protocol_error("purge", e))?,
+            session
+                .uid_expunge(&sequence)
+                .await
+                .map_err(|e| protocol_error("purge", e))?,
         );
         while let Some(item) = purge.next().await {
             item.map_err(|e| protocol_error("purge", e))?;
@@ -473,10 +517,10 @@ impl ImapConnection for ImapClient {
 
         // L'attente consomme la session : on la retire, puis on la rend. Si l'attente
         // échoue, la connexion est perdue et l'appelant devra se reconnecter.
-        let session = self
-            .session
-            .take()
-            .ok_or_else(|| Error::Protocol { protocol: "IMAP", message: "session absente".into() })?;
+        let session = self.session.take().ok_or_else(|| Error::Protocol {
+            protocol: "IMAP",
+            message: "session absente".into(),
+        })?;
 
         let mut handle = session.idle();
         if let Err(e) = handle.init().await {
@@ -588,7 +632,10 @@ mod tests {
     #[test]
     fn le_mecanisme_xoauth2_respecte_le_format_attendu() {
         use async_imap::Authenticator;
-        let mut m = XOAuth2 { user: "a@x.fr".into(), token: "jeton".into() };
+        let mut m = XOAuth2 {
+            user: "a@x.fr".into(),
+            token: "jeton".into(),
+        };
         let reponse = m.process(b"");
         assert_eq!(reponse, "user=a@x.fr\x01auth=Bearer jeton\x01\x01");
     }

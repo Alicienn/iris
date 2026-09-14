@@ -95,7 +95,12 @@ impl SyncEngine {
         // ce qu'un message contient, seul le corps complet le dit.
         self.record_attachments(&stocke, &brut);
 
-        Ok(FetchedBody { message, blob, from_cache: false, bytes: brut.len() })
+        Ok(FetchedBody {
+            message,
+            blob,
+            from_cache: false,
+            bytes: brut.len(),
+        })
     }
 
     /// Télécharge les corps de tous les messages d'un fil.
@@ -129,8 +134,10 @@ impl SyncEngine {
 /// encore utiles.
 pub fn purge_orphan_bodies(store: &Store, blobs: &BlobStore) -> Result<usize> {
     let references = store.referenced_blobs()?;
-    let connus: std::collections::BTreeSet<BlobId> =
-        references.iter().filter_map(|h| BlobId::from_hex(h)).collect();
+    let connus: std::collections::BTreeSet<BlobId> = references
+        .iter()
+        .filter_map(|h| BlobId::from_hex(h))
+        .collect();
 
     let mut supprimes = 0;
     for id in blobs.ids()? {
@@ -215,7 +222,14 @@ mod tests {
         .with_blobs(Arc::clone(&blobs))
         .with_index(Arc::clone(&index));
 
-        Fixture { engine, store, blobs, index, server, _dir: dir }
+        Fixture {
+            engine,
+            store,
+            blobs,
+            index,
+            server,
+            _dir: dir,
+        }
     }
 
     impl Fixture {
@@ -232,7 +246,11 @@ mod tests {
     #[tokio::test]
     async fn un_corps_est_telecharge_et_mis_en_cache() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Le contenu complet du message."), Flags::NONE);
+        f.server.deliver(
+            "INBOX",
+            &message("devis", "Le contenu complet du message."),
+            Flags::NONE,
+        );
         f.synchroniser().await;
 
         let id = f.premier_message();
@@ -247,7 +265,8 @@ mod tests {
     #[tokio::test]
     async fn le_corps_est_rattache_au_message() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
         f.synchroniser().await;
 
         let id = f.premier_message();
@@ -260,7 +279,8 @@ mod tests {
     #[tokio::test]
     async fn un_second_appel_sert_le_cache_sans_reseau() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
         f.synchroniser().await;
 
         let id = f.premier_message();
@@ -269,14 +289,19 @@ mod tests {
 
         let second = f.engine.fetch_body(id).await.unwrap();
         assert!(second.from_cache);
-        assert_eq!(f.server.connection_count(), connexions, "aucune connexion nouvelle");
+        assert_eq!(
+            f.server.connection_count(),
+            connexions,
+            "aucune connexion nouvelle"
+        );
     }
 
     #[tokio::test]
     async fn un_contenu_evince_est_retelecharge() {
         // C'est précisément ce que permet un cache borné : oublier sans perdre.
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
         f.synchroniser().await;
 
         let id = f.premier_message();
@@ -301,7 +326,10 @@ mod tests {
         f.synchroniser().await;
         f.index.commit().unwrap();
 
-        assert!(f.index.search("forfait", 10).unwrap().is_empty(), "le corps n'est pas encore là");
+        assert!(
+            f.index.search("forfait", 10).unwrap().is_empty(),
+            "le corps n'est pas encore là"
+        );
 
         f.engine.fetch_body(f.premier_message()).await.unwrap();
         f.index.commit().unwrap();
@@ -319,7 +347,8 @@ mod tests {
     #[tokio::test]
     async fn un_serveur_injoignable_est_une_erreur_temporaire() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
         f.synchroniser().await;
         let id = f.premier_message();
 
@@ -335,11 +364,10 @@ mod tests {
         f.server.deliver("INBOX", &racine, Flags::NONE);
         f.server.deliver(
             "INBOX",
-            format!(
-                "Subject: Re: devis\r\nFrom: Luc <luc@x.fr>\r\nMessage-ID: <r@x>\r\n\
+            "Subject: Re: devis\r\nFrom: Luc <luc@x.fr>\r\nMessage-ID: <r@x>\r\n\
                  In-Reply-To: <devis@x>\r\n\r\nRéponse.\r\n"
-            )
-            .as_bytes(),
+                .to_string()
+                .as_bytes(),
             Flags::NONE,
         );
         f.synchroniser().await;
@@ -365,13 +393,17 @@ mod tests {
         let resultats = f.engine.fetch_thread_bodies(iris_types::ThreadId(1)).await;
 
         assert_eq!(resultats.len(), 2);
-        assert!(resultats.iter().any(|(_, r)| r.is_ok()), "au moins un doit passer");
+        assert!(
+            resultats.iter().any(|(_, r)| r.is_ok()),
+            "au moins un doit passer"
+        );
     }
 
     #[tokio::test]
     async fn la_purge_retire_les_contenus_orphelins() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
         f.synchroniser().await;
         f.engine.fetch_body(f.premier_message()).await.unwrap();
 
@@ -386,7 +418,8 @@ mod tests {
     #[tokio::test]
     async fn la_purge_epargne_les_contenus_utiles() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
         f.synchroniser().await;
         f.engine.fetch_body(f.premier_message()).await.unwrap();
 
@@ -399,11 +432,15 @@ mod tests {
         // L'enveloppe ne les connaît pas : seul le corps complet dit ce qu'un
         // message contient.
         let f = fixture();
-        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
         f.synchroniser().await;
 
         let message = f.premier_message();
-        assert!(f.store.attachments(message).unwrap().is_empty(), "rien avant le corps");
+        assert!(
+            f.store.attachments(message).unwrap().is_empty(),
+            "rien avant le corps"
+        );
 
         f.engine.fetch_body(message).await.unwrap();
 
@@ -415,7 +452,8 @@ mod tests {
     #[tokio::test]
     async fn seules_les_pieces_utiles_sont_listees() {
         let f = fixture();
-        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
         f.synchroniser().await;
 
         let message = f.premier_message();
@@ -430,7 +468,8 @@ mod tests {
     async fn les_octets_se_ressortent_du_message_brut() {
         // Ils ne sont pas dupliqués dans la base : le message les contient déjà.
         let f = fixture();
-        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
         f.synchroniser().await;
 
         let message = f.premier_message();
@@ -448,7 +487,8 @@ mod tests {
     #[tokio::test]
     async fn retelecharger_un_corps_ne_duplique_pas_les_pieces() {
         let f = fixture();
-        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
         f.synchroniser().await;
 
         let message = f.premier_message();
@@ -461,7 +501,11 @@ mod tests {
     #[tokio::test]
     async fn un_message_sans_piece_n_en_invente_pas() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("Bonjour", "Rien de particulier."), Flags::NONE);
+        f.server.deliver(
+            "INBOX",
+            &message("Bonjour", "Rien de particulier."),
+            Flags::NONE,
+        );
         f.synchroniser().await;
 
         let message = f.premier_message();

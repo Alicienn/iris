@@ -38,15 +38,16 @@ fn time_of_day(t: Timestamp) -> String {
 
 /// Jour de la semaine. Le 1ᵉʳ janvier 1970 était un jeudi.
 fn weekday(t: Timestamp) -> &'static str {
-    const JOURS: [&str; 7] =
-        ["jeudi", "vendredi", "samedi", "dimanche", "lundi", "mardi", "mercredi"];
+    const JOURS: [&str; 7] = [
+        "jeudi", "vendredi", "samedi", "dimanche", "lundi", "mardi", "mercredi",
+    ];
     JOURS[t.seconds().div_euclid(86_400).rem_euclid(7) as usize]
 }
 
 fn absolute_date(t: Timestamp) -> String {
     const MOIS: [&str; 12] = [
-        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.",
-        "nov.", "déc.",
+        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
+        "déc.",
     ];
     let (annee, mois, jour) = civil_from_days(t.seconds().div_euclid(86_400));
     format!("{jour} {} {annee}", MOIS[(mois - 1) as usize])
@@ -186,8 +187,14 @@ mod tests {
     #[test]
     fn la_teinte_d_un_compte_est_stable() {
         // Le même compte doit garder sa couleur d'une session à l'autre.
-        assert_eq!(account_tint("marie@example.com"), account_tint("marie@example.com"));
-        assert_eq!(account_tint(" MARIE@Example.COM "), account_tint("marie@example.com"));
+        assert_eq!(
+            account_tint("marie@example.com"),
+            account_tint("marie@example.com")
+        );
+        assert_eq!(
+            account_tint(" MARIE@Example.COM "),
+            account_tint("marie@example.com")
+        );
     }
 
     #[test]
@@ -208,7 +215,10 @@ mod tests {
                 max - min < 110,
                 "« {adresse} » donne une teinte trop saturée : {r},{g},{b}"
             );
-            assert!(max > 100 && max < 220, "luminosité hors plage pour « {adresse} »");
+            assert!(
+                max > 100 && max < 220,
+                "luminosité hors plage pour « {adresse} »"
+            );
         }
     }
 

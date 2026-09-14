@@ -129,14 +129,22 @@ impl BlobStore {
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
                 index.bytes += meta.len();
-                index.entries.insert(id, Entry { size: meta.len(), accessed });
+                index.entries.insert(
+                    id,
+                    Entry {
+                        size: meta.len(),
+                        accessed,
+                    },
+                );
             }
         }
         Ok(())
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Index>> {
-        self.index.lock().map_err(|_| Error::store("index de contenus empoisonné"))
+        self.index
+            .lock()
+            .map_err(|_| Error::store("index de contenus empoisonné"))
     }
 
     /// Chemin d'un contenu. Les deux premiers caractères servent de répartiteur, pour
@@ -176,7 +184,13 @@ impl BlobStore {
         {
             let mut index = self.lock()?;
             index.bytes += size;
-            index.entries.insert(id, Entry { size, accessed: now_secs() });
+            index.entries.insert(
+                id,
+                Entry {
+                    size,
+                    accessed: now_secs(),
+                },
+            );
         }
         self.writes.fetch_add(1, Ordering::Relaxed);
 
@@ -311,7 +325,10 @@ impl BlobStore {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -394,7 +411,9 @@ mod tests {
         let (s, _d) = store(2_000);
         for i in 0..100u32 {
             // Contenus peu compressibles, pour que la taille sur disque compte.
-            let data: Vec<u8> = (0..200).map(|j| (i as u8).wrapping_mul(j as u8 ^ 0x5f)).collect();
+            let data: Vec<u8> = (0..200)
+                .map(|j| (i as u8).wrapping_mul(j as u8 ^ 0x5f))
+                .collect();
             s.put(&data).unwrap();
         }
         let stats = s.stats().unwrap();
@@ -428,7 +447,10 @@ mod tests {
         };
 
         let s = BlobStore::open(dir.path(), 1 << 20).unwrap();
-        assert!(s.contains(id).unwrap(), "l'index doit se reconstruire depuis le disque");
+        assert!(
+            s.contains(id).unwrap(),
+            "l'index doit se reconstruire depuis le disque"
+        );
         assert_eq!(s.get(id).unwrap().unwrap(), b"contenu persistant");
         assert_eq!(s.stats().unwrap().count, 1);
     }
@@ -484,7 +506,10 @@ mod tests {
         // pénible sur toutes les plateformes.
         let (s, dir) = store(1 << 20);
         let id = s.put(b"reparti").unwrap();
-        let attendu = dir.path().join(&id.to_hex()[..2]).join(format!("{}.zst", id.to_hex()));
+        let attendu = dir
+            .path()
+            .join(&id.to_hex()[..2])
+            .join(format!("{}.zst", id.to_hex()));
         assert!(attendu.exists());
     }
 }

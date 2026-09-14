@@ -2,9 +2,7 @@
 
 use crate::model::{ListQuery, ThreadRow};
 use crate::{sql_err, Store};
-use iris_types::{
-    AccountId, Address, Flags, Result, Snooze, ThreadId, Timestamp, WorkflowState,
-};
+use iris_types::{AccountId, Address, Flags, Result, Snooze, ThreadId, Timestamp, WorkflowState};
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Row};
 use std::collections::BTreeMap;
 
@@ -66,8 +64,9 @@ impl Store {
             }
 
             if !q.accounts.is_empty() {
-                let placeholders =
-                    std::iter::repeat_n("?", q.accounts.len()).collect::<Vec<_>>().join(",");
+                let placeholders = std::iter::repeat_n("?", q.accounts.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
                 sql.push_str(&format!(
                     " AND EXISTS (SELECT 1 FROM thread_accounts ta
                                   WHERE ta.thread_id = threads.id
@@ -90,7 +89,9 @@ impl Store {
             sql.push_str(" ORDER BY last_activity_at DESC, id DESC LIMIT ?");
             args.push(SqlValue::Integer(q.limit as i64));
 
-            let mut stmt = c.prepare_cached(&sql).map_err(|e| sql_err("préparation", e))?;
+            let mut stmt = c
+                .prepare_cached(&sql)
+                .map_err(|e| sql_err("préparation", e))?;
             let rows = stmt
                 .query_map(params_from_iter(args), row_from_sql)
                 .map_err(|e| sql_err("liste des fils", e))?;
@@ -121,10 +122,9 @@ impl Store {
                 .map_err(|e| sql_err("préparation", e))?;
 
             let rows = stmt
-                .query_map(
-                    params![WorkflowState::Todo.as_i64(), now.millis()],
-                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
-                )
+                .query_map(params![WorkflowState::Todo.as_i64(), now.millis()], |r| {
+                    Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+                })
                 .map_err(|e| sql_err("compteurs par compte", e))?;
 
             let mut sortie = BTreeMap::new();
@@ -147,7 +147,9 @@ impl Store {
                 ),
                 None => ("SELECT state, count(*) FROM threads GROUP BY state", false),
             };
-            let mut stmt = c.prepare_cached(sql).map_err(|e| sql_err("préparation", e))?;
+            let mut stmt = c
+                .prepare_cached(sql)
+                .map_err(|e| sql_err("préparation", e))?;
             let args: Vec<SqlValue> = if hide {
                 vec![SqlValue::Integer(now.unwrap().millis())]
             } else {
@@ -176,11 +178,15 @@ impl Store {
     ) -> Result<Option<WorkflowState>> {
         self.with_conn(|c| {
             let previous: Option<i64> = c
-                .query_row("SELECT state FROM threads WHERE id = ?1", [thread.get()], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT state FROM threads WHERE id = ?1",
+                    [thread.get()],
+                    |r| r.get(0),
+                )
                 .ok();
-            let Some(previous) = previous else { return Ok(None) };
+            let Some(previous) = previous else {
+                return Ok(None);
+            };
 
             c.execute(
                 "UPDATE threads SET state = ?1 WHERE id = ?2",
@@ -267,7 +273,8 @@ impl Store {
                     |r| r.get::<_, i64>(0).map(ThreadId),
                 )
                 .map_err(|e| sql_err("relances", e))?;
-            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| sql_err("relances", e))
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("relances", e))
         })
     }
 
@@ -322,10 +329,20 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Store::in_memory().unwrap();
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, account, folder, uid: std::cell::Cell::new(1) }
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            account,
+            folder,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -363,7 +380,10 @@ mod tests {
         f.thread_at(3000, "C");
         f.thread_at(2000, "B");
 
-        let page = f.store.list_threads(&ListQuery::new(WorkflowState::Todo, 10)).unwrap();
+        let page = f
+            .store
+            .list_threads(&ListQuery::new(WorkflowState::Todo, 10))
+            .unwrap();
         let noms: Vec<_> = page.iter().map(|r| r.from_display.as_str()).collect();
         assert_eq!(noms, ["C", "B", "A"]);
     }
@@ -399,7 +419,10 @@ mod tests {
         for i in 0..6 {
             f.thread_at(5000, &format!("n{i}"));
         }
-        let tous = f.store.list_all_threads(ListQuery::new(WorkflowState::Todo, 2)).unwrap();
+        let tous = f
+            .store
+            .list_all_threads(ListQuery::new(WorkflowState::Todo, 2))
+            .unwrap();
         assert_eq!(tous.len(), 6);
     }
 
@@ -408,9 +431,15 @@ mod tests {
         let f = fixture();
         let autre = f
             .store
-            .create_account(&NewAccount::new("b@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("b@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let autre_dossier = f.store.upsert_folder(autre, "INBOX", FolderRole::Inbox).unwrap();
+        let autre_dossier = f
+            .store
+            .upsert_folder(autre, "INBOX", FolderRole::Inbox)
+            .unwrap();
 
         f.thread_at(1000, "compte-a");
         f.store
@@ -433,7 +462,10 @@ mod tests {
             })
             .unwrap();
 
-        let tous = f.store.list_threads(&ListQuery::new(WorkflowState::Todo, 10)).unwrap();
+        let tous = f
+            .store
+            .list_threads(&ListQuery::new(WorkflowState::Todo, 10))
+            .unwrap();
         assert_eq!(tous.len(), 2);
 
         let filtre = f
@@ -451,16 +483,19 @@ mod tests {
         f.store
             .snooze_thread(
                 t,
-                Snooze { until: Timestamp::from_millis(5000), restore_to: WorkflowState::Todo },
+                Snooze {
+                    until: Timestamp::from_millis(5000),
+                    restore_to: WorkflowState::Todo,
+                },
             )
             .unwrap();
 
-        let avant = ListQuery::new(WorkflowState::Todo, 10)
-            .hiding_snoozed(Timestamp::from_millis(4000));
+        let avant =
+            ListQuery::new(WorkflowState::Todo, 10).hiding_snoozed(Timestamp::from_millis(4000));
         assert!(f.store.list_threads(&avant).unwrap().is_empty());
 
-        let apres = ListQuery::new(WorkflowState::Todo, 10)
-            .hiding_snoozed(Timestamp::from_millis(6000));
+        let apres =
+            ListQuery::new(WorkflowState::Todo, 10).hiding_snoozed(Timestamp::from_millis(6000));
         assert_eq!(f.store.list_threads(&apres).unwrap().len(), 1);
     }
 
@@ -478,12 +513,20 @@ mod tests {
             )
             .unwrap();
 
-        assert!(f.store.due_snoozes(Timestamp::from_millis(4999)).unwrap().is_empty());
+        assert!(f
+            .store
+            .due_snoozes(Timestamp::from_millis(4999))
+            .unwrap()
+            .is_empty());
         let echus = f.store.due_snoozes(Timestamp::from_millis(5000)).unwrap();
         assert_eq!(echus, [(t, WorkflowState::Waiting)]);
 
         f.store.clear_snooze(t).unwrap();
-        assert!(f.store.due_snoozes(Timestamp::from_millis(9999)).unwrap().is_empty());
+        assert!(f
+            .store
+            .due_snoozes(Timestamp::from_millis(9999))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -508,23 +551,40 @@ mod tests {
         f.store
             .snooze_thread(
                 a,
-                Snooze { until: Timestamp::from_millis(9000), restore_to: WorkflowState::Todo },
+                Snooze {
+                    until: Timestamp::from_millis(9000),
+                    restore_to: WorkflowState::Todo,
+                },
             )
             .unwrap();
 
         assert_eq!(f.store.state_counts(None).unwrap()[0], 2);
-        assert_eq!(f.store.state_counts(Some(Timestamp::from_millis(1))).unwrap()[0], 1);
+        assert_eq!(
+            f.store
+                .state_counts(Some(Timestamp::from_millis(1)))
+                .unwrap()[0],
+            1
+        );
     }
 
     #[test]
     fn changer_l_etat_d_un_fil_inexistant_ne_fait_rien() {
         let f = fixture();
-        assert!(f.store.set_thread_state(ThreadId(999), WorkflowState::Done).unwrap().is_none());
-        assert!(!f.store.snooze_thread(
-            ThreadId(999),
-            Snooze { until: Timestamp::EPOCH, restore_to: WorkflowState::Todo }
-        )
-        .unwrap());
+        assert!(f
+            .store
+            .set_thread_state(ThreadId(999), WorkflowState::Done)
+            .unwrap()
+            .is_none());
+        assert!(!f
+            .store
+            .snooze_thread(
+                ThreadId(999),
+                Snooze {
+                    until: Timestamp::EPOCH,
+                    restore_to: WorkflowState::Todo
+                }
+            )
+            .unwrap());
     }
 
     #[test]
@@ -540,7 +600,10 @@ mod tests {
         let now = Timestamp::from_millis(500_000_000);
         let dus = f.store.threads_needing_follow_up(now, 3, 10).unwrap();
         assert_eq!(dus, [vieux]);
-        assert!(!dus.contains(&a_traiter), "un fil à traiter n'est pas relancé");
+        assert!(
+            !dus.contains(&a_traiter),
+            "un fil à traiter n'est pas relancé"
+        );
     }
 
     #[test]
@@ -588,7 +651,10 @@ mod tests {
             .store
             .create_account(&NewAccount::new("b@x.fr", "i", "s"), Timestamp::EPOCH)
             .unwrap();
-        let dossier_b = f.store.upsert_folder(second, "INBOX", FolderRole::Inbox).unwrap();
+        let dossier_b = f
+            .store
+            .upsert_folder(second, "INBOX", FolderRole::Inbox)
+            .unwrap();
 
         f.thread_at(1000, "Marie");
         f.thread_at(2000, "Luc");
@@ -612,7 +678,10 @@ mod tests {
             })
             .unwrap();
 
-        let comptes = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        let comptes = f
+            .store
+            .todo_counts_by_account(Timestamp::from_millis(10_000))
+            .unwrap();
         assert_eq!(comptes.get(&f.account), Some(&2));
         assert_eq!(comptes.get(&second), Some(&1));
     }
@@ -624,7 +693,10 @@ mod tests {
         let fil = f.thread_at(1000, "Marie");
         f.store.set_thread_state(fil, WorkflowState::Done).unwrap();
 
-        let comptes = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        let comptes = f
+            .store
+            .todo_counts_by_account(Timestamp::from_millis(10_000))
+            .unwrap();
         assert_eq!(comptes.get(&f.account), None);
     }
 
@@ -637,21 +709,33 @@ mod tests {
         f.store
             .snooze_thread(
                 fil,
-                Snooze { until: Timestamp::from_millis(50_000), restore_to: WorkflowState::Todo },
+                Snooze {
+                    until: Timestamp::from_millis(50_000),
+                    restore_to: WorkflowState::Todo,
+                },
             )
             .unwrap();
 
-        let avant = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        let avant = f
+            .store
+            .todo_counts_by_account(Timestamp::from_millis(10_000))
+            .unwrap();
         assert_eq!(avant.get(&f.account), None);
 
-        let apres = f.store.todo_counts_by_account(Timestamp::from_millis(60_000)).unwrap();
+        let apres = f
+            .store
+            .todo_counts_by_account(Timestamp::from_millis(60_000))
+            .unwrap();
         assert_eq!(apres.get(&f.account), Some(&1));
     }
 
     #[test]
     fn un_compte_sans_fil_n_apparait_pas() {
         let f = fixture();
-        let comptes = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        let comptes = f
+            .store
+            .todo_counts_by_account(Timestamp::from_millis(10_000))
+            .unwrap();
         assert!(comptes.is_empty());
     }
 }

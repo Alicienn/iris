@@ -197,10 +197,11 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
     let pending: Vec<&Migration> = MIGRATIONS.iter().filter(|m| m.version > version).collect();
     for m in pending {
         tracing::info!(version = m.version, name = m.name, "migration");
-        conn.execute_batch(&format!("BEGIN; {} PRAGMA user_version = {}; COMMIT;", m.sql, m.version))
-            .map_err(|e| {
-                Error::store(format!("migration {} « {} » : {e}", m.version, m.name))
-            })?;
+        conn.execute_batch(&format!(
+            "BEGIN; {} PRAGMA user_version = {}; COMMIT;",
+            m.sql, m.version
+        ))
+        .map_err(|e| Error::store(format!("migration {} « {} » : {e}", m.version, m.name)))?;
         version = m.version;
     }
 

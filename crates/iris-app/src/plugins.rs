@@ -39,7 +39,11 @@ const MAX_PAR_LOT: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginEffect {
     /// Changer l'état d'un fil.
-    Act { plugin: String, thread: ThreadId, action: Action },
+    Act {
+        plugin: String,
+        thread: ThreadId,
+        action: Action,
+    },
     /// Ajouter une commande à la palette.
     Command { plugin: String, spec: String },
     /// Afficher un message.
@@ -49,8 +53,14 @@ pub enum PluginEffect {
 /// Ce que l'application demande aux plugins.
 #[derive(Debug, Clone)]
 enum PluginRequest {
-    Event { payload: String, thread: Option<ThreadId> },
-    Command { spec: String, thread: Option<ThreadId> },
+    Event {
+        payload: String,
+        thread: Option<ThreadId>,
+    },
+    Command {
+        spec: String,
+        thread: Option<ThreadId>,
+    },
     Shutdown,
 }
 
@@ -93,7 +103,13 @@ impl PluginService {
         // Sans plugin, aucun fil : un exécuteur WebAssembly qui ne fera jamais rien
         // est de la mémoire et un fil de trop.
         if registre.is_empty() {
-            return (Self { requests: tx, report }, None);
+            return (
+                Self {
+                    requests: tx,
+                    report,
+                },
+                None,
+            );
         }
 
         // `init` avant tout événement : c'est le contrat, et un plugin qui n'a pas
@@ -110,7 +126,13 @@ impl PluginService {
             .spawn(move || run(registre, store, rx, on_effect))
             .expect("création du fil des plugins");
 
-        (Self { requests: tx, report }, Some(fil))
+        (
+            Self {
+                requests: tx,
+                report,
+            },
+            Some(fil),
+        )
     }
 
     pub fn report(&self) -> &LoadReport {
@@ -119,15 +141,18 @@ impl PluginService {
 
     /// Transmet un événement du bus, s'il intéresse les plugins.
     pub fn notify(&self, event: &Event, store: &Store) {
-        let Some((payload, thread)) = payload_pour(event, store) else { return };
+        let Some((payload, thread)) = payload_pour(event, store) else {
+            return;
+        };
         let _ = self.requests.send(PluginRequest::Event { payload, thread });
     }
 
     /// Invoque une commande fournie par un plugin.
     pub fn invoke(&self, spec: &str, thread: Option<ThreadId>) {
-        let _ = self
-            .requests
-            .send(PluginRequest::Command { spec: spec.to_string(), thread });
+        let _ = self.requests.send(PluginRequest::Command {
+            spec: spec.to_string(),
+            thread,
+        });
     }
 
     pub fn shutdown(&self) {
@@ -256,7 +281,9 @@ fn payload_pour(event: &Event, store: &Store) -> Option<(String, Option<ThreadId
             }
             Some((charge.to_string(), Some(thread)))
         }
-        Event::ThreadStateChanged { thread, from, to, .. } => Some((
+        Event::ThreadStateChanged {
+            thread, from, to, ..
+        } => Some((
             serde_json::json!({
                 "event": "thread-state-changed",
                 "thread": thread.get(),
@@ -317,7 +344,11 @@ pub async fn pump(bus: &EventBus, store: Arc<Store>, service: Arc<PluginService>
 /// Applique l'effet demandé par un plugin.
 pub fn apply_effect(effect: &PluginEffect, controller: &Controller) -> Option<String> {
     match effect {
-        PluginEffect::Act { plugin, thread, action } => {
+        PluginEffect::Act {
+            plugin,
+            thread,
+            action,
+        } => {
             tracing::info!(plugin = %plugin, fil = %thread, action = ?action, "action de plugin");
             controller.send(Request::ApplyTo(*thread, *action));
             None
@@ -373,9 +404,18 @@ mod tests {
 
     #[test]
     fn les_deux_langues_sont_acceptees() {
-        assert_eq!(action_depuis_json("{\"action\":\"traite\"}"), Some(Action::Done));
-        assert_eq!(action_depuis_json("{\"action\":\"waiting\"}"), Some(Action::Waiting));
-        assert_eq!(action_depuis_json("{\"action\":\"a_traiter\"}"), Some(Action::Todo));
+        assert_eq!(
+            action_depuis_json("{\"action\":\"traite\"}"),
+            Some(Action::Done)
+        );
+        assert_eq!(
+            action_depuis_json("{\"action\":\"waiting\"}"),
+            Some(Action::Waiting)
+        );
+        assert_eq!(
+            action_depuis_json("{\"action\":\"a_traiter\"}"),
+            Some(Action::Todo)
+        );
     }
 
     #[test]
@@ -400,12 +440,22 @@ mod tests {
 
     #[test]
     fn une_commande_et_une_notification_passent_sans_fil() {
-        let effets = effets("p", &trace(&["command:{\"id\":\"x\"}", "notify:bonjour"]), None);
+        let effets = effets(
+            "p",
+            &trace(&["command:{\"id\":\"x\"}", "notify:bonjour"]),
+            None,
+        );
         assert_eq!(
             effets,
             [
-                PluginEffect::Command { plugin: "p".into(), spec: "{\"id\":\"x\"}".into() },
-                PluginEffect::Notify { plugin: "p".into(), message: "bonjour".into() },
+                PluginEffect::Command {
+                    plugin: "p".into(),
+                    spec: "{\"id\":\"x\"}".into()
+                },
+                PluginEffect::Notify {
+                    plugin: "p".into(),
+                    message: "bonjour".into()
+                },
             ]
         );
     }
@@ -415,7 +465,10 @@ mod tests {
         // Sans le nom, l'application porte le chapeau de ce qu'un plugin raconte.
         let (c, _rx, fil) = controleur_muet();
         let message = apply_effect(
-            &PluginEffect::Notify { plugin: "tri".into(), message: "3 triés".into() },
+            &PluginEffect::Notify {
+                plugin: "tri".into(),
+                message: "3 triés".into(),
+            },
             &c,
         );
         assert_eq!(message.as_deref(), Some("tri : 3 triés"));
@@ -423,18 +476,16 @@ mod tests {
         fil.join().unwrap();
     }
 
-    fn controleur_muet() -> (Controller, std::sync::mpsc::Receiver<()>, std::thread::JoinHandle<()>)
-    {
+    fn controleur_muet() -> (
+        Controller,
+        std::sync::mpsc::Receiver<()>,
+        std::thread::JoinHandle<()>,
+    ) {
         let store = Arc::new(Store::in_memory().unwrap());
         let (tx, rx) = std::sync::mpsc::channel();
-        let (c, fil) = Controller::spawn(
-            store,
-            Default::default(),
-            Timestamp::EPOCH,
-            move |_| {
-                let _ = tx.send(());
-            },
-        );
+        let (c, fil) = Controller::spawn(store, Default::default(), Timestamp::EPOCH, move |_| {
+            let _ = tx.send(());
+        });
         (c, rx, fil)
     }
 
@@ -444,7 +495,9 @@ mod tests {
         let compte = store
             .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::EPOCH)
             .unwrap();
-        let dossier = store.upsert_folder(compte, "INBOX", FolderRole::Inbox).unwrap();
+        let dossier = store
+            .upsert_folder(compte, "INBOX", FolderRole::Inbox)
+            .unwrap();
         let insere = store
             .insert_message(&NewMessage {
                 account: compte,
@@ -491,7 +544,10 @@ mod tests {
         let texte = detail_message(id, &store).unwrap().0.to_string();
         assert!(!texte.contains("corps secret"));
         assert!(!texte.contains("compte"));
-        assert!(texte.contains("info@boutique.fr"), "l'expéditeur, lui, est utile");
+        assert!(
+            texte.contains("info@boutique.fr"),
+            "l'expéditeur, lui, est utile"
+        );
     }
 
     #[test]
@@ -514,7 +570,9 @@ mod tests {
         };
         assert_eq!(payload_pour(&arrivee, &store).unwrap().1, Some(fil));
 
-        let bruit = Event::ThemeReloaded { name: Arc::from("mono") };
+        let bruit = Event::ThemeReloaded {
+            name: Arc::from("mono"),
+        };
         assert!(payload_pour(&bruit, &store).is_none());
 
         let phase = Event::SyncPhaseChanged {

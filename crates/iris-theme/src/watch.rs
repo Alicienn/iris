@@ -63,7 +63,10 @@ impl ThemeWatcher {
             })
             .map_err(|e| Error::Config(format!("fil de surveillance : {e}")))?;
 
-        Ok(Some(Self { _watcher: watcher, stop }))
+        Ok(Some(Self {
+            _watcher: watcher,
+            stop,
+        }))
     }
 
     fn run(
@@ -76,7 +79,9 @@ impl ThemeWatcher {
 
         while !stop.load(Ordering::Relaxed) {
             // Attente du premier événement, sans consommer de processeur.
-            let Ok(_) = rx.recv_timeout(Duration::from_millis(500)) else { continue };
+            let Ok(_) = rx.recv_timeout(Duration::from_millis(500)) else {
+                continue;
+            };
 
             // Regroupement : on avale tout ce qui arrive dans la fenêtre.
             let echeance = Instant::now() + DEBOUNCE;
@@ -90,7 +95,9 @@ impl ThemeWatcher {
                 Ok(charges) if !charges.is_empty() => {
                     let actif = registry.active().name.clone();
                     tracing::info!(?charges, "thèmes rechargés");
-                    bus.publish(Event::ThemeReloaded { name: Arc::from(actif.as_str()) });
+                    bus.publish(Event::ThemeReloaded {
+                        name: Arc::from(actif.as_str()),
+                    });
                 }
                 Ok(_) => {}
                 Err(e) => tracing::warn!(erreur = %e, "rechargement des thèmes"),
@@ -127,7 +134,9 @@ mod tests {
         let bus = EventBus::new();
         let mut abonne = bus.subscribe_kind(EventKind::Presentation);
 
-        let _watcher = ThemeWatcher::start(Arc::clone(&registry), bus).unwrap().unwrap();
+        let _watcher = ThemeWatcher::start(Arc::clone(&registry), bus)
+            .unwrap()
+            .unwrap();
         assert_eq!(registry.get("nuit").unwrap().density.row_height, 50.0);
 
         std::fs::write(&fichier, "name = \"nuit\"\n[density]\nrow_height = 30.0\n").unwrap();

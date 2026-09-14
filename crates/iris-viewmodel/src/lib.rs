@@ -171,13 +171,21 @@ impl ViewModel {
             return Ok(self.clear_search());
         }
 
-        let etat =
-            search::run(&self.store, self.index.as_ref(), query, &self.accounts, self.now)?;
+        let etat = search::run(
+            &self.store,
+            self.index.as_ref(),
+            query,
+            &self.accounts,
+            self.now,
+        )?;
         self.search = Some(etat);
         self.select_first();
 
         Ok(ViewUpdate {
-            list: ListUpdate { reordered: true, ..Default::default() },
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
             counts_changed: false,
             selection_changed: true,
             search_changed: true,
@@ -191,7 +199,10 @@ impl ViewModel {
         }
         self.select_first();
         ViewUpdate {
-            list: ListUpdate { reordered: true, ..Default::default() },
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
             counts_changed: false,
             selection_changed: true,
             search_changed: true,
@@ -203,10 +214,17 @@ impl ViewModel {
     /// Sans cela, trier depuis les résultats laisserait à l'écran des lignes qui ne
     /// correspondent plus : un fil marqué traité y resterait affiché comme à traiter.
     fn refresh_search(&mut self) -> Result<bool> {
-        let Some(courante) = &self.search else { return Ok(false) };
+        let Some(courante) = &self.search else {
+            return Ok(false);
+        };
         let requete = courante.query.clone();
-        let etat =
-            search::run(&self.store, self.index.as_ref(), &requete, &self.accounts, self.now)?;
+        let etat = search::run(
+            &self.store,
+            self.index.as_ref(),
+            &requete,
+            &self.accounts,
+            self.now,
+        )?;
         let change = etat.results != courante.results;
         self.search = Some(etat);
         Ok(change)
@@ -249,7 +267,10 @@ impl ViewModel {
         self.select_first();
 
         Ok(ViewUpdate {
-            list: ListUpdate { reordered: true, ..Default::default() },
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
             counts_changed: false,
             selection_changed: true,
             search_changed: recherche,
@@ -275,7 +296,10 @@ impl ViewModel {
         self.refresh_counts()?;
 
         Ok(ViewUpdate {
-            list: ListUpdate { reordered: true, ..Default::default() },
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
             counts_changed: true,
             selection_changed: true,
             search_changed: false,
@@ -315,7 +339,10 @@ impl ViewModel {
         let selection = self.reconcile_selection();
 
         Ok(ViewUpdate {
-            list: ListUpdate { reordered: liste.reordered || recherche, ..liste },
+            list: ListUpdate {
+                reordered: liste.reordered || recherche,
+                ..liste
+            },
             counts_changed: compteurs,
             selection_changed: selection,
             search_changed: false,
@@ -359,7 +386,9 @@ impl ViewModel {
         if self.search.is_some() {
             let dernier = self.rows().len().saturating_sub(1);
             let cible = cible.min(dernier);
-            let Some(id) = self.row_at(cible).map(|r| r.id) else { return Ok(false) };
+            let Some(id) = self.row_at(cible).map(|r| r.id) else {
+                return Ok(false);
+            };
             self.selection.remember_index(cible);
             return Ok(self.selection.set(Some(id)));
         }
@@ -405,7 +434,10 @@ impl ViewModel {
         // Le fil sélectionné a quitté la liste : on reprend à la position la plus
         // proche plutôt que de tout désélectionner, ce qui interromprait le triage
         // au clavier à chaque action.
-        let position = self.selection.last_index().min(self.rows().len().saturating_sub(1));
+        let position = self
+            .selection
+            .last_index()
+            .min(self.rows().len().saturating_sub(1));
         let remplacant = self.row_at(position).map(|r| r.id);
         self.selection.remember_index(position);
         self.selection.set(remplacant)
@@ -442,10 +474,20 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, account, folder, uid: std::cell::Cell::new(1) }
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            account,
+            folder,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -521,7 +563,9 @@ mod tests {
     fn changer_d_onglet_charge_la_liste_correspondante() {
         let f = fixture();
         let fils = f.seed(5);
-        f.store.set_thread_state(fils[0], WorkflowState::Done).unwrap();
+        f.store
+            .set_thread_state(fils[0], WorkflowState::Done)
+            .unwrap();
 
         let mut vm = f.vm();
         vm.bootstrap().unwrap();
@@ -567,12 +611,18 @@ mod tests {
         vm.bootstrap().unwrap();
 
         vm.move_selection(Movement::Previous).unwrap();
-        assert_eq!(vm.list().index_of(vm.selection().thread().unwrap()), Some(0));
+        assert_eq!(
+            vm.list().index_of(vm.selection().thread().unwrap()),
+            Some(0)
+        );
 
         for _ in 0..10 {
             vm.move_selection(Movement::Next).unwrap();
         }
-        assert_eq!(vm.list().index_of(vm.selection().thread().unwrap()), Some(2));
+        assert_eq!(
+            vm.list().index_of(vm.selection().thread().unwrap()),
+            Some(2)
+        );
     }
 
     #[test]
@@ -624,7 +674,10 @@ mod tests {
         vm.bootstrap().unwrap();
 
         f.seed(3);
-        let diff = ViewDiff { full_refresh: true, ..Default::default() };
+        let diff = ViewDiff {
+            full_refresh: true,
+            ..Default::default()
+        };
         let update = vm.apply_diff(&diff).unwrap();
 
         assert!(update.list.reordered);
@@ -645,13 +698,18 @@ mod tests {
         let selectionne = vm.selection().thread().unwrap();
         let position = vm.list().index_of(selectionne).unwrap();
 
-        f.store.set_thread_state(selectionne, WorkflowState::Done).unwrap();
+        f.store
+            .set_thread_state(selectionne, WorkflowState::Done)
+            .unwrap();
         let mut diff = ViewDiff::default();
         diff.lists.insert(WorkflowState::Todo);
         let update = vm.apply_diff(&diff).unwrap();
 
         assert!(update.selection_changed);
-        let nouveau = vm.selection().thread().expect("une ligne reste sélectionnée");
+        let nouveau = vm
+            .selection()
+            .thread()
+            .expect("une ligne reste sélectionnée");
         assert_eq!(
             vm.list().index_of(nouveau),
             Some(position),
@@ -664,7 +722,9 @@ mod tests {
         // Recharger trois listes à chaque diff paierait trois fois pour une vue.
         let f = fixture();
         let fils = f.seed(5);
-        f.store.set_thread_state(fils[0], WorkflowState::Waiting).unwrap();
+        f.store
+            .set_thread_state(fils[0], WorkflowState::Waiting)
+            .unwrap();
 
         let mut vm = f.vm();
         vm.bootstrap().unwrap();
@@ -672,10 +732,17 @@ mod tests {
         vm.set_tab(WorkflowState::Todo).unwrap();
         assert!(vm.list_of(WorkflowState::Waiting).loaded() > 0);
 
-        let diff = ViewDiff { full_refresh: true, ..Default::default() };
+        let diff = ViewDiff {
+            full_refresh: true,
+            ..Default::default()
+        };
         vm.apply_diff(&diff).unwrap();
 
-        assert_eq!(vm.list_of(WorkflowState::Waiting).loaded(), 0, "invalidée, pas rechargée");
+        assert_eq!(
+            vm.list_of(WorkflowState::Waiting).loaded(),
+            0,
+            "invalidée, pas rechargée"
+        );
         assert!(vm.list().loaded() > 0, "l'onglet actif, lui, est rechargé");
     }
 
@@ -685,7 +752,10 @@ mod tests {
         f.seed(5);
         let autre = f
             .store
-            .create_account(&NewAccount::new("b@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("b@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
 
         let mut vm = f.vm();
@@ -811,7 +881,9 @@ mod tests {
         vm.search("etat:a_traiter").unwrap();
         assert_eq!(vm.rows().len(), 3);
 
-        f.store.set_thread_state(fils[0], WorkflowState::Done).unwrap();
+        f.store
+            .set_thread_state(fils[0], WorkflowState::Done)
+            .unwrap();
         let mut diff = ViewDiff::default();
         diff.threads.insert(fils[0]);
         vm.apply_diff(&diff).unwrap();
@@ -839,7 +911,9 @@ mod tests {
     fn la_ligne_selectionnee_vient_des_resultats() {
         let f = fixture();
         let fils = f.seed(4);
-        f.store.set_thread_state(fils[3], WorkflowState::Waiting).unwrap();
+        f.store
+            .set_thread_state(fils[3], WorkflowState::Waiting)
+            .unwrap();
 
         let mut vm = f.vm();
         vm.bootstrap().unwrap();

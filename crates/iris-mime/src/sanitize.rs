@@ -92,17 +92,33 @@ pub fn sanitize(html: &str) -> Sanitized {
     // plus. `style` est absent volontairement — une feuille de style peut masquer du
     // contenu, appeler des polices distantes et recouvrir l'interface.
     builder
-        .rm_tags(["script", "style", "iframe", "object", "embed", "form", "input", "button"])
-        .add_tags(["table", "thead", "tbody", "tfoot", "tr", "td", "th", "center", "font"])
+        .rm_tags([
+            "script", "style", "iframe", "object", "embed", "form", "input", "button",
+        ])
+        .add_tags([
+            "table", "thead", "tbody", "tfoot", "tr", "td", "th", "center", "font",
+        ])
         .add_generic_attributes([
-            "align", "valign", "bgcolor", "width", "height", "cellpadding", "cellspacing",
-            "border", "color", "face", "size", "dir",
+            "align",
+            "valign",
+            "bgcolor",
+            "width",
+            "height",
+            "cellpadding",
+            "cellspacing",
+            "border",
+            "color",
+            "face",
+            "size",
+            "dir",
         ])
         .add_tag_attributes("img", ["alt", "title", "width", "height"])
         // Le style en ligne est conservé pour la mise en forme, mais nettoyé de ses
         // fonctions dangereuses par le filtre ci-dessous.
         .add_generic_attributes(["style"])
-        .url_schemes(HashSet::from_iter(["http", "https", "mailto", "cid", "tel"]))
+        .url_schemes(HashSet::from_iter([
+            "http", "https", "mailto", "cid", "tel",
+        ]))
         .link_rel(Some("noopener noreferrer nofollow"))
         .attribute_filter(|element, attribute, value| {
             match (element, attribute) {
@@ -139,7 +155,9 @@ fn inventory(html: &str) -> Inventory {
     let mut trackers = Vec::new();
 
     for balise in img_tags(html) {
-        let Some(src) = attr(&balise, "src") else { continue };
+        let Some(src) = attr(&balise, "src") else {
+            continue;
+        };
         if !is_remote(&src) {
             continue;
         }
@@ -214,7 +232,10 @@ fn attr(tag: &str, name: &str) -> Option<String> {
         // Le nom doit etre un mot entier : sans cette garde, « width » trouverait
         // « data-width ».
         let precede_ok = debut_nom == 0
-            || lower[..debut_nom].chars().next_back().is_some_and(char::is_whitespace);
+            || lower[..debut_nom]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace);
 
         if precede_ok {
             let apres = &lower[fin_nom..];
@@ -226,10 +247,10 @@ fn attr(tag: &str, name: &str) -> Option<String> {
                 let debut_valeur = decale + saut;
                 let suite = suite.trim_start();
 
-                let (offset, longueur) = if suite.starts_with('"') {
-                    (1, suite[1..].find('"').unwrap_or(suite.len() - 1))
-                } else if suite.starts_with('\'') {
-                    (1, suite[1..].find('\'').unwrap_or(suite.len() - 1))
+                let (offset, longueur) = if let Some(reste) = suite.strip_prefix('"') {
+                    (1, reste.find('"').unwrap_or(reste.len()))
+                } else if let Some(reste) = suite.strip_prefix('\'') {
+                    (1, reste.find('\'').unwrap_or(reste.len()))
                 } else {
                     let brut = suite
                         .split_whitespace()
@@ -380,16 +401,17 @@ mod tests {
     fn une_vraie_image_n_est_pas_prise_pour_un_traqueur() {
         // Bloquée, oui — signalée comme pistage, non. Confondre les deux rendrait
         // l'avertissement inutile.
-        let s = sanitize(r#"<img src="https://cdn.example.com/banniere.jpg" width="600" height="200">"#);
+        let s = sanitize(
+            r#"<img src="https://cdn.example.com/banniere.jpg" width="600" height="200">"#,
+        );
         assert!(s.has_remote_content());
         assert!(!s.is_tracked());
     }
 
     #[test]
     fn la_meme_image_n_est_recensee_qu_une_fois() {
-        let s = sanitize(
-            r#"<img src="https://x.example/a.png"><img src="https://x.example/a.png">"#,
-        );
+        let s =
+            sanitize(r#"<img src="https://x.example/a.png"><img src="https://x.example/a.png">"#);
         assert_eq!(s.blocked_remote.len(), 1);
     }
 

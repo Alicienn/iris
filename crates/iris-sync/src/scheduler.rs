@@ -110,7 +110,11 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(config: ScheduleConfig) -> Self {
-        Self { config, accounts: BTreeMap::new(), active: None }
+        Self {
+            config,
+            accounts: BTreeMap::new(),
+            active: None,
+        }
     }
 
     pub fn config(&self) -> ScheduleConfig {
@@ -120,19 +124,22 @@ impl Scheduler {
     /// Inscrit un compte, ou met à jour ses attributs.
     pub fn register(&mut self, account: AccountId, server: &str, pinned: bool, now: Timestamp) {
         let config = self.config;
-        let entree = self.accounts.entry(account).or_insert_with(|| AccountSchedule {
-            account,
-            server: server.to_string(),
-            pinned,
-            priority: Priority::Background,
-            interval: config.initial_interval,
-            // Un compte fraîchement inscrit est immédiatement dû : il faut bien le
-            // synchroniser une première fois.
-            next_due: now,
-            last_activity: Timestamp::EPOCH,
-            consecutive_failures: 0,
-            suspended: false,
-        });
+        let entree = self
+            .accounts
+            .entry(account)
+            .or_insert_with(|| AccountSchedule {
+                account,
+                server: server.to_string(),
+                pinned,
+                priority: Priority::Background,
+                interval: config.initial_interval,
+                // Un compte fraîchement inscrit est immédiatement dû : il faut bien le
+                // synchroniser une première fois.
+                next_due: now,
+                last_activity: Timestamp::EPOCH,
+                consecutive_failures: 0,
+                suspended: false,
+            });
         entree.server = server.to_string();
         entree.pinned = pinned;
         self.recompute_priority(account, now);
@@ -206,13 +213,19 @@ impl Scheduler {
             .filter(|e| !e.suspended && e.priority.deserves_idle())
             .collect();
         candidats.sort_by_key(|e| (e.priority, e.account.get()));
-        candidats.into_iter().take(capacity).map(|e| e.account).collect()
+        candidats
+            .into_iter()
+            .take(capacity)
+            .map(|e| e.account)
+            .collect()
     }
 
     /// Enregistre le résultat d'un cycle et ajuste l'intervalle.
     pub fn record(&mut self, account: AccountId, outcome: SyncOutcome, now: Timestamp) {
         let config = self.config;
-        let Some(e) = self.accounts.get_mut(&account) else { return };
+        let Some(e) = self.accounts.get_mut(&account) else {
+            return;
+        };
 
         match outcome {
             SyncOutcome::Changed { .. } => {
@@ -273,7 +286,11 @@ impl Scheduler {
     }
 
     pub fn suspended(&self) -> Vec<AccountId> {
-        self.accounts.values().filter(|e| e.suspended).map(|e| e.account).collect()
+        self.accounts
+            .values()
+            .filter(|e| e.suspended)
+            .map(|e| e.account)
+            .collect()
     }
 
     /// Instant du prochain réveil nécessaire.
@@ -355,7 +372,10 @@ mod tests {
 
         // Une nouveauté le ramène au minimum.
         s.record(AccountId(1), SyncOutcome::Changed { messages: 3 }, t(6000));
-        assert_eq!(s.get(AccountId(1)).unwrap().interval, ScheduleConfig::default().min_interval);
+        assert_eq!(
+            s.get(AccountId(1)).unwrap().interval,
+            ScheduleConfig::default().min_interval
+        );
     }
 
     #[test]
@@ -365,7 +385,10 @@ mod tests {
         for i in 0..100 {
             s.record(AccountId(1), SyncOutcome::Unchanged, t(i * 10_000));
         }
-        assert_eq!(s.get(AccountId(1)).unwrap().interval, ScheduleConfig::default().max_interval);
+        assert_eq!(
+            s.get(AccountId(1)).unwrap().interval,
+            ScheduleConfig::default().max_interval
+        );
     }
 
     #[test]
@@ -389,14 +412,21 @@ mod tests {
         s.register(AccountId(1), "x", false, t(0));
 
         for i in 1..ScheduleConfig::default().failure_threshold {
-            s.record(AccountId(1), SyncOutcome::TransientFailure, t(i as i64 * 100));
+            s.record(
+                AccountId(1),
+                SyncOutcome::TransientFailure,
+                t(i as i64 * 100),
+            );
             assert!(!s.get(AccountId(1)).unwrap().suspended, "pas encore");
         }
 
         s.record(AccountId(1), SyncOutcome::TransientFailure, t(10_000));
         assert!(s.get(AccountId(1)).unwrap().suspended);
         assert_eq!(s.suspended(), [AccountId(1)]);
-        assert!(s.due(t(999_999)).is_empty(), "un compte suspendu n'est plus interrogé");
+        assert!(
+            s.due(t(999_999)).is_empty(),
+            "un compte suspendu n'est plus interrogé"
+        );
     }
 
     #[test]
@@ -489,7 +519,11 @@ mod tests {
         s.record(AccountId(1), SyncOutcome::Unchanged, t(0));
 
         let attente = s.next_wakeup(t(0)).unwrap();
-        assert_eq!(attente, ScheduleConfig::default().initial_interval + ScheduleConfig::default().initial_interval / 2);
+        assert_eq!(
+            attente,
+            ScheduleConfig::default().initial_interval
+                + ScheduleConfig::default().initial_interval / 2
+        );
 
         // Un compte déjà dû ne fait pas attendre.
         s.register(AccountId(2), "x", false, t(0));
@@ -523,6 +557,9 @@ mod tests {
         let e = s.get(AccountId(1)).unwrap();
         assert_eq!(e.server, "nouveau.fr");
         assert!(e.pinned);
-        assert_eq!(e.interval, intervalle, "l'apprentissage ne doit pas être perdu");
+        assert_eq!(
+            e.interval, intervalle,
+            "l'apprentissage ne doit pas être perdu"
+        );
     }
 }

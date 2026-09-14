@@ -97,7 +97,9 @@ fn prompt_secret(invite: &str) -> Result<Secret> {
 
 fn cmd_add_account(args: &[String]) -> Result<()> {
     let Some(adresse) = args.first() else {
-        return Err(iris_types::Error::Config("usage : iris add-account <adresse>".into()));
+        return Err(iris_types::Error::Config(
+            "usage : iris add-account <adresse>".into(),
+        ));
     };
 
     let services = open_services()?;
@@ -138,7 +140,9 @@ fn cmd_add_account(args: &[String]) -> Result<()> {
 
 fn cmd_import(args: &[String]) -> Result<()> {
     let Some(fichier) = args.first() else {
-        return Err(iris_types::Error::Config("usage : iris import <fichier>".into()));
+        return Err(iris_types::Error::Config(
+            "usage : iris import <fichier>".into(),
+        ));
     };
 
     let contenu = std::fs::read_to_string(fichier)?;
@@ -148,7 +152,9 @@ fn cmd_import(args: &[String]) -> Result<()> {
         eprintln!("  ignoré : {e}");
     }
     if entrees.is_empty() {
-        return Err(iris_types::Error::Config("aucun compte exploitable dans le fichier".into()));
+        return Err(iris_types::Error::Config(
+            "aucun compte exploitable dans le fichier".into(),
+        ));
     }
 
     println!("{} compte(s) à ajouter…", entrees.len());
@@ -185,7 +191,10 @@ fn cmd_list_accounts() -> Result<()> {
     for c in comptes {
         let marque = if c.pinned { "★" } else { " " };
         let etat = if c.enabled { "" } else { "  (désactivé)" };
-        println!("{marque} {:<38} {}:{}{etat}", c.email, c.imap_host, c.imap_port);
+        println!(
+            "{marque} {:<38} {}:{}{etat}",
+            c.email, c.imap_host, c.imap_port
+        );
     }
     Ok(())
 }
@@ -222,16 +231,28 @@ fn cmd_doctor() -> Result<()> {
 
     let services = open_services()?;
     println!("\nServices");
-    println!("  base           schéma {}", services.store.schema_version()?);
+    println!(
+        "  base           schéma {}",
+        services.store.schema_version()?
+    );
     println!("  secrets        {}", services.secrets_backend());
-    println!("  index          {} document(s)", services.index.document_count());
-    println!("  contenus       {} objet(s)", services.blobs.stats()?.count);
+    println!(
+        "  index          {} document(s)",
+        services.index.document_count()
+    );
+    println!(
+        "  contenus       {} objet(s)",
+        services.blobs.stats()?.count
+    );
     println!("  thèmes         {}", services.themes.names().join(", "));
 
     let comptes = services.store.accounts()?;
     println!("\nComptes         {}", comptes.len());
     println!("Messages        {}", services.store.message_count()?);
-    println!("En attente      {} opération(s)", services.store.pending_op_count()?);
+    println!(
+        "En attente      {} opération(s)",
+        services.store.pending_op_count()?
+    );
 
     // Un thème invalide ne bloque pas le démarrage, mais l'utilisateur doit pouvoir
     // savoir pourquoi son thème n'a pas l'air de fonctionner.
@@ -276,7 +297,9 @@ fn build_send_service(
     let motdepasse = services
         .secrets
         .get(&compte.email, iris_secrets::SecretKind::Password)?
-        .ok_or_else(|| iris_types::Error::AuthFailed { account: compte.email.clone() })?;
+        .ok_or_else(|| iris_types::Error::AuthFailed {
+            account: compte.email.clone(),
+        })?;
 
     let expediteur = iris_sync::send::mailer_for(&compte, motdepasse.expose())?;
     let (outbox, evenements) = iris_smtp::Outbox::new(expediteur, iris_smtp::DEFAULT_DELAY);
@@ -407,8 +430,11 @@ fn run_gui() -> Result<()> {
         runtime.handle().clone(),
     )));
 
-    let carnet =
-        shell::wire_callbacks(&fenetre, Arc::clone(&controller), iris_ui::Keymap::standard());
+    let carnet = shell::wire_callbacks(
+        &fenetre,
+        Arc::clone(&controller),
+        iris_ui::Keymap::standard(),
+    );
     shell::wire_settings(
         &fenetre,
         &services,

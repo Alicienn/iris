@@ -46,8 +46,15 @@ mod tests {
     fn les_points_d_entree_sont_prefixes() {
         // Le préfixe évite toute collision avec les exports d'une bibliothèque
         // standard embarquée par le plugin.
-        for point in [entry_points::INIT, entry_points::ON_EVENT, entry_points::ON_COMMAND] {
-            assert!(point.starts_with("iris_"), "« {point} » devrait être préfixé");
+        for point in [
+            entry_points::INIT,
+            entry_points::ON_EVENT,
+            entry_points::ON_COMMAND,
+        ] {
+            assert!(
+                point.starts_with("iris_"),
+                "« {point} » devrait être préfixé"
+            );
         }
     }
 

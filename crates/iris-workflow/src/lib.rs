@@ -82,8 +82,19 @@ impl Workflow {
 
         if let TransitionOutcome::Moved { from, to } = outcome {
             self.store.set_thread_state(thread, to)?;
-            self.push_undo(UndoEntry { thread, from, to, cause, at: now });
-            self.bus.publish(Event::ThreadStateChanged { thread, from, to, cause });
+            self.push_undo(UndoEntry {
+                thread,
+                from,
+                to,
+                cause,
+                at: now,
+            });
+            self.bus.publish(Event::ThreadStateChanged {
+                thread,
+                from,
+                to,
+                cause,
+            });
         }
 
         Ok(outcome)
@@ -104,7 +115,9 @@ impl Workflow {
     /// L'annulation n'est **pas** empilée : sans cette règle, annuler puis annuler à
     /// nouveau rejouerait l'action au lieu de remonter dans l'historique.
     pub fn undo(&self) -> Result<Option<UndoEntry>> {
-        let Some(entry) = self.pop_undo() else { return Ok(None) };
+        let Some(entry) = self.pop_undo() else {
+            return Ok(None);
+        };
 
         // Le fil a pu disparaître entre-temps ; l'annulation est alors sans objet.
         if self.store.thread_row(entry.thread)?.is_none() {
@@ -140,8 +153,13 @@ impl Workflow {
 
     /// Reporte un fil : il quitte la vue sans changer d'état.
     pub fn snooze(&self, thread: ThreadId, until: Timestamp) -> Result<bool> {
-        let Some(row) = self.store.thread_row(thread)? else { return Ok(false) };
-        let snooze = Snooze { until, restore_to: row.state };
+        let Some(row) = self.store.thread_row(thread)? else {
+            return Ok(false);
+        };
+        let snooze = Snooze {
+            until,
+            restore_to: row.state,
+        };
         let ok = self.store.snooze_thread(thread, snooze)?;
         if ok {
             self.bus.publish(Event::ThreadSnoozed { thread, until });
@@ -193,11 +211,15 @@ impl Workflow {
         }
 
         let candidats =
-            self.store.threads_needing_follow_up(now, settings.follow_up_days, limit)?;
+            self.store
+                .threads_needing_follow_up(now, settings.follow_up_days, limit)?;
 
         let mut relances = 0;
         for thread in candidats {
-            if self.apply(thread, TransitionCause::FollowUpDue, None, now)?.changed() {
+            if self
+                .apply(thread, TransitionCause::FollowUpDue, None, now)?
+                .changed()
+            {
                 relances += 1;
             }
         }
@@ -238,13 +260,28 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
         let bus = EventBus::new();
-        let workflow =
-            Workflow::new(Arc::clone(&store), bus.clone(), AutomationSettings::default());
-        Fixture { workflow, store, bus, account, folder, uid: std::cell::Cell::new(1) }
+        let workflow = Workflow::new(
+            Arc::clone(&store),
+            bus.clone(),
+            AutomationSettings::default(),
+        );
+        Fixture {
+            workflow,
+            store,
+            bus,
+            account,
+            folder,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -288,10 +325,16 @@ mod tests {
         let mut abonne = f.bus.subscribe_kind(EventKind::Workflow);
         let fil = f.thread_at(1000);
 
-        let out = f.workflow.set_state(fil, WorkflowState::Done, t(2000)).unwrap();
+        let out = f
+            .workflow
+            .set_state(fil, WorkflowState::Done, t(2000))
+            .unwrap();
         assert_eq!(
             out,
-            TransitionOutcome::Moved { from: WorkflowState::Todo, to: WorkflowState::Done }
+            TransitionOutcome::Moved {
+                from: WorkflowState::Todo,
+                to: WorkflowState::Done
+            }
         );
         assert_eq!(f.state(fil), WorkflowState::Done);
 
@@ -307,7 +350,9 @@ mod tests {
         let fil = f.thread_at(1000);
         let mut abonne = f.bus.subscribe();
 
-        f.workflow.set_state(fil, WorkflowState::Done, t(2000)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Done, t(2000))
+            .unwrap();
 
         assert!(!abonne.drain().is_empty());
         assert_eq!(f.state(fil), WorkflowState::Done);
@@ -319,7 +364,10 @@ mod tests {
         let fil = f.thread_at(1000);
         let mut abonne = f.bus.subscribe();
 
-        let out = f.workflow.set_state(fil, WorkflowState::Todo, t(2000)).unwrap();
+        let out = f
+            .workflow
+            .set_state(fil, WorkflowState::Todo, t(2000))
+            .unwrap();
         assert_eq!(out, TransitionOutcome::Unchanged);
         assert!(abonne.drain().is_empty());
         assert_eq!(f.workflow.undo_depth(), 0);
@@ -351,7 +399,9 @@ mod tests {
     fn l_annulation_restaure_l_etat_precedent() {
         let f = fixture();
         let fil = f.thread_at(1000);
-        f.workflow.set_state(fil, WorkflowState::Done, t(2000)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Done, t(2000))
+            .unwrap();
 
         let annule = f.workflow.undo().unwrap().unwrap();
         assert_eq!(annule.thread, fil);
@@ -364,8 +414,12 @@ mod tests {
         // rejouerait la première action au lieu de remonter.
         let f = fixture();
         let fil = f.thread_at(1000);
-        f.workflow.set_state(fil, WorkflowState::Waiting, t(1)).unwrap();
-        f.workflow.set_state(fil, WorkflowState::Done, t(2)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Waiting, t(1))
+            .unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Done, t(2))
+            .unwrap();
 
         f.workflow.undo().unwrap();
         assert_eq!(f.state(fil), WorkflowState::Waiting);
@@ -379,8 +433,11 @@ mod tests {
         let f = fixture();
         let fil = f.thread_at(1000);
         for i in 0..(UNDO_DEPTH + 50) {
-            let cible =
-                if i % 2 == 0 { WorkflowState::Done } else { WorkflowState::Todo };
+            let cible = if i % 2 == 0 {
+                WorkflowState::Done
+            } else {
+                WorkflowState::Todo
+            };
             f.workflow.set_state(fil, cible, t(i as i64)).unwrap();
         }
         assert_eq!(f.workflow.undo_depth(), UNDO_DEPTH);
@@ -390,7 +447,9 @@ mod tests {
     fn annuler_sur_un_fil_disparu_ne_fait_rien() {
         let f = fixture();
         let fil = f.thread_at(1000);
-        f.workflow.set_state(fil, WorkflowState::Done, t(2000)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Done, t(2000))
+            .unwrap();
         f.store.delete_messages_by_uid(f.folder, &[1]).unwrap();
 
         assert!(f.workflow.undo().unwrap().is_none());
@@ -399,7 +458,10 @@ mod tests {
     #[test]
     fn agir_sur_un_fil_inexistant_est_une_erreur_explicite() {
         let f = fixture();
-        let e = f.workflow.set_state(ThreadId(999), WorkflowState::Done, t(0)).unwrap_err();
+        let e = f
+            .workflow
+            .set_state(ThreadId(999), WorkflowState::Done, t(0))
+            .unwrap_err();
         assert!(e.to_string().contains("introuvable"));
     }
 
@@ -407,15 +469,27 @@ mod tests {
     fn le_report_conserve_l_etat_puis_le_restaure() {
         let f = fixture();
         let fil = f.thread_at(1000);
-        f.workflow.set_state(fil, WorkflowState::Waiting, t(1)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Waiting, t(1))
+            .unwrap();
 
         assert!(f.workflow.snooze(fil, t(5000)).unwrap());
-        assert_eq!(f.state(fil), WorkflowState::Waiting, "le report ne change pas l'état");
+        assert_eq!(
+            f.state(fil),
+            WorkflowState::Waiting,
+            "le report ne change pas l'état"
+        );
 
         assert_eq!(f.workflow.wake_due_snoozes(t(4999)).unwrap(), 0);
         assert_eq!(f.workflow.wake_due_snoozes(t(5000)).unwrap(), 1);
         assert_eq!(f.state(fil), WorkflowState::Waiting);
-        assert!(f.store.thread_row(fil).unwrap().unwrap().snoozed_until.is_none());
+        assert!(f
+            .store
+            .thread_row(fil)
+            .unwrap()
+            .unwrap()
+            .snoozed_until
+            .is_none());
     }
 
     #[test]
@@ -433,7 +507,9 @@ mod tests {
         let vieux = f.thread_at(1_000);
         let recent = f.thread_at(500_000_000);
         for fil in [vieux, recent] {
-            f.workflow.set_state(fil, WorkflowState::Waiting, t(0)).unwrap();
+            f.workflow
+                .set_state(fil, WorkflowState::Waiting, t(0))
+                .unwrap();
         }
 
         let now = t(500_000_000);
@@ -445,10 +521,14 @@ mod tests {
     #[test]
     fn la_relance_desactivee_ne_fait_rien() {
         let f = fixture();
-        f.workflow
-            .set_settings(AutomationSettings { follow_up_enabled: false, ..Default::default() });
+        f.workflow.set_settings(AutomationSettings {
+            follow_up_enabled: false,
+            ..Default::default()
+        });
         let fil = f.thread_at(1_000);
-        f.workflow.set_state(fil, WorkflowState::Waiting, t(0)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Waiting, t(0))
+            .unwrap();
 
         assert_eq!(f.workflow.run_follow_ups(t(500_000_000), 10).unwrap(), 0);
         assert_eq!(f.state(fil), WorkflowState::Waiting);
@@ -458,7 +538,9 @@ mod tests {
     fn un_nouveau_message_rouvre_un_fil_termine() {
         let f = fixture();
         let fil = f.thread_at(1000);
-        f.workflow.set_state(fil, WorkflowState::Done, t(1)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Done, t(1))
+            .unwrap();
 
         f.workflow.on_message_received(fil, t(2)).unwrap();
         assert_eq!(f.state(fil), WorkflowState::Todo);
@@ -468,7 +550,9 @@ mod tests {
     fn repondre_a_un_fil_termine_ne_le_rouvre_pas() {
         let f = fixture();
         let fil = f.thread_at(1000);
-        f.workflow.set_state(fil, WorkflowState::Done, t(1)).unwrap();
+        f.workflow
+            .set_state(fil, WorkflowState::Done, t(1))
+            .unwrap();
 
         let out = f.workflow.on_reply_sent(fil, t(2)).unwrap();
         assert_eq!(out, TransitionOutcome::Unchanged);

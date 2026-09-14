@@ -13,7 +13,9 @@ use std::fmt;
 ///
 /// Un type dédié plutôt qu'un `i64` nu : les dates de mails proviennent d'en-têtes
 /// non fiables et se mélangent facilement avec les dates de réception locales.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(transparent)]
 pub struct Timestamp(pub i64);
 
@@ -126,7 +128,10 @@ pub enum Unsubscribe {
     /// RFC 2369 : lien web, nécessite d'ouvrir le navigateur.
     Http { url: String },
     /// RFC 2369 : message à envoyer.
-    Mailto { addr: String, subject: Option<String> },
+    Mailto {
+        addr: String,
+        subject: Option<String>,
+    },
 }
 
 /// L'enveloppe d'un message.
@@ -276,7 +281,10 @@ mod tests {
                 inline: false,
             },
         ];
-        let visibles: Vec<_> = e.visible_attachments().map(|a| a.filename.as_str()).collect();
+        let visibles: Vec<_> = e
+            .visible_attachments()
+            .map(|a| a.filename.as_str())
+            .collect();
         assert_eq!(visibles, ["devis.pdf"]);
     }
 

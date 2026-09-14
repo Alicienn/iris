@@ -144,7 +144,11 @@ impl PluginRegistry {
     ///
     /// Un plugin en échec n'interrompt pas la diffusion : les autres doivent recevoir
     /// l'événement même si l'un d'eux se comporte mal.
-    pub fn dispatch(&mut self, export: &str, payload: &str) -> Vec<(String, Result<crate::CallTrace>)> {
+    pub fn dispatch(
+        &mut self,
+        export: &str,
+        payload: &str,
+    ) -> Vec<(String, Result<crate::CallTrace>)> {
         let ids: Vec<String> = self
             .plugins
             .values()
@@ -251,7 +255,9 @@ mod tests {
         assert_eq!(rapport.loaded, ["bon"]);
         assert_eq!(rapport.rejected.len(), 1);
         assert_eq!(rapport.rejected[0].0, "casse");
-        assert!(rapport.summary().contains("1 plugin(s) chargé(s), 1 écarté(s)"));
+        assert!(rapport
+            .summary()
+            .contains("1 plugin(s) chargé(s), 1 écarté(s)"));
     }
 
     #[test]

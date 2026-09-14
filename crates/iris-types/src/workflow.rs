@@ -180,7 +180,10 @@ impl Snooze {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionOutcome {
     /// L'état change.
-    Moved { from: WorkflowState, to: WorkflowState },
+    Moved {
+        from: WorkflowState,
+        to: WorkflowState,
+    },
     /// La transition est légale mais l'état est déjà le bon.
     Unchanged,
     /// L'automatisme correspondant est désactivé.
@@ -254,7 +257,13 @@ mod tests {
     #[test]
     fn repondre_met_en_attente() {
         let r = transition(Todo, TransitionCause::ReplySent, None, &on());
-        assert_eq!(r, TransitionOutcome::Moved { from: Todo, to: Waiting });
+        assert_eq!(
+            r,
+            TransitionOutcome::Moved {
+                from: Todo,
+                to: Waiting
+            }
+        );
     }
 
     #[test]
@@ -282,7 +291,10 @@ mod tests {
     fn la_relance_ne_concerne_que_les_fils_en_attente() {
         assert_eq!(
             transition(Waiting, TransitionCause::FollowUpDue, None, &on()),
-            TransitionOutcome::Moved { from: Waiting, to: Todo }
+            TransitionOutcome::Moved {
+                from: Waiting,
+                to: Todo
+            }
         );
         assert_eq!(
             transition(Done, TransitionCause::FollowUpDue, None, &on()),
@@ -314,7 +326,10 @@ mod tests {
             TransitionCause::MessageReceived,
             TransitionCause::FollowUpDue,
         ] {
-            assert_eq!(transition(Todo, cause, Some(Done), &s), TransitionOutcome::Disabled);
+            assert_eq!(
+                transition(Todo, cause, Some(Done), &s),
+                TransitionOutcome::Disabled
+            );
         }
         // Mais l'action manuelle passe toujours.
         assert!(transition(Todo, TransitionCause::Manual, Some(Done), &s).changed());
@@ -330,12 +345,23 @@ mod tests {
 
     #[test]
     fn le_report_restaure_l_etat_precedent() {
-        let s = Snooze { until: Timestamp::from_millis(1_000), restore_to: Waiting };
+        let s = Snooze {
+            until: Timestamp::from_millis(1_000),
+            restore_to: Waiting,
+        };
         assert!(!s.is_due(Timestamp::from_millis(999)));
         assert!(s.is_due(Timestamp::from_millis(1_000)));
         assert_eq!(
-            transition(Todo, TransitionCause::SnoozeExpired, Some(s.restore_to), &on()),
-            TransitionOutcome::Moved { from: Todo, to: Waiting }
+            transition(
+                Todo,
+                TransitionCause::SnoozeExpired,
+                Some(s.restore_to),
+                &on()
+            ),
+            TransitionOutcome::Moved {
+                from: Todo,
+                to: Waiting
+            }
         );
     }
 

@@ -44,14 +44,27 @@ impl Inline {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
     Paragraph(Vec<Inline>),
-    Heading { level: u8, spans: Vec<Inline> },
-    ListItem { depth: u8, ordered: bool, spans: Vec<Inline> },
+    Heading {
+        level: u8,
+        spans: Vec<Inline>,
+    },
+    ListItem {
+        depth: u8,
+        ordered: bool,
+        spans: Vec<Inline>,
+    },
     /// Texte cité, avec sa profondeur d'imbrication.
-    Quote { depth: u8, spans: Vec<Inline> },
+    Quote {
+        depth: u8,
+        spans: Vec<Inline>,
+    },
     Code(String),
     Rule,
     /// Une image, décrite mais non chargée.
-    Image { alt: String, blocked: bool },
+    Image {
+        alt: String,
+        blocked: bool,
+    },
     /// Une ligne de tableau, aplatie en cellules.
     TableRow(Vec<Vec<Inline>>),
 }
@@ -59,9 +72,7 @@ pub enum Block {
 impl Block {
     pub fn is_empty(&self) -> bool {
         match self {
-            Self::Paragraph(s) | Self::Heading { spans: s, .. } => {
-                s.iter().all(Inline::is_blank)
-            }
+            Self::Paragraph(s) | Self::Heading { spans: s, .. } => s.iter().all(Inline::is_blank),
             Self::ListItem { spans, .. } | Self::Quote { spans, .. } => {
                 spans.iter().all(Inline::is_blank)
             }
@@ -78,9 +89,7 @@ impl Block {
             Self::ListItem { spans, .. } | Self::Quote { spans, .. } => join(spans),
             Self::Code(t) => t.clone(),
             Self::Image { alt, .. } => alt.clone(),
-            Self::TableRow(cells) => {
-                cells.iter().map(|c| join(c)).collect::<Vec<_>>().join("\t")
-            }
+            Self::TableRow(cells) => cells.iter().map(|c| join(c)).collect::<Vec<_>>().join("\t"),
             Self::Rule => String::new(),
         }
     }
@@ -176,7 +185,10 @@ pub fn parse(html: &str) -> RichText {
         ($doc:expr, $spans:expr) => {
             if !$spans.iter().all(Inline::is_blank) {
                 let bloc = if quote_depth > 0 {
-                    Block::Quote { depth: quote_depth, spans: std::mem::take(&mut $spans) }
+                    Block::Quote {
+                        depth: quote_depth,
+                        spans: std::mem::take(&mut $spans),
+                    }
                 } else if list_depth > 0 {
                     Block::ListItem {
                         depth: list_depth,
@@ -197,7 +209,9 @@ pub fn parse(html: &str) -> RichText {
 
     while position < octets.len() {
         if octets[position] == b'<' {
-            let Some(fin) = html[position..].find('>') else { break };
+            let Some(fin) = html[position..].find('>') else {
+                break;
+            };
             let balise = &html[position..position + fin + 1];
             let nom = tag_name(balise);
             let fermante = balise.starts_with("</");
@@ -262,7 +276,10 @@ pub fn parse(html: &str) -> RichText {
                         doc.blocked_images += 1;
                     }
                     let alt = attribute(balise, "alt").unwrap_or_else(|| "image".into());
-                    doc.blocks.push(Block::Image { alt, blocked: bloquee });
+                    doc.blocks.push(Block::Image {
+                        alt,
+                        blocked: bloquee,
+                    });
                 }
                 "table" => {
                     chasser!(doc, spans);
@@ -272,15 +289,12 @@ pub fn parse(html: &str) -> RichText {
                         dans_tableau += 1;
                     }
                 }
-                "tr" => {
-                    if fermante && !cellules.is_empty() {
-                        doc.blocks.push(Block::TableRow(std::mem::take(&mut cellules)));
-                    }
+                "tr" if fermante && !cellules.is_empty() => {
+                    doc.blocks
+                        .push(Block::TableRow(std::mem::take(&mut cellules)));
                 }
-                "td" | "th" => {
-                    if fermante {
-                        cellules.push(std::mem::take(&mut spans));
-                    }
+                "td" | "th" if fermante => {
+                    cellules.push(std::mem::take(&mut spans));
                 }
                 _ => {}
             }
@@ -290,10 +304,17 @@ pub fn parse(html: &str) -> RichText {
         }
 
         // Texte jusqu'à la prochaine balise.
-        let fin = html[position..].find('<').map(|i| position + i).unwrap_or(html.len());
+        let fin = html[position..]
+            .find('<')
+            .map(|i| position + i)
+            .unwrap_or(html.len());
         let texte = decode_entities(&html[position..fin]);
         if !texte.is_empty() {
-            let normalise = if dans_code { texte } else { collapse_spaces(&texte) };
+            let normalise = if dans_code {
+                texte
+            } else {
+                collapse_spaces(&texte)
+            };
             if !normalise.is_empty() {
                 spans.push(Inline {
                     text: normalise,
@@ -404,17 +425,23 @@ mod tests {
     #[test]
     fn l_habillage_est_conserve() {
         let doc = parse("<p>Texte <b>gras</b> et <i>italique</i></p>");
-        let Block::Paragraph(spans) = &doc.blocks[0] else { panic!("attendu un paragraphe") };
+        let Block::Paragraph(spans) = &doc.blocks[0] else {
+            panic!("attendu un paragraphe")
+        };
 
         assert!(spans.iter().any(|s| s.bold && s.text.contains("gras")));
-        assert!(spans.iter().any(|s| s.italic && s.text.contains("italique")));
+        assert!(spans
+            .iter()
+            .any(|s| s.italic && s.text.contains("italique")));
         assert!(spans.iter().any(|s| !s.bold && !s.italic));
     }
 
     #[test]
     fn les_liens_portent_leur_cible() {
         let doc = parse(r#"<p>Voir <a href="https://exemple.fr">le devis</a></p>"#);
-        let Block::Paragraph(spans) = &doc.blocks[0] else { panic!() };
+        let Block::Paragraph(spans) = &doc.blocks[0] else {
+            panic!()
+        };
         let lien = spans.iter().find(|s| s.link.is_some()).expect("un lien");
         assert_eq!(lien.link.as_deref(), Some("https://exemple.fr"));
         assert_eq!(lien.text, "le devis");
@@ -439,7 +466,11 @@ mod tests {
             .blocks
             .iter()
             .filter_map(|b| match b {
-                Block::ListItem { depth, ordered, spans } => Some((*depth, *ordered, join(spans))),
+                Block::ListItem {
+                    depth,
+                    ordered,
+                    spans,
+                } => Some((*depth, *ordered, join(spans))),
                 _ => None,
             })
             .collect();
@@ -451,7 +482,10 @@ mod tests {
     #[test]
     fn une_liste_numerotee_est_distinguee() {
         let doc = parse("<ol><li>Premier</li></ol>");
-        assert!(matches!(doc.blocks[0], Block::ListItem { ordered: true, .. }));
+        assert!(matches!(
+            doc.blocks[0],
+            Block::ListItem { ordered: true, .. }
+        ));
     }
 
     #[test]

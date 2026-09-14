@@ -95,7 +95,12 @@ pub struct Actions {
 
 impl Actions {
     pub fn new(store: Arc<Store>, settings: AutomationSettings) -> Self {
-        Self { store, settings, undo: Vec::new(), max_undo: 100 }
+        Self {
+            store,
+            settings,
+            undo: Vec::new(),
+            max_undo: 100,
+        }
     }
 
     pub fn settings(&self) -> AutomationSettings {
@@ -135,8 +140,13 @@ impl Actions {
             Action::Waiting => self.set_state(thread, ligne.state, WorkflowState::Waiting)?,
             Action::SnoozeHours(h) => {
                 let echeance = Timestamp::from_millis(now.millis() + h as i64 * 3_600_000);
-                self.store
-                    .snooze_thread(thread, Snooze { until: echeance, restore_to: ligne.state })?
+                self.store.snooze_thread(
+                    thread,
+                    Snooze {
+                        until: echeance,
+                        restore_to: ligne.state,
+                    },
+                )?
             }
             Action::Unsnooze => self.store.clear_snooze(thread)?,
             Action::MarkRead => self.set_read(thread, true, now)?,
@@ -151,19 +161,18 @@ impl Actions {
             self.push_undo(avant.clone());
         }
 
-        Ok(ActionOutcome { thread, action, undo: avant, changed: change })
+        Ok(ActionOutcome {
+            thread,
+            action,
+            undo: avant,
+            changed: change,
+        })
     }
 
-    fn set_state(
-        &self,
-        thread: ThreadId,
-        from: WorkflowState,
-        to: WorkflowState,
-    ) -> Result<bool> {
+    fn set_state(&self, thread: ThreadId, from: WorkflowState, to: WorkflowState) -> Result<bool> {
         // Même une action manuelle passe par la machine à états : c'est elle qui
         // définit ce qui est légal, et la contourner créerait une seconde vérité.
-        let resultat =
-            transition(from, TransitionCause::Manual, Some(to), &self.settings);
+        let resultat = transition(from, TransitionCause::Manual, Some(to), &self.settings);
         match resultat {
             TransitionOutcome::Moved { .. } => {
                 self.store.set_thread_state(thread, to)?;
@@ -189,7 +198,10 @@ impl Actions {
             }
             let nouveaux = m.flags.set(iris_types::Flags::SEEN, read);
             self.store.set_message_flags(m.id, nouveaux)?;
-            par_dossier.entry((m.account, m.folder)).or_default().push(m.uid);
+            par_dossier
+                .entry((m.account, m.folder))
+                .or_default()
+                .push(m.uid);
             change = true;
         }
 
@@ -204,7 +216,9 @@ impl Actions {
 
     fn set_flagged(&self, thread: ThreadId, flagged: bool, now: Timestamp) -> Result<bool> {
         let messages = self.store.thread_messages(thread)?;
-        let Some(dernier) = messages.last() else { return Ok(false) };
+        let Some(dernier) = messages.last() else {
+            return Ok(false);
+        };
 
         let nouveaux = dernier.flags.set(iris_types::Flags::FLAGGED, flagged);
         if nouveaux == dernier.flags {
@@ -251,11 +265,16 @@ impl Actions {
         });
         let clef = format!(
             "{account}:flags:{chemin}:{}:{}:{add}",
-            tries.iter().map(u32::to_string).collect::<Vec<_>>().join(","),
+            tries
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
             flags.0
         );
 
-        self.store.enqueue_op(account, OpKind::SetFlags, &charge.to_string(), &clef, now)?;
+        self.store
+            .enqueue_op(account, OpKind::SetFlags, &charge.to_string(), &clef, now)?;
         Ok(())
     }
 
@@ -268,7 +287,9 @@ impl Actions {
 
     /// Défait la dernière action.
     pub fn undo(&mut self) -> Result<Option<UndoRecord>> {
-        let Some(record) = self.undo.pop() else { return Ok(None) };
+        let Some(record) = self.undo.pop() else {
+            return Ok(None);
+        };
 
         if self.store.thread_row(record.thread)?.is_none() {
             return Ok(None);
@@ -279,7 +300,10 @@ impl Actions {
             Some(echeance) => {
                 self.store.snooze_thread(
                     record.thread,
-                    Snooze { until: echeance, restore_to: record.state },
+                    Snooze {
+                        until: echeance,
+                        restore_to: record.state,
+                    },
                 )?;
             }
             None => {
@@ -325,10 +349,20 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, account, folder, uid: std::cell::Cell::new(1) }
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            account,
+            folder,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -432,10 +466,20 @@ mod tests {
         a.apply(fil, Action::SnoozeHours(24), t(0)).unwrap();
         let ligne = f.store.thread_row(fil).unwrap().unwrap();
         assert_eq!(ligne.snoozed_until, Some(t(86_400_000)));
-        assert_eq!(ligne.state, WorkflowState::Waiting, "le report ne change pas l'état");
+        assert_eq!(
+            ligne.state,
+            WorkflowState::Waiting,
+            "le report ne change pas l'état"
+        );
 
         a.apply(fil, Action::Unsnooze, t(0)).unwrap();
-        assert!(f.store.thread_row(fil).unwrap().unwrap().snoozed_until.is_none());
+        assert!(f
+            .store
+            .thread_row(fil)
+            .unwrap()
+            .unwrap()
+            .snoozed_until
+            .is_none());
     }
 
     #[test]
@@ -448,7 +492,10 @@ mod tests {
         a.apply(fil, Action::Unsnooze, t(0)).unwrap();
         a.undo().unwrap();
 
-        assert_eq!(f.store.thread_row(fil).unwrap().unwrap().snoozed_until, Some(t(10_800_000)));
+        assert_eq!(
+            f.store.thread_row(fil).unwrap().unwrap().snoozed_until,
+            Some(t(10_800_000))
+        );
     }
 
     #[test]
@@ -503,10 +550,22 @@ mod tests {
         let mut a = f.actions();
 
         a.apply(fil, Action::ToggleFlag, t(0)).unwrap();
-        assert!(f.store.thread_row(fil).unwrap().unwrap().flags_union.contains(Flags::FLAGGED));
+        assert!(f
+            .store
+            .thread_row(fil)
+            .unwrap()
+            .unwrap()
+            .flags_union
+            .contains(Flags::FLAGGED));
 
         a.apply(fil, Action::ToggleFlag, t(1)).unwrap();
-        assert!(!f.store.thread_row(fil).unwrap().unwrap().flags_union.contains(Flags::FLAGGED));
+        assert!(!f
+            .store
+            .thread_row(fil)
+            .unwrap()
+            .unwrap()
+            .flags_union
+            .contains(Flags::FLAGGED));
     }
 
     #[test]
@@ -549,7 +608,11 @@ mod tests {
         let mut a = f.actions();
 
         for i in 0..150 {
-            let cible = if i % 2 == 0 { Action::Done } else { Action::Todo };
+            let cible = if i % 2 == 0 {
+                Action::Done
+            } else {
+                Action::Todo
+            };
             a.apply(fil, cible, t(i)).unwrap();
         }
         assert_eq!(a.undo_depth(), 100);

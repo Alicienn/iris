@@ -42,8 +42,15 @@ fn fixture() -> Fixture {
     let account = store
         .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::EPOCH)
         .unwrap();
-    let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-    Fixture { store, account, folder, uid: std::cell::Cell::new(1) }
+    let folder = store
+        .upsert_folder(account, "INBOX", FolderRole::Inbox)
+        .unwrap();
+    Fixture {
+        store,
+        account,
+        folder,
+        uid: std::cell::Cell::new(1),
+    }
 }
 
 impl Fixture {
@@ -104,13 +111,21 @@ fn le_plugin_d_exemple_marque_une_infolettre_comme_traitee() {
     let (service, thread) = PluginService::spawn(dir.path(), Arc::clone(&f.store), move |e| {
         let _ = tx.send(e);
     });
-    assert_eq!(service.report().loaded, ["marquer-infolettres"], "le plugin doit charger");
+    assert_eq!(
+        service.report().loaded,
+        ["marquer-infolettres"],
+        "le plugin doit charger"
+    );
     let thread = thread.expect("un fil de plugins");
 
     service.notify(&f.arrivee(message), &f.store);
 
     match attendre(&rx) {
-        PluginEffect::Act { plugin, thread: cible, action } => {
+        PluginEffect::Act {
+            plugin,
+            thread: cible,
+            action,
+        } => {
             assert_eq!(plugin, "marquer-infolettres");
             assert_eq!(cible, fil);
             assert_eq!(action, iris_viewmodel::Action::Done);
@@ -139,7 +154,8 @@ fn un_message_ordinaire_laisse_le_plugin_indifferent() {
 
     service.notify(&f.arrivee(message), &f.store);
     assert!(
-        rx.recv_timeout(std::time::Duration::from_millis(500)).is_err(),
+        rx.recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
         "aucune action ne doit être demandée"
     );
 
@@ -168,7 +184,9 @@ fn l_action_du_plugin_change_reellement_l_etat_du_fil() {
     );
     let controller = Arc::new(controller);
     controller.send(Request::Bootstrap);
-    rx_snap.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    rx_snap
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
 
     let controller_effets = Arc::clone(&controller);
     let (service, fil_plugins) =
@@ -184,13 +202,19 @@ fn l_action_du_plugin_change_reellement_l_etat_du_fil() {
     let echeance = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let restant = echeance.saturating_duration_since(std::time::Instant::now());
-        let s = rx_snap.recv_timeout(restant).expect("un instantané après l'action du plugin");
+        let s = rx_snap
+            .recv_timeout(restant)
+            .expect("un instantané après l'action du plugin");
         if s.rows.is_empty() {
             break;
         }
     }
 
-    assert_eq!(f.etat(fil), WorkflowState::Done, "le plugin a bien trié le fil");
+    assert_eq!(
+        f.etat(fil),
+        WorkflowState::Done,
+        "le plugin a bien trié le fil"
+    );
 
     service.shutdown();
     fil_plugins.join().unwrap();

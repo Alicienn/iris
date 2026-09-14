@@ -96,7 +96,11 @@ impl ConnectionPool {
         let local = self.acquire_one(par_serveur).await?;
 
         self.granted.fetch_add(1, Ordering::Relaxed);
-        Ok(Lease { _global: global, _local: local, server: serveur })
+        Ok(Lease {
+            _global: global,
+            _local: local,
+            server: serveur,
+        })
     }
 
     async fn acquire_one(&self, sem: Arc<Semaphore>) -> Result<OwnedSemaphorePermit> {
@@ -105,7 +109,9 @@ impl ConnectionPool {
             Ok(Err(_)) => Err(Error::network("pool de connexions fermé")),
             Err(_) => {
                 self.timeouts.fetch_add(1, Ordering::Relaxed);
-                Err(Error::Throttled { retry_after_secs: 5 })
+                Err(Error::Throttled {
+                    retry_after_secs: 5,
+                })
             }
         }
     }
@@ -122,7 +128,11 @@ impl ConnectionPool {
         let local = par_serveur.try_acquire_owned().ok()?;
 
         self.granted.fetch_add(1, Ordering::Relaxed);
-        Some(Lease { _global: global, _local: local, server: serveur })
+        Some(Lease {
+            _global: global,
+            _local: local,
+            server: serveur,
+        })
     }
 
     fn semaphore_for(&self, server: &str) -> Arc<Semaphore> {
@@ -188,7 +198,11 @@ mod tests {
             assert_eq!(bail.server(), "imap.example.com");
             assert_eq!(p.stats().in_use, 1);
         }
-        assert_eq!(p.stats().in_use, 0, "la place doit être rendue à la destruction");
+        assert_eq!(
+            p.stats().in_use,
+            0,
+            "la place doit être rendue à la destruction"
+        );
     }
 
     #[tokio::test]
@@ -240,7 +254,10 @@ mod tests {
 
         let debut = std::time::Instant::now();
         assert!(p.try_acquire("y.fr").is_none());
-        assert!(debut.elapsed() < Duration::from_millis(10), "aucune attente");
+        assert!(
+            debut.elapsed() < Duration::from_millis(10),
+            "aucune attente"
+        );
     }
 
     #[tokio::test]
@@ -261,10 +278,18 @@ mod tests {
     #[tokio::test]
     async fn les_places_disponibles_tiennent_compte_des_deux_plafonds() {
         let p = pool(2, 5);
-        assert_eq!(p.available_for("x.fr"), 2, "le global est le plus contraignant");
+        assert_eq!(
+            p.available_for("x.fr"),
+            2,
+            "le global est le plus contraignant"
+        );
 
         let q = pool(10, 1);
-        assert_eq!(q.available_for("x.fr"), 1, "le quota serveur est le plus contraignant");
+        assert_eq!(
+            q.available_for("x.fr"),
+            1,
+            "le quota serveur est le plus contraignant"
+        );
     }
 
     #[tokio::test]

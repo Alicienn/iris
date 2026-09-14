@@ -33,7 +33,11 @@ pub enum Rendered {
     /// Une suite de blocs, dessinés par l'interface elle-même.
     Blocks(RichText),
     /// Une image déjà composée, à afficher telle quelle.
-    Texture { width: u32, height: u32, rgba: Vec<u8> },
+    Texture {
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    },
 }
 
 impl Rendered {
@@ -88,13 +92,21 @@ impl Default for ComplexityThreshold {
     fn default() -> Self {
         // Un tableau isolé reste lisible en texte riche ; deux tableaux imbriqués
         // trahissent une mise en page conçue au pixel.
-        Self { max_tables: 1, max_nesting: 2, max_inline_styles: 12 }
+        Self {
+            max_tables: 1,
+            max_nesting: 2,
+            max_inline_styles: 12,
+        }
     }
 }
 
 impl AdaptiveRenderer {
     pub fn new(simple: Box<dyn HtmlRenderer>) -> Self {
-        Self { simple, complete: None, threshold: ComplexityThreshold::default() }
+        Self {
+            simple,
+            complete: None,
+            threshold: ComplexityThreshold::default(),
+        }
     }
 
     pub fn with_full_engine(mut self, engine: Box<dyn HtmlRenderer>) -> Self {
@@ -155,7 +167,9 @@ pub fn measure_complexity(html: &str) -> Complexity {
     let mut profondeur = 0usize;
     let mut position = 0usize;
     while position < minuscules.len() {
-        let Some(rel) = minuscules[position..].find('<') else { break };
+        let Some(rel) = minuscules[position..].find('<') else {
+            break;
+        };
         let debut = position + rel;
         let reste = &minuscules[debut..];
 
@@ -189,7 +203,11 @@ mod tests {
             if self.echoue {
                 return Err(iris_types::Error::other("moteur en panne"));
             }
-            Ok(Rendered::Texture { width: 800, height: 600, rgba: vec![0; 4] })
+            Ok(Rendered::Texture {
+                width: 800,
+                height: 600,
+                rgba: vec![0; 4],
+            })
         }
         fn name(&self) -> &'static str {
             "complet"
@@ -200,7 +218,7 @@ mod tests {
     }
 
     fn adaptatif(echoue: bool) -> AdaptiveRenderer {
-        AdaptiveRenderer::new(Box::new(RichTextRenderer::default()))
+        AdaptiveRenderer::new(Box::new(RichTextRenderer))
             .with_full_engine(Box::new(MoteurComplet { echoue }))
     }
 
@@ -218,7 +236,10 @@ mod tests {
         let r = adaptatif(false);
         let html = "<table><tr><td><table><tr><td>Contenu</td></tr></table></td></tr></table>";
         assert!(r.needs_full_engine(html));
-        assert!(matches!(r.render(html, 800.0).unwrap(), Rendered::Texture { .. }));
+        assert!(matches!(
+            r.render(html, 800.0).unwrap(),
+            Rendered::Texture { .. }
+        ));
     }
 
     #[test]
@@ -238,7 +259,7 @@ mod tests {
 
     #[test]
     fn sans_moteur_complet_tout_passe_par_le_texte_riche() {
-        let r = AdaptiveRenderer::new(Box::new(RichTextRenderer::default()));
+        let r = AdaptiveRenderer::new(Box::new(RichTextRenderer));
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
         assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
         assert!(!r.is_full_fidelity());
@@ -264,7 +285,9 @@ mod tests {
     #[test]
     fn beaucoup_de_styles_en_ligne_trahissent_une_mise_en_page() {
         let r = adaptatif(false);
-        let html: String = (0..20).map(|i| format!("<div style=\"color:#{i:03}\">x</div>")).collect();
+        let html: String = (0..20)
+            .map(|i| format!("<div style=\"color:#{i:03}\">x</div>"))
+            .collect();
         assert!(r.needs_full_engine(&html));
     }
 

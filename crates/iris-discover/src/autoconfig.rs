@@ -91,7 +91,9 @@ fn substitute(value: &str, email: &str, local: &str) -> String {
 }
 
 fn extract_display_name(xml: &str) -> Option<String> {
-    inner_text(xml, "displayName").map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    inner_text(xml, "displayName")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Extrait les blocs `incomingServer` et `outgoingServer`.
@@ -106,12 +108,17 @@ fn extract_servers(xml: &str) -> Result<Vec<Server>> {
             let kind = attribute(&bloc, "type").unwrap_or_else(|| {
                 // Un `outgoingServer` sans type est un SMTP : le format ne prévoit
                 // rien d'autre.
-                if balise == "outgoingServer" { "smtp".into() } else { String::new() }
+                if balise == "outgoingServer" {
+                    "smtp".into()
+                } else {
+                    String::new()
+                }
             });
 
-            let Some(hostname) = inner_text(&bloc, "hostname") else { continue };
-            let Some(port) = inner_text(&bloc, "port").and_then(|p| p.trim().parse().ok())
-            else {
+            let Some(hostname) = inner_text(&bloc, "hostname") else {
+                continue;
+            };
+            let Some(port) = inner_text(&bloc, "port").and_then(|p| p.trim().parse().ok()) else {
                 continue;
             };
 
@@ -126,7 +133,9 @@ fn extract_servers(xml: &str) -> Result<Vec<Server>> {
     }
 
     if out.is_empty() {
-        return Err(Error::Config("document d'autoconfiguration vide ou illisible".into()));
+        return Err(Error::Config(
+            "document d'autoconfiguration vide ou illisible".into(),
+        ));
     }
     Ok(out)
 }
@@ -156,7 +165,9 @@ fn all_inner_texts(xml: &str, tag: &str) -> Vec<String> {
     let mut depuis = 0;
     while let Some(rel) = xml[depuis..].find(&ouvrant) {
         let debut = depuis + rel + ouvrant.len();
-        let Some(rel_fin) = xml[debut..].find(&fermant) else { break };
+        let Some(rel_fin) = xml[debut..].find(&fermant) else {
+            break;
+        };
         out.push(decode_entities(&xml[debut..debut + rel_fin]));
         depuis = debut + rel_fin;
     }
@@ -172,7 +183,10 @@ fn attribute(bloc: &str, name: &str) -> Option<String> {
 }
 
 fn decode_entities(s: &str) -> String {
-    s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
 }
 
 #[cfg(test)]
@@ -224,7 +238,10 @@ mod tests {
     fn une_connexion_en_clair_est_refusee() {
         // Accepter un mot de passe en clair parce qu'un fichier XML le demande
         // serait absurde.
-        let xml = EXEMPLE.replace("<socketType>SSL</socketType>", "<socketType>plain</socketType>");
+        let xml = EXEMPLE.replace(
+            "<socketType>SSL</socketType>",
+            "<socketType>plain</socketType>",
+        );
         let e = parse(&xml, "marie@example.com").unwrap_err();
         assert!(e.to_string().contains("non chiffrée"));
     }

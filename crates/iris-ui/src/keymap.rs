@@ -59,16 +59,40 @@ impl Keymap {
         // signifie exactement ce que « traité » signifie ici.
         lier("e", KeyOutcome::Command(CommandKind::Thread(Action::Done)));
         lier("u", KeyOutcome::Command(CommandKind::Thread(Action::Todo)));
-        lier("w", KeyOutcome::Command(CommandKind::Thread(Action::Waiting)));
-        lier("s", KeyOutcome::Command(CommandKind::Thread(Action::SnoozeHours(24))));
-        lier("r", KeyOutcome::Command(CommandKind::Thread(Action::MarkRead)));
-        lier("R", KeyOutcome::Command(CommandKind::Thread(Action::MarkUnread)));
-        lier("f", KeyOutcome::Command(CommandKind::Thread(Action::ToggleFlag)));
+        lier(
+            "w",
+            KeyOutcome::Command(CommandKind::Thread(Action::Waiting)),
+        );
+        lier(
+            "s",
+            KeyOutcome::Command(CommandKind::Thread(Action::SnoozeHours(24))),
+        );
+        lier(
+            "r",
+            KeyOutcome::Command(CommandKind::Thread(Action::MarkRead)),
+        );
+        lier(
+            "R",
+            KeyOutcome::Command(CommandKind::Thread(Action::MarkUnread)),
+        );
+        lier(
+            "f",
+            KeyOutcome::Command(CommandKind::Thread(Action::ToggleFlag)),
+        );
 
         // Onglets.
-        lier("1", KeyOutcome::Command(CommandKind::SwitchTab(WorkflowState::Todo)));
-        lier("2", KeyOutcome::Command(CommandKind::SwitchTab(WorkflowState::Waiting)));
-        lier("3", KeyOutcome::Command(CommandKind::SwitchTab(WorkflowState::Done)));
+        lier(
+            "1",
+            KeyOutcome::Command(CommandKind::SwitchTab(WorkflowState::Todo)),
+        );
+        lier(
+            "2",
+            KeyOutcome::Command(CommandKind::SwitchTab(WorkflowState::Waiting)),
+        );
+        lier(
+            "3",
+            KeyOutcome::Command(CommandKind::SwitchTab(WorkflowState::Done)),
+        );
 
         // Divers.
         lier("z", KeyOutcome::Command(CommandKind::Undo));
@@ -80,7 +104,9 @@ impl Keymap {
 
     /// Table vide, pour un utilisateur qui préfère tout définir lui-même.
     pub fn empty() -> Self {
-        Self { bindings: Vec::new() }
+        Self {
+            bindings: Vec::new(),
+        }
     }
 
     /// Ajoute ou remplace un raccourci.
@@ -111,7 +137,10 @@ impl Keymap {
 
     /// Touche associée à une action, pour l'afficher dans l'aide.
     pub fn shortcut_for(&self, outcome: &KeyOutcome) -> Option<&str> {
-        self.bindings.iter().find(|(_, o)| o == outcome).map(|(k, _)| k.as_str())
+        self.bindings
+            .iter()
+            .find(|(_, o)| o == outcome)
+            .map(|(k, _)| k.as_str())
     }
 
     pub fn len(&self) -> usize {
@@ -152,7 +181,10 @@ mod tests {
         // Les confondre marquerait comme non lu ce que l'utilisateur voulait marquer
         // comme lu.
         let k = Keymap::standard();
-        assert_eq!(k.resolve("r"), KeyOutcome::Command(CommandKind::Thread(Action::MarkRead)));
+        assert_eq!(
+            k.resolve("r"),
+            KeyOutcome::Command(CommandKind::Thread(Action::MarkRead))
+        );
         assert_eq!(
             k.resolve("R"),
             KeyOutcome::Command(CommandKind::Thread(Action::MarkUnread))
@@ -208,17 +240,25 @@ mod tests {
         let k = Keymap::standard();
         let mut vues = std::collections::BTreeSet::new();
         for (touche, _) in &k.bindings {
-            assert!(vues.insert(touche.clone()), "touche « {touche} » liée deux fois");
+            assert!(
+                vues.insert(touche.clone()),
+                "touche « {touche} » liée deux fois"
+            );
         }
     }
 
     #[test]
     fn les_onglets_sont_accessibles_au_clavier() {
         let k = Keymap::standard();
-        for (touche, etat) in
-            [("1", WorkflowState::Todo), ("2", WorkflowState::Waiting), ("3", WorkflowState::Done)]
-        {
-            assert_eq!(k.resolve(touche), KeyOutcome::Command(CommandKind::SwitchTab(etat)));
+        for (touche, etat) in [
+            ("1", WorkflowState::Todo),
+            ("2", WorkflowState::Waiting),
+            ("3", WorkflowState::Done),
+        ] {
+            assert_eq!(
+                k.resolve(touche),
+                KeyOutcome::Command(CommandKind::SwitchTab(etat))
+            );
         }
     }
 }

@@ -103,7 +103,7 @@ impl BlobId {
             return None;
         }
         let mut out = [0u8; 16];
-        for (i, chunk) in s.as_bytes().chunks_exact(2) .enumerate() {
+        for (i, chunk) in s.as_bytes().chunks_exact(2).enumerate() {
             let hi = (chunk[0] as char).to_digit(16)?;
             let lo = (chunk[1] as char).to_digit(16)?;
             out[i] = (hi * 16 + lo) as u8;
@@ -132,7 +132,11 @@ impl RfcMessageId {
     /// Retourne `None` pour une valeur vide, qui ne doit jamais servir de clé de
     /// threading — sinon tous les messages sans `Message-ID` fusionneraient.
     pub fn parse(raw: &str) -> Option<Self> {
-        let t = raw.trim().trim_start_matches('<').trim_end_matches('>').trim();
+        let t = raw
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>')
+            .trim();
         if t.is_empty() {
             None
         } else {

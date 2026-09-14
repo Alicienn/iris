@@ -54,7 +54,9 @@ fn fixture(threads: u32) -> (Store, Instant) {
             Timestamp::from_millis(0),
         )
         .expect("compte");
-    let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).expect("dossier");
+    let folder = store
+        .upsert_folder(account, "INBOX", FolderRole::Inbox)
+        .expect("dossier");
 
     let start = Instant::now();
     seed(&store, account, folder, threads);
@@ -73,7 +75,9 @@ fn la_derniere_page_coute_autant_que_la_premiere() {
 
     // Première page.
     let t0 = Instant::now();
-    let premiere = store.list_threads(&ListQuery::new(WorkflowState::Todo, PAGE)).unwrap();
+    let premiere = store
+        .list_threads(&ListQuery::new(WorkflowState::Todo, PAGE))
+        .unwrap();
     let cout_premiere = t0.elapsed();
     assert_eq!(premiere.len() as u32, PAGE);
 
@@ -161,7 +165,9 @@ fn l_insertion_reste_lineaire() {
     let grand = t_grand.elapsed();
 
     let facteur = grand.as_secs_f64() / petit.as_secs_f64().max(1e-6);
-    println!("{PETIT} : {petit:?} · {GRAND} : {grand:?} · facteur {facteur:.1}× pour 10× le volume");
+    println!(
+        "{PETIT} : {petit:?} · {GRAND} : {grand:?} · facteur {facteur:.1}× pour 10× le volume"
+    );
 
     // Linéaire donnerait 10, quadratique 100. Le seuil laisse de la marge pour le
     // bruit de mesure tout en restant loin d'une dégradation quadratique.

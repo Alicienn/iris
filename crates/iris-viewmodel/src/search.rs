@@ -17,7 +17,7 @@
 //! mille lignes ne rendrait service à personne, et l'utilisateur affine.
 
 use iris_index::SearchIndex;
-use iris_search::{matches_filters, plan, Filter, Plan, Query};
+use iris_search::{matches_filters, plan, Filter, Plan, Query, Subject};
 use iris_store::{ListQuery, Store, ThreadRow};
 use iris_types::{AccountId, Result, Timestamp, WorkflowState};
 use std::sync::Arc;
@@ -161,7 +161,9 @@ fn from_index(
         // Un fil présent dans l'index mais absent du store a été supprimé entre
         // l'indexation et maintenant : l'index rattrapera, la liste ne doit pas
         // afficher un fantôme.
-        let Some(ligne) = store.thread_row(hit.thread)? else { continue };
+        let Some(ligne) = store.thread_row(hit.thread)? else {
+            continue;
+        };
         if row_matches(store, &ligne, plan, now)? {
             out.push(ligne);
         }
@@ -172,12 +174,7 @@ fn from_index(
 }
 
 /// Vérifie une ligne contre les filtres structurels.
-fn row_matches(
-    store: &Store,
-    row: &ThreadRow,
-    plan: &Plan,
-    now: Timestamp,
-) -> Result<bool> {
+fn row_matches(store: &Store, row: &ThreadRow, plan: &Plan, now: Timestamp) -> Result<bool> {
     if plan.store_filters.is_empty() {
         return Ok(true);
     }
@@ -202,13 +199,17 @@ fn row_matches(
 
     Ok(matches_filters(
         &plan.store_filters,
-        row.flags_union,
-        row.state,
-        row.last_activity,
-        0,
-        &adresse,
-        "",
-        row.snoozed_until.is_some(),
+        Subject {
+            flags: row.flags_union,
+            state: row.state,
+            received: row.last_activity,
+            // La taille du fil n'est pas connue de la ligne ; un filtre de taille
+            // porte sur un message, et ne s'applique donc pas ici.
+            size: 0,
+            account: &adresse,
+            folder: "",
+            snoozed: row.snoozed_until.is_some(),
+        },
         now,
     ))
 }
@@ -237,9 +238,14 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Store::in_memory().unwrap();
         let account = store
-            .create_account(&NewAccount::new("moi@example.com", "i", "s"), Timestamp::EPOCH)
+            .create_account(
+                &NewAccount::new("moi@example.com", "i", "s"),
+                Timestamp::EPOCH,
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
         Fixture {
             store,
             index: Arc::new(SearchIndex::in_memory().unwrap()),
@@ -328,7 +334,12 @@ mod tests {
     #[test]
     fn une_recherche_textuelle_trouve_par_le_corps() {
         let f = fixture();
-        f.message("Sujet neutre", "Marie", "La formule du forfait annuel", Flags::NONE);
+        f.message(
+            "Sujet neutre",
+            "Marie",
+            "La formule du forfait annuel",
+            Flags::NONE,
+        );
 
         assert_eq!(f.chercher("forfait").len(), 1);
     }

@@ -45,7 +45,9 @@ impl Store {
             .map_err(|e| Error::store(format!("ouverture : {e}")))?;
         Self::configure(&conn)?;
         migrations::migrate(&conn)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Base en mémoire, pour les tests.
@@ -54,7 +56,9 @@ impl Store {
             .map_err(|e| Error::store(format!("ouverture en mémoire : {e}")))?;
         Self::configure(&conn)?;
         migrations::migrate(&conn)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Réglages appliqués à chaque connexion.
@@ -80,7 +84,10 @@ impl Store {
 
     /// Exécute une fermeture avec la connexion.
     pub(crate) fn with_conn<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
-        let guard = self.conn.lock().map_err(|_| Error::store("connexion empoisonnée"))?;
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::store("connexion empoisonnée"))?;
         f(&guard)
     }
 
@@ -89,12 +96,16 @@ impl Store {
         &self,
         f: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T>,
     ) -> Result<T> {
-        let mut guard = self.conn.lock().map_err(|_| Error::store("connexion empoisonnée"))?;
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::store("connexion empoisonnée"))?;
         let tx = guard
             .transaction()
             .map_err(|e| Error::store(format!("ouverture de transaction : {e}")))?;
         let out = f(&tx)?;
-        tx.commit().map_err(|e| Error::store(format!("validation : {e}")))?;
+        tx.commit()
+            .map_err(|e| Error::store(format!("validation : {e}")))?;
         Ok(out)
     }
 
@@ -141,7 +152,10 @@ mod tests {
                     .map_err(|e| Error::store(e.to_string()))
             })
             .unwrap();
-        assert_eq!(on, 1, "sans cela, supprimer un compte laisserait des orphelins");
+        assert_eq!(
+            on, 1,
+            "sans cela, supprimer un compte laisserait des orphelins"
+        );
     }
 
     #[test]
@@ -171,8 +185,11 @@ mod tests {
         {
             let s = Store::open(&path).unwrap();
             s.with_conn(|c| {
-                c.execute("INSERT INTO settings(key, value) VALUES('theme', 'mono')", [])
-                    .map_err(|e| Error::store(e.to_string()))
+                c.execute(
+                    "INSERT INTO settings(key, value) VALUES('theme', 'mono')",
+                    [],
+                )
+                .map_err(|e| Error::store(e.to_string()))
             })
             .unwrap();
         }
@@ -180,8 +197,10 @@ mod tests {
         let s = Store::open(&path).unwrap();
         let v: String = s
             .with_conn(|c| {
-                c.query_row("SELECT value FROM settings WHERE key='theme'", [], |r| r.get(0))
-                    .map_err(|e| Error::store(e.to_string()))
+                c.query_row("SELECT value FROM settings WHERE key='theme'", [], |r| {
+                    r.get(0)
+                })
+                .map_err(|e| Error::store(e.to_string()))
             })
             .unwrap();
         assert_eq!(v, "mono");

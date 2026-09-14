@@ -38,7 +38,11 @@ pub struct FolderSyncOptions {
 
 impl Default for FolderSyncOptions {
     fn default() -> Self {
-        Self { chunk_size: 500, detect_deletions: false, max_per_pass: 5_000 }
+        Self {
+            chunk_size: 500,
+            detect_deletions: false,
+            max_per_pass: 5_000,
+        }
     }
 }
 
@@ -116,7 +120,11 @@ pub async fn sync_folder(
     // effacement pour cause de `UIDVALIDITY`, il vaut zero, et la passe repart donc
     // naturellement du debut.
     let depuis = store.max_uid(folder.id)?;
-    let intervalle = if depuis == 0 { UidRange::ALL } else { UidRange::since(depuis) };
+    let intervalle = if depuis == 0 {
+        UidRange::ALL
+    } else {
+        UidRange::since(depuis)
+    };
 
     let mut ramenes = 0usize;
     for tranche in plan_chunks(intervalle, etat.uid_next, options.chunk_size) {
@@ -228,7 +236,11 @@ fn to_new_message(
         recipients_json: destinataires,
         // La date de dépôt du serveur fait foi : la date déclarée par l'expéditeur
         // peut être absurde, et l'a souvent été volontairement.
-        date: if analyse.date == Timestamp::EPOCH { brut.internal_date } else { analyse.date },
+        date: if analyse.date == Timestamp::EPOCH {
+            brut.internal_date
+        } else {
+            analyse.date
+        },
         received: brut.internal_date,
         size: brut.size,
         flags,
@@ -242,9 +254,8 @@ fn to_new_message(
 /// **conservés** : le serveur ne les connaît pas, et les écraser les ferait
 /// disparaître à chaque synchronisation.
 pub fn merge_flags(local: Flags, remote: Flags) -> Flags {
-    const DERIVES: Flags = Flags(
-        Flags::HAS_ATTACHMENT.0 | Flags::HAS_TRACKER.0 | Flags::UNSUBSCRIBABLE.0,
-    );
+    const DERIVES: Flags =
+        Flags(Flags::HAS_ATTACHMENT.0 | Flags::HAS_TRACKER.0 | Flags::UNSUBSCRIBABLE.0);
     let conserves = Flags(local.0 & DERIVES.0);
     remote.with(conserves)
 }
@@ -278,20 +289,34 @@ mod tests {
                 Timestamp::from_millis(0),
             )
             .unwrap();
-        store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, server: FakeServer::default(), account }
+        store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            server: FakeServer::default(),
+            account,
+        }
     }
 
     impl Fixture {
         fn folder(&self) -> Folder {
-            self.store.folders(self.account).unwrap().into_iter().next().unwrap()
+            self.store
+                .folders(self.account)
+                .unwrap()
+                .into_iter()
+                .next()
+                .unwrap()
         }
 
         async fn conn(&self) -> Box<dyn ImapConnection> {
             self.server
                 .connect(
                     &Endpoint::tls("imap.x.fr", 993),
-                    &Credentials::Password { user: "moi@example.com".into(), password: "x".into() },
+                    &Credentials::Password {
+                        user: "moi@example.com".into(),
+                        password: "x".into(),
+                    },
                 )
                 .await
                 .unwrap()
@@ -299,9 +324,15 @@ mod tests {
 
         async fn sync(&self, options: FolderSyncOptions) -> FolderReport {
             let mut c = self.conn().await;
-            sync_folder(c.as_mut(), &self.store, self.account, &self.folder(), options)
-                .await
-                .unwrap()
+            sync_folder(
+                c.as_mut(),
+                &self.store,
+                self.account,
+                &self.folder(),
+                options,
+            )
+            .await
+            .unwrap()
         }
     }
 
@@ -309,7 +340,11 @@ mod tests {
     async fn la_premiere_synchronisation_ramene_tout() {
         let f = fixture();
         for i in 0..5 {
-            f.server.deliver("INBOX", &message(&format!("Sujet {i}"), &format!("m{i}@x")), Flags::NONE);
+            f.server.deliver(
+                "INBOX",
+                &message(&format!("Sujet {i}"), &format!("m{i}@x")),
+                Flags::NONE,
+            );
         }
 
         let r = f.sync(FolderSyncOptions::default()).await;
@@ -321,10 +356,12 @@ mod tests {
     #[tokio::test]
     async fn une_seconde_passe_ne_ramene_que_le_nouveau() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
         f.sync(FolderSyncOptions::default()).await;
 
-        f.server.deliver("INBOX", &message("Deux", "m2@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Deux", "m2@x"), Flags::NONE);
         let r = f.sync(FolderSyncOptions::default()).await;
 
         assert_eq!(r.added, 1);
@@ -335,7 +372,8 @@ mod tests {
     #[tokio::test]
     async fn un_cycle_sans_nouveaute_ne_change_rien() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
         f.sync(FolderSyncOptions::default()).await;
 
         let r = f.sync(FolderSyncOptions::default()).await;
@@ -346,7 +384,8 @@ mod tests {
     #[tokio::test]
     async fn les_drapeaux_modifies_ailleurs_sont_repris() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
         f.sync(FolderSyncOptions::default()).await;
 
         // Un autre client marque le message comme lu.
@@ -363,7 +402,8 @@ mod tests {
         // Sans cet effacement, les anciens UID désigneraient d'autres messages et on
         // attribuerait un contenu au mauvais expéditeur.
         let f = fixture();
-        f.server.deliver("INBOX", &message("Ancien", "ancien@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Ancien", "ancien@x"), Flags::NONE);
         f.sync(FolderSyncOptions::default()).await;
         assert_eq!(f.store.message_count().unwrap(), 1);
 
@@ -380,7 +420,11 @@ mod tests {
     async fn les_suppressions_distantes_sont_relevees_quand_on_les_cherche() {
         let f = fixture();
         for i in 0..4 {
-            f.server.deliver("INBOX", &message(&format!("m{i}"), &format!("m{i}@x")), Flags::NONE);
+            f.server.deliver(
+                "INBOX",
+                &message(&format!("m{i}"), &format!("m{i}@x")),
+                Flags::NONE,
+            );
         }
         f.sync(FolderSyncOptions::default()).await;
 
@@ -391,7 +435,12 @@ mod tests {
         assert_eq!(r.deleted, 0);
         assert_eq!(f.store.message_count().unwrap(), 4);
 
-        let r = f.sync(FolderSyncOptions { detect_deletions: true, ..Default::default() }).await;
+        let r = f
+            .sync(FolderSyncOptions {
+                detect_deletions: true,
+                ..Default::default()
+            })
+            .await;
         assert_eq!(r.deleted, 1);
         assert_eq!(f.store.message_count().unwrap(), 3);
     }
@@ -402,10 +451,18 @@ mod tests {
         // vide pendant un quart d'heure.
         let f = fixture();
         for i in 0..25 {
-            f.server.deliver("INBOX", &message(&format!("m{i}"), &format!("m{i}@x")), Flags::NONE);
+            f.server.deliver(
+                "INBOX",
+                &message(&format!("m{i}"), &format!("m{i}@x")),
+                Flags::NONE,
+            );
         }
 
-        let options = FolderSyncOptions { chunk_size: 5, max_per_pass: 10, ..Default::default() };
+        let options = FolderSyncOptions {
+            chunk_size: 5,
+            max_per_pass: 10,
+            ..Default::default()
+        };
         let r = f.sync(options).await;
         assert!(r.more_available, "la passe doit se déclarer incomplète");
         assert_eq!(f.store.message_count().unwrap(), 10);
@@ -422,9 +479,11 @@ mod tests {
     #[tokio::test]
     async fn un_message_illisible_n_interrompt_pas_la_synchronisation() {
         let f = fixture();
-        f.server.deliver("INBOX", &message("Bon", "bon@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Bon", "bon@x"), Flags::NONE);
         f.server.deliver("INBOX", &[], Flags::NONE);
-        f.server.deliver("INBOX", &message("Autre", "autre@x"), Flags::NONE);
+        f.server
+            .deliver("INBOX", &message("Autre", "autre@x"), Flags::NONE);
 
         let r = f.sync(FolderSyncOptions::default()).await;
         assert!(r.added >= 2, "les messages lisibles doivent passer");
@@ -446,9 +505,14 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
     async fn un_serveur_sans_condstore_reste_synchronisable() {
         let store = Store::in_memory().unwrap();
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
+        store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
         let server = FakeServer::legacy();
         server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
 
@@ -456,14 +520,23 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
         let mut c = server
             .connect(
                 &Endpoint::tls("x", 993),
-                &Credentials::Password { user: "a@x.fr".into(), password: "p".into() },
+                &Credentials::Password {
+                    user: "a@x.fr".into(),
+                    password: "p".into(),
+                },
             )
             .await
             .unwrap();
 
-        let r = sync_folder(c.as_mut(), &store, account, &folder, FolderSyncOptions::default())
-            .await
-            .unwrap();
+        let r = sync_folder(
+            c.as_mut(),
+            &store,
+            account,
+            &folder,
+            FolderSyncOptions::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(r.added, 1);
     }
 
@@ -478,7 +551,9 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
     #[tokio::test]
     async fn un_dossier_inconnu_du_serveur_est_une_erreur() {
         let f = fixture();
-        f.store.upsert_folder(f.account, "Absent", FolderRole::Other).unwrap();
+        f.store
+            .upsert_folder(f.account, "Absent", FolderRole::Other)
+            .unwrap();
         let dossier = f
             .store
             .folders(f.account)
@@ -488,9 +563,14 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
             .unwrap();
 
         let mut c = f.conn().await;
-        let r =
-            sync_folder(c.as_mut(), &f.store, f.account, &dossier, FolderSyncOptions::default())
-                .await;
+        let r = sync_folder(
+            c.as_mut(),
+            &f.store,
+            f.account,
+            &dossier,
+            FolderSyncOptions::default(),
+        )
+        .await;
         assert!(r.is_err());
     }
 
@@ -498,8 +578,11 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
     async fn les_messages_deplaces_ailleurs_apparaissent_dans_leur_nouveau_dossier() {
         let f = fixture();
         f.server.add_folder("Archive", FolderKind::Archive);
-        f.store.upsert_folder(f.account, "Archive", FolderRole::Archive).unwrap();
-        f.server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+        f.store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        f.server
+            .deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
 
         f.sync(FolderSyncOptions::default()).await;
 
@@ -515,9 +598,15 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
             .find(|d| d.path == "Archive")
             .unwrap();
         let mut c2 = f.conn().await;
-        let r = sync_folder(c2.as_mut(), &f.store, f.account, &archive, FolderSyncOptions::default())
-            .await
-            .unwrap();
+        let r = sync_folder(
+            c2.as_mut(),
+            &f.store,
+            f.account,
+            &archive,
+            FolderSyncOptions::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(r.added, 1);
     }
 
@@ -557,6 +646,9 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
         assert!(fusion.contains(Flags::ANSWERED));
         assert!(fusion.contains(Flags::HAS_ATTACHMENT));
         assert!(fusion.contains(Flags::HAS_TRACKER));
-        assert!(!fusion.contains(Flags::SEEN), "le serveur fait foi pour « lu »");
+        assert!(
+            !fusion.contains(Flags::SEEN),
+            "le serveur fait foi pour « lu »"
+        );
     }
 }

@@ -33,9 +33,20 @@ pub enum Event {
     /// De nouveaux messages sont arrivés. Ne transporte que des identifiants : le
     /// contenu se lit dans le store, et un événement ne doit jamais être un
     /// véhicule de données volumineuses.
-    MessagesAdded { account: AccountId, folder: FolderId, ids: Arc<[MessageId]> },
-    MessagesRemoved { account: AccountId, folder: FolderId, ids: Arc<[MessageId]> },
-    FlagsChanged { message: MessageId, thread: ThreadId },
+    MessagesAdded {
+        account: AccountId,
+        folder: FolderId,
+        ids: Arc<[MessageId]>,
+    },
+    MessagesRemoved {
+        account: AccountId,
+        folder: FolderId,
+        ids: Arc<[MessageId]>,
+    },
+    FlagsChanged {
+        message: MessageId,
+        thread: ThreadId,
+    },
 
     // --- Fils et workflow ---
     ThreadStateChanged {
@@ -44,21 +55,41 @@ pub enum Event {
         to: WorkflowState,
         cause: TransitionCause,
     },
-    ThreadSnoozed { thread: ThreadId, until: Timestamp },
-    ThreadUnsnoozed { thread: ThreadId },
+    ThreadSnoozed {
+        thread: ThreadId,
+        until: Timestamp,
+    },
+    ThreadUnsnoozed {
+        thread: ThreadId,
+    },
 
     // --- Synchronisation ---
-    SyncPhaseChanged { account: AccountId, phase: SyncPhase },
-    SyncFailed { account: AccountId, message: Arc<str>, transient: bool },
+    SyncPhaseChanged {
+        account: AccountId,
+        phase: SyncPhase,
+    },
+    SyncFailed {
+        account: AccountId,
+        message: Arc<str>,
+        transient: bool,
+    },
 
     // --- Présentation ---
-    ThemeReloaded { name: Arc<str> },
-    IndexUpdated { documents: u64 },
+    ThemeReloaded {
+        name: Arc<str>,
+    },
+    IndexUpdated {
+        documents: u64,
+    },
 
     // --- Extensions ---
     /// Émis par un plugin. `source` est l'identifiant du plugin, ce qui permet de
     /// tracer qui a produit quoi et de filtrer par origine.
-    Custom { source: Arc<str>, name: Arc<str>, payload: Arc<serde_json::Value> },
+    Custom {
+        source: Arc<str>,
+        name: Arc<str>,
+        payload: Arc<serde_json::Value>,
+    },
 }
 
 /// Famille d'un événement, pour s'abonner sans énumérer chaque variante.
@@ -108,7 +139,13 @@ impl Event {
     /// synchronisation intermédiaire, par exemple, n'a pas à provoquer de nouvelle
     /// frame en dehors de l'indicateur de progression.
     pub fn affects_view(&self) -> bool {
-        !matches!(self, Self::SyncPhaseChanged { phase: SyncPhase::Reconciling, .. })
+        !matches!(
+            self,
+            Self::SyncPhaseChanged {
+                phase: SyncPhase::Reconciling,
+                ..
+            }
+        )
     }
 }
 
@@ -120,7 +157,10 @@ mod tests {
     fn chaque_evenement_a_une_famille() {
         assert_eq!(Event::AccountAdded(AccountId(1)).kind(), EventKind::Account);
         assert_eq!(
-            Event::ThreadUnsnoozed { thread: ThreadId(1) }.kind(),
+            Event::ThreadUnsnoozed {
+                thread: ThreadId(1)
+            }
+            .kind(),
             EventKind::Workflow
         );
         assert_eq!(

@@ -26,7 +26,9 @@ impl ConfigSnapshot {
     /// ne correspond pas au type attendu — cette distinction est essentielle pour
     /// pouvoir appliquer un défaut sans masquer une faute de frappe de l'utilisateur.
     pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>> {
-        let Some(v) = self.lookup(path) else { return Ok(None) };
+        let Some(v) = self.lookup(path) else {
+            return Ok(None);
+        };
         serde_json::from_value(v.clone())
             .map(Some)
             .map_err(|e| Error::Config(format!("« {path} » : {e}")))
@@ -81,14 +83,17 @@ impl Config {
     /// noyau n'a ainsi qu'un seul format à connaître, quel que soit le format des
     /// fichiers sur le disque.
     pub fn from_toml(text: &str) -> Result<Self> {
-        let value: Value = toml::from_str(text)
-            .map_err(|e| Error::Config(format!("TOML invalide : {e}")))?;
+        let value: Value =
+            toml::from_str(text).map_err(|e| Error::Config(format!("TOML invalide : {e}")))?;
         Ok(Self::new(value))
     }
 
     /// Instantané courant. Bon marché : une copie de pointeur.
     pub fn snapshot(&self) -> ConfigSnapshot {
-        self.inner.read().expect("configuration empoisonnée").clone()
+        self.inner
+            .read()
+            .expect("configuration empoisonnée")
+            .clone()
     }
 
     /// Remplace intégralement la configuration et incrémente la génération.
@@ -108,7 +113,10 @@ impl Config {
     }
 
     pub fn generation(&self) -> u64 {
-        self.inner.read().expect("configuration empoisonnée").generation
+        self.inner
+            .read()
+            .expect("configuration empoisonnée")
+            .generation
     }
 }
 
@@ -128,7 +136,10 @@ mod tests {
     fn lecture_par_chemin_pointe() {
         let c = cfg();
         assert_eq!(c.get::<u32>("sync.pool_size").unwrap(), Some(16));
-        assert_eq!(c.get::<String>("ui.theme").unwrap().as_deref(), Some("mono"));
+        assert_eq!(
+            c.get::<String>("ui.theme").unwrap().as_deref(),
+            Some("mono")
+        );
     }
 
     #[test]
@@ -162,8 +173,14 @@ mod tests {
 
         // Le lecteur qui détient un instantané continue de voir l'ancienne valeur :
         // aucune lecture en cours n'est perturbée par un rechargement.
-        assert_eq!(avant.get::<String>("ui.theme").unwrap().as_deref(), Some("mono"));
-        assert_eq!(c.get::<String>("ui.theme").unwrap().as_deref(), Some("sand"));
+        assert_eq!(
+            avant.get::<String>("ui.theme").unwrap().as_deref(),
+            Some("mono")
+        );
+        assert_eq!(
+            c.get::<String>("ui.theme").unwrap().as_deref(),
+            Some("sand")
+        );
     }
 
     #[test]

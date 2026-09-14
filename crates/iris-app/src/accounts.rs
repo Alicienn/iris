@@ -77,7 +77,10 @@ pub fn parse_bulk(contents: &str) -> (Vec<BulkEntry>, Vec<String>) {
                         .filter(|g| !g.is_empty()),
                 });
             }
-            _ => erreurs.push(format!("ligne {} : « {ligne} » n'est pas exploitable", numero + 1)),
+            _ => erreurs.push(format!(
+                "ligne {} : « {ligne} » n'est pas exploitable",
+                numero + 1
+            )),
         }
     }
 
@@ -267,14 +270,25 @@ pub fn add_account_oauth(
 /// ce qui diffère.
 pub fn manual_defaults(email: &str) -> ServerConfig {
     let email = email.trim().to_lowercase();
-    let domaine = email.rsplit_once('@').map(|(_, d)| d.to_string()).unwrap_or_default();
+    let domaine = email
+        .rsplit_once('@')
+        .map(|(_, d)| d.to_string())
+        .unwrap_or_default();
 
     ServerConfig {
         provider: None,
-        imap_host: if domaine.is_empty() { String::new() } else { format!("imap.{domaine}") },
+        imap_host: if domaine.is_empty() {
+            String::new()
+        } else {
+            format!("imap.{domaine}")
+        },
         imap_port: 993,
         imap_transport: iris_discover::Transport::Tls,
-        smtp_host: if domaine.is_empty() { String::new() } else { format!("smtp.{domaine}") },
+        smtp_host: if domaine.is_empty() {
+            String::new()
+        } else {
+            format!("smtp.{domaine}")
+        },
         smtp_port: 465,
         smtp_transport: iris_discover::Transport::Tls,
         auth: Auth::Password,
@@ -284,16 +298,18 @@ pub fn manual_defaults(email: &str) -> ServerConfig {
 }
 
 /// Supprime un compte, ses messages et ses secrets.
-pub fn remove_account(
-    store: &Store,
-    secrets: &dyn SecretStore,
-    id: AccountId,
-) -> Result<bool> {
-    let Some(compte) = store.account(id)? else { return Ok(false) };
+pub fn remove_account(store: &Store, secrets: &dyn SecretStore, id: AccountId) -> Result<bool> {
+    let Some(compte) = store.account(id)? else {
+        return Ok(false);
+    };
 
     // Les secrets d'abord : un compte supprimé dont le mot de passe traînerait encore
     // dans le trousseau serait une fuite silencieuse.
-    for nature in [SecretKind::Password, SecretKind::AccessToken, SecretKind::RefreshToken] {
+    for nature in [
+        SecretKind::Password,
+        SecretKind::AccessToken,
+        SecretKind::RefreshToken,
+    ] {
         let _ = secrets.delete(&compte.email, nature);
     }
     store.delete_account(id)
@@ -349,7 +365,10 @@ mod tests_manuel {
             Timestamp::EPOCH,
         )
         .unwrap();
-        assert_eq!(s.account(id).unwrap().unwrap().auth, AuthKind::OAuthMicrosoft);
+        assert_eq!(
+            s.account(id).unwrap().unwrap().auth,
+            AuthKind::OAuthMicrosoft
+        );
     }
 
     #[test]
@@ -364,7 +383,10 @@ mod tests_manuel {
         )
         .unwrap_err()
         .to_string();
-        assert!(erreur.contains("fournisseur d'identité"), "obtenu : {erreur}");
+        assert!(
+            erreur.contains("fournisseur d'identité"),
+            "obtenu : {erreur}"
+        );
     }
 
     #[test]
@@ -480,15 +502,18 @@ mod tests {
             note: None,
         };
 
-        let id = add_account_manual(&store, &coffre, &config, "secret", None, Timestamp::EPOCH)
-            .unwrap();
+        let id =
+            add_account_manual(&store, &coffre, &config, "secret", None, Timestamp::EPOCH).unwrap();
 
         let compte = store.account(id).unwrap().unwrap();
         assert_eq!(compte.imap_host, "imap.mondomaine.fr");
         assert!(compte.imap_tls);
         assert!(!compte.smtp_tls, "STARTTLS n'est pas du TLS direct");
 
-        let secret = coffre.get("moi@mondomaine.fr", SecretKind::Password).unwrap().unwrap();
+        let secret = coffre
+            .get("moi@mondomaine.fr", SecretKind::Password)
+            .unwrap()
+            .unwrap();
         assert_eq!(secret.expose(), "secret");
     }
 
@@ -515,9 +540,13 @@ mod tests {
         coffre.delete("moi@x.fr", SecretKind::Password).unwrap();
 
         // Second ajout : le store refuse, le secret ne doit pas survivre.
-        assert!(add_account_manual(&store, &coffre, &config, "deux", None, Timestamp::EPOCH)
-            .is_err());
-        assert!(coffre.get("moi@x.fr", SecretKind::Password).unwrap().is_none());
+        assert!(
+            add_account_manual(&store, &coffre, &config, "deux", None, Timestamp::EPOCH).is_err()
+        );
+        assert!(coffre
+            .get("moi@x.fr", SecretKind::Password)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -544,7 +573,10 @@ mod tests {
             add_account_manual(&store, &coffre, &config, "secret", None, Timestamp::EPOCH).unwrap();
 
         assert!(remove_account(&store, &coffre, id).unwrap());
-        assert!(coffre.get("moi@x.fr", SecretKind::Password).unwrap().is_none());
+        assert!(coffre
+            .get("moi@x.fr", SecretKind::Password)
+            .unwrap()
+            .is_none());
         assert!(store.account(id).unwrap().is_none());
     }
 

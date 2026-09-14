@@ -225,7 +225,10 @@ mod tests {
         reglages.oauth.google_client_id = "client-google".into();
         reglages.save(&chemin).unwrap();
 
-        assert_eq!(Settings::load(&chemin).oauth.google_client_id, "client-google");
+        assert_eq!(
+            Settings::load(&chemin).oauth.google_client_id,
+            "client-google"
+        );
     }
 
     #[test]

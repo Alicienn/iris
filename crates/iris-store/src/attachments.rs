@@ -100,7 +100,11 @@ impl Store {
     /// quelqu'un qui lit son courrier : la lister ferait passer une signature à
     /// logo pour un document reçu.
     pub fn visible_attachments(&self, message: MessageId) -> Result<Vec<StoredAttachment>> {
-        Ok(self.attachments(message)?.into_iter().filter(|a| !a.meta.inline).collect())
+        Ok(self
+            .attachments(message)?
+            .into_iter()
+            .filter(|a| !a.meta.inline)
+            .collect())
     }
 }
 
@@ -115,7 +119,9 @@ mod tests {
         let compte = store
             .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::EPOCH)
             .unwrap();
-        let dossier = store.upsert_folder(compte, "INBOX", FolderRole::Inbox).unwrap();
+        let dossier = store
+            .upsert_folder(compte, "INBOX", FolderRole::Inbox)
+            .unwrap();
         let insere = store
             .insert_message(&NewMessage {
                 account: compte,
@@ -181,7 +187,10 @@ mod tests {
         // Une image de signature n'est pas un document reçu.
         let (store, message) = fixture();
         store
-            .record_attachments(message, &[piece("logo.png", true), piece("devis.pdf", false)])
+            .record_attachments(
+                message,
+                &[piece("logo.png", true), piece("devis.pdf", false)],
+            )
             .unwrap();
 
         let visibles = store.visible_attachments(message).unwrap();
@@ -199,7 +208,9 @@ mod tests {
     #[test]
     fn recenser_zero_piece_efface_les_precedentes() {
         let (store, message) = fixture();
-        store.record_attachments(message, &[piece("a.pdf", false)]).unwrap();
+        store
+            .record_attachments(message, &[piece("a.pdf", false)])
+            .unwrap();
         store.record_attachments(message, &[]).unwrap();
 
         assert!(store.attachments(message).unwrap().is_empty());
@@ -221,7 +232,9 @@ mod tests {
     #[test]
     fn supprimer_le_message_emporte_ses_pieces() {
         let (store, message) = fixture();
-        store.record_attachments(message, &[piece("a.pdf", false)]).unwrap();
+        store
+            .record_attachments(message, &[piece("a.pdf", false)])
+            .unwrap();
 
         let compte = store.accounts().unwrap()[0].id;
         let dossier = store.folders(compte).unwrap()[0].id;

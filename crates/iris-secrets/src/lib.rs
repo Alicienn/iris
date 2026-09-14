@@ -82,7 +82,9 @@ impl KeyringStore {
     /// `service` identifie l'application auprès du trousseau. Le changer rendrait
     /// invisibles tous les secrets déjà enregistrés.
     pub fn new(service: impl Into<String>) -> Self {
-        Self { service: service.into() }
+        Self {
+            service: service.into(),
+        }
     }
 
     /// Vérifie que le trousseau est utilisable ici.
@@ -94,7 +96,10 @@ impl KeyringStore {
         match keyring::Entry::new(&self.service, &sonde) {
             Ok(entry) => {
                 // Une entrée absente est une réponse valable : le trousseau répond.
-                !matches!(entry.get_password(), Err(keyring::Error::PlatformFailure(_)))
+                !matches!(
+                    entry.get_password(),
+                    Err(keyring::Error::PlatformFailure(_))
+                )
             }
             Err(_) => false,
         }
@@ -126,7 +131,9 @@ impl SecretStore for KeyringStore {
         match self.entry(account, kind)?.delete_credential() {
             Ok(()) => Ok(true),
             Err(keyring::Error::NoEntry) => Ok(false),
-            Err(e) => Err(Error::Config(format!("suppression dans le trousseau : {e}"))),
+            Err(e) => Err(Error::Config(format!(
+                "suppression dans le trousseau : {e}"
+            ))),
         }
     }
 
@@ -149,7 +156,11 @@ mod tests {
 
     #[test]
     fn les_natures_de_secret_font_un_aller_retour() {
-        for k in [SecretKind::Password, SecretKind::AccessToken, SecretKind::RefreshToken] {
+        for k in [
+            SecretKind::Password,
+            SecretKind::AccessToken,
+            SecretKind::RefreshToken,
+        ] {
             assert_eq!(SecretKind::parse(k.as_str()), Some(k));
         }
         assert_eq!(SecretKind::parse("inconnu"), None);

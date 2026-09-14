@@ -50,7 +50,10 @@ pub fn refresh_accounts(
 
     // Ce qui reste à traiter, boîte par boîte. Le nombre total de messages ne dirait
     // rien de ce qu'il y a à faire, et un « 12 483 » permanent n'apprend rien.
-    let a_traiter = services.store.todo_counts_by_account(now()).unwrap_or_default();
+    let a_traiter = services
+        .store
+        .todo_counts_by_account(now())
+        .unwrap_or_default();
 
     let (epingles, autres): (Vec<_>, Vec<_>) = comptes.iter().partition(|c| c.pinned);
 
@@ -119,7 +122,9 @@ pub fn wire_account_recovery(
 ) {
     let faible = fenetre.as_weak();
     fenetre.on_resume_account(move |id| {
-        let Some(fenetre) = faible.upgrade() else { return };
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
         let compte = iris_types::AccountId(id as i64);
         fenetre.set_status("Nouvelle tentative…".into());
 
@@ -198,7 +203,10 @@ impl CommandBook {
     /// Filtre les commandes pour la palette.
     pub fn filter(&self, query: &str, has_thread: bool) -> Vec<commands::Command> {
         let liste = self.commandes.lock().expect("commandes empoisonnées");
-        commands::filter(&liste, query, has_thread).into_iter().cloned().collect()
+        commands::filter(&liste, query, has_thread)
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     pub fn find(&self, id: &str) -> Option<commands::Command> {
@@ -246,7 +254,9 @@ pub fn wire_callbacks(
         let commandes = Arc::clone(&commandes);
         let faible = fenetre.as_weak();
         fenetre.on_palette_query_changed(move |requete| {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             let a_un_fil = fenetre.get_selected_thread() >= 0;
             let filtrees: Vec<_> = commandes
                 .filter(requete.as_str(), a_un_fil)
@@ -276,7 +286,9 @@ pub fn wire_callbacks(
     {
         let c = Arc::clone(&controller);
         fenetre.on_account_selected(move |id| {
-            c.send(Request::FilterAccounts(vec![iris_types::AccountId(id as i64)]));
+            c.send(Request::FilterAccounts(vec![iris_types::AccountId(
+                id as i64,
+            )]));
         });
     }
 
@@ -291,7 +303,9 @@ pub fn wire_callbacks(
         let c = Arc::clone(&controller);
         let faible = fenetre.as_weak();
         fenetre.on_scrolled_near_end(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             // On demande un peu au-delà de ce qui est chargé : le préchargement du
             // vue-modèle fait le reste.
             c.send(Request::EnsureLoaded(fenetre.get_rows().row_count()));
@@ -317,7 +331,9 @@ pub fn wire_callbacks(
         let commandes = Arc::clone(&commandes);
         let faible = fenetre.as_weak();
         fenetre.on_command_invoked(move |id| {
-            let Some(commande) = commandes.find(id.as_str()) else { return };
+            let Some(commande) = commandes.find(id.as_str()) else {
+                return;
+            };
             dispatch(&c, &commande.kind, &faible, &commandes);
         });
     }
@@ -416,7 +432,11 @@ pub fn apply_snapshot(
     fenetre.set_selected_thread(snapshot.selected.map(|t| t.get() as i32).unwrap_or(-1));
     fenetre.set_active_tab(snapshot.active_tab.as_i64() as i32);
     fenetre.set_counts(ModelRc::new(VecModel::from(
-        snapshot.counts.iter().map(|c| *c as i32).collect::<Vec<_>>(),
+        snapshot
+            .counts
+            .iter()
+            .map(|c| *c as i32)
+            .collect::<Vec<_>>(),
     )));
     // La vue unifiée compte la file de travail, comme les lignes de comptes.
     fenetre.set_unified_count(snapshot.counts[0] as i32);
@@ -449,7 +469,9 @@ pub fn apply_snapshot(
             .into_iter()
             .map(|p| p.meta.filename)
             .collect();
-        fenetre.set_message(bridge::message_view_rendered(message, &corps, &pieces, maintenant));
+        fenetre.set_message(bridge::message_view_rendered(
+            message, &corps, &pieces, maintenant,
+        ));
     }
 }
 
@@ -460,16 +482,13 @@ pub fn apply_snapshot(
 /// fonctionnelle en texte riche, et le dit une fois au démarrage plutôt que de
 /// laisser un panneau vide l'expliquer à chaque message.
 pub fn build_renderer() -> iris_htmlview::AdaptiveRenderer {
-    let simple = iris_htmlview::AdaptiveRenderer::new(Box::new(
-        iris_htmlview::RichTextRenderer::default(),
-    ));
+    let simple = iris_htmlview::AdaptiveRenderer::new(Box::new(iris_htmlview::RichTextRenderer));
 
     #[cfg(feature = "blitz")]
     {
         if iris_htmlview::BlitzRenderer::is_available() {
             tracing::info!("rendu des corps : moteur complet disponible");
-            return simple
-                .with_full_engine(Box::new(iris_htmlview::BlitzRenderer::new(1.0, true)));
+            return simple.with_full_engine(Box::new(iris_htmlview::BlitzRenderer::new(1.0, true)));
         }
         tracing::info!("rendu des corps : texte riche seulement (pas de périphérique graphique)");
     }
@@ -488,9 +507,9 @@ fn corps_du_message(
 ) -> iris_htmlview::Rendered {
     let apercu = || {
         iris_htmlview::Rendered::Blocks(iris_htmlview::RichText {
-            blocks: vec![iris_htmlview::Block::Paragraph(vec![iris_htmlview::Inline::plain(
-                message.preview.clone(),
-            )])],
+            blocks: vec![iris_htmlview::Block::Paragraph(vec![
+                iris_htmlview::Inline::plain(message.preview.clone()),
+            ])],
             blocked_images: 0,
         })
     };
@@ -554,12 +573,19 @@ impl BodyLoader {
         controller: Arc<Controller>,
         runtime: tokio::runtime::Handle,
     ) -> Self {
-        Self { engine, controller, runtime, demande: std::sync::Mutex::new(None) }
+        Self {
+            engine,
+            controller,
+            runtime,
+            demande: std::sync::Mutex::new(None),
+        }
     }
 
     /// Demande le corps du fil affiché, s'il en manque un.
     pub fn request_if_needed(&self, snapshot: &Snapshot) {
-        let Some(thread) = snapshot.selected else { return };
+        let Some(thread) = snapshot.selected else {
+            return;
+        };
 
         // Rien à faire si tous les corps sont là.
         if snapshot.messages.iter().all(|m| m.body_blob.is_some()) {
@@ -615,12 +641,16 @@ pub fn wire_reply(
         let faible = fenetre.as_weak();
 
         fenetre.on_send_reply(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             let texte = fenetre.get_reply_text().to_string();
             if texte.trim().is_empty() {
                 return;
             }
-            let Some(thread) = *selection.lock().expect("sélection") else { return };
+            let Some(thread) = *selection.lock().expect("sélection") else {
+                return;
+            };
 
             let message = match send.compose_reply(thread, &texte, iris_smtp::ReplyScope::Sender) {
                 Ok(m) => m,
@@ -651,7 +681,9 @@ pub fn wire_reply(
         let faible = fenetre.as_weak();
 
         fenetre.on_cancel_send(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             let handle = en_cours.lock().expect("envoi").take();
 
             match handle.map(|h| send.cancel(h)) {
@@ -691,11 +723,12 @@ pub fn wire_settings(
     {
         let reglages = courant.lock().expect("réglages empoisonnés").clone();
         fenetre.set_themes(ModelRc::new(VecModel::from(
-            noms.iter().map(|n| slint::SharedString::from(n.as_str())).collect::<Vec<_>>(),
+            noms.iter()
+                .map(|n| slint::SharedString::from(n.as_str()))
+                .collect::<Vec<_>>(),
         )));
-        fenetre.set_active_theme(
-            noms.iter().position(|n| *n == reglages.theme).unwrap_or(0) as i32,
-        );
+        fenetre
+            .set_active_theme(noms.iter().position(|n| *n == reglages.theme).unwrap_or(0) as i32);
         fenetre.set_density(reglages.density.index() as i32);
         fenetre.set_reply_marks_waiting(reglages.automation.reply_marks_waiting);
         fenetre.set_new_message_reopens(reglages.automation.new_message_reopens);
@@ -721,8 +754,12 @@ pub fn wire_settings(
         let faible = fenetre.as_weak();
 
         fenetre.on_theme_chosen(move |index| {
-            let Some(fenetre) = faible.upgrade() else { return };
-            let Some(nom) = noms.get(index as usize) else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(nom) = noms.get(index as usize) else {
+                return;
+            };
 
             let theme = match themes.set_active(nom) {
                 Ok(t) => t,
@@ -751,8 +788,12 @@ pub fn wire_settings(
         let faible = fenetre.as_weak();
 
         fenetre.on_density_chosen(move |index| {
-            let Some(fenetre) = faible.upgrade() else { return };
-            let Some(densite) = Density::from_index(index as usize) else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(densite) = Density::from_index(index as usize) else {
+                return;
+            };
 
             let mut reglages = courant.lock().expect("réglages empoisonnés");
             reglages.density = densite;
@@ -768,7 +809,9 @@ pub fn wire_settings(
         let faible = fenetre.as_weak();
 
         fenetre.on_automation_changed(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
 
             let automatismes = iris_types::AutomationSettings {
                 reply_marks_waiting: fenetre.get_reply_marks_waiting(),
@@ -819,7 +862,9 @@ pub fn wire_account_setup(
     {
         let faible = fenetre.as_weak();
         fenetre.on_add_account_manual_requested(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             prefill_manual(&fenetre);
         });
     }
@@ -835,7 +880,9 @@ pub fn wire_account_setup(
         let faible = fenetre.as_weak();
 
         fenetre.on_add_account_discover(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             let email = fenetre.get_new_email().to_string();
             let motdepasse = fenetre.get_new_password().to_string();
 
@@ -860,8 +907,7 @@ pub fn wire_account_setup(
 
             let oauth = Arc::clone(&oauth_reglages);
             runtime_ajout.spawn(async move {
-                let resultat =
-                    ajouter(&store, secrets, &oauth, &email, &motdepasse, now()).await;
+                let resultat = ajouter(&store, secrets, &oauth, &email, &motdepasse, now()).await;
 
                 // Le compte créé doit entrer dans l'ordonnanceur tout de suite,
                 // sinon rien n'arrive avant le prochain démarrage.
@@ -879,12 +925,8 @@ pub fn wire_account_setup(
                             fenetre.set_new_email(Default::default());
                             fenetre.set_new_password(Default::default());
                             fenetre.set_status(
-                                format!(
-                                    "{} ajouté ({}).",
-                                    compte.email,
-                                    compte.source.describe()
-                                )
-                                .into(),
+                                format!("{} ajouté ({}).", compte.email, compte.source.describe())
+                                    .into(),
                             );
                             refresh_accounts(&fenetre, &services_ui, &[]);
                             controller.send(Request::Bootstrap);
@@ -915,7 +957,9 @@ pub fn wire_account_setup(
         let faible = fenetre.as_weak();
 
         fenetre.on_add_account_save(move || {
-            let Some(fenetre) = faible.upgrade() else { return };
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             let email = fenetre.get_new_email().to_string();
             let motdepasse = fenetre.get_new_password().to_string();
 
@@ -1011,7 +1055,9 @@ async fn ajouter(
         }
         None => {
             if motdepasse.is_empty() {
-                return Err(iris_types::Error::Config("Le mot de passe est vide.".into()));
+                return Err(iris_types::Error::Config(
+                    "Le mot de passe est vide.".into(),
+                ));
             }
             if store.account_by_email(&config.email)?.is_some() {
                 return Err(iris_types::Error::Config(format!(
@@ -1133,8 +1179,12 @@ pub fn wire_attachments(
     let faible = fenetre.as_weak();
 
     fenetre.on_save_attachment(move |rang| {
-        let Some(fenetre) = faible.upgrade() else { return };
-        let Some(thread) = *selection.lock().expect("sélection empoisonnée") else { return };
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        let Some(thread) = *selection.lock().expect("sélection empoisonnée") else {
+            return;
+        };
 
         match enregistrer_piece(&services, thread, rang as usize) {
             Ok(chemin) => fenetre.set_status(format!("Enregistré : {}", chemin.display()).into()),
@@ -1203,7 +1253,10 @@ fn chemin_libre(dossier: &std::path::Path, nom: &str) -> std::path::PathBuf {
     }
 
     let chemin = std::path::Path::new(&nom);
-    let tronc = chemin.file_stem().and_then(|s| s.to_str()).unwrap_or("piece-jointe");
+    let tronc = chemin
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("piece-jointe");
     let extension = chemin.extension().and_then(|s| s.to_str());
 
     for n in 2..1000 {
@@ -1310,14 +1363,20 @@ mod tests {
         // Une liste de quarante adresses dans une barre d'état n'informe personne.
         let comptes: Vec<_> = (1..=5).map(|i| compte(i, &format!("c{i}@x.fr"))).collect();
         let message = message_suspension(&comptes, &ensemble(&[1, 2, 3, 4, 5])).unwrap();
-        assert!(message.starts_with("5 comptes en pause"), "obtenu : {message}");
+        assert!(
+            message.starts_with("5 comptes en pause"),
+            "obtenu : {message}"
+        );
     }
 
     #[test]
     fn un_compte_suspendu_inconnu_du_store_est_quand_meme_signale() {
         // Sinon la panne resterait muette au moment où elle est la plus étrange.
         let message = message_suspension(&[], &ensemble(&[7])).unwrap();
-        assert!(message.starts_with("1 compte en pause"), "obtenu : {message}");
+        assert!(
+            message.starts_with("1 compte en pause"),
+            "obtenu : {message}"
+        );
     }
 
     #[test]

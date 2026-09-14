@@ -38,7 +38,10 @@ pub fn normalize_subject(subject: &str) -> String {
             _ => break,
         }
     }
-    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 impl Store {
@@ -77,11 +80,15 @@ impl Store {
     pub fn set_message_flags(&self, id: MessageId, flags: Flags) -> Result<Option<ThreadId>> {
         self.with_tx(|tx| {
             let thread: Option<i64> = tx
-                .query_row("SELECT thread_id FROM messages WHERE id = ?1", params![id.get()], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT thread_id FROM messages WHERE id = ?1",
+                    params![id.get()],
+                    |r| r.get(0),
+                )
                 .ok();
-            let Some(thread) = thread else { return Ok(None) };
+            let Some(thread) = thread else {
+                return Ok(None);
+            };
 
             tx.execute(
                 "UPDATE messages SET flags = ?1 WHERE id = ?2",
@@ -131,10 +138,11 @@ impl Store {
         }
         self.with_tx(|tx| {
             let threads = threads_of_uids(tx, folder, uids)?;
-            let placeholders = std::iter::repeat_n("?", uids.len()).collect::<Vec<_>>().join(",");
-            let sql = format!(
-                "DELETE FROM messages WHERE folder_id = ? AND uid IN ({placeholders})"
-            );
+            let placeholders = std::iter::repeat_n("?", uids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql =
+                format!("DELETE FROM messages WHERE folder_id = ? AND uid IN ({placeholders})");
             let mut args: Vec<i64> = Vec::with_capacity(uids.len() + 1);
             args.push(folder.get());
             args.extend(uids.iter().map(|u| *u as i64));
@@ -227,7 +235,8 @@ impl Store {
             let rows = stmt
                 .query_map(params![folder.get()], |r| Ok(r.get::<_, i64>(0)? as u32))
                 .map_err(|e| sql_err("UID du dossier", e))?;
-            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| sql_err("UID du dossier", e))
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("UID du dossier", e))
         })
     }
 
@@ -327,7 +336,10 @@ impl Store {
             };
 
             let n = tx
-                .execute("DELETE FROM messages WHERE folder_id = ?1", params![folder.get()])
+                .execute(
+                    "DELETE FROM messages WHERE folder_id = ?1",
+                    params![folder.get()],
+                )
                 .map_err(|e| sql_err("vidage du dossier", e))?;
 
             for t in threads {
@@ -370,7 +382,9 @@ fn stored_message_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMess
 }
 
 fn threads_of_uids(tx: &Transaction<'_>, folder: FolderId, uids: &[u32]) -> Result<Vec<ThreadId>> {
-    let placeholders = std::iter::repeat_n("?", uids.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", uids.len())
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         "SELECT DISTINCT thread_id FROM messages WHERE folder_id = ? AND uid IN ({placeholders})"
     );
@@ -382,7 +396,8 @@ fn threads_of_uids(tx: &Transaction<'_>, folder: FolderId, uids: &[u32]) -> Resu
     let rows = stmt
         .query_map(params_from_iter(args), |r| r.get::<_, i64>(0).map(ThreadId))
         .map_err(|e| sql_err("fils concernés", e))?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| sql_err("fils concernés", e))
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| sql_err("fils concernés", e))
 }
 
 fn insert_message_tx(tx: &Transaction<'_>, m: &NewMessage) -> Result<Inserted> {
@@ -480,7 +495,12 @@ fn insert_message_tx_deferred(tx: &Transaction<'_>, m: &NewMessage) -> Result<In
             .map_err(|e| sql_err("rattachement du compte au fil", e))?;
     }
 
-    Ok(Inserted { message, thread, was_known: false, thread_created })
+    Ok(Inserted {
+        message,
+        thread,
+        was_known: false,
+        thread_created,
+    })
 }
 
 /// Trouve le fil auquel rattacher un message, ou en cree un.
@@ -514,9 +534,7 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
             Some(t) => Some(t),
             None => {
                 let mut stmt = tx
-                    .prepare_cached(
-                        "SELECT thread_id FROM messages WHERE in_reply_to = ?1 LIMIT 1",
-                    )
+                    .prepare_cached("SELECT thread_id FROM messages WHERE in_reply_to = ?1 LIMIT 1")
                     .map_err(|e| sql_err("preparation", e))?;
                 stmt.query_row(params![mine], |r| r.get::<_, i64>(0)).ok()
             }
@@ -533,8 +551,12 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
             "INSERT INTO threads (subject_norm, state, last_activity_at) VALUES (?1, ?2, ?3)",
         )
         .map_err(|e| sql_err("preparation", e))?;
-    stmt.execute(params![subject_norm, WorkflowState::Todo.as_i64(), m.received.millis()])
-        .map_err(|e| sql_err("creation du fil", e))?;
+    stmt.execute(params![
+        subject_norm,
+        WorkflowState::Todo.as_i64(),
+        m.received.millis()
+    ])
+    .map_err(|e| sql_err("creation du fil", e))?;
     Ok((ThreadId(tx.last_insert_rowid()), true))
 }
 
@@ -642,8 +664,15 @@ mod tests {
                 Timestamp::from_millis(0),
             )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, account, folder, next_uid: std::cell::Cell::new(1) }
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            account,
+            folder,
+            next_uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -703,7 +732,10 @@ mod tests {
         assert!(b.thread_created);
 
         let a = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
-        assert_eq!(a.thread, b.thread, "l'original doit rejoindre le fil existant");
+        assert_eq!(
+            a.thread, b.thread,
+            "l'original doit rejoindre le fil existant"
+        );
         assert!(!a.thread_created);
     }
 
@@ -721,7 +753,10 @@ mod tests {
         assert!(second.was_known);
         assert_eq!(f.store.message_count().unwrap(), 1);
         // Les drapeaux ont bien été rafraîchis au passage.
-        assert_eq!(f.store.thread_messages(first.thread).unwrap()[0].flags, Flags::SEEN);
+        assert_eq!(
+            f.store.thread_messages(first.thread).unwrap()[0].flags,
+            Flags::SEEN
+        );
     }
 
     #[test]
@@ -739,7 +774,10 @@ mod tests {
         assert_eq!(row.message_count, 2);
         assert_eq!(row.unread_count, 1, "seul le premier est non lu");
         assert_eq!(row.last_activity, Timestamp::from_millis(3000));
-        assert_eq!(row.from_display, "Luc", "la liste montre le dernier expéditeur");
+        assert_eq!(
+            row.from_display, "Luc",
+            "la liste montre le dernier expéditeur"
+        );
         assert!(row.flags_union.contains(Flags::HAS_ATTACHMENT));
     }
 
@@ -790,15 +828,25 @@ mod tests {
         let r = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
         let id = f.store.thread_messages(r.thread).unwrap()[0].id;
 
-        assert_eq!(f.store.thread_row(r.thread).unwrap().unwrap().unread_count, 1);
+        assert_eq!(
+            f.store.thread_row(r.thread).unwrap().unwrap().unread_count,
+            1
+        );
         f.store.set_message_flags(id, Flags::SEEN).unwrap();
-        assert_eq!(f.store.thread_row(r.thread).unwrap().unwrap().unread_count, 0);
+        assert_eq!(
+            f.store.thread_row(r.thread).unwrap().unwrap().unread_count,
+            0
+        );
     }
 
     #[test]
     fn les_drapeaux_d_un_message_inconnu_ne_font_rien() {
         let f = fixture();
-        assert!(f.store.set_message_flags(MessageId(999), Flags::SEEN).unwrap().is_none());
+        assert!(f
+            .store
+            .set_message_flags(MessageId(999), Flags::SEEN)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -817,9 +865,17 @@ mod tests {
         let f = fixture();
         let a = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
         f.store.insert_message(&f.msg("b@x", 2000)).unwrap();
-        assert_eq!(f.store.folder_messages_without_body(f.folder, 10).unwrap().len(), 2);
+        assert_eq!(
+            f.store
+                .folder_messages_without_body(f.folder, 10)
+                .unwrap()
+                .len(),
+            2
+        );
 
-        f.store.attach_body(a.message, "00112233445566778899aabbccddeeff").unwrap();
+        f.store
+            .attach_body(a.message, "00112233445566778899aabbccddeeff")
+            .unwrap();
         let restants = f.store.folder_messages_without_body(f.folder, 10).unwrap();
         assert_eq!(restants.len(), 1);
         assert_ne!(restants[0].id, a.message);
@@ -831,7 +887,9 @@ mod tests {
         let r = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
         assert!(f.store.referenced_blobs().unwrap().is_empty());
 
-        f.store.attach_body(r.message, "00112233445566778899aabbccddeeff").unwrap();
+        f.store
+            .attach_body(r.message, "00112233445566778899aabbccddeeff")
+            .unwrap();
         assert_eq!(
             f.store.referenced_blobs().unwrap(),
             ["00112233445566778899aabbccddeeff"]
@@ -841,7 +899,10 @@ mod tests {
     #[test]
     fn normalisation_des_sujets() {
         assert_eq!(normalize_subject("Re: Devis"), "devis");
-        assert_eq!(normalize_subject("RE: Fwd:  Devis   refonte "), "devis refonte");
+        assert_eq!(
+            normalize_subject("RE: Fwd:  Devis   refonte "),
+            "devis refonte"
+        );
         assert_eq!(normalize_subject("TR: Rép: Devis"), "devis");
         assert_eq!(normalize_subject("Devis"), "devis");
         assert_eq!(normalize_subject(""), "");
@@ -852,7 +913,9 @@ mod tests {
     #[test]
     fn un_lot_s_insere_en_une_transaction() {
         let f = fixture();
-        let lot: Vec<_> = (0..50).map(|i| f.msg(&format!("m{i}@x"), 1000 + i)).collect();
+        let lot: Vec<_> = (0..50)
+            .map(|i| f.msg(&format!("m{i}@x"), 1000 + i))
+            .collect();
         let out = f.store.insert_messages(&lot).unwrap();
         assert_eq!(out.len(), 50);
         assert_eq!(f.store.message_count().unwrap(), 50);

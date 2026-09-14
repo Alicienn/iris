@@ -24,9 +24,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum OpPayload {
-    SetFlags { folder: String, uids: Vec<u32>, flags: u32, add: bool },
-    Move { folder: String, uids: Vec<u32>, target: String },
-    Delete { folder: String, uids: Vec<u32> },
+    SetFlags {
+        folder: String,
+        uids: Vec<u32>,
+        flags: u32,
+        add: bool,
+    },
+    Move {
+        folder: String,
+        uids: Vec<u32>,
+        target: String,
+    },
+    Delete {
+        folder: String,
+        uids: Vec<u32>,
+    },
 }
 
 impl OpPayload {
@@ -44,10 +56,19 @@ impl OpPayload {
     /// message comme lu est une seule opération.
     pub fn idempotency_key(&self, account: iris_types::AccountId) -> String {
         match self {
-            Self::SetFlags { folder, uids, flags, add } => {
+            Self::SetFlags {
+                folder,
+                uids,
+                flags,
+                add,
+            } => {
                 format!("{account}:flags:{folder}:{}:{flags}:{add}", join(uids))
             }
-            Self::Move { folder, uids, target } => {
+            Self::Move {
+                folder,
+                uids,
+                target,
+            } => {
                 format!("{account}:move:{folder}:{}:{target}", join(uids))
             }
             Self::Delete { folder, uids } => {
@@ -80,7 +101,11 @@ fn join(uids: &[u32]) -> String {
     // la même intention.
     tries.sort_unstable();
     tries.dedup();
-    tries.iter().map(u32::to_string).collect::<Vec<_>>().join(",")
+    tries
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// Résultat du rejeu d'un lot.
@@ -155,9 +180,9 @@ pub async fn replay_account(
 
 async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> {
     match charge {
-        OpPayload::SetFlags { uids, flags, add, .. } => {
-            conn.store_flags(uids, Flags(*flags), *add).await
-        }
+        OpPayload::SetFlags {
+            uids, flags, add, ..
+        } => conn.store_flags(uids, Flags(*flags), *add).await,
         OpPayload::Move { uids, target, .. } => conn.move_messages(uids, target).await,
         OpPayload::Delete { uids, .. } => {
             // Marquer supprimé plutôt que purger : la corbeille du serveur est le
@@ -206,7 +231,9 @@ mod tests {
         let account = store
             .create_account(&NewAccount::new("a@x.fr", "imap.x.fr", "s"), t(0))
             .unwrap();
-        store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
+        store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
 
         let server = FakeServer::default();
         server.add_folder("Archive", FolderKind::Archive);
@@ -217,7 +244,11 @@ mod tests {
                 Flags::NONE,
             );
         }
-        Fixture { store, server, account }
+        Fixture {
+            store,
+            server,
+            account,
+        }
     }
 
     impl Fixture {
@@ -225,7 +256,10 @@ mod tests {
             self.server
                 .connect(
                     &Endpoint::tls("imap.x.fr", 993),
-                    &Credentials::Password { user: "a@x.fr".into(), password: "p".into() },
+                    &Credentials::Password {
+                        user: "a@x.fr".into(),
+                        password: "p".into(),
+                    },
                 )
                 .await
                 .unwrap()
@@ -234,7 +268,9 @@ mod tests {
         async fn rejouer(&self) -> ReplayReport {
             let ops = self.store.pending_ops(t(1_000_000), 100).unwrap();
             let mut c = self.conn().await;
-            replay_account(c.as_mut(), &self.store, &ops, t(1_000_000)).await.unwrap()
+            replay_account(c.as_mut(), &self.store, &ops, t(1_000_000))
+                .await
+                .unwrap()
         }
     }
 
@@ -262,8 +298,11 @@ mod tests {
     #[tokio::test]
     async fn un_deplacement_est_applique() {
         let f = fixture();
-        let charge =
-            OpPayload::Move { folder: "INBOX".into(), uids: vec![1, 2], target: "Archive".into() };
+        let charge = OpPayload::Move {
+            folder: "INBOX".into(),
+            uids: vec![1, 2],
+            target: "Archive".into(),
+        };
         enqueue(&f.store, f.account, &charge, t(0)).unwrap();
 
         assert_eq!(f.rejouer().await.applied, 1);
@@ -406,11 +445,17 @@ mod tests {
         let mut c = f.conn().await;
         // La première commande échoue.
         f.server.fail_next("serveur occupé");
-        let r = replay_account(c.as_mut(), &f.store, &ops, t(1_000_000)).await.unwrap();
+        let r = replay_account(c.as_mut(), &f.store, &ops, t(1_000_000))
+            .await
+            .unwrap();
 
         assert_eq!(r.applied, 0);
         assert_eq!(r.failed, 1);
-        assert_eq!(f.store.pending_op_count().unwrap(), 3, "rien n'est acquitté");
+        assert_eq!(
+            f.store.pending_op_count().unwrap(),
+            3,
+            "rien n'est acquitté"
+        );
     }
 
     #[tokio::test]
@@ -439,7 +484,13 @@ mod tests {
     async fn une_charge_illisible_est_abandonnee_et_ne_bloque_rien() {
         let f = fixture();
         f.store
-            .enqueue_op(f.account, OpKind::SetFlags, "pas du json", "clef-cassee", t(0))
+            .enqueue_op(
+                f.account,
+                OpKind::SetFlags,
+                "pas du json",
+                "clef-cassee",
+                t(0),
+            )
             .unwrap();
         enqueue(
             &f.store,
@@ -456,7 +507,10 @@ mod tests {
 
         let r = f.rejouer().await;
         assert_eq!(r.dropped, 1);
-        assert_eq!(r.applied, 1, "l'opération valide doit passer malgré la précédente");
+        assert_eq!(
+            r.applied, 1,
+            "l'opération valide doit passer malgré la précédente"
+        );
     }
 
     #[tokio::test]
@@ -466,13 +520,20 @@ mod tests {
         enqueue(
             &f.store,
             f.account,
-            &OpPayload::Delete { folder: "INBOX".into(), uids: vec![1] },
+            &OpPayload::Delete {
+                folder: "INBOX".into(),
+                uids: vec![1],
+            },
             t(0),
         )
         .unwrap();
 
         f.rejouer().await;
-        assert_eq!(f.server.message_count("INBOX"), 3, "le message existe toujours");
+        assert_eq!(
+            f.server.message_count("INBOX"),
+            3,
+            "le message existe toujours"
+        );
 
         let mut c = f.conn().await;
         c.select("INBOX").await.unwrap();
@@ -482,19 +543,31 @@ mod tests {
 
     #[test]
     fn une_charge_survit_a_un_aller_retour_json() {
-        let charge =
-            OpPayload::Move { folder: "INBOX".into(), uids: vec![1, 2], target: "Archive".into() };
+        let charge = OpPayload::Move {
+            folder: "INBOX".into(),
+            uids: vec![1, 2],
+            target: "Archive".into(),
+        };
         assert_eq!(OpPayload::parse(&charge.to_json()).unwrap(), charge);
     }
 
     #[test]
     fn les_natures_correspondent_aux_charges() {
         assert_eq!(
-            OpPayload::Delete { folder: "x".into(), uids: vec![] }.kind(),
+            OpPayload::Delete {
+                folder: "x".into(),
+                uids: vec![]
+            }
+            .kind(),
             OpKind::DeleteMessage
         );
         assert_eq!(
-            OpPayload::Move { folder: "x".into(), uids: vec![], target: "y".into() }.kind(),
+            OpPayload::Move {
+                folder: "x".into(),
+                uids: vec![],
+                target: "y".into()
+            }
+            .kind(),
             OpKind::MoveMessage
         );
     }
@@ -517,6 +590,9 @@ mod tests {
         assert_ne!(poser.idempotency_key(a), retirer.idempotency_key(a));
 
         // Deux comptes distincts ne partagent jamais une clef.
-        assert_ne!(poser.idempotency_key(AccountId(1)), poser.idempotency_key(AccountId(2)));
+        assert_ne!(
+            poser.idempotency_key(AccountId(1)),
+            poser.idempotency_key(AccountId(2))
+        );
     }
 }

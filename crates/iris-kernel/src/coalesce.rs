@@ -67,7 +67,9 @@ impl ViewDiff {
             Event::FlagsChanged { thread, .. } => {
                 self.threads.insert(*thread);
             }
-            Event::ThreadStateChanged { thread, from, to, .. } => {
+            Event::ThreadStateChanged {
+                thread, from, to, ..
+            } => {
                 self.threads.insert(*thread);
                 self.lists.insert(*from);
                 self.lists.insert(*to);
@@ -173,16 +175,26 @@ mod tests {
     fn les_memes_fils_ne_sont_comptes_qu_une_fois() {
         let mut d = ViewDiff::default();
         for _ in 0..50 {
-            d.absorb(&Event::FlagsChanged { message: MessageId(1), thread: ThreadId(3) });
+            d.absorb(&Event::FlagsChanged {
+                message: MessageId(1),
+                thread: ThreadId(3),
+            });
         }
         assert_eq!(d.threads.len(), 1);
-        assert_eq!(d.merged, 50, "le nombre d'événements fusionnés reste visible");
+        assert_eq!(
+            d.merged, 50,
+            "le nombre d'événements fusionnés reste visible"
+        );
     }
 
     #[test]
     fn un_changement_d_etat_invalide_les_deux_files() {
         let mut d = ViewDiff::default();
-        d.absorb(&state_change(1, WorkflowState::Todo, WorkflowState::Waiting));
+        d.absorb(&state_change(
+            1,
+            WorkflowState::Todo,
+            WorkflowState::Waiting,
+        ));
         assert!(d.lists.contains(&WorkflowState::Todo));
         assert!(d.lists.contains(&WorkflowState::Waiting));
         assert!(d.threads.contains(&ThreadId(1)));
@@ -194,7 +206,10 @@ mod tests {
         // synchronisation touche des dizaines de milliers de fils.
         let mut d = ViewDiff::default();
         for i in 0..(MAX_THREADS as i64 + 10) {
-            d.absorb(&Event::FlagsChanged { message: MessageId(i), thread: ThreadId(i) });
+            d.absorb(&Event::FlagsChanged {
+                message: MessageId(i),
+                thread: ThreadId(i),
+            });
         }
         assert!(d.full_refresh);
         assert!(d.threads.is_empty(), "l'énumération est abandonnée");
@@ -204,7 +219,9 @@ mod tests {
     #[test]
     fn apres_degradation_les_comptes_restent_suivis() {
         let mut d = ViewDiff::default();
-        d.absorb(&Event::ThemeReloaded { name: Arc::from("mono") });
+        d.absorb(&Event::ThemeReloaded {
+            name: Arc::from("mono"),
+        });
         assert!(d.full_refresh);
         d.absorb(&Event::MessagesAdded {
             account: AccountId(4),
@@ -267,7 +284,10 @@ mod tests {
         bus.publish(state_change(2, WorkflowState::Todo, WorkflowState::Done));
         let second = lots.recv().await.unwrap();
         assert!(second.threads.contains(&ThreadId(2)));
-        assert!(!second.threads.contains(&ThreadId(1)), "les lots sont indépendants");
+        assert!(
+            !second.threads.contains(&ThreadId(1)),
+            "les lots sont indépendants"
+        );
     }
 
     #[tokio::test(start_paused = true)]

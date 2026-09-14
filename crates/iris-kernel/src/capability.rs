@@ -113,7 +113,11 @@ impl fmt::Display for Capability {
         match self {
             Self::Network(NetworkScope::Any) => f.write_str("network(*)"),
             Self::Network(NetworkScope::Hosts(h)) => {
-                write!(f, "network({})", h.iter().cloned().collect::<Vec<_>>().join(","))
+                write!(
+                    f,
+                    "network({})",
+                    h.iter().cloned().collect::<Vec<_>>().join(",")
+                )
             }
             other => f.write_str(other.label()),
         }
@@ -154,8 +158,15 @@ impl CapabilitySet {
         s
     }
 
-    pub fn from_iter<I: IntoIterator<Item = Capability>>(caps: I) -> Self {
-        Self { granted: caps.into_iter().collect() }
+    /// Construit un ensemble à partir d'une liste de capacités.
+    ///
+    /// Volontairement pas `FromIterator` : accorder des permissions doit se lire
+    /// comme un acte délibéré, pas comme une conversion implicite au détour d'un
+    /// `.collect()`.
+    pub fn granting<I: IntoIterator<Item = Capability>>(caps: I) -> Self {
+        Self {
+            granted: caps.into_iter().collect(),
+        }
     }
 
     pub fn grant(&mut self, cap: Capability) {
@@ -223,14 +234,14 @@ mod tests {
 
     #[test]
     fn une_capacite_non_accordee_est_refusee() {
-        let set = CapabilitySet::from_iter([Capability::ReadMail]);
+        let set = CapabilitySet::granting([Capability::ReadMail]);
         assert!(set.allows(&Capability::ReadMail));
         assert!(!set.allows(&Capability::WriteMail));
     }
 
     #[test]
     fn le_reseau_se_compare_par_inclusion() {
-        let set = CapabilitySet::from_iter([Capability::Network(NetworkScope::hosts([
+        let set = CapabilitySet::granting([Capability::Network(NetworkScope::hosts([
             "example.com",
             "example.org",
         ]))]);
@@ -244,21 +255,22 @@ mod tests {
 
     #[test]
     fn un_acces_restreint_ne_donne_pas_un_acces_total() {
-        let set = CapabilitySet::from_iter([Capability::Network(NetworkScope::hosts([
-            "example.com",
-        ]))]);
+        let set =
+            CapabilitySet::granting([Capability::Network(NetworkScope::hosts(["example.com"]))]);
         assert!(!set.allows(&Capability::Network(NetworkScope::Any)));
     }
 
     #[test]
     fn un_acces_total_couvre_tout() {
-        let set = CapabilitySet::from_iter([Capability::Network(NetworkScope::Any)]);
-        assert!(set.allows(&Capability::Network(NetworkScope::hosts(["n-importe-quoi.fr"]))));
+        let set = CapabilitySet::granting([Capability::Network(NetworkScope::Any)]);
+        assert!(set.allows(&Capability::Network(NetworkScope::hosts([
+            "n-importe-quoi.fr"
+        ]))));
     }
 
     #[test]
     fn check_all_designe_la_capacite_manquante() {
-        let set = CapabilitySet::from_iter([Capability::ReadMail]);
+        let set = CapabilitySet::granting([Capability::ReadMail]);
         let besoin = [Capability::ReadMail, Capability::WriteMail];
         assert_eq!(set.check_all(besoin.iter()), Err(Capability::WriteMail));
     }
@@ -293,7 +305,10 @@ mod tests {
 
     #[test]
     fn l_affichage_montre_la_portee_reseau() {
-        assert_eq!(Capability::Network(NetworkScope::Any).to_string(), "network(*)");
+        assert_eq!(
+            Capability::Network(NetworkScope::Any).to_string(),
+            "network(*)"
+        );
         assert_eq!(
             Capability::Network(NetworkScope::hosts(["a.fr"])).to_string(),
             "network(a.fr)"

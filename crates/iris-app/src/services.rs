@@ -75,7 +75,17 @@ impl Services {
             .with_blobs(Arc::clone(&blobs)),
         );
 
-        Ok(Self { paths, store, blobs, index, secrets, themes, bus, engine, oauth })
+        Ok(Self {
+            paths,
+            store,
+            blobs,
+            index,
+            secrets,
+            themes,
+            bus,
+            engine,
+            oauth,
+        })
     }
 
     /// Nom du magasin de secrets réellement utilisé, pour le diagnostic.
@@ -134,11 +144,7 @@ struct StoredCredentials {
 
 #[async_trait::async_trait]
 impl iris_sync::CredentialsProvider for StoredCredentials {
-    async fn credentials(
-        &self,
-        account: AccountId,
-        email: &str,
-    ) -> Result<iris_imap::Credentials> {
+    async fn credentials(&self, account: AccountId, email: &str) -> Result<iris_imap::Credentials> {
         // Le mode d'authentification du compte fait foi. Se fier à la présence d'un
         // jeton laisserait un compte revenu au mot de passe échouer sur un vieux
         // jeton oublié dans le coffre.
@@ -157,7 +163,11 @@ impl iris_sync::CredentialsProvider for StoredCredentials {
                 });
             }
 
-            let reglages = self.oauth.read().expect("réglages OAuth empoisonnés").clone();
+            let reglages = self
+                .oauth
+                .read()
+                .expect("réglages OAuth empoisonnés")
+                .clone();
             let jeton = crate::oauth::refresh_access(
                 self.secrets.as_ref(),
                 &reglages,
@@ -168,13 +178,18 @@ impl iris_sync::CredentialsProvider for StoredCredentials {
             .await?;
 
             tracing::info!(compte = %email, "jeton OAuth renouvelé");
-            return Ok(iris_imap::Credentials::OAuth2 { user: email.to_string(), token: jeton });
+            return Ok(iris_imap::Credentials::OAuth2 {
+                user: email.to_string(),
+                token: jeton,
+            });
         }
 
         let motdepasse = self
             .secrets
             .get(email, SecretKind::Password)?
-            .ok_or_else(|| Error::AuthFailed { account: email.to_string() })?;
+            .ok_or_else(|| Error::AuthFailed {
+                account: email.to_string(),
+            })?;
 
         Ok(iris_imap::Credentials::Password {
             user: email.to_string(),
@@ -212,7 +227,10 @@ mod tests {
         let (s, _dir) = services();
         let compte = s
             .store
-            .create_account(&iris_store::NewAccount::new("a@x.fr", "i", "s"), Timestamp::EPOCH)
+            .create_account(
+                &iris_store::NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::EPOCH,
+            )
             .unwrap();
         let _ = compte;
 
@@ -229,7 +247,10 @@ mod tests {
     #[test]
     fn tous_les_services_s_ouvrent() {
         let (s, _dir) = services();
-        assert_eq!(s.store.schema_version().unwrap(), iris_store::CURRENT_VERSION);
+        assert_eq!(
+            s.store.schema_version().unwrap(),
+            iris_store::CURRENT_VERSION
+        );
         assert_eq!(s.index.document_count(), 0);
         assert_eq!(s.themes.active().name, "mono");
         assert!(s.paths.blobs().is_dir());
@@ -279,7 +300,11 @@ mod tests {
         let id = store.create_account(&nouveau, Timestamp::EPOCH).unwrap();
 
         (
-            StoredCredentials { secrets, store, oauth: Default::default() },
+            StoredCredentials {
+                secrets,
+                store,
+                oauth: Default::default(),
+            },
             id,
         )
     }
@@ -330,8 +355,12 @@ mod tests {
         // Se fier à la présence d'un jeton ferait échouer un compte revenu au mot de
         // passe, sur un secret oublié dans le coffre.
         let (secrets, _dir) = coffre_isole();
-        secrets.set("a@x.fr", SecretKind::Password, &Secret::new("actuel")).unwrap();
-        secrets.set("a@x.fr", SecretKind::AccessToken, &Secret::new("perime")).unwrap();
+        secrets
+            .set("a@x.fr", SecretKind::Password, &Secret::new("actuel"))
+            .unwrap();
+        secrets
+            .set("a@x.fr", SecretKind::AccessToken, &Secret::new("perime"))
+            .unwrap();
 
         let (f, compte) = fournisseur(secrets, "a@x.fr", iris_store::AuthKind::Password);
         match f.credentials(compte, "a@x.fr").await.unwrap() {
@@ -345,10 +374,16 @@ mod tests {
         // Un échec d'authentification anonyme enverrait chercher un mot de passe là
         // où il manque une configuration.
         let (secrets, _dir) = coffre_isole();
-        secrets.set("a@x.fr", SecretKind::RefreshToken, &Secret::new("r")).unwrap();
+        secrets
+            .set("a@x.fr", SecretKind::RefreshToken, &Secret::new("r"))
+            .unwrap();
 
         let (f, compte) = fournisseur(secrets, "a@x.fr", iris_store::AuthKind::OAuthGoogle);
-        let erreur = f.credentials(compte, "a@x.fr").await.unwrap_err().to_string();
+        let erreur = f
+            .credentials(compte, "a@x.fr")
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(erreur.contains("identifiant client"), "obtenu : {erreur}");
     }
 
@@ -358,7 +393,10 @@ mod tests {
         let (f, compte) = fournisseur(secrets, "inconnu@x.fr", iris_store::AuthKind::Password);
 
         let e = f.credentials(compte, "inconnu@x.fr").await.unwrap_err();
-        assert!(e.needs_user_action(), "l'utilisateur doit etre invite a se reconnecter");
+        assert!(
+            e.needs_user_action(),
+            "l'utilisateur doit etre invite a se reconnecter"
+        );
     }
 
     #[test]

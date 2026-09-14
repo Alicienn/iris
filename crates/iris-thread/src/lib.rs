@@ -123,8 +123,9 @@ impl ThreadGroup {
 /// Normalise un sujet : retire les préfixes de réponse et de transfert, replie les
 /// espaces, passe en minuscules.
 pub fn normalize_subject(subject: &str) -> String {
-    const PREFIXES: &[&str] =
-        &["re:", "re :", "ré:", "ré :", "rép:", "rep:", "fwd:", "fw:", "tr:", "réf:", "aw:"];
+    const PREFIXES: &[&str] = &[
+        "re:", "re :", "ré:", "ré :", "rép:", "rep:", "fwd:", "fw:", "tr:", "réf:", "aw:",
+    ];
 
     let mut s = subject.trim();
     loop {
@@ -144,7 +145,10 @@ pub fn normalize_subject(subject: &str) -> String {
             _ => break,
         }
     }
-    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// Regroupe un ensemble de messages en fils.
@@ -220,7 +224,11 @@ pub fn group(messages: &[ThreadInput], options: ThreadingOptions) -> Vec<ThreadG
     // 4. Cloisonnement par compte, si le recollage inter-comptes n'est pas demandé.
     let mut racines: BTreeMap<(usize, Option<AccountId>), Vec<usize>> = BTreeMap::new();
     for (i, m) in messages.iter().enumerate() {
-        let cle = if options.cross_account { None } else { Some(m.account) };
+        let cle = if options.cross_account {
+            None
+        } else {
+            Some(m.account)
+        };
         racines.entry((uf.find(i), cle)).or_default().push(i);
     }
 
@@ -266,7 +274,10 @@ struct UnionFind {
 
 impl UnionFind {
     fn new(n: usize) -> Self {
-        Self { parent: (0..n).collect(), rang: vec![0; n] }
+        Self {
+            parent: (0..n).collect(),
+            rang: vec![0; n],
+        }
     }
 
     fn find(&mut self, mut x: usize) -> usize {
@@ -298,9 +309,13 @@ mod tests {
     use super::*;
 
     fn msg(n: i64, jour: i64) -> ThreadInput {
-        ThreadInput::new(MessageId(n), AccountId(1), Timestamp::from_millis(jour * 86_400_000))
-            .with_id(&format!("m{n}@x"))
-            .subject("Devis refonte")
+        ThreadInput::new(
+            MessageId(n),
+            AccountId(1),
+            Timestamp::from_millis(jour * 86_400_000),
+        )
+        .with_id(&format!("m{n}@x"))
+        .subject("Devis refonte")
     }
 
     fn ids(g: &ThreadGroup) -> Vec<i64> {
@@ -368,7 +383,10 @@ mod tests {
 
     #[test]
     fn le_repli_par_sujet_est_desactivable() {
-        let options = ThreadingOptions { subject_fallback: false, ..Default::default() };
+        let options = ThreadingOptions {
+            subject_fallback: false,
+            ..Default::default()
+        };
         let messages = vec![
             msg(1, 1).subject("Facture mars"),
             msg(2, 2).subject("Re: Facture mars"),
@@ -407,7 +425,10 @@ mod tests {
         autre.account = AccountId(2);
         let messages = vec![msg(1, 1), autre];
 
-        let options = ThreadingOptions { cross_account: true, ..Default::default() };
+        let options = ThreadingOptions {
+            cross_account: true,
+            ..Default::default()
+        };
         let g = group(&messages, options);
         assert_eq!(g.len(), 1);
         assert!(g[0].is_cross_account());
@@ -449,7 +470,10 @@ mod tests {
     #[test]
     fn normalisation_des_sujets() {
         assert_eq!(normalize_subject("Re: Devis"), "devis");
-        assert_eq!(normalize_subject("RE: FWD: Devis  refonte "), "devis refonte");
+        assert_eq!(
+            normalize_subject("RE: FWD: Devis  refonte "),
+            "devis refonte"
+        );
         assert_eq!(normalize_subject("TR: Devis"), "devis");
         assert_eq!(normalize_subject("AW: Devis"), "devis");
         assert_eq!(normalize_subject("   "), "");

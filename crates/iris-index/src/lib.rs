@@ -18,8 +18,8 @@ use std::sync::Mutex;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, INDEXED,
-    STORED, STRING,
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, INDEXED, STORED,
+    STRING,
 };
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
@@ -148,11 +148,19 @@ impl SearchIndex {
             .try_into()
             .map_err(|e| Error::Index(format!("création du lecteur : {e}")))?;
 
-        Ok(Self { index, reader, writer: Mutex::new(writer), fields, uncommitted: Mutex::new(0) })
+        Ok(Self {
+            index,
+            reader,
+            writer: Mutex::new(writer),
+            fields,
+            uncommitted: Mutex::new(0),
+        })
     }
 
     fn writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {
-        self.writer.lock().map_err(|_| Error::Index("écrivain empoisonné".into()))
+        self.writer
+            .lock()
+            .map_err(|_| Error::Index("écrivain empoisonné".into()))
     }
 
     /// Ajoute ou remplace un message dans l'index.
@@ -181,7 +189,10 @@ impl SearchIndex {
             ))
             .map_err(|e| Error::Index(format!("ajout du document : {e}")))?;
 
-        *self.uncommitted.lock().map_err(|_| Error::Index("compteur empoisonné".into()))? += 1;
+        *self
+            .uncommitted
+            .lock()
+            .map_err(|_| Error::Index("compteur empoisonné".into()))? += 1;
         Ok(())
     }
 
@@ -195,7 +206,10 @@ impl SearchIndex {
     pub fn remove_message(&self, id: MessageId) -> Result<()> {
         let writer = self.writer()?;
         writer.delete_term(Term::from_field_i64(self.fields.message, id.get()));
-        *self.uncommitted.lock().map_err(|_| Error::Index("compteur empoisonné".into()))? += 1;
+        *self
+            .uncommitted
+            .lock()
+            .map_err(|_| Error::Index("compteur empoisonné".into()))? += 1;
         Ok(())
     }
 
@@ -203,14 +217,20 @@ impl SearchIndex {
     pub fn remove_account(&self, id: AccountId) -> Result<()> {
         let writer = self.writer()?;
         writer.delete_term(Term::from_field_i64(self.fields.account, id.get()));
-        *self.uncommitted.lock().map_err(|_| Error::Index("compteur empoisonné".into()))? += 1;
+        *self
+            .uncommitted
+            .lock()
+            .map_err(|_| Error::Index("compteur empoisonné".into()))? += 1;
         Ok(())
     }
 
     /// Rend visibles les modifications en attente.
     pub fn commit(&self) -> Result<u64> {
         let n = {
-            let mut c = self.uncommitted.lock().map_err(|_| Error::Index("compteur".into()))?;
+            let mut c = self
+                .uncommitted
+                .lock()
+                .map_err(|_| Error::Index("compteur".into()))?;
             std::mem::take(&mut *c)
         };
         if n == 0 {
@@ -288,11 +308,13 @@ impl SearchIndex {
                 .doc(address)
                 .map_err(|e| Error::Index(format!("lecture du document : {e}")))?;
 
-            let get_i64 = |field: Field| -> Option<i64> {
-                doc.get_first(field).and_then(|v| v.as_i64())
-            };
+            let get_i64 =
+                |field: Field| -> Option<i64> { doc.get_first(field).and_then(|v| v.as_i64()) };
             let get_str = |field: Field| -> String {
-                doc.get_first(field).and_then(|v| v.as_str()).unwrap_or("").to_string()
+                doc.get_first(field)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
             };
 
             let (Some(thread), Some(message)) = (get_i64(f.thread), get_i64(f.message)) else {
@@ -333,7 +355,11 @@ impl SearchIndex {
             .into_iter()
             .filter_map(|t| par_fil.remove(&t))
             .collect();
-        hits.sort_by(|a, b| b.score.total_cmp(&a.score).then(b.thread.0.cmp(&a.thread.0)));
+        hits.sort_by(|a, b| {
+            b.score
+                .total_cmp(&a.score)
+                .then(b.thread.0.cmp(&a.thread.0))
+        });
         hits.truncate(limit);
         Ok(hits)
     }
@@ -429,7 +455,12 @@ mod tests {
     #[test]
     fn recherche_dans_le_corps_et_le_sujet() {
         let idx = index_with(&[
-            msg(1, 1, "Devis refonte", "Voici le montant proposé pour la prestation."),
+            msg(
+                1,
+                1,
+                "Devis refonte",
+                "Voici le montant proposé pour la prestation.",
+            ),
             msg(2, 2, "Facture", "Le paiement a bien été reçu, merci."),
         ]);
 
@@ -451,8 +482,9 @@ mod tests {
     #[test]
     fn les_resultats_sont_agreges_par_fil() {
         // Cinquante messages d'un même fil ne doivent pas remplir la page.
-        let messages: Vec<_> =
-            (1..=50).map(|i| msg(i, 1, "Devis refonte", "prestation proposée")).collect();
+        let messages: Vec<_> = (1..=50)
+            .map(|i| msg(i, 1, "Devis refonte", "prestation proposée"))
+            .collect();
         let idx = index_with(&messages);
 
         let hits = idx.search("prestation", 10).unwrap();
@@ -463,11 +495,20 @@ mod tests {
     #[test]
     fn le_sujet_pese_plus_que_le_corps() {
         let idx = index_with(&[
-            msg(1, 1, "Sujet neutre", "le mot rare apparaît ici dans le corps du message"),
+            msg(
+                1,
+                1,
+                "Sujet neutre",
+                "le mot rare apparaît ici dans le corps du message",
+            ),
             msg(2, 2, "rare", "un corps sans rapport"),
         ]);
         let hits = idx.search("rare", 10).unwrap();
-        assert_eq!(hits[0].thread, ThreadId(2), "la correspondance dans le sujet prime");
+        assert_eq!(
+            hits[0].thread,
+            ThreadId(2),
+            "la correspondance dans le sujet prime"
+        );
     }
 
     #[test]

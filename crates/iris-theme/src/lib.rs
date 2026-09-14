@@ -62,7 +62,11 @@ impl ThemeRegistry {
                 .ok_or_else(|| Error::Config("thème par défaut absent".into()))?,
         );
 
-        Ok(Self { themes: RwLock::new(themes), active: RwLock::new(active), user_dir: None })
+        Ok(Self {
+            themes: RwLock::new(themes),
+            active: RwLock::new(active),
+            user_dir: None,
+        })
     }
 
     /// Registre chargeant en plus les thèmes d'un répertoire utilisateur.
@@ -82,7 +86,9 @@ impl ThemeRegistry {
     /// ne doit jamais empêcher l'application de démarrer, elle doit seulement laisser
     /// le thème précédent en place.
     pub fn reload_user_themes(&self) -> Result<Vec<String>> {
-        let Some(dir) = &self.user_dir else { return Ok(Vec::new()) };
+        let Some(dir) = &self.user_dir else {
+            return Ok(Vec::new());
+        };
         if !dir.exists() {
             return Ok(Vec::new());
         }
@@ -146,11 +152,20 @@ impl ThemeRegistry {
 
     /// Noms des thèmes disponibles, dans l'ordre alphabétique.
     pub fn names(&self) -> Vec<String> {
-        self.themes.read().expect("registre empoisonné").keys().cloned().collect()
+        self.themes
+            .read()
+            .expect("registre empoisonné")
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<Theme>> {
-        self.themes.read().expect("registre empoisonné").get(name).map(Arc::clone)
+        self.themes
+            .read()
+            .expect("registre empoisonné")
+            .get(name)
+            .map(Arc::clone)
     }
 
     pub fn user_dir(&self) -> Option<&Path> {
@@ -184,7 +199,10 @@ mod tests {
         let r = ThemeRegistry::builtin().unwrap();
         let a = r.active().color.accent;
         let ecart = [a.r, a.g, a.b].iter().max().unwrap() - [a.r, a.g, a.b].iter().min().unwrap();
-        assert!(ecart <= 8, "l'accent doit rester neutre, écart de {ecart} entre canaux");
+        assert!(
+            ecart <= 8,
+            "l'accent doit rester neutre, écart de {ecart} entre canaux"
+        );
     }
 
     #[test]
@@ -208,7 +226,11 @@ mod tests {
         let r = ThemeRegistry::builtin().unwrap();
         let e = r.set_active("fluo").unwrap_err();
         assert!(e.to_string().contains("inconnu"));
-        assert_eq!(r.active().name, "mono", "l'actif ne change pas en cas d'échec");
+        assert_eq!(
+            r.active().name,
+            "mono",
+            "l'actif ne change pas en cas d'échec"
+        );
     }
 
     #[test]
@@ -237,7 +259,11 @@ mod tests {
 
         let r = ThemeRegistry::with_user_dir(dir.path()).unwrap();
         assert_eq!(r.get("mono").unwrap().density.row_height, 40.0);
-        assert_eq!(r.active().density.row_height, 40.0, "l'actif suit le rechargement");
+        assert_eq!(
+            r.active().density.row_height,
+            40.0,
+            "l'actif suit le rechargement"
+        );
     }
 
     #[test]

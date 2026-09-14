@@ -27,10 +27,21 @@ pub struct SendHandle(pub u64);
 /// Ce qui arrive à un message de la file.
 #[derive(Debug)]
 pub enum OutboxEvent {
-    Queued { handle: SendHandle, subject: String },
-    Cancelled { handle: SendHandle },
-    Sent { handle: SendHandle, outcome: SendOutcome },
-    Failed { handle: SendHandle, error: Error },
+    Queued {
+        handle: SendHandle,
+        subject: String,
+    },
+    Cancelled {
+        handle: SendHandle,
+    },
+    Sent {
+        handle: SendHandle,
+        outcome: SendOutcome,
+    },
+    Failed {
+        handle: SendHandle,
+        error: Error,
+    },
 }
 
 impl OutboxEvent {
@@ -56,7 +67,10 @@ pub struct Outbox {
 
 impl Outbox {
     /// Crée la file et rend le flux d'événements.
-    pub fn new(mailer: Arc<dyn Mailer>, delay: Duration) -> (Self, mpsc::UnboundedReceiver<OutboxEvent>) {
+    pub fn new(
+        mailer: Arc<dyn Mailer>,
+        delay: Duration,
+    ) -> (Self, mpsc::UnboundedReceiver<OutboxEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (
             Self {
@@ -79,10 +93,14 @@ impl Outbox {
         let handle = SendHandle(self.next.fetch_add(1, Ordering::Relaxed));
         let (annuler_tx, annuler_rx) = oneshot::channel();
 
-        self.pending.lock().expect("file empoisonnée").insert(handle, annuler_tx);
-        let _ = self
-            .events
-            .send(OutboxEvent::Queued { handle, subject: message.subject.clone() });
+        self.pending
+            .lock()
+            .expect("file empoisonnée")
+            .insert(handle, annuler_tx);
+        let _ = self.events.send(OutboxEvent::Queued {
+            handle,
+            subject: message.subject.clone(),
+        });
 
         let mailer = Arc::clone(&self.mailer);
         let pending = Arc::clone(&self.pending);
@@ -123,7 +141,11 @@ impl Outbox {
     /// Retourne `false` s'il est déjà parti — auquel cas il faut le dire à
     /// l'utilisateur, et non faire semblant.
     pub fn cancel(&self, handle: SendHandle) -> bool {
-        let envoyeur = self.pending.lock().expect("file empoisonnée").remove(&handle);
+        let envoyeur = self
+            .pending
+            .lock()
+            .expect("file empoisonnée")
+            .remove(&handle);
         match envoyeur {
             Some(tx) => tx.send(()).is_ok(),
             None => false,
@@ -135,7 +157,10 @@ impl Outbox {
     }
 
     pub fn is_pending(&self, handle: SendHandle) -> bool {
-        self.pending.lock().expect("file empoisonnée").contains_key(&handle)
+        self.pending
+            .lock()
+            .expect("file empoisonnée")
+            .contains_key(&handle)
     }
 }
 
@@ -154,7 +179,13 @@ mod tests {
         .body("Bonjour")
     }
 
-    fn file(delay: Duration) -> (Outbox, mpsc::UnboundedReceiver<OutboxEvent>, Arc<FakeMailer>) {
+    fn file(
+        delay: Duration,
+    ) -> (
+        Outbox,
+        mpsc::UnboundedReceiver<OutboxEvent>,
+        Arc<FakeMailer>,
+    ) {
         let mailer = Arc::new(FakeMailer::new());
         let (outbox, rx) = Outbox::new(Arc::clone(&mailer) as Arc<dyn Mailer>, delay);
         (outbox, rx, mailer)
@@ -165,7 +196,10 @@ mod tests {
         let (outbox, mut evenements, mailer) = file(DEFAULT_DELAY);
         let h = outbox.queue(message("Devis"));
 
-        assert!(matches!(evenements.recv().await, Some(OutboxEvent::Queued { .. })));
+        assert!(matches!(
+            evenements.recv().await,
+            Some(OutboxEvent::Queued { .. })
+        ));
         assert_eq!(mailer.count(), 0, "rien ne doit partir immédiatement");
 
         tokio::time::advance(Duration::from_secs(11)).await;
@@ -263,7 +297,10 @@ mod tests {
         let _ = evenements.recv().await;
 
         tokio::time::advance(Duration::from_millis(1)).await;
-        assert!(matches!(evenements.recv().await, Some(OutboxEvent::Sent { .. })));
+        assert!(matches!(
+            evenements.recv().await,
+            Some(OutboxEvent::Sent { .. })
+        ));
         assert_eq!(mailer.count(), 1);
     }
 

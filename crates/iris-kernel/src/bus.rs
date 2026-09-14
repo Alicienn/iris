@@ -38,7 +38,12 @@ impl Default for EventBus {
 impl EventBus {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(CAPACITY);
-        Self { inner: Arc::new(Inner { tx, published: AtomicU64::new(0) }) }
+        Self {
+            inner: Arc::new(Inner {
+                tx,
+                published: AtomicU64::new(0),
+            }),
+        }
     }
 
     /// Publie un événement. Ne bloque jamais, même sans abonné.
@@ -51,17 +56,29 @@ impl EventBus {
 
     /// Abonnement à tous les événements.
     pub fn subscribe(&self) -> Subscription {
-        Subscription { rx: self.inner.tx.subscribe(), filter: Filter::All, lagged: 0 }
+        Subscription {
+            rx: self.inner.tx.subscribe(),
+            filter: Filter::All,
+            lagged: 0,
+        }
     }
 
     /// Abonnement restreint à une famille.
     pub fn subscribe_kind(&self, kind: EventKind) -> Subscription {
-        Subscription { rx: self.inner.tx.subscribe(), filter: Filter::Kind(kind), lagged: 0 }
+        Subscription {
+            rx: self.inner.tx.subscribe(),
+            filter: Filter::Kind(kind),
+            lagged: 0,
+        }
     }
 
     /// Abonnement restreint aux événements qui modifient l'affichage.
     pub fn subscribe_view(&self) -> Subscription {
-        Subscription { rx: self.inner.tx.subscribe(), filter: Filter::View, lagged: 0 }
+        Subscription {
+            rx: self.inner.tx.subscribe(),
+            filter: Filter::View,
+            lagged: 0,
+        }
     }
 
     /// Nombre total d'événements publiés depuis la création.
@@ -162,8 +179,14 @@ mod tests {
 
         bus.publish(evt(1));
 
-        assert!(matches!(a.recv().await, Some(Event::AccountAdded(AccountId(1)))));
-        assert!(matches!(b.recv().await, Some(Event::AccountAdded(AccountId(1)))));
+        assert!(matches!(
+            a.recv().await,
+            Some(Event::AccountAdded(AccountId(1)))
+        ));
+        assert!(matches!(
+            b.recv().await,
+            Some(Event::AccountAdded(AccountId(1)))
+        ));
     }
 
     #[tokio::test]
@@ -180,12 +203,16 @@ mod tests {
         let mut workflow = bus.subscribe_kind(EventKind::Workflow);
 
         bus.publish(evt(1));
-        bus.publish(Event::ThreadUnsnoozed { thread: ThreadId(9) });
+        bus.publish(Event::ThreadUnsnoozed {
+            thread: ThreadId(9),
+        });
 
         // Le premier événement n'est pas de la bonne famille : il est ignoré.
         assert!(matches!(
             workflow.recv().await,
-            Some(Event::ThreadUnsnoozed { thread: ThreadId(9) })
+            Some(Event::ThreadUnsnoozed {
+                thread: ThreadId(9)
+            })
         ));
     }
 
@@ -204,7 +231,10 @@ mod tests {
             until: Timestamp::from_millis(1),
         });
 
-        assert!(matches!(vue.recv().await, Some(Event::ThreadSnoozed { .. })));
+        assert!(matches!(
+            vue.recv().await,
+            Some(Event::ThreadSnoozed { .. })
+        ));
     }
 
     #[tokio::test]

@@ -35,20 +35,34 @@ pub struct Endpoint {
 
 impl Endpoint {
     pub fn tls(host: impl Into<String>, port: u16) -> Self {
-        Self { host: host.into(), port, tls_immediate: true }
+        Self {
+            host: host.into(),
+            port,
+            tls_immediate: true,
+        }
     }
 
     pub fn starttls(host: impl Into<String>, port: u16) -> Self {
-        Self { host: host.into(), port, tls_immediate: false }
+        Self {
+            host: host.into(),
+            port,
+            tls_immediate: false,
+        }
     }
 }
 
 /// De quoi s'authentifier.
 #[derive(Debug, Clone)]
 pub enum Credentials {
-    Password { user: String, password: String },
+    Password {
+        user: String,
+        password: String,
+    },
     /// Jeton d'accès OAuth2, présenté par le mécanisme `XOAUTH2`.
-    OAuth2 { user: String, token: String },
+    OAuth2 {
+        user: String,
+        token: String,
+    },
 }
 
 impl Credentials {
@@ -162,11 +176,17 @@ impl UidRange {
     }
 
     /// Tout ce que le dossier contient.
-    pub const ALL: Self = Self { from: 1, to: u32::MAX };
+    pub const ALL: Self = Self {
+        from: 1,
+        to: u32::MAX,
+    };
 
     /// Tout ce qui est arrivé depuis un UID connu.
     pub fn since(uid: u32) -> Self {
-        Self { from: uid.saturating_add(1), to: u32::MAX }
+        Self {
+            from: uid.saturating_add(1),
+            to: u32::MAX,
+        }
     }
 
     pub fn len(&self) -> u64 {
@@ -179,7 +199,11 @@ impl UidRange {
 
     /// Notation IMAP, où `*` désigne la borne supérieure du dossier.
     pub fn to_sequence(self) -> String {
-        let fin = if self.to == u32::MAX { "*".to_string() } else { self.to.to_string() };
+        let fin = if self.to == u32::MAX {
+            "*".to_string()
+        } else {
+            self.to.to_string()
+        };
         format!("{}:{}", self.from, fin)
     }
 
@@ -201,7 +225,10 @@ impl UidRange {
         let mut debut = self.from;
         while debut <= self.to {
             let fin = debut.saturating_add(size - 1).min(self.to);
-            out.push(UidRange { from: debut, to: fin });
+            out.push(UidRange {
+                from: debut,
+                to: fin,
+            });
             if fin == u32::MAX {
                 break;
             }

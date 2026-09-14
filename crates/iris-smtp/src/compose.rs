@@ -66,7 +66,10 @@ impl Outgoing {
     /// Vérifie qu'un message est envoyable.
     pub fn validate(&self) -> Result<(), String> {
         if !self.from.looks_valid() {
-            return Err(format!("adresse d'expédition invalide : « {} »", self.from.addr));
+            return Err(format!(
+                "adresse d'expédition invalide : « {} »",
+                self.from.addr
+            ));
         }
         if self.to.is_empty() && self.cc.is_empty() && self.bcc.is_empty() {
             return Err("aucun destinataire".into());
@@ -81,7 +84,10 @@ impl Outgoing {
 
     /// Total des pièces jointes, en octets.
     pub fn attachments_size(&self) -> u64 {
-        self.attachments.iter().map(|a| a.content.len() as u64).sum()
+        self.attachments
+            .iter()
+            .map(|a| a.content.len() as u64)
+            .sum()
     }
 }
 
@@ -121,7 +127,10 @@ pub fn reply(target: &ReplyTarget, identity: &Address, scope: ReplyScope) -> Out
     };
 
     let moi = identity.key();
-    let mut to: Vec<Address> = destinataires.into_iter().filter(|a| a.key() != moi).collect();
+    let mut to: Vec<Address> = destinataires
+        .into_iter()
+        .filter(|a| a.key() != moi)
+        .collect();
     let mut cc = Vec::new();
 
     if scope == ReplyScope::All {
@@ -189,8 +198,7 @@ pub fn build_references(
         // On conserve la racine, puis les plus récents. Perdre la racine coupe le
         // fil chez tous ceux qui l'utilisent pour le reconstituer.
         let racine = chaine[0].clone();
-        let queue: Vec<RfcMessageId> =
-            chaine[chaine.len() - (MAX_REFERENCES - 1)..].to_vec();
+        let queue: Vec<RfcMessageId> = chaine[chaine.len() - (MAX_REFERENCES - 1)..].to_vec();
         chaine = std::iter::once(racine).chain(queue).collect();
     }
     chaine
@@ -207,11 +215,20 @@ fn quote(target: &ReplyTarget) -> String {
     let cite: String = target
         .text_body
         .lines()
-        .map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") })
+        .map(|l| {
+            if l.is_empty() {
+                ">".to_string()
+            } else {
+                format!("> {l}")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\r\n");
 
-    format!("\r\n\r\nLe {}, {auteur} a écrit :\r\n{cite}\r\n", format_date(target.date))
+    format!(
+        "\r\n\r\nLe {}, {auteur} a écrit :\r\n{cite}\r\n",
+        format_date(target.date)
+    )
 }
 
 /// Date lisible, en heure locale approximative (UTC).
@@ -284,7 +301,11 @@ pub fn forward_subject(subject: &str) -> String {
 
 /// Engendre un `Message-ID` unique.
 pub fn generate_message_id(domain: &str, seed: u64) -> RfcMessageId {
-    let domaine = if domain.is_empty() { "iris.local" } else { domain };
+    let domaine = if domain.is_empty() {
+        "iris.local"
+    } else {
+        domain
+    };
     let horodatage = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -302,7 +323,10 @@ mod tests {
             references: vec![RfcMessageId("racine@example.com".into())],
             subject: "Devis refonte".into(),
             from: vec![Address::named("Marie", "marie@example.com")],
-            to: vec![Address::new("moi@example.com"), Address::new("luc@example.com")],
+            to: vec![
+                Address::new("moi@example.com"),
+                Address::new("luc@example.com"),
+            ],
             cc: vec![Address::new("compta@example.com")],
             reply_to: vec![],
             date: Timestamp::from_millis(1_700_000_000_000),
@@ -325,8 +349,7 @@ mod tests {
     #[test]
     fn une_reponse_a_tous_inclut_les_autres_sans_soi_meme() {
         let r = reply(&cible(), &moi(), ReplyScope::All);
-        let destinataires: Vec<_> =
-            r.to.iter().chain(&r.cc).map(|a| a.addr.as_str()).collect();
+        let destinataires: Vec<_> = r.to.iter().chain(&r.cc).map(|a| a.addr.as_str()).collect();
 
         assert!(destinataires.contains(&"marie@example.com"));
         assert!(destinataires.contains(&"luc@example.com"));
@@ -381,8 +404,7 @@ mod tests {
     #[test]
     fn une_chaine_trop_longue_conserve_sa_racine() {
         // Perdre la racine coupe le fil chez tous les clients qui s'en servent.
-        let refs: Vec<RfcMessageId> =
-            (0..50).map(|i| RfcMessageId(format!("m{i}@x"))).collect();
+        let refs: Vec<RfcMessageId> = (0..50).map(|i| RfcMessageId(format!("m{i}@x"))).collect();
         let chaine = build_references(&refs, Some(&RfcMessageId("dernier@x".into())));
 
         assert_eq!(chaine.len(), MAX_REFERENCES);
@@ -452,7 +474,10 @@ mod tests {
     #[test]
     fn la_date_de_citation_est_correcte() {
         // 1 700 000 000 s = 14 novembre 2023, 22 h 13 UTC.
-        assert_eq!(format_date(Timestamp::from_millis(1_700_000_000_000)), "14/11/2023 à 22:13");
+        assert_eq!(
+            format_date(Timestamp::from_millis(1_700_000_000_000)),
+            "14/11/2023 à 22:13"
+        );
         assert_eq!(format_date(Timestamp::EPOCH), "01/01/1970 à 00:00");
     }
 

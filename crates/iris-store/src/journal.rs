@@ -114,9 +114,11 @@ impl Store {
     pub fn fail_op(&self, id: OpId, error: &str, now: Timestamp) -> Result<u32> {
         self.with_tx(|tx| {
             let attempts: i64 = tx
-                .query_row("SELECT attempts FROM op_journal WHERE id = ?1", params![id.get()], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT attempts FROM op_journal WHERE id = ?1",
+                    params![id.get()],
+                    |r| r.get(0),
+                )
                 .map_err(|e| sql_err("lecture des tentatives", e))?;
             let attempts = attempts + 1;
             let next = now.millis() + backoff_secs(attempts as u32) * 1000;
@@ -167,7 +169,10 @@ mod tests {
     fn setup() -> (Store, AccountId) {
         let s = Store::in_memory().unwrap();
         let a = s
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
         (s, a)
     }
@@ -179,7 +184,9 @@ mod tests {
     #[test]
     fn une_operation_enregistree_est_en_attente() {
         let (s, a) = setup();
-        let id = s.enqueue_op(a, OpKind::SetFlags, "{}", "clef-1", t(0)).unwrap();
+        let id = s
+            .enqueue_op(a, OpKind::SetFlags, "{}", "clef-1", t(0))
+            .unwrap();
 
         let ops = s.pending_ops(t(0), 10).unwrap();
         assert_eq!(ops.len(), 1);
@@ -193,8 +200,12 @@ mod tests {
         // Propriété centrale : après une coupure entre l'action et sa confirmation,
         // rejouer ne doit pas dupliquer l'opération.
         let (s, a) = setup();
-        let un = s.enqueue_op(a, OpKind::SendMessage, "{\"a\":1}", "clef", t(0)).unwrap();
-        let deux = s.enqueue_op(a, OpKind::SendMessage, "{\"a\":2}", "clef", t(5)).unwrap();
+        let un = s
+            .enqueue_op(a, OpKind::SendMessage, "{\"a\":1}", "clef", t(0))
+            .unwrap();
+        let deux = s
+            .enqueue_op(a, OpKind::SendMessage, "{\"a\":2}", "clef", t(5))
+            .unwrap();
         assert_eq!(un, deux);
         assert_eq!(s.pending_op_count().unwrap(), 1);
         // La charge d'origine est conservée : la première intention fait foi.
@@ -205,7 +216,8 @@ mod tests {
     fn l_ordre_d_enregistrement_est_preserve() {
         let (s, a) = setup();
         for i in 0..5 {
-            s.enqueue_op(a, OpKind::MoveMessage, "{}", &format!("k{i}"), t(i)).unwrap();
+            s.enqueue_op(a, OpKind::MoveMessage, "{}", &format!("k{i}"), t(i))
+                .unwrap();
         }
         let ops = s.pending_ops(t(100), 10).unwrap();
         let clefs: Vec<_> = ops.iter().map(|o| o.idempotency_key.as_str()).collect();
@@ -231,7 +243,10 @@ mod tests {
         assert!(s.pending_ops(t(1_000), 10).unwrap().is_empty());
         let reprise = s.pending_ops(t(2_000), 10).unwrap();
         assert_eq!(reprise.len(), 1);
-        assert_eq!(reprise[0].last_error.as_deref(), Some("serveur injoignable"));
+        assert_eq!(
+            reprise[0].last_error.as_deref(),
+            Some("serveur injoignable")
+        );
     }
 
     #[test]
@@ -258,21 +273,28 @@ mod tests {
     #[test]
     fn la_purge_epargne_les_operations_recentes() {
         let (s, a) = setup();
-        let vieille = s.enqueue_op(a, OpKind::SetFlags, "{}", "vieille", t(1_000)).unwrap();
-        let recente = s.enqueue_op(a, OpKind::SetFlags, "{}", "récente", t(9_000)).unwrap();
+        let vieille = s
+            .enqueue_op(a, OpKind::SetFlags, "{}", "vieille", t(1_000))
+            .unwrap();
+        let recente = s
+            .enqueue_op(a, OpKind::SetFlags, "{}", "récente", t(9_000))
+            .unwrap();
         s.complete_op(vieille).unwrap();
         s.complete_op(recente).unwrap();
 
         assert_eq!(s.purge_completed_ops(t(5_000)).unwrap(), 1);
         // La clef récente subsiste : un rejeu tardif ne doit pas renvoyer le message.
-        let reste = s.enqueue_op(a, OpKind::SetFlags, "{}", "récente", t(10_000)).unwrap();
+        let reste = s
+            .enqueue_op(a, OpKind::SetFlags, "{}", "récente", t(10_000))
+            .unwrap();
         assert_eq!(reste, recente);
     }
 
     #[test]
     fn la_purge_ne_touche_pas_aux_operations_en_attente() {
         let (s, a) = setup();
-        s.enqueue_op(a, OpKind::SetFlags, "{}", "k", t(1_000)).unwrap();
+        s.enqueue_op(a, OpKind::SetFlags, "{}", "k", t(1_000))
+            .unwrap();
         assert_eq!(s.purge_completed_ops(t(999_999)).unwrap(), 0);
         assert_eq!(s.pending_op_count().unwrap(), 1);
     }
@@ -281,7 +303,8 @@ mod tests {
     fn la_limite_de_lot_est_respectee() {
         let (s, a) = setup();
         for i in 0..20 {
-            s.enqueue_op(a, OpKind::SetFlags, "{}", &format!("k{i}"), t(0)).unwrap();
+            s.enqueue_op(a, OpKind::SetFlags, "{}", &format!("k{i}"), t(0))
+                .unwrap();
         }
         assert_eq!(s.pending_ops(t(0), 5).unwrap().len(), 5);
     }

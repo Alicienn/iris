@@ -173,7 +173,9 @@ impl SyncEngine {
         &self,
         account: &iris_store::Account,
     ) -> Result<Credentials> {
-        self.credentials.credentials(account.id, &account.email).await
+        self.credentials
+            .credentials(account.id, &account.email)
+            .await
     }
 
     /// Indexe un lot de messages à partir de leurs seuls en-têtes.
@@ -182,7 +184,9 @@ impl SyncEngine {
     /// aperçu —, ce qui rend déjà la plupart des recherches fructueuses, et le corps
     /// viendra enrichir l'entrée à l'ouverture.
     fn index_headers(&self, messages: &[iris_store::StoredMessage]) -> Result<usize> {
-        let Some(index) = &self.index else { return Ok(0) };
+        let Some(index) = &self.index else {
+            return Ok(0);
+        };
 
         for m in messages {
             index.add(&iris_index::IndexedMessage {
@@ -216,7 +220,10 @@ impl SyncEngine {
             }
         };
 
-        if let Err(e) = self.store().record_attachments(message.id, &analyse.attachments) {
+        if let Err(e) = self
+            .store()
+            .record_attachments(message.id, &analyse.attachments)
+        {
             tracing::warn!(message = %message.id, erreur = %e, "recensement des pièces jointes");
         }
     }
@@ -227,7 +234,9 @@ impl SyncEngine {
         message: &iris_store::StoredMessage,
         raw: &[u8],
     ) -> Result<()> {
-        let Some(index) = &self.index else { return Ok(()) };
+        let Some(index) = &self.index else {
+            return Ok(());
+        };
 
         // Le texte indexé est celui de l'analyse, jamais le HTML brut : indexer des
         // balises remplirait l'index de bruit et ferait remonter n'importe quel
@@ -299,9 +308,11 @@ impl SyncEngine {
             ordonnanceur.due(now)
         };
 
-        let cycle = self.cycle.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let releve_suppressions = self.config.deletion_scan_every > 0
-            && cycle % self.config.deletion_scan_every == 0;
+        let cycle = self
+            .cycle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let releve_suppressions =
+            self.config.deletion_scan_every > 0 && cycle % self.config.deletion_scan_every == 0;
 
         let mut rapport = TickReport::default();
 
@@ -315,7 +326,9 @@ impl SyncEngine {
                     rapport.ops_replayed += bilan.ops_replayed;
 
                     let resultat = if bilan.added > 0 || bilan.flags_updated > 0 {
-                        SyncOutcome::Changed { messages: bilan.added as u32 }
+                        SyncOutcome::Changed {
+                            messages: bilan.added as u32,
+                        }
                     } else {
                         SyncOutcome::Unchanged
                     };
@@ -370,8 +383,10 @@ impl SyncEngine {
         // Le journal d'abord. Dans l'ordre inverse, une action locale non encore
         // transmise serait écrasée par l'état distant.
         let en_attente = self.store.pending_ops(now, 100)?;
-        let a_traiter: Vec<_> =
-            en_attente.into_iter().filter(|o| o.account == account).collect();
+        let a_traiter: Vec<_> = en_attente
+            .into_iter()
+            .filter(|o| o.account == account)
+            .collect();
         if !a_traiter.is_empty() {
             let r = replay_account(conn.as_mut(), &self.store, &a_traiter, now).await?;
             bilan.ops_replayed = r.applied;
@@ -381,7 +396,8 @@ impl SyncEngine {
         self.publish_phase(account, SyncPhase::ListingFolders);
         let distants = conn.list_folders().await?;
         for d in &distants {
-            self.store.upsert_folder(account, &d.path, translate_kind(d.kind))?;
+            self.store
+                .upsert_folder(account, &d.path, translate_kind(d.kind))?;
         }
 
         // Synchronisation, boîte de réception d'abord : c'est ce que l'utilisateur
@@ -394,13 +410,19 @@ impl SyncEngine {
             _ => 3,
         });
 
-        let options = FolderSyncOptions { detect_deletions, ..self.config.folder };
+        let options = FolderSyncOptions {
+            detect_deletions,
+            ..self.config.folder
+        };
         let mut ajoutes_par_dossier = Vec::new();
 
         for (index, dossier) in dossiers.iter().enumerate() {
             self.publish_phase(
                 account,
-                SyncPhase::FetchingHeaders { done: index as u32, total: dossiers.len() as u32 },
+                SyncPhase::FetchingHeaders {
+                    done: index as u32,
+                    total: dossiers.len() as u32,
+                },
             );
 
             match sync_folder(conn.as_mut(), &self.store, account, dossier, options).await {
@@ -503,14 +525,19 @@ pub struct StaticCredentials {
 
 impl StaticCredentials {
     pub fn new(password: impl Into<String>) -> Self {
-        Self { password: password.into() }
+        Self {
+            password: password.into(),
+        }
     }
 }
 
 #[async_trait]
 impl CredentialsProvider for StaticCredentials {
     async fn credentials(&self, _account: AccountId, email: &str) -> Result<Credentials> {
-        Ok(Credentials::Password { user: email.to_string(), password: self.password.clone() })
+        Ok(Credentials::Password {
+            user: email.to_string(),
+            password: self.password.clone(),
+        })
     }
 }
 
@@ -528,9 +555,11 @@ mod tests {
     }
 
     fn message(n: u32) -> Vec<u8> {
-        format!("Subject: Message {n}\r\nFrom: Marie <marie@example.com>\r\n\
-                 Message-ID: <m{n}@x>\r\n\r\nCorps du message.\r\n")
-            .into_bytes()
+        format!(
+            "Subject: Message {n}\r\nFrom: Marie <marie@example.com>\r\n\
+                 Message-ID: <m{n}@x>\r\n\r\nCorps du message.\r\n"
+        )
+        .into_bytes()
     }
 
     struct Fixture {
@@ -548,7 +577,10 @@ mod tests {
     fn fixture_with(config: EngineConfig) -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let account = store
-            .create_account(&NewAccount::new("moi@example.com", "imap.x.fr", "smtp.x.fr"), t(0))
+            .create_account(
+                &NewAccount::new("moi@example.com", "imap.x.fr", "smtp.x.fr"),
+                t(0),
+            )
             .unwrap();
 
         let server = Arc::new(FakeServer::default());
@@ -561,7 +593,13 @@ mod tests {
             config,
         );
 
-        Fixture { engine, store, server, bus, account }
+        Fixture {
+            engine,
+            store,
+            server,
+            bus,
+            account,
+        }
     }
 
     #[tokio::test]
@@ -619,7 +657,10 @@ mod tests {
         assert_eq!(r.ops_replayed, 1);
 
         let message = &f.store.thread_messages(iris_types::ThreadId(1)).unwrap()[0];
-        assert!(message.flags.contains(Flags::SEEN), "l'action locale doit survivre");
+        assert!(
+            message.flags.contains(Flags::SEEN),
+            "l'action locale doit survivre"
+        );
     }
 
     #[tokio::test]
@@ -640,8 +681,17 @@ mod tests {
         let r = f.engine.tick(t(0)).await;
 
         assert_eq!(r.failures.len(), 1);
-        assert!(abonne.drain().iter().any(|e| matches!(e, Event::SyncFailed { transient: true, .. })));
-        assert!(f.engine.suspended_accounts().await.is_empty(), "un échec isolé ne suspend pas");
+        assert!(abonne.drain().iter().any(|e| matches!(
+            e,
+            Event::SyncFailed {
+                transient: true,
+                ..
+            }
+        )));
+        assert!(
+            f.engine.suspended_accounts().await.is_empty(),
+            "un échec isolé ne suspend pas"
+        );
     }
 
     #[tokio::test]
@@ -685,11 +735,17 @@ mod tests {
 
         assert!(etapes.iter().any(|e| matches!(
             e,
-            Event::SyncPhaseChanged { phase: SyncPhase::Connecting, .. }
+            Event::SyncPhaseChanged {
+                phase: SyncPhase::Connecting,
+                ..
+            }
         )));
         assert!(etapes.iter().any(|e| matches!(
             e,
-            Event::SyncPhaseChanged { phase: SyncPhase::Idle, .. }
+            Event::SyncPhaseChanged {
+                phase: SyncPhase::Idle,
+                ..
+            }
         )));
     }
 
@@ -715,7 +771,10 @@ mod tests {
             Arc::clone(&server) as Arc<dyn Connector>,
             Arc::new(StaticCredentials::new("p")),
             bus.clone(),
-            EngineConfig { concurrency: 1, ..Default::default() },
+            EngineConfig {
+                concurrency: 1,
+                ..Default::default()
+            },
         );
 
         engine.load_accounts(t(0)).await.unwrap();
@@ -737,7 +796,10 @@ mod tests {
         let store = Arc::new(Store::in_memory().unwrap());
         for i in 0..10 {
             store
-                .create_account(&NewAccount::new(format!("c{i}@x.fr"), "imap.x.fr", "s"), t(0))
+                .create_account(
+                    &NewAccount::new(format!("c{i}@x.fr"), "imap.x.fr", "s"),
+                    t(0),
+                )
                 .unwrap();
         }
 
@@ -762,7 +824,11 @@ mod tests {
         let r = engine.tick(t(0)).await;
 
         assert_eq!(r.accounts_synced, 10, "tous finissent par passer");
-        assert_eq!(engine.pool_stats().in_use, 0, "toutes les places sont rendues");
+        assert_eq!(
+            engine.pool_stats().in_use,
+            0,
+            "toutes les places sont rendues"
+        );
     }
 
     #[tokio::test]
@@ -846,7 +912,10 @@ mod tests {
     #[tokio::test]
     async fn le_releve_des_suppressions_est_periodique() {
         // Le faire à chaque tour gaspillerait l'essentiel du budget réseau.
-        let f = fixture_with(EngineConfig { deletion_scan_every: 3, ..Default::default() });
+        let f = fixture_with(EngineConfig {
+            deletion_scan_every: 3,
+            ..Default::default()
+        });
         for i in 1..=4 {
             f.server.deliver("INBOX", &message(i), Flags::NONE);
         }

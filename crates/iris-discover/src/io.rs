@@ -26,7 +26,12 @@ impl SrvRecord {
         // Les cibles DNS se terminent par un point ; il n'a pas sa place dans une
         // configuration présentée à l'utilisateur.
         let target = target.into().trim_end_matches('.').to_string();
-        Self { target, port, priority, weight }
+        Self {
+            target,
+            port,
+            priority,
+            weight,
+        }
     }
 }
 
@@ -115,9 +120,7 @@ impl Resolver for DnsResolver {
         match self.inner.srv_lookup(name).await {
             Ok(reponse) => reponse
                 .iter()
-                .map(|r| {
-                    SrvRecord::new(r.target().to_utf8(), r.port(), r.priority(), r.weight())
-                })
+                .map(|r| SrvRecord::new(r.target().to_utf8(), r.port(), r.priority(), r.weight()))
                 .collect(),
             // Une absence d'enregistrement est le cas normal, pas une erreur.
             Err(_) => Vec::new(),
@@ -150,8 +153,11 @@ impl Prober for TcpProber {
         // combinaisons à dix secondes chacune ferait attendre une minute et demie.
         let adresse = format!("{host}:{port}");
         matches!(
-            tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(adresse))
-                .await,
+            tokio::time::timeout(
+                Duration::from_secs(2),
+                tokio::net::TcpStream::connect(adresse)
+            )
+            .await,
             Ok(Ok(_))
         )
     }
@@ -172,7 +178,11 @@ impl RealIo {
         let resolver = DnsResolver::from_system()
             .inspect_err(|e| tracing::warn!(erreur = %e, "DNS indisponible"))
             .ok();
-        Self { fetcher: HttpFetcher::new(), resolver, prober: TcpProber }
+        Self {
+            fetcher: HttpFetcher::new(),
+            resolver,
+            prober: TcpProber,
+        }
     }
 }
 
@@ -222,15 +232,28 @@ pub struct MockIo {
 
 impl MockIo {
     pub fn add_fetch(&mut self, url: &str, body: &str) {
-        self.fetches.lock().unwrap().insert(url.to_string(), body.to_string());
+        self.fetches
+            .lock()
+            .unwrap()
+            .insert(url.to_string(), body.to_string());
     }
 
     pub fn add_srv(&mut self, name: &str, record: SrvRecord) {
-        self.srvs.lock().unwrap().entry(name.to_string()).or_default().push(record);
+        self.srvs
+            .lock()
+            .unwrap()
+            .entry(name.to_string())
+            .or_default()
+            .push(record);
     }
 
     pub fn add_mx(&mut self, domain: &str, exchange: &str) {
-        self.mxs.lock().unwrap().entry(domain.to_string()).or_default().push(exchange.to_string());
+        self.mxs
+            .lock()
+            .unwrap()
+            .entry(domain.to_string())
+            .or_default()
+            .push(exchange.to_string());
     }
 
     pub fn add_probe(&mut self, host: &str, port: u16) {
@@ -255,16 +278,29 @@ impl DiscoveryIo for MockIo {
     }
 
     async fn srv(&self, name: &str) -> Vec<SrvRecord> {
-        self.srvs.lock().unwrap().get(name).cloned().unwrap_or_default()
+        self.srvs
+            .lock()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
     }
 
     async fn mx(&self, domain: &str) -> Vec<String> {
-        self.mxs.lock().unwrap().get(domain).cloned().unwrap_or_default()
+        self.mxs
+            .lock()
+            .unwrap()
+            .get(domain)
+            .cloned()
+            .unwrap_or_default()
     }
 
     async fn probe(&self, host: &str, port: u16) -> bool {
         self.probe_count.fetch_add(1, Ordering::Relaxed);
-        self.ports.lock().unwrap().contains(&(host.to_string(), port))
+        self.ports
+            .lock()
+            .unwrap()
+            .contains(&(host.to_string(), port))
     }
 }
 

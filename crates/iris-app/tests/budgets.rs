@@ -54,9 +54,14 @@ fn base_remplie(threads: u32) -> (tempfile::TempDir, Arc<Store>) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path().join("iris.db")).unwrap());
     let account = store
-        .create_account(&NewAccount::new("bench@example.com", "i", "s"), Timestamp::EPOCH)
+        .create_account(
+            &NewAccount::new("bench@example.com", "i", "s"),
+            Timestamp::EPOCH,
+        )
         .unwrap();
-    let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
+    let folder = store
+        .upsert_folder(account, "INBOX", FolderRole::Inbox)
+        .unwrap();
     seed(&store, account, folder, threads);
     (dir, store)
 }
@@ -72,11 +77,17 @@ fn la_premiere_liste_s_affiche_en_moins_de_quatre_cents_millisecondes() {
     // Ouverture à froid, comme au démarrage de l'application.
     let debut = Instant::now();
     let store = Arc::new(Store::open(dir.path().join("iris.db")).unwrap());
-    let mut vm = ViewModel::new(Arc::clone(&store), Timestamp::from_millis(1_800_000_000_000));
+    let mut vm = ViewModel::new(
+        Arc::clone(&store),
+        Timestamp::from_millis(1_800_000_000_000),
+    );
     vm.bootstrap().unwrap();
     let ecoule = debut.elapsed();
 
-    println!("première liste sur {THREADS} fils : {ecoule:?} ({} lignes)", vm.list().loaded());
+    println!(
+        "première liste sur {THREADS} fils : {ecoule:?} ({} lignes)",
+        vm.list().loaded()
+    );
     assert!(vm.list().loaded() > 0);
     assert_eq!(vm.count_of(WorkflowState::Todo), THREADS);
     assert!(
@@ -93,7 +104,10 @@ fn la_memoire_suit_ce_qui_est_affiche_et_non_ce_qui_est_stocke() {
     const THREADS: u32 = 100_000;
     let (_dir, store) = base_remplie(THREADS);
 
-    let mut vm = ViewModel::new(Arc::clone(&store), Timestamp::from_millis(1_800_000_000_000));
+    let mut vm = ViewModel::new(
+        Arc::clone(&store),
+        Timestamp::from_millis(1_800_000_000_000),
+    );
     vm.bootstrap().unwrap();
 
     let apres_demarrage = vm.list().loaded();
@@ -119,7 +133,10 @@ fn une_page_de_liste_se_sert_en_moins_d_une_milliseconde() {
     const THREADS: u32 = 100_000;
     let (_dir, store) = base_remplie(THREADS);
 
-    let mut vm = ViewModel::new(Arc::clone(&store), Timestamp::from_millis(1_800_000_000_000));
+    let mut vm = ViewModel::new(
+        Arc::clone(&store),
+        Timestamp::from_millis(1_800_000_000_000),
+    );
     vm.bootstrap().unwrap();
 
     let mut pire = Duration::ZERO;
@@ -165,7 +182,12 @@ fn la_recherche_repond_en_moins_de_quatre_vingts_millisecondes() {
     index.commit().unwrap();
     println!("{DOCUMENTS} documents indexés en {:?}", debut.elapsed());
 
-    for requete in ["devis", "dossier 12345", "correspondant 42", "référence interne"] {
+    for requete in [
+        "devis",
+        "dossier 12345",
+        "correspondant 42",
+        "référence interne",
+    ] {
         let debut = Instant::now();
         let resultats = index.search(requete, 50).unwrap();
         let ecoule = debut.elapsed();
@@ -189,21 +211,35 @@ fn les_actions_de_triage_sont_instantanees() {
     const THREADS: u32 = 20_000;
     let (_dir, store) = base_remplie(THREADS);
 
-    let mut vm = ViewModel::new(Arc::clone(&store), Timestamp::from_millis(1_800_000_000_000));
+    let mut vm = ViewModel::new(
+        Arc::clone(&store),
+        Timestamp::from_millis(1_800_000_000_000),
+    );
     vm.bootstrap().unwrap();
-    let mut actions =
-        Actions::new(Arc::clone(&store), iris_types::AutomationSettings::default());
+    let mut actions = Actions::new(
+        Arc::clone(&store),
+        iris_types::AutomationSettings::default(),
+    );
 
     let fils: Vec<ThreadId> = vm.list().rows().iter().take(200).map(|r| r.id).collect();
 
     let debut = Instant::now();
     for fil in &fils {
-        actions.apply(*fil, Action::Done, Timestamp::from_millis(1_800_000_000_000)).unwrap();
+        actions
+            .apply(
+                *fil,
+                Action::Done,
+                Timestamp::from_millis(1_800_000_000_000),
+            )
+            .unwrap();
     }
     let ecoule = debut.elapsed();
     let moyenne = ecoule / fils.len() as u32;
 
-    println!("{} actions en {ecoule:?}, soit {moyenne:?} par action", fils.len());
+    println!(
+        "{} actions en {ecoule:?}, soit {moyenne:?} par action",
+        fils.len()
+    );
     assert!(moyenne < Duration::from_millis(5), "action à {moyenne:?}");
 }
 
@@ -224,5 +260,8 @@ fn l_application_s_ouvre_a_froid_rapidement() {
 
     println!("ouverture à froid des services : {ecoule:?}");
     assert_eq!(services.themes.names().len(), 3);
-    assert!(ecoule < Duration::from_millis(2_000), "ouverture en {ecoule:?}");
+    assert!(
+        ecoule < Duration::from_millis(2_000),
+        "ouverture en {ecoule:?}"
+    );
 }

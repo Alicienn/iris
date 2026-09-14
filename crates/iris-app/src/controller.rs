@@ -12,8 +12,8 @@ use iris_kernel::{coalesce, EventBus, ViewDiff};
 use iris_store::Store;
 use iris_types::{AutomationSettings, Result, ThreadId, Timestamp, WorkflowState};
 use iris_viewmodel::{Action, Actions, Movement, ViewModel};
-use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
 
 /// Ce que l'interface demande au vue-modèle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,12 +182,16 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         Request::FilterAccounts(accounts) => Ok(!vm.set_accounts_filter(accounts)?.is_empty()),
         Request::EnsureLoaded(index) => Ok(vm.ensure_loaded(index)? > 0),
         Request::Apply(action) => {
-            let Some(thread) = vm.selection().thread() else { return Ok(false) };
+            let Some(thread) = vm.selection().thread() else {
+                return Ok(false);
+            };
             appliquer(vm, actions, thread, action)
         }
         Request::ApplyTo(thread, action) => appliquer(vm, actions, thread, action),
         Request::Undo => {
-            let Some(record) = actions.undo()? else { return Ok(false) };
+            let Some(record) = actions.undo()? else {
+                return Ok(false);
+            };
             let mut diff = ViewDiff::default();
             diff.threads.insert(record.thread);
             diff.lists.insert(vm.active_tab());
@@ -302,10 +306,20 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, account, folder, uid: std::cell::Cell::new(1) }
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            account,
+            folder,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -336,7 +350,13 @@ mod tests {
     }
 
     /// Démarre un contrôleur et rend le canal des instantanés.
-    fn demarrer(store: Arc<Store>) -> (Controller, mpsc::Receiver<Snapshot>, std::thread::JoinHandle<()>) {
+    fn demarrer(
+        store: Arc<Store>,
+    ) -> (
+        Controller,
+        mpsc::Receiver<Snapshot>,
+        std::thread::JoinHandle<()>,
+    ) {
         let (tx, rx) = mpsc::channel();
         let (controller, fil) = Controller::spawn(
             store,
@@ -350,7 +370,8 @@ mod tests {
     }
 
     fn attendre(rx: &mpsc::Receiver<Snapshot>) -> Snapshot {
-        rx.recv_timeout(std::time::Duration::from_secs(5)).expect("un instantané")
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .expect("un instantané")
     }
 
     /// Attend un instantane satisfaisant une condition.
@@ -364,7 +385,9 @@ mod tests {
         let echeance = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let restant = echeance.saturating_duration_since(std::time::Instant::now());
-            let s = rx.recv_timeout(restant).expect("un instantané satisfaisant la condition");
+            let s = rx
+                .recv_timeout(restant)
+                .expect("un instantané satisfaisant la condition");
             if condition(&s) {
                 return s;
             }
@@ -470,7 +493,9 @@ mod tests {
         attendre(&rx);
 
         c.send(Request::Apply(Action::Todo));
-        assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err());
 
         c.shutdown();
         fil.join().unwrap();
@@ -481,7 +506,9 @@ mod tests {
         let f = fixture();
         let fil_id = f.thread();
         f.thread();
-        f.store.set_thread_state(fil_id, WorkflowState::Done).unwrap();
+        f.store
+            .set_thread_state(fil_id, WorkflowState::Done)
+            .unwrap();
 
         let (c, rx, fil) = demarrer(Arc::clone(&f.store));
         c.send(Request::Bootstrap);
@@ -522,7 +549,10 @@ mod tests {
         attendre(&rx);
 
         f.thread();
-        c.send(Request::Diff(Box::new(ViewDiff { full_refresh: true, ..Default::default() })));
+        c.send(Request::Diff(Box::new(ViewDiff {
+            full_refresh: true,
+            ..Default::default()
+        })));
         let s = attendre(&rx);
         assert_eq!(s.rows.len(), 2);
 
@@ -546,7 +576,10 @@ mod tests {
 
         // Le fil repond toujours : un nouveau message finit par apparaitre.
         f.thread();
-        c.send(Request::Diff(Box::new(ViewDiff { full_refresh: true, ..Default::default() })));
+        c.send(Request::Diff(Box::new(ViewDiff {
+            full_refresh: true,
+            ..Default::default()
+        })));
         let apres = attendre_que(&rx, |s| s.rows.len() == 2);
         assert_eq!(apres.rows.len(), 2);
 
@@ -559,7 +592,9 @@ mod tests {
         let f = fixture();
         let fil_id = f.thread();
         f.thread();
-        f.store.set_thread_state(fil_id, WorkflowState::Done).unwrap();
+        f.store
+            .set_thread_state(fil_id, WorkflowState::Done)
+            .unwrap();
 
         let (c, rx, fil) = demarrer(Arc::clone(&f.store));
         c.send(Request::Bootstrap);
@@ -614,7 +649,9 @@ mod tests {
         attendre(&rx);
 
         c.send(Request::Search("  ".into()));
-        assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err());
 
         c.shutdown();
         fil.join().unwrap();
@@ -683,7 +720,9 @@ mod tests {
         attendre(&rx);
 
         c.send(Request::SetAutomation(AutomationSettings::MANUAL_ONLY));
-        assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err());
 
         c.shutdown();
         fil.join().unwrap();

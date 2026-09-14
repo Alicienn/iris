@@ -34,14 +34,16 @@ impl LettreMailer {
         let credentials =
             lettre::transport::smtp::authentication::Credentials::new(user.into(), password.into());
 
-        let transport =
-            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
-                .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
-                .port(port)
-                .credentials(credentials)
-                .build();
+        let transport = lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
+            .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
+            .port(port)
+            .credentials(credentials)
+            .build();
 
-        Ok(Self { transport, domain: domain_of(user) })
+        Ok(Self {
+            transport,
+            domain: domain_of(user),
+        })
     }
 
     /// Construit un expéditeur pour un serveur en `STARTTLS`.
@@ -49,19 +51,24 @@ impl LettreMailer {
         let credentials =
             lettre::transport::smtp::authentication::Credentials::new(user.into(), password.into());
 
-        let transport =
-            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
-                .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
-                .port(port)
-                .credentials(credentials)
-                .build();
+        let transport = lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
+            .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
+            .port(port)
+            .credentials(credentials)
+            .build();
 
-        Ok(Self { transport, domain: domain_of(user) })
+        Ok(Self {
+            transport,
+            domain: domain_of(user),
+        })
     }
 }
 
 fn domain_of(address: &str) -> String {
-    address.rsplit_once('@').map(|(_, d)| d.to_string()).unwrap_or_default()
+    address
+        .rsplit_once('@')
+        .map(|(_, d)| d.to_string())
+        .unwrap_or_default()
 }
 
 #[async_trait]
@@ -79,13 +86,19 @@ impl Mailer for LettreMailer {
             // Un refus permanent du serveur ne doit pas être retenté indéfiniment :
             // l'utilisateur doit corriger l'adresse ou ses identifiants.
             if e.is_permanent() {
-                Error::Protocol { protocol: "SMTP", message: texte }
+                Error::Protocol {
+                    protocol: "SMTP",
+                    message: texte,
+                }
             } else {
                 Error::network(format!("envoi : {texte}"))
             }
         })?;
 
-        Ok(SendOutcome { message_id, raw: brut })
+        Ok(SendOutcome {
+            message_id,
+            raw: brut,
+        })
     }
 }
 
@@ -231,8 +244,7 @@ impl Mailer for FakeMailer {
 
         Ok(SendOutcome {
             message_id,
-            raw: format!("Subject: {}\r\n\r\n{}", message.subject, message.text_body)
-                .into_bytes(),
+            raw: format!("Subject: {}\r\n\r\n{}", message.subject, message.text_body).into_bytes(),
         })
     }
 }

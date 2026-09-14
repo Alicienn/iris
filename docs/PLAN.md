@@ -200,4 +200,4 @@ l'interface accessible, et l'accessibilité cesse d'être une intention.
 
 - [x] **S24.1** Rôles et libellés d'accessibilité sur tout ce qui se clique.
 - [x] **S24.2** Tests d'interface sans écran, pilotant la vraie fenêtre.
-- [ ] **S24.3** Intégration continue : compilation, tests, format et lint.
+- [x] **S24.3** Intégration continue : compilation, tests, format et lint.

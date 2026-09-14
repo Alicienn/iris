@@ -8,8 +8,8 @@
 //! trouver « Marquer traité ». C'est la différence entre une palette qu'on utilise
 //! et une palette qu'on referme.
 
-use iris_viewmodel::Action;
 use iris_types::WorkflowState;
+use iris_viewmodel::Action;
 
 /// Ce qu'une commande déclenche.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +23,10 @@ pub enum CommandKind {
     AddAccount,
     /// Fournie par un plugin. La charge est renvoyée telle quelle au plugin qui
     /// l'a déclarée : l'hôte n'a pas à comprendre ce qu'elle veut dire.
-    Plugin { plugin: String, spec: String },
+    Plugin {
+        plugin: String,
+        spec: String,
+    },
     Settings,
     Reload,
     Quit,
@@ -50,7 +53,11 @@ impl Command {
     pub fn from_plugin(plugin: &str, spec: &str) -> Option<Self> {
         let valeur: serde_json::Value = serde_json::from_str(spec).ok()?;
         let id = valeur.get("id")?.as_str()?.trim();
-        let label = valeur.get("label").and_then(|l| l.as_str()).unwrap_or(id).trim();
+        let label = valeur
+            .get("label")
+            .and_then(|l| l.as_str())
+            .unwrap_or(id)
+            .trim();
         if id.is_empty() || label.is_empty() {
             return None;
         }
@@ -60,7 +67,10 @@ impl Command {
             label: label.to_string(),
             shortcut: String::new(),
             group: plugin.to_string(),
-            kind: CommandKind::Plugin { plugin: plugin.to_string(), spec: spec.to_string() },
+            kind: CommandKind::Plugin {
+                plugin: plugin.to_string(),
+                spec: spec.to_string(),
+            },
             needs_thread: valeur
                 .get("needs_thread")
                 .and_then(|n| n.as_bool())
@@ -170,7 +180,14 @@ pub fn builtin_commands() -> Vec<Command> {
             CommandKind::Thread(Action::ToggleFlag),
             true,
         ),
-        Command::new("edit.undo", "Annuler", "Ctrl+Z", "Édition", CommandKind::Undo, false),
+        Command::new(
+            "edit.undo",
+            "Annuler",
+            "Ctrl+Z",
+            "Édition",
+            CommandKind::Undo,
+            false,
+        ),
         Command::new(
             "view.todo",
             "Aller à : À traiter",
@@ -203,7 +220,14 @@ pub fn builtin_commands() -> Vec<Command> {
             CommandKind::UnifiedView,
             false,
         ),
-        Command::new("app.search", "Rechercher…", "Ctrl+F", "Application", CommandKind::Search, false),
+        Command::new(
+            "app.search",
+            "Rechercher…",
+            "Ctrl+F",
+            "Application",
+            CommandKind::Search,
+            false,
+        ),
         Command::new(
             "app.add-account",
             "Ajouter un compte…",
@@ -212,9 +236,30 @@ pub fn builtin_commands() -> Vec<Command> {
             CommandKind::AddAccount,
             false,
         ),
-        Command::new("app.reload", "Synchroniser maintenant", "F5", "Application", CommandKind::Reload, false),
-        Command::new("app.settings", "Réglages", "Ctrl+,", "Application", CommandKind::Settings, false),
-        Command::new("app.quit", "Quitter", "Ctrl+Q", "Application", CommandKind::Quit, false),
+        Command::new(
+            "app.reload",
+            "Synchroniser maintenant",
+            "F5",
+            "Application",
+            CommandKind::Reload,
+            false,
+        ),
+        Command::new(
+            "app.settings",
+            "Réglages",
+            "Ctrl+,",
+            "Application",
+            CommandKind::Settings,
+            false,
+        ),
+        Command::new(
+            "app.quit",
+            "Quitter",
+            "Ctrl+Q",
+            "Application",
+            CommandKind::Quit,
+            false,
+        ),
     ]
 }
 
@@ -223,11 +268,7 @@ pub fn builtin_commands() -> Vec<Command> {
 /// Les commandes inapplicables — celles qui exigent une conversation quand rien n'est
 /// sélectionné — sont retirées plutôt que grisées : une palette n'a pas la place
 /// d'expliquer pourquoi une entrée ne répond pas.
-pub fn filter<'a>(
-    commands: &'a [Command],
-    query: &str,
-    has_thread: bool,
-) -> Vec<&'a Command> {
+pub fn filter<'a>(commands: &'a [Command], query: &str, has_thread: bool) -> Vec<&'a Command> {
     let requete = query.trim().to_lowercase();
 
     let mut resultats: Vec<(&Command, i32)> = commands
@@ -374,7 +415,10 @@ mod tests {
     #[test]
     fn le_filtrage_ignore_la_casse_et_les_espaces() {
         let c = commandes();
-        assert_eq!(filter(&c, "  TRAITÉ ", true).len(), filter(&c, "traité", true).len());
+        assert_eq!(
+            filter(&c, "  TRAITÉ ", true).len(),
+            filter(&c, "traité", true).len()
+        );
     }
 
     #[test]
@@ -408,8 +452,14 @@ mod tests {
     #[test]
     fn les_reports_courants_sont_proposes() {
         let c = commandes();
-        let reports: Vec<_> = c.iter().filter(|x| x.id.starts_with("thread.snooze")).collect();
-        assert!(reports.len() >= 3, "trois horizons au moins : heures, demain, semaine");
+        let reports: Vec<_> = c
+            .iter()
+            .filter(|x| x.id.starts_with("thread.snooze"))
+            .collect();
+        assert!(
+            reports.len() >= 3,
+            "trois horizons au moins : heures, demain, semaine"
+        );
     }
 
     #[test]

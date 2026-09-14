@@ -106,10 +106,16 @@ impl EncryptedVault {
 
     /// Réécrit le fichier entier.
     fn persist(&self) -> Result<()> {
-        let _guard = self.write_lock.lock().map_err(|_| Error::Config("coffre verrouillé".into()))?;
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| Error::Config("coffre verrouillé".into()))?;
 
         let clair = {
-            let entries = self.entries.read().map_err(|_| Error::Config("coffre".into()))?;
+            let entries = self
+                .entries
+                .read()
+                .map_err(|_| Error::Config("coffre".into()))?;
             serde_json::to_vec(&*entries)
                 .map_err(|e| Error::Config(format!("sérialisation du coffre : {e}")))?
         };
@@ -158,22 +164,31 @@ impl EncryptedVault {
 impl SecretStore for EncryptedVault {
     fn set(&self, account: &str, kind: SecretKind, value: &Secret) -> Result<()> {
         {
-            let mut entries =
-                self.entries.write().map_err(|_| Error::Config("coffre".into()))?;
+            let mut entries = self
+                .entries
+                .write()
+                .map_err(|_| Error::Config("coffre".into()))?;
             entries.insert(entry_key(account, kind), value.expose().to_string());
         }
         self.persist()
     }
 
     fn get(&self, account: &str, kind: SecretKind) -> Result<Option<Secret>> {
-        let entries = self.entries.read().map_err(|_| Error::Config("coffre".into()))?;
-        Ok(entries.get(&entry_key(account, kind)).map(|v| Secret::new(v.clone())))
+        let entries = self
+            .entries
+            .read()
+            .map_err(|_| Error::Config("coffre".into()))?;
+        Ok(entries
+            .get(&entry_key(account, kind))
+            .map(|v| Secret::new(v.clone())))
     }
 
     fn delete(&self, account: &str, kind: SecretKind) -> Result<bool> {
         let existait = {
-            let mut entries =
-                self.entries.write().map_err(|_| Error::Config("coffre".into()))?;
+            let mut entries = self
+                .entries
+                .write()
+                .map_err(|_| Error::Config("coffre".into()))?;
             entries.remove(&entry_key(account, kind)).is_some()
         };
         if existait {
@@ -213,7 +228,9 @@ fn to_hex(bytes: &[u8]) -> String {
 
 fn from_hex(s: &str) -> Result<Vec<u8>> {
     if s.len() % 2 != 0 {
-        return Err(Error::Config("données hexadécimales de longueur impaire".into()));
+        return Err(Error::Config(
+            "données hexadécimales de longueur impaire".into(),
+        ));
     }
     s.as_bytes()
         .chunks_exact(2)
@@ -241,7 +258,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let v = EncryptedVault::open(dir.path().join("coffre.json"), &master()).unwrap();
 
-        v.set("a@x.fr", SecretKind::Password, &Secret::new("hunter2")).unwrap();
+        v.set("a@x.fr", SecretKind::Password, &Secret::new("hunter2"))
+            .unwrap();
         let lu = v.get("a@x.fr", SecretKind::Password).unwrap().unwrap();
         assert_eq!(lu.expose(), "hunter2");
     }
@@ -250,7 +268,10 @@ mod tests {
     fn un_secret_absent_donne_none() {
         let dir = tempfile::tempdir().unwrap();
         let v = EncryptedVault::open(dir.path().join("coffre.json"), &master()).unwrap();
-        assert!(v.get("inconnu@x.fr", SecretKind::Password).unwrap().is_none());
+        assert!(v
+            .get("inconnu@x.fr", SecretKind::Password)
+            .unwrap()
+            .is_none());
         assert!(v.is_empty());
     }
 
@@ -260,11 +281,19 @@ mod tests {
         let chemin = dir.path().join("coffre.json");
         {
             let v = EncryptedVault::open(&chemin, &master()).unwrap();
-            v.set("a@x.fr", SecretKind::RefreshToken, &Secret::new("jeton-long")).unwrap();
+            v.set(
+                "a@x.fr",
+                SecretKind::RefreshToken,
+                &Secret::new("jeton-long"),
+            )
+            .unwrap();
         }
         let v = EncryptedVault::open(&chemin, &master()).unwrap();
         assert_eq!(
-            v.get("a@x.fr", SecretKind::RefreshToken).unwrap().unwrap().expose(),
+            v.get("a@x.fr", SecretKind::RefreshToken)
+                .unwrap()
+                .unwrap()
+                .expose(),
             "jeton-long"
         );
     }
@@ -277,7 +306,8 @@ mod tests {
         let chemin = dir.path().join("coffre.json");
         {
             let v = EncryptedVault::open(&chemin, &master()).unwrap();
-            v.set("a@x.fr", SecretKind::Password, &Secret::new("hunter2")).unwrap();
+            v.set("a@x.fr", SecretKind::Password, &Secret::new("hunter2"))
+                .unwrap();
         }
         let e = EncryptedVault::open(&chemin, &Secret::new("mauvaise phrase")).unwrap_err();
         assert!(e.to_string().contains("incorrect"));
@@ -289,7 +319,8 @@ mod tests {
         let chemin = dir.path().join("coffre.json");
         {
             let v = EncryptedVault::open(&chemin, &master()).unwrap();
-            v.set("a@x.fr", SecretKind::Password, &Secret::new("hunter2")).unwrap();
+            v.set("a@x.fr", SecretKind::Password, &Secret::new("hunter2"))
+                .unwrap();
         }
 
         // On retouche un octet du texte chiffré : l'authentification doit le voir.
@@ -308,12 +339,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let chemin = dir.path().join("coffre.json");
         let v = EncryptedVault::open(&chemin, &master()).unwrap();
-        v.set("a@x.fr", SecretKind::Password, &Secret::new("motdepasse-tres-reconnaissable"))
-            .unwrap();
+        v.set(
+            "a@x.fr",
+            SecretKind::Password,
+            &Secret::new("motdepasse-tres-reconnaissable"),
+        )
+        .unwrap();
 
         let contenu = std::fs::read_to_string(&chemin).unwrap();
         assert!(!contenu.contains("motdepasse-tres-reconnaissable"));
-        assert!(!contenu.contains("a@x.fr"), "même les identifiants sont chiffrés");
+        assert!(
+            !contenu.contains("a@x.fr"),
+            "même les identifiants sont chiffrés"
+        );
     }
 
     #[test]
@@ -323,11 +361,13 @@ mod tests {
         let chemin = dir.path().join("coffre.json");
         let v = EncryptedVault::open(&chemin, &master()).unwrap();
 
-        v.set("a@x.fr", SecretKind::Password, &Secret::new("un")).unwrap();
+        v.set("a@x.fr", SecretKind::Password, &Secret::new("un"))
+            .unwrap();
         let premier: Envelope =
             serde_json::from_str(&std::fs::read_to_string(&chemin).unwrap()).unwrap();
 
-        v.set("b@x.fr", SecretKind::Password, &Secret::new("deux")).unwrap();
+        v.set("b@x.fr", SecretKind::Password, &Secret::new("deux"))
+            .unwrap();
         let second: Envelope =
             serde_json::from_str(&std::fs::read_to_string(&chemin).unwrap()).unwrap();
 
@@ -339,7 +379,8 @@ mod tests {
     fn supprimer_retire_le_secret() {
         let dir = tempfile::tempdir().unwrap();
         let v = EncryptedVault::open(dir.path().join("coffre.json"), &master()).unwrap();
-        v.set("a@x.fr", SecretKind::Password, &Secret::new("x")).unwrap();
+        v.set("a@x.fr", SecretKind::Password, &Secret::new("x"))
+            .unwrap();
 
         assert!(v.delete("a@x.fr", SecretKind::Password).unwrap());
         assert!(v.get("a@x.fr", SecretKind::Password).unwrap().is_none());
@@ -350,11 +391,25 @@ mod tests {
     fn les_natures_de_secret_coexistent() {
         let dir = tempfile::tempdir().unwrap();
         let v = EncryptedVault::open(dir.path().join("coffre.json"), &master()).unwrap();
-        v.set("a@x.fr", SecretKind::AccessToken, &Secret::new("court")).unwrap();
-        v.set("a@x.fr", SecretKind::RefreshToken, &Secret::new("long")).unwrap();
+        v.set("a@x.fr", SecretKind::AccessToken, &Secret::new("court"))
+            .unwrap();
+        v.set("a@x.fr", SecretKind::RefreshToken, &Secret::new("long"))
+            .unwrap();
 
-        assert_eq!(v.get("a@x.fr", SecretKind::AccessToken).unwrap().unwrap().expose(), "court");
-        assert_eq!(v.get("a@x.fr", SecretKind::RefreshToken).unwrap().unwrap().expose(), "long");
+        assert_eq!(
+            v.get("a@x.fr", SecretKind::AccessToken)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "court"
+        );
+        assert_eq!(
+            v.get("a@x.fr", SecretKind::RefreshToken)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "long"
+        );
         assert_eq!(v.len(), 2);
     }
 

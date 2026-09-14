@@ -86,7 +86,10 @@ impl FakeServer {
         let mut state = FakeState::default();
         state.folders.insert(
             "INBOX".into(),
-            FakeFolder { kind: FolderKind::Inbox, ..Default::default() },
+            FakeFolder {
+                kind: FolderKind::Inbox,
+                ..Default::default()
+            },
         );
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -102,11 +105,13 @@ impl FakeServer {
     }
 
     pub fn add_folder(&self, path: &str, kind: FolderKind) {
-        self.state
-            .lock()
-            .unwrap()
-            .folders
-            .insert(path.to_string(), FakeFolder { kind, ..Default::default() });
+        self.state.lock().unwrap().folders.insert(
+            path.to_string(),
+            FakeFolder {
+                kind,
+                ..Default::default()
+            },
+        );
     }
 
     /// Dépose un message et retourne son UID.
@@ -199,7 +204,9 @@ impl Connector for FakeServer {
             return Err(Error::network("serveur simulé injoignable"));
         }
         if credentials.user().is_empty() {
-            return Err(Error::AuthFailed { account: "(vide)".into() });
+            return Err(Error::AuthFailed {
+                account: "(vide)".into(),
+            });
         }
         self.connections.fetch_add(1, Ordering::Relaxed);
         Ok(Box::new(FakeConnection {
@@ -221,15 +228,19 @@ pub struct FakeConnection {
 impl FakeConnection {
     fn take_error(&self) -> Result<()> {
         if let Some(message) = self.state.lock().unwrap().next_error.take() {
-            return Err(Error::Protocol { protocol: "IMAP", message });
+            return Err(Error::Protocol {
+                protocol: "IMAP",
+                message,
+            });
         }
         Ok(())
     }
 
     fn current(&self) -> Result<String> {
-        self.selected
-            .clone()
-            .ok_or_else(|| Error::Protocol { protocol: "IMAP", message: "aucun dossier sélectionné".into() })
+        self.selected.clone().ok_or_else(|| Error::Protocol {
+            protocol: "IMAP",
+            message: "aucun dossier sélectionné".into(),
+        })
     }
 }
 
@@ -245,23 +256,30 @@ impl ImapConnection for FakeConnection {
         Ok(state
             .folders
             .iter()
-            .map(|(path, f)| RemoteFolder { path: path.clone(), kind: f.kind })
+            .map(|(path, f)| RemoteFolder {
+                path: path.clone(),
+                kind: f.kind,
+            })
             .collect())
     }
 
     async fn select(&mut self, path: &str) -> Result<SelectedFolder> {
         self.take_error()?;
         let state = self.state.lock().unwrap();
-        let f = state
-            .folders
-            .get(path)
-            .ok_or_else(|| Error::Protocol { protocol: "IMAP", message: format!("dossier « {path} » inconnu") })?;
+        let f = state.folders.get(path).ok_or_else(|| Error::Protocol {
+            protocol: "IMAP",
+            message: format!("dossier « {path} » inconnu"),
+        })?;
 
         let selected = SelectedFolder {
             uid_validity: f.uid_validity,
             uid_next: f.messages.keys().next_back().map(|u| u + 1).unwrap_or(1),
             exists: f.messages.len() as u32,
-            highest_modseq: if self.capabilities.condstore { f.highest_modseq } else { 0 },
+            highest_modseq: if self.capabilities.condstore {
+                f.highest_modseq
+            } else {
+                0
+            },
         };
         drop(state);
         self.selected = Some(path.to_string());
@@ -272,7 +290,10 @@ impl ImapConnection for FakeConnection {
         self.take_error()?;
         let path = self.current()?;
         let state = self.state.lock().unwrap();
-        let f = state.folders.get(&path).ok_or_else(|| Error::store("dossier disparu"))?;
+        let f = state
+            .folders
+            .get(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
 
         Ok(f.messages
             .range(range.from..=range.to)
@@ -296,15 +317,24 @@ impl ImapConnection for FakeConnection {
             .get(&path)
             .and_then(|f| f.messages.get(&uid))
             .map(|m| m.content.clone())
-            .ok_or_else(|| Error::Protocol { protocol: "IMAP", message: format!("UID {uid} absent") })
+            .ok_or_else(|| Error::Protocol {
+                protocol: "IMAP",
+                message: format!("UID {uid} absent"),
+            })
     }
 
     async fn existing_uids(&mut self, range: UidRange) -> Result<Vec<u32>> {
         self.take_error()?;
         let path = self.current()?;
         let state = self.state.lock().unwrap();
-        let f = state.folders.get(&path).ok_or_else(|| Error::store("dossier disparu"))?;
-        Ok(f.messages.range(range.from..=range.to).map(|(u, _)| *u).collect())
+        let f = state
+            .folders
+            .get(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
+        Ok(f.messages
+            .range(range.from..=range.to)
+            .map(|(u, _)| *u)
+            .collect())
     }
 
     async fn flags_changed_since(&mut self, modseq: u64) -> Result<Vec<(u32, Flags)>> {
@@ -317,7 +347,10 @@ impl ImapConnection for FakeConnection {
         }
         let path = self.current()?;
         let state = self.state.lock().unwrap();
-        let f = state.folders.get(&path).ok_or_else(|| Error::store("dossier disparu"))?;
+        let f = state
+            .folders
+            .get(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
 
         Ok(f.modseqs
             .iter()
@@ -330,13 +363,20 @@ impl ImapConnection for FakeConnection {
         self.take_error()?;
         let path = self.current()?;
         let mut state = self.state.lock().unwrap();
-        let f = state.folders.get_mut(&path).ok_or_else(|| Error::store("dossier disparu"))?;
+        let f = state
+            .folders
+            .get_mut(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
 
         for uid in uids {
             f.highest_modseq += 1;
             let modseq = f.highest_modseq;
             if let Some(m) = f.messages.get_mut(uid) {
-                m.flags = if add { m.flags.with(flags) } else { m.flags.without(flags) };
+                m.flags = if add {
+                    m.flags.with(flags)
+                } else {
+                    m.flags.without(flags)
+                };
             }
             f.modseqs.insert(*uid, modseq);
         }
@@ -389,7 +429,10 @@ impl ImapConnection for FakeConnection {
 
         // Le serveur simulé attribue l'UID suivant du dossier, comme le ferait un
         // vrai serveur doté de UIDPLUS.
-        let f = state.folders.get_mut(folder).expect("dossier vérifié juste avant");
+        let f = state
+            .folders
+            .get_mut(folder)
+            .expect("dossier vérifié juste avant");
         let uid = f.messages.keys().next_back().map(|u| u + 1).unwrap_or(1);
         f.highest_modseq += 1;
         let modseq = f.highest_modseq;
@@ -414,7 +457,13 @@ impl ImapConnection for FakeConnection {
                 message: "IDLE non disponible".into(),
             });
         }
-        Ok(self.state.lock().unwrap().idle_result.take().unwrap_or(IdleOutcome::TimedOut))
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .idle_result
+            .take()
+            .unwrap_or(IdleOutcome::TimedOut))
     }
 
     async fn logout(&mut self) -> Result<()> {
@@ -446,7 +495,10 @@ mod tests {
     async fn connexion(s: &FakeServer) -> Box<dyn ImapConnection> {
         s.connect(
             &Endpoint::tls("imap.x.fr", 993),
-            &Credentials::Password { user: "a@x.fr".into(), password: "x".into() },
+            &Credentials::Password {
+                user: "a@x.fr".into(),
+                password: "x".into(),
+            },
         )
         .await
         .unwrap()
@@ -571,7 +623,11 @@ mod tests {
         let mut c = connexion(&s).await;
         c.select("INBOX").await.unwrap();
         assert!(c.move_messages(&[1], "Inexistant").await.is_err());
-        assert_eq!(s.message_count("INBOX"), 1, "le message ne doit pas disparaître");
+        assert_eq!(
+            s.message_count("INBOX"),
+            1,
+            "le message ne doit pas disparaître"
+        );
     }
 
     #[tokio::test]
@@ -582,10 +638,16 @@ mod tests {
         let mut c = connexion(&s).await;
         c.select("INBOX").await.unwrap();
         c.store_flags(&[1], Flags::SEEN, true).await.unwrap();
-        assert_eq!(c.fetch_envelopes(UidRange::ALL).await.unwrap()[0].flags, Flags::SEEN);
+        assert_eq!(
+            c.fetch_envelopes(UidRange::ALL).await.unwrap()[0].flags,
+            Flags::SEEN
+        );
 
         c.store_flags(&[1], Flags::SEEN, false).await.unwrap();
-        assert_eq!(c.fetch_envelopes(UidRange::ALL).await.unwrap()[0].flags, Flags::NONE);
+        assert_eq!(
+            c.fetch_envelopes(UidRange::ALL).await.unwrap()[0].flags,
+            Flags::NONE
+        );
     }
 
     #[tokio::test]
@@ -602,7 +664,10 @@ mod tests {
 
         let mut c = connexion(&s).await;
         assert!(c.list_folders().await.is_err());
-        assert!(c.list_folders().await.is_ok(), "l'erreur ne doit pas persister");
+        assert!(
+            c.list_folders().await.is_ok(),
+            "l'erreur ne doit pas persister"
+        );
     }
 
     #[tokio::test]
@@ -613,7 +678,10 @@ mod tests {
         let r = s
             .connect(
                 &Endpoint::tls("x", 993),
-                &Credentials::Password { user: "a".into(), password: "b".into() },
+                &Credentials::Password {
+                    user: "a".into(),
+                    password: "b".into(),
+                },
             )
             .await;
         assert!(r.unwrap_err().is_transient());
@@ -632,9 +700,15 @@ mod tests {
         let s = FakeServer::default();
         let mut c = connexion(&s).await;
 
-        assert_eq!(c.idle(Duration::from_secs(1)).await.unwrap(), IdleOutcome::TimedOut);
+        assert_eq!(
+            c.idle(Duration::from_secs(1)).await.unwrap(),
+            IdleOutcome::TimedOut
+        );
         s.set_idle_result(IdleOutcome::Changed);
-        assert_eq!(c.idle(Duration::from_secs(1)).await.unwrap(), IdleOutcome::Changed);
+        assert_eq!(
+            c.idle(Duration::from_secs(1)).await.unwrap(),
+            IdleOutcome::Changed
+        );
     }
 
     #[tokio::test]
@@ -643,7 +717,10 @@ mod tests {
         s.add_folder("Sent", FolderKind::Sent);
         let mut c = connexion(&s).await;
 
-        let uid = c.append("Sent", &message("Ma réponse"), Flags::SEEN).await.unwrap();
+        let uid = c
+            .append("Sent", &message("Ma réponse"), Flags::SEEN)
+            .await
+            .unwrap();
         assert_eq!(uid, Some(1));
         assert_eq!(s.message_count("Sent"), 1);
     }

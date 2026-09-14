@@ -186,7 +186,9 @@ pub fn parse_redirect(url: &str, expected_state: &str) -> Result<String> {
 
     if let Some(erreur) = params.get("error") {
         let details = params.get("error_description").cloned().unwrap_or_default();
-        return Err(Error::Config(format!("autorisation refusée : {erreur} {details}")));
+        return Err(Error::Config(format!(
+            "autorisation refusée : {erreur} {details}"
+        )));
     }
 
     let state = params
@@ -227,7 +229,9 @@ pub async fn exchange_code(
         ("redirect_uri".to_string(), request.redirect_uri.clone()),
     ];
 
-    let corps = endpoint.post_form(request.provider.token_url(), &params).await?;
+    let corps = endpoint
+        .post_form(request.provider.token_url(), &params)
+        .await?;
     parse_tokens(&corps, now)
 }
 
@@ -270,7 +274,9 @@ pub fn parse_tokens(body: &str, now: Timestamp) -> Result<Tokens> {
                 account: format!("autorisation expirée ou révoquée : {details}"),
             });
         }
-        return Err(Error::Config(format!("authentification refusée : {erreur} {details}")));
+        return Err(Error::Config(format!(
+            "authentification refusée : {erreur} {details}"
+        )));
     }
 
     // Une heure est la valeur par défaut chez les deux fournisseurs.
@@ -303,7 +309,9 @@ fn pkce_verifier(entropy: &[u8]) -> String {
     let mut brut = Vec::with_capacity(64);
     let mut etat = 0x6a09_e667_f3bc_c908u64;
     for (i, o) in entropy.iter().cycle().take(64).enumerate() {
-        etat = etat.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(*o as u64 + i as u64);
+        etat = etat
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(*o as u64 + i as u64);
         brut.push((etat >> 33) as u8);
     }
     base64url_encode(&brut)
@@ -327,7 +335,11 @@ const B64URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123
 fn base64url_encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for bloc in data.chunks(3) {
-        let b = [bloc[0], *bloc.get(1).unwrap_or(&0), *bloc.get(2).unwrap_or(&0)];
+        let b = [
+            bloc[0],
+            *bloc.get(1).unwrap_or(&0),
+            *bloc.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         let chiffres = [(n >> 18) & 63, (n >> 12) & 63, (n >> 6) & 63, n & 63];
         // Pas de remplissage : le RFC 7636 l'interdit.
@@ -381,10 +393,9 @@ fn urldecode(s: &str) -> String {
     let mut i = 0;
     while i < octets.len() {
         if octets[i] == b'%' && i + 2 < octets.len() {
-            if let Ok(v) = u8::from_str_radix(
-                std::str::from_utf8(&octets[i + 1..i + 3]).unwrap_or(""),
-                16,
-            ) {
+            if let Ok(v) =
+                u8::from_str_radix(std::str::from_utf8(&octets[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 out.push(v);
                 i += 3;
                 continue;
@@ -427,7 +438,12 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     for bloc in message.chunks(64) {
         let mut w = [0u32; 64];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([bloc[i * 4], bloc[i * 4 + 1], bloc[i * 4 + 2], bloc[i * 4 + 3]]);
+            w[i] = u32::from_be_bytes([
+                bloc[i * 4],
+                bloc[i * 4 + 1],
+                bloc[i * 4 + 2],
+                bloc[i * 4 + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -538,8 +554,14 @@ mod tests {
     #[test]
     fn le_verificateur_pkce_respecte_la_longueur_imposee() {
         let v = pkce_verifier(b"graine");
-        assert!(v.len() >= 43 && v.len() <= 128, "longueur {} hors bornes", v.len());
-        assert!(v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(
+            v.len() >= 43 && v.len() <= 128,
+            "longueur {} hors bornes",
+            v.len()
+        );
+        assert!(v
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
     }
 
     #[test]
@@ -555,7 +577,13 @@ mod tests {
 
     #[test]
     fn l_url_d_autorisation_contient_tout_le_necessaire() {
-        let r = begin(Provider::Google, "client-123", 8080, Some("moi@gmail.com"), b"graine");
+        let r = begin(
+            Provider::Google,
+            "client-123",
+            8080,
+            Some("moi@gmail.com"),
+            b"graine",
+        );
         assert!(r.url.starts_with("https://accounts.google.com/"));
         assert!(r.url.contains("client_id=client-123"));
         assert!(r.url.contains("code_challenge_method=S256"));
@@ -628,7 +656,10 @@ mod tests {
         let corps = r#"{"access_token":"a","expires_in":30}"#;
         let t = parse_tokens(corps, now()).unwrap();
         assert!(!t.is_expired(now(), 10));
-        assert!(t.is_expired(now(), 60), "une marge d'une minute doit le déclarer périmé");
+        assert!(
+            t.is_expired(now(), 60),
+            "une marge d'une minute doit le déclarer périmé"
+        );
     }
 
     #[test]
@@ -654,13 +685,18 @@ mod tests {
         let endpoint = FakeEndpoint::with(r#"{"access_token":"a","expires_in":3600}"#);
         let r = begin(Provider::Google, "client", 8080, None, b"g");
 
-        exchange_code(&endpoint, &r, "client", "le-code", now()).await.unwrap();
+        exchange_code(&endpoint, &r, "client", "le-code", now())
+            .await
+            .unwrap();
 
         let requete = endpoint.derniere_requete.lock().unwrap().clone();
         let params: BTreeMap<_, _> = requete.into_iter().collect();
         assert_eq!(params.get("code").map(String::as_str), Some("le-code"));
         assert_eq!(params.get("code_verifier"), Some(&r.verifier));
-        assert_eq!(params.get("grant_type").map(String::as_str), Some("authorization_code"));
+        assert_eq!(
+            params.get("grant_type").map(String::as_str),
+            Some("authorization_code")
+        );
     }
 
     #[tokio::test]
@@ -668,9 +704,15 @@ mod tests {
         // Les fournisseurs ne le renvoient pas toujours ; l'oublier déconnecte le
         // compte au renouvellement suivant.
         let endpoint = FakeEndpoint::with(r#"{"access_token":"nouveau","expires_in":3600}"#);
-        let t = refresh(&endpoint, Provider::Google, "client", "ancien-renouv", now())
-            .await
-            .unwrap();
+        let t = refresh(
+            &endpoint,
+            Provider::Google,
+            "client",
+            "ancien-renouv",
+            now(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(t.access_token, "nouveau");
         assert_eq!(t.refresh_token.as_deref(), Some("ancien-renouv"));
@@ -680,7 +722,9 @@ mod tests {
     async fn un_nouveau_jeton_de_renouvellement_remplace_l_ancien() {
         let endpoint =
             FakeEndpoint::with(r#"{"access_token":"a","refresh_token":"frais","expires_in":60}"#);
-        let t = refresh(&endpoint, Provider::Google, "c", "ancien", now()).await.unwrap();
+        let t = refresh(&endpoint, Provider::Google, "c", "ancien", now())
+            .await
+            .unwrap();
         assert_eq!(t.refresh_token.as_deref(), Some("frais"));
     }
 
@@ -688,7 +732,10 @@ mod tests {
     fn l_adresse_est_extraite_du_jeton_d_identite() {
         let charge = base64url_encode(br#"{"email":"marie@gmail.com","sub":"1"}"#);
         let id_token = format!("entete.{charge}.signature");
-        assert_eq!(email_from_id_token(&id_token).as_deref(), Some("marie@gmail.com"));
+        assert_eq!(
+            email_from_id_token(&id_token).as_deref(),
+            Some("marie@gmail.com")
+        );
     }
 
     #[test]
@@ -708,6 +755,9 @@ mod tests {
     fn l_encodage_d_url_protege_les_caracteres_reserves() {
         assert_eq!(urlencode("a b&c=d"), "a%20b%26c%3Dd");
         assert_eq!(urldecode("a%20b%26c"), "a b&c");
-        assert_eq!(urldecode(&urlencode("https://x.fr/?a=1")), "https://x.fr/?a=1");
+        assert_eq!(
+            urldecode(&urlencode("https://x.fr/?a=1")),
+            "https://x.fr/?a=1"
+        );
     }
 }

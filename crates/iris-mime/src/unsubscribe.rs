@@ -11,7 +11,10 @@
 use iris_types::Unsubscribe;
 
 /// Analyse les deux en-têtes et retourne le meilleur moyen disponible.
-pub fn parse(list_unsubscribe: Option<&str>, list_unsubscribe_post: Option<&str>) -> Option<Unsubscribe> {
+pub fn parse(
+    list_unsubscribe: Option<&str>,
+    list_unsubscribe_post: Option<&str>,
+) -> Option<Unsubscribe> {
     let raw = list_unsubscribe?;
     let entries = split_entries(raw);
 
@@ -35,7 +38,9 @@ pub fn parse(list_unsubscribe: Option<&str>, list_unsubscribe_post: Option<&str>
         });
     }
 
-    let mailto = entries.iter().find(|e| e.to_lowercase().starts_with("mailto:"))?;
+    let mailto = entries
+        .iter()
+        .find(|e| e.to_lowercase().starts_with("mailto:"))?;
     let sans_schema = &mailto[7..];
     let (addr, query) = match sans_schema.split_once('?') {
         Some((a, q)) => (a, Some(q)),
@@ -48,7 +53,10 @@ pub fn parse(list_unsubscribe: Option<&str>, list_unsubscribe_post: Option<&str>
         })
     });
 
-    Some(Unsubscribe::Mailto { addr: addr.to_string(), subject })
+    Some(Unsubscribe::Mailto {
+        addr: addr.to_string(),
+        subject,
+    })
 }
 
 /// Découpe la valeur de l'en-tête en entrées, chacune entourée de chevrons.
@@ -56,7 +64,9 @@ fn split_entries(raw: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut reste = raw;
     while let Some(debut) = reste.find('<') {
-        let Some(fin) = reste[debut..].find('>') else { break };
+        let Some(fin) = reste[debut..].find('>') else {
+            break;
+        };
         let entree = reste[debut + 1..debut + fin].trim();
         if !entree.is_empty() {
             out.push(entree.to_string());
@@ -100,7 +110,12 @@ mod tests {
     #[test]
     fn un_lien_web_seul_donne_un_desabonnement_web() {
         let u = parse(Some("<https://exemple.fr/unsub?id=42>"), None).unwrap();
-        assert_eq!(u, Unsubscribe::Http { url: "https://exemple.fr/unsub?id=42".into() });
+        assert_eq!(
+            u,
+            Unsubscribe::Http {
+                url: "https://exemple.fr/unsub?id=42".into()
+            }
+        );
     }
 
     #[test]
@@ -110,7 +125,12 @@ mod tests {
             Some("List-Unsubscribe=One-Click"),
         )
         .unwrap();
-        assert_eq!(u, Unsubscribe::OneClick { url: "https://exemple.fr/unsub?id=42".into() });
+        assert_eq!(
+            u,
+            Unsubscribe::OneClick {
+                url: "https://exemple.fr/unsub?id=42".into()
+            }
+        );
     }
 
     #[test]
@@ -120,12 +140,21 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(u, Unsubscribe::Http { url: "https://exemple.fr/unsub".into() });
+        assert_eq!(
+            u,
+            Unsubscribe::Http {
+                url: "https://exemple.fr/unsub".into()
+            }
+        );
     }
 
     #[test]
     fn un_mailto_seul_est_analyse_avec_son_sujet() {
-        let u = parse(Some("<mailto:stop@exemple.fr?subject=D%C3%A9sabonnement>"), None).unwrap();
+        let u = parse(
+            Some("<mailto:stop@exemple.fr?subject=D%C3%A9sabonnement>"),
+            None,
+        )
+        .unwrap();
         assert_eq!(
             u,
             Unsubscribe::Mailto {
@@ -138,7 +167,13 @@ mod tests {
     #[test]
     fn un_mailto_sans_sujet_reste_valide() {
         let u = parse(Some("<mailto:stop@exemple.fr>"), None).unwrap();
-        assert_eq!(u, Unsubscribe::Mailto { addr: "stop@exemple.fr".into(), subject: None });
+        assert_eq!(
+            u,
+            Unsubscribe::Mailto {
+                addr: "stop@exemple.fr".into(),
+                subject: None
+            }
+        );
     }
 
     #[test]
@@ -150,15 +185,26 @@ mod tests {
 
     #[test]
     fn les_espaces_et_retours_a_la_ligne_sont_tolerés() {
-        let u = parse(Some("< https://exemple.fr/unsub >,\r\n <mailto:x@y.fr>"), None).unwrap();
-        assert_eq!(u, Unsubscribe::Http { url: "https://exemple.fr/unsub".into() });
+        let u = parse(
+            Some("< https://exemple.fr/unsub >,\r\n <mailto:x@y.fr>"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            u,
+            Unsubscribe::Http {
+                url: "https://exemple.fr/unsub".into()
+            }
+        );
     }
 
     #[test]
     fn le_signe_plus_vaut_espace_dans_le_sujet() {
         let u = parse(Some("<mailto:s@x.fr?subject=Me+retirer>"), None).unwrap();
         match u {
-            Unsubscribe::Mailto { subject, .. } => assert_eq!(subject.as_deref(), Some("Me retirer")),
+            Unsubscribe::Mailto { subject, .. } => {
+                assert_eq!(subject.as_deref(), Some("Me retirer"))
+            }
             other => panic!("attendu un mailto, obtenu {other:?}"),
         }
     }

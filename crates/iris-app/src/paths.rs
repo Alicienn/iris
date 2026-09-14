@@ -46,7 +46,13 @@ impl Paths {
 
     /// Crée les répertoires manquants.
     pub fn ensure(&self) -> Result<()> {
-        for chemin in [&self.data, &self.cache, &self.config, &self.themes(), &self.blobs()] {
+        for chemin in [
+            &self.data,
+            &self.cache,
+            &self.config,
+            &self.themes(),
+            &self.blobs(),
+        ] {
             std::fs::create_dir_all(chemin)?;
         }
         Ok(())

@@ -211,7 +211,9 @@ impl ThreadList {
         }
 
         for thread in touched_threads {
-            let Some(index) = self.index_of(*thread) else { continue };
+            let Some(index) = self.index_of(*thread) else {
+                continue;
+            };
             match store.thread_row(*thread)? {
                 Some(ligne) => {
                     // Un fil qui a changé d'état n'appartient plus à cette liste.
@@ -272,10 +274,20 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Store::in_memory().unwrap();
         let account = store
-            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
-        let folder = store.upsert_folder(account, "INBOX", FolderRole::Inbox).unwrap();
-        Fixture { store, account, folder, uid: std::cell::Cell::new(1) }
+        let folder = store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        Fixture {
+            store,
+            account,
+            folder,
+            uid: std::cell::Cell::new(1),
+        }
     }
 
     impl Fixture {
@@ -328,7 +340,10 @@ mod tests {
         let mut l = liste();
 
         l.ensure_loaded(&f.store, 0).unwrap();
-        assert!(l.loaded() >= PREFETCH, "la marge de préchargement doit être couverte");
+        assert!(
+            l.loaded() >= PREFETCH,
+            "la marge de préchargement doit être couverte"
+        );
         assert!(l.loaded() < 200, "mais pas toute la liste");
     }
 
@@ -340,7 +355,11 @@ mod tests {
         let mut l = liste();
         l.ensure_loaded(&f.store, 5).unwrap();
 
-        assert!(l.loaded() <= 60, "{} lignes chargées, c'est trop", l.loaded());
+        assert!(
+            l.loaded() <= 60,
+            "{} lignes chargées, c'est trop",
+            l.loaded()
+        );
     }
 
     #[test]
@@ -407,7 +426,9 @@ mod tests {
         f.store.set_message_flags(message, Flags::SEEN).unwrap();
 
         let touches: BTreeSet<ThreadId> = [fils[5]].into_iter().collect();
-        let update = l.apply(&f.store, false, &touches, &BTreeSet::new()).unwrap();
+        let update = l
+            .apply(&f.store, false, &touches, &BTreeSet::new())
+            .unwrap();
 
         assert!(!update.reordered, "aucun rechargement ne doit avoir lieu");
         assert_eq!(update.changed_rows.len(), 1);
@@ -422,7 +443,9 @@ mod tests {
         l.ensure_loaded(&f.store, 0).unwrap();
 
         let reordonnes: BTreeSet<WorkflowState> = [WorkflowState::Todo].into_iter().collect();
-        let update = l.apply(&f.store, false, &BTreeSet::new(), &reordonnes).unwrap();
+        let update = l
+            .apply(&f.store, false, &BTreeSet::new(), &reordonnes)
+            .unwrap();
 
         assert!(update.reordered);
     }
@@ -449,9 +472,13 @@ mod tests {
         let mut l = liste();
         l.ensure_loaded(&f.store, 0).unwrap();
 
-        f.store.set_thread_state(fils[3], WorkflowState::Done).unwrap();
+        f.store
+            .set_thread_state(fils[3], WorkflowState::Done)
+            .unwrap();
         let touches: BTreeSet<ThreadId> = [fils[3]].into_iter().collect();
-        let update = l.apply(&f.store, false, &touches, &BTreeSet::new()).unwrap();
+        let update = l
+            .apply(&f.store, false, &touches, &BTreeSet::new())
+            .unwrap();
 
         assert!(update.reordered);
         assert!(l.index_of(fils[3]).is_none());
@@ -467,7 +494,9 @@ mod tests {
 
         f.store.delete_messages_by_uid(f.folder, &[20]).unwrap();
         let touches: BTreeSet<ThreadId> = [premier].into_iter().collect();
-        let update = l.apply(&f.store, false, &touches, &BTreeSet::new()).unwrap();
+        let update = l
+            .apply(&f.store, false, &touches, &BTreeSet::new())
+            .unwrap();
 
         assert!(update.reordered);
     }
@@ -479,7 +508,9 @@ mod tests {
         let mut l = liste();
         l.ensure_loaded(&f.store, 0).unwrap();
 
-        let update = l.apply(&f.store, true, &BTreeSet::new(), &BTreeSet::new()).unwrap();
+        let update = l
+            .apply(&f.store, true, &BTreeSet::new(), &BTreeSet::new())
+            .unwrap();
         assert!(update.reordered);
         assert!(l.loaded() > 0);
     }
@@ -521,7 +552,10 @@ mod tests {
     fn le_filtre_par_compte_signale_un_changement() {
         let mut l = liste();
         assert!(l.set_accounts(vec![AccountId(1)]));
-        assert!(!l.set_accounts(vec![AccountId(1)]), "même filtre, aucun changement");
+        assert!(
+            !l.set_accounts(vec![AccountId(1)]),
+            "même filtre, aucun changement"
+        );
         assert!(l.set_accounts(vec![]));
     }
 
@@ -531,7 +565,10 @@ mod tests {
         f.seed(5);
         let autre = f
             .store
-            .create_account(&NewAccount::new("b@x.fr", "i", "s"), Timestamp::from_millis(0))
+            .create_account(
+                &NewAccount::new("b@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
             .unwrap();
 
         let mut l = liste();
@@ -558,7 +595,11 @@ mod tests {
         // Le curseur suit : la suite se recharge sans trou ni doublon.
         l.ensure_loaded(&f.store, 100).unwrap();
         let identifiants: BTreeSet<ThreadId> = l.rows().iter().map(|r| r.id).collect();
-        assert_eq!(identifiants.len(), l.loaded(), "aucun doublon après rechargement");
+        assert_eq!(
+            identifiants.len(),
+            l.loaded(),
+            "aucun doublon après rechargement"
+        );
     }
 
     #[test]

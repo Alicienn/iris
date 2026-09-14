@@ -69,7 +69,11 @@ pub struct NewAccount {
 
 impl NewAccount {
     /// Configuration usuelle : IMAPS sur 993, SMTP sur 587 en STARTTLS.
-    pub fn new(email: impl Into<String>, imap_host: impl Into<String>, smtp_host: impl Into<String>) -> Self {
+    pub fn new(
+        email: impl Into<String>,
+        imap_host: impl Into<String>,
+        smtp_host: impl Into<String>,
+    ) -> Self {
         Self {
             email: email.into(),
             display_name: String::new(),
@@ -189,7 +193,10 @@ impl ThreadRow {
 
     /// Position de la ligne dans l'ordre de la liste, servant de curseur.
     pub fn cursor(&self) -> ListCursor {
-        ListCursor { last_activity: self.last_activity, id: self.id }
+        ListCursor {
+            last_activity: self.last_activity,
+            id: self.id,
+        }
     }
 }
 
@@ -219,7 +226,13 @@ pub struct ListQuery {
 
 impl ListQuery {
     pub fn new(state: WorkflowState, limit: u32) -> Self {
-        Self { state, accounts: Vec::new(), hide_snoozed_until: None, limit, after: None }
+        Self {
+            state,
+            accounts: Vec::new(),
+            hide_snoozed_until: None,
+            limit,
+            after: None,
+        }
     }
 
     pub fn for_accounts(mut self, accounts: Vec<AccountId>) -> Self {
@@ -318,7 +331,11 @@ mod tests {
 
     #[test]
     fn les_enumerations_font_un_aller_retour() {
-        for k in [AuthKind::Password, AuthKind::OAuthGoogle, AuthKind::OAuthMicrosoft] {
+        for k in [
+            AuthKind::Password,
+            AuthKind::OAuthGoogle,
+            AuthKind::OAuthMicrosoft,
+        ] {
             assert_eq!(AuthKind::parse(k.as_str()), k);
         }
         for r in [

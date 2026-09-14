@@ -94,9 +94,8 @@ impl Theme {
         }
 
         if self.motion.moderate > 600.0 {
-            avertissements.push(
-                "des animations de plus de 600 ms donnent une impression de lenteur".into(),
-            );
+            avertissements
+                .push("des animations de plus de 600 ms donnent une impression de lenteur".into());
         }
 
         avertissements
@@ -169,7 +168,12 @@ pub struct RadiusTokens {
 
 impl Default for RadiusTokens {
     fn default() -> Self {
-        Self { small: 6.0, medium: 9.0, large: 14.0, pill: 999.0 }
+        Self {
+            small: 6.0,
+            medium: 9.0,
+            large: 14.0,
+            pill: 999.0,
+        }
     }
 }
 
@@ -226,7 +230,10 @@ pub struct DensityTokens {
 
 impl Default for DensityTokens {
     fn default() -> Self {
-        Self { row_height: 58.0, row_padding_x: 12.0 }
+        Self {
+            row_height: 58.0,
+            row_padding_x: 12.0,
+        }
     }
 }
 
@@ -245,7 +252,13 @@ pub struct GlassTokens {
 
 impl Default for GlassTokens {
     fn default() -> Self {
-        Self { blur: 30.0, blur_floating: 24.0, opacity: 0.86, saturation: 1.15, grain: 0.035 }
+        Self {
+            blur: 30.0,
+            blur_floating: 24.0,
+            opacity: 0.86,
+            saturation: 1.15,
+            grain: 0.035,
+        }
     }
 }
 
@@ -293,10 +306,7 @@ mod tests {
 
     #[test]
     fn un_theme_ne_change_que_ce_qu_il_declare() {
-        let t = Theme::from_toml(
-            "name = \"dense\"\n[density]\nrow_height = 34.0\n",
-        )
-        .unwrap();
+        let t = Theme::from_toml("name = \"dense\"\n[density]\nrow_height = 34.0\n").unwrap();
         assert_eq!(t.density.row_height, 34.0);
         assert_eq!(t.density.row_padding_x, 12.0, "le reste est hérité");
     }

@@ -7,11 +7,11 @@
 
 use crate::format::{account_tint, display_subject, relative_date};
 use crate::{AccountRowData, CommandData, MessageBlockData, MessageData, ThreadRowData};
+use iris_htmlview::Rendered;
 use iris_htmlview::{Block, RichText};
 use iris_store::{Account, StoredMessage, ThreadRow};
 use iris_theme::Theme;
 use iris_types::{Flags, Timestamp};
-use iris_htmlview::Rendered;
 use slint::{Color, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 /// Convertit une ligne du store en ligne affichable.
@@ -175,7 +175,11 @@ pub fn message_view_rendered(
 ) -> MessageData {
     match rendered {
         Rendered::Blocks(blocs) => message_view(message, blocs, attachments, now),
-        Rendered::Texture { width, height, rgba } => {
+        Rendered::Texture {
+            width,
+            height,
+            rgba,
+        } => {
             let mut vue = message_view(message, &RichText::default(), attachments, now);
             if let Some(image) = body_image(*width, *height, rgba) {
                 vue.body_image = image;
@@ -210,7 +214,10 @@ pub fn message_view(
         blocked_images: body.blocked_images as i32,
         has_tracker: message.flags.contains(Flags::HAS_TRACKER),
         attachments: ModelRc::new(VecModel::from(
-            attachments.iter().map(SharedString::from).collect::<Vec<_>>(),
+            attachments
+                .iter()
+                .map(SharedString::from)
+                .collect::<Vec<_>>(),
         )),
     }
 }
@@ -328,14 +335,20 @@ mod tests {
     fn un_sujet_vide_est_annonce() {
         let mut l = ligne();
         l.subject = String::new();
-        assert_eq!(thread_row(&l, "a@x.fr", now()).subject.as_str(), "(sans objet)");
+        assert_eq!(
+            thread_row(&l, "a@x.fr", now()).subject.as_str(),
+            "(sans objet)"
+        );
     }
 
     #[test]
     fn deux_comptes_donnent_deux_teintes() {
         let a = thread_row(&ligne(), "contact@x.fr", now()).account_tint;
         let b = thread_row(&ligne(), "facturation@x.fr", now()).account_tint;
-        assert_ne!((a.red(), a.green(), a.blue()), (b.red(), b.green(), b.blue()));
+        assert_ne!(
+            (a.red(), a.green(), a.blue()),
+            (b.red(), b.green(), b.blue())
+        );
     }
 
     fn compte(email: &str, nom: &str) -> Account {
@@ -360,7 +373,11 @@ mod tests {
 
     #[test]
     fn un_compte_affiche_son_nom_quand_il_en_a_un() {
-        let d = account_row(&compte("facturation@entreprise.fr", "Facturation"), 4, false);
+        let d = account_row(
+            &compte("facturation@entreprise.fr", "Facturation"),
+            4,
+            false,
+        );
         assert_eq!(d.label.as_str(), "Facturation");
         assert_eq!(d.count, 4);
         assert!(d.pinned);
@@ -383,9 +400,15 @@ mod tests {
     fn les_blocs_du_corps_sont_convertis_avec_leur_nature() {
         let rich = RichText {
             blocks: vec![
-                Block::Heading { level: 2, spans: vec![Inline::plain("Titre")] },
+                Block::Heading {
+                    level: 2,
+                    spans: vec![Inline::plain("Titre")],
+                },
                 Block::Paragraph(vec![Inline::plain("Corps")]),
-                Block::Quote { depth: 2, spans: vec![Inline::plain("Cité")] },
+                Block::Quote {
+                    depth: 2,
+                    spans: vec![Inline::plain("Cité")],
+                },
                 Block::Rule,
             ],
             blocked_images: 0,
@@ -403,7 +426,10 @@ mod tests {
     #[test]
     fn une_image_bloquee_est_annoncee_explicitement() {
         let rich = RichText {
-            blocks: vec![Block::Image { alt: "Bannière".into(), blocked: true }],
+            blocks: vec![Block::Image {
+                alt: "Bannière".into(),
+                blocked: true,
+            }],
             blocked_images: 1,
         };
         let blocs = message_blocks(&rich);
@@ -448,7 +474,12 @@ mod tests {
             preview: String::new(),
             body_blob: None,
         };
-        let vue = message_view(&message, &RichText::default(), &["devis.pdf".to_string()], now());
+        let vue = message_view(
+            &message,
+            &RichText::default(),
+            &["devis.pdf".to_string()],
+            now(),
+        );
 
         assert_eq!(vue.from.as_str(), "Marie");
         assert_eq!(vue.from_address.as_str(), "marie@example.com");
@@ -474,7 +505,11 @@ mod tests {
             preview: String::new(),
             body_blob: None,
         };
-        let rendu = Rendered::Texture { width: 4, height: 2, rgba: vec![0u8; 4 * 2 * 4] };
+        let rendu = Rendered::Texture {
+            width: 4,
+            height: 2,
+            rgba: vec![0u8; 4 * 2 * 4],
+        };
         let vue = message_view_rendered(&message, &rendu, &[], now());
 
         assert!(vue.body_is_image);
@@ -507,7 +542,8 @@ mod tests {
             preview: String::new(),
             body_blob: None,
         };
-        let vue = message_view_rendered(&message, &Rendered::Blocks(RichText::default()), &[], now());
+        let vue =
+            message_view_rendered(&message, &Rendered::Blocks(RichText::default()), &[], now());
         assert!(!vue.body_is_image);
     }
 

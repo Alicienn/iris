@@ -90,7 +90,9 @@ pub fn wait_for_redirect(listener: TcpListener, timeout: Duration) -> Result<Red
         match lire_cible(&mut flux) {
             Some(cible) if cible.contains("code=") || cible.contains("error=") => {
                 repondre(&mut flux, PAGE_SUCCES);
-                return Ok(Redirect { url: format!("http://127.0.0.1{cible}") });
+                return Ok(Redirect {
+                    url: format!("http://127.0.0.1{cible}"),
+                });
             }
             // Les navigateurs demandent souvent /favicon.ico en même temps ; y
             // répondre poliment évite de prendre cette requête pour la bonne.
@@ -163,7 +165,10 @@ mod tests {
         // accepté : le port doit être pris d'avance.
         let (ecoute, port) = reserve_port().unwrap();
         assert!(port > 0);
-        assert!(TcpStream::connect(("127.0.0.1", port)).is_ok(), "le port écoute déjà");
+        assert!(
+            TcpStream::connect(("127.0.0.1", port)).is_ok(),
+            "le port écoute déjà"
+        );
         drop(ecoute);
     }
 
@@ -192,7 +197,10 @@ mod tests {
         assert!(redirection.url.contains("state=xyz"));
 
         let vue = client.join().unwrap();
-        assert!(vue.contains("Compte autorisé"), "l'utilisateur doit savoir que c'est fini");
+        assert!(
+            vue.contains("Compte autorisé"),
+            "l'utilisateur doit savoir que c'est fini"
+        );
     }
 
     #[test]

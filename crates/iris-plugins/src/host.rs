@@ -19,7 +19,10 @@ use crate::manifest::{Limits, Manifest};
 use iris_kernel::{Capability, CapabilitySet};
 use iris_types::{Error, Result};
 use std::sync::{Arc, Mutex};
-use wasmtime::{Caller, Engine, Extern, Instance, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, Val};
+use wasmtime::{
+    Caller, Engine, Extern, Instance, Linker, Memory, Module, Store, StoreLimits,
+    StoreLimitsBuilder, Val,
+};
 
 /// Ce que l'hôte retient d'un appel.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -123,7 +126,10 @@ impl Plugin {
     /// été refusé.
     pub fn call(&mut self, export: &str, payload: &str) -> Result<CallTrace> {
         if let Some(raison) = &self.disabled {
-            return Err(plugin_error(&self.manifest.id, format!("désactivé : {raison}")));
+            return Err(plugin_error(
+                &self.manifest.id,
+                format!("désactivé : {raison}"),
+            ));
         }
 
         match self.call_inner(export, payload) {
@@ -191,7 +197,10 @@ impl Plugin {
             .call(&mut store, &[Val::I32(ptr), Val::I32(len)], &mut resultats)
             .map_err(|e| translate_trap(&self.manifest.id, e))?;
 
-        let trace = trace.lock().map_err(|_| plugin_error(&self.manifest.id, "trace"))?.clone();
+        let trace = trace
+            .lock()
+            .map_err(|_| plugin_error(&self.manifest.id, "trace"))?
+            .clone();
         Ok(trace)
     }
 }
@@ -208,7 +217,12 @@ fn write_payload(
 
     let alloc = instance
         .get_typed_func::<i32, i32>(&mut *store, "iris_alloc")
-        .map_err(|_| plugin_error(plugin, "« iris_alloc » absent : le plugin ne peut rien recevoir"))?;
+        .map_err(|_| {
+            plugin_error(
+                plugin,
+                "« iris_alloc » absent : le plugin ne peut rien recevoir",
+            )
+        })?;
 
     let ptr = alloc
         .call(&mut *store, taille)
@@ -253,7 +267,9 @@ fn register_host_functions(linker: &mut Linker<HostState>, plugin: &str) -> Resu
             "act",
             |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> i32 {
                 let demande = read_string(&mut caller, ptr, len).unwrap_or_default();
-                guard(&mut caller, Capability::WriteMail, |t| t.actions.push(demande))
+                guard(&mut caller, Capability::WriteMail, |t| {
+                    t.actions.push(demande)
+                })
             },
         )
         .map_err(|e| plugin_error(plugin, format!("déclaration de « act » : {e}")))?;
@@ -318,7 +334,7 @@ fn guard(
 
 fn read_string(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> Option<String> {
     // Une longueur absurde est un plugin fautif, pas une raison de paniquer.
-    if ptr < 0 || len < 0 || len > 1 << 20 {
+    if ptr < 0 || !(0..=1 << 20).contains(&len) {
         return None;
     }
     let memoire = match caller.get_export("memory") {
@@ -354,7 +370,10 @@ fn translate_trap(plugin: &str, e: wasmtime::Error) -> Error {
 }
 
 fn plugin_error(plugin: &str, message: impl Into<String>) -> Error {
-    Error::Plugin { plugin: plugin.to_string(), message: message.into() }
+    Error::Plugin {
+        plugin: plugin.to_string(),
+        message: message.into(),
+    }
 }
 
 #[cfg(test)]
@@ -402,7 +421,9 @@ mod tests {
         );
         let mut p = Plugin::load(manifeste("read_mail = true\n"), &wasm).unwrap();
 
-        let trace = p.call(crate::entry_points::ON_EVENT, "{\"kind\":\"message\"}").unwrap();
+        let trace = p
+            .call(crate::entry_points::ON_EVENT, "{\"kind\":\"message\"}")
+            .unwrap();
         assert_eq!(trace.logs, ["{\"kind\":\"message\"}"]);
         assert!(trace.denied.is_empty());
     }
@@ -423,7 +444,10 @@ mod tests {
         let duree = debut.elapsed();
 
         assert!(e.to_string().contains("budget d'exécution"));
-        assert!(duree < std::time::Duration::from_secs(2), "interrompu en {duree:?}");
+        assert!(
+            duree < std::time::Duration::from_secs(2),
+            "interrompu en {duree:?}"
+        );
     }
 
     #[test]
@@ -483,7 +507,9 @@ mod tests {
         // Lecture seule : l'action doit être refusée.
         let mut p = Plugin::load(manifeste("read_mail = true\n"), &wasm).unwrap();
 
-        let trace = p.call(crate::entry_points::ON_EVENT, "{\"action\":\"done\"}").unwrap();
+        let trace = p
+            .call(crate::entry_points::ON_EVENT, "{\"action\":\"done\"}")
+            .unwrap();
         assert!(trace.actions.is_empty(), "aucune action ne doit passer");
         assert_eq!(trace.denied, ["write_mail"]);
     }
@@ -498,7 +524,9 @@ mod tests {
         let mut p =
             Plugin::load(manifeste("read_mail = true\nwrite_mail = true\n"), &wasm).unwrap();
 
-        let trace = p.call(crate::entry_points::ON_EVENT, "{\"action\":\"done\"}").unwrap();
+        let trace = p
+            .call(crate::entry_points::ON_EVENT, "{\"action\":\"done\"}")
+            .unwrap();
         assert_eq!(trace.actions, ["{\"action\":\"done\"}"]);
         assert!(trace.denied.is_empty());
     }
@@ -529,7 +557,11 @@ mod tests {
 
         let trace = p.call(crate::entry_points::ON_EVENT, "x").unwrap();
         assert_eq!(trace.actions, ["command:x"], "la commande passe");
-        assert_eq!(trace.denied, ["notifications"], "la notification est refusée");
+        assert_eq!(
+            trace.denied,
+            ["notifications"],
+            "la notification est refusée"
+        );
     }
 
     #[test]

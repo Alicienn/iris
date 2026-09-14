@@ -90,13 +90,15 @@ impl Permissions {
             caps.push(Capability::Storage);
         }
         if !self.network.is_empty() {
-            caps.push(Capability::Network(NetworkScope::Hosts(self.network.clone())));
+            caps.push(Capability::Network(NetworkScope::Hosts(
+                self.network.clone(),
+            )));
         }
         // S'abonner aux événements est implicite : un plugin qui ne peut rien
         // écouter ne sert à rien, et l'écoute seule ne révèle rien.
         caps.push(Capability::SubscribeEvents);
 
-        CapabilitySet::from_iter(caps)
+        CapabilitySet::granting(caps)
     }
 
     /// Description destinée à l'utilisateur, au moment de l'installation.
@@ -160,7 +162,11 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { memory_pages: 256, fuel_per_call: 10_000_000, failure_threshold: 3 }
+        Self {
+            memory_pages: 256,
+            fuel_per_call: 10_000_000,
+            failure_threshold: 3,
+        }
     }
 }
 
@@ -173,8 +179,10 @@ impl Limits {
 impl Manifest {
     /// Analyse un manifeste TOML.
     pub fn from_toml(source: &str) -> Result<Self> {
-        let manifeste: Self = toml::from_str(source)
-            .map_err(|e| Error::Plugin { plugin: "?".into(), message: format!("manifeste illisible : {e}") })?;
+        let manifeste: Self = toml::from_str(source).map_err(|e| Error::Plugin {
+            plugin: "?".into(),
+            message: format!("manifeste illisible : {e}"),
+        })?;
         manifeste.validate()?;
         Ok(manifeste)
     }
@@ -182,7 +190,10 @@ impl Manifest {
     /// Vérifie qu'un manifeste est exploitable.
     pub fn validate(&self) -> Result<()> {
         let refuser = |message: String| {
-            Err(Error::Plugin { plugin: self.id.clone(), message })
+            Err(Error::Plugin {
+                plugin: self.id.clone(),
+                message,
+            })
         };
 
         if self.id.trim().is_empty() {
@@ -255,7 +266,10 @@ mod tests {
         assert_eq!(m.entry, "plugin.wasm", "valeur par défaut");
         assert_eq!(m.api_version, API_VERSION);
         assert_eq!(m.limits.fuel_per_call, 5_000_000);
-        assert_eq!(m.limits.memory_pages, 256, "le reste des limites est hérité");
+        assert_eq!(
+            m.limits.memory_pages, 256,
+            "le reste des limites est hérité"
+        );
     }
 
     #[test]
@@ -288,7 +302,9 @@ mod tests {
     #[test]
     fn un_reseau_non_declare_n_est_pas_accorde() {
         let m = Manifest::from_toml("id = \"a\"\nname = \"A\"\nversion = \"1\"\n").unwrap();
-        assert!(!m.granted_capabilities().allows(&Capability::Network(NetworkScope::Any)));
+        assert!(!m
+            .granted_capabilities()
+            .allows(&Capability::Network(NetworkScope::Any)));
     }
 
     #[test]
@@ -320,7 +336,10 @@ mod tests {
         // s'échapper de son propre dossier.
         for mauvais in ["../evade", "a/b", "a\\b", ""] {
             let source = format!("id = \"{mauvais}\"\nname = \"A\"\nversion = \"1\"\n");
-            assert!(Manifest::from_toml(&source).is_err(), "« {mauvais} » aurait dû être refusé");
+            assert!(
+                Manifest::from_toml(&source).is_err(),
+                "« {mauvais} » aurait dû être refusé"
+            );
         }
     }
 
@@ -329,16 +348,18 @@ mod tests {
         for mauvais in ["../autre.wasm", "/etc/passwd", "sous\\dossier.wasm"] {
             let source =
                 format!("id = \"a\"\nname = \"A\"\nversion = \"1\"\nentry = \"{mauvais}\"\n");
-            assert!(Manifest::from_toml(&source).is_err(), "« {mauvais} » aurait dû être refusé");
+            assert!(
+                Manifest::from_toml(&source).is_err(),
+                "« {mauvais} » aurait dû être refusé"
+            );
         }
     }
 
     #[test]
     fn une_version_de_contrat_inconnue_est_refusee() {
-        let e = Manifest::from_toml(
-            "id = \"a\"\nname = \"A\"\nversion = \"1\"\napi_version = 99\n",
-        )
-        .unwrap_err();
+        let e =
+            Manifest::from_toml("id = \"a\"\nname = \"A\"\nversion = \"1\"\napi_version = 99\n")
+                .unwrap_err();
         assert!(e.to_string().contains("version 99"));
     }
 

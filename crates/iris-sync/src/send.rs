@@ -34,7 +34,11 @@ pub struct SendService {
 
 impl SendService {
     pub fn new(engine: Arc<SyncEngine>, outbox: Arc<Outbox>, bus: EventBus) -> Self {
-        Self { engine, outbox, bus }
+        Self {
+            engine,
+            outbox,
+            bus,
+        }
     }
 
     pub fn outbox(&self) -> &Arc<Outbox> {
@@ -71,7 +75,10 @@ impl SendService {
             message_id: dernier.rfc_message_id.clone().map(RfcMessageId),
             references: self.reference_chain(dernier),
             subject: dernier.subject.clone(),
-            from: vec![Address { name: none_if_empty(&dernier.from_name), addr: dernier.from_addr.clone() }],
+            from: vec![Address {
+                name: none_if_empty(&dernier.from_name),
+                addr: dernier.from_addr.clone(),
+            }],
             to: vec![],
             cc: vec![],
             reply_to: vec![],
@@ -152,7 +159,11 @@ impl SendService {
         let identifiants = self.engine.credentials_for(&compte).await?;
         let point = self.engine.endpoint_for(&compte);
 
-        let mut conn = self.engine.connector().connect(&point, &identifiants).await?;
+        let mut conn = self
+            .engine
+            .connector()
+            .connect(&point, &identifiants)
+            .await?;
         // Un message qu'on vient d'écrire est lu : le marquer autrement ferait
         // apparaître un non-lu dans ses propres messages envoyés.
         conn.append(&dossier.path, raw, Flags::SEEN).await?;
@@ -163,7 +174,9 @@ impl SendService {
 
     /// Fait passer le fil en attente, si l'automatisme est actif.
     fn mark_waiting(&self, thread: ThreadId, _now: Timestamp) -> Result<bool> {
-        let Some(ligne) = self.engine.store().thread_row(thread)? else { return Ok(false) };
+        let Some(ligne) = self.engine.store().thread_row(thread)? else {
+            return Ok(false);
+        };
 
         let resultat = iris_types::transition(
             ligne.state,
@@ -197,7 +210,10 @@ impl SendService {
             Some(brut) => iris_mime::parse(&brut)
                 .map(|p| {
                     p.text_body.clone().unwrap_or_else(|| {
-                        p.html_body.as_ref().map(|h| iris_mime::strip_tags(&h.html)).unwrap_or_default()
+                        p.html_body
+                            .as_ref()
+                            .map(|h| iris_mime::strip_tags(&h.html))
+                            .unwrap_or_default()
                     })
                 })
                 .unwrap_or_else(|_| message.preview.clone()),
@@ -250,7 +266,9 @@ pub async fn pump_outbox(
     while let Some(evenement) = events.recv().await {
         match evenement {
             OutboxEvent::Sent { handle, outcome } => {
-                let Some((thread, account)) = context.resolve(handle) else { continue };
+                let Some((thread, account)) = context.resolve(handle) else {
+                    continue;
+                };
                 let bilan = service
                     .on_sent(thread, account, &outcome.raw, crate::engine::now_utc())
                     .await;
@@ -277,14 +295,18 @@ pub trait SendContext: Send + Sync + std::fmt::Debug {
 /// Contexte en mémoire, suffisant pour une fenêtre.
 #[derive(Debug, Default)]
 pub struct InMemorySendContext {
-    entries: std::sync::Mutex<std::collections::BTreeMap<SendHandle, (ThreadId, iris_types::AccountId)>>,
+    entries:
+        std::sync::Mutex<std::collections::BTreeMap<SendHandle, (ThreadId, iris_types::AccountId)>>,
     finished: std::sync::Mutex<Vec<(SendHandle, std::result::Result<SentOutcome, String>)>>,
     cancelled: std::sync::Mutex<Vec<SendHandle>>,
 }
 
 impl InMemorySendContext {
     pub fn register(&self, handle: SendHandle, thread: ThreadId, account: iris_types::AccountId) {
-        self.entries.lock().unwrap().insert(handle, (thread, account));
+        self.entries
+            .lock()
+            .unwrap()
+            .insert(handle, (thread, account));
     }
 
     pub fn finished_count(&self) -> usize {
@@ -334,12 +356,14 @@ impl SendService {
 }
 
 /// Expéditeur retenu pour un compte, construit à la demande.
-pub fn mailer_for(
-    account: &iris_store::Account,
-    password: &str,
-) -> Result<Arc<dyn Mailer>> {
+pub fn mailer_for(account: &iris_store::Account, password: &str) -> Result<Arc<dyn Mailer>> {
     let expediteur = if account.smtp_tls {
-        iris_smtp::LettreMailer::tls(&account.smtp_host, account.smtp_port, &account.email, password)?
+        iris_smtp::LettreMailer::tls(
+            &account.smtp_host,
+            account.smtp_port,
+            &account.email,
+            password,
+        )?
     } else {
         iris_smtp::LettreMailer::starttls(
             &account.smtp_host,
@@ -407,15 +431,26 @@ mod tests {
         );
 
         let mailer = Arc::new(FakeMailer::new());
-        let (outbox, events) =
-            Outbox::new(Arc::clone(&mailer) as Arc<dyn Mailer>, Duration::from_secs(10));
+        let (outbox, events) = Outbox::new(
+            Arc::clone(&mailer) as Arc<dyn Mailer>,
+            Duration::from_secs(10),
+        );
         let service = Arc::new(SendService::new(
             Arc::clone(&engine),
             Arc::new(outbox),
             bus.clone(),
         ));
 
-        Fixture { service, engine, store, server, mailer, events, bus, _dir: dir }
+        Fixture {
+            service,
+            engine,
+            store,
+            server,
+            mailer,
+            events,
+            bus,
+            _dir: dir,
+        }
     }
 
     impl Fixture {
@@ -446,21 +481,30 @@ mod tests {
         assert_eq!(reponse.subject, "Re: Devis refonte");
         assert_eq!(reponse.in_reply_to.as_ref().unwrap().as_str(), "origine@x");
         assert!(reponse.text_body.starts_with("C'est parfait, merci."));
-        assert!(reponse.text_body.contains("> "), "le message d'origine doit être cité");
+        assert!(
+            reponse.text_body.contains("> "),
+            "le message d'origine doit être cité"
+        );
     }
 
     #[tokio::test(start_paused = true)]
     async fn une_reponse_part_apres_le_delai() {
         let mut f = fixture();
         f.synchroniser().await;
-        let reponse = f.service.compose_reply(ThreadId(1), "Merci.", ReplyScope::Sender).unwrap();
+        let reponse = f
+            .service
+            .compose_reply(ThreadId(1), "Merci.", ReplyScope::Sender)
+            .unwrap();
 
         f.service.queue(reponse).unwrap();
         assert_eq!(f.mailer.count(), 0, "rien ne part immédiatement");
 
         // On attend l'événement plutôt qu'une durée : le test dit alors ce qui doit
         // arriver, pas combien de temps il faut patienter.
-        assert!(matches!(f.events.recv().await, Some(OutboxEvent::Queued { .. })));
+        assert!(matches!(
+            f.events.recv().await,
+            Some(OutboxEvent::Queued { .. })
+        ));
         match f.events.recv().await {
             Some(OutboxEvent::Sent { .. }) => {}
             autre => panic!("attendu un envoi, obtenu {autre:?}"),
@@ -472,12 +516,18 @@ mod tests {
     async fn une_reponse_annulee_ne_part_pas() {
         let mut f = fixture();
         f.synchroniser().await;
-        let reponse = f.service.compose_reply(ThreadId(1), "Oups.", ReplyScope::Sender).unwrap();
+        let reponse = f
+            .service
+            .compose_reply(ThreadId(1), "Oups.", ReplyScope::Sender)
+            .unwrap();
 
         let handle = f.service.queue(reponse).unwrap();
         assert!(f.service.cancel(handle));
 
-        assert!(matches!(f.events.recv().await, Some(OutboxEvent::Queued { .. })));
+        assert!(matches!(
+            f.events.recv().await,
+            Some(OutboxEvent::Queued { .. })
+        ));
         match f.events.recv().await {
             Some(OutboxEvent::Cancelled { .. }) => {}
             autre => panic!("attendu une annulation, obtenu {autre:?}"),
@@ -492,7 +542,12 @@ mod tests {
 
         let bilan = f
             .service
-            .on_sent(ThreadId(1), iris_types::AccountId(1), b"Subject: Re\r\n\r\nx", Timestamp::EPOCH)
+            .on_sent(
+                ThreadId(1),
+                iris_types::AccountId(1),
+                b"Subject: Re\r\n\r\nx",
+                Timestamp::EPOCH,
+            )
             .await;
 
         assert!(bilan.archived, "une copie doit être déposée");
@@ -511,13 +566,21 @@ mod tests {
         let mut abonne = f.bus.subscribe_kind(iris_kernel::EventKind::Workflow);
 
         f.service
-            .on_sent(ThreadId(1), iris_types::AccountId(1), b"x", Timestamp::EPOCH)
+            .on_sent(
+                ThreadId(1),
+                iris_types::AccountId(1),
+                b"x",
+                Timestamp::EPOCH,
+            )
             .await;
 
         let evenements = abonne.drain();
         assert!(evenements.iter().any(|e| matches!(
             e,
-            Event::ThreadStateChanged { cause: TransitionCause::ReplySent, .. }
+            Event::ThreadStateChanged {
+                cause: TransitionCause::ReplySent,
+                ..
+            }
         )));
     }
 
@@ -526,11 +589,18 @@ mod tests {
         // Le message est parti : le dire autrement serait un mensonge.
         let store = Arc::new(Store::in_memory().unwrap());
         store
-            .create_account(&NewAccount::new("moi@x.fr", "imap.x.fr", "s"), Timestamp::EPOCH)
+            .create_account(
+                &NewAccount::new("moi@x.fr", "imap.x.fr", "s"),
+                Timestamp::EPOCH,
+            )
             .unwrap();
 
         let server = Arc::new(FakeServer::default()); // pas de dossier « Sent »
-        server.deliver("INBOX", b"Subject: A\r\nMessage-ID: <a@x>\r\n\r\nx\r\n", Flags::NONE);
+        server.deliver(
+            "INBOX",
+            b"Subject: A\r\nMessage-ID: <a@x>\r\n\r\nx\r\n",
+            Flags::NONE,
+        );
 
         let bus = EventBus::new();
         let engine = Arc::new(SyncEngine::new(
@@ -544,12 +614,19 @@ mod tests {
         engine.tick(Timestamp::EPOCH).await;
 
         let mailer = Arc::new(FakeMailer::new());
-        let (outbox, _rx) =
-            Outbox::new(Arc::clone(&mailer) as Arc<dyn Mailer>, Duration::from_secs(1));
+        let (outbox, _rx) = Outbox::new(
+            Arc::clone(&mailer) as Arc<dyn Mailer>,
+            Duration::from_secs(1),
+        );
         let service = SendService::new(engine, Arc::new(outbox), bus);
 
         let bilan = service
-            .on_sent(ThreadId(1), iris_types::AccountId(1), b"x", Timestamp::EPOCH)
+            .on_sent(
+                ThreadId(1),
+                iris_types::AccountId(1),
+                b"x",
+                Timestamp::EPOCH,
+            )
             .await;
 
         assert!(!bilan.archived);
@@ -564,7 +641,10 @@ mod tests {
         let f = fixture();
         f.synchroniser().await;
 
-        let reponse = f.service.compose_reply(ThreadId(1), "Merci.", ReplyScope::Sender).unwrap();
+        let reponse = f
+            .service
+            .compose_reply(ThreadId(1), "Merci.", ReplyScope::Sender)
+            .unwrap();
         assert!(reponse.text_body.starts_with("Merci."));
         assert!(reponse.validate().is_ok());
     }
@@ -572,7 +652,10 @@ mod tests {
     #[tokio::test]
     async fn repondre_a_un_fil_vide_est_refuse() {
         let f = fixture();
-        let e = f.service.compose_reply(ThreadId(999), "x", ReplyScope::Sender).unwrap_err();
+        let e = f
+            .service
+            .compose_reply(ThreadId(999), "x", ReplyScope::Sender)
+            .unwrap_err();
         assert!(e.to_string().contains("vide") || e.to_string().contains("introuvable"));
     }
 
@@ -581,8 +664,10 @@ mod tests {
         let f = fixture();
         f.synchroniser().await;
 
-        let mut reponse =
-            f.service.compose_reply(ThreadId(1), "x", ReplyScope::Sender).unwrap();
+        let mut reponse = f
+            .service
+            .compose_reply(ThreadId(1), "x", ReplyScope::Sender)
+            .unwrap();
         reponse.to.clear();
         reponse.cc.clear();
 
@@ -596,7 +681,10 @@ mod tests {
         f.synchroniser().await;
 
         let context = Arc::new(InMemorySendContext::default());
-        let reponse = f.service.compose_reply(ThreadId(1), "Merci.", ReplyScope::Sender).unwrap();
+        let reponse = f
+            .service
+            .compose_reply(ThreadId(1), "Merci.", ReplyScope::Sender)
+            .unwrap();
         let handle = f.service.queue(reponse).unwrap();
         context.register(handle, ThreadId(1), iris_types::AccountId(1));
 

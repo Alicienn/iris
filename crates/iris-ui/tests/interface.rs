@@ -93,12 +93,23 @@ fn une_conversation_s_annonce_par_qui_ecrit_de_quoi_et_quand() {
     // L'ordre suit celui de la lecture visuelle : c'est celui dans lequel on décide
     // si un message mérite qu'on s'y arrête.
     let f = fenetre();
-    f.set_rows(modele(vec![ligne(7, "Marie Dupont", "Devis refonte", true)]));
+    f.set_rows(modele(vec![ligne(
+        7,
+        "Marie Dupont",
+        "Devis refonte",
+        true,
+    )]));
 
-    let element = par_libelle(&f, "Marie Dupont, Devis refonte, 12:30")
-        .expect("la ligne doit être annoncée");
-    assert_eq!(element.accessible_role(), Some(testing::AccessibleRole::ListItem));
-    assert_eq!(element.accessible_description().map(|d| d.to_string()), Some("Non lu".into()));
+    let element =
+        par_libelle(&f, "Marie Dupont, Devis refonte, 12:30").expect("la ligne doit être annoncée");
+    assert_eq!(
+        element.accessible_role(),
+        Some(testing::AccessibleRole::ListItem)
+    );
+    assert_eq!(
+        element.accessible_description().map(|d| d.to_string()),
+        Some("Non lu".into())
+    );
 }
 
 fn une_conversation_lue_le_dit() {
@@ -106,7 +117,10 @@ fn une_conversation_lue_le_dit() {
     f.set_rows(modele(vec![ligne(7, "Marie", "Devis", false)]));
 
     let element = par_libelle(&f, "Marie, Devis, 12:30").unwrap();
-    assert_eq!(element.accessible_description().map(|d| d.to_string()), Some("Lu".into()));
+    assert_eq!(
+        element.accessible_description().map(|d| d.to_string()),
+        Some("Lu".into())
+    );
 }
 
 fn actionner_une_ligne_ouvre_la_bonne_conversation() {
@@ -123,7 +137,9 @@ fn actionner_une_ligne_ouvre_la_bonne_conversation() {
         f.on_thread_selected(move |id| ouvert.borrow_mut().push(id));
     }
 
-    par_libelle(&f, "Luc, Second, 12:30").unwrap().invoke_accessible_default_action();
+    par_libelle(&f, "Luc, Second, 12:30")
+        .unwrap()
+        .invoke_accessible_default_action();
     assert_eq!(*ouvert.borrow(), [2]);
 }
 
@@ -149,14 +165,18 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
     f.set_rows(modele(Vec::<ThreadRowData>::new()));
     f.set_loading(true);
 
-    let textes = testing::ElementQuery::from_root(&f).match_descendants()
+    let textes = testing::ElementQuery::from_root(&f)
+        .match_descendants()
         .match_type_name("Text")
         .find_all();
     let dit_vide = textes
         .iter()
         .filter_map(|t| t.accessible_label())
         .any(|l| l.contains("Rien à traiter"));
-    assert!(!dit_vide, "l'application ne doit rien affirmer avant d'avoir lu");
+    assert!(
+        !dit_vide,
+        "l'application ne doit rien affirmer avant d'avoir lu"
+    );
 }
 
 // --- Les onglets ---
@@ -183,7 +203,9 @@ fn actionner_un_onglet_change_de_file() {
         f.on_tab_selected(move |i| choisi.borrow_mut().push(i));
     }
 
-    par_libelle(&f, "En attente").unwrap().invoke_accessible_default_action();
+    par_libelle(&f, "En attente")
+        .unwrap()
+        .invoke_accessible_default_action();
     assert_eq!(*choisi.borrow(), [1]);
 }
 
@@ -191,8 +213,18 @@ fn l_onglet_actif_est_annonce_comme_selectionne() {
     let f = fenetre();
     f.set_active_tab(2);
 
-    assert_eq!(par_libelle(&f, "Traité").unwrap().accessible_item_selected(), Some(true));
-    assert_eq!(par_libelle(&f, "À traiter").unwrap().accessible_item_selected(), Some(false));
+    assert_eq!(
+        par_libelle(&f, "Traité")
+            .unwrap()
+            .accessible_item_selected(),
+        Some(true)
+    );
+    assert_eq!(
+        par_libelle(&f, "À traiter")
+            .unwrap()
+            .accessible_item_selected(),
+        Some(false)
+    );
 }
 
 fn les_onglets_disparaissent_pendant_une_recherche() {
@@ -304,12 +336,13 @@ fn ajouter_un_compte_est_atteignable_depuis_la_barre_laterale() {
 
 fn une_piece_jointe_s_enregistre_par_son_nom() {
     let f = fenetre();
-    let mut message = MessageData::default();
-    message.attachments = modele(vec![
-        SharedString::from("devis.pdf"),
-        SharedString::from("plan.png"),
-    ]);
-    f.set_message(message);
+    f.set_message(MessageData {
+        attachments: modele(vec![
+            SharedString::from("devis.pdf"),
+            SharedString::from("plan.png"),
+        ]),
+        ..Default::default()
+    });
     f.set_conversation_empty(false);
 
     let enregistres = Rc::new(RefCell::new(Vec::<i32>::new()));
@@ -322,7 +355,11 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
         .expect("la pastille doit être un bouton")
         .invoke_accessible_default_action();
 
-    assert_eq!(*enregistres.borrow(), [1], "le rang doit désigner le bon fichier");
+    assert_eq!(
+        *enregistres.borrow(),
+        [1],
+        "le rang doit désigner le bon fichier"
+    );
 }
 
 // --- Les panneaux ---
@@ -340,7 +377,9 @@ fn fermer_les_reglages_les_ferme() {
     let f = fenetre();
     f.set_settings_open(true);
 
-    par_libelle(&f, "Fermer les réglages").unwrap().invoke_accessible_default_action();
+    par_libelle(&f, "Fermer les réglages")
+        .unwrap()
+        .invoke_accessible_default_action();
     assert!(!f.get_settings_open());
 }
 
@@ -349,8 +388,18 @@ fn les_densites_sont_proposees_et_la_courante_est_marquee() {
     f.set_settings_open(true);
     f.set_density(0);
 
-    assert_eq!(par_libelle(&f, "Compacte").unwrap().accessible_item_selected(), Some(true));
-    assert_eq!(par_libelle(&f, "Normale").unwrap().accessible_item_selected(), Some(false));
+    assert_eq!(
+        par_libelle(&f, "Compacte")
+            .unwrap()
+            .accessible_item_selected(),
+        Some(true)
+    );
+    assert_eq!(
+        par_libelle(&f, "Normale")
+            .unwrap()
+            .accessible_item_selected(),
+        Some(false)
+    );
 }
 
 fn changer_de_densite_est_rapporte() {
@@ -363,7 +412,9 @@ fn changer_de_densite_est_rapporte() {
         f.on_density_chosen(move |i| choisi.borrow_mut().push(i));
     }
 
-    par_libelle(&f, "Confortable").unwrap().invoke_accessible_default_action();
+    par_libelle(&f, "Confortable")
+        .unwrap()
+        .invoke_accessible_default_action();
     assert_eq!(*choisi.borrow(), [2]);
 }
 
@@ -391,7 +442,10 @@ fn la_porte_de_secours_disparait_une_fois_franchie() {
     f.set_add_account_manual(true);
 
     assert!(par_libelle(&f, "Configurer à la main").is_none());
-    assert!(par_libelle(&f, "Serveur IMAP").is_some(), "les champs prennent sa place");
+    assert!(
+        par_libelle(&f, "Serveur IMAP").is_some(),
+        "les champs prennent sa place"
+    );
 }
 
 fn le_bouton_d_ajout_change_de_nom_selon_le_mode() {
@@ -435,14 +489,23 @@ fn aucun_bouton_ne_reste_sans_nom() {
     f.set_searching(true);
     f.set_settings_open(true);
 
-    let anonymes: Vec<_> = testing::ElementQuery::from_root(&f).match_descendants()
+    let anonymes: Vec<_> = testing::ElementQuery::from_root(&f)
+        .match_descendants()
         .match_accessible_role(testing::AccessibleRole::Button)
         .find_all()
         .into_iter()
-        .filter(|b| b.accessible_label().map(|l| l.trim().is_empty()).unwrap_or(true))
+        .filter(|b| {
+            b.accessible_label()
+                .map(|l| l.trim().is_empty())
+                .unwrap_or(true)
+        })
         .collect();
 
-    assert!(anonymes.is_empty(), "{} bouton(s) sans libellé", anonymes.len());
+    assert!(
+        anonymes.is_empty(),
+        "{} bouton(s) sans libellé",
+        anonymes.len()
+    );
 }
 
 fn la_fenetre_se_construit_sans_donnees() {
@@ -459,35 +522,122 @@ fn main() {
     testing::init_no_event_loop();
 
     let scenarios: Vec<(&str, fn())> = vec![
-        ("une_conversation_s_annonce_par_qui_ecrit_de_quoi_et_quand", une_conversation_s_annonce_par_qui_ecrit_de_quoi_et_quand as fn()),
-        ("une_conversation_lue_le_dit", une_conversation_lue_le_dit as fn()),
-        ("actionner_une_ligne_ouvre_la_bonne_conversation", actionner_une_ligne_ouvre_la_bonne_conversation as fn()),
-        ("la_conversation_selectionnee_est_annoncee_comme_telle", la_conversation_selectionnee_est_annoncee_comme_telle as fn()),
-        ("une_liste_vide_ne_ment_pas_pendant_le_chargement", une_liste_vide_ne_ment_pas_pendant_le_chargement as fn()),
-        ("les_trois_files_sont_annoncees_avec_leur_compte", les_trois_files_sont_annoncees_avec_leur_compte as fn()),
-        ("actionner_un_onglet_change_de_file", actionner_un_onglet_change_de_file as fn()),
-        ("l_onglet_actif_est_annonce_comme_selectionne", l_onglet_actif_est_annonce_comme_selectionne as fn()),
-        ("les_onglets_disparaissent_pendant_une_recherche", les_onglets_disparaissent_pendant_une_recherche as fn()),
-        ("quitter_la_recherche_est_atteignable", quitter_la_recherche_est_atteignable as fn()),
-        ("le_bouton_de_sortie_n_existe_pas_hors_recherche", le_bouton_de_sortie_n_existe_pas_hors_recherche as fn()),
-        ("la_barre_de_recherche_est_nommee", la_barre_de_recherche_est_nommee as fn()),
-        ("un_compte_en_panne_le_dit_a_voix_haute", un_compte_en_panne_le_dit_a_voix_haute as fn()),
-        ("un_compte_sain_annonce_ce_qu_il_reste_a_traiter", un_compte_sain_annonce_ce_qu_il_reste_a_traiter as fn()),
-        ("la_reprise_d_un_compte_en_panne_est_un_bouton", la_reprise_d_un_compte_en_panne_est_un_bouton as fn()),
-        ("un_compte_sain_n_offre_pas_de_reprise", un_compte_sain_n_offre_pas_de_reprise as fn()),
-        ("ajouter_un_compte_est_atteignable_depuis_la_barre_laterale", ajouter_un_compte_est_atteignable_depuis_la_barre_laterale as fn()),
-        ("une_piece_jointe_s_enregistre_par_son_nom", une_piece_jointe_s_enregistre_par_son_nom as fn()),
-        ("les_reglages_n_existent_pas_avant_d_etre_ouverts", les_reglages_n_existent_pas_avant_d_etre_ouverts as fn()),
-        ("fermer_les_reglages_les_ferme", fermer_les_reglages_les_ferme as fn()),
-        ("les_densites_sont_proposees_et_la_courante_est_marquee", les_densites_sont_proposees_et_la_courante_est_marquee as fn()),
-        ("changer_de_densite_est_rapporte", changer_de_densite_est_rapporte as fn()),
-        ("l_ecran_d_ajout_propose_la_porte_de_secours_avant_l_echec", l_ecran_d_ajout_propose_la_porte_de_secours_avant_l_echec as fn()),
-        ("la_porte_de_secours_disparait_une_fois_franchie", la_porte_de_secours_disparait_une_fois_franchie as fn()),
-        ("le_bouton_d_ajout_change_de_nom_selon_le_mode", le_bouton_d_ajout_change_de_nom_selon_le_mode as fn()),
-        ("pendant_la_recherche_de_configuration_le_bouton_est_inactif", pendant_la_recherche_de_configuration_le_bouton_est_inactif as fn()),
-        ("les_champs_de_l_ecran_d_ajout_sont_nommes", les_champs_de_l_ecran_d_ajout_sont_nommes as fn()),
-        ("aucun_bouton_ne_reste_sans_nom", aucun_bouton_ne_reste_sans_nom as fn()),
-        ("la_fenetre_se_construit_sans_donnees", la_fenetre_se_construit_sans_donnees as fn()),
+        (
+            "une_conversation_s_annonce_par_qui_ecrit_de_quoi_et_quand",
+            une_conversation_s_annonce_par_qui_ecrit_de_quoi_et_quand as fn(),
+        ),
+        (
+            "une_conversation_lue_le_dit",
+            une_conversation_lue_le_dit as fn(),
+        ),
+        (
+            "actionner_une_ligne_ouvre_la_bonne_conversation",
+            actionner_une_ligne_ouvre_la_bonne_conversation as fn(),
+        ),
+        (
+            "la_conversation_selectionnee_est_annoncee_comme_telle",
+            la_conversation_selectionnee_est_annoncee_comme_telle as fn(),
+        ),
+        (
+            "une_liste_vide_ne_ment_pas_pendant_le_chargement",
+            une_liste_vide_ne_ment_pas_pendant_le_chargement as fn(),
+        ),
+        (
+            "les_trois_files_sont_annoncees_avec_leur_compte",
+            les_trois_files_sont_annoncees_avec_leur_compte as fn(),
+        ),
+        (
+            "actionner_un_onglet_change_de_file",
+            actionner_un_onglet_change_de_file as fn(),
+        ),
+        (
+            "l_onglet_actif_est_annonce_comme_selectionne",
+            l_onglet_actif_est_annonce_comme_selectionne as fn(),
+        ),
+        (
+            "les_onglets_disparaissent_pendant_une_recherche",
+            les_onglets_disparaissent_pendant_une_recherche as fn(),
+        ),
+        (
+            "quitter_la_recherche_est_atteignable",
+            quitter_la_recherche_est_atteignable as fn(),
+        ),
+        (
+            "le_bouton_de_sortie_n_existe_pas_hors_recherche",
+            le_bouton_de_sortie_n_existe_pas_hors_recherche as fn(),
+        ),
+        (
+            "la_barre_de_recherche_est_nommee",
+            la_barre_de_recherche_est_nommee as fn(),
+        ),
+        (
+            "un_compte_en_panne_le_dit_a_voix_haute",
+            un_compte_en_panne_le_dit_a_voix_haute as fn(),
+        ),
+        (
+            "un_compte_sain_annonce_ce_qu_il_reste_a_traiter",
+            un_compte_sain_annonce_ce_qu_il_reste_a_traiter as fn(),
+        ),
+        (
+            "la_reprise_d_un_compte_en_panne_est_un_bouton",
+            la_reprise_d_un_compte_en_panne_est_un_bouton as fn(),
+        ),
+        (
+            "un_compte_sain_n_offre_pas_de_reprise",
+            un_compte_sain_n_offre_pas_de_reprise as fn(),
+        ),
+        (
+            "ajouter_un_compte_est_atteignable_depuis_la_barre_laterale",
+            ajouter_un_compte_est_atteignable_depuis_la_barre_laterale as fn(),
+        ),
+        (
+            "une_piece_jointe_s_enregistre_par_son_nom",
+            une_piece_jointe_s_enregistre_par_son_nom as fn(),
+        ),
+        (
+            "les_reglages_n_existent_pas_avant_d_etre_ouverts",
+            les_reglages_n_existent_pas_avant_d_etre_ouverts as fn(),
+        ),
+        (
+            "fermer_les_reglages_les_ferme",
+            fermer_les_reglages_les_ferme as fn(),
+        ),
+        (
+            "les_densites_sont_proposees_et_la_courante_est_marquee",
+            les_densites_sont_proposees_et_la_courante_est_marquee as fn(),
+        ),
+        (
+            "changer_de_densite_est_rapporte",
+            changer_de_densite_est_rapporte as fn(),
+        ),
+        (
+            "l_ecran_d_ajout_propose_la_porte_de_secours_avant_l_echec",
+            l_ecran_d_ajout_propose_la_porte_de_secours_avant_l_echec as fn(),
+        ),
+        (
+            "la_porte_de_secours_disparait_une_fois_franchie",
+            la_porte_de_secours_disparait_une_fois_franchie as fn(),
+        ),
+        (
+            "le_bouton_d_ajout_change_de_nom_selon_le_mode",
+            le_bouton_d_ajout_change_de_nom_selon_le_mode as fn(),
+        ),
+        (
+            "pendant_la_recherche_de_configuration_le_bouton_est_inactif",
+            pendant_la_recherche_de_configuration_le_bouton_est_inactif as fn(),
+        ),
+        (
+            "les_champs_de_l_ecran_d_ajout_sont_nommes",
+            les_champs_de_l_ecran_d_ajout_sont_nommes as fn(),
+        ),
+        (
+            "aucun_bouton_ne_reste_sans_nom",
+            aucun_bouton_ne_reste_sans_nom as fn(),
+        ),
+        (
+            "la_fenetre_se_construit_sans_donnees",
+            la_fenetre_se_construit_sans_donnees as fn(),
+        ),
     ];
 
     let total = scenarios.len();

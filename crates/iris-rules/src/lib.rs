@@ -231,8 +231,12 @@ impl Rule {
             .map(Condition::describe)
             .collect::<Vec<_>>()
             .join(liaison);
-        let actions =
-            self.actions.iter().map(Action::describe).collect::<Vec<_>>().join(", puis ");
+        let actions = self
+            .actions
+            .iter()
+            .map(Action::describe)
+            .collect::<Vec<_>>()
+            .join(", puis ");
         format!("Si {conditions}, alors {actions}.")
     }
 }
@@ -305,7 +309,10 @@ impl Simulation {
     /// Résumé en une phrase, tel qu'affiché avant application.
     pub fn summary(&self) -> String {
         match self.affected {
-            0 => format!("Aucun des {} messages examinés ne serait touché.", self.examined),
+            0 => format!(
+                "Aucun des {} messages examinés ne serait touché.",
+                self.examined
+            ),
             1 => format!("1 message sur {} serait touché.", self.examined),
             n => format!("{n} messages sur {} seraient touchés.", self.examined),
         }
@@ -323,9 +330,11 @@ pub fn simulate(
     now: Timestamp,
     sample_size: usize,
 ) -> Simulation {
-    let mut sim = Simulation { examined: messages.len(), ..Default::default() };
-    let mut compteurs: Vec<(String, usize)> =
-        rules.iter().map(|r| (r.id.clone(), 0)).collect();
+    let mut sim = Simulation {
+        examined: messages.len(),
+        ..Default::default()
+    };
+    let mut compteurs: Vec<(String, usize)> = rules.iter().map(|r| (r.id.clone(), 0)).collect();
 
     for (index, facts) in messages.iter().enumerate() {
         let verdict = evaluate(rules, facts, now);
@@ -481,14 +490,19 @@ mod tests {
     fn les_regles_s_evaluent_dans_l_ordre() {
         let f = facts();
         let regles = vec![
-            Rule::new("a", "A").when(Condition::IsUnsubscribable).then(Action::MarkSeen),
+            Rule::new("a", "A")
+                .when(Condition::IsUnsubscribable)
+                .then(Action::MarkSeen),
             Rule::new("b", "B")
                 .when(Condition::FromDomain("example.com".into()))
                 .then(Action::SetState(WorkflowState::Done)),
         ];
         let v = evaluate(&regles, &f, now());
         assert_eq!(v.matched, ["a", "b"]);
-        assert_eq!(v.actions, [Action::MarkSeen, Action::SetState(WorkflowState::Done)]);
+        assert_eq!(
+            v.actions,
+            [Action::MarkSeen, Action::SetState(WorkflowState::Done)]
+        );
     }
 
     #[test]
@@ -514,8 +528,12 @@ mod tests {
         // Deux reports de trois jours ne doivent pas en faire six.
         let f = facts();
         let regles = vec![
-            Rule::new("a", "A").when(Condition::IsUnsubscribable).then(Action::SnoozeDays(3)),
-            Rule::new("b", "B").when(Condition::IsUnread).then(Action::SnoozeDays(3)),
+            Rule::new("a", "A")
+                .when(Condition::IsUnsubscribable)
+                .then(Action::SnoozeDays(3)),
+            Rule::new("b", "B")
+                .when(Condition::IsUnread)
+                .then(Action::SnoozeDays(3)),
         ];
         let v = evaluate(&regles, &f, now());
         assert_eq!(v.actions, [Action::SnoozeDays(3)]);
@@ -524,10 +542,9 @@ mod tests {
 
     #[test]
     fn la_simulation_compte_sans_rien_modifier() {
-        let regles =
-            vec![Rule::new("news", "Infolettres")
-                .when(Condition::IsUnsubscribable)
-                .then(Action::SetState(WorkflowState::Done))];
+        let regles = vec![Rule::new("news", "Infolettres")
+            .when(Condition::IsUnsubscribable)
+            .then(Action::SetState(WorkflowState::Done))];
 
         let mut messages = Vec::new();
         for i in 0..100 {

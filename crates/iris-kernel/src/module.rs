@@ -167,7 +167,12 @@ pub struct ModuleRegistry {
 
 impl ModuleRegistry {
     pub fn new(bus: EventBus, config: Config) -> Self {
-        Self { bus, config, entries: Vec::new(), index: BTreeMap::new() }
+        Self {
+            bus,
+            config,
+            entries: Vec::new(),
+            index: BTreeMap::new(),
+        }
     }
 
     pub fn bus(&self) -> &EventBus {
@@ -182,7 +187,10 @@ impl ModuleRegistry {
         let manifest = module.manifest();
 
         if self.index.contains_key(&manifest.id) {
-            return Err(Error::Config(format!("module « {} » déjà enregistré", manifest.id)));
+            return Err(Error::Config(format!(
+                "module « {} » déjà enregistré",
+                manifest.id
+            )));
         }
 
         if let Err(missing) = granted.check_all(manifest.requires.iter()) {
@@ -224,7 +232,9 @@ impl ModuleRegistry {
     }
 
     pub fn failure_of(&self, id: &str) -> Option<&str> {
-        self.index.get(id).and_then(|&i| self.entries[i].failure.as_deref())
+        self.index
+            .get(id)
+            .and_then(|&i| self.entries[i].failure.as_deref())
     }
 
     pub fn ids(&self) -> impl Iterator<Item = &str> {
@@ -237,7 +247,10 @@ impl ModuleRegistry {
     /// même tenter de démarrer : le laisser s'exécuter sans son socle produirait des
     /// erreurs bien plus difficiles à diagnostiquer.
     pub async fn start_all(&mut self) -> LifecycleReport {
-        let mut report = LifecycleReport { started: Vec::new(), disabled: Vec::new() };
+        let mut report = LifecycleReport {
+            started: Vec::new(),
+            disabled: Vec::new(),
+        };
         let mut down: Vec<String> = Vec::new();
 
         for entry in &mut self.entries {
@@ -375,14 +388,19 @@ mod tests {
     }
 
     fn registry() -> (ModuleRegistry, Journal) {
-        (ModuleRegistry::new(EventBus::new(), Config::default()), Journal::default())
+        (
+            ModuleRegistry::new(EventBus::new(), Config::default()),
+            Journal::default(),
+        )
     }
 
     #[tokio::test]
     async fn le_cycle_de_vie_suit_l_ordre_attendu() {
         let (mut reg, j) = registry();
-        reg.register(Spy::new("a", j.clone()).boxed(), CapabilitySet::all()).unwrap();
-        reg.register(Spy::new("b", j.clone()).boxed(), CapabilitySet::all()).unwrap();
+        reg.register(Spy::new("a", j.clone()).boxed(), CapabilitySet::all())
+            .unwrap();
+        reg.register(Spy::new("b", j.clone()).boxed(), CapabilitySet::all())
+            .unwrap();
 
         let rapport = reg.start_all().await;
         assert!(rapport.all_started());
@@ -398,7 +416,8 @@ mod tests {
     #[tokio::test]
     async fn un_module_ne_peut_pas_etre_enregistre_deux_fois() {
         let (mut reg, j) = registry();
-        reg.register(Spy::new("a", j.clone()).boxed(), CapabilitySet::all()).unwrap();
+        reg.register(Spy::new("a", j.clone()).boxed(), CapabilitySet::all())
+            .unwrap();
         let e = reg
             .register(Spy::new("a", j.clone()).boxed(), CapabilitySet::all())
             .unwrap_err();
@@ -411,9 +430,12 @@ mod tests {
         let mut m = Spy::new("indexeur", j);
         m.requires = vec![Capability::WriteMail];
 
-        let e = reg.register(m.boxed(), CapabilitySet::from_iter([Capability::ReadMail]));
+        let e = reg.register(m.boxed(), CapabilitySet::granting([Capability::ReadMail]));
         match e.unwrap_err() {
-            Error::CapabilityDenied { capability, requester } => {
+            Error::CapabilityDenied {
+                capability,
+                requester,
+            } => {
                 assert_eq!(capability, "write_mail");
                 assert_eq!(requester, "indexeur");
             }
@@ -428,7 +450,8 @@ mod tests {
         casse.fail_on_start = true;
 
         reg.register(casse.boxed(), CapabilitySet::all()).unwrap();
-        reg.register(Spy::new("ui", j.clone()).boxed(), CapabilitySet::all()).unwrap();
+        reg.register(Spy::new("ui", j.clone()).boxed(), CapabilitySet::all())
+            .unwrap();
 
         let rapport = reg.start_all().await;
         assert_eq!(rapport.started, ["ui"]);
@@ -447,7 +470,8 @@ mod tests {
         dependant.depends_on = vec!["store".into()];
 
         reg.register(socle.boxed(), CapabilitySet::all()).unwrap();
-        reg.register(dependant.boxed(), CapabilitySet::all()).unwrap();
+        reg.register(dependant.boxed(), CapabilitySet::all())
+            .unwrap();
 
         let rapport = reg.start_all().await;
         assert!(rapport.started.is_empty());
@@ -471,8 +495,10 @@ mod tests {
         let (mut reg, j) = registry();
         let mut recalcitrant = Spy::new("a", j.clone());
         recalcitrant.fail_on_stop = true;
-        reg.register(recalcitrant.boxed(), CapabilitySet::all()).unwrap();
-        reg.register(Spy::new("b", j.clone()).boxed(), CapabilitySet::all()).unwrap();
+        reg.register(recalcitrant.boxed(), CapabilitySet::all())
+            .unwrap();
+        reg.register(Spy::new("b", j.clone()).boxed(), CapabilitySet::all())
+            .unwrap();
 
         reg.start_all().await;
         let erreurs = reg.stop_all().await;
@@ -492,8 +518,7 @@ mod tests {
         #[async_trait]
         impl Module for Curieux {
             fn manifest(&self) -> ModuleManifest {
-                ModuleManifest::new("curieux", "Curieux")
-                    .requiring([Capability::SubscribeEvents])
+                ModuleManifest::new("curieux", "Curieux").requiring([Capability::SubscribeEvents])
             }
             async fn init(&mut self, ctx: &ModuleContext) -> Result<()> {
                 // Accordé : passe.
@@ -510,13 +535,17 @@ mod tests {
         let (mut reg, _) = registry();
         reg.register(
             Box::new(Curieux),
-            CapabilitySet::from_iter([Capability::SubscribeEvents]),
+            CapabilitySet::granting([Capability::SubscribeEvents]),
         )
         .unwrap();
         let rapport = reg.start_all().await;
 
         assert!(rapport.all_started());
-        assert_eq!(VERDICT.load(Ordering::SeqCst), 1, "la capacité absente doit être refusée");
+        assert_eq!(
+            VERDICT.load(Ordering::SeqCst),
+            1,
+            "la capacité absente doit être refusée"
+        );
         assert_eq!(reg.bus().published_count(), 1);
     }
 }

@@ -102,7 +102,11 @@ mod tests {
         s.remember_index(42);
 
         s.set(Some(ThreadId(8)));
-        assert_eq!(s.last_index(), 42, "la position survit au changement de fil");
+        assert_eq!(
+            s.last_index(),
+            42,
+            "la position survit au changement de fil"
+        );
     }
 
     #[test]

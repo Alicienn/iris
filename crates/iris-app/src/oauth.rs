@@ -81,13 +81,17 @@ pub fn store_tokens(secrets: &dyn SecretStore, email: &str, tokens: &Tokens) -> 
         token: tokens.access_token.clone(),
         expires_at: tokens.expires_at.millis(),
     };
-    let encode = serde_json::to_string(&acces)
-        .map_err(|e| Error::other(format!("jeton d'accès : {e}")))?;
+    let encode =
+        serde_json::to_string(&acces).map_err(|e| Error::other(format!("jeton d'accès : {e}")))?;
 
     secrets.set(email, SecretKind::AccessToken, &Secret::new(encode))?;
 
     if let Some(refresh) = &tokens.refresh_token {
-        secrets.set(email, SecretKind::RefreshToken, &Secret::new(refresh.clone()))?;
+        secrets.set(
+            email,
+            SecretKind::RefreshToken,
+            &Secret::new(refresh.clone()),
+        )?;
     }
     Ok(())
 }
@@ -100,7 +104,9 @@ pub fn valid_access_token(
     email: &str,
     now: Timestamp,
 ) -> Result<Option<String>> {
-    let Some(brut) = secrets.get(email, SecretKind::AccessToken)? else { return Ok(None) };
+    let Some(brut) = secrets.get(email, SecretKind::AccessToken)? else {
+        return Ok(None);
+    };
 
     // Les coffres d'avant ce format contiennent le jeton nu. On l'accepte plutôt
     // que d'obliger l'utilisateur à réautoriser : il sera renouvelé au premier
@@ -133,11 +139,12 @@ pub async fn refresh_access(
 
     let refresh = secrets
         .get(email, SecretKind::RefreshToken)?
-        .ok_or_else(|| Error::AuthFailed { account: email.to_string() })?;
+        .ok_or_else(|| Error::AuthFailed {
+            account: email.to_string(),
+        })?;
 
     let endpoint = HttpEndpoint::new()?;
-    let jetons =
-        iris_oauth::refresh(&endpoint, provider, client_id, refresh.expose(), now).await?;
+    let jetons = iris_oauth::refresh(&endpoint, provider, client_id, refresh.expose(), now).await?;
 
     store_tokens(secrets, email, &jetons)?;
     Ok(jetons.access_token)
@@ -242,8 +249,12 @@ mod tests {
     #[test]
     fn un_jeton_valide_est_rendu() {
         let (coffre, _d) = coffre();
-        store_tokens(coffre.as_ref(), "a@x.fr", &jetons("acces", Some("refresh"), 3600))
-            .unwrap();
+        store_tokens(
+            coffre.as_ref(),
+            "a@x.fr",
+            &jetons("acces", Some("refresh"), 3600),
+        )
+        .unwrap();
 
         let lu = valid_access_token(coffre.as_ref(), "a@x.fr", Timestamp::EPOCH).unwrap();
         assert_eq!(lu.as_deref(), Some("acces"));
@@ -273,7 +284,10 @@ mod tests {
     #[test]
     fn un_coffre_sans_jeton_ne_ment_pas() {
         let (coffre, _d) = coffre();
-        assert_eq!(valid_access_token(coffre.as_ref(), "a@x.fr", Timestamp::EPOCH).unwrap(), None);
+        assert_eq!(
+            valid_access_token(coffre.as_ref(), "a@x.fr", Timestamp::EPOCH).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -281,7 +295,9 @@ mod tests {
         // Obliger à réautoriser pour un changement de format serait une punition
         // gratuite.
         let (coffre, _d) = coffre();
-        coffre.set("a@x.fr", SecretKind::AccessToken, &Secret::new("jeton-nu")).unwrap();
+        coffre
+            .set("a@x.fr", SecretKind::AccessToken, &Secret::new("jeton-nu"))
+            .unwrap();
 
         let lu = valid_access_token(coffre.as_ref(), "a@x.fr", Timestamp::EPOCH).unwrap();
         assert_eq!(lu.as_deref(), Some("jeton-nu"));
@@ -291,11 +307,18 @@ mod tests {
     fn le_jeton_de_rafraichissement_n_est_pas_ecrase_par_du_vide() {
         // Le fournisseur ne le renvoie pas à chaque renouvellement.
         let (coffre, _d) = coffre();
-        store_tokens(coffre.as_ref(), "a@x.fr", &jetons("a1", Some("refresh"), 3600))
-            .unwrap();
+        store_tokens(
+            coffre.as_ref(),
+            "a@x.fr",
+            &jetons("a1", Some("refresh"), 3600),
+        )
+        .unwrap();
         store_tokens(coffre.as_ref(), "a@x.fr", &jetons("a2", None, 3600)).unwrap();
 
-        let refresh = coffre.get("a@x.fr", SecretKind::RefreshToken).unwrap().unwrap();
+        let refresh = coffre
+            .get("a@x.fr", SecretKind::RefreshToken)
+            .unwrap()
+            .unwrap();
         assert_eq!(refresh.expose(), "refresh");
     }
 
@@ -333,7 +356,9 @@ mod tests {
         // Un échec d'authentification anonyme enverrait chercher un mot de passe
         // là où il manque une configuration.
         let (coffre, _d) = coffre();
-        coffre.set("a@x.fr", SecretKind::RefreshToken, &Secret::new("r")).unwrap();
+        coffre
+            .set("a@x.fr", SecretKind::RefreshToken, &Secret::new("r"))
+            .unwrap();
 
         let erreur = refresh_access(
             coffre.as_ref(),
@@ -357,17 +382,25 @@ mod tests {
             microsoft_client_id: String::new(),
         };
 
-        let erreur =
-            refresh_access(coffre.as_ref(), &reglages, Provider::Google, "a@x.fr", Timestamp::EPOCH)
-                .await
-                .unwrap_err();
+        let erreur = refresh_access(
+            coffre.as_ref(),
+            &reglages,
+            Provider::Google,
+            "a@x.fr",
+            Timestamp::EPOCH,
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(erreur, Error::AuthFailed { .. }));
     }
 
     #[test]
     fn le_fournisseur_se_deduit_du_mode_d_authentification() {
         assert_eq!(provider_for(AuthKind::OAuthGoogle), Some(Provider::Google));
-        assert_eq!(provider_for(AuthKind::OAuthMicrosoft), Some(Provider::Microsoft));
+        assert_eq!(
+            provider_for(AuthKind::OAuthMicrosoft),
+            Some(Provider::Microsoft)
+        );
         assert_eq!(provider_for(AuthKind::Password), None);
     }
 

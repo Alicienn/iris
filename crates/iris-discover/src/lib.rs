@@ -100,7 +100,10 @@ impl Source {
     /// Les deux dernières sources sont des conjectures : l'interface doit le dire,
     /// et proposer la saisie manuelle plutôt que de laisser croire à une certitude.
     pub fn is_authoritative(self) -> bool {
-        matches!(self, Self::Builtin | Self::DomainAutoconfig | Self::Ispdb | Self::DnsSrv)
+        matches!(
+            self,
+            Self::Builtin | Self::DomainAutoconfig | Self::Ispdb | Self::DnsSrv
+        )
     }
 
     pub fn describe(self) -> &'static str {
@@ -187,7 +190,11 @@ impl<T: DiscoveryIo> Discovery<T> {
         attempts.push(ispdb.clone());
         if let Some(xml) = self.io.fetch(&ispdb).await {
             if let Ok(config) = autoconfig::parse(&xml, &email) {
-                return Ok(Discovered { config, source: Source::Ispdb, attempts });
+                return Ok(Discovered {
+                    config,
+                    source: Source::Ispdb,
+                    attempts,
+                });
             }
         }
 
@@ -198,13 +205,13 @@ impl<T: DiscoveryIo> Discovery<T> {
         let submission = self.io.srv(&format!("_submission._tcp.{domain}")).await;
 
         if let Some(imap) = best(&imaps) {
-            let (smtp_host, smtp_port, smtp_transport) = match (best(&submissions), best(&submission))
-            {
-                (Some(s), _) => (s.target.clone(), s.port, Transport::Tls),
-                (None, Some(s)) => (s.target.clone(), s.port, Transport::StartTls),
-                // Un SRV entrant sans SRV sortant : on complète par la convention.
-                (None, None) => (format!("smtp.{domain}"), 587, Transport::StartTls),
-            };
+            let (smtp_host, smtp_port, smtp_transport) =
+                match (best(&submissions), best(&submission)) {
+                    (Some(s), _) => (s.target.clone(), s.port, Transport::Tls),
+                    (None, Some(s)) => (s.target.clone(), s.port, Transport::StartTls),
+                    // Un SRV entrant sans SRV sortant : on complète par la convention.
+                    (None, None) => (format!("smtp.{domain}"), 587, Transport::StartTls),
+                };
             return Ok(Discovered {
                 config: ServerConfig {
                     provider: None,
@@ -232,14 +239,22 @@ impl<T: DiscoveryIo> Discovery<T> {
                     "Configuration déduite du serveur de courrier entrant ({mx}). \
                      Vérifiez-la avant de l'enregistrer."
                 ));
-                return Ok(Discovered { config, source: Source::MxGuess, attempts });
+                return Ok(Discovered {
+                    config,
+                    source: Source::MxGuess,
+                    attempts,
+                });
             }
         }
 
         // 6. Sondage des noms d'hôtes usuels.
         attempts.push("sondage des noms usuels".into());
         if let Some(config) = self.probe_conventional(&email, &domain).await {
-            return Ok(Discovered { config, source: Source::Probe, attempts });
+            return Ok(Discovered {
+                config,
+                source: Source::Probe,
+                attempts,
+            });
         }
 
         Err(Error::Config(format!(
@@ -270,8 +285,11 @@ impl<T: DiscoveryIo> Discovery<T> {
             return None;
         };
 
-        let candidats_smtp =
-            [format!("smtp.{domain}"), format!("mail.{domain}"), domain.to_string()];
+        let candidats_smtp = [
+            format!("smtp.{domain}"),
+            format!("mail.{domain}"),
+            domain.to_string(),
+        ];
 
         let (smtp_host, smtp_port, smtp_transport) = 'trouve: {
             for hote in &candidats_smtp {
@@ -371,7 +389,10 @@ mod tests {
     #[tokio::test]
     async fn la_base_communautaire_prend_le_relais() {
         let mut io = MockIo::default();
-        io.add_fetch("https://autoconfig.thunderbird.net/v1.1/mondomaine.fr", AUTOCONFIG);
+        io.add_fetch(
+            "https://autoconfig.thunderbird.net/v1.1/mondomaine.fr",
+            AUTOCONFIG,
+        );
         let d = Discovery::new(io);
 
         let r = d.discover("moi@mondomaine.fr").await.unwrap();
@@ -381,7 +402,10 @@ mod tests {
     #[tokio::test]
     async fn les_enregistrements_srv_sont_exploites() {
         let mut io = MockIo::default();
-        io.add_srv("_imaps._tcp.mondomaine.fr", SrvRecord::new("imap.serveur.fr", 993, 10, 5));
+        io.add_srv(
+            "_imaps._tcp.mondomaine.fr",
+            SrvRecord::new("imap.serveur.fr", 993, 10, 5),
+        );
         io.add_srv(
             "_submissions._tcp.mondomaine.fr",
             SrvRecord::new("smtp.serveur.fr", 465, 10, 5),
@@ -398,8 +422,14 @@ mod tests {
     #[tokio::test]
     async fn la_priorite_srv_la_plus_basse_gagne() {
         let mut io = MockIo::default();
-        io.add_srv("_imaps._tcp.x.fr", SrvRecord::new("secours.x.fr", 993, 20, 5));
-        io.add_srv("_imaps._tcp.x.fr", SrvRecord::new("principal.x.fr", 993, 10, 5));
+        io.add_srv(
+            "_imaps._tcp.x.fr",
+            SrvRecord::new("secours.x.fr", 993, 20, 5),
+        );
+        io.add_srv(
+            "_imaps._tcp.x.fr",
+            SrvRecord::new("principal.x.fr", 993, 10, 5),
+        );
         let d = Discovery::new(io);
 
         let r = d.discover("moi@x.fr").await.unwrap();
@@ -409,11 +439,17 @@ mod tests {
     #[tokio::test]
     async fn a_priorite_egale_le_poids_le_plus_fort_gagne() {
         let mut io = MockIo::default();
-        io.add_srv("_imaps._tcp.x.fr", SrvRecord::new("faible.x.fr", 993, 10, 1));
+        io.add_srv(
+            "_imaps._tcp.x.fr",
+            SrvRecord::new("faible.x.fr", 993, 10, 1),
+        );
         io.add_srv("_imaps._tcp.x.fr", SrvRecord::new("fort.x.fr", 993, 10, 90));
         let d = Discovery::new(io);
 
-        assert_eq!(d.discover("moi@x.fr").await.unwrap().config.imap_host, "fort.x.fr");
+        assert_eq!(
+            d.discover("moi@x.fr").await.unwrap().config.imap_host,
+            "fort.x.fr"
+        );
     }
 
     #[tokio::test]
@@ -438,7 +474,10 @@ mod tests {
         assert_eq!(r.source, Source::MxGuess);
         assert_eq!(r.config.imap_host, "imap.gmail.com");
         assert!(r.config.note.unwrap().contains("Vérifiez"));
-        assert!(!r.source.is_authoritative(), "une déduction n'est pas une certitude");
+        assert!(
+            !r.source.is_authoritative(),
+            "une déduction n'est pas une certitude"
+        );
     }
 
     #[tokio::test]
@@ -487,7 +526,10 @@ mod tests {
     #[tokio::test]
     async fn une_autoconfiguration_illisible_ne_bloque_pas_la_suite() {
         let mut io = MockIo::default();
-        io.add_fetch("https://autoconfig.x.fr/mail/config-v1.1.xml", "<pas du xml valide");
+        io.add_fetch(
+            "https://autoconfig.x.fr/mail/config-v1.1.xml",
+            "<pas du xml valide",
+        );
         io.add_probe("imap.x.fr", 993);
         let d = Discovery::new(io);
 

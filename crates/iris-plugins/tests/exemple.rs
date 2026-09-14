@@ -47,7 +47,11 @@ fn l_exemple_ne_demande_que_ce_dont_il_a_besoin() {
     let manifeste = Manifest::from_toml(&source).unwrap();
     let demandees = manifeste.permissions.describe();
 
-    assert_eq!(demandees.len(), 2, "lire et modifier, rien de plus : {demandees:?}");
+    assert_eq!(
+        demandees.len(),
+        2,
+        "lire et modifier, rien de plus : {demandees:?}"
+    );
 }
 
 #[test]
@@ -57,13 +61,17 @@ fn l_exemple_marque_une_infolettre() {
     registre.load_one(&chemin).expect("chargement de l'exemple");
 
     // Un message qui propose un désabonnement : le plugin doit agir.
-    let evenement = r#"{"thread":42,"subject":"Nos offres","headers":{"list-unsubscribe":"<https://x.fr>"}}"#;
+    let evenement =
+        r#"{"thread":42,"subject":"Nos offres","headers":{"list-unsubscribe":"<https://x.fr>"}}"#;
     let resultats = registre.dispatch(entry_points::ON_EVENT, evenement);
 
     assert_eq!(resultats.len(), 1);
     let trace = resultats[0].1.as_ref().expect("appel réussi");
     assert_eq!(trace.actions, [r#"{"action":"done"}"#]);
-    assert!(trace.denied.is_empty(), "toutes les permissions nécessaires sont accordées");
+    assert!(
+        trace.denied.is_empty(),
+        "toutes les permissions nécessaires sont accordées"
+    );
     assert_eq!(trace.logs.len(), 1);
 }
 
@@ -77,7 +85,10 @@ fn l_exemple_laisse_les_autres_messages_tranquilles() {
     let resultats = registre.dispatch(entry_points::ON_EVENT, evenement);
 
     let trace = resultats[0].1.as_ref().unwrap();
-    assert!(trace.actions.is_empty(), "un message ordinaire ne doit pas être touché");
+    assert!(
+        trace.actions.is_empty(),
+        "un message ordinaire ne doit pas être touché"
+    );
     assert!(trace.logs.is_empty());
 }
 
@@ -94,7 +105,11 @@ fn l_exemple_tient_dans_son_budget_reduit() {
     let evenement = format!(r#"{{"subject":"{bourrage}","h":"list-unsubscribe"}}"#);
 
     let resultats = registre.dispatch(entry_points::ON_EVENT, &evenement);
-    assert!(resultats[0].1.is_ok(), "le budget doit suffire : {:?}", resultats[0].1);
+    assert!(
+        resultats[0].1.is_ok(),
+        "le budget doit suffire : {:?}",
+        resultats[0].1
+    );
 }
 
 #[test]
@@ -104,8 +119,7 @@ fn l_exemple_expose_les_points_d_entree_attendus() {
     let wasm = wat::parse_str(&wat).unwrap();
 
     let manifeste =
-        Manifest::from_toml(&std::fs::read_to_string(source.join(MANIFEST_FILE)).unwrap())
-            .unwrap();
+        Manifest::from_toml(&std::fs::read_to_string(source.join(MANIFEST_FILE)).unwrap()).unwrap();
     let mut plugin = Plugin::load(manifeste, &wasm).unwrap();
 
     assert!(plugin.call(entry_points::INIT, "{}").is_ok());
@@ -121,7 +135,10 @@ fn le_contrat_wit_accompagne_l_hote() {
     let contenu = std::fs::read_to_string(&wit).expect("le contrat doit exister");
 
     for fonction in ["log:", "act:", "add-command:", "notify:", "on-event:"] {
-        assert!(contenu.contains(fonction), "« {fonction} » manque au contrat");
+        assert!(
+            contenu.contains(fonction),
+            "« {fonction} » manque au contrat"
+        );
     }
     assert!(contenu.contains("@1.0.0"), "le contrat doit être versionné");
 }

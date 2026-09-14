@@ -14,11 +14,17 @@ pub struct Address {
 
 impl Address {
     pub fn new(addr: impl Into<String>) -> Self {
-        Self { name: None, addr: addr.into() }
+        Self {
+            name: None,
+            addr: addr.into(),
+        }
     }
 
     pub fn named(name: impl Into<String>, addr: impl Into<String>) -> Self {
-        Self { name: Some(name.into()), addr: addr.into() }
+        Self {
+            name: Some(name.into()),
+            addr: addr.into(),
+        }
     }
 
     /// Partie locale, avant l'arobase.
@@ -101,9 +107,15 @@ mod tests {
     #[test]
     fn le_nom_affiche_retombe_sur_la_partie_locale() {
         assert_eq!(Address::new("contact@example.com").display(), "contact");
-        assert_eq!(Address::named("Marie", "contact@example.com").display(), "Marie");
+        assert_eq!(
+            Address::named("Marie", "contact@example.com").display(),
+            "Marie"
+        );
         // Un nom vide ne doit pas produire une ligne vide dans la liste.
-        assert_eq!(Address::named("   ", "contact@example.com").display(), "contact");
+        assert_eq!(
+            Address::named("   ", "contact@example.com").display(),
+            "contact"
+        );
     }
 
     #[test]

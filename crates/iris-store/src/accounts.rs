@@ -98,9 +98,8 @@ impl Store {
     /// création n'a aucun sens pour l'utilisateur.
     pub fn accounts(&self) -> Result<Vec<Account>> {
         self.with_conn(|c| {
-            let sql = format!(
-                "SELECT {ACCOUNT_COLUMNS} FROM accounts ORDER BY pinned DESC, email ASC"
-            );
+            let sql =
+                format!("SELECT {ACCOUNT_COLUMNS} FROM accounts ORDER BY pinned DESC, email ASC");
             let mut stmt = c.prepare(&sql).map_err(|e| sql_err("préparation", e))?;
             let rows = stmt
                 .query_map([], account_from_row)
@@ -122,12 +121,7 @@ impl Store {
         self.update_account_field(id, "last_activity_at", now.millis())
     }
 
-    fn update_account_field(
-        &self,
-        id: AccountId,
-        column: &'static str,
-        value: i64,
-    ) -> Result<()> {
+    fn update_account_field(&self, id: AccountId, column: &'static str, value: i64) -> Result<()> {
         self.with_conn(|c| {
             let n = c
                 .execute(
@@ -230,7 +224,12 @@ impl Store {
             tx.execute(
                 "UPDATE folders SET uid_validity = ?1, uid_next = ?2, highest_modseq = ?3
                  WHERE id = ?4",
-                params![uid_validity as i64, uid_next as i64, highest_modseq as i64, folder.get()],
+                params![
+                    uid_validity as i64,
+                    uid_next as i64,
+                    highest_modseq as i64,
+                    folder.get()
+                ],
             )
             .map_err(|e| sql_err("mise à jour du dossier", e))?;
 
@@ -288,7 +287,8 @@ mod tests {
     #[test]
     fn la_recherche_par_adresse_ignore_la_casse() {
         let s = store();
-        s.create_account(&NewAccount::new("moi@example.com", "i", "s"), now()).unwrap();
+        s.create_account(&NewAccount::new("moi@example.com", "i", "s"), now())
+            .unwrap();
         assert!(s.account_by_email("  MOI@Example.com ").unwrap().is_some());
     }
 
@@ -296,7 +296,8 @@ mod tests {
     fn les_comptes_epingles_arrivent_en_tete() {
         let s = store();
         for e in ["c@x.fr", "a@x.fr", "b@x.fr"] {
-            s.create_account(&NewAccount::new(e, "i", "s"), now()).unwrap();
+            s.create_account(&NewAccount::new(e, "i", "s"), now())
+                .unwrap();
         }
         let b = s.account_by_email("b@x.fr").unwrap().unwrap();
         s.set_account_pinned(b.id, true).unwrap();
@@ -314,19 +315,26 @@ mod tests {
     #[test]
     fn supprimer_un_compte_emporte_ses_dossiers() {
         let s = store();
-        let id = s.create_account(&NewAccount::new("a@x.fr", "i", "s"), now()).unwrap();
+        let id = s
+            .create_account(&NewAccount::new("a@x.fr", "i", "s"), now())
+            .unwrap();
         s.upsert_folder(id, "INBOX", FolderRole::Inbox).unwrap();
         assert_eq!(s.folders(id).unwrap().len(), 1);
 
         assert!(s.delete_account(id).unwrap());
         assert!(s.folders(id).unwrap().is_empty());
-        assert!(!s.delete_account(id).unwrap(), "seconde suppression sans effet");
+        assert!(
+            !s.delete_account(id).unwrap(),
+            "seconde suppression sans effet"
+        );
     }
 
     #[test]
     fn enregistrer_deux_fois_le_meme_dossier_ne_le_duplique_pas() {
         let s = store();
-        let a = s.create_account(&NewAccount::new("a@x.fr", "i", "s"), now()).unwrap();
+        let a = s
+            .create_account(&NewAccount::new("a@x.fr", "i", "s"), now())
+            .unwrap();
         let f1 = s.upsert_folder(a, "INBOX", FolderRole::Other).unwrap();
         let f2 = s.upsert_folder(a, "INBOX", FolderRole::Inbox).unwrap();
         assert_eq!(f1, f2);
@@ -340,7 +348,9 @@ mod tests {
     #[test]
     fn un_changement_d_uidvalidity_est_signale() {
         let s = store();
-        let a = s.create_account(&NewAccount::new("a@x.fr", "i", "s"), now()).unwrap();
+        let a = s
+            .create_account(&NewAccount::new("a@x.fr", "i", "s"), now())
+            .unwrap();
         let f = s.upsert_folder(a, "INBOX", FolderRole::Inbox).unwrap();
 
         // Première synchronisation : rien à signaler, il n'y avait pas de valeur.
@@ -358,7 +368,9 @@ mod tests {
     #[test]
     fn une_adresse_vide_est_refusee() {
         let s = store();
-        let e = s.create_account(&NewAccount::new("   ", "i", "s"), now()).unwrap_err();
+        let e = s
+            .create_account(&NewAccount::new("   ", "i", "s"), now())
+            .unwrap_err();
         assert!(e.to_string().contains("vide"));
     }
 }

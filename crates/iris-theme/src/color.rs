@@ -13,7 +13,12 @@ pub struct Color {
 }
 
 impl Color {
-    pub const TRANSPARENT: Self = Self { r: 0, g: 0, b: 0, a: 0 };
+    pub const TRANSPARENT: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
 
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
@@ -133,9 +138,8 @@ impl Serialize for Color {
 impl<'de> Deserialize<'de> for Color {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        Color::parse(&s).ok_or_else(|| {
-            serde::de::Error::custom(format!("couleur invalide : « {s} »"))
-        })
+        Color::parse(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("couleur invalide : « {s} »")))
     }
 }
 

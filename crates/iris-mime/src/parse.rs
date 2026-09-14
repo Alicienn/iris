@@ -40,7 +40,10 @@ impl Parsed {
         if let Some(t) = &self.text_body {
             return t.clone();
         }
-        self.html_body.as_ref().map(|h| strip_tags(&h.html)).unwrap_or_default()
+        self.html_body
+            .as_ref()
+            .map(|h| strip_tags(&h.html))
+            .unwrap_or_default()
     }
 }
 
@@ -80,7 +83,9 @@ pub fn parse(raw: &[u8]) -> iris_types::Result<Parsed> {
             })
             // Sans en-tête de type, le RFC 2045 impose text/plain par défaut.
             .unwrap_or(true);
-        plain.then(|| part.text_contents().map(str::to_string)).flatten()
+        plain
+            .then(|| part.text_contents().map(str::to_string))
+            .flatten()
     });
     let html_body = message.body_html(0).map(|c| sanitize::sanitize(&c));
 
@@ -155,7 +160,10 @@ fn addresses(addr: Option<&mail_parser::Address<'_>>) -> Vec<Address> {
         .filter_map(|a| {
             let email = a.address()?;
             Some(Address {
-                name: a.name().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()),
+                name: a
+                    .name()
+                    .map(|n| n.trim().to_string())
+                    .filter(|n| !n.is_empty()),
                 addr: email.trim().to_string(),
             })
         })
@@ -176,7 +184,9 @@ fn header_text(message: &mail_parser::Message<'_>, name: &str) -> Option<String>
 
 /// Extrait les identifiants d'un en-tête qui en contient une liste.
 fn header_ids(message: &mail_parser::Message<'_>, name: &str) -> Vec<RfcMessageId> {
-    let Some(header) = message.header(name) else { return Vec::new() };
+    let Some(header) = message.header(name) else {
+        return Vec::new();
+    };
 
     match header {
         mail_parser::HeaderValue::Text(t) => split_ids(t),
@@ -241,7 +251,10 @@ pub fn strip_tags(html: &str) -> String {
             _ => {}
         }
     }
-    decode_entities(&out).split_whitespace().collect::<Vec<_>>().join(" ")
+    decode_entities(&out)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Décode les entités les plus courantes. Les autres sont laissées telles quelles :
@@ -290,7 +303,10 @@ Je reviens vers vous concernant le devis.\r\n";
         assert_eq!(p.from[0].addr, "marie@example.com");
         assert_eq!(p.from[0].name.as_deref(), Some("Marie Vasseur"));
         assert_eq!(p.to[0].addr, "moi@example.com");
-        assert_eq!(p.rfc_message_id.as_ref().unwrap().as_str(), "abc123@example.com");
+        assert_eq!(
+            p.rfc_message_id.as_ref().unwrap().as_str(),
+            "abc123@example.com"
+        );
         assert!(p.date.millis() > 0);
     }
 
@@ -326,7 +342,10 @@ References: <racine@example.com> <parent@example.com>\r\n\
 \r\n\
 corps\r\n";
         let p = parse(raw).unwrap();
-        assert_eq!(p.in_reply_to.as_ref().unwrap().as_str(), "parent@example.com");
+        assert_eq!(
+            p.in_reply_to.as_ref().unwrap().as_str(),
+            "parent@example.com"
+        );
         let refs: Vec<_> = p.references.iter().map(|r| r.as_str()).collect();
         assert_eq!(refs, ["racine@example.com", "parent@example.com"]);
     }
@@ -363,7 +382,9 @@ corps\r\n";
         let p = parse(raw).unwrap();
         assert_eq!(
             p.unsubscribe,
-            Some(Unsubscribe::OneClick { url: "https://exemple.fr/unsub".into() })
+            Some(Unsubscribe::OneClick {
+                url: "https://exemple.fr/unsub".into()
+            })
         );
         assert!(p.derived_flags.contains(iris_types::Flags::UNSUBSCRIBABLE));
     }
@@ -435,7 +456,10 @@ iVBORw0KGgo=\r\n\
         )
         .as_bytes();
         let p = parse(raw).unwrap();
-        assert!(p.text_body.is_none(), "aucune partie text/plain dans ce message");
+        assert!(
+            p.text_body.is_none(),
+            "aucune partie text/plain dans ce message"
+        );
         assert!(p.indexable_text().contains("Titre"));
         assert!(p.indexable_text().contains("Contenu"));
     }
@@ -464,7 +488,10 @@ Content-Type: text/html\r\n\
     #[test]
     fn retrait_des_balises_et_des_entites() {
         assert_eq!(strip_tags("<p>a&nbsp;b</p><p>c</p>"), "a b c");
-        assert_eq!(strip_tags("<b>gras</b>et<i>italique</i>"), "gras et italique");
+        assert_eq!(
+            strip_tags("<b>gras</b>et<i>italique</i>"),
+            "gras et italique"
+        );
         assert_eq!(strip_tags("5 &lt; 7 &amp;&amp; 8 &gt; 3"), "5 < 7 && 8 > 3");
     }
 }
