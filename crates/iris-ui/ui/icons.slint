@@ -54,6 +54,11 @@ export global Icons {
     out property <string> list-numbered: "M 10 7 L 20 7 M 10 12 L 20 12 M 10 17 L 20 17 M 4 5.5 L 5.5 5 V 9 M 3.8 9 H 6.4 M 3.8 13 A 1.3 1.3 0 1 1 6.2 13.7 L 3.8 16.5 H 6.5";
     out property <string> quote: "M 9 6.5 A 7 7 0 0 0 4.5 13 V 17.5 H 10.5 V 11 H 7.8 A 3.6 3.6 0 0 1 10.2 8 M 19 6.5 A 7 7 0 0 0 14.5 13 V 17.5 H 20.5 V 11 H 17.8 A 3.6 3.6 0 0 1 20.2 8";
     out property <string> code: "M 8.5 8 L 4 12 L 8.5 16 M 15.5 8 L 20 12 L 15.5 16 M 13.5 5 L 10.5 19";
+    out property <string> gear: "M 12 8.6 A 3.4 3.4 0 1 0 12 15.4 A 3.4 3.4 0 1 0 12 8.6 Z M 19.6 14.3 A 8.2 8.2 0 0 0 19.6 9.7 L 21.4 8.3 L 19.4 4.9 L 17.2 5.7 A 8.2 8.2 0 0 0 13.2 3.4 L 12.9 1.1 H 11.1 L 10.8 3.4 A 8.2 8.2 0 0 0 6.8 5.7 L 4.6 4.9 L 2.6 8.3 L 4.4 9.7 A 8.2 8.2 0 0 0 4.4 14.3 L 2.6 15.7 L 4.6 19.1 L 6.8 18.3 A 8.2 8.2 0 0 0 10.8 20.6 L 11.1 22.9 H 12.9 L 13.2 20.6 A 8.2 8.2 0 0 0 17.2 18.3 L 19.4 19.1 L 21.4 15.7 Z";
+    out property <string> eye: "M 2.5 12 C 5.5 7.2 8.7 4.8 12 4.8 C 15.3 4.8 18.5 7.2 21.5 12 C 18.5 16.8 15.3 19.2 12 19.2 C 8.7 19.2 5.5 16.8 2.5 12 Z M 9.4 12 A 2.6 2.6 0 1 0 14.6 12 A 2.6 2.6 0 1 0 9.4 12 Z";
+    out property <string> exclamation: "M 12 4.2 V 13.6 M 11.05 17.6 A 0.95 0.95 0 1 0 12.95 17.6 A 0.95 0.95 0 1 0 11.05 17.6 Z";
+    out property <string> key: "M 20.5 4.5 L 12.6 12.4 M 17.4 7.6 L 19.6 9.8 M 14.9 10.1 L 16.6 11.8 M 4.2 15.4 A 4.6 4.6 0 1 0 13.4 15.4 A 4.6 4.6 0 1 0 4.2 15.4 Z";
+    out property <string> pencil: "M 4 20 L 4.9 16.2 L 16.1 5 A 2.1 2.1 0 0 1 19 8 L 7.8 19.1 Z M 14.4 6.7 L 17.3 9.6";
 }
 
 // One icon.
@@ -71,6 +76,8 @@ export component Icon inherits Rectangle {
     height: root.size;
     opacity: root.alpha;
 
+    in property <bool> filled;
+
     Path {
         width: 100%;
         height: 100%;
@@ -81,7 +88,7 @@ export component Icon inherits Rectangle {
         commands: root.data;
         stroke: root.tint;
         stroke-width: root.weight / 24 * root.size;
-        fill: transparent;
+        fill: root.filled ? root.tint : transparent;
     }
 }
 
@@ -96,6 +103,11 @@ export component IconButton inherits Rectangle {
     in property <bool> danger;
     in property <bool> active;
     in property <bool> enabled: true;
+    in property <bool> filled;
+    // An explicit colour, for the few markers whose meaning is the colour: a mailbox
+    // that has stopped working is red before it is anything else.
+    in property <brush> tint;
+    in property <bool> tinted;
     in property <length> icon-size: 16px;
     in property <length> button-size: 28px;
 
@@ -120,9 +132,12 @@ export component IconButton inherits Rectangle {
         y: (parent.height - self.height) / 2;
         data: root.icon;
         size: root.icon-size;
-        tint: root.danger && touch.has-hover
-            ? Tokens.error
-            : (root.active ? Tokens.text : Tokens.text-secondary);
+        filled: root.filled;
+        tint: root.tinted
+            ? root.tint
+            : (root.danger && touch.has-hover
+                ? Tokens.error
+                : (root.active ? Tokens.text : Tokens.text-secondary));
         alpha: root.enabled ? 1.0 : 0.4;
     }
 
@@ -138,14 +153,17 @@ export component IconButton inherits Rectangle {
         width: tip.preferred-width + 12px;
         height: 20px;
         border-radius: Tokens.radius-small;
-        background: Tokens.surface-high;
+        background: Tokens.panel-high;
         border-width: 1px;
-        border-color: Tokens.border;
+        border-color: Tokens.border-strong;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000066;
+        drop-shadow-offset-y: 3px;
 
         tip := Text {
             text: root.shortcut == "" ? root.label : root.label + "  " + root.shortcut;
             font-size: Tokens.size-small;
-            color: Tokens.text-secondary;
+            color: Tokens.text;
             horizontal-alignment: center;
             vertical-alignment: center;
         }

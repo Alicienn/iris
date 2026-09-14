@@ -89,11 +89,20 @@ fn build_renderer(width: u32, height: u32) -> Option<VelloImageRenderer> {
 
 impl HtmlRenderer for BlitzRenderer {
     fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered> {
+        self.render_with(sanitized_html, width, false)
+    }
+
+    fn render_with(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        allow_remote: bool,
+    ) -> Result<Rendered> {
         let largeur = (width.round() as u32).clamp(MIN_WIDTH, MAX_WIDTH);
 
-        // 1. Analyse et mise en page. Aucun fournisseur réseau n'est installé : les
-        //    ressources distantes ont déjà été neutralisées par l'assainissement, et
-        //    le moteur ne doit surtout pas les rechercher lui-même.
+        // 1. Analyse et mise en page. Les ressources passent par notre chargeur, qui
+        //    accepte les images incrustées sans réseau et ne sort du programme que
+        //    lorsque le lecteur a explicitement demandé les images distantes.
         let viewport = Viewport::new(
             largeur,
             MAX_HEIGHT,
@@ -104,10 +113,16 @@ impl HtmlRenderer for BlitzRenderer {
                 ColorScheme::Light
             },
         );
+        // Le chargeur de ressources. Il ne va sur le réseau que si le lecteur l'a
+        // demandé pour ce message ; sans lui, aucune image ne s'affichait, pas même
+        // celles que le message transportait lui-même.
         let mut document = HtmlDocument::from_html(
             sanitized_html,
             DocumentConfig {
                 viewport: Some(viewport),
+                net_provider: Some(std::sync::Arc::new(crate::fetch::MailNetProvider::new(
+                    allow_remote,
+                ))),
                 ..Default::default()
             },
         );

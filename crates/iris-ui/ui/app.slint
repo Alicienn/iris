@@ -5,7 +5,7 @@ import {
     ThemeSwatchData
 } from "types.slint";
 import { ThreadListView, ThreadContextMenu } from "list.slint";
-import { Sidebar } from "sidebar.slint";
+import { Sidebar, AccountContextMenu } from "sidebar.slint";
 import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
@@ -197,11 +197,23 @@ export component AppWindow inherits Window {
     in property <MessageData> message;
     in property <[CommandData]> commands;
     in property <[int]> counts: [0, 0, 0];
+    in property <[string]> count-labels: ["0", "0", "0"];
+    in property <[string]> count-fulls: ["0", "0", "0"];
+    in property <string> spam-label;
+    in property <string> spam-full;
 
     in property <int> selected-thread: -1;
     in property <int> selected-account: 0;
     in property <int> active-tab: 0;
     in property <int> unified-count;
+    in property <string> unified-label;
+    in property <string> unified-full;
+    in property <bool> account-menu-open;
+    in property <string> account-menu-label;
+    in property <bool> account-menu-pinned;
+    in property <bool> account-menu-enabled;
+    in-out property <length> account-menu-x;
+    in-out property <length> account-menu-y;
     in property <int> spam-count;
     in property <bool> syncing-all;
     in property <string> sync-progress;
@@ -313,6 +325,15 @@ export component AppWindow inherits Window {
     callback thread-done();
     callback account-selected(int);
     callback resume-account(int);
+    in property <bool> add-account-editing;
+    callback account-menu-requested(int);
+    callback account-menu-sync();
+    callback account-menu-edit();
+    callback account-menu-password();
+    callback account-menu-pin();
+    callback account-menu-enable();
+    callback account-menu-remove();
+    callback account-menu-dismissed();
     callback unified-selected();
     callback scrolled-near-end();
     callback command-invoked(string);
@@ -331,6 +352,7 @@ export component AppWindow inherits Window {
     callback add-account-discover();
     callback add-account-save();
     callback add-account-manual-requested();
+    callback add-account-dismissed();
     callback rule-toggled(string, bool);
     callback rule-simulated(string);
     callback rule-removed(string);
@@ -387,6 +409,8 @@ export component AppWindow inherits Window {
                     others: root.other-accounts;
                     selected-id: root.selected-account;
                     unified-count: root.unified-count;
+                    unified-label: root.unified-label;
+                    unified-full: root.unified-full;
                     filter <=> root.account-filter;
                     syncing: root.syncing-all;
                     sync-progress: root.sync-progress;
@@ -399,6 +423,11 @@ export component AppWindow inherits Window {
                     sync-account(id) => { root.sync-account(id); }
                     sync-all => { root.sync-all(); }
                     open-settings => { root.settings-open = true; }
+                    account-menu(id, mx, my) => {
+                        root.account-menu-x = mx;
+                        root.account-menu-y = my + 32px;
+                        root.account-menu-requested(id);
+                    }
                 }
 
                 Rectangle { width: 1px; background: Tokens.border; }
@@ -434,6 +463,10 @@ export component AppWindow inherits Window {
                         selected-id: root.selected-thread;
                         active-tab: root.active-tab;
                         counts: root.counts;
+                        count-labels: root.count-labels;
+                        count-fulls: root.count-fulls;
+                        spam-label: root.spam-label;
+                        spam-full: root.spam-full;
                         loading: root.loading;
                         row-clicked(id) => { root.thread-selected(id); }
                         tab-selected(i) => { root.tab-selected(i); }
@@ -492,6 +525,23 @@ export component AppWindow inherits Window {
         save-password => { root.problem-save-password(); }
         disable-account => { root.problem-disable(); }
         dismissed => { root.problem-open = false; }
+    }
+
+    if root.account-menu-open: AccountContextMenu {
+        width: 100%;
+        height: 100%;
+        account: root.account-menu-label;
+        pinned: root.account-menu-pinned;
+        enabled: root.account-menu-enabled;
+        menu-x: root.account-menu-x;
+        menu-y: root.account-menu-y;
+        sync-now => { root.account-menu-sync(); }
+        edit-account => { root.account-menu-edit(); }
+        change-password => { root.account-menu-password(); }
+        toggle-pinned => { root.account-menu-pin(); }
+        toggle-enabled => { root.account-menu-enable(); }
+        remove-account => { root.account-menu-remove(); }
+        dismissed => { root.account-menu-dismissed(); }
     }
 
     if root.context-menu-open: ThreadContextMenu {
@@ -557,6 +607,7 @@ export component AppWindow inherits Window {
     if root.add-account-open: AccountSetupPanel {
         width: 100%;
         height: 100%;
+        editing: root.add-account-editing;
         busy: root.add-account-busy;
         manual: root.add-account-manual;
         error: root.add-account-error;
@@ -572,7 +623,7 @@ export component AppWindow inherits Window {
         discover => { root.add-account-discover(); }
         save-manual => { root.add-account-save(); }
         switch-to-manual => { root.add-account-manual-requested(); }
-        dismissed => { root.add-account-open = false; }
+        dismissed => { root.add-account-dismissed(); }
     }
 
     if root.settings-open: SettingsPanel {

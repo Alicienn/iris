@@ -208,6 +208,69 @@ pub fn add_account_manual(
     })
 }
 
+/// Réécrit un compte existant : son adresse, ses serveurs, son mot de passe.
+///
+/// The password is optional because the two reasons to open this screen are not the
+/// same. A provider that has moved its servers needs the hosts changed and the
+/// password left alone; a password that has been rotated needs the opposite. Asking
+/// for both every time would mean retyping a working password to fix a hostname.
+pub fn update_account_manual(
+    store: &Store,
+    secrets: &dyn SecretStore,
+    id: AccountId,
+    config: &ServerConfig,
+    password: Option<&str>,
+    now: Timestamp,
+) -> Result<()> {
+    let email = config.email.trim().to_lowercase();
+
+    let ancien = store
+        .account(id)?
+        .ok_or_else(|| Error::Config(format!("le compte {id} n'existe plus")))?;
+
+    // Une autre boîte porte déjà cette adresse : la refuser vaut mieux que créer deux
+    // comptes indiscernables dans une liste de cent.
+    if email != ancien.email {
+        if let Some(autre) = store.account_by_email(&email)? {
+            if autre.id != id {
+                return Err(Error::Config(format!("le compte « {email} » existe déjà")));
+            }
+        }
+    }
+
+    if let Some(motdepasse) = password.filter(|p| !p.is_empty()) {
+        secrets.set(&email, SecretKind::Password, &Secret::new(motdepasse))?;
+    } else if email != ancien.email {
+        // L'adresse est la clé du coffre : changer l'une sans déplacer l'autre
+        // laisserait le compte sans mot de passe au prochain démarrage.
+        if let Some(secret) = secrets.get(&ancien.email, SecretKind::Password)? {
+            secrets.set(&email, SecretKind::Password, &secret)?;
+        }
+    }
+
+    store.update_account_servers(
+        id,
+        &iris_store::AccountServers {
+            email: email.clone(),
+            imap_host: config.imap_host.clone(),
+            imap_port: config.imap_port,
+            imap_tls: config.imap_transport == iris_discover::Transport::Tls,
+            smtp_host: config.smtp_host.clone(),
+            smtp_port: config.smtp_port,
+            smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
+        },
+    )?;
+
+    // L'ancienne entrée du coffre ne sert plus à rien et porte encore un mot de passe
+    // valable : la laisser serait laisser traîner un secret que plus personne ne lit.
+    if email != ancien.email {
+        let _ = secrets.delete(&ancien.email, SecretKind::Password);
+    }
+
+    store.touch_account(id, now)?;
+    Ok(())
+}
+
 /// Interroge la chaîne de découverte, sans rien créer.
 ///
 /// Séparé de la création parce qu'un compte OAuth ne peut pas être créé avant que

@@ -50,6 +50,8 @@ fn compte(id: i32, nom: &str, a_traiter: i32, en_panne: bool) -> AccountRowData 
         id,
         label: nom.into(),
         count: a_traiter,
+        count_label: iris_ui::format::short_count(a_traiter.max(0) as u64).into(),
+        count_full: iris_ui::format::grouped_count(a_traiter.max(0) as u64).into(),
         pinned: false,
         needs_attention: en_panne,
         tint: slint::Color::from_rgb_u8(0, 0, 0),

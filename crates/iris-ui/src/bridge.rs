@@ -5,7 +5,7 @@
 //! filtrées. Tout ce qui se trouve ici est une conversion de type, jamais une
 //! décision.
 
-use crate::format::{account_tint, display_subject, relative_date};
+use crate::format::{account_tint, display_subject, grouped_count, relative_date, short_count};
 use crate::{AccountRowData, CommandData, MessageBlockData, MessageData, ThreadRowData};
 use iris_htmlview::Rendered;
 use iris_htmlview::{Block, RichText};
@@ -48,6 +48,8 @@ pub fn account_row(account: &Account, unread: u32, suspended: bool) -> AccountRo
             account.display_name.as_str().into()
         },
         count: unread as i32,
+        count_label: short_count(unread as u64).into(),
+        count_full: grouped_count(unread as u64).into(),
         pinned: account.pinned,
         needs_attention: suspended,
         tint: Color::from_rgb_u8(r, g, b),

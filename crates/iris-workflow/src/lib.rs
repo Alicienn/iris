@@ -335,7 +335,13 @@ impl Workflow {
             }
         }
 
-        if moved == 0 {
+        // Nothing to move is not the same as nothing to do. A thread whose messages
+        // already sit in the bin — which is most of a mailbox that has been triaged
+        // elsewhere — produced no journal entry, returned "unchanged", and so the
+        // Delete button did nothing at all, over and over, with no way to tell why.
+        // The thread still has to leave the queue: that is what the user asked for,
+        // and the server has nothing left to be told.
+        if moved == 0 && before.state == WorkflowState::Done {
             return Ok(false);
         }
 

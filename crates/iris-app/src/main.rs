@@ -544,6 +544,13 @@ fn run_gui() -> Result<()> {
         runtime.handle().clone(),
     );
     shell::wire_account_recovery(&fenetre, &services, runtime.handle().clone());
+    shell::wire_account_menu(
+        &fenetre,
+        &services,
+        Arc::clone(&controller),
+        runtime.handle().clone(),
+    );
+    shell::wire_remote_images(&fenetre, services.clone(), Arc::clone(&renderer));
 
     // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
     // son carburant, pas une frame ni un tour de synchronisation.

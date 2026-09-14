@@ -18,6 +18,9 @@
 #![warn(missing_debug_implementations)]
 
 #[cfg(feature = "blitz")]
+mod fetch;
+
+#[cfg(feature = "blitz")]
 mod blitz;
 mod richtext;
 
@@ -57,6 +60,16 @@ pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
     /// l'analyse, et un moteur qui recevrait du HTML brut pourrait exécuter ce que
     /// l'assainissement aurait retiré.
     fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered>;
+
+    /// Le même rendu, en autorisant les ressources distantes.
+    ///
+    /// Un paramètre plutôt qu'un moteur séparé, et une méthode par défaut plutôt
+    /// qu'une signature modifiée partout : la quasi-totalité des moteurs n'ont pas de
+    /// ressources à aller chercher, et leur imposer un argument qu'ils ignorent
+    /// n'apprend rien à personne. Le défaut est le blocage, comme il se doit.
+    fn render_with(&self, sanitized_html: &str, width: f32, _allow_remote: bool) -> Result<Rendered> {
+        self.render(sanitized_html, width)
+    }
 
     /// Nom du moteur, pour le diagnostic et les réglages.
     fn name(&self) -> &'static str;
@@ -125,11 +138,24 @@ impl AdaptiveRenderer {
 
 impl HtmlRenderer for AdaptiveRenderer {
     fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered> {
+        self.render_with(sanitized_html, width, false)
+    }
+
+    fn render_with(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        allow_remote: bool,
+    ) -> Result<Rendered> {
         match &self.complete {
-            Some(moteur) if self.needs_full_engine(sanitized_html) => {
+            // A message whose images the reader has asked to see goes to the full
+            // engine whatever its complexity: the rich-text renderer has nowhere to
+            // put a picture, so choosing it here would answer "Show" with the same
+            // page and no images on it.
+            Some(moteur) if allow_remote || self.needs_full_engine(sanitized_html) => {
                 // Un moteur complet peut échouer sur du HTML tordu ; le repli sur le
                 // texte riche vaut toujours mieux qu'un panneau vide.
-                match moteur.render(sanitized_html, width) {
+                match moteur.render_with(sanitized_html, width, allow_remote) {
                     Ok(r) => Ok(r),
                     Err(e) => {
                         tracing::warn!(error = %e, "moteur complet en échec, repli sur le texte riche");

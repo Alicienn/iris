@@ -139,9 +139,35 @@ component RemoteContentBanner inherits Rectangle {
 
         Rectangle {}
 
-        Button {
-            text: "Show";
-            clicked => { root.load-images(); }
+        // The theme's accent, not the platform's button. A stock Button here brought
+        // the operating system's own blue into a window that has exactly one colour,
+        // and it is the only control in the reading pane that did.
+        Rectangle {
+            width: 62px;
+            height: 22px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Tokens.radius-small;
+            background: montrer.has-hover
+                ? Tokens.accent
+                : Tokens.accent.transparentize(0.12);
+            animate background { duration: Tokens.instant; }
+
+            accessible-role: button;
+            accessible-label: "Show the remote images in this message";
+            accessible-action-default => { root.load-images(); }
+
+            Text {
+                text: "Show";
+                font-size: Tokens.size-small;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.accent-text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            montrer := TouchArea {
+                clicked => { root.load-images(); }
+            }
         }
     }
 }

@@ -25,6 +25,10 @@ export struct AccountRowData {
     id: int,
     label: string,
     count: int,
+    // The count as it is shown, and the count in full for the hover. Both are
+    // formatted in Rust: a list row must not do arithmetic while it scrolls.
+    count-label: string,
+    count-full: string,
     pinned: bool,
     // Le compte est suspendu et attend une intervention.
     needs-attention: bool,

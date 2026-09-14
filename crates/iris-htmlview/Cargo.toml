@@ -8,8 +8,13 @@ license.workspace = true
 [features]
 # Le moteur HTML complet. Optionnel : il tire une pile graphique entière, et
 # l'application reste pleinement fonctionnelle sans lui.
-default = ["blitz"]
+default = ["blitz", "remote-images"]
 blitz = ["dep:blitz-dom", "dep:blitz-html", "dep:blitz-paint", "dep:blitz-traits", "dep:anyrender", "dep:anyrender_vello"]
+# Aller chercher les images distantes quand le lecteur le demande. Séparé de
+# « blitz » parce que c'est la seule chose de tout le programme de rendu qui
+# touche au réseau, et qu'une compilation qui ne peut pas en sortir se
+# vérifie plus facilement qu'une promesse de ne pas le faire.
+remote-images = ["dep:reqwest"]
 
 [dependencies]
 iris-types = { workspace = true }
@@ -24,3 +29,4 @@ blitz-traits = { version = "0.2", optional = true }
 # elles ; les melanger produit deux traits « PaintScene » incompatibles.
 anyrender = { version = "0.6", optional = true }
 anyrender_vello = { version = "0.6", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"], optional = true }

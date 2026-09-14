@@ -26,8 +26,12 @@ export component Glass inherits Rectangle {
     in property <length> radius: Tokens.radius-medium;
 
     border-radius: root.radius;
+    // A fixed panel is translucent because it sits on our own backdrop and the halo
+    // behind it is worth seeing. A floating one is opaque because it sits on the
+    // application, and a nine-percent wash over a message list is not a panel, it is
+    // a smear — which is what the settings window and the context menu were.
     background: root.floating
-        ? Tokens.surface-high.mix(Tokens.background, 0.35)
+        ? Tokens.panel
         : (root.elevated ? Tokens.surface-high : Tokens.surface);
 
     // L'arête lumineuse : un liseré d'un pixel sur tout le contour, plus clair en
@@ -37,10 +41,17 @@ export component Glass inherits Rectangle {
     border-color: Tokens.border;
 
     // Le grain, tuilé. Coût nul : une texture de 64 pixels de côté, répétée.
+    //
+    // `tile` and not `preserve`. Preserve keeps the aspect ratio and centres what it
+    // cannot fill, so a 64-pixel square in a tall panel drew one 64-pixel square in
+    // the middle of it and nothing anywhere else — the grey patch that hovered above
+    // "Nothing to do" was this, and it was on every empty panel in the application.
     Image {
         source: @image-url("../assets/grain.png");
-        image-fit: preserve;
+        image-fit: fill;
         image-rendering: pixelated;
+        vertical-tiling: repeat;
+        horizontal-tiling: repeat;
         width: 100%;
         height: 100%;
         opacity: Tokens.grain;

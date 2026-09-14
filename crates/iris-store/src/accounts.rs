@@ -29,6 +29,22 @@ const ACCOUNT_COLUMNS: &str = "id, email, display_name, imap_host, imap_port, im
      smtp_host, smtp_port, smtp_tls, auth_kind, group_name, pinned, enabled, \
      created_at, last_activity_at";
 
+/// Ce qu'un compte sait de ses serveurs.
+///
+/// Groupé plutôt que passé en huit arguments : sept d'entre eux sont des chaînes et
+/// des nombres du même type, et une paire échangée entre IMAP et SMTP compile sans
+/// bruit et casse la boîte à la synchronisation suivante.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountServers {
+    pub email: String,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub imap_tls: bool,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_tls: bool,
+}
+
 impl Store {
     /// Crée un compte. L'adresse est unique : une seconde tentative est refusée
     /// plutôt que de créer un doublon silencieux.
@@ -115,6 +131,37 @@ impl Store {
 
     pub fn set_account_enabled(&self, id: AccountId, enabled: bool) -> Result<()> {
         self.update_account_field(id, "enabled", enabled as i64)
+    }
+
+    /// Réécrit l'adresse et les serveurs d'un compte existant.
+    ///
+    /// Rewriting rather than deleting and recreating: an account carries its folders,
+    /// its messages and its workflow states, and a provider changing its server names
+    /// must not cost the user their mailbox history. The identifier survives, so
+    /// everything that points at it survives too.
+    pub fn update_account_servers(&self, id: AccountId, servers: &AccountServers) -> Result<()> {
+        self.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE accounts SET email = ?1, imap_host = ?2, imap_port = ?3, \
+                     imap_tls = ?4, smtp_host = ?5, smtp_port = ?6, smtp_tls = ?7 WHERE id = ?8",
+                    params![
+                        servers.email,
+                        servers.imap_host,
+                        servers.imap_port as i64,
+                        servers.imap_tls as i64,
+                        servers.smtp_host,
+                        servers.smtp_port as i64,
+                        servers.smtp_tls as i64,
+                        id.get()
+                    ],
+                )
+                .map_err(|e| sql_err("mise à jour des serveurs", e))?;
+            if n == 0 {
+                return Err(Error::store(format!("compte {id} introuvable")));
+            }
+            Ok(())
+        })
     }
 
     pub fn touch_account(&self, id: AccountId, now: Timestamp) -> Result<()> {

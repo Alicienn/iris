@@ -72,6 +72,15 @@ pub struct Snapshot {
     /// La recherche en cours, s'il y en a une. Les lignes en sont alors issues, et
     /// les compteurs d'onglets continuent de décrire les files, pas les résultats.
     pub search: Option<SearchSummary>,
+    /// What went wrong with the last request, if anything did.
+    ///
+    /// An action that fails has to say so. This was a `tracing::error!` and nothing
+    /// else, which in a release build with no console means the button simply did
+    /// nothing — and a button that does nothing is indistinguishable from a button
+    /// that is not wired up. The user cannot tell "your server has no Trash folder"
+    /// from "we forgot to implement this", and both look like the application is
+    /// broken.
+    pub error: Option<String>,
 }
 
 /// Ce que l'interface doit dire de la recherche en cours.
@@ -168,8 +177,14 @@ fn run(
             Ok(true) => on_snapshot(snapshot(&vm, &store)),
             Ok(false) => {}
             // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
-            // resterait figée sans explication.
-            Err(e) => tracing::error!(error = %e, "vue-modèle"),
+            // resterait figée sans explication. It is also carried out to the status
+            // bar, so the explanation reaches the person rather than the log file.
+            Err(e) => {
+                tracing::error!(error = %e, "vue-modèle");
+                let mut instantane = snapshot(&vm, &store);
+                instantane.error = Some(e.to_string());
+                on_snapshot(instantane);
+            }
         }
     }
 }
@@ -264,6 +279,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
     };
 
     Snapshot {
+        error: None,
         rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),
         active_tab: vm.active_tab(),

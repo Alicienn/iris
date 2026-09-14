@@ -134,7 +134,7 @@ export component ComposePanel inherits Rectangle {
 
     // The veil fades out as the window shrinks: a minimised draft must not keep the
     // rest of the application behind glass.
-    background: root.minimised ? transparent : #00000066;
+    background: root.minimised ? transparent : Tokens.scrim;
     animate background { duration: Tokens.moderate; easing: ease-in-out; }
 
     if !root.minimised: TouchArea {

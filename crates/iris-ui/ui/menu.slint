@@ -1,0 +1,96 @@
+import { Tokens } from "tokens.slint";
+import { Icon, Icons } from "icons.slint";
+
+// One line of a context menu.
+//
+// Shared by the message list and the accounts column rather than copied into each.
+// Two menus that drift apart in padding, hover colour and icon size read as two
+// applications, and the drift is invisible until they are seen side by side.
+export component MenuEntry inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> danger;
+
+    callback activated();
+
+    height: 26px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.activated(); }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 14px;
+            tint: root.danger && touch.has-hover ? Tokens.error : Tokens.text-muted;
+        }
+        Text {
+            text: root.label;
+            font-size: Tokens.size-small;
+            color: root.danger && touch.has-hover ? Tokens.error : Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {}
+        if root.shortcut != "": Text {
+            text: root.shortcut;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.activated(); }
+    }
+}
+
+// A thin rule between groups of entries.
+export component MenuSeparator inherits Rectangle {
+    height: 1px;
+    background: Tokens.border;
+}
+
+// The plate a menu is drawn on.
+//
+// Opaque, and that is the whole point of it existing. Every floating menu in the
+// application was painted on a nine-percent white wash, which over a message list
+// means the list showed through the labels and neither could be read.
+export component MenuSurface inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <length> menu-width: 200px;
+    in property <length> menu-height;
+    // The room the menu has. Passed in rather than read off the parent: the root of a
+    // component cannot see what it was placed inside.
+    in property <length> available-width;
+    in property <length> available-height;
+
+    // Kept inside the window: a menu opened near an edge must not fall off it.
+    x: max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
+    y: max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px));
+    width: root.menu-width;
+    height: root.menu-height;
+    border-radius: Tokens.radius-medium;
+    background: Tokens.panel-high;
+    border-width: 1px;
+    border-color: Tokens.border-strong;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: #000000aa;
+    drop-shadow-offset-y: 6px;
+
+    // Swallows clicks, so choosing an item does not also hit the veil behind it.
+    TouchArea {}
+
+    @children
+}

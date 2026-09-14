@@ -1,6 +1,7 @@
 import { Tokens } from "tokens.slint";
 import { Floating } from "glass.slint";
 import { ThemeSwatchData } from "types.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
 import { CheckBox, SpinBox } from "std-widgets.slint";
 
 // Un intitulé de section.
@@ -14,47 +15,75 @@ component GroupLabel inherits Text {
 //
 // Une liste déroulante cacherait les options ; ici il y en a trois ou quatre, et
 // les montrer toutes coûte moins cher qu'un clic pour découvrir ce qui existe.
-component ChipRow inherits HorizontalLayout {
+component ChipRow inherits Rectangle {
     in property <[string]> options;
     in property <int> selected;
 
     callback chosen(int);
 
-    spacing: Tokens.space-1;
+    height: 30px;
 
-    for label[i] in root.options: Rectangle {
-        height: 26px;
-        border-radius: 99px;
+    // The same plate the To do / Waiting / Done tabs sit on, and the same corner
+    // radius on the chips. They were 99-pixel lozenges floating on nothing, which is
+    // a different control answering the same kind of question two panels apart.
+    Rectangle {
+        width: rang.preferred-width + 6px;
+        height: 30px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface-low;
+        border-width: 1px;
+        border-color: Tokens.border;
 
-        accessible-role: tab;
-        accessible-label: label;
-        accessible-item-selected: root.selected == i;
-        accessible-action-default => { root.chosen(i); }
-
-        background: root.selected == i
-            ? Tokens.accent
-            : (touch.has-hover ? Tokens.surface-hover : Tokens.surface);
-        animate background { duration: Tokens.instant; }
-
-        HorizontalLayout {
-            padding-left: Tokens.space-3;
-            padding-right: Tokens.space-3;
-
-            Text {
-                text: label;
-                font-size: Tokens.size-small;
-                font-weight: root.selected == i ? Tokens.weight-bold : Tokens.weight-body;
-                color: root.selected == i ? Tokens.accent-text : Tokens.text-secondary;
-                vertical-alignment: center;
-            }
-        }
-
-        touch := TouchArea {
-            clicked => { root.chosen(i); }
+        Rectangle {
+            y: 1px;
+            height: 12px;
+            width: 100%;
+            border-top-left-radius: Tokens.radius-medium;
+            border-top-right-radius: Tokens.radius-medium;
+            background: @linear-gradient(180deg,
+                Tokens.edge-light.transparentize(0.82) 0%,
+                Tokens.edge-light.transparentize(1.0) 100%);
         }
     }
 
-    Rectangle {}
+    rang := HorizontalLayout {
+        x: 3px;
+        y: 3px;
+        height: 24px;
+        spacing: 2px;
+
+        for label[i] in root.options: Rectangle {
+            height: 24px;
+            border-radius: Tokens.radius-small;
+
+            accessible-role: tab;
+            accessible-label: label;
+            accessible-item-selected: root.selected == i;
+            accessible-action-default => { root.chosen(i); }
+
+            background: root.selected == i
+                ? Tokens.accent
+                : (touch.has-hover ? Tokens.surface-hover : Tokens.surface);
+            animate background { duration: Tokens.instant; }
+
+            HorizontalLayout {
+                padding-left: Tokens.space-3;
+                padding-right: Tokens.space-3;
+
+                Text {
+                    text: label;
+                    font-size: Tokens.size-small;
+                    font-weight: root.selected == i ? Tokens.weight-bold : Tokens.weight-body;
+                    color: root.selected == i ? Tokens.accent-text : Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+
+            touch := TouchArea {
+                clicked => { root.chosen(i); }
+            }
+        }
+    }
 }
 
 // The theme picker.
@@ -166,7 +195,7 @@ export component SettingsPanel inherits Rectangle {
     callback automation-changed();
     callback dismissed();
 
-    background: #00000066;
+    background: Tokens.scrim;
 
     TouchArea {
         clicked => { root.dismissed(); }
@@ -197,27 +226,13 @@ export component SettingsPanel inherits Rectangle {
 
                 Rectangle {}
 
-                Rectangle {
-                    width: 24px;
-                    height: 24px;
-                    border-radius: Tokens.radius-small;
-                    background: fermer.has-hover ? Tokens.surface-hover : transparent;
-
-                    accessible-role: button;
-                    accessible-label: "Close settings";
-                    accessible-action-default => { root.dismissed(); }
-
-                    Text {
-                        text: "✕";
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-muted;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    fermer := TouchArea {
-                        clicked => { root.dismissed(); }
-                    }
+                IconButton {
+                    icon: Icons.window-close;
+                    label: "Close settings";
+                    shortcut: "Esc";
+                    button-size: 26px;
+                    icon-size: 14px;
+                    clicked => { root.dismissed(); }
                 }
             }
 
@@ -262,8 +277,13 @@ export component SettingsPanel inherits Rectangle {
                 toggled => { root.automation-changed(); }
             }
 
+            // A row, not a block. Inside a vertical layout every child stretches
+            // unless it is told not to, and a spin box given a hundred pixels of
+            // height is a box with a number lost in the middle of it.
             if root.follow-up-enabled: HorizontalLayout {
                 spacing: Tokens.space-2;
+                vertical-stretch: 0;
+                height: 30px;
 
                 Text {
                     text: "After";
@@ -273,6 +293,8 @@ export component SettingsPanel inherits Rectangle {
                 }
 
                 SpinBox {
+                    width: 92px;
+                    height: 30px;
                     minimum: 1;
                     maximum: 365;
                     value <=> root.follow-up-days;

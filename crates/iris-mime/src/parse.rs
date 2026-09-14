@@ -49,6 +49,14 @@ impl Parsed {
 
 /// Analyse un message brut au format RFC 5322.
 pub fn parse(raw: &[u8]) -> iris_types::Result<Parsed> {
+    parse_with(raw, false)
+}
+
+/// Le même analyseur, en laissant passer les images distantes.
+///
+/// Réservé au moment où le lecteur a demandé à les voir. Le défaut reste le blocage :
+/// une image distante est une confirmation de lecture envoyée à l'expéditeur.
+pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<Parsed> {
     let message = MessageParser::default()
         .parse(raw)
         .ok_or_else(|| iris_types::Error::parse("message illisible"))?;
@@ -87,7 +95,9 @@ pub fn parse(raw: &[u8]) -> iris_types::Result<Parsed> {
             .then(|| part.text_contents().map(str::to_string))
             .flatten()
     });
-    let html_body = message.body_html(0).map(|c| sanitize::sanitize(&c));
+    let html_body = message
+        .body_html(0)
+        .map(|c| sanitize::sanitize_with(&c, allow_remote_images));
 
     let attachments: Vec<AttachmentMeta> = message
         .attachments()

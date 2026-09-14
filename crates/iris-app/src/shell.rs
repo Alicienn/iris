@@ -92,7 +92,10 @@ pub fn refresh_accounts(
 
     fenetre.set_pinned_accounts(vers_modele(epingles));
     fenetre.set_other_accounts(vers_modele(autres));
-    fenetre.set_unified_count(a_traiter.values().sum::<u32>() as i32);
+    let total: u32 = a_traiter.values().sum();
+    fenetre.set_unified_count(total as i32);
+    fenetre.set_unified_label(iris_ui::format::short_count(total as u64).into());
+    fenetre.set_unified_full(iris_ui::format::grouped_count(total as u64).into());
 
     if let Some(message) = message_suspension(&comptes, &suspendus) {
         fenetre.set_status(message.into());
@@ -615,6 +618,12 @@ pub fn apply_snapshot(
         .map(|r| bridge::thread_row(r, &adresse_par_defaut, maintenant))
         .collect();
 
+    // An action that failed says so where the user is looking, and stays there until
+    // the next thing happens. Silence is the one answer a button must never give.
+    if let Some(probleme) = &snapshot.error {
+        fenetre.set_status(probleme.as_str().into());
+    }
+
     fenetre.set_rows(ModelRc::new(VecModel::from(lignes)));
     fenetre.set_selected_thread(snapshot.selected.map(|t| t.get() as i32).unwrap_or(-1));
     fenetre.set_active_tab(snapshot.active_tab.as_i64() as i32);
@@ -625,10 +634,26 @@ pub fn apply_snapshot(
             .map(|c| *c as i32)
             .collect::<Vec<_>>(),
     )));
+    fenetre.set_count_labels(ModelRc::new(VecModel::from(
+        snapshot
+            .counts
+            .iter()
+            .map(|c| slint::SharedString::from(iris_ui::format::short_count(*c as u64)))
+            .collect::<Vec<_>>(),
+    )));
+    fenetre.set_count_fulls(ModelRc::new(VecModel::from(
+        snapshot
+            .counts
+            .iter()
+            .map(|c| slint::SharedString::from(iris_ui::format::grouped_count(*c as u64)))
+            .collect::<Vec<_>>(),
+    )));
     // La vue unifiée compte la file de travail, comme les lignes de comptes.
     fenetre.set_unified_count(snapshot.counts[0] as i32);
     fenetre.set_pending_ops(snapshot.pending_ops as i32);
     fenetre.set_spam_count(snapshot.spam_count as i32);
+    fenetre.set_spam_label(iris_ui::format::short_count(snapshot.spam_count as u64).into());
+    fenetre.set_spam_full(iris_ui::format::grouped_count(snapshot.spam_count as u64).into());
 
     // What the toolbar's two toggles should say. Taken from the row rather than the
     // message, because both are properties of the conversation as the list shows it.
@@ -660,7 +685,8 @@ pub fn apply_snapshot(
     }
 
     if let Some(message) = snapshot.messages.last() {
-        let corps = corps_du_message(services, renderer, message);
+        let montrer = images_shown().contains(&message.id.get());
+        let corps = corps_du_message(services, renderer, message, montrer);
         // Les pièces incrustées sont écartées : une image de signature n'est pas un
         // document reçu, et la lister ferait chercher un fichier qui n'existe pas.
         let pieces: Vec<String> = services
@@ -674,6 +700,72 @@ pub fn apply_snapshot(
             message, &corps, &pieces, maintenant,
         ));
     }
+}
+
+/// Les messages dont le lecteur a accepté le contenu distant.
+///
+/// Per message, and only for this session. A blanket "always show images" setting is
+/// the one thing this list must never become: the point of blocking them is that a
+/// remote image is a read receipt sent to whoever wrote to you, and a permanent
+/// exception hands that back for every message that follows.
+fn images_shown() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<i64>> {
+    static MONTRES: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<i64>>> =
+        std::sync::OnceLock::new();
+    MONTRES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Wires the "Show" button on the blocked-content banner.
+///
+/// The banner has been telling people images were blocked, and offering a button that
+/// was declared in the interface and connected to nothing in Rust. Saying "N images
+/// blocked" beside a control that does nothing is worse than not mentioning it.
+pub fn wire_remote_images(
+    fenetre: &AppWindow,
+    services: Services,
+    renderer: Arc<dyn iris_htmlview::HtmlRenderer>,
+) {
+    let faible = fenetre.as_weak();
+
+    fenetre.on_load_images(move || {
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        let fil = fenetre.get_selected_thread();
+        if fil < 0 {
+            return;
+        }
+
+        let messages = services
+            .store
+            .thread_messages(iris_types::ThreadId(fil as i64))
+            .unwrap_or_default();
+        let Some(message) = messages.last() else {
+            return;
+        };
+
+        images_shown().insert(message.id.get());
+
+        // Redrawn here rather than through the view-model: nothing about the thread
+        // has changed, only what we are willing to render of it, and asking the
+        // view-model for a fresh snapshot would rebuild a list to repaint one panel.
+        let corps = corps_du_message(&services, renderer.as_ref(), message, true);
+        let pieces: Vec<String> = services
+            .store
+            .visible_attachments(message.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.meta.filename)
+            .collect();
+        fenetre.set_message(bridge::message_view_rendered(
+            message,
+            &corps,
+            &pieces,
+            now(),
+        ));
+    });
 }
 
 /// Construit le moteur de rendu des corps de message.
@@ -705,6 +797,7 @@ fn corps_du_message(
     services: &Services,
     renderer: &dyn iris_htmlview::HtmlRenderer,
     message: &iris_store::StoredMessage,
+    allow_remote: bool,
 ) -> iris_htmlview::Rendered {
     let apercu = || {
         iris_htmlview::Rendered::Blocks(iris_htmlview::RichText {
@@ -729,7 +822,7 @@ fn corps_du_message(
     // sanitiser instead — which is what happened here for far too long — puts
     // `Return-Path`, every `Received` hop and the DKIM signature on screen where the
     // message should be.
-    let analyse = match iris_mime::parse(&brut) {
+    let analyse = match iris_mime::parse_with(&brut, allow_remote) {
         Ok(analyse) => analyse,
         Err(e) => {
             tracing::warn!(error = %e, "could not parse the message");
@@ -747,7 +840,7 @@ fn corps_du_message(
         (None, None) => return apercu(),
     };
 
-    renderer.render(&html, 800.0).unwrap_or_else(|e| {
+    renderer.render_with(&html, 800.0, allow_remote).unwrap_or_else(|e| {
         tracing::warn!(error = %e, "rendering the body failed");
         apercu()
     })
@@ -1123,6 +1216,29 @@ pub fn wire_account_setup(
     runtime: tokio::runtime::Handle,
 ) {
     let oauth_reglages = Arc::clone(&services.oauth);
+
+    // The panel is closed by the interface, which cannot know that leaving it in edit
+    // mode would make the next "Add an account" silently overwrite the last one it
+    // edited. So closing resets the mode, here, once.
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_add_account_dismissed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_add_account_open(false);
+            fenetre.set_add_account_editing(false);
+            fenetre.set_add_account_manual(false);
+            fenetre.set_add_account_error(Default::default());
+            fenetre.set_add_account_hint(Default::default());
+            fenetre.set_new_email(Default::default());
+            fenetre.set_new_password(Default::default());
+            fenetre.set_new_imap_host(Default::default());
+            fenetre.set_new_imap_port(Default::default());
+            fenetre.set_new_smtp_host(Default::default());
+            fenetre.set_new_smtp_port(Default::default());
+        });
+    }
     // --- Passer à la main sans attendre l'échec ---
     {
         let faible = fenetre.as_weak();
@@ -1150,6 +1266,44 @@ pub fn wire_account_setup(
             };
             let email = fenetre.get_new_email().to_string();
             let motdepasse = fenetre.get_new_password().to_string();
+
+            // On an account that already exists, this button means "save the new
+            // password". There is nothing to discover: the servers are known, they
+            // work, and rerunning discovery on them could only replace a correct
+            // configuration with a guessed one.
+            if fenetre.get_add_account_editing() {
+                let Some(id) = store.account_by_email(&email).ok().flatten().map(|c| c.id) else {
+                    fenetre.set_add_account_error(
+                        "Changing the address needs the manual screen.".into(),
+                    );
+                    prefill_manual(&fenetre);
+                    return;
+                };
+                if motdepasse.is_empty() {
+                    fenetre.set_add_account_error("Enter the new password.".into());
+                    return;
+                }
+                match secrets.set(
+                    &email,
+                    iris_secrets::SecretKind::Password,
+                    &iris_secrets::Secret::new(motdepasse),
+                ) {
+                    Ok(()) => {
+                        fenetre.invoke_add_account_dismissed();
+                        fenetre.set_status("Password saved.".into());
+                        let engine = Arc::clone(&engine);
+                        runtime_ajout.spawn(async move {
+                            engine.resume_account(id, now()).await;
+                            if let Err(e) = engine.sync_now(id, now()).await {
+                                tracing::warn!(error = %e, "sync after the password changed");
+                            }
+                        });
+                    }
+                    Err(e) => fenetre
+                        .set_add_account_error(format!("Could not save the password: {e}").into()),
+                }
+                return;
+            }
 
             // Le mot de passe n'est exigé qu'après la découverte : un compte Google
             // n'en a pas, et le réclamer d'avance apprendrait à l'utilisateur à
@@ -1228,7 +1382,15 @@ pub fn wire_account_setup(
             let email = fenetre.get_new_email().to_string();
             let motdepasse = fenetre.get_new_password().to_string();
 
-            if let Err(message) = valider_saisie(&email, &motdepasse) {
+            // Editing an existing account may leave the password alone: the reason to
+            // open this screen is often a hostname, and demanding a password to change
+            // a hostname teaches people to retype working passwords.
+            let verification = if fenetre.get_add_account_editing() {
+                valider_adresse(&email)
+            } else {
+                valider_saisie(&email, &motdepasse)
+            };
+            if let Err(message) = verification {
                 fenetre.set_add_account_error(message.into());
                 return;
             }
@@ -1240,6 +1402,49 @@ pub fn wire_account_setup(
                     return;
                 }
             };
+
+            // Editing rewrites the account in place. Removing and re-adding it would
+            // be simpler to write and would throw away every message, folder and
+            // workflow state attached to the old identifier — a hostname typo would
+            // cost the user their mailbox.
+            if fenetre.get_add_account_editing() {
+                let Some(id) = store
+                    .account_by_email(&email)
+                    .ok()
+                    .flatten()
+                    .map(|c| c.id)
+                    .or_else(|| editing_id(&store, &fenetre))
+                else {
+                    fenetre.set_add_account_error("That account no longer exists.".into());
+                    return;
+                };
+
+                match crate::accounts::update_account_manual(
+                    &store,
+                    secrets.as_ref(),
+                    id,
+                    &config,
+                    Some(motdepasse.as_str()).filter(|p| !p.is_empty()),
+                    now(),
+                ) {
+                    Ok(()) => {
+                        fenetre.invoke_add_account_dismissed();
+                        fenetre.set_status(format!("{} updated.", config.email).into());
+                        refresh_accounts(&fenetre, &services_ui, &[]);
+                        controller.send(Request::Bootstrap);
+
+                        let engine = Arc::clone(&engine);
+                        runtime_manuel.spawn(async move {
+                            if let Err(e) = engine.load_accounts(now()).await {
+                                tracing::warn!(error = %e, "reloading the edited account");
+                            }
+                        });
+                    }
+                    Err(e) => fenetre
+                        .set_add_account_error(format!("Could not save the account: {e}").into()),
+                }
+                return;
+            }
 
             match crate::accounts::add_account_manual(
                 &store,
@@ -1366,6 +1571,21 @@ fn prefill_manual(fenetre: &AppWindow) {
         fenetre.set_new_smtp_host(defauts.smtp_host.as_str().into());
         fenetre.set_new_smtp_port(defauts.smtp_port.to_string().into());
     }
+}
+
+/// The account the edit screen is working on, when its address has been changed.
+///
+/// Looked up by the servers rather than the address, because the address is exactly
+/// what may have just been retyped. Two accounts on the same host and port are the
+/// same mailbox as far as this screen is concerned.
+fn editing_id(store: &iris_store::Store, fenetre: &AppWindow) -> Option<iris_types::AccountId> {
+    let hote = fenetre.get_new_imap_host().trim().to_lowercase();
+    store
+        .accounts()
+        .ok()?
+        .into_iter()
+        .find(|c| c.imap_host.to_lowercase() == hote)
+        .map(|c| c.id)
 }
 
 /// Vérifie l'adresse, sans réseau.
@@ -1647,6 +1867,229 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
             ));
         });
     }
+}
+
+/// Wires the menu a right-click on an account opens.
+///
+/// Everything here already existed and none of it was reachable from the row it
+/// applies to. Changing a password meant waiting for the mailbox to fail so the
+/// warning marker would appear — the application asked people to break something
+/// before it would let them fix it.
+pub fn wire_account_menu(
+    fenetre: &AppWindow,
+    services: &Services,
+    controller: Arc<Controller>,
+    runtime: tokio::runtime::Handle,
+) {
+    // Which row the menu belongs to. Held here and not in the interface because the
+    // menu outlives the click that opened it, and the row underneath may scroll away.
+    let sujet: Arc<std::sync::Mutex<Option<iris_types::AccountId>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    let courant = {
+        let sujet = Arc::clone(&sujet);
+        let services = services.clone();
+        move || -> Option<iris_store::Account> {
+            let id = (*sujet.lock().expect("poisoned account menu"))?;
+            services.store.account(id).ok().flatten()
+        }
+    };
+
+    // --- Opening it ---
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_account_menu_requested(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let compte = iris_types::AccountId(id as i64);
+            *sujet.lock().expect("poisoned account menu") = Some(compte);
+
+            let Some(details) = services.store.account(compte).ok().flatten() else {
+                return;
+            };
+
+            fenetre.set_account_menu_label(details.email.as_str().into());
+            fenetre.set_account_menu_pinned(details.pinned);
+            fenetre.set_account_menu_enabled(details.enabled);
+            fenetre.set_account_menu_open(true);
+        });
+    }
+
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_dismissed(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_account_menu_open(false);
+            }
+        });
+    }
+
+    // --- Sync this one now ---
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let runtime_sync = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_account_menu_sync(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(compte) = *sujet.lock().expect("poisoned account menu") else {
+                return;
+            };
+
+            let engine = Arc::clone(&services.engine);
+            let faible = fenetre.as_weak();
+            runtime_sync.spawn(async move {
+                let resultat = engine.sync_now(compte, now()).await;
+                let _ = faible.upgrade_in_event_loop(move |fenetre| match resultat {
+                    Ok(n) => fenetre.set_status(format!("{n} new message(s).").into()),
+                    Err(e) => fenetre.set_status(format!("Sync failed: {e}").into()),
+                });
+            });
+        });
+    }
+
+    // --- Edit the servers, or just the password ---
+    //
+    // Both open the same screen. The difference is which field is waiting for you:
+    // a password change is the common case and should not require reading past six
+    // hostname fields to find the one box that matters.
+    {
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_edit(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+            prefill_from_account(&fenetre, &details, true);
+        });
+    }
+    {
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_password(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+            // Not the manual form: the short screen is one address and one password,
+            // which is exactly the shape of "my password changed". The servers are
+            // already known and correct, and showing them invites editing them by
+            // accident.
+            prefill_from_account(&fenetre, &details, false);
+            fenetre
+                .set_add_account_hint("Enter the new password. The servers are unchanged.".into());
+        });
+    }
+
+    // --- Pin, disable, remove ---
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_pin(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+            match services.store.set_account_pinned(details.id, !details.pinned) {
+                Ok(()) => refresh_accounts(&fenetre, &services, &[]),
+                Err(e) => fenetre.set_status(format!("Could not pin it: {e}").into()),
+            }
+        });
+    }
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_enable(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+            let allume = !details.enabled;
+            match services.store.set_account_enabled(details.id, allume) {
+                Ok(()) => {
+                    let mot = if allume { "enabled" } else { "disabled" };
+                    fenetre.set_status(format!("{} {mot}.", details.email).into());
+                    refresh_accounts(&fenetre, &services, &[]);
+                }
+                Err(e) => fenetre.set_status(format!("Could not change it: {e}").into()),
+            }
+        });
+    }
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_remove(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+
+            match crate::accounts::remove_account(
+                &services.store,
+                services.secrets.as_ref(),
+                details.id,
+            ) {
+                Ok(_) => {
+                    fenetre.set_status(format!("{} removed.", details.email).into());
+                    refresh_accounts(&fenetre, &services, &[]);
+                    controller.send(Request::Bootstrap);
+                }
+                Err(e) => fenetre.set_status(format!("Could not remove it: {e}").into()),
+            }
+        });
+    }
+}
+
+/// Opens the setup screen on an account that already exists.
+fn prefill_from_account(fenetre: &AppWindow, compte: &iris_store::Account, manual: bool) {
+    fenetre.set_add_account_editing(true);
+    fenetre.set_add_account_manual(manual);
+    fenetre.set_add_account_error(Default::default());
+    fenetre.set_add_account_hint(if manual {
+        "Change what has moved. What you leave alone stays as it is.".into()
+    } else {
+        slint::SharedString::new()
+    });
+    fenetre.set_new_email(compte.email.as_str().into());
+    // Never prefilled, and never read back out of the vault to show. A password field
+    // that arrives full teaches the user that the application can hand their password
+    // to whatever asks for it.
+    fenetre.set_new_password(Default::default());
+    fenetre.set_new_imap_host(compte.imap_host.as_str().into());
+    fenetre.set_new_imap_port(compte.imap_port.to_string().into());
+    fenetre.set_new_imap_tls(compte.imap_tls);
+    fenetre.set_new_smtp_host(compte.smtp_host.as_str().into());
+    fenetre.set_new_smtp_port(compte.smtp_port.to_string().into());
+    fenetre.set_new_smtp_tls(compte.smtp_tls);
+    fenetre.set_add_account_open(true);
 }
 
 /// Wires the account-problem panel behind the sidebar's warning marker.

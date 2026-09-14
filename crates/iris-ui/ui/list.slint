@@ -2,6 +2,7 @@ import { Tokens } from "tokens.slint";
 import { ThreadRowData } from "types.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 
 // Une ligne de la liste.
 //
@@ -88,31 +89,37 @@ component ThreadRow inherits Rectangle {
 
                 Rectangle {} // pousse la suite à droite
 
-                if root.data.flagged: Text {
-                    text: "◆";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-secondary;
-                    vertical-alignment: center;
+                // Drawn, not typed. These four were "◆▣◉⏱" — characters that exist
+                // in Unicode and in almost no interface font, so what appeared next
+                // to the date was whatever the fallback had, and where it had
+                // nothing, an empty box. A starred thread showed a lozenge because
+                // the lozenge is the one of the four that Inter happens to carry.
+                if root.data.flagged: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.star;
+                    size: 13px;
+                    filled: true;
+                    tint: Tokens.warning;
                 }
-                if root.data.has-attachment: Text {
-                    text: "▣";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
+                if root.data.has-attachment: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.paperclip;
+                    size: 13px;
+                    tint: Tokens.text-muted;
                 }
                 // Le traqueur se signale par la forme, pas par la couleur : le thème
                 // par défaut n'en a pas.
-                if root.data.has-tracker: Text {
-                    text: "◉";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
+                if root.data.has-tracker: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.eye;
+                    size: 13px;
+                    tint: Tokens.text-muted;
                 }
-                if root.data.snoozed: Text {
-                    text: "⏱";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
+                if root.data.snoozed: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.clock;
+                    size: 13px;
+                    tint: Tokens.text-muted;
                 }
 
                 Text {
@@ -162,56 +169,6 @@ component ThreadRow inherits Rectangle {
     }
 }
 
-// One line of the context menu.
-component MenuEntry inherits Rectangle {
-    in property <string> icon;
-    in property <string> label;
-    in property <string> shortcut;
-    in property <bool> danger;
-
-    callback activated();
-
-    height: 26px;
-    border-radius: Tokens.radius-small;
-    background: touch.has-hover ? Tokens.surface-hover : transparent;
-
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-description: root.shortcut;
-    accessible-action-default => { root.activated(); }
-
-    HorizontalLayout {
-        padding-left: Tokens.space-2;
-        padding-right: Tokens.space-2;
-        spacing: Tokens.space-2;
-
-        Icon {
-            y: (parent.height - self.height) / 2;
-            data: root.icon;
-            size: 14px;
-            tint: root.danger && touch.has-hover ? Tokens.error : Tokens.text-muted;
-        }
-        Text {
-            text: root.label;
-            font-size: Tokens.size-small;
-            color: root.danger && touch.has-hover ? Tokens.error : Tokens.text;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        Rectangle {}
-        if root.shortcut != "": Text {
-            text: root.shortcut;
-            font-size: Tokens.size-small;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
-        }
-    }
-
-    touch := TouchArea {
-        clicked => { root.activated(); }
-    }
-}
-
 // The menu a right-click opens.
 //
 // It carries the same actions as the reading toolbar and the same shortcuts, because
@@ -239,22 +196,13 @@ export component ThreadContextMenu inherits Rectangle {
         clicked => { root.dismissed(); }
     }
 
-    Rectangle {
-        // Kept inside the window: a menu opened near an edge must not fall off it.
-        x: min(root.menu-x, root.width - self.width - 8px);
-        y: min(root.menu-y, root.height - self.height - 8px);
-        width: 200px;
-        height: entries.preferred-height + 8px;
-        border-radius: Tokens.radius-medium;
-        background: Tokens.surface-high;
-        border-width: 1px;
-        border-color: Tokens.border-strong;
-        drop-shadow-blur: 24px;
-        drop-shadow-color: #00000066;
-        drop-shadow-offset-y: 6px;
-
-        // Swallows clicks, so choosing an item does not also hit the veil behind it.
-        TouchArea {}
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 210px;
+        menu-height: entries.preferred-height + 8px;
 
         entries := VerticalLayout {
             padding: 4px;
@@ -283,7 +231,7 @@ export component ThreadContextMenu inherits Rectangle {
                 activated => { root.snooze(); root.dismissed(); }
             }
 
-            Rectangle { height: 1px; background: Tokens.border; }
+            MenuSeparator {}
 
             MenuEntry {
                 icon: root.unread ? Icons.envelope-open : Icons.envelope-closed;
@@ -298,7 +246,7 @@ export component ThreadContextMenu inherits Rectangle {
                 activated => { root.toggle-star(); root.dismissed(); }
             }
 
-            Rectangle { height: 1px; background: Tokens.border; }
+            MenuSeparator {}
 
             MenuEntry {
                 icon: Icons.trash;
@@ -315,7 +263,14 @@ export component ThreadContextMenu inherits Rectangle {
 export component StateTabs inherits HorizontalLayout {
     in property <int> active;
     in property <[int]> counts;
+    // The same counts twice: short enough for the pill, and exact for the hover.
+    // "1.2k" is what a tab can hold; "1 250" is what someone checking actually wants,
+    // and making them choose between the two is what a tooltip is for.
+    in property <[string]> count-labels;
+    in property <[string]> count-fulls;
     in property <int> spam-count;
+    in property <string> spam-label;
+    in property <string> spam-full;
     in property <bool> showing-spam;
 
     callback selected(int);
@@ -360,7 +315,7 @@ export component StateTabs inherits HorizontalLayout {
             // Le compteur n'apparaît que s'il y a quelque chose à compter. Un « 0 »
             // permanent est un bruit visuel sans information.
             if root.counts[i] > 0: Text {
-                text: root.counts[i];
+                text: root.count-labels[i];
                 font-size: Tokens.size-small;
                 color: (root.active == i && !root.showing-spam)
                     ? Tokens.accent-text
@@ -371,6 +326,29 @@ export component StateTabs inherits HorizontalLayout {
 
         tab-touch := TouchArea {
             clicked => { root.selected(i); }
+        }
+
+        // Only where the shortening actually hid something. A tooltip that repeats
+        // the label teaches the user that tooltips are not worth waiting for.
+        if tab-touch.has-hover && root.count-labels[i] != root.count-fulls[i]: Rectangle {
+            y: parent.height + 4px;
+            width: exact.preferred-width + 12px;
+            height: 20px;
+            border-radius: Tokens.radius-small;
+            background: Tokens.panel-high;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000066;
+            drop-shadow-offset-y: 3px;
+
+            exact := Text {
+                text: root.count-fulls[i];
+                font-size: Tokens.size-small;
+                color: Tokens.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
         }
     }
 
@@ -404,7 +382,7 @@ export component StateTabs inherits HorizontalLayout {
                 vertical-alignment: center;
             }
             Text {
-                text: root.spam-count;
+                text: root.spam-label;
                 font-size: Tokens.size-small;
                 color: root.showing-spam ? Tokens.accent-text : Tokens.text-muted;
                 vertical-alignment: center;
@@ -413,6 +391,27 @@ export component StateTabs inherits HorizontalLayout {
 
         spam-touch := TouchArea {
             clicked => { root.spam-selected(); }
+        }
+
+        if spam-touch.has-hover && root.spam-label != root.spam-full: Rectangle {
+            y: parent.height + 4px;
+            width: spam-exact.preferred-width + 12px;
+            height: 20px;
+            border-radius: Tokens.radius-small;
+            background: Tokens.panel-high;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000066;
+            drop-shadow-offset-y: 3px;
+
+            spam-exact := Text {
+                text: root.spam-full;
+                font-size: Tokens.size-small;
+                color: Tokens.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
         }
     }
 }
@@ -476,12 +475,12 @@ export component SearchBar inherits VerticalLayout {
                 root.cleared();
             }
 
-            Text {
-                text: "✕";
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                data: Icons.window-close;
+                size: 12px;
+                tint: close-touch.has-hover ? Tokens.text : Tokens.text-muted;
             }
 
             close-touch := TouchArea {
@@ -522,7 +521,11 @@ export component ThreadListView inherits VerticalLayout {
     in property <bool> loading;
     in property <string> empty-message: "Nothing to do.";
     in property <bool> searching;
+    in property <[string]> count-labels;
+    in property <[string]> count-fulls;
     in property <int> spam-count;
+    in property <string> spam-label;
+    in property <string> spam-full;
     in property <bool> showing-spam;
     in property <string> search-summary;
     in property <string> search-explanation;
@@ -589,7 +592,11 @@ export component ThreadListView inherits VerticalLayout {
             height: 30px;
             active: root.active-tab;
             counts: root.counts;
+            count-labels: root.count-labels;
+            count-fulls: root.count-fulls;
             spam-count: root.spam-count;
+            spam-label: root.spam-label;
+            spam-full: root.spam-full;
             showing-spam: root.showing-spam;
             selected(i) => { root.tab-selected(i); }
             spam-selected => { root.spam-selected(); }

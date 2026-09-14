@@ -59,6 +59,25 @@ export global Tokens {
     in-out property <duration> quick: 140ms;
     in-out property <duration> moderate: 220ms;
 
+    // --- Opaque surfaces ---
+    //
+    // Every `surface` above is a white wash at three to nine percent: they are made to
+    // sit *on* the backdrop and let its halo through. Painted over the application
+    // instead — a menu, a tooltip, a modal — that same wash is all but invisible, and
+    // the text on it lands on whatever happened to be underneath. That is exactly what
+    // the context menu, the tooltips and the settings panel were doing.
+    //
+    // So anything that floats gets an opaque ground. It is mixed from the two colours
+    // the theme already defines, which keeps it right in both directions: on a dark
+    // theme `text` is pale and the panel lifts, on a light one it is dark and the
+    // panel settles. A third hand-picked colour per theme would drift from them.
+    out property <color> panel: background.mix(text, 0.93);
+    out property <color> panel-high: background.mix(text, 0.88);
+
+    // The veil behind a modal. Dark on every theme on purpose: a modal dims what it
+    // covers, and a light veil over a light theme dims nothing.
+    out property <color> scrim: #00000077;
+
     // Espacement calculé, pour éviter les multiplications éparpillées.
     out property <length> space-1: unit;
     out property <length> space-2: unit * 2;

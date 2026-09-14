@@ -83,7 +83,20 @@ const KNOWN_TRACKERS: &[&str] = &[
 ];
 
 /// Assainit un corps HTML.
+///
+/// Les images distantes sont neutralisées : c'est le comportement par défaut et il
+/// n'est pas négociable sans un geste explicite du lecteur.
 pub fn sanitize(html: &str) -> Sanitized {
+    sanitize_with(html, false)
+}
+
+/// Le même nettoyage, en laissant passer les images distantes.
+///
+/// Appelé seulement après que le lecteur a demandé à les voir, message par message.
+/// Tout le reste du filtrage est identique : autoriser les images ne veut pas dire
+/// autoriser les scripts, et le lecteur qui accepte de charger un logo n'accepte pas
+/// d'exécuter ce que l'expéditeur y a joint.
+pub fn sanitize_with(html: &str, allow_remote: bool) -> Sanitized {
     let inventaire = inventory(html);
 
     let mut builder = ammonia::Builder::default();
@@ -120,11 +133,11 @@ pub fn sanitize(html: &str) -> Sanitized {
             "http", "https", "mailto", "cid", "tel",
         ]))
         .link_rel(Some("noopener noreferrer nofollow"))
-        .attribute_filter(|element, attribute, value| {
+        .attribute_filter(move |element, attribute, value| {
             match (element, attribute) {
                 // Toute image distante est neutralisée : sa source est déplacée dans
                 // un attribut inerte que l'interface pourra réactiver à la demande.
-                ("img", "src") if is_remote(value) => {
+                ("img", "src") if is_remote(value) && !allow_remote => {
                     Some(std::borrow::Cow::Borrowed("iris:blocked"))
                 }
                 (_, "style") => Some(std::borrow::Cow::Owned(clean_style(value))),

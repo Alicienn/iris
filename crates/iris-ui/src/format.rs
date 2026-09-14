@@ -248,3 +248,73 @@ mod tests {
         assert_eq!(civil_from_days(19_675), (2023, 11, 14));
     }
 }
+
+/// A count, shortened so it fits in a tab.
+///
+/// A queue of 1 240 000 is not usefully different from 1 230 000, and the two spellings
+/// differ by six characters that push the label out of its pill. Three significant
+/// figures is the most anyone reads off a counter at a glance; the exact number is
+/// still one hover away, which is where an exact number belongs.
+pub fn short_count(n: u64) -> String {
+    // Only the trailing zero is dropped: "1.2k" is worth four characters, "1.0k" is
+    // not — it says "one thousand" in the space where "1k" says it better.
+    fn trim(whole: u64, frac: u64, digits: usize, suffix: char) -> String {
+        if frac == 0 {
+            format!("{whole}{suffix}")
+        } else {
+            format!("{whole}.{frac:0digits$}{suffix}")
+        }
+    }
+
+    match n {
+        0..=999 => n.to_string(),
+        1_000..=999_999 => trim(n / 1_000, (n % 1_000) / 100, 1, 'k'),
+        1_000_000..=999_999_999 => trim(n / 1_000_000, (n % 1_000_000) / 10_000, 2, 'M'),
+        _ => trim(n / 1_000_000_000, (n % 1_000_000_000) / 10_000_000, 2, 'G'),
+    }
+}
+
+/// The same count in full, grouped in threes.
+///
+/// A thin space rather than a comma or a full stop: both of those mean the decimal
+/// separator to half the people who will read this, and the group separator to the
+/// other half.
+pub fn grouped_count(n: u64) -> String {
+    let chiffres = n.to_string();
+    let mut out = String::with_capacity(chiffres.len() + chiffres.len() / 3);
+
+    for (i, c) in chiffres.chars().enumerate() {
+        if i > 0 && (chiffres.len() - i) % 3 == 0 {
+            out.push('\u{202f}');
+        }
+        out.push(c);
+    }
+
+    out
+}
+
+#[cfg(test)]
+mod tests_counts {
+    use super::*;
+
+    #[test]
+    fn shortens_the_way_a_reader_expects() {
+        assert_eq!(short_count(0), "0");
+        assert_eq!(short_count(999), "999");
+        assert_eq!(short_count(1_000), "1k");
+        assert_eq!(short_count(1_250), "1.2k");
+        assert_eq!(short_count(12_540), "12.5k");
+        assert_eq!(short_count(999_999), "999.9k");
+        assert_eq!(short_count(1_000_000), "1M");
+        assert_eq!(short_count(1_240_000), "1.24M");
+        assert_eq!(short_count(1_204_000), "1.20M");
+    }
+
+    #[test]
+    fn groups_in_threes() {
+        assert_eq!(grouped_count(1), "1");
+        assert_eq!(grouped_count(999), "999");
+        assert_eq!(grouped_count(1_250), "1\u{202f}250");
+        assert_eq!(grouped_count(1_240_000), "1\u{202f}240\u{202f}000");
+    }
+}

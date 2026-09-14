@@ -36,6 +36,10 @@ component Field inherits VerticalLayout {
 // Ensuite, seulement si elle échoue, les champs de serveur — parce qu'aucune chaîne
 // de découverte ne couvre tout, et qu'un utilisateur bloqué doit garder une porte.
 export component AccountSetupPanel inherits Rectangle {
+    // The same screen serves adding and editing. They ask for the same nine things,
+    // and two panels that ask for the same nine things drift apart until one of them
+    // is missing the field the other gained.
+    in property <bool> editing;
     in property <bool> busy;
     in property <bool> manual;
     in property <string> error;
@@ -54,7 +58,7 @@ export component AccountSetupPanel inherits Rectangle {
     callback switch-to-manual();
     callback dismissed();
 
-    background: #00000066;
+    background: Tokens.scrim;
 
     TouchArea {
         clicked => { root.dismissed(); }
@@ -75,7 +79,7 @@ export component AccountSetupPanel inherits Rectangle {
             spacing: Tokens.space-3;
 
             Text {
-                text: "Add an account";
+                text: root.editing ? "Edit account" : "Add an account";
                 font-family: Tokens.font-family;
                 font-size: Tokens.size-title;
                 font-weight: Tokens.weight-bold;
@@ -223,7 +227,7 @@ export component AccountSetupPanel inherits Rectangle {
                     opacity: root.busy ? 0.5 : 1.0;
 
                     accessible-role: button;
-                    accessible-label: root.manual ? "Save" : "Add";
+                    accessible-label: (root.manual || root.editing) ? "Save" : "Add";
                     accessible-enabled: !root.busy;
                     accessible-action-default => {
                         if (!root.busy) {
@@ -234,7 +238,7 @@ export component AccountSetupPanel inherits Rectangle {
                     Text {
                         text: root.busy
                             ? "Looking up…"
-                            : (root.manual ? "Save" : "Add");
+                            : ((root.manual || root.editing) ? "Save" : "Add");
                         font-size: Tokens.size-small;
                         font-weight: Tokens.weight-bold;
                         color: Tokens.accent-text;
