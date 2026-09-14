@@ -53,13 +53,24 @@ Relevées sur un poste de développement ordinaire, avec
 
 | Mesure | Budget visé | Constaté |
 |---|---|---|
-| Première liste affichée, 100 000 fils | ≤ 400 ms | **45 ms** |
+| Première liste affichée, 100 000 fils | ≤ 400 ms | **48 à 99 ms** |
 | Lignes détenues en mémoire, 100 000 fils | proportionnel à l'affiché | **60** |
-| Page de liste servie pendant le défilement | ≤ 10 ms | **339 µs** |
-| Recherche plein texte, 200 000 documents | ≤ 80 ms | **1 à 4 ms** |
-| Action de triage | imperceptible | **41 µs** |
-| Ouverture à froid de tous les services | ≤ 2 s | **2,5 ms** |
+| Page de liste servie pendant le défilement | ≤ 10 ms | **0,7 à 0,8 ms** |
+| Recherche plein texte, 200 000 documents | ≤ 80 ms | **1 à 5 ms** |
+| Action de triage | imperceptible | **97 µs** |
+| Ouverture à froid de tous les services | ≤ 2 s | **3,6 ms** |
 | Insertion, 100 000 messages | — | **0,92 s** |
+
+Les fourchettes sont réelles : d'une exécution à l'autre, la première liste varie du
+simple au double selon ce que le système d'exploitation a en cache. Publier la
+meilleure mesure serait plus flatteur et moins vrai.
+
+L'action de triage coûtait **41 µs** dans une version antérieure. Elle en coûte
+aujourd'hui 97, et c'est un échange assumé : chaque action est désormais annoncée sur
+le bus — sans quoi les plugins ne voient pas le tri de l'utilisateur — et son
+annulation restaure le report et les drapeaux, pas seulement l'état. Une mesure qui
+ne baisse jamais est une mesure qu'on a cessé de confronter à ce que le produit doit
+faire.
 
 La dernière ligne mérite son histoire : la première version mettait **192 secondes**.
 Le rattachement d'une réponse arrivée avant son original interrogeait

@@ -256,7 +256,9 @@ fn l_application_s_ouvre_a_froid_rapidement() {
     let ecoule = debut.elapsed();
 
     println!("ouverture à froid des services : {ecoule:?}");
-    assert_eq!(services.themes.names().len(), 3);
+    // The themes are loaded during this open, so the check belongs here — but on
+    // "at least one", not on a count. Shipping another theme is not a regression.
+    assert!(!services.themes.names().is_empty());
     assert!(
         ecoule < Duration::from_millis(2_000),
         "ouverture en {ecoule:?}"
