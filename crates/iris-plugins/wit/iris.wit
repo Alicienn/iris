@@ -1,0 +1,43 @@
+// Contrat des plugins Iris, version 1.
+//
+// Ce fichier décrit l'interface de façon lisible et versionnée. L'hôte actuel
+// l'implémente au niveau des modules WebAssembly de base — imports et exports
+// nommés, charges JSON passées par la mémoire linéaire — plutôt qu'au niveau des
+// composants : moins de machinerie, un bac à sable vérifiable, et un chemin de
+// migration ouvert le jour où le modèle de composants sera un choix évident.
+//
+// Toute évolution incompatible se traduit par une nouvelle version, déclarée dans le
+// manifeste et refusée par les hôtes qui ne la connaissent pas.
+
+package iris:plugin@1.0.0;
+
+interface host {
+    /// Écrit une ligne de journal. Toujours autorisé.
+    log: func(message: string);
+
+    /// Demande une action sur un fil. Exige la permission « write-mail ».
+    /// Retourne faux si la permission manque.
+    act: func(request: string) -> bool;
+
+    /// Ajoute une commande à la palette. Exige « commands ».
+    add-command: func(command: string) -> bool;
+
+    /// Affiche une notification système. Exige « notifications ».
+    notify: func(message: string) -> bool;
+}
+
+interface plugin {
+    /// Appelé une fois au chargement, avec la configuration du plugin.
+    init: func(config: string) -> s32;
+
+    /// Appelé pour chaque événement auquel le plugin est abonné.
+    on-event: func(event: string) -> s32;
+
+    /// Appelé quand une commande fournie par le plugin est invoquée.
+    on-command: func(command: string) -> s32;
+}
+
+world iris-plugin {
+    import host;
+    export plugin;
+}

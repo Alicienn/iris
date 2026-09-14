@@ -212,9 +212,19 @@ export component ConversationView inherits VerticalLayout {
             load-images => { root.load-images(); }
         }
 
-        // Corps.
+        // Corps. Rendu par le moteur complet quand la mise en page l'exige,
+        // dessine bloc par bloc sinon.
         ScrollView {
-            VerticalLayout {
+            if root.message.body-is-image: Image {
+                source: root.message.body-image;
+                // L'image est rendue a la largeur du panneau : elle se contente
+                // d'occuper sa hauteur naturelle, sans etre etiree.
+                image-fit: contain;
+                width: 100%;
+                height: self.source.height * 1px;
+            }
+
+            if !root.message.body-is-image: VerticalLayout {
                 spacing: Tokens.space-2;
                 for block in root.message.blocks: MessageBlock {
                     block: block;

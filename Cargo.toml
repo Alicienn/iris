@@ -28,8 +28,9 @@ iris-sync = { path = "crates/iris-sync" }
 iris-discover = { path = "crates/iris-discover" }
 iris-secrets = { path = "crates/iris-secrets" }
 iris-oauth = { path = "crates/iris-oauth" }
-iris-htmlview = { path = "crates/iris-htmlview" }
+iris-htmlview = { path = "crates/iris-htmlview", default-features = false }
 iris-ui = { path = "crates/iris-ui" }
+iris-plugins = { path = "crates/iris-plugins" }
 
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

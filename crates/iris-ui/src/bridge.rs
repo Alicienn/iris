@@ -11,7 +11,8 @@ use iris_htmlview::{Block, RichText};
 use iris_store::{Account, StoredMessage, ThreadRow};
 use iris_theme::Theme;
 use iris_types::{Flags, Timestamp};
-use slint::{Color, ModelRc, SharedString, VecModel};
+use iris_htmlview::Rendered;
+use slint::{Color, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 /// Convertit une ligne du store en ligne affichable.
 pub fn thread_row(row: &ThreadRow, account_email: &str, now: Timestamp) -> ThreadRowData {
@@ -151,6 +152,40 @@ fn join(spans: &[iris_htmlview::Inline]) -> String {
     spans.iter().map(|s| s.text.as_str()).collect()
 }
 
+/// Convertit une image rendue en image affichable.
+///
+/// La copie est inevitable — les deux cotes possedent leur tampon — mais elle a lieu
+/// une fois par message ouvert, jamais par frame.
+pub fn body_image(width: u32, height: u32, rgba: &[u8]) -> Option<Image> {
+    let attendu = (width as usize) * (height as usize) * 4;
+    if rgba.len() != attendu || attendu == 0 {
+        // Une image mal dimensionnee vaut mieux refusee qu'affichee de travers.
+        return None;
+    }
+    let tampon = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(rgba, width, height);
+    Some(Image::from_rgba8(tampon))
+}
+
+/// Compose la vue d'un message a partir d'un rendu, quelle qu'en soit la forme.
+pub fn message_view_rendered(
+    message: &StoredMessage,
+    rendered: &Rendered,
+    attachments: &[String],
+    now: Timestamp,
+) -> MessageData {
+    match rendered {
+        Rendered::Blocks(blocs) => message_view(message, blocs, attachments, now),
+        Rendered::Texture { width, height, rgba } => {
+            let mut vue = message_view(message, &RichText::default(), attachments, now);
+            if let Some(image) = body_image(*width, *height, rgba) {
+                vue.body_image = image;
+                vue.body_is_image = true;
+            }
+            vue
+        }
+    }
+}
+
 /// Compose la vue d'un message.
 pub fn message_view(
     message: &StoredMessage,
@@ -159,6 +194,9 @@ pub fn message_view(
     now: Timestamp,
 ) -> MessageData {
     MessageData {
+        // Sans rendu par image, ces deux champs restent inertes.
+        body_image: Image::default(),
+        body_is_image: false,
         from: if message.from_name.trim().is_empty() {
             message.from_addr.as_str().into()
         } else {
@@ -415,6 +453,62 @@ mod tests {
         assert_eq!(vue.from.as_str(), "Marie");
         assert_eq!(vue.from_address.as_str(), "marie@example.com");
         assert!(vue.has_tracker);
+    }
+
+    #[test]
+    fn un_corps_rendu_en_image_est_transmis_comme_tel() {
+        let message = StoredMessage {
+            id: MessageId(1),
+            account: AccountId(1),
+            folder: FolderId(1),
+            thread: ThreadId(1),
+            uid: 1,
+            rfc_message_id: None,
+            subject: "Infolettre".into(),
+            from_name: "Boutique".into(),
+            from_addr: "news@x.fr".into(),
+            date: now(),
+            received: now(),
+            size: 100,
+            flags: Flags::NONE,
+            preview: String::new(),
+            body_blob: None,
+        };
+        let rendu = Rendered::Texture { width: 4, height: 2, rgba: vec![0u8; 4 * 2 * 4] };
+        let vue = message_view_rendered(&message, &rendu, &[], now());
+
+        assert!(vue.body_is_image);
+        assert_eq!(vue.body_image.size().width, 4);
+    }
+
+    #[test]
+    fn une_image_mal_dimensionnee_est_refusee() {
+        // Mieux vaut retomber sur les blocs qu'afficher une image de travers.
+        assert!(body_image(4, 2, &[0u8; 3]).is_none());
+        assert!(body_image(0, 0, &[]).is_none());
+    }
+
+    #[test]
+    fn un_corps_en_blocs_n_active_pas_l_image() {
+        let message = StoredMessage {
+            id: MessageId(1),
+            account: AccountId(1),
+            folder: FolderId(1),
+            thread: ThreadId(1),
+            uid: 1,
+            rfc_message_id: None,
+            subject: "Devis".into(),
+            from_name: "Marie".into(),
+            from_addr: "marie@x.fr".into(),
+            date: now(),
+            received: now(),
+            size: 10,
+            flags: Flags::NONE,
+            preview: String::new(),
+            body_blob: None,
+        };
+        let vue = message_view_rendered(&message, &Rendered::Blocks(RichText::default()), &[], now());
+        assert!(!vue.body_is_image);
     }
 
     #[test]

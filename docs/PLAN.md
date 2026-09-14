@@ -122,9 +122,9 @@ testés contre des serveurs simulés en mémoire.
 
 ## E17 — Plugins
 
-- [ ] **S17.1** Contrat WIT versionné.
-- [ ] **S17.2** Hôte wasmtime, permissions, quotas CPU et mémoire.
-- [ ] **S17.3** Plugin d'exemple et tests de bout en bout.
+- [x] **S17.1** Contrat WIT versionné.
+- [x] **S17.2** Hôte wasmtime, permissions, quotas CPU et mémoire.
+- [x] **S17.3** Plugin d'exemple et tests de bout en bout.
 
 ## E18 — `iris-ui` : interface Slint
 
@@ -139,10 +139,10 @@ testés contre des serveurs simulés en mémoire.
 ## E19 — `iris-htmlview` : rendu du corps
 
 - [x] **S19.1** Trait `HtmlRenderer` et implémentation de repli en texte riche.
-- [ ] **S19.2** Adaptateur Blitz vers texture wgpu partagée.
+- [x] **S19.2** Moteur Blitz, rendu hors écran vers une image.
 
 ## E20 — `iris-app`
 
 - [x] **S20.1** Assemblage des modules, configuration, points d'entrée.
 - [x] **S20.2** Ajout de compte de bout en bout.
-- [ ] **S20.3** Mesures de performance face aux budgets de la spécification.
+- [x] **S20.3** Mesures de performance face aux budgets de la spécification.

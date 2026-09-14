@@ -5,6 +5,22 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Le moteur HTML complet. Optionnel : il tire une pile graphique entière, et
+# l'application reste pleinement fonctionnelle sans lui.
+default = ["blitz"]
+blitz = ["dep:blitz-dom", "dep:blitz-html", "dep:blitz-paint", "dep:blitz-traits", "dep:anyrender", "dep:anyrender_vello"]
+
 [dependencies]
 iris-types = { workspace = true }
 tracing = "0.1"
+blitz-dom = { version = "0.2", optional = true }
+blitz-html = { version = "0.2", optional = true }
+blitz-paint = { version = "0.2", optional = true }
+blitz-traits = { version = "0.2", optional = true }
+# Versions alignees a dessein : « blitz-paint » 0.2 s'appuie sur « anyrender » 0.6,
+# et seul « anyrender_vello » 0.6 parle cette version du trait de peinture. Les
+# versions plus recentes des deux cotes ne sont pas encore synchronisees entre
+# elles ; les melanger produit deux traits « PaintScene » incompatibles.
+anyrender = { version = "0.6", optional = true }
+anyrender_vello = { version = "0.6", optional = true }

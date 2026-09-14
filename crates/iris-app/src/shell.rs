@@ -151,7 +151,12 @@ fn dispatch(controller: &Controller, kind: &CommandKind) {
 ///
 /// Appelée depuis la boucle d'interface, jamais depuis le fil du vue-modèle : c'est
 /// le seul endroit où les deux mondes se touchent.
-pub fn apply_snapshot(fenetre: &AppWindow, services: &Services, snapshot: &Snapshot) {
+pub fn apply_snapshot(
+    fenetre: &AppWindow,
+    services: &Services,
+    renderer: &dyn iris_htmlview::HtmlRenderer,
+    snapshot: &Snapshot,
+) {
     let maintenant = now();
 
     // Les adresses des comptes servent à colorer les lignes ; on les résout une fois
@@ -176,10 +181,34 @@ pub fn apply_snapshot(fenetre: &AppWindow, services: &Services, snapshot: &Snaps
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
 
     if let Some(message) = snapshot.messages.last() {
-        let corps = corps_du_message(services, message);
+        let corps = corps_du_message(services, renderer, message);
         let pieces = Vec::new();
-        fenetre.set_message(bridge::message_view(message, &corps, &pieces, maintenant));
+        fenetre.set_message(bridge::message_view_rendered(message, &corps, &pieces, maintenant));
     }
+}
+
+/// Construit le moteur de rendu des corps de message.
+///
+/// Le moteur complet n'est retenu que s'il est réellement utilisable : sur une
+/// machine sans périphérique graphique compatible, l'application reste pleinement
+/// fonctionnelle en texte riche, et le dit une fois au démarrage plutôt que de
+/// laisser un panneau vide l'expliquer à chaque message.
+pub fn build_renderer() -> iris_htmlview::AdaptiveRenderer {
+    let simple = iris_htmlview::AdaptiveRenderer::new(Box::new(
+        iris_htmlview::RichTextRenderer::default(),
+    ));
+
+    #[cfg(feature = "blitz")]
+    {
+        if iris_htmlview::BlitzRenderer::is_available() {
+            tracing::info!("rendu des corps : moteur complet disponible");
+            return simple
+                .with_full_engine(Box::new(iris_htmlview::BlitzRenderer::new(1.0, true)));
+        }
+        tracing::info!("rendu des corps : texte riche seulement (pas de périphérique graphique)");
+    }
+
+    simple
 }
 
 /// Charge et rend le corps d'un message.
@@ -188,18 +217,21 @@ pub fn apply_snapshot(fenetre: &AppWindow, services: &Services, snapshot: &Snaps
 /// afficher une conversation ne doit jamais attendre le réseau.
 fn corps_du_message(
     services: &Services,
+    renderer: &dyn iris_htmlview::HtmlRenderer,
     message: &iris_store::StoredMessage,
-) -> iris_htmlview::RichText {
-    use iris_htmlview::HtmlRenderer;
-
-    let Some(hex) = &message.body_blob else {
-        // Pas encore téléchargé : on affiche l'aperçu, qui est toujours là.
-        return iris_htmlview::RichText {
+) -> iris_htmlview::Rendered {
+    let apercu = || {
+        iris_htmlview::Rendered::Blocks(iris_htmlview::RichText {
             blocks: vec![iris_htmlview::Block::Paragraph(vec![iris_htmlview::Inline::plain(
                 message.preview.clone(),
             )])],
             blocked_images: 0,
-        };
+        })
+    };
+
+    let Some(hex) = &message.body_blob else {
+        // Pas encore téléchargé : on affiche l'aperçu, qui est toujours là.
+        return apercu();
     };
 
     let corps = iris_types::BlobId::from_hex(hex)
@@ -209,24 +241,26 @@ fn corps_du_message(
     let texte = String::from_utf8_lossy(&corps);
     let assaini = iris_mime::sanitize(&texte);
 
-    match iris_htmlview::RichTextRenderer.render(&assaini.html, 800.0) {
-        Ok(iris_htmlview::Rendered::Blocks(b)) => b,
-        _ => iris_htmlview::RichText::default(),
-    }
+    renderer.render(&assaini.html, 800.0).unwrap_or_else(|e| {
+        tracing::warn!(erreur = %e, "rendu du corps en échec");
+        apercu()
+    })
 }
 
 /// Enveloppe permettant de renvoyer un instantané vers la boucle d'interface.
 pub fn snapshot_sink(
     fenetre: &AppWindow,
     services: Services,
+    renderer: Arc<dyn iris_htmlview::HtmlRenderer>,
 ) -> impl Fn(Snapshot) + Send + 'static {
     let faible = fenetre.as_weak();
     move |snapshot| {
         let services = services.clone();
+        let renderer = Arc::clone(&renderer);
         // `upgrade_in_event_loop` est le passage obligé : toucher la fenêtre depuis
         // un autre fil est une faute que Slint refuse à l'exécution.
         let _ = faible.upgrade_in_event_loop(move |fenetre| {
-            apply_snapshot(&fenetre, &services, &snapshot);
+            apply_snapshot(&fenetre, &services, renderer.as_ref(), &snapshot);
         });
     }
 }

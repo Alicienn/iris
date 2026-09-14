@@ -17,8 +17,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
+#[cfg(feature = "blitz")]
+mod blitz;
 mod richtext;
 
+#[cfg(feature = "blitz")]
+pub use blitz::BlitzRenderer;
 pub use richtext::{Block, Inline, RichText, RichTextRenderer};
 
 use iris_types::Result;

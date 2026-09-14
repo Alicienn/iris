@@ -43,6 +43,11 @@ export struct MessageBlockData {
 }
 
 export struct MessageData {
+    // Corps rendu par le moteur HTML complet, quand la mise en page l'exige. Les
+    // blocs restent renseignes : ils servent de repli et d'ancrage a
+    // l'accessibilite, qu'une image ne peut pas porter.
+    body-image: image,
+    body-is-image: bool,
     from: string,
     from-address: string,
     to: string,

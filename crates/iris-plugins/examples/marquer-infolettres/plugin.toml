@@ -1,0 +1,18 @@
+id = "marquer-infolettres"
+name = "Marquer les infolettres"
+version = "1.0.0"
+description = "Marque comme traitées les infolettres qui proposent un désabonnement."
+author = "Iris"
+
+# Le plugin lit les messages pour reconnaître les infolettres, et modifie leur état.
+# Il ne demande ni réseau, ni notifications : il n'en a pas besoin, et chaque
+# permission superflue est une raison d'hésiter au moment de l'installation.
+[permissions]
+read_mail = true
+write_mail = true
+
+[limits]
+# Ce plugin ne fait que quelques comparaisons par message : un budget réduit suffit
+# largement, et le resserrer limite les dégâts d'une version future mal écrite.
+fuel_per_call = 200000
+memory_pages = 16

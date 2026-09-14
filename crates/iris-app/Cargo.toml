@@ -9,6 +9,11 @@ license.workspace = true
 name = "iris"
 path = "src/main.rs"
 
+[features]
+# Le moteur HTML complet, transmis a iris-htmlview.
+default = ["blitz"]
+blitz = ["iris-htmlview/blitz"]
+
 [dependencies]
 iris-types = { workspace = true }
 iris-kernel = { workspace = true }
@@ -22,7 +27,7 @@ iris-sync = { workspace = true }
 iris-theme = { workspace = true }
 iris-secrets = { workspace = true }
 iris-discover = { workspace = true }
-iris-htmlview = { workspace = true }
+iris-htmlview = { workspace = true, default-features = false }
 iris-viewmodel = { workspace = true }
 iris-ui = { workspace = true }
 slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }

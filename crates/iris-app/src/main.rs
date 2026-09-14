@@ -257,11 +257,15 @@ fn run_gui() -> Result<()> {
 
     let fenetre = shell::build(&services)?;
 
+    // Le moteur de rendu des corps est construit une fois : ouvrir un peripherique
+    // graphique par message serait absurde.
+    let renderer: Arc<dyn iris_htmlview::HtmlRenderer> = Arc::new(shell::build_renderer());
+
     let (controller, _fil) = Controller::spawn(
         Arc::clone(&services.store),
         iris_types::AutomationSettings::default(),
         now(),
-        shell::snapshot_sink(&fenetre, services.clone()),
+        shell::snapshot_sink(&fenetre, services.clone(), Arc::clone(&renderer)),
     );
     let controller = Arc::new(controller);
 
