@@ -17,6 +17,99 @@ const SPAM_BIT: u32 = 1 << 9;
 const THREAD_COLUMNS: &str = "id, state, last_activity_at, last_from_name, last_from_addr, \
      last_subject, last_preview, message_count, unread_count, flags_union, snooze_until";
 
+/// Ajoute à la requête ce que la portée demandée impose.
+///
+/// Partagé par la liste et par les compteurs, et c'est tout l'intérêt : deux clauses
+/// écrites séparément finissent par diverger, et l'onglet annonce alors un nombre que
+/// la liste en dessous ne montre pas. C'est exactement ce qui s'était produit entre la
+/// barre latérale — qui comptait les indésirables — et les onglets, qui ne les
+/// comptaient pas : 191 d'un côté, 188 de l'autre, sur le même écran.
+fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
+    use crate::model::Scope;
+
+    // Le compte. Croisé avec le dossier quand les deux sont posés : le même `EXISTS`
+    // porte les deux conditions, donc c'est bien « ce compte-là dans ce dossier-là » et
+    // non « ce compte quelque part, ce dossier ailleurs ».
+    let compte_dans = |args: &mut Vec<SqlValue>| -> String {
+        if q.accounts.is_empty() {
+            return String::new();
+        }
+        let places = std::iter::repeat_n("?", q.accounts.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
+        format!(" AND m.account_id IN ({places})")
+    };
+
+    match &q.scope {
+        Scope::Queue => {
+            // Une file de travail ignore ce qui est mis de côté. Un fil compte tant
+            // qu'il lui reste **un** message ailleurs que dans une corbeille ou des
+            // indésirables : un échange dont un message a été jeté et dont la réponse
+            // est dans la boîte de réception est du travail vivant.
+            sql.push_str(
+                " AND EXISTS (SELECT 1 FROM messages m
+                              JOIN folders f ON f.id = m.folder_id
+                              WHERE m.thread_id = threads.id
+                                AND f.role NOT IN ('trash', 'junk'))",
+            );
+            // Et ce que le serveur a jugé indésirable, où qu'il l'ait rangé. Onze fils
+            // sur cette boîte portent le verdict sans être dans le dossier : le
+            // verdict voyage avec le message, pas avec l'endroit.
+            sql.push_str(&format!(" AND (flags_union & {SPAM_BIT}) = 0"));
+
+            if !q.accounts.is_empty() {
+                let places = std::iter::repeat_n("?", q.accounts.len())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                sql.push_str(&format!(
+                    " AND EXISTS (SELECT 1 FROM thread_accounts ta
+                                  WHERE ta.thread_id = threads.id
+                                    AND ta.account_id IN ({places}))"
+                ));
+                args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
+            }
+        }
+
+        Scope::Role(role) => {
+            let filtre_compte = compte_dans(args);
+            // Les indésirables sont le seul rôle qui déborde de son dossier : le
+            // verdict du serveur est écrit dans le message, et un message tagué mais
+            // laissé en boîte de réception appartient quand même à ce dossier-là.
+            let aussi_marques = if *role == crate::model::FolderRole::Junk {
+                format!(" OR (threads.flags_union & {SPAM_BIT}) != 0")
+            } else {
+                String::new()
+            };
+
+            // Le rôle vient d'une énumération fermée, jamais d'une saisie : il est
+            // interpolé sans risque, et le paramétrer obligerait à réordonner les
+            // arguments autour du filtre de comptes.
+            sql.push_str(&format!(
+                " AND (EXISTS (SELECT 1 FROM messages m
+                               JOIN folders f ON f.id = m.folder_id
+                               WHERE m.thread_id = threads.id
+                                 AND f.role = '{}'{filtre_compte}){aussi_marques})",
+                role.as_str()
+            ));
+        }
+
+        Scope::Path(chemin) => {
+            let filtre_compte = compte_dans(args);
+            sql.push_str(&format!(
+                " AND EXISTS (SELECT 1 FROM messages m
+                              JOIN folders f ON f.id = m.folder_id
+                              WHERE m.thread_id = threads.id
+                                AND f.path = ?{filtre_compte})"
+            ));
+            // Le chemin est un paramètre lié, lui, parce qu'il vient de l'utilisateur.
+            // Il est inséré avant les identifiants de comptes ajoutés ci-dessus.
+            let position = args.len() - q.accounts.len();
+            args.insert(position, SqlValue::Text(chemin.clone()));
+        }
+    }
+}
+
 fn row_from_sql(r: &Row<'_>) -> rusqlite::Result<ThreadRow> {
     let name: String = r.get(3)?;
     let addr: String = r.get(4)?;
@@ -63,72 +156,15 @@ impl Store {
     /// Avec `OFFSET`, elle coûterait un million de lignes lues.
     pub fn list_threads(&self, q: &ListQuery) -> Result<Vec<ThreadRow>> {
         self.with_conn(|c| {
-            // A spam list crosses the three states: whether the server threw a
-            // message out has nothing to do with whether it was answered.
-            let mut sql = match q.spam {
-                crate::model::SpamFilter::Only => format!(
-                    "SELECT {THREAD_COLUMNS} FROM threads WHERE (flags_union & {SPAM_BIT}) != 0"
-                ),
-                crate::model::SpamFilter::Exclude => format!(
-                    "SELECT {THREAD_COLUMNS} FROM threads \
-                     WHERE state = ? AND (flags_union & {SPAM_BIT}) = 0"
-                ),
-            };
-            let mut args: Vec<SqlValue> = match q.spam {
-                crate::model::SpamFilter::Only => Vec::new(),
-                crate::model::SpamFilter::Exclude => vec![SqlValue::Integer(q.state.as_i64())],
-            };
+            let mut sql = format!("SELECT {THREAD_COLUMNS} FROM threads WHERE state = ?");
+            let mut args: Vec<SqlValue> = vec![SqlValue::Integer(q.state.as_i64())];
 
             if let Some(now) = q.hide_snoozed_until {
                 sql.push_str(" AND (snooze_until IS NULL OR snooze_until <= ?)");
                 args.push(SqlValue::Integer(now.millis()));
             }
 
-            // Le compte seul. Quand un dossier est également choisi, la clause
-            // ci-dessous porte les deux et celle-ci n'a plus lieu d'être : la répéter
-            // demanderait « ce compte quelque part » en plus de « ce compte dans ce
-            // dossier », ce qui est plus large, pas plus étroit.
-            if !q.accounts.is_empty() && q.folder.is_none() {
-                let placeholders = std::iter::repeat_n("?", q.accounts.len())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                sql.push_str(&format!(
-                    " AND EXISTS (SELECT 1 FROM thread_accounts ta
-                                  WHERE ta.thread_id = threads.id
-                                    AND ta.account_id IN ({placeholders}))"
-                ));
-                args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
-            }
-
-            // Le dossier. Une existence plutôt qu'une jointure : un fil peut porter
-            // des messages dans plusieurs dossiers et sur plusieurs comptes, et une
-            // jointure le rendrait autant de fois qu'il a de messages qui collent.
-            //
-            // Croisé avec le filtre de comptes lorsque les deux sont posés : le même
-            // `EXISTS` porte les deux conditions, donc c'est bien « ce compte-là dans
-            // ce dossier-là » et non « ce compte quelque part, ce dossier ailleurs ».
-            if let Some(dossier) = &q.folder {
-                if q.accounts.is_empty() {
-                    sql.push_str(
-                        " AND EXISTS (SELECT 1 FROM messages m
-                                      JOIN folders f ON f.id = m.folder_id
-                                      WHERE m.thread_id = threads.id AND f.path = ?)",
-                    );
-                    args.push(SqlValue::Text(dossier.clone()));
-                } else {
-                    let placeholders = std::iter::repeat_n("?", q.accounts.len())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    sql.push_str(&format!(
-                        " AND EXISTS (SELECT 1 FROM messages m
-                                      JOIN folders f ON f.id = m.folder_id
-                                      WHERE m.thread_id = threads.id AND f.path = ?
-                                        AND m.account_id IN ({placeholders}))"
-                    ));
-                    args.push(SqlValue::Text(dossier.clone()));
-                    args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
-                }
-            }
+            push_scope(&mut sql, &mut args, q);
 
             if let Some(cur) = q.after {
                 // Comparaison de n-uplets plutôt que « a < ? OR (a = ? AND b < ?) » :
@@ -241,14 +277,23 @@ impl Store {
     /// compter les remettrait sous les yeux par la petite porte.
     pub fn todo_counts_by_account(&self, now: Timestamp) -> Result<BTreeMap<AccountId, u32>> {
         self.with_conn(|c| {
+            // Les mêmes exclusions que l'onglet « À faire », parce que c'est le même
+            // nombre. La barre latérale annonçait 191 pendant que l'onglet annonçait
+            // 188 : elle comptait les indésirables et la corbeille, lui non.
             let mut stmt = c
-                .prepare_cached(
+                .prepare_cached(&format!(
                     "SELECT ta.account_id, count(*)
                      FROM thread_accounts ta
                      JOIN threads t ON t.id = ta.thread_id
-                     WHERE t.state = ?1 AND (t.snooze_until IS NULL OR t.snooze_until <= ?2)
-                     GROUP BY ta.account_id",
-                )
+                     WHERE t.state = ?1
+                       AND (t.snooze_until IS NULL OR t.snooze_until <= ?2)
+                       AND (t.flags_union & {SPAM_BIT}) = 0
+                       AND EXISTS (SELECT 1 FROM messages m
+                                   JOIN folders f ON f.id = m.folder_id
+                                   WHERE m.thread_id = t.id
+                                     AND f.role NOT IN ('trash', 'junk'))
+                     GROUP BY ta.account_id"
+                ))
                 .map_err(|e| sql_err("préparation", e))?;
 
             let rows = stmt
@@ -266,40 +311,34 @@ impl Store {
         })
     }
 
-    pub fn state_counts(&self, now: Option<Timestamp>) -> Result<[u32; 3]> {
+    /// Les trois compteurs d'onglets, éventuellement restreints à des comptes.
+    ///
+    /// Ils passent par **la même** clause de portée que la liste. Un compteur écrit
+    /// séparément finit par annoncer un nombre que la liste en dessous ne montre pas,
+    /// et une pastille qui compte des lignes que la liste refuse est une pastille qui
+    /// ment. C'est arrivé : 191 dans la barre latérale, 188 dans l'onglet, sur le même
+    /// écran, parce que l'une comptait les indésirables et l'autre non.
+    pub fn state_counts(&self, accounts: &[AccountId], now: Option<Timestamp>) -> Result<[u32; 3]> {
         self.with_conn(|c| {
             let mut counts = [0u32; 3];
-            // The counts must agree with the lists, so spam is left out of them too.
-            // A badge that counts rows the list refuses to show is a badge that lies.
-            let (sql, hide) = match now {
-                Some(_) => (
-                    concat!(
-                        "SELECT state, count(*) FROM threads
-                         WHERE (flags_union & ",
-                        stringify!(512),
-                        ") = 0
-                           AND (snooze_until IS NULL OR snooze_until <= ?) GROUP BY state"
-                    ),
-                    true,
-                ),
-                None => (
-                    concat!(
-                        "SELECT state, count(*) FROM threads
-                         WHERE (flags_union & ",
-                        stringify!(512),
-                        ") = 0 GROUP BY state"
-                    ),
-                    false,
-                ),
+            let mut sql = String::from("SELECT state, count(*) FROM threads WHERE 1 = 1");
+            let mut args: Vec<SqlValue> = Vec::new();
+
+            if let Some(now) = now {
+                sql.push_str(" AND (snooze_until IS NULL OR snooze_until <= ?)");
+                args.push(SqlValue::Integer(now.millis()));
+            }
+
+            let portee = ListQuery {
+                accounts: accounts.to_vec(),
+                ..ListQuery::new(WorkflowState::Todo, 0)
             };
+            push_scope(&mut sql, &mut args, &portee);
+            sql.push_str(" GROUP BY state");
+
             let mut stmt = c
-                .prepare_cached(sql)
+                .prepare_cached(&sql)
                 .map_err(|e| sql_err("préparation", e))?;
-            let args: Vec<SqlValue> = if hide {
-                vec![SqlValue::Integer(now.unwrap().millis())]
-            } else {
-                vec![]
-            };
             let rows = stmt
                 .query_map(params_from_iter(args), |r| {
                     Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
@@ -322,12 +361,21 @@ impl Store {
     /// changed: the thread that lost a message may now be empty, and the one that
     /// gained it has a new last activity, a new count, and possibly a new account in
     /// its list.
-    /// How many conversations the server judged unwanted.
+    /// Combien de conversations le serveur a jugées indésirables.
+    ///
+    /// Le dossier « Spam » de l'arborescence, et plus un onglet : le courrier mis de
+    /// côté n'est pas une étape du travail, c'est un endroit. Le décompte croise le
+    /// rôle du dossier et le verdict porté par le message, parce que le serveur ne
+    /// range pas toujours ce qu'il a marqué.
     pub fn spam_count(&self) -> Result<u32> {
         self.with_conn(|c| {
             let n: i64 = c
                 .prepare_cached(&format!(
-                    "SELECT count(*) FROM threads WHERE (flags_union & {SPAM_BIT}) != 0"
+                    "SELECT count(*) FROM threads t
+                     WHERE (t.flags_union & {SPAM_BIT}) != 0
+                        OR EXISTS (SELECT 1 FROM messages m
+                                   JOIN folders f ON f.id = m.folder_id
+                                   WHERE m.thread_id = t.id AND f.role = 'junk')"
                 ))
                 .map_err(|e| sql_err("préparation", e))?
                 .query_row([], |r| r.get(0))
@@ -758,12 +806,12 @@ mod tests {
         let a = f.thread_at(1000, "A");
         f.thread_at(2000, "B");
 
-        assert_eq!(f.store.state_counts(None).unwrap(), [2, 0, 0]);
+        assert_eq!(f.store.state_counts(&[], None).unwrap(), [2, 0, 0]);
         assert_eq!(
             f.store.set_thread_state(a, WorkflowState::Done).unwrap(),
             Some(WorkflowState::Todo)
         );
-        assert_eq!(f.store.state_counts(None).unwrap(), [1, 0, 1]);
+        assert_eq!(f.store.state_counts(&[], None).unwrap(), [1, 0, 1]);
     }
 
     #[test]
@@ -781,10 +829,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(f.store.state_counts(None).unwrap()[0], 2);
+        assert_eq!(f.store.state_counts(&[], None).unwrap()[0], 2);
         assert_eq!(
             f.store
-                .state_counts(Some(Timestamp::from_millis(1)))
+                .state_counts(&[], Some(Timestamp::from_millis(1)))
                 .unwrap()[0],
             1
         );

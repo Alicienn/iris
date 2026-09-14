@@ -211,16 +211,41 @@ pub struct ListCursor {
     pub id: ThreadId,
 }
 
-/// What a list should do about mail the server judged unwanted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SpamFilter {
-    /// Leave it out. The default, because the three queues are about work to do and
-    /// spam is not work.
+/// Ce qu'une liste montre : une file de travail, ou un dossier.
+///
+/// Le courrier mis de côté — corbeille, indésirables — n'est **pas** un état du flux
+/// de travail. C'était le cas, et c'était une erreur de conception que l'usage a
+/// rendue visible tout de suite : la corbeille se retrouvait rangée dans « Terminé »,
+/// où huit cents messages jetés noyaient les quelques dizaines que l'utilisateur avait
+/// réellement traités. « Terminé » veut dire « je m'en suis occupé », pas « je l'ai
+/// jeté ».
+///
+/// Un dossier est donc un dossier. Les trois files l'ignorent ; on y va en le
+/// choisissant dans l'arborescence, et alors on voit ce qu'il contient.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Scope {
+    /// Une file de travail : tout, sauf ce qui est mis de côté.
     #[default]
-    Exclude,
-    /// Show only spam, whatever state it is in. Spam is a property of the message,
-    /// not a stage of the workflow, so its list crosses all three.
-    Only,
+    Queue,
+    /// Un dossier de rôle — boîte de réception, envoyés, indésirables, corbeille —
+    /// tous comptes confondus. Le rôle plutôt que le chemin, parce qu'un serveur peut
+    /// avoir deux dossiers d'indésirables et que l'utilisateur n'en a qu'un en tête.
+    Role(FolderRole),
+    /// Un dossier que quelqu'un a créé, par son nom.
+    ///
+    /// Un **nom**, pas un identifiant : un dossier est la même idée sur les cent
+    /// boîtes — « Devis » est « Devis » — et le filtre le suit à travers elles.
+    Path(String),
+}
+
+impl Scope {
+    /// La liste doit-elle écarter le courrier mis de côté ?
+    ///
+    /// Non quand c'est précisément ce qu'on est allé chercher : ouvrir la corbeille
+    /// pour la voir vide serait une plaisanterie.
+    pub fn hides_put_aside(&self) -> bool {
+        !matches!(self, Self::Role(FolderRole::Trash) | Self::Role(FolderRole::Junk))
+    }
 }
 
 /// Ce qu'on demande à la liste.
@@ -234,13 +259,8 @@ pub struct ListQuery {
     pub limit: u32,
     /// Reprendre après cette position. `None` pour commencer au début.
     pub after: Option<ListCursor>,
-    pub spam: SpamFilter,
-    /// Restriction à un dossier, par son nom unifié. `None` signifie « partout ».
-    ///
-    /// Un **nom**, pas un identifiant. Un dossier est la même idée sur les cent
-    /// boîtes — « Devis » est « Devis » — et le filtre le suit à travers elles. Choisir
-    /// en plus un compte croise les deux : ce compte-là, dans ce dossier-là.
-    pub folder: Option<String>,
+    /// Une file de travail, ou un dossier. Voir [`Scope`].
+    pub scope: Scope,
 }
 
 impl ListQuery {
@@ -251,15 +271,24 @@ impl ListQuery {
             hide_snoozed_until: None,
             limit,
             after: None,
-            spam: SpamFilter::Exclude,
-            folder: None,
+            scope: Scope::Queue,
         }
     }
 
     /// Ne montrer que ce dossier, sur tous les comptes qui en ont un.
     pub fn in_folder(mut self, folder: impl Into<String>) -> Self {
         let nom = folder.into();
-        self.folder = (!nom.trim().is_empty()).then_some(nom);
+        self.scope = if nom.trim().is_empty() {
+            Scope::Queue
+        } else {
+            Scope::Path(nom)
+        };
+        self
+    }
+
+    /// Ne montrer qu'un dossier de rôle, tous comptes confondus.
+    pub fn in_role(mut self, role: FolderRole) -> Self {
+        self.scope = Scope::Role(role);
         self
     }
 
@@ -278,11 +307,6 @@ impl ListQuery {
         self
     }
 
-    /// Only the mail the server judged unwanted, across every state.
-    pub fn only_spam(mut self) -> Self {
-        self.spam = SpamFilter::Only;
-        self
-    }
 }
 
 /// Nature d'une opération en attente de réconciliation.

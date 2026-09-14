@@ -31,16 +31,37 @@ use iris_types::{Error, Result, Timestamp};
 /// hiérarchie qui dépasse rarement deux.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderNode {
-    /// Le chemin complet, qui est l'identité du dossier : `INBOX.Devis.2026`.
-    pub path: String,
-    /// Le dernier segment, qui est ce qu'on affiche : `2026`.
+    /// Ce que l'arborescence renvoie quand on clique : `role:trash`, ou un chemin.
+    pub key: String,
+    /// Ce qu'on affiche.
     pub name: String,
     pub depth: usize,
     pub role: iris_store::FolderRole,
-    /// Sur combien de boîtes il existe.
+    /// Un dossier de rôle, que le serveur impose et qu'on ne supprime pas.
+    pub is_role: bool,
+    /// Sur combien de boîtes il existe. Zéro pour un rôle qu'aucun serveur n'a.
     pub accounts: u32,
     pub threads: u32,
 }
+
+/// Les rôles montrés en permanence, dans l'ordre où on les cherche.
+///
+/// **Permanents** : présents même vides. Un dossier « Spam » qui disparaît quand il
+/// n'y a pas de spam est un dossier qu'on croit perdu le jour où on en cherche un ;
+/// et la boîte de réception ne doit jamais être absente d'une liste de dossiers.
+///
+/// **Dans cet ordre**, et non dans l'ordre alphabétique, qui donne « Archive,
+/// Corbeille, INBOX, Indésirables » et place la boîte de réception au milieu — le seul
+/// endroit où personne ne la cherche. Les deux extrémités sont les deux qu'on veut :
+/// ce qui arrive en haut, ce qu'on a jeté en bas.
+const ROLES: [(iris_store::FolderRole, &str); 6] = [
+    (iris_store::FolderRole::Inbox, "Inbox"),
+    (iris_store::FolderRole::Drafts, "Drafts"),
+    (iris_store::FolderRole::Sent, "Sent"),
+    (iris_store::FolderRole::Archive, "Archive"),
+    (iris_store::FolderRole::Junk, "Spam"),
+    (iris_store::FolderRole::Trash, "Trash"),
+];
 
 /// Le séparateur de hiérarchie.
 ///
@@ -50,26 +71,94 @@ pub struct FolderNode {
 /// plat chez la moitié des hébergeurs.
 const SEPARATEURS: [char; 2] = ['.', '/'];
 
+/// Le nom lisible d'une portée.
+///
+/// La même table que l'arborescence, pour qu'un dossier ne porte pas deux noms sur le
+/// même écran — « Spam » dans la colonne de gauche et « INBOX.spam » dans celle du
+/// milieu serait deux dossiers pour l'utilisateur.
+pub fn scope_name(scope: &iris_store::Scope) -> String {
+    match scope {
+        iris_store::Scope::Queue => String::new(),
+        iris_store::Scope::Role(role) => ROLES
+            .iter()
+            .find(|(r, _)| r == role)
+            .map(|(_, nom)| (*nom).to_string())
+            .unwrap_or_else(|| role.as_str().to_string()),
+        iris_store::Scope::Path(chemin) => chemin
+            .rsplit(SEPARATEURS)
+            .next()
+            .unwrap_or(chemin)
+            .to_string(),
+    }
+}
+
 /// Construit l'arborescence affichable.
 ///
-/// Les nœuds intermédiaires manquants sont fabriqués : un serveur peut annoncer
-/// `INBOX.Devis.2026` sans annoncer `INBOX.Devis`, et sans ce rattrapage la branche
-/// serait orpheline et invisible.
+/// Deux moitiés, et la séparation est le fond de l'affaire.
+///
+/// **Les rôles d'abord**, un par ligne, quel que soit le nombre de dossiers réels
+/// derrière. Cette boîte a deux dossiers d'indésirables — `INBOX.Junk`, vide, et
+/// `INBOX.spam`, qui porte tout — parce que le serveur en a créé deux. L'utilisateur
+/// n'en a qu'un en tête, et l'arborescence doit décrire ce qu'il a en tête : une ligne
+/// « Spam ». Le nom vient de nous et non du serveur, ce qui règle du même coup les
+/// `spam` en minuscule au milieu de `Sent` et de `Trash`.
+///
+/// **Puis ce que quelqu'un a créé**, en arborescence, avec sa hiérarchie. C'est là que
+/// l'indentation a un sens ; sur les rôles elle n'en avait aucun, et montrer `Archive`
+/// et `Trash` décalés sous `INBOX` parce que le serveur les nomme `INBOX.Archive` était
+/// une vérité de protocole affichée à quelqu'un qui n'a pas à la connaître.
 pub fn tree(folders: &[UnifiedFolder]) -> Vec<FolderNode> {
+    let mut liste = Vec::with_capacity(folders.len() + ROLES.len());
+
+    // --- Les rôles, toujours, dans l'ordre où on les cherche ---
+    for (role, nom) in ROLES {
+        let concernes: Vec<&UnifiedFolder> = folders.iter().filter(|f| f.role == role).collect();
+
+        liste.push(FolderNode {
+            key: format!("role:{}", role.as_str()),
+            name: nom.to_string(),
+            depth: 0,
+            role,
+            is_role: true,
+            // Le nombre de boîtes qui ont ce rôle, pas la somme des dossiers : deux
+            // dossiers d'indésirables sur la même boîte, cela reste une boîte.
+            accounts: concernes.iter().map(|f| f.accounts).max().unwrap_or(0),
+            threads: concernes.iter().map(|f| f.threads).sum(),
+        });
+    }
+
+    // --- Puis les dossiers créés, en arborescence ---
     let mut vus: std::collections::BTreeMap<String, FolderNode> = Default::default();
 
-    for dossier in folders {
-        let segments: Vec<&str> = dossier.path.split(SEPARATEURS).collect();
+    for dossier in folders
+        .iter()
+        .filter(|f| f.role == iris_store::FolderRole::Other)
+    {
+        // Le préfixe imposé par le serveur est retiré de l'affichage : `INBOX.Devis`
+        // se lit « Devis ». Il reste dans la clé, qui est ce qui interroge la base.
+        let segments: Vec<&str> = dossier
+            .path
+            .split(SEPARATEURS)
+            .filter(|s| !s.eq_ignore_ascii_case("INBOX"))
+            .collect();
 
         for (i, _) in segments.iter().enumerate() {
-            let chemin = segments[..=i].join(".");
+            let affiche: Vec<&str> = segments[..=i].to_vec();
             let feuille = i + 1 == segments.len();
+            // La clé garde le chemin réel de la feuille ; pour un parent fabriqué, on
+            // reconstruit celui que le serveur emploierait.
+            let clef = if feuille {
+                dossier.path.clone()
+            } else {
+                format!("INBOX.{}", affiche.join("."))
+            };
 
-            let noeud = vus.entry(chemin.clone()).or_insert_with(|| FolderNode {
+            let noeud = vus.entry(affiche.join(".")).or_insert_with(|| FolderNode {
                 name: segments[i].to_string(),
-                path: chemin.clone(),
+                key: clef,
                 depth: i,
                 role: iris_store::FolderRole::Other,
+                is_role: false,
                 accounts: 0,
                 threads: 0,
             });
@@ -78,31 +167,17 @@ pub fn tree(folders: &[UnifiedFolder]) -> Vec<FolderNode> {
             // les parents ferait compter deux fois un message rangé dans une
             // sous-branche.
             if feuille {
-                noeud.role = dossier.role;
                 noeud.accounts = dossier.accounts;
                 noeud.threads = dossier.threads;
             }
         }
     }
 
-    let mut liste: Vec<FolderNode> = vus.into_values().collect();
-    // Par chemin, ce qui met chaque enfant sous son parent : c'est l'ordre de
-    // l'arborescence, obtenu sans la parcourir.
-    liste.sort_by_key(|n| ordre(&n.path));
+    // `BTreeMap` rend ses valeurs dans l'ordre de ses clés, et les clés sont les
+    // chemins affichés : « Devis » précède « Devis.2026 ». Chaque enfant sort donc
+    // sous son parent, sans qu'on ait eu à parcourir l'arbre ni à trier ensuite.
+    liste.extend(vus.into_values());
     liste
-}
-
-/// La clé de tri : les rôles connus d'abord, puis l'alphabet.
-///
-/// La boîte de réception en tête et la corbeille en queue, parce que c'est l'ordre
-/// dans lequel on les cherche, et parce que « Archive, Corbeille, INBOX, Indésirables »
-/// par ordre alphabétique met la boîte de réception au milieu.
-fn ordre(chemin: &str) -> (u8, String) {
-    let rang = match chemin.to_ascii_uppercase().as_str() {
-        "INBOX" => 0,
-        _ => 1,
-    };
-    (rang, chemin.to_ascii_lowercase())
 }
 
 /// Le nom d'un dossier est-il utilisable ?
@@ -172,20 +247,90 @@ mod tests {
         }
     }
 
-    #[test]
-    fn la_boite_de_reception_vient_en_premier() {
-        // Par ordre alphabétique elle serait au milieu, entre « Archive » et
-        // « Trash », ce qui est le seul endroit où personne ne la cherche.
-        let arbre = tree(&[dossier("Archive", 1), dossier("INBOX", 5), dossier("Trash", 2)]);
-        assert_eq!(arbre[0].path, "INBOX");
+    fn avec_role(path: &str, role: FolderRole, threads: u32) -> UnifiedFolder {
+        UnifiedFolder {
+            path: path.into(),
+            role,
+            accounts: 2,
+            threads,
+        }
+    }
+
+    fn noeud<'a>(arbre: &'a [FolderNode], nom: &str) -> &'a FolderNode {
+        arbre
+            .iter()
+            .find(|n| n.name == nom)
+            .unwrap_or_else(|| panic!("« {nom} » manque à l'arborescence"))
     }
 
     #[test]
-    fn la_hierarchie_donne_sa_profondeur_a_chaque_noeud() {
-        let arbre = tree(&[dossier("INBOX", 3), dossier("INBOX.Devis", 7)]);
-        let devis = arbre.iter().find(|n| n.path == "INBOX.Devis").unwrap();
-        assert_eq!(devis.depth, 1);
-        assert_eq!(devis.name, "Devis", "on affiche le segment, pas le chemin");
+    fn les_roles_sont_la_meme_quand_aucun_serveur_ne_les_a() {
+        // Un dossier « Spam » qui disparaît quand il n'y a pas de spam est un dossier
+        // qu'on croit perdu le jour où on en cherche un.
+        let arbre = tree(&[]);
+        for attendu in ["Inbox", "Drafts", "Sent", "Archive", "Spam", "Trash"] {
+            assert!(
+                arbre.iter().any(|n| n.name == attendu),
+                "« {attendu} » doit être là même vide"
+            );
+        }
+    }
+
+    #[test]
+    fn la_boite_de_reception_vient_en_premier_et_la_corbeille_en_dernier() {
+        // Par ordre alphabétique la boîte de réception serait au milieu, entre
+        // « Archive » et « Trash » : le seul endroit où personne ne la cherche.
+        let arbre = tree(&[]);
+        assert_eq!(arbre[0].name, "Inbox");
+        assert_eq!(arbre[ROLES.len() - 1].name, "Trash");
+    }
+
+    #[test]
+    fn deux_dossiers_d_indesirables_ne_font_qu_une_ligne() {
+        // Ce serveur en a deux : « INBOX.Junk », vide, et « INBOX.spam », qui porte
+        // tout. L'utilisateur n'en a qu'un en tête, et c'est ce qu'il faut montrer.
+        let arbre = tree(&[
+            avec_role("INBOX.Junk", FolderRole::Junk, 0),
+            avec_role("INBOX.spam", FolderRole::Junk, 173),
+        ]);
+
+        let spam: Vec<&FolderNode> = arbre.iter().filter(|n| n.role == FolderRole::Junk).collect();
+        assert_eq!(spam.len(), 1, "une seule ligne pour les deux dossiers");
+        assert_eq!(spam[0].name, "Spam", "le nom vient de nous, pas du serveur");
+        assert_eq!(spam[0].threads, 173, "et il porte le total des deux");
+    }
+
+    #[test]
+    fn un_role_est_designe_par_son_role_et_non_par_un_chemin() {
+        let arbre = tree(&[avec_role("INBOX.spam", FolderRole::Junk, 3)]);
+        assert_eq!(noeud(&arbre, "Spam").key, "role:junk");
+        assert!(noeud(&arbre, "Spam").is_role);
+    }
+
+    #[test]
+    fn les_dossiers_crees_viennent_apres_les_roles() {
+        let arbre = tree(&[dossier("INBOX.Devis", 7)]);
+        let position = arbre.iter().position(|n| n.name == "Devis").unwrap();
+        assert!(position >= ROLES.len(), "les rôles d'abord, toujours");
+        assert!(!noeud(&arbre, "Devis").is_role);
+    }
+
+    #[test]
+    fn le_prefixe_du_serveur_disparait_de_l_affichage() {
+        // « INBOX.Devis » se lit « Devis ». Le préfixe est une vérité de protocole,
+        // affichée à quelqu'un qui n'a pas à la connaître — et elle décalait tous les
+        // dossiers d'un cran sous une boîte de réception dont ils ne dépendent pas.
+        let arbre = tree(&[dossier("INBOX.Devis", 7)]);
+        let devis = noeud(&arbre, "Devis");
+        assert_eq!(devis.depth, 0, "premier niveau à l'écran");
+        assert_eq!(devis.key, "INBOX.Devis", "mais le vrai chemin interroge la base");
+    }
+
+    #[test]
+    fn la_hierarchie_creee_garde_sa_profondeur() {
+        let arbre = tree(&[dossier("INBOX.Devis", 3), dossier("INBOX.Devis.2026", 7)]);
+        assert_eq!(noeud(&arbre, "Devis").depth, 0);
+        assert_eq!(noeud(&arbre, "2026").depth, 1);
     }
 
     #[test]
@@ -193,12 +338,20 @@ mod tests {
         // Un serveur peut annoncer la feuille sans la branche. Sans ce rattrapage la
         // branche entière serait invisible.
         let arbre = tree(&[dossier("INBOX.Devis.2026", 4)]);
-        assert!(arbre.iter().any(|n| n.path == "INBOX.Devis"));
         assert_eq!(
-            arbre.iter().find(|n| n.path == "INBOX.Devis").unwrap().threads,
+            noeud(&arbre, "Devis").threads,
             0,
             "un parent fabriqué ne compte rien pour son propre compte"
         );
+        assert_eq!(noeud(&arbre, "2026").threads, 4);
+    }
+
+    #[test]
+    fn un_enfant_sort_sous_son_parent() {
+        let arbre = tree(&[dossier("INBOX.Devis.2026", 1), dossier("INBOX.Devis", 1)]);
+        let parent = arbre.iter().position(|n| n.name == "Devis").unwrap();
+        let enfant = arbre.iter().position(|n| n.name == "2026").unwrap();
+        assert!(parent < enfant);
     }
 
     #[test]
@@ -206,15 +359,14 @@ mod tests {
         // Additionner les enfants ferait compter deux fois un message rangé dans une
         // sous-branche, et un total qui ne correspond à aucune liste est pire que pas
         // de total du tout.
-        let arbre = tree(&[dossier("INBOX", 10), dossier("INBOX.Devis", 4)]);
-        let inbox = arbre.iter().find(|n| n.path == "INBOX").unwrap();
-        assert_eq!(inbox.threads, 10);
+        let arbre = tree(&[dossier("INBOX.Devis", 10), dossier("INBOX.Devis.2026", 4)]);
+        assert_eq!(noeud(&arbre, "Devis").threads, 10);
     }
 
     #[test]
     fn la_barre_oblique_est_lue_comme_le_point() {
         let arbre = tree(&[dossier("INBOX/Devis", 1)]);
-        assert!(arbre.iter().any(|n| n.name == "Devis" && n.depth == 1));
+        assert_eq!(noeud(&arbre, "Devis").depth, 0);
     }
 
     #[test]

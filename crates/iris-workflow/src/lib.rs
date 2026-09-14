@@ -1082,17 +1082,19 @@ mod tests {
     }
 
     #[test]
-    fn mail_that_arrives_in_the_bin_is_not_work_to_do() {
-        // The other half of the same problem: a mailbox triaged elsewhere brings
-        // hundreds of these on its first sync, and putting them in the queue fills it
-        // with exactly what the user had thrown away.
+    fn mail_that_arrives_in_the_bin_keeps_its_own_state() {
+        // Une version précédente le créait « terminé » pour le tenir hors de la file.
+        // C'était mettre un endroit dans un état : « Terminé » veut dire « je m'en
+        // suis occupé », et la corbeille y noyait tout ce qui l'était vraiment. C'est
+        // la requête de liste qui écarte maintenant, et le test qui compte est du côté
+        // du magasin, là où la requête vit.
         let f = fixture();
         let bin = f
             .store
             .upsert_folder(f.account, "Trash", FolderRole::Trash)
             .unwrap();
 
-        assert_eq!(f.state(f.thread_in(bin)), WorkflowState::Done);
+        assert_eq!(f.state(f.thread_in(bin)), WorkflowState::Todo);
         assert_eq!(f.state(f.thread()), WorkflowState::Todo);
     }
 

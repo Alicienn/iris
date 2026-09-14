@@ -570,42 +570,28 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
 
     // 3. Nouveau fil.
     //
-    // Un message qui arrive dans la corbeille ou les indésirables n'ouvre pas de
-    // travail : quelqu'un s'en est déjà occupé, ailleurs. La première synchronisation
-    // d'une boîte triée depuis un téléphone en apporte des centaines, et les mettre à
-    // faire remplit la file de choses que l'utilisateur avait précisément jetées.
+    // Toujours « à traiter », quel que soit le dossier d'arrivée. Une version
+    // précédente créait « terminé » ce qui arrivait dans une corbeille, pour tenir le
+    // courrier jeté hors de la file — l'intention était juste, l'endroit ne l'était
+    // pas. L'état dit ce que l'utilisateur a décidé du fil ; le dossier dit où le
+    // message se trouve. Confondre les deux mettait la corbeille dans « Terminé », et
+    // un fil sorti de la corbeille en gardait un état que personne n'avait choisi.
     //
-    // C'est la moitié vivante de la migration 4 : sans elle, la corbeille reviendrait
-    // dans la file à chaque synchronisation du dossier.
+    // C'est la requête de liste qui écarte les dossiers mis de côté, et elle seule.
     let subject_norm = normalize_subject(&m.subject);
-    let etat = if folder_is_a_bin(tx, m.folder)? {
-        WorkflowState::Done
-    } else {
-        WorkflowState::Todo
-    };
 
     let mut stmt = tx
         .prepare_cached(
             "INSERT INTO threads (subject_norm, state, last_activity_at) VALUES (?1, ?2, ?3)",
         )
         .map_err(|e| sql_err("preparation", e))?;
-    stmt.execute(params![subject_norm, etat.as_i64(), m.received.millis()])
-        .map_err(|e| sql_err("creation du fil", e))?;
+    stmt.execute(params![
+        subject_norm,
+        WorkflowState::Todo.as_i64(),
+        m.received.millis()
+    ])
+    .map_err(|e| sql_err("creation du fil", e))?;
     Ok((ThreadId(tx.last_insert_rowid()), true))
-}
-
-/// Le dossier est-il une corbeille ou un dossier d'indésirables ?
-fn folder_is_a_bin(tx: &Transaction<'_>, folder: iris_types::FolderId) -> Result<bool> {
-    let mut stmt = tx
-        .prepare_cached("SELECT role FROM folders WHERE id = ?1")
-        .map_err(|e| sql_err("preparation", e))?;
-
-    let role: Option<String> = stmt
-        .query_row(params![folder.get()], |r| r.get(0))
-        .ok()
-        .flatten();
-
-    Ok(matches!(role.as_deref(), Some("trash") | Some("junk")))
 }
 
 /// Recalcule les colonnes agregees d'un fil.
@@ -748,10 +734,12 @@ mod tests {
     }
 
     #[test]
-    fn un_message_arrive_a_la_corbeille_n_ouvre_pas_de_travail() {
-        // Une boîte triée depuis un téléphone en apporte des centaines à la première
-        // synchronisation. Les mettre « à traiter » remplit la file de ce que
-        // l'utilisateur venait précisément de jeter.
+    fn un_message_arrive_a_la_corbeille_garde_son_etat_et_quitte_la_file() {
+        // Une version précédente le créait « terminé » pour le tenir hors de la file.
+        // L'intention était juste, l'endroit ne l'était pas : « Terminé » veut dire
+        // « je m'en suis occupé », et huit cent cinquante messages jetés y noyaient
+        // les quelques dizaines réellement traités. L'état dit ce que l'utilisateur a
+        // décidé ; le dossier dit où le message est. C'est la requête qui écarte.
         let f = fixture();
         let corbeille = f
             .store
@@ -764,7 +752,32 @@ mod tests {
 
         assert_eq!(
             f.store.thread_row(r.thread).unwrap().unwrap().state,
-            WorkflowState::Done
+            WorkflowState::Todo,
+            "l'état n'est pas décidé par le dossier"
+        );
+
+        for etat in [
+            WorkflowState::Todo,
+            WorkflowState::Waiting,
+            WorkflowState::Done,
+        ] {
+            assert!(
+                f.store
+                    .list_threads(&crate::model::ListQuery::new(etat, 10))
+                    .unwrap()
+                    .is_empty(),
+                "et il n'apparaît dans aucune des trois files"
+            );
+        }
+
+        let dans_la_corbeille = f
+            .store
+            .list_threads(&crate::model::ListQuery::new(WorkflowState::Todo, 10).in_role(FolderRole::Trash))
+            .unwrap();
+        assert_eq!(
+            dans_la_corbeille.len(),
+            1,
+            "mais il est là où on est allé le chercher"
         );
     }
 

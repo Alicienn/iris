@@ -973,43 +973,54 @@ fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
     assert!(par_libelle(&f, "Mark as unread").is_some());
 }
 
-// --- Spam ---
+// --- Les dossiers ---
 
-fn l_onglet_spam_n_apparait_que_s_il_y_a_du_spam() {
-    // An empty tab is a permanent reminder of nothing.
+fn les_indesirables_ne_sont_plus_un_onglet() {
+    // Ils en avaient un, ce qui en faisait une quatrième étape du travail alors que
+    // c'est un endroit où le courrier est rangé — comme la corbeille, qui n'a jamais
+    // eu d'onglet. Ils vivent dans l'arborescence maintenant.
     let f = fenetre();
-    f.set_spam_count(0);
-    assert!(par_libelle(&f, "Spam").is_none());
+    let onglets = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Tab)
+        .find_all();
 
-    f.set_spam_count(3);
-    assert!(par_libelle(&f, "Spam").is_some());
+    assert!(
+        !onglets
+            .iter()
+            .any(|o| o.accessible_label().as_deref() == Some("Spam")),
+        "aucun onglet ne doit s'appeler Spam"
+    );
 }
 
-fn choisir_l_onglet_spam_est_rapporte() {
+fn un_dossier_ouvert_remplace_les_onglets_par_son_nom() {
+    // Laisser « À faire » allumé au-dessus du contenu de la corbeille désignerait une
+    // liste qui n'est pas celle qu'on regarde.
     let f = fenetre();
-    f.set_spam_count(3);
+    assert!(par_libelle(&f, "To do").is_some());
 
-    let choix = Rc::new(RefCell::new(0));
+    f.set_folder_name("Trash".into());
+    assert!(
+        par_libelle(&f, "To do").is_none(),
+        "les onglets cèdent la place"
+    );
+    assert!(par_libelle(&f, "Back to the queues").is_some());
+}
+
+fn quitter_un_dossier_est_rapporte() {
+    let f = fenetre();
+    f.set_folder_name("Trash".into());
+
+    let sorties = Rc::new(RefCell::new(0));
     {
-        let choix = Rc::clone(&choix);
-        f.on_spam_selected(move || *choix.borrow_mut() += 1);
+        let sorties = Rc::clone(&sorties);
+        f.on_folder_cleared(move || *sorties.borrow_mut() += 1);
     }
 
-    par_libelle(&f, "Spam")
+    par_libelle(&f, "Back to the queues")
         .unwrap()
         .invoke_accessible_default_action();
-    assert_eq!(*choix.borrow(), 1);
-}
-
-fn l_onglet_spam_se_marque_comme_actif() {
-    let f = fenetre();
-    f.set_spam_count(3);
-    f.set_showing_spam(true);
-
-    assert_eq!(
-        par_libelle(&f, "Spam").unwrap().accessible_item_selected(),
-        Some(true)
-    );
+    assert_eq!(*sorties.borrow(), 1);
 }
 
 // --- Le menu contextuel d'un compte ---
@@ -1266,16 +1277,16 @@ fn main() {
             le_bouton_de_lecture_dit_ce_qu_il_va_faire as fn(),
         ),
         (
-            "l_onglet_spam_n_apparait_que_s_il_y_a_du_spam",
-            l_onglet_spam_n_apparait_que_s_il_y_a_du_spam as fn(),
+            "les_indesirables_ne_sont_plus_un_onglet",
+            les_indesirables_ne_sont_plus_un_onglet as fn(),
         ),
         (
-            "choisir_l_onglet_spam_est_rapporte",
-            choisir_l_onglet_spam_est_rapporte as fn(),
+            "un_dossier_ouvert_remplace_les_onglets_par_son_nom",
+            un_dossier_ouvert_remplace_les_onglets_par_son_nom as fn(),
         ),
         (
-            "l_onglet_spam_se_marque_comme_actif",
-            l_onglet_spam_se_marque_comme_actif as fn(),
+            "quitter_un_dossier_est_rapporte",
+            quitter_un_dossier_est_rapporte as fn(),
         ),
         (
             "les_themes_sont_montres_pas_seulement_nommes",

@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 5;
+pub const CURRENT_VERSION: i64 = 6;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -43,7 +43,43 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "repair the moves that could never replay",
         sql: SCHEMA_V5,
     },
+    Migration {
+        version: 6,
+        name: "the bin is a folder, not a state",
+        sql: SCHEMA_V6,
+    },
 ];
+
+/// Défait la migration 4 : la corbeille n'est pas un état, c'est un endroit.
+///
+/// La migration 4 rangeait dans « Terminé » tout fil qui n'existait plus que dans une
+/// corbeille. L'intention était bonne — ce courrier n'a rien à faire dans la file de
+/// travail — et le moyen était faux. « Terminé » veut dire « je m'en suis occupé » ;
+/// huit cent cinquante messages jetés y noyaient les quelques dizaines que
+/// l'utilisateur avait réellement traités, et la file « Terminé » ne voulait plus rien
+/// dire.
+///
+/// Ces fils sont donc rendus à l'état qu'ils avaient, et c'est la **requête** qui les
+/// écarte désormais des trois files. La différence se voit : ils réapparaissent quand
+/// on ouvre la corbeille, et nulle part ailleurs.
+///
+/// Rendre l'état perdu est possible sans l'avoir enregistré parce que la migration 4
+/// ne touchait que `state = 0`. Un fil que l'utilisateur aurait lui-même marqué
+/// terminé **et** qui serait entièrement à la corbeille serait ramené à tort — mais la
+/// nouvelle requête le cache de toute façon, donc la correction ne se voit pas.
+const SCHEMA_V6: &str = r#"
+UPDATE threads
+SET state = 0
+WHERE state = 2
+  AND EXISTS (SELECT 1 FROM messages WHERE messages.thread_id = threads.id)
+  AND NOT EXISTS (
+        SELECT 1
+        FROM messages
+        JOIN folders ON folders.id = messages.folder_id
+        WHERE messages.thread_id = threads.id
+          AND folders.role NOT IN ('trash', 'junk')
+  );
+"#;
 
 /// Réécrit les opérations de déplacement que le rejeu n'a jamais su lire.
 ///

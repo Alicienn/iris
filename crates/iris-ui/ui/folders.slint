@@ -76,7 +76,12 @@ component FolderRow inherits Rectangle {
         // Un dossier qui n'est pas sur toutes les boîtes se signale. Sans cela
         // « Devis » a l'air d'être partout alors qu'il est sur trois comptes, et le
         // courrier rangé dedans semble disparaître depuis les autres.
-        if root.node.accounts > 0 && root.node.accounts < root.accounts-total: Icon {
+        //
+        // Jamais sur un dossier de rôle : « Spam » n'est pas absent d'une boîte qui
+        // n'en a pas, il n'y a simplement rien reçu, et un avertissement sur les six
+        // premières lignes de l'arborescence n'avertirait plus de rien.
+        if !root.node.permanent && root.node.accounts > 0
+            && root.node.accounts < root.accounts-total: Icon {
             y: (parent.height - self.height) / 2;
             data: Icons.exclamation;
             size: 11px;

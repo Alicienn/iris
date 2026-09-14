@@ -203,8 +203,6 @@ export component AppWindow inherits Window {
     in property <[int]> counts: [0, 0, 0];
     in property <[string]> count-labels: ["0", "0", "0"];
     in property <[string]> count-fulls: ["0", "0", "0"];
-    in property <string> spam-label;
-    in property <string> spam-full;
 
     in property <int> selected-thread: -1;
     in property <int> selected-account: 0;
@@ -220,11 +218,9 @@ export component AppWindow inherits Window {
     in property <bool> account-menu-enabled: true;
     in-out property <length> account-menu-x;
     in-out property <length> account-menu-y;
-    in property <int> spam-count;
     in property <bool> syncing-all;
     in property <string> sync-progress;
     in-out property <bool> sidebar-collapsed;
-    in property <bool> showing-spam;
     in property <bool> conversation-empty: true;
     in property <bool> window-maximised;
     in property <bool> selected-unread;
@@ -314,7 +310,6 @@ export component AppWindow inherits Window {
     // --- Événements ---
     callback thread-selected(int);
     callback tab-selected(int);
-    callback spam-selected();
     callback account-filter-changed(string);
     callback problem-retry();
     callback problem-save-password();
@@ -338,6 +333,9 @@ export component AppWindow inherits Window {
     in property <bool> add-account-editing;
     in property <[FolderNodeData]> folders;
     in property <string> selected-folder;
+    // Le nom lisible du dossier ouvert, pour la colonne du milieu. Vide dans les
+    // files : c'est ce qui décide si on montre les onglets ou un en-tête de dossier.
+    in property <string> folder-name;
     in property <int> account-count;
     in property <int> marked-count;
     in property <string> marked-label;
@@ -528,9 +526,6 @@ export component AppWindow inherits Window {
                         height: 100%;
                         rows: root.rows;
                         searching: root.searching;
-                        spam-count: root.spam-count;
-                        showing-spam: root.showing-spam;
-                        spam-selected => { root.spam-selected(); }
                         search-summary: root.search-summary;
                         search-explanation: root.search-explanation;
                         search-query <=> root.search-query;
@@ -550,8 +545,8 @@ export component AppWindow inherits Window {
                         counts: root.counts;
                         count-labels: root.count-labels;
                         count-fulls: root.count-fulls;
-                        spam-label: root.spam-label;
-                        spam-full: root.spam-full;
+                        folder-name: root.folder-name;
+                        folder-left => { root.folder-cleared(); }
                         marked-count: root.marked-count;
                         marked-label: root.marked-label;
                         row-mark-toggled(id) => { root.row-mark-toggled(id); }

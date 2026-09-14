@@ -118,7 +118,7 @@ fn les_compteurs_restent_immediats_a_grande_echelle() {
     let (store, _) = fixture(THREADS);
 
     let t = Instant::now();
-    let counts = store.state_counts(None).unwrap();
+    let counts = store.state_counts(&[], None).unwrap();
     let cout = t.elapsed();
 
     println!("compteurs sur {THREADS} fils : {cout:?}");

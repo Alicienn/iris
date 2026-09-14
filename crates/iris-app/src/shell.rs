@@ -458,13 +458,6 @@ pub fn wire_callbacks(
 
     {
         let c = Arc::clone(&controller);
-        fenetre.on_spam_selected(move || {
-            c.send(Request::ShowSpam(true));
-        });
-    }
-
-    {
-        let c = Arc::clone(&controller);
         fenetre.on_account_selected(move |id| {
             c.send(Request::FilterAccounts(vec![iris_types::AccountId(
                 id as i64,
@@ -636,7 +629,17 @@ pub fn apply_snapshot(
     )));
     fenetre.set_marked_count(snapshot.marked.len() as i32);
     fenetre.set_marked_label(iris_ui::format::short_count(snapshot.marked.len() as u64).into());
-    fenetre.set_selected_folder(snapshot.folder.clone().unwrap_or_default().into());
+    // Ce que l'arborescence doit montrer comme choisi. Un rôle est désigné par son nom
+    // de rôle préfixé, un dossier par son chemin : deux espaces de noms qui ne peuvent
+    // pas se marcher dessus, puisqu'un chemin IMAP ne commence jamais par « role: ».
+    fenetre.set_selected_folder(
+        match &snapshot.scope {
+            iris_store::Scope::Queue => String::new(),
+            iris_store::Scope::Role(r) => format!("role:{}", r.as_str()),
+            iris_store::Scope::Path(p) => p.clone(),
+        }
+        .into(),
+    );
 
     fenetre.set_count_labels(ModelRc::new(VecModel::from(
         snapshot
@@ -655,9 +658,10 @@ pub fn apply_snapshot(
     // La vue unifiée compte la file de travail, comme les lignes de comptes.
     fenetre.set_unified_count(snapshot.counts[0] as i32);
     fenetre.set_pending_ops(snapshot.pending_ops as i32);
-    fenetre.set_spam_count(snapshot.spam_count as i32);
-    fenetre.set_spam_label(iris_ui::format::short_count(snapshot.spam_count as u64).into());
-    fenetre.set_spam_full(iris_ui::format::grouped_count(snapshot.spam_count as u64).into());
+    // Le nom du dossier ouvert, tel que la colonne du milieu doit l'afficher. Il vient
+    // de la même table que l'arborescence pour qu'un dossier ne porte pas deux noms
+    // sur le même écran.
+    fenetre.set_folder_name(crate::folders::scope_name(&snapshot.scope).into());
 
     // What the toolbar's two toggles should say. Taken from the row rather than the
     // message, because both are properties of the conversation as the list shows it.
@@ -670,7 +674,6 @@ pub fn apply_snapshot(
             .map(|r| r.flags_union.contains(iris_types::Flags::FLAGGED))
             .unwrap_or(false),
     );
-    fenetre.set_showing_spam(snapshot.showing_spam);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
 
     match &snapshot.search {
@@ -1965,12 +1968,15 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
     let lignes: Vec<FolderNodeData> = arbre
         .iter()
         .map(|n| FolderNodeData {
-            path: n.path.as_str().into(),
+            path: n.key.as_str().into(),
             name: n.name.as_str().into(),
             depth: n.depth as i32,
             count: n.threads as i32,
             count_label: iris_ui::format::short_count(n.threads as u64).into(),
             accounts: n.accounts as i32,
+            // Un rôle est imposé par le serveur : il ne se supprime pas, et rien dans
+            // l'interface ne doit laisser croire le contraire.
+            permanent: n.is_role,
             // Le rôle, pas l'icône : c'est l'interface qui possède le jeu d'icônes, et
             // le lui faire traverser en sens inverse mettrait des chemins SVG dans du
             // code Rust, où plus personne ne penserait à les tenir à jour.
@@ -1980,6 +1986,22 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
 
     fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
     fenetre.set_account_count(services.store.accounts().map(|c| c.len()).unwrap_or(0) as i32);
+}
+
+/// Lit ce que l'arborescence a renvoyé.
+///
+/// Un rôle arrive préfixé `role:`, un dossier créé arrive par son chemin. Deux espaces
+/// de noms qui ne peuvent pas se marcher dessus : un chemin IMAP ne commence jamais
+/// par `role:`, et un rôle inconnu retombe sur le chemin plutôt que d'être perdu.
+pub fn scope_depuis(choix: &str) -> iris_store::Scope {
+    match choix.strip_prefix("role:") {
+        Some(nom) => match iris_store::FolderRole::parse(nom) {
+            iris_store::FolderRole::Other => iris_store::Scope::Path(choix.to_string()),
+            role => iris_store::Scope::Role(role),
+        },
+        None if choix.is_empty() => iris_store::Scope::Queue,
+        None => iris_store::Scope::Path(choix.to_string()),
+    }
 }
 
 /// Wires the folder tree and the folder-creation panel.
@@ -1992,13 +2014,15 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
 
     {
         let controller = Arc::clone(&controller);
-        fenetre.on_folder_selected(move |chemin| {
-            controller.send(Request::FilterFolder(Some(chemin.to_string())));
+        fenetre.on_folder_selected(move |choix| {
+            controller.send(Request::ShowScope(scope_depuis(choix.as_str())));
         });
     }
     {
         let controller = Arc::clone(&controller);
-        fenetre.on_folder_cleared(move || controller.send(Request::FilterFolder(None)));
+        fenetre.on_folder_cleared(move || {
+            controller.send(Request::ShowScope(iris_store::Scope::Queue))
+        });
     }
 
     {

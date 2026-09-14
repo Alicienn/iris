@@ -37,15 +37,10 @@ pub struct ViewModel {
     active_tab: WorkflowState,
     selection: Selection,
     accounts: Vec<AccountId>,
-    /// Le dossier montré, par son nom unifié. `None` signifie « partout ».
-    folder: Option<String>,
+    /// Ce que la colonne du milieu montre : une file, ou un dossier.
+    scope: iris_store::Scope,
     counts: [u32; 3],
     now: Timestamp,
-    /// The spam list. Kept beside the three queues rather than among them: it is not
-    /// a stage of the workflow, it is everything the workflow was spared.
-    spam: ThreadList,
-    /// True while the spam list is the one on screen.
-    showing_spam: bool,
     /// L'index plein texte, quand il est disponible.
     index: Option<Arc<SearchIndex>>,
     /// La recherche en cours. Tant qu'elle est là, elle **remplace** la liste
@@ -87,11 +82,9 @@ impl ViewModel {
             active_tab: WorkflowState::Todo,
             selection: Selection::default(),
             accounts: Vec::new(),
-            folder: None,
+            scope: iris_store::Scope::Queue,
             counts: [0; 3],
             now,
-            spam: ThreadList::spam(now),
-            showing_spam: false,
             index: None,
             search: None,
         }
@@ -135,48 +128,17 @@ impl ViewModel {
     }
 
     pub fn list(&self) -> &ThreadList {
-        if self.showing_spam {
-            return &self.spam;
-        }
         &self.lists[self.active_tab.as_i64() as usize]
     }
 
-    /// Is the spam list the one on screen?
-    pub fn showing_spam(&self) -> bool {
-        self.showing_spam
-    }
-
-    /// How many conversations the server judged unwanted.
+    /// Combien de conversations le serveur a jugées indésirables.
+    ///
+    /// Le décompte du dossier « Spam », plus celui d'un onglet. Les indésirables
+    /// étaient une quatrième file à côté des trois, avec sa propre liste et son propre
+    /// état d'affichage ; ils sont un endroit où le courrier est rangé, comme la
+    /// corbeille, et l'arborescence est faite pour ça.
     pub fn spam_count(&self) -> u32 {
         self.store.spam_count().unwrap_or(0)
-    }
-
-    /// Switches to the spam list, or back to the queues.
-    pub fn set_showing_spam(&mut self, showing: bool) -> Result<ViewUpdate> {
-        if self.showing_spam == showing {
-            return Ok(ViewUpdate::default());
-        }
-        self.showing_spam = showing;
-        // Leaving the queues also leaves any search: the results were drawn from the
-        // queues, and showing them under a tab that excludes their contents would be
-        // a list labelled as something it is not.
-        let was_searching = self.search.take().is_some();
-
-        if showing {
-            let store = Arc::clone(&self.store);
-            self.spam.ensure_loaded(&store, 0)?;
-        }
-        self.select_first();
-
-        Ok(ViewUpdate {
-            list: ListUpdate {
-                reordered: true,
-                ..Default::default()
-            },
-            counts_changed: false,
-            selection_changed: true,
-            search_changed: was_searching,
-        })
     }
 
     pub fn list_of(&self, state: WorkflowState) -> &ThreadList {
@@ -296,8 +258,14 @@ impl ViewModel {
         Ok(())
     }
 
+    /// Recompte les trois files, pour les comptes actuellement montrés.
+    ///
+    /// Restreints au même filtre que la liste : choisir un compte doit changer les
+    /// trois nombres en même temps que les lignes. Un onglet qui continue d'annoncer
+    /// le total de toutes les boîtes pendant qu'on en regarde une seule décrit un
+    /// écran qui n'existe pas.
     pub fn refresh_counts(&mut self) -> Result<bool> {
-        let nouveaux = self.store.state_counts(Some(self.now))?;
+        let nouveaux = self.store.state_counts(&self.accounts, Some(self.now))?;
         let change = nouveaux != self.counts;
         self.counts = nouveaux;
         Ok(change)
@@ -305,10 +273,9 @@ impl ViewModel {
 
     /// Change d'onglet. La liste correspondante est chargée à la demande.
     pub fn set_tab(&mut self, state: WorkflowState) -> Result<ViewUpdate> {
-        if self.active_tab == state && !self.showing_spam {
+        if self.active_tab == state {
             return Ok(ViewUpdate::default());
         }
-        self.showing_spam = false;
         self.active_tab = state;
         // Changer d'onglet est une sortie de recherche : les résultats ne sont pas
         // rangés par file, et les garder afficherait la mauvaise chose sous le
@@ -337,15 +304,15 @@ impl ViewModel {
     /// a dans Devis, chez ce client-là » est la question qu'on pose le plus souvent
     /// dès qu'on a plus d'une boîte, et deux filtres qui s'annulent l'un l'autre ne
     /// permettent jamais de la poser.
-    pub fn set_folder_filter(&mut self, folder: Option<String>) -> Result<ViewUpdate> {
-        if self.folder == folder {
+    pub fn set_scope(&mut self, scope: iris_store::Scope) -> Result<ViewUpdate> {
+        if self.scope == scope {
             return Ok(ViewUpdate::default());
         }
-        self.folder = folder.clone();
+        self.scope = scope.clone();
 
         let store = Arc::clone(&self.store);
-        for liste in self.lists.iter_mut().chain(std::iter::once(&mut self.spam)) {
-            liste.set_folder(folder.clone());
+        for liste in self.lists.iter_mut() {
+            liste.set_scope(scope.clone());
             liste.reload(&store)?;
         }
 
@@ -367,9 +334,9 @@ impl ViewModel {
         })
     }
 
-    /// Le dossier montré, s'il y en a un.
-    pub fn folder_filter(&self) -> Option<&str> {
-        self.folder.as_deref()
+    /// Ce que la colonne du milieu montre.
+    pub fn scope(&self) -> &iris_store::Scope {
+        &self.scope
     }
 
     // --- La sélection multiple ---
@@ -408,7 +375,7 @@ impl ViewModel {
         self.accounts = accounts.clone();
 
         let store = Arc::clone(&self.store);
-        for liste in self.lists.iter_mut().chain(std::iter::once(&mut self.spam)) {
+        for liste in self.lists.iter_mut() {
             liste.set_accounts(accounts.clone());
             liste.reload(&store)?;
         }
@@ -441,24 +408,12 @@ impl ViewModel {
         let store = Arc::clone(&self.store);
         let onglet = self.active_tab;
 
-        let liste = if self.showing_spam {
-            self.spam
-                .apply(&store, diff.full_refresh, &diff.threads, &diff.lists)?
-        } else {
-            self.lists[onglet.as_i64() as usize].apply(
-                &store,
-                diff.full_refresh,
-                &diff.threads,
-                &diff.lists,
-            )?
-        };
-
-        // The spam list is invalidated by any change while it is out of sight, so it
-        // is rebuilt from the database when the user comes back to it rather than
-        // showing what was true some time ago.
-        if !self.showing_spam && diff.full_refresh {
-            self.spam.trim(0);
-        }
+        let liste = self.lists[onglet.as_i64() as usize].apply(
+            &store,
+            diff.full_refresh,
+            &diff.threads,
+            &diff.lists,
+        )?;
 
         // Les listes inactives sont invalidées sans être rechargées : elles le seront
         // quand l'utilisateur y viendra. Recharger trois listes à chaque diff
@@ -587,7 +542,7 @@ impl ViewModel {
 
     pub fn set_now(&mut self, now: Timestamp) {
         self.now = now;
-        for liste in self.lists.iter_mut().chain(std::iter::once(&mut self.spam)) {
+        for liste in self.lists.iter_mut() {
             liste.set_now(now);
         }
     }

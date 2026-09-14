@@ -427,13 +427,8 @@ export component StateTabs inherits HorizontalLayout {
     // and making them choose between the two is what a tooltip is for.
     in property <[string]> count-labels;
     in property <[string]> count-fulls;
-    in property <int> spam-count;
-    in property <string> spam-label;
-    in property <string> spam-full;
-    in property <bool> showing-spam;
 
     callback selected(int);
-    callback spam-selected();
 
     padding: 3px;
     spacing: 2px;
@@ -462,10 +457,10 @@ export component StateTabs inherits HorizontalLayout {
             Text {
                 text: label;
                 font-size: Tokens.size-small;
-                font-weight: (root.active == i && !root.showing-spam)
+                font-weight: root.active == i
                     ? Tokens.weight-bold
                     : Tokens.weight-body;
-                color: (root.active == i && !root.showing-spam)
+                color: root.active == i
                     ? Tokens.accent-text
                     : Tokens.text-secondary;
                 vertical-alignment: center;
@@ -476,7 +471,7 @@ export component StateTabs inherits HorizontalLayout {
             if root.counts[i] > 0: Text {
                 text: root.count-labels[i];
                 font-size: Tokens.size-small;
-                color: (root.active == i && !root.showing-spam)
+                color: root.active == i
                     ? Tokens.accent-text
                     : Tokens.text-muted;
                 vertical-alignment: center;
@@ -511,68 +506,11 @@ export component StateTabs inherits HorizontalLayout {
         }
     }
 
+    // Rien après les trois files. Les indésirables avaient un quatrième onglet ici,
+    // ce qui en faisait une quatrième étape du travail alors que c'est un endroit où
+    // le courrier est rangé — comme la corbeille, qui n'a jamais eu d'onglet. Ils sont
+    // dans l'arborescence maintenant, à leur place.
     Rectangle {}
-
-    // Spam sits apart from the three, after a gap, because it is not a stage of the
-    // work: it is everything the work was spared. It only appears once there is
-    // something in it — an empty tab is a permanent reminder of nothing.
-    if root.spam-count > 0: Rectangle {
-        border-radius: Tokens.radius-small;
-        background: root.showing-spam
-            ? Tokens.accent
-            : (spam-touch.has-hover ? Tokens.surface-hover : transparent);
-        animate background { duration: Tokens.instant; }
-
-        accessible-role: tab;
-        accessible-label: "Spam";
-        accessible-item-selected: root.showing-spam;
-        accessible-action-default => { root.spam-selected(); }
-
-        HorizontalLayout {
-            padding-left: Tokens.space-3;
-            padding-right: Tokens.space-3;
-            spacing: Tokens.space-2;
-
-            Text {
-                text: "Spam";
-                font-size: Tokens.size-small;
-                font-weight: root.showing-spam ? Tokens.weight-bold : Tokens.weight-body;
-                color: root.showing-spam ? Tokens.accent-text : Tokens.text-muted;
-                vertical-alignment: center;
-            }
-            Text {
-                text: root.spam-label;
-                font-size: Tokens.size-small;
-                color: root.showing-spam ? Tokens.accent-text : Tokens.text-muted;
-                vertical-alignment: center;
-            }
-        }
-
-        spam-touch := TouchArea {
-            clicked => { root.spam-selected(); }
-        }
-
-        if spam-touch.has-hover && root.spam-label != root.spam-full: Rectangle {
-            y: parent.height + 4px;
-            width: spam-exact.preferred-width + 12px;
-            height: 20px;
-            border-radius: Tokens.radius-small;
-            background: Tokens.panel-high;
-            border-width: 1px;
-            border-color: Tokens.border-strong;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: #00000066;
-            drop-shadow-offset-y: 3px;
-
-            spam-exact := Text {
-                text: root.spam-full;
-                font-size: Tokens.size-small;
-                color: Tokens.text;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
-    }
 }
 
 // La barre de recherche.
@@ -682,10 +620,10 @@ export component ThreadListView inherits VerticalLayout {
     in property <bool> searching;
     in property <[string]> count-labels;
     in property <[string]> count-fulls;
-    in property <int> spam-count;
-    in property <string> spam-label;
-    in property <string> spam-full;
-    in property <bool> showing-spam;
+    // Le nom du dossier montré, quand ce n'en est pas une file. Il remplace les
+    // onglets : « Trash » avec les trois files allumées au-dessus décrirait un écran
+    // qui n'existe pas.
+    in property <string> folder-name;
     in property <string> search-summary;
     in property <string> search-explanation;
     in property <int> marked-count;
@@ -697,7 +635,7 @@ export component ThreadListView inherits VerticalLayout {
     callback scrolled-near-end();
     callback search-submitted(string);
     callback search-cleared();
-    callback spam-selected();
+    callback folder-left();
     callback row-context-menu(int, length, length);
     callback row-mark-toggled(int);
     callback row-mark-extended(int);
@@ -747,7 +685,44 @@ export component ThreadListView inherits VerticalLayout {
         }
     }
 
-    if !root.searching && root.marked-count == 0: Rectangle {
+    // Dans un dossier, son nom prend la place des onglets. Les trois files décrivent
+    // un travail ; un dossier décrit un endroit, et laisser « À faire » allumé au
+    // dessus du contenu de la corbeille désignerait une liste qui n'est pas celle
+    // qu'on regarde.
+    if !root.searching && root.marked-count == 0 && root.folder-name != "": Rectangle {
+        vertical-stretch: 0;
+        height: 38px;
+
+        HorizontalLayout {
+            x: Tokens.space-2;
+            y: 4px;
+            width: parent.width - 2 * Tokens.space-2;
+            height: 30px;
+            spacing: Tokens.space-2;
+
+            Text {
+                text: root.folder-name;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-body;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.text;
+                vertical-alignment: center;
+            }
+
+            Rectangle {}
+
+            IconButton {
+                icon: Icons.window-close;
+                label: "Back to the queues";
+                shortcut: "Esc";
+                button-size: 24px;
+                icon-size: 13px;
+                clicked => { root.folder-left(); }
+            }
+        }
+    }
+
+    if !root.searching && root.marked-count == 0 && root.folder-name == "": Rectangle {
         vertical-stretch: 0;
         height: 38px;
 
@@ -784,12 +759,7 @@ export component ThreadListView inherits VerticalLayout {
             counts: root.counts;
             count-labels: root.count-labels;
             count-fulls: root.count-fulls;
-            spam-count: root.spam-count;
-            spam-label: root.spam-label;
-            spam-full: root.spam-full;
-            showing-spam: root.showing-spam;
             selected(i) => { root.tab-selected(i); }
-            spam-selected => { root.spam-selected(); }
         }
     }
 
@@ -805,7 +775,9 @@ export component ThreadListView inherits VerticalLayout {
             Text {
                 text: root.searching
                     ? "No results."
-                    : (root.showing-spam ? "No spam." : root.empty-message);
+                    : (root.folder-name != ""
+                        ? root.folder-name + " is empty."
+                        : root.empty-message);
                 font-size: Tokens.size-body;
                 color: Tokens.text-muted;
                 horizontal-alignment: center;

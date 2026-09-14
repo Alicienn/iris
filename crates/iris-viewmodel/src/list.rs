@@ -28,12 +28,14 @@ pub const PREFETCH: usize = 40;
 /// Une liste paginée pour un état de workflow donné.
 #[derive(Debug)]
 pub struct ThreadList {
-    /// Show only what the server judged unwanted, across every state.
-    spam_only: bool,
     state: WorkflowState,
     accounts: Vec<AccountId>,
-    /// Restriction à un dossier, par son nom unifié.
-    folder: Option<String>,
+    /// Une file de travail, ou un dossier.
+    ///
+    /// La liste des indésirables était une quatrième liste à part, avec son onglet.
+    /// Elle a disparu : les indésirables sont un dossier, et un dossier est une portée
+    /// comme une autre. Une liste de moins à tenir cohérente avec les trois autres.
+    scope: iris_store::Scope,
     /// Préfixe chargé, dans l'ordre d'affichage.
     rows: Vec<ThreadRow>,
     cursor: Option<ListCursor>,
@@ -64,26 +66,11 @@ impl ListUpdate {
 }
 
 impl ThreadList {
-    /// A list of the mail the server threw out.
-    ///
-    /// It is not tied to a state: whether a message was answered has nothing to do
-    /// with whether a filter rejected it, so this list crosses all three queues.
-    pub fn spam(now: Timestamp) -> Self {
-        let mut list = Self::new(WorkflowState::Todo, now);
-        list.spam_only = true;
-        list
-    }
-
-    pub fn is_spam_list(&self) -> bool {
-        self.spam_only
-    }
-
     pub fn new(state: WorkflowState, now: Timestamp) -> Self {
         Self {
-            spam_only: false,
             state,
             accounts: Vec::new(),
-            folder: None,
+            scope: iris_store::Scope::Queue,
             rows: Vec::new(),
             cursor: None,
             exhausted: false,
@@ -137,11 +124,11 @@ impl ThreadList {
         true
     }
 
-    pub fn set_folder(&mut self, folder: Option<String>) -> bool {
-        if self.folder == folder {
+    pub fn set_scope(&mut self, scope: iris_store::Scope) -> bool {
+        if self.scope == scope {
             return false;
         }
-        self.folder = folder;
+        self.scope = scope;
         true
     }
 
@@ -153,12 +140,8 @@ impl ThreadList {
         let mut base = ListQuery::new(self.state, self.page_size)
             .for_accounts(self.accounts.clone())
             .hiding_snoozed(self.now);
-        base.folder = self.folder.clone();
-        if self.spam_only {
-            base.only_spam()
-        } else {
-            base
-        }
+        base.scope = self.scope.clone();
+        base
     }
 
     /// Charge ce qu'il faut pour que l'indice demandé soit disponible.
@@ -218,7 +201,14 @@ impl ThreadList {
     }
 
     pub fn refresh_total(&mut self, store: &Store) -> Result<()> {
-        let counts = store.state_counts(Some(self.now))?;
+        // Dans un dossier, le total des files ne veut rien dire : la barre de
+        // défilement décrirait une liste qui n'est pas celle qu'on regarde. On compte
+        // alors ce qui est chargé, et la liste s'allonge en défilant.
+        if self.scope != iris_store::Scope::Queue {
+            self.total = self.rows.len() as u32;
+            return Ok(());
+        }
+        let counts = store.state_counts(&self.accounts, Some(self.now))?;
         self.total = counts[self.state.as_i64() as usize];
         Ok(())
     }

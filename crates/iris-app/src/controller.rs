@@ -23,11 +23,12 @@ pub enum Request {
     SelectThread(ThreadId),
     Move(Movement),
     SwitchTab(WorkflowState),
-    /// Show the mail the server threw out, or go back to the queues.
-    ShowSpam(bool),
+    /// Montrer une file de travail, ou un dossier.
+    ///
+    /// Les indésirables avaient leur propre requête et leur propre liste. Ils sont un
+    /// dossier maintenant, et un dossier passe par ici comme les autres.
+    ShowScope(iris_store::Scope),
     FilterAccounts(Vec<iris_types::AccountId>),
-    /// Ne montrer qu'un dossier, par son nom unifié. `None` pour tout montrer.
-    FilterFolder(Option<String>),
     /// Cocher ou décocher un fil.
     ToggleMark(ThreadId),
     /// Cocher tout ce qui va de l'ancre jusqu'ici.
@@ -78,17 +79,17 @@ pub struct Snapshot {
     /// Message affiché dans la colonne de lecture, s'il y en a un.
     pub messages: Vec<iris_store::StoredMessage>,
     pub pending_ops: u64,
-    /// Conversations the server judged unwanted, and whether that list is on screen.
+    /// Combien de conversations le serveur a jugées indésirables. Le décompte du
+    /// dossier « Spam » de l'arborescence.
     pub spam_count: u32,
-    pub showing_spam: bool,
     /// La recherche en cours, s'il y en a une. Les lignes en sont alors issues, et
     /// les compteurs d'onglets continuent de décrire les files, pas les résultats.
     pub search: Option<SearchSummary>,
     /// Les fils cochés. L'interface s'en sert pour marquer les lignes et pour
     /// décider si la barre d'actions groupées a lieu d'être.
     pub marked: std::collections::BTreeSet<ThreadId>,
-    /// Le dossier montré, s'il y en a un.
-    pub folder: Option<String>,
+    /// Ce que la colonne du milieu montre : une file, ou un dossier.
+    pub scope: iris_store::Scope,
     /// What went wrong with the last request, if anything did.
     ///
     /// An action that fails has to say so. This was a `tracing::error!` and nothing
@@ -216,9 +217,8 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         Request::SelectThread(t) => Ok(vm.select(t)),
         Request::Move(m) => vm.move_selection(m),
         Request::SwitchTab(state) => Ok(!vm.set_tab(state)?.is_empty()),
-        Request::ShowSpam(showing) => Ok(!vm.set_showing_spam(showing)?.is_empty()),
+        Request::ShowScope(scope) => Ok(!vm.set_scope(scope)?.is_empty()),
         Request::FilterAccounts(accounts) => Ok(!vm.set_accounts_filter(accounts)?.is_empty()),
-        Request::FilterFolder(folder) => Ok(!vm.set_folder_filter(folder)?.is_empty()),
         Request::ToggleMark(thread) => {
             vm.toggle_mark(thread);
             Ok(true)
@@ -339,7 +339,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
     Snapshot {
         error: None,
         marked: vm.selection().marked().clone(),
-        folder: vm.folder_filter().map(str::to_string),
+        scope: vm.scope().clone(),
         rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),
         active_tab: vm.active_tab(),
@@ -349,7 +349,6 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         messages,
         pending_ops: store.pending_op_count().unwrap_or(0),
         spam_count: vm.spam_count(),
-        showing_spam: vm.showing_spam(),
         search: recherche,
     }
 }

@@ -122,6 +122,10 @@ export struct FolderNodeData {
     count: int,
     // Sur combien de boîtes il existe. Un dossier qui n'est pas partout se signale.
     accounts: int,
+    // Un dossier de rôle : imposé par le serveur, jamais supprimable, toujours là même
+    // vide. Ceux-là ne se comparent pas aux autres — « Spam » n'est pas absent des
+    // boîtes qui n'en ont pas, il n'a simplement rien reçu.
+    permanent: bool,
     // Le rôle du dossier : « inbox », « sent », « trash »… L'interface en déduit
     // l'icône. Le rôle traverse la frontière, pas le dessin : le jeu d'icônes
     // appartient à l'interface, et des chemins SVG dans du code Rust sont des chemins
