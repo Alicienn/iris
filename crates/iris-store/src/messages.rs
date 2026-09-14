@@ -114,6 +114,30 @@ impl Store {
     }
 
     /// Les messages d'un fil, du plus ancien au plus récent.
+    /// The most recently received messages, newest first.
+    ///
+    /// Used by the rules dry run, which needs a representative slice of history
+    /// rather than all of it: the point is to tell the user what a rule would touch,
+    /// and a few thousand recent messages answer that without reading a million rows.
+    pub fn latest_messages(&self, limit: usize) -> Result<Vec<StoredMessage>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
+                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                     FROM messages ORDER BY received DESC, id DESC LIMIT ?1",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+
+            let rows = stmt
+                .query_map(params![limit as i64], stored_message_from_row)
+                .map_err(|e| sql_err("lecture des messages récents", e))?;
+
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("lecture d'un message", e))
+        })
+    }
+
     pub fn thread_messages(&self, thread: ThreadId) -> Result<Vec<StoredMessage>> {
         self.with_conn(|c| {
             let mut stmt = c

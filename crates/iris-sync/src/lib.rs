@@ -3,6 +3,7 @@ pub mod engine;
 pub mod folder;
 pub mod maintenance;
 pub mod replay;
+pub mod rules;
 pub mod scheduler;
 pub mod send;
 
@@ -13,5 +14,6 @@ pub use engine::{
 pub use folder::{sync_folder, FolderReport, FolderSyncOptions};
 pub use maintenance::MaintenanceReport;
 pub use replay::{enqueue, replay_account, OpPayload, ReplayReport};
+pub use rules::{facts_of, RulesReport};
 pub use scheduler::{Priority, ScheduleConfig, Scheduler, SyncOutcome};
 pub use send::{pump_outbox, SendContext, SendService, SentOutcome};

@@ -454,6 +454,10 @@ impl SyncEngine {
                         if let Err(e) = self.index_new_messages(dossier.id) {
                             tracing::warn!(erreur = %e, "indexation");
                         }
+                        // Rules run on arrival, not on a schedule: a rule that
+                        // archives a newsletter should do it before the user sees
+                        // the newsletter, otherwise it only tidies up after them.
+                        self.run_rules_on_new(dossier.id, now);
                     }
                 }
                 // Un dossier illisible — droits insuffisants, boîte partagée
@@ -494,6 +498,38 @@ impl SyncEngine {
         }
         let messages = self.store.folder_messages_without_body(folder, 5_000)?;
         self.index_headers(&messages)
+    }
+
+    /// Runs the rules over what a folder just received.
+    ///
+    /// Failures are logged, never propagated: a rule engine problem must not make a
+    /// folder look unsynchronisable.
+    fn run_rules_on_new(&self, folder: iris_types::FolderId, now: Timestamp) {
+        if self.workflow.is_none() {
+            return;
+        }
+        let ids: Vec<iris_types::MessageId> =
+            match self.store.folder_messages_without_body(folder, 500) {
+                Ok(messages) => messages
+                    .iter()
+                    .filter(|m| crate::rules::worth_examining(m.flags))
+                    .map(|m| m.id)
+                    .collect(),
+                Err(e) => {
+                    tracing::warn!(erreur = %e, "lecture pour les règles");
+                    return;
+                }
+            };
+
+        match self.apply_rules(&ids, now) {
+            Ok(report) if report.changed() => tracing::info!(
+                affected = report.affected,
+                actions = report.actions,
+                "rules applied"
+            ),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(erreur = %e, "application des règles"),
+        }
     }
 
     fn publish_phase(&self, account: AccountId, phase: SyncPhase) {

@@ -18,6 +18,7 @@ mod journal;
 mod messages;
 mod migrations;
 mod model;
+mod rules;
 mod threads;
 
 pub use attachments::StoredAttachment;
@@ -26,6 +27,7 @@ pub use model::{
     Account, AuthKind, Folder, FolderRole, ListCursor, ListQuery, NewAccount, NewMessage, OpKind,
     PendingOp, StoredMessage, ThreadRow,
 };
+pub use rules::StoredRule;
 
 use iris_types::{Error, Result};
 use rusqlite::Connection;

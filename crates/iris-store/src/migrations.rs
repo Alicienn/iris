@@ -15,13 +15,49 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 1;
+pub const CURRENT_VERSION: i64 = 2;
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "schéma initial",
-    sql: SCHEMA_V1,
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial schema",
+        sql: SCHEMA_V1,
+    },
+    Migration {
+        version: 2,
+        name: "rules",
+        sql: SCHEMA_V2,
+    },
+];
+
+/// Rules, and where they have already been applied.
+///
+/// The conditions and actions are stored as JSON rather than in columns. They are a
+/// small tree with a shape that will grow — a new condition kind is a new variant, not
+/// a new table — and nothing queries inside them: rules are read in bulk, evaluated in
+/// memory, and there are tens of them, not millions.
+///
+/// `applied_to` is what stops a rule acting twice on the same message. Without it, a
+/// rule that snoozes would push its own target forward on every synchronisation, and
+/// the message would never come back.
+const SCHEMA_V2: &str = r#"
+CREATE TABLE rules (
+    id          TEXT    PRIMARY KEY,
+    name        TEXT    NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    position    INTEGER NOT NULL,
+    definition  TEXT    NOT NULL
+) STRICT;
+
+CREATE INDEX rules_by_position ON rules(position);
+
+CREATE TABLE rule_applications (
+    rule_id    TEXT    NOT NULL,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    applied_at INTEGER NOT NULL,
+    PRIMARY KEY (rule_id, message_id)
+) STRICT, WITHOUT ROWID;
+"#;
 
 /// Le schéma initial.
 ///
