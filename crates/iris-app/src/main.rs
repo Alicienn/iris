@@ -881,6 +881,8 @@ fn run_gui(
         if zone.is_none() {
             tracing::info!("no notification area: the tray icon is unavailable");
         }
+        // Ce que « fermer » va vouloir dire dépend de cette réponse.
+        fenetre.set_tray_available(zone.is_some());
 
         let faible = fenetre.as_weak();
         let store_zone = Arc::clone(&services.store);
@@ -945,13 +947,17 @@ fn run_gui(
         fenetre.set_compose_open(true);
     }
 
-    // Démarré par la session : on se tient prêt, sans fenêtre.
-    if demarre_reduit {
-        fenetre.window().hide().ok();
+    // `run_event_loop_until_quit` et non `run` : la boucle doit survivre à la
+    // fermeture de la fenêtre, sinon ranger l'application dans la zone de notification
+    // la ferait disparaître au lieu de la ranger. On sort par « Quitter », et par là
+    // seulement.
+    if !demarre_reduit {
+        fenetre
+            .show()
+            .map_err(|e| iris_types::Error::other(format!("affichage : {e}")))?;
     }
 
-    fenetre
-        .run()
+    slint::run_event_loop_until_quit()
         .map_err(|e| iris_types::Error::other(format!("boucle d'interface : {e}")))?;
 
     controller.shutdown();

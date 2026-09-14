@@ -377,14 +377,19 @@ impl Workflow {
             .map(|f| f.path)
             .unwrap_or_default();
 
-        let payload = format!(
-            r#"{{"op":"move","folder":{},"uids":[{uid}],"to":{}}}"#,
-            quote(&source),
-            quote(destination)
-        );
-        let key = format!("{account}:move:{source}:{uid}:{destination}");
+        // Construite, pas écrite. La version précédente formatait le JSON à la main
+        // et posait `"to"` là où le rejeu lisait `"target"` : chaque déplacement était
+        // jugé illisible et abandonné, le fil quittait la file localement, et le
+        // serveur n'en a jamais rien su.
+        let charge = iris_store::OpPayload::Move {
+            folder: source.clone(),
+            uids: vec![uid],
+            target: destination.to_string(),
+        };
+        let key = charge.idempotency_key(account);
 
-        self.store.enqueue_op(account, kind, &payload, &key, now)?;
+        self.store
+            .enqueue_op(account, kind, &charge.to_json(), &key, now)?;
         Ok(())
     }
 
@@ -594,57 +599,26 @@ impl Workflow {
             .map(|f| f.path)
             .unwrap_or_default();
 
-        let mut sorted = uids.to_vec();
-        sorted.sort_unstable();
+        // Construite comme le déplacement, et pour la même raison : celle-ci se
+        // trouvait correcte, l'autre non, et rien dans le code ne disait laquelle des
+        // deux formes écrites à la main était la bonne.
+        let charge = iris_store::OpPayload::SetFlags {
+            folder: path,
+            uids: uids.to_vec(),
+            flags: flags.0,
+            add,
+        };
 
-        let payload = format!(
-            r#"{{"op":"set_flags","folder":{},"uids":[{}],"flags":{},"add":{}}}"#,
-            quote(&path),
-            sorted
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(","),
-            flags.0,
-            add
-        );
-
-        // The key makes the operation idempotent: replaying the same flag change
-        // twice must not queue it twice.
-        let key = format!(
-            "{account}:flags:{path}:{}:{}:{add}",
-            sorted
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(","),
-            flags.0
-        );
+        // La clé rend l'opération idempotente : rejouer deux fois le même changement
+        // de drapeaux ne doit pas l'enfiler deux fois.
+        let key = charge.idempotency_key(account);
 
         self.store
-            .enqueue_op(account, OpKind::SetFlags, &payload, &key, now)?;
+            .enqueue_op(account, OpKind::SetFlags, &charge.to_json(), &key, now)?;
         Ok(())
     }
 }
 
-/// Escapes a string for the small JSON payloads written above.
-fn quote(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
 
 #[cfg(test)]
 mod tests {
@@ -1177,10 +1151,32 @@ mod tests {
     }
 
     #[test]
-    fn folder_names_with_quotes_do_not_break_the_journal() {
-        // A folder can legitimately be called `Clients "VIP"`.
-        assert_eq!(quote(r#"a"b"#), r#""a\"b""#);
-        assert_eq!(quote("a\\b"), r#""a\\b""#);
-        assert_eq!(quote("a\nb"), r#""a\nb""#);
+    fn what_the_workflow_writes_the_replay_can_read() {
+        // Ce test remplace celui d'un échappeur JSON écrit à la main. Il posait la
+        // mauvaise question : l'échappement était correct, et le champ de destination
+        // s'appelait `to` là où le rejeu lisait `target`. Chaque déplacement était
+        // abandonné en silence. La question qui compte n'est pas « la chaîne est-elle
+        // bien échappée » mais « l'autre côté sait-il la lire ».
+        //
+        // Un dossier peut légitimement s'appeler `Clients "VIP"`.
+        let f = fixture();
+        let bin = f
+            .store
+            .upsert_folder(f.account, r#"Clients "VIP""#, FolderRole::Trash)
+            .unwrap();
+        let _ = bin;
+
+        let thread = f.thread();
+        f.workflow.delete(thread, t(1)).unwrap();
+        f.workflow.set_read(thread, true, t(2)).unwrap();
+
+        let en_attente = f.store.pending_ops(t(3), 20).unwrap();
+        assert!(!en_attente.is_empty(), "il doit y avoir quelque chose à rejouer");
+
+        for op in en_attente {
+            iris_store::OpPayload::parse(&op.payload).unwrap_or_else(|e| {
+                panic!("le rejeu ne saurait pas lire ce que nous écrivons : {e}")
+            });
+        }
     }
 }

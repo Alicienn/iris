@@ -18,10 +18,12 @@ mod journal;
 mod messages;
 mod migrations;
 mod model;
+mod ops;
 mod rules;
 mod threads;
 
 pub use accounts::{AccountServers, UnifiedFolder};
+pub use ops::OpPayload;
 pub use attachments::StoredAttachment;
 pub use migrations::CURRENT_VERSION;
 pub use model::{

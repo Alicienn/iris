@@ -1875,10 +1875,22 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
     {
         let faible = fenetre.as_weak();
         fenetre.on_window_close(move || {
-            if let Some(fenetre) = faible.upgrade() {
-                let _ = fenetre.window().hide();
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+
+            // Fermer range la fenêtre, cela ne quitte pas. C'est ce qui donne un sens
+            // à l'icône de la zone de notification : un client qui se synchronise en
+            // arrière-plan et qui s'arrête quand on ferme sa fenêtre ne se synchronise
+            // pas. Quitter reste possible — par le menu de l'icône, ou par Ctrl+Q.
+            //
+            // Sans zone de notification, il n'y aurait aucun moyen de le faire revenir
+            // et la fenêtre aurait simplement disparu : dans ce cas seulement, fermer
+            // veut dire quitter.
+            let _ = fenetre.window().hide();
+            if !fenetre.get_tray_available() {
+                let _ = slint::quit_event_loop();
             }
-            let _ = slint::quit_event_loop();
         });
     }
 

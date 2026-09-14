@@ -16,118 +16,17 @@
 //! l'emporte sur l'état de workflow, qui n'existe que chez nous.
 
 use iris_imap::ImapConnection;
-use iris_store::{OpKind, PendingOp, Store};
-use iris_types::{Error, Flags, Result, Timestamp};
-use serde::{Deserialize, Serialize};
+use iris_store::{PendingOp, Store};
+use iris_types::{Flags, Result, Timestamp};
 
 /// La charge utile d'une opération journalisée.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum OpPayload {
-    SetFlags {
-        folder: String,
-        uids: Vec<u32>,
-        flags: u32,
-        add: bool,
-    },
-    Move {
-        folder: String,
-        uids: Vec<u32>,
-        target: String,
-    },
-    Delete {
-        folder: String,
-        uids: Vec<u32>,
-    },
-    /// Créer un dossier sur ce compte.
-    ///
-    /// Passe par le journal comme tout le reste : créer un dossier sur cent boîtes
-    /// est cent allers-retours réseau, et faire attendre l'utilisateur devant eux
-    /// contredirait l'invariant n° 3. L'arborescence le montre tout de suite ; les
-    /// serveurs l'apprennent ensuite.
-    CreateFolder {
-        folder: String,
-    },
-}
-
-impl OpPayload {
-    pub fn kind(&self) -> OpKind {
-        match self {
-            Self::SetFlags { .. } => OpKind::SetFlags,
-            Self::Move { .. } => OpKind::MoveMessage,
-            Self::Delete { .. } => OpKind::DeleteMessage,
-            Self::CreateFolder { .. } => OpKind::CreateFolder,
-        }
-    }
-
-    /// Clé d'idempotence : deux fois la même intention ne produit qu'une entrée.
-    ///
-    /// Elle décrit l'**effet visé**, pas l'instant : marquer deux fois le même
-    /// message comme lu est une seule opération.
-    pub fn idempotency_key(&self, account: iris_types::AccountId) -> String {
-        match self {
-            Self::SetFlags {
-                folder,
-                uids,
-                flags,
-                add,
-            } => {
-                format!("{account}:flags:{folder}:{}:{flags}:{add}", join(uids))
-            }
-            Self::Move {
-                folder,
-                uids,
-                target,
-            } => {
-                format!("{account}:move:{folder}:{}:{target}", join(uids))
-            }
-            Self::Delete { folder, uids } => {
-                format!("{account}:delete:{folder}:{}", join(uids))
-            }
-            Self::CreateFolder { folder } => format!("{account}:mkdir:{folder}"),
-        }
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
-    }
-
-    pub fn parse(json: &str) -> Result<Self> {
-        serde_json::from_str(json)
-            .map_err(|e| Error::store(format!("opération journalisée illisible : {e}")))
-    }
-
-    pub fn folder(&self) -> &str {
-        match self {
-            Self::SetFlags { folder, .. }
-            | Self::Move { folder, .. }
-            | Self::Delete { folder, .. }
-            | Self::CreateFolder { folder } => folder,
-        }
-    }
-
-    /// L'opération exige-t-elle que son dossier soit sélectionné d'abord ?
-    ///
-    /// Non pour la création, et c'est tout l'intérêt de le demander : sélectionner un
-    /// dossier qui n'existe pas encore échoue, et échouerait exactement sur celui
-    /// qu'on vient de demander à créer.
-    pub fn needs_selection(&self) -> bool {
-        !matches!(self, Self::CreateFolder { .. })
-    }
-}
-
-fn join(uids: &[u32]) -> String {
-    let mut tries = uids.to_vec();
-    // L'ordre des UID ne change pas l'effet : le normaliser évite deux entrées pour
-    // la même intention.
-    tries.sort_unstable();
-    tries.dedup();
-    tries
-        .iter()
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",")
-}
+///
+/// Définie dans le magasin, avec le journal qu'elle décrit. Elle vivait ici, et
+/// `iris-workflow` — qui ne peut pas dépendre de cette caisse — écrivait la sienne à
+/// la main avec `format!`. Les deux ont divergé sur un nom de champ, et chaque
+/// archivage a été abandonné au rejeu, en silence, pendant des mois. Un seul type
+/// partagé par les deux côtés rend ce bogue impossible à réécrire.
+pub use iris_store::OpPayload;
 
 /// Résultat du rejeu d'un lot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -233,6 +132,7 @@ pub fn enqueue(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iris_store::OpKind;
     use iris_imap::fake::FakeServer;
     use iris_imap::{Connector, Credentials, Endpoint, FolderKind, UidRange};
     use iris_store::{FolderRole, NewAccount};

@@ -341,6 +341,9 @@ export component AppWindow inherits Window {
     in property <int> account-count;
     in property <int> marked-count;
     in property <string> marked-label;
+    // Y a-t-il une icône dans la zone de notification pour faire revenir la fenêtre ?
+    // Elle décide de ce que veut dire « fermer ».
+    in property <bool> tray-available;
     in property <bool> browser-open;
     in property <bool> browser-loading;
     in property <string> browser-error;
