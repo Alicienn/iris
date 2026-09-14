@@ -1,5 +1,16 @@
-//! Iris — client de messagerie.
+//! Iris — a mail client.
+//!
+//! One executable serves two purposes, which on Windows pull in opposite directions.
+//! A graphical application must not open a console window when it is double-clicked;
+//! a command-line tool must be able to print. Building for the "windows" subsystem
+//! settles the first, and `attach_parent_console` settles the second by borrowing the
+//! terminal the user ran the command from, when there is one.
+//!
+//! The subsystem is only switched in release builds. During development the console
+//! is where the logs go, and losing it would trade a papercut nobody suffers for one
+//! everybody does.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(unsafe_code)]
 
 use iris_app::controller::{Controller, Request};
@@ -19,10 +30,16 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    init_tracing();
-
     let args: Vec<String> = std::env::args().skip(1).collect();
     let commande = args.first().map(String::as_str).unwrap_or("run");
+
+    // Anything but the graphical mode is meant to be read. Attach to the calling
+    // terminal before the first line is logged: Rust caches its standard output
+    // handle on first use, so borrowing the console afterwards would be too late.
+    if commande != "run" {
+        attach_parent_console();
+    }
+    init_tracing();
 
     match commande {
         "run" => run_gui(),
@@ -42,6 +59,34 @@ fn run() -> Result<()> {
         }
     }
 }
+
+/// Borrows the terminal that launched us, when there is one.
+///
+/// A "windows" subsystem process starts with no console attached. `AttachConsole`
+/// with `ATTACH_PARENT_PROCESS` gives it the caller's, so `iris doctor` prints where
+/// the user typed it. Started from Explorer there is no parent console and the call
+/// fails, which is the right outcome: nothing to print to, nothing printed.
+#[cfg(all(windows, not(debug_assertions)))]
+#[allow(unsafe_code)]
+fn attach_parent_console() {
+    const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+    }
+
+    // SAFETY: a call into kernel32 taking one integer and returning one. It has no
+    // preconditions, cannot be passed an invalid pointer, and reports failure through
+    // its return value, which we deliberately ignore — no console is not an error.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+/// Everywhere else the process already owns its console.
+#[cfg(not(all(windows, not(debug_assertions))))]
+fn attach_parent_console() {}
 
 fn print_help() {
     println!(

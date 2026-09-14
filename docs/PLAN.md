@@ -220,3 +220,31 @@ application can do on top.
 - [x] **S26.2** A modules screen: rules read as sentences, plugins with their powers.
 - [x] **S26.3** Compose: a new message, not only a reply.
 - [x] **S26.4** More themes, and a picker that shows them.
+
+## E27 — What only an installed copy can do
+
+Three capabilities Windows grants through the registry and a Start Menu shortcut, and
+withholds from a loose executable. They are grouped because they share a prerequisite:
+an installer. Until one exists, none of them can be built and tested honestly.
+
+The ordering below is by how often the absence is felt, not by effort.
+
+- [ ] **S27.1** `mailto:` links. Registering under `SOFTWARE\Clients\Mail`,
+      `RegisteredApplications` and the `Capabilities` key so Windows offers Iris as a
+      default mail client. Without it, an address clicked in a browser can never open
+      Iris — the most visible gap of the three.
+- [ ] **S27.2** System notifications. Windows toasts require an `AppUserModelID`
+      declared by a Start Menu shortcut; without one, nothing appears, or it appears
+      under a generic host name. "New mail has arrived" is the whole point of a client
+      that syncs in the background, so this decides whether background sync is worth
+      having.
+- [ ] **S27.3** Start at login, as a setting rather than an installer checkbox. The
+      installer registers the possibility; **the switch lives in Settings**, next to
+      the other automations, because starting itself is something the application does
+      on its own and every one of those is switchable in one place.
+
+Prerequisite, not a story of its own: an installer (Inno Setup produces a single
+`.exe`; WiX produces an `.msi` for managed deployment). Two things it will not fix —
+SmartScreen, which only a signing certificate silences, and portability: Iris keeps
+its data in `%APPDATA%\Iris`, so a copy on a USB stick still leaves traces. A portable
+mode that keeps the database beside the binary is a separate, small piece of work.
