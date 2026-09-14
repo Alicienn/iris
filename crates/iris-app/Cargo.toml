@@ -48,6 +48,23 @@ rpassword = "7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# L'icône de la zone de notification. Windows seulement, et sans les fonctions par
+# défaut : celles-ci tirent une pile GTK qui ne sert qu'à Linux et n'a rien à faire
+# dans ce binaire.
+[target.'cfg(windows)'.dependencies]
+tray-icon = { version = "0.25", default-features = false }
+# Les bulles de notification. Une caisse plutôt qu'un appel direct : une bulle
+# moderne passe par WinRT, dont la surface est bien plus large que les quelques
+# fonctions du registre que nous appelons nous-mêmes.
+tauri-winrt-notification = "0.8"
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+] }
+
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 

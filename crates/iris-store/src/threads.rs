@@ -155,6 +155,81 @@ impl Store {
         })
     }
 
+    /// Le nombre de messages non lus, hors indésirables et hors corbeille.
+    ///
+    /// C'est le chiffre de la zone de notification, et le seul qu'on y cherche. Les
+    /// indésirables en sont exclus : une icône qui annonce « 162 non lus » alors que
+    /// ce sont 162 courriels que le serveur a écartés apprend à ne plus la regarder,
+    /// et une pastille qu'on n'a plus envie de regarder ne sert plus à rien.
+    pub fn unread_count(&self) -> Result<u32> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT count(*) FROM messages m
+                 JOIN folders f ON f.id = m.folder_id
+                 WHERE (m.flags & ?1) = 0
+                   AND (m.flags & ?2) = 0
+                   AND f.role NOT IN ('trash', 'junk')",
+                params![
+                    iris_types::Flags::SEEN.0 as i64,
+                    iris_types::Flags::SPAM.0 as i64
+                ],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as u32)
+            .map_err(|e| sql_err("comptage des non-lus", e))
+        })
+    }
+
+    /// Qui a écrit en dernier, et à quel sujet.
+    ///
+    /// Ce que dit une notification d'arrivée. Le plus récent des non-lus, hors
+    /// indésirables et hors corbeille — prévenir de l'arrivée de ce qu'on a filtré
+    /// annulerait le filtre — et hors messages envoyés, qui reviennent du serveur
+    /// après un envoi et ne sont pas une arrivée.
+    ///
+    /// `now` borne la recherche à la dernière heure : au premier démarrage sur une
+    /// boîte de dix ans, le plus ancien non-lu n'est pas une nouvelle.
+    pub fn latest_unread(&self, now: Timestamp) -> Result<Option<(String, String)>> {
+        const UNE_HEURE: i64 = 3_600_000;
+        let depuis = now.millis() - UNE_HEURE;
+
+        self.with_conn(|c| {
+            let resultat = c.query_row(
+                "SELECT m.from_name, m.from_addr, m.subject
+                 FROM messages m
+                 JOIN folders f ON f.id = m.folder_id
+                 WHERE (m.flags & ?1) = 0
+                   AND (m.flags & ?2) = 0
+                   AND f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
+                   AND m.received >= ?3
+                 ORDER BY m.received DESC
+                 LIMIT 1",
+                params![
+                    iris_types::Flags::SEEN.0 as i64,
+                    iris_types::Flags::SPAM.0 as i64,
+                    depuis
+                ],
+                |r| {
+                    let nom: String = r.get(0)?;
+                    let adresse: String = r.get(1)?;
+                    let sujet: String = r.get(2)?;
+                    // Le nom quand il y en a un, l'adresse sinon : une bulle qui
+                    // annonce « (sans nom) » n'apprend rien.
+                    Ok((
+                        if nom.trim().is_empty() { adresse } else { nom },
+                        sujet,
+                    ))
+                },
+            );
+
+            match resultat {
+                Ok(v) => Ok(Some(v)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(sql_err("dernier message non lu", e)),
+            }
+        })
+    }
+
     /// Nombre de fils par état, pour les compteurs des onglets.
     /// Fils à traiter, par compte.
     ///

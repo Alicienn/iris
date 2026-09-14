@@ -294,6 +294,10 @@ export component AppWindow inherits Window {
     in-out property <bool> new-message-reopens: true;
     in-out property <bool> follow-up-enabled: true;
     in-out property <int> follow-up-days: 3;
+    in-out property <bool> notifications: true;
+    in-out property <bool> start-at-login;
+    in-out property <bool> handle-mailto;
+    in property <string> system-note;
 
     in-out property <bool> palette-open;
     in-out property <string> palette-query;
@@ -375,6 +379,7 @@ export component AppWindow inherits Window {
     callback theme-chosen(int);
     callback density-chosen(int);
     callback automation-changed();
+    callback system-changed();
     callback add-account-discover();
     callback add-account-save();
     callback add-account-manual-requested();
@@ -714,6 +719,11 @@ export component AppWindow inherits Window {
         new-message-reopens <=> root.new-message-reopens;
         follow-up-enabled <=> root.follow-up-enabled;
         follow-up-days <=> root.follow-up-days;
+        notifications <=> root.notifications;
+        start-at-login <=> root.start-at-login;
+        handle-mailto <=> root.handle-mailto;
+        system-note: root.system-note;
+        system-changed => { root.system-changed(); }
         theme-chosen(i) => { root.theme-chosen(i); }
         density-chosen(i) => { root.density-chosen(i); }
         automation-changed => { root.automation-changed(); }

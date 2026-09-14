@@ -75,6 +75,28 @@ pub struct Settings {
     /// distribué à tout le monde n'en est pas un, et celui d'Iris doit être
     /// enregistré auprès de chaque fournisseur, ce qu'un fichier source ne fait pas.
     pub oauth: crate::oauth::OAuthSettings,
+    /// Prévenir à l'arrivée du courrier.
+    ///
+    /// Par défaut : oui. C'est la raison d'être d'une synchronisation d'arrière-plan,
+    /// et une notification qu'il faut aller chercher dans les réglages pour l'allumer
+    /// est une notification que personne n'aura.
+    #[serde(default = "vrai")]
+    pub notifications: bool,
+    /// Démarrer à l'ouverture de session.
+    ///
+    /// L'inscription vit dans le registre ; ceci n'en est que le reflet, pour que
+    /// l'interrupteur montre le bon état au démarrage sans interroger Windows à
+    /// chaque image.
+    #[serde(default)]
+    pub start_at_login: bool,
+    /// Iris est inscrite comme client de courrier possible du système.
+    #[serde(default)]
+    pub handle_mailto: bool,
+}
+
+/// La valeur par défaut d'un réglage qui doit être allumé.
+fn vrai() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -84,6 +106,9 @@ impl Default for Settings {
             density: Density::default(),
             automation: AutomationSettings::default(),
             oauth: Default::default(),
+            notifications: true,
+            start_at_login: false,
+            handle_mailto: false,
         }
     }
 }
@@ -158,6 +183,9 @@ mod tests {
                 google_client_id: "abc.apps.googleusercontent.com".into(),
                 microsoft_client_id: String::new(),
             },
+            notifications: false,
+            start_at_login: true,
+            handle_mailto: true,
         };
 
         reglages.save(&chemin).unwrap();

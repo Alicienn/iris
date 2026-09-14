@@ -189,10 +189,16 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> new-message-reopens;
     in-out property <bool> follow-up-enabled;
     in-out property <int> follow-up-days;
+    in-out property <bool> notifications;
+    in-out property <bool> start-at-login;
+    in-out property <bool> handle-mailto;
+    /// Ce que le système ne permet pas ici, et pourquoi.
+    in property <string> system-note;
 
     callback theme-chosen(int);
     callback density-chosen(int);
     callback automation-changed();
+    callback system-changed();
     callback dismissed();
 
     background: Tokens.scrim;
@@ -205,7 +211,7 @@ export component SettingsPanel inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         width: min(520px, parent.width - 80px);
-        height: min(560px, parent.height - 80px);
+        height: min(720px, parent.height - 80px);
 
         // Le panneau avale les clics : sans cela, régler une case fermerait la
         // fenêtre en touchant le voile derrière.
@@ -315,6 +321,36 @@ export component SettingsPanel inherits Rectangle {
                 }
 
                 Rectangle {}
+            }
+
+            GroupLabel { text: "SYSTEM"; }
+
+            SettingToggle {
+                label: "Tell me when mail arrives";
+                hint: "One notification per sync, not one per message.";
+                value <=> root.notifications;
+                toggled => { root.system-changed(); }
+            }
+
+            SettingToggle {
+                label: "Start with Windows";
+                hint: "Iris waits in the notification area rather than opening a window.";
+                value <=> root.start-at-login;
+                toggled => { root.system-changed(); }
+            }
+
+            SettingToggle {
+                label: "Offer Iris for mailto: links";
+                hint: "Windows still decides the default in its own settings.";
+                value <=> root.handle-mailto;
+                toggled => { root.system-changed(); }
+            }
+
+            if root.system-note != "": Text {
+                text: root.system-note;
+                font-size: Tokens.size-small;
+                color: Tokens.warning;
+                wrap: word-wrap;
             }
 
             Rectangle {}

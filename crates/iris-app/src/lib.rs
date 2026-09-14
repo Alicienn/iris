@@ -11,11 +11,14 @@ pub mod modules;
 pub mod folders;
 pub mod logging;
 pub mod oauth;
+pub mod notify;
 pub mod paths;
+pub mod platform;
 pub mod plugins;
 pub mod services;
 pub mod settings;
 pub mod shell;
+pub mod tray;
 pub mod vitals;
 
 pub use controller::{Controller, Request, Snapshot};

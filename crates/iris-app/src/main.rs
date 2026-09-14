@@ -31,13 +31,39 @@ fn main() {
 
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let commande = args.first().map(String::as_str).unwrap_or("run");
+
+    // Windows nous lance avec l'URL en premier argument quand on clique une adresse
+    // dans un navigateur. Ce n'est pas une sous-commande : c'est « ouvre-toi et
+    // prépare ce message », et le confondre avec un nom de commande donnerait
+    // « unknown command: mailto:marie@example.com ».
+    let mailto = args
+        .first()
+        .and_then(|a| iris_app::platform::MailtoRequest::parse(a));
+
+    let commande = match (&mailto, args.first().map(String::as_str)) {
+        (Some(_), _) => "run",
+        // Démarré par la session : la fenêtre attend dans la zone de notification.
+        // Ouvrir par-dessus ce que l'utilisateur fait dans les premières secondes de
+        // sa session serait exactement ce qu'on lui reprocherait.
+        (None, Some("--tray")) => "run",
+        (None, Some(c)) => c,
+        (None, None) => "run",
+    };
+    let demarre_reduit = args.first().map(String::as_str) == Some("--tray");
 
     // Anything but the graphical mode is meant to be read. Attach to the calling
     // terminal before the first line is logged: Rust caches its standard output
     // handle on first use, so borrowing the console afterwards would be too late.
     if commande != "run" {
         attach_parent_console();
+    }
+
+    // Les sous-commandes qui n'ouvrent pas de fenêtre et n'ouvrent pas la base non
+    // plus : elles écrivent dans le registre et rendent la main.
+    match commande {
+        "register" => return cmd_register(true),
+        "unregister" => return cmd_register(false),
+        _ => {}
     }
 
     // The log goes to a file from the very first line. A release build has no console
@@ -49,7 +75,7 @@ fn run() -> Result<()> {
     }
 
     match commande {
-        "run" => run_gui(),
+        "run" => run_gui(mailto, demarre_reduit),
         "add-account" => cmd_add_account(&args[1..]),
         "import" => cmd_import(&args[1..]),
         "accounts" => cmd_list_accounts(),
@@ -95,6 +121,22 @@ fn attach_parent_console() {
 #[cfg(not(all(windows, not(debug_assertions))))]
 fn attach_parent_console() {}
 
+/// Inscrit ou retire Iris auprès de Windows.
+///
+/// Une sous-commande plutôt qu'une case à cocher **en plus** de la case à cocher :
+/// c'est ce que l'installateur appelle, et il n'a pas d'interface. Les deux écrivent
+/// exactement la même chose, au même endroit.
+fn cmd_register(inscrire: bool) -> Result<()> {
+    if inscrire {
+        iris_app::platform::register_mailto()?;
+        println!("Iris is now offered as a mail client. Windows still decides the default.");
+    } else {
+        iris_app::platform::unregister_mailto()?;
+        println!("Iris is no longer registered.");
+    }
+    Ok(())
+}
+
 fn print_help() {
     println!(
         "Iris — a mail client\n\
@@ -106,6 +148,10 @@ fn print_help() {
          \x20 iris accounts                  List configured accounts\n\
          \x20 iris sync                      Synchronise once, without the interface\n\
          \x20 iris doctor                    Check the installation\n\
+         \x20 iris register                  Offer Iris to Windows as a mail client\n\
+         \x20 iris unregister                Withdraw that offer\n\
+         \x20 iris --tray                    Start into the notification area\n\
+         \x20 iris mailto:<address>          Start and compose to that address\n\
          \n\
          Import format: one line per account, \"address;password;group\".\n"
     );
@@ -410,7 +456,10 @@ impl iris_sync::SendContext for SendTracker {
 
 // --- Interface ---
 
-fn run_gui() -> Result<()> {
+fn run_gui(
+    mailto: Option<iris_app::platform::MailtoRequest>,
+    demarre_reduit: bool,
+) -> Result<()> {
     let services = open_services()?;
 
     // L'exécuteur asynchrone tourne dans ses propres fils : la synchronisation ne
@@ -629,6 +678,14 @@ fn run_gui() -> Result<()> {
                 tracing::error!(error = %e, "loading accounts");
             }
             loop {
+                // Relu à chaque tour plutôt que capturé une fois : couper les
+                // notifications dans les réglages doit les couper maintenant, pas au
+                // prochain démarrage.
+                let notifications_actives = iris_app::settings::Settings::load(
+                    services_sync.paths.settings(),
+                )
+                .notifications;
+
                 // Le travail que fait le temps précède celui du réseau : un report
                 // échu doit réapparaître même quand le serveur est injoignable.
                 match engine.run_maintenance(now()) {
@@ -652,6 +709,36 @@ fn run_gui() -> Result<()> {
                         flags = rapport.flags_updated,
                         "synchronisation"
                     );
+                }
+
+                // La bulle d'arrivée. Une seule pour tout le tour, et seulement quand
+                // du courrier est réellement arrivé : un drapeau modifié sur le
+                // serveur n'est pas une arrivée, et prévenir pour un message qu'on
+                // vient de marquer comme lu ailleurs serait un contresens.
+                //
+                // Le dernier message est relu ici plutôt que remonté par le moteur :
+                // le moteur compte, il ne met pas en forme, et une seule lecture par
+                // tour de synchronisation ne se mesure pas.
+                if rapport.messages_added > 0 && notifications_actives {
+                    if let Some(dernier) = services_sync
+                        .store
+                        .latest_unread(now())
+                        .ok()
+                        .flatten()
+                    {
+                        let arrivee = iris_app::notify::Arrival {
+                            count: rapport.messages_added,
+                            sender: dernier.0,
+                            subject: dernier.1,
+                        };
+                        if !iris_app::notify::show(&arrivee) {
+                            // Une bulle qui n'apparaît pas est presque toujours la
+                            // même cause : la copie n'est pas installée, donc Windows
+                            // ne connaît pas son identité. Le dire une fois, dans le
+                            // journal, vaut mieux que de le répéter à chaque tour.
+                            tracing::debug!("notification refused by the system");
+                        }
+                    }
                 }
                 // La barre latérale reflète l'état de l'ordonnanceur : un compte
                 // qui ne se synchronise plus doit le dire là où on regarde les
@@ -716,6 +803,88 @@ fn run_gui() -> Result<()> {
                 )));
             }
         });
+    }
+
+    // L'icône de la zone de notification.
+    //
+    // Créée ici, sur le fil principal : sous Windows elle vit dans une fenêtre cachée
+    // dont les messages sont distribués par la boucle d'événements, et celle-ci
+    // appartient à Slint. Elle est **interrogée** par une minuterie plutôt que de
+    // rappeler l'application : un rappel arrivé d'un autre fil n'aurait pas le droit
+    // de toucher à la fenêtre, et deux relevés non bloquants toutes les deux cents
+    // millisecondes ne se mesurent pas.
+    let _minuterie_zone = {
+        let mut zone = iris_app::tray::Tray::install();
+        if zone.is_none() {
+            tracing::info!("no notification area: the tray icon is unavailable");
+        }
+
+        let faible = fenetre.as_weak();
+        let store_zone = Arc::clone(&services.store);
+        let controller_zone = Arc::clone(&controller);
+        let minuterie = slint::Timer::default();
+        let mut precedent = u32::MAX;
+
+        minuterie.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(200),
+            move || {
+                let Some(zone) = zone.as_mut() else {
+                    return;
+                };
+
+                match zone.poll() {
+                    Some(iris_app::tray::TrayCommand::Open) => {
+                        if let Some(fenetre) = faible.upgrade() {
+                            // `show` seul ne suffit pas sur une fenêtre réduite : elle
+                            // reste dans la barre des tâches. La restaurer d'abord est
+                            // ce qui la ramène sous les yeux.
+                            fenetre.window().set_minimized(false);
+                            let _ = fenetre.show();
+                            fenetre.window().set_fullscreen(false);
+                        }
+                    }
+                    Some(iris_app::tray::TrayCommand::Quit) => {
+                        controller_zone.shutdown();
+                        let _ = slint::quit_event_loop();
+                    }
+                    None => {}
+                }
+
+                // Le décompte est relu à chaque tour, mais l'infobulle n'est réécrite
+                // que s'il a changé : la réécrire à l'identique fait clignoter la
+                // fenêtre contextuelle de Windows quand la souris est dessus.
+                let unread = store_zone.unread_count().unwrap_or(0);
+                if unread != precedent {
+                    precedent = unread;
+                    zone.set_unread(unread);
+                }
+            },
+        );
+
+        minuterie
+    };
+
+    // Une adresse cliquée dans un navigateur ouvre un brouillon, déjà rempli.
+    //
+    // Fait après tout le câblage : `wire_compose` installe les rappels de la fenêtre
+    // de composition, et remplir les champs avant qu'ils existent les remplirait pour
+    // rien.
+    if let Some(demande) = mailto {
+        fenetre.set_compose_to(demande.to.as_str().into());
+        fenetre.set_compose_cc(demande.cc.as_str().into());
+        fenetre.set_compose_bcc(demande.bcc.as_str().into());
+        fenetre.set_compose_subject(demande.subject.as_str().into());
+        fenetre.set_compose_body(demande.body.as_str().into());
+        // Les copies sont dépliées seulement si elles portent quelque chose : un
+        // « mailto: » nu ne doit pas ouvrir deux champs vides de plus.
+        fenetre.set_compose_show_cc(!demande.cc.is_empty() || !demande.bcc.is_empty());
+        fenetre.set_compose_open(true);
+    }
+
+    // Démarré par la session : on se tient prêt, sans fenêtre.
+    if demarre_reduit {
+        fenetre.window().hide().ok();
     }
 
     fenetre

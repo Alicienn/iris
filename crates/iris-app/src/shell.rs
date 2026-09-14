@@ -1079,6 +1079,15 @@ pub fn wire_settings(
         fenetre.set_new_message_reopens(reglages.automation.new_message_reopens);
         fenetre.set_follow_up_enabled(reglages.automation.follow_up_enabled);
         fenetre.set_follow_up_days(reglages.automation.follow_up_days as i32);
+        fenetre.set_notifications(reglages.notifications);
+
+        // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
+        // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
+        // stratégie d'entreprise ou une autre application peuvent avoir défait
+        // l'inscription entre deux démarrages.
+        let reel = crate::platform::status();
+        fenetre.set_start_at_login(reel.start_at_login);
+        fenetre.set_handle_mailto(reel.mailto);
     }
 
     let enregistrer = {
@@ -1144,6 +1153,59 @@ pub fn wire_settings(
             reglages.density = densite;
             appliquer_apparence(&fenetre, &themes.active(), densite);
             fenetre.set_density(index);
+            enregistrer(&reglages);
+        });
+    }
+
+    // --- Ce qui engage le système ---
+    //
+    // Trois interrupteurs qui écrivent hors de l'application : dans le registre pour
+    // deux d'entre eux, dans la manière dont Windows nous connaît pour le troisième.
+    // L'état réel est **relu** après chaque écriture plutôt que supposé : une clé de
+    // registre refusée par une stratégie d'entreprise laisserait sinon un
+    // interrupteur allumé sur une chose qui n'a pas eu lieu.
+    {
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_system_changed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.notifications = fenetre.get_notifications();
+
+            let mut plaintes: Vec<String> = Vec::new();
+
+            if fenetre.get_start_at_login() != reglages.start_at_login {
+                match crate::platform::set_start_at_login(fenetre.get_start_at_login()) {
+                    Ok(()) => reglages.start_at_login = fenetre.get_start_at_login(),
+                    Err(e) => plaintes.push(format!("Start with Windows: {e}")),
+                }
+            }
+
+            if fenetre.get_handle_mailto() != reglages.handle_mailto {
+                let resultat = if fenetre.get_handle_mailto() {
+                    crate::platform::register_mailto()
+                } else {
+                    crate::platform::unregister_mailto()
+                };
+                match resultat {
+                    Ok(()) => reglages.handle_mailto = fenetre.get_handle_mailto(),
+                    Err(e) => plaintes.push(format!("mailto: links: {e}")),
+                }
+            }
+
+            // Ce que Windows dit maintenant, et non ce que nous avons demandé.
+            let reel = crate::platform::status();
+            fenetre.set_start_at_login(reel.start_at_login);
+            fenetre.set_handle_mailto(reel.mailto);
+            reglages.start_at_login = reel.start_at_login;
+            reglages.handle_mailto = reel.mailto;
+
+            fenetre.set_system_note(plaintes.join("\n").into());
             enregistrer(&reglages);
         });
     }
