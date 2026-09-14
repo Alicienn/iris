@@ -181,7 +181,7 @@ Google, et « tout est un module ».
 
 - [x] **S23.1** Les plugins tournent : chargés au démarrage, abonnés au bus, leurs
       commandes dans la palette.
-- [ ] **S23.2** OAuth Google et Microsoft depuis l'écran d'ajout de compte.
+- [x] **S23.2** OAuth Google et Microsoft depuis l'écran d'ajout de compte.
 - [ ] **S23.3** Pièces jointes : recensées au téléchargement, listées, enregistrables.
 - [ ] **S23.4** Compteurs par compte dans la barre latérale.
 - [ ] **S23.5** L'état de la synchronisation, visible pendant qu'elle a lieu.

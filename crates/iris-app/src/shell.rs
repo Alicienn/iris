@@ -790,6 +790,7 @@ pub fn wire_account_setup(
     controller: Arc<Controller>,
     runtime: tokio::runtime::Handle,
 ) {
+    let oauth_reglages = Arc::clone(&services.oauth);
     // --- Passer à la main sans attendre l'échec ---
     {
         let faible = fenetre.as_weak();
@@ -814,7 +815,10 @@ pub fn wire_account_setup(
             let email = fenetre.get_new_email().to_string();
             let motdepasse = fenetre.get_new_password().to_string();
 
-            if let Err(message) = valider_saisie(&email, &motdepasse) {
+            // Le mot de passe n'est exigé qu'après la découverte : un compte Google
+            // n'en a pas, et le réclamer d'avance apprendrait à l'utilisateur à
+            // taper son mot de passe principal dans une application tierce.
+            if let Err(message) = valider_adresse(&email) {
                 fenetre.set_add_account_error(message.into());
                 return;
             }
@@ -830,16 +834,10 @@ pub fn wire_account_setup(
             let controller = Arc::clone(&controller);
             let faible = fenetre.as_weak();
 
+            let oauth = Arc::clone(&oauth_reglages);
             runtime_ajout.spawn(async move {
-                let resultat = crate::accounts::add_account(
-                    &store,
-                    secrets.as_ref(),
-                    &email,
-                    &motdepasse,
-                    None,
-                    now(),
-                )
-                .await;
+                let resultat =
+                    ajouter(&store, secrets, &oauth, &email, &motdepasse, now()).await;
 
                 // Le compte créé doit entrer dans l'ordonnanceur tout de suite,
                 // sinon rien n'arrive avant le prochain démarrage.
@@ -941,6 +939,82 @@ pub fn wire_account_setup(
     }
 }
 
+/// Ajoute un compte : découverte, puis la porte d'entrée qui convient.
+///
+/// Un fournisseur d'identité passe par le navigateur ; tout le reste par le mot de
+/// passe. Le choix n'appartient pas à l'utilisateur : il appartient au serveur, et
+/// lui demander de deviner serait lui demander de connaître la politique de son
+/// hébergeur.
+async fn ajouter(
+    store: &iris_store::Store,
+    secrets: Arc<dyn iris_secrets::SecretStore>,
+    oauth: &Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
+    email: &str,
+    motdepasse: &str,
+    maintenant: iris_types::Timestamp,
+) -> iris_types::Result<crate::accounts::AddedAccount> {
+    let decouverte = crate::accounts::discover(email).await?;
+    let config = decouverte.config.clone();
+
+    let fournisseur = match config.auth {
+        iris_discover::Auth::OAuthGoogle => Some(iris_oauth::Provider::Google),
+        iris_discover::Auth::OAuthMicrosoft => Some(iris_oauth::Provider::Microsoft),
+        iris_discover::Auth::Password => None,
+    };
+
+    let id = match fournisseur {
+        Some(fournisseur) => {
+            let reglages = oauth.read().expect("réglages OAuth empoisonnés").clone();
+            if !reglages.is_configured(fournisseur) {
+                // Le dire, plutôt que d'ouvrir un navigateur vers une page d'erreur
+                // du fournisseur que personne ne saura interpréter.
+                return Err(iris_types::Error::Config(format!(
+                    "{} exige une connexion par navigateur, et aucun identifiant client                      n'est configuré pour ce fournisseur",
+                    config.provider.as_deref().unwrap_or("ce compte")
+                )));
+            }
+
+            crate::oauth::authorize(
+                Arc::clone(&secrets),
+                &reglages,
+                fournisseur,
+                &config.email,
+                maintenant,
+            )
+            .await?;
+
+            crate::accounts::add_account_oauth(store, &config, None, maintenant)?
+        }
+        None => {
+            if motdepasse.is_empty() {
+                return Err(iris_types::Error::Config("Le mot de passe est vide.".into()));
+            }
+            if store.account_by_email(&config.email)?.is_some() {
+                return Err(iris_types::Error::Config(format!(
+                    "le compte « {} » existe déjà",
+                    config.email
+                )));
+            }
+            crate::accounts::add_account_manual(
+                store,
+                secrets.as_ref(),
+                &config,
+                motdepasse,
+                None,
+                maintenant,
+            )?
+        }
+    };
+
+    Ok(crate::accounts::AddedAccount {
+        id,
+        email: config.email.clone(),
+        needs_review: !decouverte.source.is_authoritative(),
+        source: decouverte.source,
+        config,
+    })
+}
+
 /// Bascule l'écran en configuration manuelle, champs préremplis.
 fn prefill_manual(fenetre: &AppWindow) {
     let defauts = crate::accounts::manual_defaults(fenetre.get_new_email().as_str());
@@ -961,11 +1035,17 @@ fn prefill_manual(fenetre: &AppWindow) {
     }
 }
 
-/// Vérifie ce qui peut l'être sans réseau.
-fn valider_saisie(email: &str, motdepasse: &str) -> std::result::Result<(), String> {
+/// Vérifie l'adresse, sans réseau.
+fn valider_adresse(email: &str) -> std::result::Result<(), String> {
     if !email.contains('@') || email.trim().len() < 3 {
         return Err("Cette adresse ne ressemble pas à une adresse électronique.".into());
     }
+    Ok(())
+}
+
+/// Vérifie ce qu'exige la configuration manuelle : une adresse et un mot de passe.
+fn valider_saisie(email: &str, motdepasse: &str) -> std::result::Result<(), String> {
+    valider_adresse(email)?;
     if motdepasse.is_empty() {
         return Err("Le mot de passe est vide.".into());
     }

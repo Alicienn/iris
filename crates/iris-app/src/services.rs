@@ -34,6 +34,10 @@ pub struct Services {
     pub themes: Arc<ThemeRegistry>,
     pub bus: EventBus,
     pub engine: Arc<SyncEngine>,
+    /// Les identifiants clients OAuth, partagés avec le fournisseur d'identifiants.
+    /// Modifiables en cours de route : renseigner un identifiant client ne doit pas
+    /// demander de redémarrer.
+    pub oauth: Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
 }
 
 impl Services {
@@ -48,6 +52,7 @@ impl Services {
         let blobs = Arc::new(BlobStore::open(paths.blobs(), BLOB_CACHE_BYTES)?);
         let index = Arc::new(SearchIndex::open(paths.index())?);
         let themes = Arc::new(ThemeRegistry::with_user_dir(paths.themes())?);
+        let oauth: Arc<std::sync::RwLock<crate::oauth::OAuthSettings>> = Default::default();
         let secrets = open_secrets(&paths, master)?;
         let bus = EventBus::new();
 
@@ -58,7 +63,11 @@ impl Services {
             SyncEngine::new(
                 Arc::clone(&store),
                 Arc::new(RustlsConnector::new()),
-                Arc::new(StoredCredentials { secrets: Arc::clone(&secrets) }),
+                Arc::new(StoredCredentials {
+                    secrets: Arc::clone(&secrets),
+                    store: Arc::clone(&store),
+                    oauth: Arc::clone(&oauth),
+                }),
                 bus.clone(),
                 EngineConfig::default(),
             )
@@ -66,7 +75,7 @@ impl Services {
             .with_blobs(Arc::clone(&blobs)),
         );
 
-        Ok(Self { paths, store, blobs, index, secrets, themes, bus, engine })
+        Ok(Self { paths, store, blobs, index, secrets, themes, bus, engine, oauth })
     }
 
     /// Nom du magasin de secrets réellement utilisé, pour le diagnostic.
@@ -110,24 +119,56 @@ fn open_secrets(paths: &Paths, master: Option<Secret>) -> Result<Arc<dyn SecretS
 
 /// Fournit au moteur de synchronisation les identifiants tirés du magasin.
 #[derive(Debug)]
+/// Les identifiants d'un compte, renouvelés si besoin.
+///
+/// Un jeton OAuth vit une heure. Sans renouvellement, un compte Google fonctionne
+/// jusqu'au premier déjeuner, puis échoue avec un message d'authentification qui
+/// laisse croire à un mot de passe changé.
 struct StoredCredentials {
     secrets: Arc<dyn SecretStore>,
+    store: Arc<Store>,
+    /// Les identifiants clients, relus à chaque usage : l'utilisateur peut les
+    /// renseigner sans redémarrer.
+    oauth: Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
 }
 
 #[async_trait::async_trait]
 impl iris_sync::CredentialsProvider for StoredCredentials {
     async fn credentials(
         &self,
-        _account: AccountId,
+        account: AccountId,
         email: &str,
     ) -> Result<iris_imap::Credentials> {
-        // Un jeton OAuth prime sur un mot de passe : quand les deux existent, c'est
-        // que le compte a migré vers la connexion par fournisseur d'identité.
-        if let Some(jeton) = self.secrets.get(email, SecretKind::AccessToken)? {
-            return Ok(iris_imap::Credentials::OAuth2 {
-                user: email.to_string(),
-                token: jeton.expose().to_string(),
-            });
+        // Le mode d'authentification du compte fait foi. Se fier à la présence d'un
+        // jeton laisserait un compte revenu au mot de passe échouer sur un vieux
+        // jeton oublié dans le coffre.
+        let mode = self.store.account(account)?.map(|c| c.auth);
+        let fournisseur = mode.and_then(crate::oauth::provider_for);
+
+        if let Some(fournisseur) = fournisseur {
+            let maintenant = now();
+
+            if let Some(jeton) =
+                crate::oauth::valid_access_token(self.secrets.as_ref(), email, maintenant)?
+            {
+                return Ok(iris_imap::Credentials::OAuth2 {
+                    user: email.to_string(),
+                    token: jeton,
+                });
+            }
+
+            let reglages = self.oauth.read().expect("réglages OAuth empoisonnés").clone();
+            let jeton = crate::oauth::refresh_access(
+                self.secrets.as_ref(),
+                &reglages,
+                fournisseur,
+                email,
+                maintenant,
+            )
+            .await?;
+
+            tracing::info!(compte = %email, "jeton OAuth renouvelé");
+            return Ok(iris_imap::Credentials::OAuth2 { user: email.to_string(), token: jeton });
         }
 
         let motdepasse = self
@@ -226,6 +267,23 @@ mod tests {
         (Arc::new(coffre), dir)
     }
 
+    /// Un fournisseur d'identifiants adossé à un compte du mode voulu.
+    fn fournisseur(
+        secrets: Arc<dyn SecretStore>,
+        email: &str,
+        auth: iris_store::AuthKind,
+    ) -> (StoredCredentials, AccountId) {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let mut nouveau = iris_store::NewAccount::new(email, "imap.x.fr", "smtp.x.fr");
+        nouveau.auth = auth;
+        let id = store.create_account(&nouveau, Timestamp::EPOCH).unwrap();
+
+        (
+            StoredCredentials { secrets, store, oauth: Default::default() },
+            id,
+        )
+    }
+
     #[tokio::test]
     async fn les_identifiants_viennent_du_magasin() {
         let (secrets, _dir) = coffre_isole();
@@ -233,8 +291,8 @@ mod tests {
             .set("a@x.fr", SecretKind::Password, &Secret::new("motdepasse"))
             .unwrap();
 
-        let fournisseur = StoredCredentials { secrets };
-        let identifiants = fournisseur.credentials(AccountId(1), "a@x.fr").await.unwrap();
+        let (f, compte) = fournisseur(secrets, "a@x.fr", iris_store::AuthKind::Password);
+        let identifiants = f.credentials(compte, "a@x.fr").await.unwrap();
 
         match identifiants {
             iris_imap::Credentials::Password { user, password } => {
@@ -246,23 +304,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn un_jeton_oauth_prime_sur_le_mot_de_passe() {
-        // Quand les deux existent, c'est que le compte a migre.
+    async fn un_compte_oauth_presente_son_jeton() {
         let (secrets, _dir) = coffre_isole();
-        secrets.set("a@x.fr", SecretKind::Password, &Secret::new("ancien")).unwrap();
-        secrets.set("a@x.fr", SecretKind::AccessToken, &Secret::new("jeton")).unwrap();
+        crate::oauth::store_tokens(
+            secrets.as_ref(),
+            "a@x.fr",
+            &iris_oauth::Tokens {
+                access_token: "jeton".into(),
+                refresh_token: Some("r".into()),
+                expires_at: Timestamp::from_millis(i64::MAX / 2),
+                email: None,
+            },
+        )
+        .unwrap();
 
-        let fournisseur = StoredCredentials { secrets };
-        let identifiants = fournisseur.credentials(AccountId(1), "a@x.fr").await.unwrap();
-        assert!(matches!(identifiants, iris_imap::Credentials::OAuth2 { .. }));
+        let (f, compte) = fournisseur(secrets, "a@x.fr", iris_store::AuthKind::OAuthGoogle);
+        match f.credentials(compte, "a@x.fr").await.unwrap() {
+            iris_imap::Credentials::OAuth2 { token, .. } => assert_eq!(token, "jeton"),
+            autre => panic!("attendu un jeton, obtenu {autre:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn un_vieux_jeton_ne_detourne_pas_un_compte_par_mot_de_passe() {
+        // Se fier à la présence d'un jeton ferait échouer un compte revenu au mot de
+        // passe, sur un secret oublié dans le coffre.
+        let (secrets, _dir) = coffre_isole();
+        secrets.set("a@x.fr", SecretKind::Password, &Secret::new("actuel")).unwrap();
+        secrets.set("a@x.fr", SecretKind::AccessToken, &Secret::new("perime")).unwrap();
+
+        let (f, compte) = fournisseur(secrets, "a@x.fr", iris_store::AuthKind::Password);
+        match f.credentials(compte, "a@x.fr").await.unwrap() {
+            iris_imap::Credentials::Password { password, .. } => assert_eq!(password, "actuel"),
+            autre => panic!("attendu un mot de passe, obtenu {autre:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn un_compte_oauth_sans_identifiant_client_le_dit() {
+        // Un échec d'authentification anonyme enverrait chercher un mot de passe là
+        // où il manque une configuration.
+        let (secrets, _dir) = coffre_isole();
+        secrets.set("a@x.fr", SecretKind::RefreshToken, &Secret::new("r")).unwrap();
+
+        let (f, compte) = fournisseur(secrets, "a@x.fr", iris_store::AuthKind::OAuthGoogle);
+        let erreur = f.credentials(compte, "a@x.fr").await.unwrap_err().to_string();
+        assert!(erreur.contains("identifiant client"), "obtenu : {erreur}");
     }
 
     #[tokio::test]
     async fn un_compte_sans_secret_echoue_explicitement() {
         let (secrets, _dir) = coffre_isole();
-        let fournisseur = StoredCredentials { secrets };
+        let (f, compte) = fournisseur(secrets, "inconnu@x.fr", iris_store::AuthKind::Password);
 
-        let e = fournisseur.credentials(AccountId(1), "inconnu@x.fr").await.unwrap_err();
+        let e = f.credentials(compte, "inconnu@x.fr").await.unwrap_err();
         assert!(e.needs_user_action(), "l'utilisateur doit etre invite a se reconnecter");
     }
 

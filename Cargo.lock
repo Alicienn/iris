@@ -3748,6 +3748,7 @@ dependencies = [
  "iris-index",
  "iris-kernel",
  "iris-mime",
+ "iris-oauth",
  "iris-plugins",
  "iris-secrets",
  "iris-smtp",
@@ -3862,9 +3863,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "iris-types",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
+ "webbrowser",
 ]
 
 [[package]]

@@ -208,6 +208,60 @@ pub fn add_account_manual(
     })
 }
 
+/// Interroge la chaîne de découverte, sans rien créer.
+///
+/// Séparé de la création parce qu'un compte OAuth ne peut pas être créé avant que
+/// l'utilisateur ait autorisé : il faut d'abord savoir *quel* fournisseur demander.
+pub async fn discover(email: &str) -> Result<iris_discover::Discovered> {
+    let email = email.trim().to_lowercase();
+    Discovery::new(RealIo::new()).discover(&email).await
+}
+
+/// Crée un compte dont l'autorisation est déjà dans le coffre.
+///
+/// Aucun mot de passe n'est écrit : un compte OAuth n'en a pas, et en enregistrer un
+/// vide laisserait croire à un secret là où il n'y en a pas.
+pub fn add_account_oauth(
+    store: &Store,
+    config: &ServerConfig,
+    group: Option<String>,
+    now: Timestamp,
+) -> Result<AccountId> {
+    let email = config.email.trim().to_lowercase();
+
+    if store.account_by_email(&email)?.is_some() {
+        return Err(Error::Config(format!("le compte « {email} » existe déjà")));
+    }
+
+    let auth = match config.auth {
+        Auth::OAuthGoogle => AuthKind::OAuthGoogle,
+        Auth::OAuthMicrosoft => AuthKind::OAuthMicrosoft,
+        // Appelé sur une configuration par mot de passe, c'est une erreur de
+        // programmation : la dire vaut mieux que créer un compte qui n'ouvrira pas.
+        Auth::Password => {
+            return Err(Error::Config(
+                "ce compte n'utilise pas de fournisseur d'identité".into(),
+            ))
+        }
+    };
+
+    store.create_account(
+        &NewAccount {
+            email,
+            display_name: String::new(),
+            imap_host: config.imap_host.clone(),
+            imap_port: config.imap_port,
+            imap_tls: config.imap_transport == iris_discover::Transport::Tls,
+            smtp_host: config.smtp_host.clone(),
+            smtp_port: config.smtp_port,
+            smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
+            auth,
+            group,
+        },
+        now,
+    )
+}
+
 /// La configuration proposée quand la découverte n'a rien trouvé.
 ///
 /// Ce ne sont pas des devinettes gratuites : `imap.domaine` et `smtp.domaine` en TLS
@@ -251,6 +305,79 @@ pub fn remove_account(
 #[cfg(test)]
 mod tests_manuel {
     use super::*;
+
+    fn store() -> Store {
+        Store::in_memory().unwrap()
+    }
+
+    fn config_oauth(email: &str, auth: Auth) -> ServerConfig {
+        ServerConfig {
+            provider: Some("Test".into()),
+            email: email.into(),
+            imap_host: "imap.test".into(),
+            imap_port: 993,
+            imap_transport: iris_discover::Transport::Tls,
+            smtp_host: "smtp.test".into(),
+            smtp_port: 465,
+            smtp_transport: iris_discover::Transport::Tls,
+            auth,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn un_compte_oauth_se_cree_sans_mot_de_passe() {
+        // En enregistrer un vide laisserait croire à un secret là où il n'y en a pas.
+        let s = store();
+        let id = add_account_oauth(
+            &s,
+            &config_oauth("moi@gmail.com", Auth::OAuthGoogle),
+            None,
+            Timestamp::EPOCH,
+        )
+        .unwrap();
+
+        let compte = s.account(id).unwrap().unwrap();
+        assert_eq!(compte.auth, AuthKind::OAuthGoogle);
+        assert_eq!(compte.email, "moi@gmail.com");
+    }
+
+    #[test]
+    fn microsoft_est_reconnu_aussi() {
+        let s = store();
+        let id = add_account_oauth(
+            &s,
+            &config_oauth("moi@outlook.com", Auth::OAuthMicrosoft),
+            None,
+            Timestamp::EPOCH,
+        )
+        .unwrap();
+        assert_eq!(s.account(id).unwrap().unwrap().auth, AuthKind::OAuthMicrosoft);
+    }
+
+    #[test]
+    fn creer_un_compte_par_mot_de_passe_par_cette_porte_est_refuse() {
+        // Le compte s'ouvrirait sans jamais pouvoir s'authentifier.
+        let s = store();
+        let erreur = add_account_oauth(
+            &s,
+            &config_oauth("moi@x.fr", Auth::Password),
+            None,
+            Timestamp::EPOCH,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(erreur.contains("fournisseur d'identité"), "obtenu : {erreur}");
+    }
+
+    #[test]
+    fn un_compte_oauth_en_double_est_refuse() {
+        let s = store();
+        let config = config_oauth("moi@gmail.com", Auth::OAuthGoogle);
+        add_account_oauth(&s, &config, None, Timestamp::EPOCH).unwrap();
+
+        assert!(add_account_oauth(&s, &config, None, Timestamp::EPOCH).is_err());
+    }
 
     #[test]
     fn les_valeurs_par_defaut_suivent_la_convention_du_domaine() {

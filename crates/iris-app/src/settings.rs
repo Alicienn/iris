@@ -71,6 +71,10 @@ pub struct Settings {
     pub theme: String,
     pub density: Density,
     pub automation: AutomationSettings,
+    /// Identifiants clients OAuth. Absents du binaire à dessein : un secret
+    /// distribué à tout le monde n'en est pas un, et celui d'Iris doit être
+    /// enregistré auprès de chaque fournisseur, ce qu'un fichier source ne fait pas.
+    pub oauth: crate::oauth::OAuthSettings,
 }
 
 impl Default for Settings {
@@ -79,6 +83,7 @@ impl Default for Settings {
             theme: "mono".into(),
             density: Density::default(),
             automation: AutomationSettings::default(),
+            oauth: Default::default(),
         }
     }
 }
@@ -149,6 +154,10 @@ mod tests {
             theme: "ice".into(),
             density: Density::Compact,
             automation: AutomationSettings::MANUAL_ONLY,
+            oauth: crate::oauth::OAuthSettings {
+                google_client_id: "abc.apps.googleusercontent.com".into(),
+                microsoft_client_id: String::new(),
+            },
         };
 
         reglages.save(&chemin).unwrap();
@@ -205,6 +214,27 @@ mod tests {
         assert_eq!(reglages.theme, "sand");
         assert_eq!(reglages.density, Density::Normal);
         assert_eq!(reglages.automation, AutomationSettings::default());
+    }
+
+    #[test]
+    fn les_identifiants_oauth_survivent_a_l_aller_retour() {
+        // Sans eux, la connexion à Google est impossible : les perdre à chaque
+        // écriture des réglages déconnecterait le compte sans raison visible.
+        let (_d, chemin) = fichier();
+        let mut reglages = Settings::default();
+        reglages.oauth.google_client_id = "client-google".into();
+        reglages.save(&chemin).unwrap();
+
+        assert_eq!(Settings::load(&chemin).oauth.google_client_id, "client-google");
+    }
+
+    #[test]
+    fn un_fichier_sans_section_oauth_reste_lisible() {
+        let (_d, chemin) = fichier();
+        std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+        std::fs::write(&chemin, "theme = \"mono\"\n").unwrap();
+
+        assert_eq!(Settings::load(&chemin).oauth, Default::default());
     }
 
     #[test]

@@ -13,6 +13,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
+pub mod http;
+
+pub use http::{open_browser, reserve_port, wait_for_redirect, HttpEndpoint, Redirect};
+
 use async_trait::async_trait;
 use iris_types::{Error, Result, Timestamp};
 use serde::{Deserialize, Serialize};
