@@ -483,7 +483,8 @@ mod tests {
     ) {
         let store = Arc::new(Store::in_memory().unwrap());
         let (tx, rx) = std::sync::mpsc::channel();
-        let (c, fil) = Controller::spawn(store, Default::default(), Timestamp::EPOCH, move |_| {
+        let workflow = crate::controller::default_workflow(Arc::clone(&store));
+        let (c, fil) = Controller::spawn(store, workflow, Timestamp::EPOCH, move |_| {
             let _ = tx.send(());
         });
         (c, rx, fil)

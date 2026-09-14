@@ -18,6 +18,7 @@ pub mod search;
 pub mod selection;
 
 pub use actions::{Action, ActionOutcome, Actions};
+pub use iris_workflow::{UndoEntry, Workflow};
 pub use list::{ListUpdate, ThreadList, PAGE_SIZE, PREFETCH};
 pub use search::{SearchState, MAX_RESULTS};
 pub use selection::{Movement, Selection};

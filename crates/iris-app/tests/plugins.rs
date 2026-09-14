@@ -176,7 +176,7 @@ fn l_action_du_plugin_change_reellement_l_etat_du_fil() {
     let (tx_snap, rx_snap) = mpsc::channel::<Snapshot>();
     let (controller, fil_vm) = Controller::spawn(
         Arc::clone(&f.store),
-        Default::default(),
+        iris_app::controller::default_workflow(Arc::clone(&f.store)),
         Timestamp::EPOCH,
         move |s| {
             let _ = tx_snap.send(s);

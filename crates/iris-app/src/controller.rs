@@ -11,7 +11,7 @@
 use iris_kernel::{coalesce, EventBus, ViewDiff};
 use iris_store::Store;
 use iris_types::{AutomationSettings, Result, ThreadId, Timestamp, WorkflowState};
-use iris_viewmodel::{Action, Actions, Movement, ViewModel};
+use iris_viewmodel::{Action, Actions, Movement, ViewModel, Workflow};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
@@ -98,11 +98,11 @@ impl Controller {
     /// le renvoyer vers la boucle d'interface.
     pub fn spawn(
         store: Arc<Store>,
-        settings: AutomationSettings,
+        workflow: Arc<Workflow>,
         now: Timestamp,
         on_snapshot: impl Fn(Snapshot) + Send + 'static,
     ) -> (Self, std::thread::JoinHandle<()>) {
-        Self::spawn_with_index(store, None, settings, now, on_snapshot)
+        Self::spawn_with_index(store, None, workflow, now, on_snapshot)
     }
 
     /// Même chose, avec l'index plein texte.
@@ -112,7 +112,7 @@ impl Controller {
     pub fn spawn_with_index(
         store: Arc<Store>,
         index: Option<Arc<iris_index::SearchIndex>>,
-        settings: AutomationSettings,
+        workflow: Arc<Workflow>,
         now: Timestamp,
         on_snapshot: impl Fn(Snapshot) + Send + 'static,
     ) -> (Self, std::thread::JoinHandle<()>) {
@@ -121,7 +121,7 @@ impl Controller {
         let fil = std::thread::Builder::new()
             .name("iris-viewmodel".into())
             .spawn(move || {
-                run(store, index, settings, now, rx, on_snapshot);
+                run(store, index, workflow, now, rx, on_snapshot);
             })
             .expect("création du fil du vue-modèle");
 
@@ -143,7 +143,7 @@ impl Controller {
 fn run(
     store: Arc<Store>,
     index: Option<Arc<iris_index::SearchIndex>>,
-    settings: AutomationSettings,
+    workflow: Arc<Workflow>,
     now: Timestamp,
     requests: Receiver<Request>,
     on_snapshot: impl Fn(Snapshot),
@@ -152,7 +152,7 @@ fn run(
     if let Some(index) = index {
         vm = vm.with_index(index);
     }
-    let mut actions = Actions::new(Arc::clone(&store), settings);
+    let mut actions = Actions::new(workflow);
 
     while let Ok(request) = requests.recv() {
         if request == Request::Shutdown {
@@ -189,7 +189,7 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         }
         Request::ApplyTo(thread, action) => appliquer(vm, actions, thread, action),
         Request::Undo => {
-            let Some(record) = actions.undo()? else {
+            let Some(record) = actions.undo(Timestamp::from_millis(now_millis()))? else {
                 return Ok(false);
             };
             let mut diff = ViewDiff::default();
@@ -277,6 +277,18 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+/// Builds a workflow engine over a store, with default settings.
+///
+/// The application builds it in `Services`; tests and small callers use this so they
+/// get the same wiring instead of inventing their own.
+pub fn default_workflow(store: Arc<Store>) -> Arc<Workflow> {
+    Arc::new(Workflow::new(
+        store,
+        EventBus::new(),
+        AutomationSettings::default(),
+    ))
+}
+
 /// Relie le bus du noyau au contrôleur.
 ///
 /// Les événements passent d'abord par la coalescence : sans elle, une
@@ -358,14 +370,11 @@ mod tests {
         std::thread::JoinHandle<()>,
     ) {
         let (tx, rx) = mpsc::channel();
-        let (controller, fil) = Controller::spawn(
-            store,
-            AutomationSettings::default(),
-            Timestamp::from_millis(10_000),
-            move |s| {
+        let workflow = default_workflow(Arc::clone(&store));
+        let (controller, fil) =
+            Controller::spawn(store, workflow, Timestamp::from_millis(10_000), move |s| {
                 let _ = tx.send(s);
-            },
-        );
+            });
         (controller, rx, fil)
     }
 
@@ -424,7 +433,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let (c, fil) = Controller::spawn(
             Arc::clone(&f.store),
-            AutomationSettings::default(),
+            default_workflow(Arc::clone(&f.store)),
             Timestamp::from_millis(0),
             move |_| {
                 let _ = tx.send(std::thread::current().id());

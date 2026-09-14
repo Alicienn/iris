@@ -1,42 +1,63 @@
-//! `iris-workflow` — la machine à états, branchée sur le store et le bus.
+//! `iris-workflow` — the one state machine, wired to the store and the bus.
 //!
-//! La logique de transition elle-même est pure et vit dans `iris-types`. Cette crate
-//! lui ajoute les trois choses qui demandent un état :
+//! The transition rules themselves are pure and live in `iris-types`. This crate adds
+//! the four things that need state:
 //!
-//! - **la persistance** : l'état est écrit avant toute publication, pour qu'un
-//!   abonné ne puisse jamais lire une base qui contredit l'événement qu'il reçoit ;
-//! - **l'annulation** : toute transition est empilée et rejouable à l'envers. C'est
-//!   ce qui rend le triage au clavier utilisable, parce qu'une erreur ne coûte rien ;
-//! - **le temps** : réveil des reports échus et relance des fils sans réponse.
+//! - **persistence**: the state is written before anything is published, so a
+//!   subscriber that re-reads the database on receiving an event can never find it
+//!   contradicting that event;
+//! - **undo**: every reversible action is recorded with the shape the thread had
+//!   before it. That is what makes keyboard triage usable — a mistake costs nothing;
+//! - **replay**: flag changes are journalled so the server eventually hears about
+//!   them, batched per folder rather than one command per message;
+//! - **time**: waking due snoozes and following up on threads nobody answered.
+//!
+//! There is deliberately **one** implementation of each of those. Having the undo
+//! stack in two places, or the snooze wake-up in two places, is not redundancy: it is
+//! two behaviours that drift apart until they disagree, and then nobody knows which
+//! one the user saw.
 
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
 use iris_kernel::{Event, EventBus};
-use iris_store::Store;
+use iris_store::{OpKind, Store};
 use iris_types::{
-    transition, AutomationSettings, Error, Result, Snooze, ThreadId, Timestamp, TransitionCause,
-    TransitionOutcome, WorkflowState,
+    transition, AccountId, AutomationSettings, Error, Flags, FolderId, Result, Snooze, ThreadId,
+    Timestamp, TransitionCause, TransitionOutcome, WorkflowState,
 };
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-/// Profondeur de la pile d'annulation.
+/// How many actions can be undone.
 ///
-/// Assez pour rattraper une séance de triage entière, assez peu pour que la pile ne
-/// devienne pas un journal parallèle.
+/// Enough to walk back a whole triage session, few enough that the stack does not
+/// become a second journal.
 const UNDO_DEPTH: usize = 100;
 
-/// Une transition annulable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The shape a thread had before an action, so the action can be reversed.
+///
+/// It records more than the state: undoing a snooze that only restored the state
+/// would leave the thread hidden, which is not what the user asked to undo.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UndoEntry {
     pub thread: ThreadId,
-    pub from: WorkflowState,
-    pub to: WorkflowState,
-    pub cause: TransitionCause,
+    pub state: WorkflowState,
+    pub snoozed_until: Option<Timestamp>,
+    /// Per-message flags, so read/unread and starring are reversible too.
+    pub flags: Vec<(iris_types::MessageId, Flags)>,
     pub at: Timestamp,
 }
 
-/// Le moteur de workflow.
+/// What an action did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Applied {
+    pub thread: ThreadId,
+    pub changed: bool,
+    pub outcome: Option<TransitionOutcome>,
+}
+
+/// The workflow engine.
 #[derive(Debug)]
 pub struct Workflow {
     store: Arc<Store>,
@@ -56,17 +77,23 @@ impl Workflow {
     }
 
     pub fn settings(&self) -> AutomationSettings {
-        *self.settings.read().expect("réglages empoisonnés")
+        *self.settings.read().expect("poisoned settings")
     }
 
     pub fn set_settings(&self, s: AutomationSettings) {
-        *self.settings.write().expect("réglages empoisonnés") = s;
+        *self.settings.write().expect("poisoned settings") = s;
     }
 
-    /// Applique une cause à un fil.
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    // --- State ---
+
+    /// Applies a cause to a thread.
     ///
-    /// L'écriture précède la publication : un abonné qui relit la base en recevant
-    /// l'événement doit y trouver le nouvel état, jamais l'ancien.
+    /// The write comes before the publish: a subscriber that re-reads the database on
+    /// receiving the event must find the new state there, never the old one.
     pub fn apply(
         &self,
         thread: ThreadId,
@@ -75,20 +102,17 @@ impl Workflow {
         now: Timestamp,
     ) -> Result<TransitionOutcome> {
         let Some(row) = self.store.thread_row(thread)? else {
-            return Err(Error::store(format!("fil {thread} introuvable")));
+            return Err(Error::store(format!("thread {thread} not found")));
         };
 
         let outcome = transition(row.state, cause, target, &self.settings());
 
         if let TransitionOutcome::Moved { from, to } = outcome {
+            // The snapshot is taken before the write: taken after, it would record
+            // the new state and undo would restore what the user just asked for.
+            let before = self.snapshot(thread, now)?;
             self.store.set_thread_state(thread, to)?;
-            self.push_undo(UndoEntry {
-                thread,
-                from,
-                to,
-                cause,
-                at: now,
-            });
+            self.record_undo(before);
             self.bus.publish(Event::ThreadStateChanged {
                 thread,
                 from,
@@ -100,7 +124,7 @@ impl Workflow {
         Ok(outcome)
     }
 
-    /// Raccourci pour l'action manuelle, la plus fréquente.
+    /// The manual action, which is the most frequent one.
     pub fn set_state(
         &self,
         thread: ThreadId,
@@ -110,27 +134,154 @@ impl Workflow {
         self.apply(thread, TransitionCause::Manual, Some(state), now)
     }
 
-    /// Annule la dernière transition.
+    // --- Snoozing ---
+
+    /// Snoozes a thread: it leaves the view without changing state.
+    pub fn snooze(&self, thread: ThreadId, until: Timestamp, now: Timestamp) -> Result<bool> {
+        let Some(row) = self.store.thread_row(thread)? else {
+            return Ok(false);
+        };
+        let before = self.snapshot(thread, now)?;
+
+        let changed = self.store.snooze_thread(
+            thread,
+            Snooze {
+                until,
+                restore_to: row.state,
+            },
+        )?;
+
+        if changed {
+            self.record_undo(before);
+            self.bus.publish(Event::ThreadSnoozed { thread, until });
+        }
+        Ok(changed)
+    }
+
+    pub fn unsnooze(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
+        let before = self.snapshot(thread, now)?;
+        let changed = self.store.clear_snooze(thread)?;
+        if changed {
+            self.record_undo(before);
+            self.bus.publish(Event::ThreadUnsnoozed { thread });
+        }
+        Ok(changed)
+    }
+
+    // --- Flags ---
+
+    /// Marks every message in a thread read or unread.
+    pub fn set_read(&self, thread: ThreadId, read: bool, now: Timestamp) -> Result<bool> {
+        let before = self.snapshot(thread, now)?;
+        let messages = self.store.thread_messages(thread)?;
+
+        let mut changed = false;
+        let mut per_folder: BTreeMap<(AccountId, FolderId), Vec<u32>> = BTreeMap::new();
+
+        for m in &messages {
+            if m.flags.contains(Flags::SEEN) == read {
+                continue;
+            }
+            self.store
+                .set_message_flags(m.id, m.flags.set(Flags::SEEN, read))?;
+            per_folder
+                .entry((m.account, m.folder))
+                .or_default()
+                .push(m.uid);
+            changed = true;
+        }
+
+        // One journalled operation per folder: fifty messages marked read at once
+        // must not produce fifty IMAP commands.
+        for ((account, folder), uids) in per_folder {
+            self.journal_flags(account, folder, &uids, Flags::SEEN, read, now)?;
+        }
+
+        if changed {
+            self.record_undo(before);
+            if let Some(m) = messages.last() {
+                self.bus.publish(Event::FlagsChanged {
+                    message: m.id,
+                    thread,
+                });
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Stars or unstars a thread, through its most recent message.
+    pub fn set_flagged(&self, thread: ThreadId, flagged: bool, now: Timestamp) -> Result<bool> {
+        let before = self.snapshot(thread, now)?;
+        let messages = self.store.thread_messages(thread)?;
+        let Some(last) = messages.last() else {
+            return Ok(false);
+        };
+
+        let updated = last.flags.set(Flags::FLAGGED, flagged);
+        if updated == last.flags {
+            return Ok(false);
+        }
+
+        self.store.set_message_flags(last.id, updated)?;
+        self.journal_flags(
+            last.account,
+            last.folder,
+            &[last.uid],
+            Flags::FLAGGED,
+            flagged,
+            now,
+        )?;
+
+        self.record_undo(before);
+        self.bus.publish(Event::FlagsChanged {
+            message: last.id,
+            thread,
+        });
+        Ok(true)
+    }
+
+    // --- Undo ---
+
+    /// Reverses the last action.
     ///
-    /// L'annulation n'est **pas** empilée : sans cette règle, annuler puis annuler à
-    /// nouveau rejouerait l'action au lieu de remonter dans l'historique.
-    pub fn undo(&self) -> Result<Option<UndoEntry>> {
+    /// The reversal is **not** pushed onto the stack: without that rule, undoing
+    /// twice would replay the action instead of walking further back.
+    pub fn undo(&self, now: Timestamp) -> Result<Option<UndoEntry>> {
         let Some(entry) = self.pop_undo() else {
             return Ok(None);
         };
 
-        // Le fil a pu disparaître entre-temps ; l'annulation est alors sans objet.
-        if self.store.thread_row(entry.thread)?.is_none() {
+        // The thread may be gone by now, in which case there is nothing to restore.
+        let Some(current) = self.store.thread_row(entry.thread)? else {
             return Ok(None);
+        };
+
+        if current.state != entry.state {
+            self.store.set_thread_state(entry.thread, entry.state)?;
+            self.bus.publish(Event::ThreadStateChanged {
+                thread: entry.thread,
+                from: current.state,
+                to: entry.state,
+                cause: TransitionCause::Manual,
+            });
         }
 
-        self.store.set_thread_state(entry.thread, entry.from)?;
-        self.bus.publish(Event::ThreadStateChanged {
-            thread: entry.thread,
-            from: entry.to,
-            to: entry.from,
-            cause: TransitionCause::Manual,
-        });
+        match entry.snoozed_until {
+            Some(until) => {
+                self.store.snooze_thread(
+                    entry.thread,
+                    Snooze {
+                        until,
+                        restore_to: entry.state,
+                    },
+                )?;
+            }
+            None => {
+                self.store.clear_snooze(entry.thread)?;
+            }
+        }
+
+        self.restore_flags(&entry, now)?;
         Ok(Some(entry))
     }
 
@@ -138,100 +289,86 @@ impl Workflow {
         self.undo.lock().map(|u| u.len()).unwrap_or(0)
     }
 
-    fn push_undo(&self, entry: UndoEntry) {
-        if let Ok(mut u) = self.undo.lock() {
-            if u.len() == UNDO_DEPTH {
-                u.remove(0);
+    /// Puts the per-message flags back, and journals the reversal.
+    fn restore_flags(&self, entry: &UndoEntry, now: Timestamp) -> Result<()> {
+        let mut seen: BTreeMap<(AccountId, FolderId), (Vec<u32>, bool)> = BTreeMap::new();
+
+        for (id, flags) in &entry.flags {
+            let Some(message) = self.store.message_by_id(*id)? else {
+                continue;
+            };
+            if message.flags == *flags {
+                continue;
             }
-            u.push(entry);
+            self.store.set_message_flags(*id, *flags)?;
+
+            let was_read = flags.contains(Flags::SEEN);
+            seen.entry((message.account, message.folder))
+                .or_insert_with(|| (Vec::new(), was_read))
+                .0
+                .push(message.uid);
         }
-    }
 
-    fn pop_undo(&self) -> Option<UndoEntry> {
-        self.undo.lock().ok()?.pop()
-    }
-
-    /// Reporte un fil : il quitte la vue sans changer d'état.
-    pub fn snooze(&self, thread: ThreadId, until: Timestamp) -> Result<bool> {
-        let Some(row) = self.store.thread_row(thread)? else {
-            return Ok(false);
-        };
-        let snooze = Snooze {
-            until,
-            restore_to: row.state,
-        };
-        let ok = self.store.snooze_thread(thread, snooze)?;
-        if ok {
-            self.bus.publish(Event::ThreadSnoozed { thread, until });
+        for ((account, folder), (uids, read)) in seen {
+            self.journal_flags(account, folder, &uids, Flags::SEEN, read, now)?;
         }
-        Ok(ok)
+        Ok(())
     }
 
-    pub fn unsnooze(&self, thread: ThreadId) -> Result<bool> {
-        let ok = self.store.clear_snooze(thread)?;
-        if ok {
-            self.bus.publish(Event::ThreadUnsnoozed { thread });
-        }
-        Ok(ok)
-    }
+    // --- Time ---
 
-    /// Réveille les fils dont le report est échu, en restaurant leur état.
+    /// Wakes threads whose snooze has come due, restoring their state.
     ///
-    /// Retourne le nombre de fils réveillés.
+    /// The snooze **restores** a state, it does not decide one: a thread snoozed from
+    /// "waiting" comes back to waiting. Snoozing sets aside, it does not requalify.
     pub fn wake_due_snoozes(&self, now: Timestamp) -> Result<usize> {
-        let dus = self.store.due_snoozes(now)?;
-        let mut reveilles = 0;
+        let due = self.store.due_snoozes(now)?;
+        let mut woken = 0;
 
-        for (thread, restore_to) in dus {
+        for (thread, restore_to) in due {
             self.store.clear_snooze(thread)?;
             self.bus.publish(Event::ThreadUnsnoozed { thread });
-
-            // Le report restaure l'état, il ne le décide pas : si le fil est déjà
-            // dans le bon état, il n'y a rien d'autre à faire que le rendre visible.
-            let outcome = self.apply(
+            self.apply(
                 thread,
                 TransitionCause::SnoozeExpired,
                 Some(restore_to),
                 now,
             )?;
-            let _ = outcome;
-            reveilles += 1;
+            woken += 1;
         }
 
-        Ok(reveilles)
+        Ok(woken)
     }
 
-    /// Ramène dans la file les fils en attente depuis trop longtemps.
-    ///
-    /// Retourne le nombre de fils relancés.
+    /// Brings back threads that have been waiting for an answer too long.
     pub fn run_follow_ups(&self, now: Timestamp, limit: u32) -> Result<usize> {
         let settings = self.settings();
         if !settings.follow_up_enabled {
             return Ok(0);
         }
 
-        let candidats =
+        let candidates =
             self.store
                 .threads_needing_follow_up(now, settings.follow_up_days, limit)?;
 
-        let mut relances = 0;
-        for thread in candidats {
+        let mut followed = 0;
+        for thread in candidates {
             if self
                 .apply(thread, TransitionCause::FollowUpDue, None, now)?
                 .changed()
             {
-                relances += 1;
+                followed += 1;
             }
         }
-        Ok(relances)
+        Ok(followed)
     }
 
-    /// À appeler lorsqu'une réponse vient d'être envoyée dans un fil.
+    /// Called when a reply has just been sent in a thread.
     pub fn on_reply_sent(&self, thread: ThreadId, now: Timestamp) -> Result<TransitionOutcome> {
         self.apply(thread, TransitionCause::ReplySent, None, now)
     }
 
-    /// À appeler lorsqu'un nouveau message rejoint un fil existant.
+    /// Called when a new message joins an existing thread.
     pub fn on_message_received(
         &self,
         thread: ThreadId,
@@ -239,6 +376,115 @@ impl Workflow {
     ) -> Result<TransitionOutcome> {
         self.apply(thread, TransitionCause::MessageReceived, None, now)
     }
+
+    // --- Internals ---
+
+    /// Captures everything an action could change, before it changes it.
+    fn snapshot(&self, thread: ThreadId, at: Timestamp) -> Result<UndoEntry> {
+        let row = self
+            .store
+            .thread_row(thread)?
+            .ok_or_else(|| Error::store(format!("thread {thread} not found")))?;
+
+        Ok(UndoEntry {
+            thread,
+            state: row.state,
+            snoozed_until: row.snoozed_until,
+            flags: self
+                .store
+                .thread_messages(thread)?
+                .into_iter()
+                .map(|m| (m.id, m.flags))
+                .collect(),
+            at,
+        })
+    }
+
+    fn record_undo(&self, entry: UndoEntry) {
+        if let Ok(mut stack) = self.undo.lock() {
+            if stack.len() == UNDO_DEPTH {
+                stack.remove(0);
+            }
+            stack.push(entry);
+        }
+    }
+
+    fn pop_undo(&self) -> Option<UndoEntry> {
+        self.undo.lock().ok()?.pop()
+    }
+
+    /// Records what the server will have to be told.
+    fn journal_flags(
+        &self,
+        account: AccountId,
+        folder: FolderId,
+        uids: &[u32],
+        flags: Flags,
+        add: bool,
+        now: Timestamp,
+    ) -> Result<()> {
+        if uids.is_empty() {
+            return Ok(());
+        }
+
+        let path = self
+            .store
+            .folders(account)?
+            .into_iter()
+            .find(|f| f.id == folder)
+            .map(|f| f.path)
+            .unwrap_or_default();
+
+        let mut sorted = uids.to_vec();
+        sorted.sort_unstable();
+
+        let payload = format!(
+            r#"{{"op":"set_flags","folder":{},"uids":[{}],"flags":{},"add":{}}}"#,
+            quote(&path),
+            sorted
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            flags.0,
+            add
+        );
+
+        // The key makes the operation idempotent: replaying the same flag change
+        // twice must not queue it twice.
+        let key = format!(
+            "{account}:flags:{path}:{}:{}:{add}",
+            sorted
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            flags.0
+        );
+
+        self.store
+            .enqueue_op(account, OpKind::SetFlags, &payload, &key, now)?;
+        Ok(())
+    }
+}
+
+/// Escapes a string for the small JSON payloads written above.
+fn quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
@@ -246,7 +492,6 @@ mod tests {
     use super::*;
     use iris_kernel::EventKind;
     use iris_store::{FolderRole, NewAccount, NewMessage};
-    use iris_types::{AccountId, Flags, FolderId};
 
     struct Fixture {
         workflow: Workflow,
@@ -260,10 +505,7 @@ mod tests {
     fn fixture() -> Fixture {
         let store = Arc::new(Store::in_memory().unwrap());
         let account = store
-            .create_account(
-                &NewAccount::new("a@x.fr", "i", "s"),
-                Timestamp::from_millis(0),
-            )
+            .create_account(&NewAccount::new("a@x.fr", "i", "s"), Timestamp::EPOCH)
             .unwrap();
         let folder = store
             .upsert_folder(account, "INBOX", FolderRole::Inbox)
@@ -274,6 +516,7 @@ mod tests {
             bus.clone(),
             AutomationSettings::default(),
         );
+
         Fixture {
             workflow,
             store,
@@ -285,7 +528,7 @@ mod tests {
     }
 
     impl Fixture {
-        fn thread_at(&self, millis: i64) -> ThreadId {
+        fn thread(&self) -> ThreadId {
             let uid = self.uid.get();
             self.uid.set(uid + 1);
             self.store
@@ -296,12 +539,12 @@ mod tests {
                     rfc_message_id: Some(format!("m{uid}@x")),
                     in_reply_to: None,
                     references: vec![],
-                    subject: format!("Sujet {uid}"),
+                    subject: format!("Subject {uid}"),
                     from_name: "Marie".into(),
-                    from_addr: "marie@example.com".into(),
+                    from_addr: "marie@x.fr".into(),
                     recipients_json: "[]".into(),
-                    date: Timestamp::from_millis(millis),
-                    received: Timestamp::from_millis(millis),
+                    date: Timestamp::from_millis(1000 * uid as i64),
+                    received: Timestamp::from_millis(1000 * uid as i64),
                     size: 10,
                     flags: Flags::NONE,
                     preview: String::new(),
@@ -313,249 +556,282 @@ mod tests {
         fn state(&self, t: ThreadId) -> WorkflowState {
             self.store.thread_row(t).unwrap().unwrap().state
         }
-    }
 
-    fn t(ms: i64) -> Timestamp {
-        Timestamp::from_millis(ms)
-    }
-
-    #[test]
-    fn une_action_manuelle_change_l_etat_et_publie() {
-        let f = fixture();
-        let mut abonne = f.bus.subscribe_kind(EventKind::Workflow);
-        let fil = f.thread_at(1000);
-
-        let out = f
-            .workflow
-            .set_state(fil, WorkflowState::Done, t(2000))
-            .unwrap();
-        assert_eq!(
-            out,
-            TransitionOutcome::Moved {
-                from: WorkflowState::Todo,
-                to: WorkflowState::Done
-            }
-        );
-        assert_eq!(f.state(fil), WorkflowState::Done);
-
-        let evenements = abonne.drain();
-        assert_eq!(evenements.len(), 1);
-    }
-
-    #[test]
-    fn l_etat_est_ecrit_avant_d_etre_publie() {
-        // Un abonné qui relit la base en recevant l'événement doit y trouver le
-        // nouvel état.
-        let f = fixture();
-        let fil = f.thread_at(1000);
-        let mut abonne = f.bus.subscribe();
-
-        f.workflow
-            .set_state(fil, WorkflowState::Done, t(2000))
-            .unwrap();
-
-        assert!(!abonne.drain().is_empty());
-        assert_eq!(f.state(fil), WorkflowState::Done);
-    }
-
-    #[test]
-    fn une_transition_sans_effet_ne_publie_rien() {
-        let f = fixture();
-        let fil = f.thread_at(1000);
-        let mut abonne = f.bus.subscribe();
-
-        let out = f
-            .workflow
-            .set_state(fil, WorkflowState::Todo, t(2000))
-            .unwrap();
-        assert_eq!(out, TransitionOutcome::Unchanged);
-        assert!(abonne.drain().is_empty());
-        assert_eq!(f.workflow.undo_depth(), 0);
-    }
-
-    #[test]
-    fn repondre_met_le_fil_en_attente() {
-        let f = fixture();
-        let fil = f.thread_at(1000);
-        f.workflow.on_reply_sent(fil, t(2000)).unwrap();
-        assert_eq!(f.state(fil), WorkflowState::Waiting);
-    }
-
-    #[test]
-    fn l_automatisme_desactive_ne_change_rien() {
-        let f = fixture();
-        f.workflow.set_settings(AutomationSettings {
-            reply_marks_waiting: false,
-            ..Default::default()
-        });
-        let fil = f.thread_at(1000);
-
-        let out = f.workflow.on_reply_sent(fil, t(2000)).unwrap();
-        assert_eq!(out, TransitionOutcome::Disabled);
-        assert_eq!(f.state(fil), WorkflowState::Todo);
-    }
-
-    #[test]
-    fn l_annulation_restaure_l_etat_precedent() {
-        let f = fixture();
-        let fil = f.thread_at(1000);
-        f.workflow
-            .set_state(fil, WorkflowState::Done, t(2000))
-            .unwrap();
-
-        let annule = f.workflow.undo().unwrap().unwrap();
-        assert_eq!(annule.thread, fil);
-        assert_eq!(f.state(fil), WorkflowState::Todo);
-    }
-
-    #[test]
-    fn annuler_deux_fois_remonte_dans_l_historique() {
-        // L'annulation ne s'empile pas elle-même : sinon la seconde annulation
-        // rejouerait la première action au lieu de remonter.
-        let f = fixture();
-        let fil = f.thread_at(1000);
-        f.workflow
-            .set_state(fil, WorkflowState::Waiting, t(1))
-            .unwrap();
-        f.workflow
-            .set_state(fil, WorkflowState::Done, t(2))
-            .unwrap();
-
-        f.workflow.undo().unwrap();
-        assert_eq!(f.state(fil), WorkflowState::Waiting);
-        f.workflow.undo().unwrap();
-        assert_eq!(f.state(fil), WorkflowState::Todo);
-        assert!(f.workflow.undo().unwrap().is_none());
-    }
-
-    #[test]
-    fn la_pile_d_annulation_est_bornee() {
-        let f = fixture();
-        let fil = f.thread_at(1000);
-        for i in 0..(UNDO_DEPTH + 50) {
-            let cible = if i % 2 == 0 {
-                WorkflowState::Done
-            } else {
-                WorkflowState::Todo
-            };
-            f.workflow.set_state(fil, cible, t(i as i64)).unwrap();
+        fn row(&self, t: ThreadId) -> iris_store::ThreadRow {
+            self.store.thread_row(t).unwrap().unwrap()
         }
-        assert_eq!(f.workflow.undo_depth(), UNDO_DEPTH);
+    }
+
+    fn t(secs: i64) -> Timestamp {
+        Timestamp::from_millis(secs * 1000)
     }
 
     #[test]
-    fn annuler_sur_un_fil_disparu_ne_fait_rien() {
+    fn a_manual_action_moves_the_thread() {
         let f = fixture();
-        let fil = f.thread_at(1000);
+        let thread = f.thread();
+
         f.workflow
-            .set_state(fil, WorkflowState::Done, t(2000))
+            .set_state(thread, WorkflowState::Done, t(1))
             .unwrap();
-        f.store.delete_messages_by_uid(f.folder, &[1]).unwrap();
-
-        assert!(f.workflow.undo().unwrap().is_none());
+        assert_eq!(f.state(thread), WorkflowState::Done);
     }
 
     #[test]
-    fn agir_sur_un_fil_inexistant_est_une_erreur_explicite() {
+    fn the_state_is_written_before_the_event_is_published() {
+        // A subscriber re-reading the database must never find it contradicting the
+        // event it just received.
         let f = fixture();
-        let e = f
-            .workflow
-            .set_state(ThreadId(999), WorkflowState::Done, t(0))
-            .unwrap_err();
-        assert!(e.to_string().contains("introuvable"));
-    }
+        let thread = f.thread();
+        let mut subscriber = f.bus.subscribe_kind(EventKind::Workflow);
 
-    #[test]
-    fn le_report_conserve_l_etat_puis_le_restaure() {
-        let f = fixture();
-        let fil = f.thread_at(1000);
         f.workflow
-            .set_state(fil, WorkflowState::Waiting, t(1))
+            .set_state(thread, WorkflowState::Done, t(1))
             .unwrap();
 
-        assert!(f.workflow.snooze(fil, t(5000)).unwrap());
-        assert_eq!(
-            f.state(fil),
-            WorkflowState::Waiting,
-            "le report ne change pas l'état"
-        );
+        let events = subscriber.drain();
+        assert!(!events.is_empty(), "the change must be announced");
+        assert_eq!(f.state(thread), WorkflowState::Done);
+    }
+
+    #[test]
+    fn undo_puts_the_thread_back() {
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+        assert!(f.workflow.undo(t(2)).unwrap().is_some());
+        assert_eq!(f.state(thread), WorkflowState::Todo);
+    }
+
+    #[test]
+    fn undoing_twice_walks_further_back_instead_of_replaying() {
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(1))
+            .unwrap();
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(2))
+            .unwrap();
+
+        f.workflow.undo(t(3)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Waiting);
+        f.workflow.undo(t(4)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Todo);
+    }
+
+    #[test]
+    fn undo_on_an_empty_stack_is_not_an_error() {
+        let f = fixture();
+        assert!(f.workflow.undo(t(1)).unwrap().is_none());
+    }
+
+    #[test]
+    fn undoing_a_snooze_makes_the_thread_visible_again() {
+        // Restoring only the state would leave the thread hidden, which is not what
+        // the user asked to undo.
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow.snooze(thread, t(9000), t(1)).unwrap();
+        assert!(f.row(thread).snoozed_until.is_some());
+
+        f.workflow.undo(t(2)).unwrap();
+        assert!(f.row(thread).snoozed_until.is_none());
+    }
+
+    #[test]
+    fn undoing_a_read_marks_the_messages_unread_again() {
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow.set_read(thread, true, t(1)).unwrap();
+        assert!(f.store.thread_messages(thread).unwrap()[0]
+            .flags
+            .contains(Flags::SEEN));
+
+        f.workflow.undo(t(2)).unwrap();
+        assert!(!f.store.thread_messages(thread).unwrap()[0]
+            .flags
+            .contains(Flags::SEEN));
+    }
+
+    #[test]
+    fn marking_a_thread_read_queues_one_operation_per_folder() {
+        // Fifty messages read at once must not produce fifty IMAP commands.
+        let f = fixture();
+        let thread = f.thread();
+        let before = f.store.pending_op_count().unwrap();
+
+        f.workflow.set_read(thread, true, t(1)).unwrap();
+        assert_eq!(f.store.pending_op_count().unwrap(), before + 1);
+    }
+
+    #[test]
+    fn marking_read_twice_changes_nothing_the_second_time() {
+        let f = fixture();
+        let thread = f.thread();
+
+        assert!(f.workflow.set_read(thread, true, t(1)).unwrap());
+        assert!(!f.workflow.set_read(thread, true, t(2)).unwrap());
+    }
+
+    #[test]
+    fn starring_uses_the_most_recent_message() {
+        let f = fixture();
+        let thread = f.thread();
+
+        assert!(f.workflow.set_flagged(thread, true, t(1)).unwrap());
+        let messages = f.store.thread_messages(thread).unwrap();
+        assert!(messages.last().unwrap().flags.contains(Flags::FLAGGED));
+    }
+
+    #[test]
+    fn a_due_snooze_is_woken_and_the_state_restored() {
+        let f = fixture();
+        let thread = f.thread();
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(1))
+            .unwrap();
+        f.workflow.snooze(thread, t(5000), t(2)).unwrap();
 
         assert_eq!(f.workflow.wake_due_snoozes(t(4999)).unwrap(), 0);
         assert_eq!(f.workflow.wake_due_snoozes(t(5000)).unwrap(), 1);
-        assert_eq!(f.state(fil), WorkflowState::Waiting);
-        assert!(f
-            .store
-            .thread_row(fil)
-            .unwrap()
-            .unwrap()
-            .snoozed_until
-            .is_none());
+
+        assert!(f.row(thread).snoozed_until.is_none());
+        assert_eq!(
+            f.state(thread),
+            WorkflowState::Waiting,
+            "snoozing sets aside, it does not requalify"
+        );
     }
 
     #[test]
-    fn annuler_un_report_le_retire_de_la_file_des_echeances() {
+    fn a_thread_nobody_answered_comes_back() {
         let f = fixture();
-        let fil = f.thread_at(1000);
-        f.workflow.snooze(fil, t(5000)).unwrap();
-        assert!(f.workflow.unsnooze(fil).unwrap());
-        assert_eq!(f.workflow.wake_due_snoozes(t(9999)).unwrap(), 0);
+        let thread = f.thread();
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(1))
+            .unwrap();
+
+        let later = t(1 + 4 * 86_400);
+        assert_eq!(f.workflow.run_follow_ups(later, 50).unwrap(), 1);
+        assert_eq!(f.state(thread), WorkflowState::Todo);
     }
 
     #[test]
-    fn la_relance_ramene_les_fils_en_attente_trop_anciens() {
-        let f = fixture();
-        let vieux = f.thread_at(1_000);
-        let recent = f.thread_at(500_000_000);
-        for fil in [vieux, recent] {
-            f.workflow
-                .set_state(fil, WorkflowState::Waiting, t(0))
-                .unwrap();
-        }
-
-        let now = t(500_000_000);
-        assert_eq!(f.workflow.run_follow_ups(now, 10).unwrap(), 1);
-        assert_eq!(f.state(vieux), WorkflowState::Todo);
-        assert_eq!(f.state(recent), WorkflowState::Waiting);
-    }
-
-    #[test]
-    fn la_relance_desactivee_ne_fait_rien() {
+    fn follow_ups_can_be_turned_off() {
         let f = fixture();
         f.workflow.set_settings(AutomationSettings {
             follow_up_enabled: false,
             ..Default::default()
         });
-        let fil = f.thread_at(1_000);
+        let thread = f.thread();
         f.workflow
-            .set_state(fil, WorkflowState::Waiting, t(0))
+            .set_state(thread, WorkflowState::Waiting, t(1))
             .unwrap();
 
-        assert_eq!(f.workflow.run_follow_ups(t(500_000_000), 10).unwrap(), 0);
-        assert_eq!(f.state(fil), WorkflowState::Waiting);
+        assert_eq!(f.workflow.run_follow_ups(t(999_999), 50).unwrap(), 0);
     }
 
     #[test]
-    fn un_nouveau_message_rouvre_un_fil_termine() {
+    fn follow_ups_are_spread_over_several_passes() {
+        // After a long absence, an avalanche would make the queue unreadable.
         let f = fixture();
-        let fil = f.thread_at(1000);
-        f.workflow
-            .set_state(fil, WorkflowState::Done, t(1))
-            .unwrap();
+        for _ in 0..12 {
+            let thread = f.thread();
+            f.workflow
+                .set_state(thread, WorkflowState::Waiting, t(1))
+                .unwrap();
+        }
 
-        f.workflow.on_message_received(fil, t(2)).unwrap();
-        assert_eq!(f.state(fil), WorkflowState::Todo);
+        let later = t(1 + 30 * 86_400);
+        assert_eq!(f.workflow.run_follow_ups(later, 5).unwrap(), 5);
+        assert_eq!(f.workflow.run_follow_ups(later, 5).unwrap(), 5);
+        assert_eq!(f.workflow.run_follow_ups(later, 5).unwrap(), 2);
     }
 
     #[test]
-    fn repondre_a_un_fil_termine_ne_le_rouvre_pas() {
+    fn sending_a_reply_moves_the_thread_to_waiting() {
         let f = fixture();
-        let fil = f.thread_at(1000);
+        let thread = f.thread();
+
+        f.workflow.on_reply_sent(thread, t(1)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Waiting);
+    }
+
+    #[test]
+    fn a_new_message_reopens_a_finished_thread() {
+        let f = fixture();
+        let thread = f.thread();
         f.workflow
-            .set_state(fil, WorkflowState::Done, t(1))
+            .set_state(thread, WorkflowState::Done, t(1))
             .unwrap();
 
-        let out = f.workflow.on_reply_sent(fil, t(2)).unwrap();
-        assert_eq!(out, TransitionOutcome::Unchanged);
-        assert_eq!(f.state(fil), WorkflowState::Done);
+        f.workflow.on_message_received(thread, t(2)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Todo);
+    }
+
+    #[test]
+    fn every_automatic_move_can_be_turned_off() {
+        // The user asked for each automatism to be individually switchable.
+        let f = fixture();
+        f.workflow.set_settings(AutomationSettings::MANUAL_ONLY);
+        let thread = f.thread();
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+
+        f.workflow.on_message_received(thread, t(2)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Done);
+    }
+
+    #[test]
+    fn acting_on_a_missing_thread_is_an_error_not_a_panic() {
+        let f = fixture();
+        assert!(f
+            .workflow
+            .set_state(ThreadId(9999), WorkflowState::Done, t(1))
+            .is_err());
+    }
+
+    #[test]
+    fn undoing_a_thread_that_vanished_is_a_no_op() {
+        let f = fixture();
+        let thread = f.thread();
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+
+        f.store.delete_messages_by_uid(f.folder, &[1]).unwrap();
+        assert!(f.workflow.undo(t(2)).unwrap().is_none());
+    }
+
+    #[test]
+    fn the_undo_stack_is_bounded() {
+        let f = fixture();
+        let thread = f.thread();
+
+        for i in 0..(UNDO_DEPTH + 20) {
+            let target = if i % 2 == 0 {
+                WorkflowState::Done
+            } else {
+                WorkflowState::Todo
+            };
+            f.workflow.set_state(thread, target, t(i as i64)).unwrap();
+        }
+        assert_eq!(f.workflow.undo_depth(), UNDO_DEPTH);
+    }
+
+    #[test]
+    fn folder_names_with_quotes_do_not_break_the_journal() {
+        // A folder can legitimately be called `Clients "VIP"`.
+        assert_eq!(quote(r#"a"b"#), r#""a\"b""#);
+        assert_eq!(quote("a\\b"), r#""a\\b""#);
+        assert_eq!(quote("a\nb"), r#""a\nb""#);
     }
 }

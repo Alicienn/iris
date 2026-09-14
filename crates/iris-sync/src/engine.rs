@@ -91,6 +91,9 @@ pub struct SyncEngine {
     /// Magasin de contenus, nécessaire au téléchargement des corps.
     blobs: Option<Arc<iris_blobs::BlobStore>>,
     automation: std::sync::RwLock<iris_types::AutomationSettings>,
+    /// The state machine, when one is attached. The time-based passes delegate to it
+    /// rather than reimplementing the rules a second time.
+    workflow: Option<Arc<iris_workflow::Workflow>>,
 }
 
 impl SyncEngine {
@@ -113,6 +116,7 @@ impl SyncEngine {
             index: None,
             blobs: None,
             automation: std::sync::RwLock::new(iris_types::AutomationSettings::default()),
+            workflow: None,
         }
     }
 
@@ -135,6 +139,16 @@ impl SyncEngine {
     }
 
     /// Branche le magasin de contenus.
+    /// Attaches the state machine used by the time-based passes.
+    pub fn with_workflow(mut self, workflow: Arc<iris_workflow::Workflow>) -> Self {
+        self.workflow = Some(workflow);
+        self
+    }
+
+    pub(crate) fn workflow(&self) -> Option<&Arc<iris_workflow::Workflow>> {
+        self.workflow.as_ref()
+    }
+
     pub fn with_blobs(mut self, blobs: Arc<iris_blobs::BlobStore>) -> Self {
         self.blobs = Some(blobs);
         self
@@ -148,6 +162,7 @@ impl SyncEngine {
         self.blobs.as_ref()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn bus(&self) -> &EventBus {
         &self.bus
     }

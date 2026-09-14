@@ -377,6 +377,7 @@ fn run_gui() -> Result<()> {
     let fenetre = shell::build(&services)?;
     shell::appliquer_apparence(&fenetre, &services.themes.active(), reglages.density);
     services.engine.set_automation(reglages.automation);
+    services.workflow.set_settings(reglages.automation);
     // Les identifiants clients OAuth passent aux services : c'est le fournisseur
     // d'identifiants qui s'en sert, à chaque renouvellement de jeton.
     *services.oauth.write().expect("réglages OAuth empoisonnés") = reglages.oauth.clone();
@@ -418,7 +419,7 @@ fn run_gui() -> Result<()> {
     let (controller, _fil) = Controller::spawn_with_index(
         Arc::clone(&services.store),
         Some(Arc::clone(&services.index)),
-        reglages.automation,
+        Arc::clone(&services.workflow),
         now(),
         puits,
     );

@@ -34,6 +34,9 @@ pub struct Services {
     pub themes: Arc<ThemeRegistry>,
     pub bus: EventBus,
     pub engine: Arc<SyncEngine>,
+    /// The one state machine. Everything that changes a thread goes through it:
+    /// the keyboard, the palette, the plugins and the passage of time.
+    pub workflow: Arc<iris_workflow::Workflow>,
     /// Les identifiants clients OAuth, partagés avec le fournisseur d'identifiants.
     /// Modifiables en cours de route : renseigner un identifiant client ne doit pas
     /// demander de redémarrer.
@@ -56,6 +59,14 @@ impl Services {
         let secrets = open_secrets(&paths, master)?;
         let bus = EventBus::new();
 
+        // One state machine, shared by everything that changes a thread: the
+        // keyboard, the palette, the plugins and the passage of time.
+        let workflow = Arc::new(iris_workflow::Workflow::new(
+            Arc::clone(&store),
+            bus.clone(),
+            iris_types::AutomationSettings::default(),
+        ));
+
         // Le moteur reçoit l'index et le magasin de contenus : sans eux, la
         // synchronisation fonctionne mais la recherche ne trouve rien et les corps
         // ne sont jamais téléchargés.
@@ -72,7 +83,8 @@ impl Services {
                 EngineConfig::default(),
             )
             .with_index(Arc::clone(&index))
-            .with_blobs(Arc::clone(&blobs)),
+            .with_blobs(Arc::clone(&blobs))
+            .with_workflow(Arc::clone(&workflow)),
         );
 
         Ok(Self {
@@ -84,6 +96,7 @@ impl Services {
             themes,
             bus,
             engine,
+            workflow,
             oauth,
         })
     }

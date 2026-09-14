@@ -216,10 +216,7 @@ fn les_actions_de_triage_sont_instantanees() {
         Timestamp::from_millis(1_800_000_000_000),
     );
     vm.bootstrap().unwrap();
-    let mut actions = Actions::new(
-        Arc::clone(&store),
-        iris_types::AutomationSettings::default(),
-    );
+    let actions = Actions::new(iris_app::controller::default_workflow(Arc::clone(&store)));
 
     let fils: Vec<ThreadId> = vm.list().rows().iter().take(200).map(|r| r.id).collect();
 
