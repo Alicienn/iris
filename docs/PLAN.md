@@ -146,3 +146,24 @@ testés contre des serveurs simulés en mémoire.
 - [x] **S20.1** Assemblage des modules, configuration, points d'entrée.
 - [x] **S20.2** Ajout de compte de bout en bout.
 - [x] **S20.3** Mesures de performance face aux budgets de la spécification.
+
+---
+
+## E21 — Boucler les promesses de la spécification
+
+Le socle est complet, mais trois chaînes s'arrêtent avant leur dernier maillon : les
+corps ne sont jamais téléchargés, rien n'est indexé, et répondre n'envoie rien. Tant
+qu'elles ne sont pas fermées, la lecture, la recherche et le workflow ne fonctionnent
+qu'en théorie.
+
+- [x] **S21.1** Indexation à la synchronisation, puis réindexation à l'arrivée du corps.
+- [x] **S21.2** Téléchargement du corps à l'ouverture, mise en cache et rattachement.
+- [x] **S21.3** Envoi d'une réponse : composition, file d'envoi, passage en attente.
+- [x] **S21.4** Réveil des reports échus et relances, dans la boucle de fond.
+- [ ] **S21.5** Recherche depuis l'interface, branchée sur le planificateur.
+
+## E22 — Les écrans manquants
+
+- [ ] **S22.1** Configuration manuelle d'un compte, quand la découverte échoue.
+- [ ] **S22.2** Réglages : thème, densité, automatismes du workflow.
+- [ ] **S22.3** Comptes suspendus : signalement et reprise.

@@ -117,25 +117,7 @@ impl Store {
                 )
                 .map_err(|e| sql_err("préparation", e))?;
             let rows = stmt
-                .query_map(params![thread.get()], |r| {
-                    Ok(StoredMessage {
-                        id: MessageId(r.get(0)?),
-                        account: AccountId(r.get(1)?),
-                        folder: FolderId(r.get(2)?),
-                        thread: ThreadId(r.get(3)?),
-                        uid: r.get::<_, i64>(4)? as u32,
-                        rfc_message_id: r.get(5)?,
-                        subject: r.get(6)?,
-                        from_name: r.get(7)?,
-                        from_addr: r.get(8)?,
-                        date: Timestamp::from_millis(r.get(9)?),
-                        received: Timestamp::from_millis(r.get(10)?),
-                        size: r.get::<_, i64>(11)? as u64,
-                        flags: Flags(r.get::<_, i64>(12)? as u32),
-                        preview: r.get(13)?,
-                        body_blob: r.get(14)?,
-                    })
-                })
+                .query_map(params![thread.get()], stored_message_from_row)
                 .map_err(|e| sql_err("messages du fil", e))?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("messages du fil", e))
@@ -165,6 +147,71 @@ impl Store {
                 refresh_thread(tx, t)?;
             }
             Ok(n)
+        })
+    }
+
+    /// Un message désigné par son identifiant local.
+    pub fn message_by_id(&self, id: MessageId) -> Result<Option<StoredMessage>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
+                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                     FROM messages WHERE id = ?1",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+            match stmt.query_row(params![id.get()], stored_message_from_row) {
+                Ok(m) => Ok(Some(m)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(sql_err("lecture du message", e)),
+            }
+        })
+    }
+
+    /// Messages d'un dossier dont le corps n'a pas encore été téléchargé.
+    ///
+    /// Sert à l'indexation : ce sont exactement ceux dont l'entrée d'index ne
+    /// contient encore que les en-têtes.
+    pub fn folder_messages_without_body(
+        &self,
+        folder: FolderId,
+        limit: u32,
+    ) -> Result<Vec<StoredMessage>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
+                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                     FROM messages WHERE folder_id = ?1 AND body_blob IS NULL
+                     ORDER BY received DESC LIMIT ?2",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map(params![folder.get(), limit as i64], stored_message_from_row)
+                .map_err(|e| sql_err("messages sans corps", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("messages sans corps", e))
+        })
+    }
+
+    /// Empreintes des contenus encore référencés par un message.
+    ///
+    /// Sert à repérer les contenus orphelins : un message supprimé laisse son corps
+    /// derrière lui, et celui-ci occupe la place de contenus encore utiles.
+    pub fn referenced_blobs(&self) -> Result<Vec<String>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT DISTINCT body_blob FROM messages WHERE body_blob IS NOT NULL
+                     UNION
+                     SELECT DISTINCT blob FROM attachments WHERE blob IS NOT NULL",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(|e| sql_err("contenus référencés", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("contenus référencés", e))
         })
     }
 
@@ -298,6 +345,28 @@ impl Store {
                 .map_err(|e| sql_err("comptage", e))
         })
     }
+}
+
+/// Lit une ligne de message. Les colonnes sont attendues dans l'ordre du `SELECT`
+/// partagé par les deux lectures.
+fn stored_message_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessage> {
+    Ok(StoredMessage {
+        id: MessageId(r.get(0)?),
+        account: AccountId(r.get(1)?),
+        folder: FolderId(r.get(2)?),
+        thread: ThreadId(r.get(3)?),
+        uid: r.get::<_, i64>(4)? as u32,
+        rfc_message_id: r.get(5)?,
+        subject: r.get(6)?,
+        from_name: r.get(7)?,
+        from_addr: r.get(8)?,
+        date: Timestamp::from_millis(r.get(9)?),
+        received: Timestamp::from_millis(r.get(10)?),
+        size: r.get::<_, i64>(11)? as u64,
+        flags: Flags(r.get::<_, i64>(12)? as u32),
+        preview: r.get(13)?,
+        body_blob: r.get(14)?,
+    })
 }
 
 fn threads_of_uids(tx: &Transaction<'_>, folder: FolderId, uids: &[u32]) -> Result<Vec<ThreadId>> {
@@ -730,6 +799,43 @@ mod tests {
     fn les_drapeaux_d_un_message_inconnu_ne_font_rien() {
         let f = fixture();
         assert!(f.store.set_message_flags(MessageId(999), Flags::SEEN).unwrap().is_none());
+    }
+
+    #[test]
+    fn un_message_se_relit_par_son_identifiant() {
+        let f = fixture();
+        let r = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
+
+        let relu = f.store.message_by_id(r.message).unwrap().unwrap();
+        assert_eq!(relu.id, r.message);
+        assert_eq!(relu.subject, "Devis refonte");
+        assert!(f.store.message_by_id(MessageId(999)).unwrap().is_none());
+    }
+
+    #[test]
+    fn les_messages_sans_corps_sont_listes() {
+        let f = fixture();
+        let a = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
+        f.store.insert_message(&f.msg("b@x", 2000)).unwrap();
+        assert_eq!(f.store.folder_messages_without_body(f.folder, 10).unwrap().len(), 2);
+
+        f.store.attach_body(a.message, "00112233445566778899aabbccddeeff").unwrap();
+        let restants = f.store.folder_messages_without_body(f.folder, 10).unwrap();
+        assert_eq!(restants.len(), 1);
+        assert_ne!(restants[0].id, a.message);
+    }
+
+    #[test]
+    fn les_contenus_references_sont_recenses() {
+        let f = fixture();
+        let r = f.store.insert_message(&f.msg("a@x", 1000)).unwrap();
+        assert!(f.store.referenced_blobs().unwrap().is_empty());
+
+        f.store.attach_body(r.message, "00112233445566778899aabbccddeeff").unwrap();
+        assert_eq!(
+            f.store.referenced_blobs().unwrap(),
+            ["00112233445566778899aabbccddeeff"]
+        );
     }
 
     #[test]

@@ -7,6 +7,9 @@
 
 use crate::controller::{Controller, Request, Snapshot};
 use crate::services::{now, Services};
+use iris_kernel::ViewDiff;
+use iris_sync::SendService;
+use iris_types::ThreadId as ThreadIdent;
 use iris_types::{ThreadId, WorkflowState};
 use iris_ui::bridge;
 use iris_ui::commands::{self, CommandKind};
@@ -252,15 +255,154 @@ pub fn snapshot_sink(
     fenetre: &AppWindow,
     services: Services,
     renderer: Arc<dyn iris_htmlview::HtmlRenderer>,
+    bodies: Arc<BodyLoader>,
 ) -> impl Fn(Snapshot) + Send + 'static {
     let faible = fenetre.as_weak();
     move |snapshot| {
+        // Le corps manquant est demandé avant même de dessiner : l'aperçu s'affiche
+        // tout de suite, le texte complet le remplace dès qu'il arrive.
+        bodies.request_if_needed(&snapshot);
+
         let services = services.clone();
         let renderer = Arc::clone(&renderer);
         // `upgrade_in_event_loop` est le passage obligé : toucher la fenêtre depuis
         // un autre fil est une faute que Slint refuse à l'exécution.
         let _ = faible.upgrade_in_event_loop(move |fenetre| {
             apply_snapshot(&fenetre, &services, renderer.as_ref(), &snapshot);
+        });
+    }
+}
+
+/// Télécharge les corps des conversations ouvertes.
+///
+/// Il retient le dernier fil demandé : sans cette mémoire, chaque instantané
+/// relancerait le téléchargement, et rafraîchir la liste martèlerait le serveur.
+#[derive(Debug)]
+pub struct BodyLoader {
+    engine: Arc<iris_sync::SyncEngine>,
+    controller: Arc<Controller>,
+    runtime: tokio::runtime::Handle,
+    demande: std::sync::Mutex<Option<ThreadIdent>>,
+}
+
+impl BodyLoader {
+    pub fn new(
+        engine: Arc<iris_sync::SyncEngine>,
+        controller: Arc<Controller>,
+        runtime: tokio::runtime::Handle,
+    ) -> Self {
+        Self { engine, controller, runtime, demande: std::sync::Mutex::new(None) }
+    }
+
+    /// Demande le corps du fil affiché, s'il en manque un.
+    pub fn request_if_needed(&self, snapshot: &Snapshot) {
+        let Some(thread) = snapshot.selected else { return };
+
+        // Rien à faire si tous les corps sont là.
+        if snapshot.messages.iter().all(|m| m.body_blob.is_some()) {
+            return;
+        }
+
+        {
+            let mut demande = self.demande.lock().expect("téléchargement empoisonné");
+            if *demande == Some(thread) {
+                return;
+            }
+            *demande = Some(thread);
+        }
+
+        let engine = Arc::clone(&self.engine);
+        let controller = Arc::clone(&self.controller);
+        self.runtime.spawn(async move {
+            let resultats = engine.fetch_thread_bodies(thread).await;
+            let obtenus = resultats.iter().filter(|(_, r)| r.is_ok()).count();
+            for (message, resultat) in &resultats {
+                if let Err(e) = resultat {
+                    tracing::warn!(message = %message, erreur = %e, "corps non téléchargé");
+                }
+            }
+            if obtenus > 0 {
+                // Un diff ciblé plutôt qu'un rafraîchissement : seul ce fil a changé.
+                let mut diff = ViewDiff::default();
+                diff.threads.insert(thread);
+                controller.send(Request::Diff(Box::new(diff)));
+            }
+        });
+    }
+
+    /// Oublie la dernière demande, pour autoriser un nouvel essai.
+    pub fn reset(&self) {
+        *self.demande.lock().expect("téléchargement empoisonné") = None;
+    }
+}
+
+/// Branche la zone de réponse.
+pub fn wire_reply(
+    fenetre: &AppWindow,
+    send: Arc<SendService>,
+    selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
+) {
+    let en_cours: Arc<std::sync::Mutex<Option<iris_smtp::SendHandle>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    {
+        let send = Arc::clone(&send);
+        let en_cours = Arc::clone(&en_cours);
+        let selection = Arc::clone(&selection);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_send_reply(move || {
+            let Some(fenetre) = faible.upgrade() else { return };
+            let texte = fenetre.get_reply_text().to_string();
+            if texte.trim().is_empty() {
+                return;
+            }
+            let Some(thread) = *selection.lock().expect("sélection") else { return };
+
+            let message = match send.compose_reply(thread, &texte, iris_smtp::ReplyScope::Sender) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(erreur = %e, "composition de la réponse");
+                    fenetre.set_status(format!("Réponse impossible : {e}").into());
+                    return;
+                }
+            };
+
+            match send.queue(message) {
+                Ok(handle) => {
+                    *en_cours.lock().expect("envoi") = Some(handle);
+                    // Le bouton devient un bouton d'annulation, au même endroit :
+                    // le geste de rattrapage est immédiat.
+                    fenetre.set_sending(true);
+                    fenetre.set_undo_seconds(send.status().delay_secs as i32);
+                    fenetre.set_reply_text(Default::default());
+                }
+                Err(e) => fenetre.set_status(format!("Envoi refusé : {e}").into()),
+            }
+        });
+    }
+
+    {
+        let send = Arc::clone(&send);
+        let en_cours = Arc::clone(&en_cours);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_cancel_send(move || {
+            let Some(fenetre) = faible.upgrade() else { return };
+            let handle = en_cours.lock().expect("envoi").take();
+
+            match handle.map(|h| send.cancel(h)) {
+                Some(true) => {
+                    fenetre.set_sending(false);
+                    fenetre.set_status("Envoi annulé.".into());
+                }
+                // Déjà parti : le dire franchement plutôt que faire semblant.
+                Some(false) => {
+                    fenetre.set_sending(false);
+                    fenetre.set_status("Trop tard : le message est parti.".into());
+                }
+                None => fenetre.set_sending(false),
+            }
         });
     }
 }

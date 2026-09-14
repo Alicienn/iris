@@ -3748,6 +3748,7 @@ dependencies = [
  "iris-index",
  "iris-kernel",
  "iris-mime",
+ "iris-plugins",
  "iris-secrets",
  "iris-smtp",
  "iris-store",

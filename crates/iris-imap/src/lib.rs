@@ -262,6 +262,13 @@ pub trait ImapConnection: Send + std::fmt::Debug {
 
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()>;
 
+    /// Dépose un message dans un dossier.
+    ///
+    /// Sert à conserver ce qu'on envoie : sans cela, un message parti depuis Iris
+    /// serait invisible depuis le téléphone, et l'utilisateur croirait ne pas
+    /// l'avoir envoyé. Retourne l'UID attribué quand le serveur le communique.
+    async fn append(&mut self, folder: &str, raw: &[u8], flags: Flags) -> Result<Option<u32>>;
+
     /// Attend une notification du serveur.
     async fn idle(&mut self, timeout: Duration) -> Result<IdleOutcome>;
 

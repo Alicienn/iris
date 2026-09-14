@@ -51,13 +51,20 @@ impl Services {
         let secrets = open_secrets(&paths, master)?;
         let bus = EventBus::new();
 
-        let engine = Arc::new(SyncEngine::new(
-            Arc::clone(&store),
-            Arc::new(RustlsConnector::new()),
-            Arc::new(StoredCredentials { secrets: Arc::clone(&secrets) }),
-            bus.clone(),
-            EngineConfig::default(),
-        ));
+        // Le moteur reçoit l'index et le magasin de contenus : sans eux, la
+        // synchronisation fonctionne mais la recherche ne trouve rien et les corps
+        // ne sont jamais téléchargés.
+        let engine = Arc::new(
+            SyncEngine::new(
+                Arc::clone(&store),
+                Arc::new(RustlsConnector::new()),
+                Arc::new(StoredCredentials { secrets: Arc::clone(&secrets) }),
+                bus.clone(),
+                EngineConfig::default(),
+            )
+            .with_index(Arc::clone(&index))
+            .with_blobs(Arc::clone(&blobs)),
+        );
 
         Ok(Self { paths, store, blobs, index, secrets, themes, bus, engine })
     }
@@ -155,6 +162,27 @@ mod tests {
         let paths = Paths::under(dir.path());
         let services = Services::open(paths, Some(Secret::new("maitre"))).expect("services");
         (services, dir)
+    }
+
+    #[test]
+    fn le_moteur_recoit_l_index_et_les_contenus() {
+        // Sans eux, la recherche ne trouverait rien et les corps ne seraient jamais
+        // téléchargés — deux pannes silencieuses.
+        let (s, _dir) = services();
+        let compte = s
+            .store
+            .create_account(&iris_store::NewAccount::new("a@x.fr", "i", "s"), Timestamp::EPOCH)
+            .unwrap();
+        let _ = compte;
+
+        // La preuve indirecte : demander un corps sur un message inexistant échoue
+        // pour la bonne raison — le message est introuvable, pas le magasin absent.
+        let erreur = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(s.engine.fetch_body(iris_types::MessageId(1)))
+            .unwrap_err()
+            .to_string();
+        assert!(erreur.contains("introuvable"), "obtenu : {erreur}");
     }
 
     #[test]

@@ -84,6 +84,13 @@ pub struct SyncEngine {
     scheduler: tokio::sync::Mutex<Scheduler>,
     config: EngineConfig,
     cycle: std::sync::atomic::AtomicU32,
+    /// Index plein texte. Optionnel : sans lui, la synchronisation fonctionne, la
+    /// recherche ne trouve rien — ce qui doit rester un choix explicite, pas un
+    /// oubli silencieux.
+    index: Option<Arc<iris_index::SearchIndex>>,
+    /// Magasin de contenus, nécessaire au téléchargement des corps.
+    blobs: Option<Arc<iris_blobs::BlobStore>>,
+    automation: std::sync::RwLock<iris_types::AutomationSettings>,
 }
 
 impl SyncEngine {
@@ -103,7 +110,125 @@ impl SyncEngine {
             scheduler: tokio::sync::Mutex::new(Scheduler::new(config.schedule)),
             config,
             cycle: std::sync::atomic::AtomicU32::new(0),
+            index: None,
+            blobs: None,
+            automation: std::sync::RwLock::new(iris_types::AutomationSettings::default()),
         }
+    }
+
+    /// Réglages des automatismes du workflow.
+    ///
+    /// Ils vivent ici parce que l'envoi et la relance en dépendent tous les deux, et
+    /// qu'une seconde copie divergerait.
+    pub fn automation(&self) -> iris_types::AutomationSettings {
+        *self.automation.read().expect("réglages empoisonnés")
+    }
+
+    pub fn set_automation(&self, settings: iris_types::AutomationSettings) {
+        *self.automation.write().expect("réglages empoisonnés") = settings;
+    }
+
+    /// Branche l'index plein texte.
+    pub fn with_index(mut self, index: Arc<iris_index::SearchIndex>) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    /// Branche le magasin de contenus.
+    pub fn with_blobs(mut self, blobs: Arc<iris_blobs::BlobStore>) -> Self {
+        self.blobs = Some(blobs);
+        self
+    }
+
+    pub(crate) fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    pub(crate) fn blobs(&self) -> Option<&Arc<iris_blobs::BlobStore>> {
+        self.blobs.as_ref()
+    }
+
+    pub(crate) fn bus(&self) -> &EventBus {
+        &self.bus
+    }
+
+    pub(crate) fn pool(&self) -> &ConnectionPool {
+        &self.pool
+    }
+
+    pub(crate) fn connector(&self) -> &Arc<dyn Connector> {
+        &self.connector
+    }
+
+    /// Coordonnées de connexion d'un compte.
+    pub(crate) fn endpoint_for(&self, account: &iris_store::Account) -> Endpoint {
+        if account.imap_tls {
+            Endpoint::tls(&account.imap_host, account.imap_port)
+        } else {
+            Endpoint::starttls(&account.imap_host, account.imap_port)
+        }
+    }
+
+    pub(crate) async fn credentials_for(
+        &self,
+        account: &iris_store::Account,
+    ) -> Result<Credentials> {
+        self.credentials.credentials(account.id, &account.email).await
+    }
+
+    /// Indexe un lot de messages à partir de leurs seuls en-têtes.
+    ///
+    /// Le corps n'est pas encore là : on indexe ce qu'on a — sujet, expéditeur,
+    /// aperçu —, ce qui rend déjà la plupart des recherches fructueuses, et le corps
+    /// viendra enrichir l'entrée à l'ouverture.
+    fn index_headers(&self, messages: &[iris_store::StoredMessage]) -> Result<usize> {
+        let Some(index) = &self.index else { return Ok(0) };
+
+        for m in messages {
+            index.add(&iris_index::IndexedMessage {
+                message: m.id,
+                thread: m.thread,
+                account: m.account,
+                subject: m.subject.clone(),
+                from: format!("{} {}", m.from_name, m.from_addr),
+                recipients: String::new(),
+                body: m.preview.clone(),
+                received: m.received,
+                has_attachment: m.flags.contains(iris_types::Flags::HAS_ATTACHMENT),
+            })?;
+        }
+        index.commit()?;
+        Ok(messages.len())
+    }
+
+    /// Remplace l'entrée d'index d'un message par une entrée incluant son corps.
+    pub(crate) fn reindex_with_body(
+        &self,
+        message: &iris_store::StoredMessage,
+        raw: &[u8],
+    ) -> Result<()> {
+        let Some(index) = &self.index else { return Ok(()) };
+
+        // Le texte indexé est celui de l'analyse, jamais le HTML brut : indexer des
+        // balises remplirait l'index de bruit et ferait remonter n'importe quel
+        // message sur une recherche de « table » ou de « span ».
+        let texte = iris_mime::parse(raw)
+            .map(|p| p.indexable_text())
+            .unwrap_or_else(|_| String::from_utf8_lossy(raw).into_owned());
+
+        index.add(&iris_index::IndexedMessage {
+            message: message.id,
+            thread: message.thread,
+            account: message.account,
+            subject: message.subject.clone(),
+            from: format!("{} {}", message.from_name, message.from_addr),
+            recipients: String::new(),
+            body: texte,
+            received: message.received,
+            has_attachment: message.flags.contains(iris_types::Flags::HAS_ATTACHMENT),
+        })?;
+        index.commit()?;
+        Ok(())
     }
 
     /// Inscrit à l'ordonnancement tous les comptes connus du store.
@@ -265,6 +390,13 @@ impl SyncEngine {
                     bilan.deleted += r.deleted;
                     if r.added > 0 {
                         ajoutes_par_dossier.push(dossier.id);
+                        // L'indexation suit immédiatement l'insertion : un message
+                        // visible dans la liste mais introuvable à la recherche est
+                        // un défaut que l'utilisateur mettra sur le compte de la
+                        // recherche, pas sur celui de la synchronisation.
+                        if let Err(e) = self.index_new_messages(dossier.id) {
+                            tracing::warn!(erreur = %e, "indexation");
+                        }
                     }
                 }
                 // Un dossier illisible — droits insuffisants, boîte partagée
@@ -295,6 +427,18 @@ impl SyncEngine {
         Ok(bilan)
     }
 
+    /// Indexe les messages d'un dossier qui n'ont pas encore de corps.
+    ///
+    /// Réindexer une entrée existante la remplace : repasser sur un message déjà
+    /// indexé est sans effet, ce qui rend l'opération sûre à répéter.
+    fn index_new_messages(&self, folder: iris_types::FolderId) -> Result<usize> {
+        if self.index.is_none() {
+            return Ok(0);
+        }
+        let messages = self.store.folder_messages_without_body(folder, 5_000)?;
+        self.index_headers(&messages)
+    }
+
     fn publish_phase(&self, account: AccountId, phase: SyncPhase) {
         self.bus.publish(Event::SyncPhaseChanged { account, phase });
     }
@@ -319,6 +463,16 @@ fn translate_kind(kind: iris_imap::FolderKind) -> FolderRole {
         K::Archive => FolderRole::Archive,
         K::Other | K::NoSelect => FolderRole::Other,
     }
+}
+
+/// Instant courant, en temps universel.
+pub fn now_utc() -> Timestamp {
+    Timestamp::from_millis(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0),
+    )
 }
 
 /// Fournisseur d'identifiants simulé.
@@ -623,6 +777,50 @@ mod tests {
         // Le dossier disparaît côté serveur, mais reste connu localement.
         let r = f.engine.tick(t(100_000)).await;
         assert!(r.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn les_messages_synchronises_sont_indexes() {
+        // Un message visible dans la liste mais introuvable à la recherche est un
+        // défaut que l'utilisateur imputera à la recherche.
+        let store = Arc::new(Store::in_memory().unwrap());
+        store
+            .create_account(&NewAccount::new("moi@example.com", "imap.x.fr", "s"), t(0))
+            .unwrap();
+
+        let index = Arc::new(iris_index::SearchIndex::in_memory().unwrap());
+        let server = Arc::new(FakeServer::default());
+        let engine = SyncEngine::new(
+            Arc::clone(&store),
+            Arc::clone(&server) as Arc<dyn Connector>,
+            Arc::new(StaticCredentials::new("p")),
+            EventBus::new(),
+            EngineConfig::default(),
+        )
+        .with_index(Arc::clone(&index));
+
+        server.deliver(
+            "INBOX",
+            b"Subject: Devis refonte\r\nFrom: Marie <marie@x.fr>\r\nMessage-ID: <a@x>\r\n\r\nCorps.\r\n",
+            Flags::NONE,
+        );
+
+        engine.load_accounts(t(0)).await.unwrap();
+        engine.tick(t(0)).await;
+        index.commit().unwrap();
+
+        assert_eq!(index.search("refonte", 10).unwrap().len(), 1);
+        assert_eq!(index.search("marie", 10).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn sans_index_la_synchronisation_fonctionne_quand_meme() {
+        let f = fixture();
+        f.server.deliver("INBOX", &message(1), Flags::NONE);
+        f.engine.load_accounts(t(0)).await.unwrap();
+
+        let r = f.engine.tick(t(0)).await;
+        assert_eq!(r.messages_added, 1);
     }
 
     #[tokio::test]

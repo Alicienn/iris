@@ -448,6 +448,21 @@ impl ImapConnection for ImapClient {
         Ok(())
     }
 
+    async fn append(&mut self, folder: &str, raw: &[u8], flags: Flags) -> Result<Option<u32>> {
+        let noms = flags_to_names(flags);
+        let session = self.session()?;
+
+        session
+            .append(folder, Some(&noms), None, raw)
+            .await
+            .map_err(|e| protocol_error(&format!("dépôt dans « {folder} »"), e))?;
+
+        // Le serveur ne renvoie l'UID attribué que s'il annonce UIDPLUS, et notre
+        // bibliothèque ne l'expose pas ici. L'absence n'est pas un échec : la
+        // prochaine synchronisation du dossier retrouvera le message.
+        Ok(None)
+    }
+
     async fn idle(&mut self, timeout: Duration) -> Result<IdleOutcome> {
         if !self.capabilities.idle {
             return Err(Error::Protocol {

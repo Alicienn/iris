@@ -245,6 +245,83 @@ fn cmd_doctor() -> Result<()> {
     Ok(())
 }
 
+/// Construit le service d'envoi à partir du premier compte actif.
+///
+/// Un seul expéditeur pour l'instant : choisir l'identité d'envoi demande une
+/// décision d'interface qui n'est pas encore prise, et ouvrir une connexion SMTP par
+/// compte coûterait cher pour rien.
+fn build_send_service(
+    services: &Services,
+) -> Result<(
+    Arc<iris_sync::SendService>,
+    tokio::sync::mpsc::UnboundedReceiver<iris_smtp::OutboxEvent>,
+)> {
+    let compte = services
+        .store
+        .accounts()?
+        .into_iter()
+        .find(|c| c.enabled)
+        .ok_or_else(|| iris_types::Error::Config("aucun compte configuré".into()))?;
+
+    let motdepasse = services
+        .secrets
+        .get(&compte.email, iris_secrets::SecretKind::Password)?
+        .ok_or_else(|| iris_types::Error::AuthFailed { account: compte.email.clone() })?;
+
+    let expediteur = iris_sync::send::mailer_for(&compte, motdepasse.expose())?;
+    let (outbox, evenements) = iris_smtp::Outbox::new(expediteur, iris_smtp::DEFAULT_DELAY);
+
+    Ok((
+        Arc::new(iris_sync::SendService::new(
+            Arc::clone(&services.engine),
+            Arc::new(outbox),
+            services.bus.clone(),
+        )),
+        evenements,
+    ))
+}
+
+/// Relie chaque envoi au fil dont il est issu.
+#[derive(Debug, Default)]
+struct SendTracker {
+    entries: std::sync::Mutex<
+        std::collections::BTreeMap<
+            iris_smtp::SendHandle,
+            (iris_types::ThreadId, iris_types::AccountId),
+        >,
+    >,
+}
+
+impl iris_sync::SendContext for SendTracker {
+    fn resolve(
+        &self,
+        handle: iris_smtp::SendHandle,
+    ) -> Option<(iris_types::ThreadId, iris_types::AccountId)> {
+        self.entries.lock().ok()?.get(&handle).copied()
+    }
+
+    fn finished(&self, handle: iris_smtp::SendHandle, outcome: Result<iris_sync::SentOutcome>) {
+        match outcome {
+            Ok(bilan) => tracing::info!(
+                envoi = handle.0,
+                archive = bilan.archived,
+                en_attente = bilan.moved_to_waiting,
+                "message envoyé"
+            ),
+            Err(e) => tracing::warn!(envoi = handle.0, erreur = %e, "envoi en échec"),
+        }
+        if let Ok(mut e) = self.entries.lock() {
+            e.remove(&handle);
+        }
+    }
+
+    fn cancelled(&self, handle: iris_smtp::SendHandle) {
+        if let Ok(mut e) = self.entries.lock() {
+            e.remove(&handle);
+        }
+    }
+}
+
 // --- Interface ---
 
 fn run_gui() -> Result<()> {
@@ -261,15 +338,66 @@ fn run_gui() -> Result<()> {
     // graphique par message serait absurde.
     let renderer: Arc<dyn iris_htmlview::HtmlRenderer> = Arc::new(shell::build_renderer());
 
+    // La sélection courante, partagée entre le puits d'instantanés et la zone de
+    // réponse : répondre s'adresse au fil affiché.
+    let selection: Arc<std::sync::Mutex<Option<iris_types::ThreadId>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    // Le chargeur de corps a besoin du contrôleur, qui a besoin du puits
+    // d'instantanés, qui a besoin du chargeur. Le cycle se casse par une cellule
+    // remplie une seule fois, plutôt que par un verrou permanent.
+    let chargeur: Arc<std::sync::OnceLock<Arc<shell::BodyLoader>>> =
+        Arc::new(std::sync::OnceLock::new());
+
+    let puits = {
+        let chargeur = Arc::clone(&chargeur);
+        let services_puits = services.clone();
+        let renderer = Arc::clone(&renderer);
+        let selection = Arc::clone(&selection);
+        let faible = fenetre.as_weak();
+        move |snapshot: iris_app::Snapshot| {
+            *selection.lock().expect("sélection empoisonnée") = snapshot.selected;
+            if let Some(chargeur) = chargeur.get() {
+                chargeur.request_if_needed(&snapshot);
+            }
+            let services = services_puits.clone();
+            let renderer = Arc::clone(&renderer);
+            let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                shell::apply_snapshot(&fenetre, &services, renderer.as_ref(), &snapshot);
+            });
+        }
+    };
+
     let (controller, _fil) = Controller::spawn(
         Arc::clone(&services.store),
         iris_types::AutomationSettings::default(),
         now(),
-        shell::snapshot_sink(&fenetre, services.clone(), Arc::clone(&renderer)),
+        puits,
     );
     let controller = Arc::new(controller);
 
+    let _ = chargeur.set(Arc::new(shell::BodyLoader::new(
+        Arc::clone(&services.engine),
+        Arc::clone(&controller),
+        runtime.handle().clone(),
+    )));
+
     shell::wire_callbacks(&fenetre, Arc::clone(&controller), iris_ui::Keymap::standard());
+
+    // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
+    // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui
+    // doit arriver après un envoi arrive même si la fenêtre se ferme entre-temps.
+    match build_send_service(&services) {
+        Ok((envoi, evenements)) => {
+            shell::wire_reply(&fenetre, Arc::clone(&envoi), Arc::clone(&selection));
+            let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
+            runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
+        }
+        // Sans compte configuré, il n'y a rien à envoyer : l'application reste
+        // parfaitement utilisable pour lire.
+        Err(e) => tracing::info!(raison = %e, "envoi indisponible"),
+    }
+
     controller.send(Request::Bootstrap);
 
     // Le bus alimente le contrôleur, à travers la coalescence.
@@ -289,6 +417,16 @@ fn run_gui() -> Result<()> {
                 tracing::error!(erreur = %e, "chargement des comptes");
             }
             loop {
+                // Le travail que fait le temps précède celui du réseau : un report
+                // échu doit réapparaître même quand le serveur est injoignable.
+                match engine.run_maintenance(now()) {
+                    Ok(m) if m.changed() => {
+                        tracing::info!(reveilles = m.woken, relances = m.followed_up, "échéances")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(erreur = %e, "échéances"),
+                }
+
                 let rapport = engine.tick(now()).await;
                 if rapport.changed() {
                     tracing::info!(

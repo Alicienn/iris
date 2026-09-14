@@ -377,6 +377,35 @@ impl ImapConnection for FakeConnection {
         Ok(())
     }
 
+    async fn append(&mut self, folder: &str, raw: &[u8], flags: Flags) -> Result<Option<u32>> {
+        self.take_error()?;
+        let mut state = self.state.lock().unwrap();
+        if !state.folders.contains_key(folder) {
+            return Err(Error::Protocol {
+                protocol: "IMAP",
+                message: format!("dossier « {folder} » inconnu"),
+            });
+        }
+
+        // Le serveur simulé attribue l'UID suivant du dossier, comme le ferait un
+        // vrai serveur doté de UIDPLUS.
+        let f = state.folders.get_mut(folder).expect("dossier vérifié juste avant");
+        let uid = f.messages.keys().next_back().map(|u| u + 1).unwrap_or(1);
+        f.highest_modseq += 1;
+        let modseq = f.highest_modseq;
+        f.messages.insert(
+            uid,
+            FakeMessage {
+                uid,
+                flags,
+                internal_date: Timestamp::from_millis(1_700_000_000_000 + uid as i64 * 1000),
+                content: raw.to_vec(),
+            },
+        );
+        f.modseqs.insert(uid, modseq);
+        Ok(Some(uid))
+    }
+
     async fn idle(&mut self, _timeout: Duration) -> Result<IdleOutcome> {
         self.take_error()?;
         if !self.capabilities.idle {
@@ -606,6 +635,24 @@ mod tests {
         assert_eq!(c.idle(Duration::from_secs(1)).await.unwrap(), IdleOutcome::TimedOut);
         s.set_idle_result(IdleOutcome::Changed);
         assert_eq!(c.idle(Duration::from_secs(1)).await.unwrap(), IdleOutcome::Changed);
+    }
+
+    #[tokio::test]
+    async fn un_message_depose_apparait_dans_le_dossier() {
+        let s = FakeServer::default();
+        s.add_folder("Sent", FolderKind::Sent);
+        let mut c = connexion(&s).await;
+
+        let uid = c.append("Sent", &message("Ma réponse"), Flags::SEEN).await.unwrap();
+        assert_eq!(uid, Some(1));
+        assert_eq!(s.message_count("Sent"), 1);
+    }
+
+    #[tokio::test]
+    async fn deposer_dans_un_dossier_inconnu_echoue() {
+        let s = FakeServer::default();
+        let mut c = connexion(&s).await;
+        assert!(c.append("Inexistant", b"x", Flags::NONE).await.is_err());
     }
 
     #[test]

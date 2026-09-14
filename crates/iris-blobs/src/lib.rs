@@ -279,6 +279,13 @@ impl BlobStore {
         Ok(())
     }
 
+    /// Empreintes de tous les contenus détenus.
+    ///
+    /// Sert à repérer les orphelins ; l'ordre n'a pas de sens et n'est pas garanti.
+    pub fn ids(&self) -> Result<Vec<BlobId>> {
+        Ok(self.lock()?.entries.keys().copied().collect())
+    }
+
     pub fn stats(&self) -> Result<BlobStats> {
         let index = self.lock()?;
         Ok(BlobStats {
@@ -435,6 +442,20 @@ mod tests {
 
         let s = BlobStore::open(dir.path(), 1 << 20).unwrap();
         assert_eq!(s.stats().unwrap().count, 0);
+    }
+
+    #[test]
+    fn les_contenus_detenus_sont_enumerables() {
+        let (s, _d) = store(1 << 20);
+        let a = s.put(b"un").unwrap();
+        let b = s.put(b"deux").unwrap();
+
+        let ids = s.ids().unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&a) && ids.contains(&b));
+
+        s.remove(a).unwrap();
+        assert_eq!(s.ids().unwrap(), vec![b]);
     }
 
     #[test]
