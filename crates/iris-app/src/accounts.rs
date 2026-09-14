@@ -208,6 +208,30 @@ pub fn add_account_manual(
     })
 }
 
+/// La configuration proposée quand la découverte n'a rien trouvé.
+///
+/// Ce ne sont pas des devinettes gratuites : `imap.domaine` et `smtp.domaine` en TLS
+/// sont la convention que suit la grande majorité des hébergeurs. Un formulaire
+/// vide obligerait à tout taper ; un formulaire prérempli ne demande que de corriger
+/// ce qui diffère.
+pub fn manual_defaults(email: &str) -> ServerConfig {
+    let email = email.trim().to_lowercase();
+    let domaine = email.rsplit_once('@').map(|(_, d)| d.to_string()).unwrap_or_default();
+
+    ServerConfig {
+        provider: None,
+        imap_host: if domaine.is_empty() { String::new() } else { format!("imap.{domaine}") },
+        imap_port: 993,
+        imap_transport: iris_discover::Transport::Tls,
+        smtp_host: if domaine.is_empty() { String::new() } else { format!("smtp.{domaine}") },
+        smtp_port: 465,
+        smtp_transport: iris_discover::Transport::Tls,
+        auth: Auth::Password,
+        note: None,
+        email,
+    }
+}
+
 /// Supprime un compte, ses messages et ses secrets.
 pub fn remove_account(
     store: &Store,
@@ -222,6 +246,36 @@ pub fn remove_account(
         let _ = secrets.delete(&compte.email, nature);
     }
     store.delete_account(id)
+}
+
+#[cfg(test)]
+mod tests_manuel {
+    use super::*;
+
+    #[test]
+    fn les_valeurs_par_defaut_suivent_la_convention_du_domaine() {
+        let config = manual_defaults("Marie@Exemple.FR");
+        assert_eq!(config.email, "marie@exemple.fr");
+        assert_eq!(config.imap_host, "imap.exemple.fr");
+        assert_eq!(config.imap_port, 993);
+        assert_eq!(config.smtp_host, "smtp.exemple.fr");
+        assert_eq!(config.smtp_port, 465);
+    }
+
+    #[test]
+    fn le_chiffrement_est_le_defaut() {
+        // Proposer du clair par défaut ferait de l'oubli une fuite.
+        let config = manual_defaults("a@x.fr");
+        assert_eq!(config.imap_transport, iris_discover::Transport::Tls);
+        assert_eq!(config.smtp_transport, iris_discover::Transport::Tls);
+    }
+
+    #[test]
+    fn une_adresse_sans_arobase_ne_devine_rien() {
+        let config = manual_defaults("pas-une-adresse");
+        assert!(config.imap_host.is_empty());
+        assert!(config.smtp_host.is_empty());
+    }
 }
 
 #[cfg(test)]

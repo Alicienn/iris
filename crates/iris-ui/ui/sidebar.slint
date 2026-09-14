@@ -100,6 +100,7 @@ export component Sidebar inherits Glass {
     callback account-selected(int);
     callback unified-selected();
     callback resume-account(int);
+    callback add-account();
 
     radius: 0px;
     border-width: 0px;
@@ -108,10 +109,34 @@ export component Sidebar inherits Glass {
         padding: Tokens.space-2;
         spacing: Tokens.space-1;
 
-        LineEdit {
-            placeholder-text: "Filtrer les comptes…";
-            font-size: Tokens.size-small;
-            text <=> root.filter;
+        HorizontalLayout {
+            spacing: Tokens.space-1;
+
+            LineEdit {
+                placeholder-text: "Filtrer les comptes…";
+                font-size: Tokens.size-small;
+                text <=> root.filter;
+            }
+
+            // Ajouter une boîte est le geste par lequel tout commence : il a sa
+            // place ici, à côté de la liste qu'il allonge.
+            Rectangle {
+                width: 24px;
+                border-radius: Tokens.radius-small;
+                background: ajout.has-hover ? Tokens.surface-hover : Tokens.surface;
+
+                Text {
+                    text: "+";
+                    font-size: Tokens.size-title;
+                    color: Tokens.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                ajout := TouchArea {
+                    clicked => { root.add-account(); }
+                }
+            }
         }
 
         SectionLabel { text: "TOUS COMPTES"; }

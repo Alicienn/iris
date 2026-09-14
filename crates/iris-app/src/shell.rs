@@ -233,6 +233,11 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
                 fenetre.invoke_focus_search();
             }
         }
+        CommandKind::AddAccount => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                fenetre.set_add_account_open(true);
+            }
+        }
         CommandKind::Settings => {
             if let Some(fenetre) = fenetre.upgrade() {
                 fenetre.set_settings_open(true);
@@ -648,6 +653,242 @@ pub fn appliquer_apparence(fenetre: &AppWindow, theme: &iris_theme::Theme, densi
     tokens.set_row_height(theme.density.row_height * densite.factor());
 }
 
+/// Branche l'écran d'ajout de compte.
+///
+/// La découverte d'abord : dans la grande majorité des cas, l'adresse et le mot de
+/// passe suffisent. Les champs de serveur n'apparaissent que si elle échoue — ou si
+/// l'utilisateur les demande, parce que quelqu'un qui sait déjà que son serveur est
+/// exotique n'a pas à attendre qu'on se trompe.
+pub fn wire_account_setup(
+    fenetre: &AppWindow,
+    services: &Services,
+    controller: Arc<Controller>,
+    runtime: tokio::runtime::Handle,
+) {
+    // --- Passer à la main sans attendre l'échec ---
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_add_account_manual_requested(move || {
+            let Some(fenetre) = faible.upgrade() else { return };
+            prefill_manual(&fenetre);
+        });
+    }
+
+    // --- La découverte ---
+    {
+        let store = Arc::clone(&services.store);
+        let secrets = Arc::clone(&services.secrets);
+        let engine = Arc::clone(&services.engine);
+        let services_ui = services.clone();
+        let controller = Arc::clone(&controller);
+        let runtime_ajout = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_add_account_discover(move || {
+            let Some(fenetre) = faible.upgrade() else { return };
+            let email = fenetre.get_new_email().to_string();
+            let motdepasse = fenetre.get_new_password().to_string();
+
+            if let Err(message) = valider_saisie(&email, &motdepasse) {
+                fenetre.set_add_account_error(message.into());
+                return;
+            }
+
+            fenetre.set_add_account_busy(true);
+            fenetre.set_add_account_error(Default::default());
+            fenetre.set_add_account_hint("Recherche de la configuration…".into());
+
+            let store = Arc::clone(&store);
+            let secrets = Arc::clone(&secrets);
+            let engine = Arc::clone(&engine);
+            let services_ui = services_ui.clone();
+            let controller = Arc::clone(&controller);
+            let faible = fenetre.as_weak();
+
+            runtime_ajout.spawn(async move {
+                let resultat = crate::accounts::add_account(
+                    &store,
+                    secrets.as_ref(),
+                    &email,
+                    &motdepasse,
+                    None,
+                    now(),
+                )
+                .await;
+
+                // Le compte créé doit entrer dans l'ordonnanceur tout de suite,
+                // sinon rien n'arrive avant le prochain démarrage.
+                if resultat.is_ok() {
+                    if let Err(e) = engine.load_accounts(now()).await {
+                        tracing::warn!(erreur = %e, "chargement du compte ajouté");
+                    }
+                }
+
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_add_account_busy(false);
+                    match resultat {
+                        Ok(compte) => {
+                            fenetre.set_add_account_open(false);
+                            fenetre.set_new_email(Default::default());
+                            fenetre.set_new_password(Default::default());
+                            fenetre.set_status(
+                                format!(
+                                    "{} ajouté ({}).",
+                                    compte.email,
+                                    compte.source.describe()
+                                )
+                                .into(),
+                            );
+                            refresh_accounts(&fenetre, &services_ui, &[]);
+                            controller.send(Request::Bootstrap);
+                        }
+                        // L'échec bascule l'écran en configuration manuelle plutôt
+                        // que de renvoyer l'utilisateur à un message d'erreur : ce
+                        // qu'il lui faut à cet instant, ce sont les champs.
+                        Err(e) => {
+                            fenetre.set_add_account_error(
+                                format!("Configuration introuvable : {e}").into(),
+                            );
+                            prefill_manual(&fenetre);
+                        }
+                    }
+                });
+            });
+        });
+    }
+
+    // --- L'enregistrement manuel ---
+    {
+        let store = Arc::clone(&services.store);
+        let secrets = Arc::clone(&services.secrets);
+        let engine = Arc::clone(&services.engine);
+        let services_ui = services.clone();
+        let controller = Arc::clone(&controller);
+        let runtime_manuel = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_add_account_save(move || {
+            let Some(fenetre) = faible.upgrade() else { return };
+            let email = fenetre.get_new_email().to_string();
+            let motdepasse = fenetre.get_new_password().to_string();
+
+            if let Err(message) = valider_saisie(&email, &motdepasse) {
+                fenetre.set_add_account_error(message.into());
+                return;
+            }
+
+            let config = match config_saisie(&fenetre, &email) {
+                Ok(c) => c,
+                Err(message) => {
+                    fenetre.set_add_account_error(message.into());
+                    return;
+                }
+            };
+
+            match crate::accounts::add_account_manual(
+                &store,
+                secrets.as_ref(),
+                &config,
+                &motdepasse,
+                None,
+                now(),
+            ) {
+                Ok(_) => {
+                    fenetre.set_add_account_open(false);
+                    fenetre.set_add_account_manual(false);
+                    fenetre.set_add_account_error(Default::default());
+                    fenetre.set_new_email(Default::default());
+                    fenetre.set_new_password(Default::default());
+                    fenetre.set_status(format!("{} ajouté.", config.email).into());
+                    refresh_accounts(&fenetre, &services_ui, &[]);
+                    controller.send(Request::Bootstrap);
+
+                    let engine = Arc::clone(&engine);
+                    runtime_manuel.spawn(async move {
+                        if let Err(e) = engine.load_accounts(now()).await {
+                            tracing::warn!(erreur = %e, "chargement du compte ajouté");
+                        }
+                    });
+                }
+                Err(e) => fenetre.set_add_account_error(format!("Ajout refusé : {e}").into()),
+            }
+        });
+    }
+}
+
+/// Bascule l'écran en configuration manuelle, champs préremplis.
+fn prefill_manual(fenetre: &AppWindow) {
+    let defauts = crate::accounts::manual_defaults(fenetre.get_new_email().as_str());
+
+    fenetre.set_add_account_manual(true);
+    fenetre.set_add_account_hint(
+        "Vérifiez les serveurs : ils sont proposés d'après votre domaine.".into(),
+    );
+    // Ce que l'utilisateur a déjà tapé n'est pas écrasé : une bascule qui efface la
+    // saisie punit celui qui avait deviné juste.
+    if fenetre.get_new_imap_host().is_empty() {
+        fenetre.set_new_imap_host(defauts.imap_host.as_str().into());
+        fenetre.set_new_imap_port(defauts.imap_port.to_string().into());
+    }
+    if fenetre.get_new_smtp_host().is_empty() {
+        fenetre.set_new_smtp_host(defauts.smtp_host.as_str().into());
+        fenetre.set_new_smtp_port(defauts.smtp_port.to_string().into());
+    }
+}
+
+/// Vérifie ce qui peut l'être sans réseau.
+fn valider_saisie(email: &str, motdepasse: &str) -> std::result::Result<(), String> {
+    if !email.contains('@') || email.trim().len() < 3 {
+        return Err("Cette adresse ne ressemble pas à une adresse électronique.".into());
+    }
+    if motdepasse.is_empty() {
+        return Err("Le mot de passe est vide.".into());
+    }
+    Ok(())
+}
+
+/// Compose la configuration à partir des champs saisis.
+fn config_saisie(
+    fenetre: &AppWindow,
+    email: &str,
+) -> std::result::Result<iris_discover::ServerConfig, String> {
+    let port = |texte: slint::SharedString, quoi: &str| {
+        texte
+            .trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|p| *p > 0)
+            .ok_or_else(|| format!("Le port {quoi} n'est pas un nombre valide."))
+    };
+
+    let imap_host = fenetre.get_new_imap_host().trim().to_string();
+    let smtp_host = fenetre.get_new_smtp_host().trim().to_string();
+    if imap_host.is_empty() || smtp_host.is_empty() {
+        return Err("Les deux serveurs sont nécessaires.".into());
+    }
+
+    let transport = |chiffre: bool| {
+        if chiffre {
+            iris_discover::Transport::Tls
+        } else {
+            iris_discover::Transport::Plain
+        }
+    };
+
+    Ok(iris_discover::ServerConfig {
+        provider: None,
+        email: email.trim().to_lowercase(),
+        imap_host,
+        imap_port: port(fenetre.get_new_imap_port(), "IMAP")?,
+        imap_transport: transport(fenetre.get_new_imap_tls()),
+        smtp_host,
+        smtp_port: port(fenetre.get_new_smtp_port(), "SMTP")?,
+        smtp_transport: transport(fenetre.get_new_smtp_tls()),
+        auth: iris_discover::Auth::Password,
+        note: None,
+    })
+}
+
 /// Modèle vide, pour initialiser une liste avant le premier instantané.
 pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
     ModelRc::from(Rc::new(VecModel::from(Vec::<T>::new())))
@@ -670,6 +911,7 @@ mod tests {
                 | CommandKind::UnifiedView
                 | CommandKind::Undo
                 | CommandKind::Search
+                | CommandKind::AddAccount
                 | CommandKind::Quit => {}
                 CommandKind::Settings | CommandKind::Reload => {
                     // Écrans non encore construits, ignorés à dessein.
@@ -729,6 +971,20 @@ mod tests {
         // Sinon la panne resterait muette au moment où elle est la plus étrange.
         let message = message_suspension(&[], &ensemble(&[7])).unwrap();
         assert!(message.starts_with("1 compte en pause"), "obtenu : {message}");
+    }
+
+    #[test]
+    fn une_adresse_sans_arobase_est_refusee_sans_reseau() {
+        // Interroger un serveur DNS pour découvrir que « bob » n'est pas une adresse
+        // ferait attendre pour rien.
+        assert!(valider_saisie("bob", "x").is_err());
+        assert!(valider_saisie("bob@exemple.fr", "x").is_ok());
+    }
+
+    #[test]
+    fn un_mot_de_passe_vide_est_refuse() {
+        let erreur = valider_saisie("bob@exemple.fr", "").unwrap_err();
+        assert!(erreur.contains("mot de passe"));
     }
 
     #[test]

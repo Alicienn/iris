@@ -430,6 +430,12 @@ fn run_gui() -> Result<()> {
         });
     }
 
+    shell::wire_account_setup(
+        &fenetre,
+        &services,
+        Arc::clone(&controller),
+        runtime.handle().clone(),
+    );
     shell::wire_account_recovery(
         &fenetre,
         Arc::clone(&services.engine),

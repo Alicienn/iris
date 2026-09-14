@@ -5,6 +5,7 @@ import { ThreadListView } from "list.slint";
 import { Sidebar } from "sidebar.slint";
 import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
+import { AccountSetupPanel } from "account.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -176,6 +177,20 @@ export component AppWindow inherits Window {
     in property <bool> sending;
     in property <int> undo-seconds;
 
+    in-out property <bool> add-account-open;
+    in property <bool> add-account-busy;
+    in property <bool> add-account-manual;
+    in property <string> add-account-error;
+    in property <string> add-account-hint;
+    in-out property <string> new-email;
+    in-out property <string> new-password;
+    in-out property <string> new-imap-host;
+    in-out property <string> new-imap-port: "993";
+    in-out property <string> new-smtp-host;
+    in-out property <string> new-smtp-port: "465";
+    in-out property <bool> new-imap-tls: true;
+    in-out property <bool> new-smtp-tls: true;
+
     in-out property <bool> settings-open;
     in property <[string]> themes;
     in property <int> active-theme;
@@ -214,6 +229,9 @@ export component AppWindow inherits Window {
     callback theme-chosen(int);
     callback density-chosen(int);
     callback automation-changed();
+    callback add-account-discover();
+    callback add-account-save();
+    callback add-account-manual-requested();
 
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
@@ -240,6 +258,7 @@ export component AppWindow inherits Window {
                     account-selected(id) => { root.account-selected(id); }
                     unified-selected => { root.unified-selected(); }
                     resume-account(id) => { root.resume-account(id); }
+                    add-account => { root.add-account-open = true; }
                 }
 
                 Rectangle { width: 1px; background: Tokens.border; }
@@ -296,6 +315,27 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.add-account-open: AccountSetupPanel {
+        width: 100%;
+        height: 100%;
+        busy: root.add-account-busy;
+        manual: root.add-account-manual;
+        error: root.add-account-error;
+        hint: root.add-account-hint;
+        email <=> root.new-email;
+        password <=> root.new-password;
+        imap-host <=> root.new-imap-host;
+        imap-port <=> root.new-imap-port;
+        smtp-host <=> root.new-smtp-host;
+        smtp-port <=> root.new-smtp-port;
+        imap-tls <=> root.new-imap-tls;
+        smtp-tls <=> root.new-smtp-tls;
+        discover => { root.add-account-discover(); }
+        save-manual => { root.add-account-save(); }
+        switch-to-manual => { root.add-account-manual-requested(); }
+        dismissed => { root.add-account-open = false; }
+    }
+
     if root.settings-open: SettingsPanel {
         width: 100%;
         height: 100%;
@@ -331,6 +371,10 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == "k" && event.modifiers.control) {
                 root.palette-open = !root.palette-open;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.add-account-open) {
+                root.add-account-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.settings-open) {

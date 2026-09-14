@@ -1,0 +1,238 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { LineEdit, CheckBox } from "std-widgets.slint";
+
+// Un champ avec son intitulé.
+component Field inherits VerticalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in property <bool> password;
+    in-out property <string> value;
+
+    callback accepted();
+
+    spacing: 2px;
+
+    Text {
+        text: root.label;
+        font-size: Tokens.size-small;
+        color: Tokens.text-muted;
+    }
+
+    LineEdit {
+        placeholder-text: root.placeholder;
+        font-size: Tokens.size-body;
+        input-type: root.password ? InputType.password : InputType.text;
+        text <=> root.value;
+        accepted => { root.accepted(); }
+    }
+}
+
+// L'ajout d'un compte.
+//
+// Deux temps. D'abord l'adresse et le mot de passe, parce que c'est tout ce qu'il
+// faut dans la grande majorité des cas : la découverte trouve les serveurs seule.
+// Ensuite, seulement si elle échoue, les champs de serveur — parce qu'aucune chaîne
+// de découverte ne couvre tout, et qu'un utilisateur bloqué doit garder une porte.
+export component AccountSetupPanel inherits Rectangle {
+    in property <bool> busy;
+    in property <bool> manual;
+    in property <string> error;
+    in property <string> hint;
+    in-out property <string> email;
+    in-out property <string> password;
+    in-out property <string> imap-host;
+    in-out property <string> imap-port;
+    in-out property <string> smtp-host;
+    in-out property <string> smtp-port;
+    in-out property <bool> imap-tls: true;
+    in-out property <bool> smtp-tls: true;
+
+    callback discover();
+    callback save-manual();
+    callback switch-to-manual();
+    callback dismissed();
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(480px, parent.width - 80px);
+        height: min(root.manual ? 560px : 300px, parent.height - 80px);
+
+        // Le panneau avale les clics : régler un champ ne doit pas fermer la
+        // fenêtre en touchant le voile derrière.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            Text {
+                text: "Ajouter un compte";
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-title;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.text;
+            }
+
+            Field {
+                label: "Adresse";
+                placeholder: "prenom@exemple.fr";
+                value <=> root.email;
+                accepted => { root.discover(); }
+            }
+
+            Field {
+                label: "Mot de passe";
+                password: true;
+                value <=> root.password;
+                accepted => { root.manual ? root.save-manual() : root.discover(); }
+            }
+
+            // Ce que la découverte a trouvé, ou ce qui lui a manqué. Un écran qui
+            // échoue sans dire pourquoi laisse l'utilisateur essayer au hasard.
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+            if root.error == "" && root.hint != "": Text {
+                text: root.hint;
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                wrap: word-wrap;
+            }
+
+            if root.manual: Rectangle { height: 1px; background: Tokens.border; }
+
+            if root.manual: HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                Field {
+                    label: "Serveur IMAP";
+                    placeholder: "imap.exemple.fr";
+                    value <=> root.imap-host;
+                }
+                VerticalLayout {
+                    width: 80px;
+                    Field {
+                        label: "Port";
+                        value <=> root.imap-port;
+                    }
+                }
+            }
+
+            if root.manual: CheckBox {
+                text: "IMAP chiffré (TLS)";
+                checked <=> root.imap-tls;
+            }
+
+            if root.manual: HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                Field {
+                    label: "Serveur SMTP";
+                    placeholder: "smtp.exemple.fr";
+                    value <=> root.smtp-host;
+                }
+                VerticalLayout {
+                    width: 80px;
+                    Field {
+                        label: "Port";
+                        value <=> root.smtp-port;
+                    }
+                }
+            }
+
+            if root.manual: CheckBox {
+                text: "SMTP chiffré (TLS)";
+                checked <=> root.smtp-tls;
+            }
+
+            Rectangle {}
+
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                // La porte de secours reste visible avant même l'échec : quelqu'un
+                // qui sait déjà que son serveur est exotique n'a pas à attendre que
+                // la découverte se trompe pour le dire.
+                if !root.manual: Rectangle {
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: manuel.has-hover ? Tokens.surface-hover : transparent;
+
+                    HorizontalLayout {
+                        padding-left: Tokens.space-2;
+                        padding-right: Tokens.space-2;
+                        Text {
+                            text: "Configurer à la main";
+                            font-size: Tokens.size-small;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    manuel := TouchArea {
+                        clicked => { root.switch-to-manual(); }
+                    }
+                }
+
+                Rectangle {}
+
+                Rectangle {
+                    width: 90px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: annuler.has-hover ? Tokens.surface-hover : Tokens.surface;
+
+                    Text {
+                        text: "Annuler";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    annuler := TouchArea {
+                        clicked => { root.dismissed(); }
+                    }
+                }
+
+                Rectangle {
+                    width: 110px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: Tokens.accent;
+                    opacity: root.busy ? 0.5 : 1.0;
+
+                    Text {
+                        text: root.busy
+                            ? "Recherche…"
+                            : (root.manual ? "Enregistrer" : "Ajouter");
+                        font-size: Tokens.size-small;
+                        font-weight: Tokens.weight-bold;
+                        color: Tokens.accent-text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            if (!root.busy) {
+                                root.manual ? root.save-manual() : root.discover();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
