@@ -167,3 +167,22 @@ qu'en théorie.
 - [x] **S22.1** Configuration manuelle d'un compte, quand la découverte échoue.
 - [x] **S22.2** Réglages : thème, densité, automatismes du workflow.
 - [x] **S22.3** Comptes suspendus : signalement et reprise.
+
+## E23 — Ce qui est construit mais que personne n'atteint
+
+Un audit de la couche application révèle quatre chaînes complètes, testées, et
+jamais appelées depuis l'interface. Ce ne sont pas des manques de conception : le
+code existe et fonctionne, mais rien ne l'invoque. Une fonctionnalité inatteignable
+coûte le même prix qu'une fonctionnalité absente, et ment en plus sur ce que
+l'application sait faire.
+
+Deux d'entre elles touchent des exigences posées dès le départ : le support de
+Google, et « tout est un module ».
+
+- [ ] **S23.1** Les plugins tournent : chargés au démarrage, abonnés au bus, leurs
+      commandes dans la palette.
+- [ ] **S23.2** OAuth Google et Microsoft depuis l'écran d'ajout de compte.
+- [ ] **S23.3** Pièces jointes : recensées au téléchargement, listées, enregistrables.
+- [ ] **S23.4** Compteurs par compte dans la barre latérale.
+- [ ] **S23.5** L'état de la synchronisation, visible pendant qu'elle a lieu.
+- [ ] **S23.6** Les commentaires devenus faux depuis que les écrans existent.
