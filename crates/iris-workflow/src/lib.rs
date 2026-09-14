@@ -1060,18 +1060,20 @@ mod tests {
 
     #[test]
     fn deleting_a_thread_already_in_the_bin_still_clears_the_queue() {
-        // Most of a mailbox that has been triaged in another client is already in
-        // the bin. Moving those messages produces no journal entry, and the action
-        // used to report "nothing changed" — so the Delete button did nothing at
-        // all, repeatedly, with no way to find out why. The thread still has to
-        // leave the queue: that is what was asked, and the server has nothing left
-        // to be told.
+        // The case that made the button look broken. A thread whose messages have
+        // moved to the bin behind our back — triaged in webmail, on a phone — has
+        // nothing left to send the server, and the action used to report "nothing
+        // changed" on that basis. It still has to leave the queue: that is what was
+        // asked, and the mail is already where it was asked to go.
         let f = fixture();
         let bin = f
             .store
             .upsert_folder(f.account, "Trash", FolderRole::Trash)
             .unwrap();
         let thread = f.thread_in(bin);
+        f.store
+            .set_thread_state(thread, WorkflowState::Todo)
+            .unwrap();
         let before = f.store.pending_op_count().unwrap();
 
         assert!(
@@ -1097,9 +1099,27 @@ mod tests {
             .upsert_folder(f.account, "Trash", FolderRole::Trash)
             .unwrap();
         let thread = f.thread_in(bin);
+        f.store
+            .set_thread_state(thread, WorkflowState::Todo)
+            .unwrap();
 
         assert!(f.workflow.delete(thread, t(1)).unwrap());
         assert!(!f.workflow.delete(thread, t(2)).unwrap());
+    }
+
+    #[test]
+    fn mail_that_arrives_in_the_bin_is_not_work_to_do() {
+        // The other half of the same problem: a mailbox triaged elsewhere brings
+        // hundreds of these on its first sync, and putting them in the queue fills it
+        // with exactly what the user had thrown away.
+        let f = fixture();
+        let bin = f
+            .store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+
+        assert_eq!(f.state(f.thread_in(bin)), WorkflowState::Done);
+        assert_eq!(f.state(f.thread()), WorkflowState::Todo);
     }
 
     #[test]

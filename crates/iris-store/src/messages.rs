@@ -569,19 +569,43 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
     }
 
     // 3. Nouveau fil.
+    //
+    // Un message qui arrive dans la corbeille ou les indésirables n'ouvre pas de
+    // travail : quelqu'un s'en est déjà occupé, ailleurs. La première synchronisation
+    // d'une boîte triée depuis un téléphone en apporte des centaines, et les mettre à
+    // faire remplit la file de choses que l'utilisateur avait précisément jetées.
+    //
+    // C'est la moitié vivante de la migration 4 : sans elle, la corbeille reviendrait
+    // dans la file à chaque synchronisation du dossier.
     let subject_norm = normalize_subject(&m.subject);
+    let etat = if folder_is_a_bin(tx, m.folder)? {
+        WorkflowState::Done
+    } else {
+        WorkflowState::Todo
+    };
+
     let mut stmt = tx
         .prepare_cached(
             "INSERT INTO threads (subject_norm, state, last_activity_at) VALUES (?1, ?2, ?3)",
         )
         .map_err(|e| sql_err("preparation", e))?;
-    stmt.execute(params![
-        subject_norm,
-        WorkflowState::Todo.as_i64(),
-        m.received.millis()
-    ])
-    .map_err(|e| sql_err("creation du fil", e))?;
+    stmt.execute(params![subject_norm, etat.as_i64(), m.received.millis()])
+        .map_err(|e| sql_err("creation du fil", e))?;
     Ok((ThreadId(tx.last_insert_rowid()), true))
+}
+
+/// Le dossier est-il une corbeille ou un dossier d'indésirables ?
+fn folder_is_a_bin(tx: &Transaction<'_>, folder: iris_types::FolderId) -> Result<bool> {
+    let mut stmt = tx
+        .prepare_cached("SELECT role FROM folders WHERE id = ?1")
+        .map_err(|e| sql_err("preparation", e))?;
+
+    let role: Option<String> = stmt
+        .query_row(params![folder.get()], |r| r.get(0))
+        .ok()
+        .flatten();
+
+    Ok(matches!(role.as_deref(), Some("trash") | Some("junk")))
 }
 
 /// Recalcule les colonnes agregees d'un fil.
@@ -721,6 +745,62 @@ mod tests {
                 preview: format!("aperçu {id}"),
             }
         }
+    }
+
+    #[test]
+    fn un_message_arrive_a_la_corbeille_n_ouvre_pas_de_travail() {
+        // Une boîte triée depuis un téléphone en apporte des centaines à la première
+        // synchronisation. Les mettre « à traiter » remplit la file de ce que
+        // l'utilisateur venait précisément de jeter.
+        let f = fixture();
+        let corbeille = f
+            .store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+
+        let mut m = f.msg("jete@x", 1000);
+        m.folder = corbeille;
+        let r = f.store.insert_message(&m).unwrap();
+
+        assert_eq!(
+            f.store.thread_row(r.thread).unwrap().unwrap().state,
+            WorkflowState::Done
+        );
+    }
+
+    #[test]
+    fn un_message_de_la_boite_de_reception_reste_a_traiter() {
+        let f = fixture();
+        let r = f.store.insert_message(&f.msg("vivant@x", 1000)).unwrap();
+
+        assert_eq!(
+            f.store.thread_row(r.thread).unwrap().unwrap().state,
+            WorkflowState::Todo
+        );
+    }
+
+    #[test]
+    fn une_reponse_dans_la_boite_ramene_le_fil() {
+        // Le fil est jugé sur l'ensemble de ses messages, jamais sur le premier
+        // arrivé : un échange dont un message est jeté et la réponse toujours là est
+        // du travail vivant.
+        let f = fixture();
+        let corbeille = f
+            .store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+
+        let mut premier = f.msg("a@x", 1000);
+        premier.folder = corbeille;
+        let fil = f.store.insert_message(&premier).unwrap().thread;
+
+        let mut reponse = f.msg("b@x", 2000);
+        reponse.in_reply_to = Some("a@x".into());
+        f.store.insert_message(&reponse).unwrap();
+
+        // Le fil existe toujours et porte les deux messages : c'est le classement qui
+        // appartient désormais à l'utilisateur, pas au dossier d'origine.
+        assert_eq!(f.store.thread_messages(fil).unwrap().len(), 2);
     }
 
     #[test]

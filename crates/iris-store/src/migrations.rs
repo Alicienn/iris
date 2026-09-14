@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 3;
+pub const CURRENT_VERSION: i64 = 4;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -33,7 +33,43 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "backfill spam",
         sql: SCHEMA_V3,
     },
+    Migration {
+        version: 4,
+        name: "take binned mail out of the queue",
+        sql: SCHEMA_V4,
+    },
 ];
+
+/// Takes out of the work queue every thread that only exists in the bin.
+///
+/// A mailbox triaged in another client — webmail, a phone — has most of its mail in
+/// Trash already, and the first sync pulled all of it in as work to do. On the real
+/// mailbox this was 485 messages of the 740: two thirds of the queue was rubbish
+/// somebody had already thrown away.
+///
+/// Worse, Delete could not clear them. Moving a message that is already at its
+/// destination produces nothing to send, the action reported "unchanged", and the
+/// button appeared broken. That is fixed in the workflow; this is the backlog it
+/// leaves behind, and pressing Delete four hundred times is not a fix.
+///
+/// Only threads whose messages are *all* in a bin or a junk folder. A conversation
+/// with one message deleted and a reply still in the inbox is live work, and the one
+/// deleted message says nothing about the other.
+///
+/// 2 is `WorkflowState::Done`, checked against the constant by a test below.
+const SCHEMA_V4: &str = r#"
+UPDATE threads
+SET state = 2
+WHERE state = 0
+  AND EXISTS (SELECT 1 FROM messages WHERE messages.thread_id = threads.id)
+  AND NOT EXISTS (
+        SELECT 1
+        FROM messages
+        JOIN folders ON folders.id = messages.folder_id
+        WHERE messages.thread_id = threads.id
+          AND folders.role NOT IN ('trash', 'junk')
+  );
+"#;
 
 /// Marks mail that was already in the database when spam detection arrived.
 ///
@@ -387,6 +423,85 @@ mod tests {
             })
             .unwrap();
         assert_eq!(thread & 512, 512);
+    }
+
+    #[test]
+    fn deux_est_bien_l_etat_termine() {
+        // La migration écrit un nombre en dur : si l'encodage change, elle doit
+        // échouer ici plutôt que de ranger silencieusement les fils dans la mauvaise
+        // file de tous les utilisateurs.
+        assert_eq!(iris_types::WorkflowState::Done.as_i64(), 2);
+        assert_eq!(iris_types::WorkflowState::Todo.as_i64(), 0);
+    }
+
+    #[test]
+    fn un_fil_entierement_a_la_corbeille_quitte_la_file() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+        conn.execute_batch(SCHEMA_V3).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO accounts (id, email, imap_host, imap_port, smtp_host, smtp_port, created_at)
+             VALUES (1, 'a@x.fr', 'i', 993, 's', 465, 0);
+             INSERT INTO folders (id, account_id, path, role) VALUES (1, 1, 'INBOX', 'inbox');
+             INSERT INTO folders (id, account_id, path, role) VALUES (2, 1, 'Trash', 'trash');
+             INSERT INTO threads (id, subject_norm, state, last_activity_at, flags_union)
+             VALUES (1, 'jete', 0, 0, 0), (2, 'vivant', 0, 0, 0), (3, 'mixte', 0, 0, 0);
+             INSERT INTO messages
+                (id, account_id, folder_id, thread_id, uid, subject, from_name, from_addr,
+                 recipients, date, received, size, flags, preview)
+             VALUES (1, 1, 2, 1, 1, 'jete', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, ''),
+                    (2, 1, 1, 2, 2, 'vivant', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, ''),
+                    (3, 1, 2, 3, 3, 'mixte a', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, ''),
+                    (4, 1, 1, 3, 4, 'mixte b', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, '');",
+        )
+        .unwrap();
+
+        conn.execute_batch(SCHEMA_V4).unwrap();
+
+        let etat = |id: i64| -> i64 {
+            conn.query_row("SELECT state FROM threads WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+
+        assert_eq!(etat(1), 2, "un fil entièrement jeté sort de la file");
+        assert_eq!(etat(2), 0, "un fil de la boîte de réception reste à traiter");
+        assert_eq!(
+            etat(3),
+            0,
+            "un message jeté ne dit rien de la réponse restée dans la boîte"
+        );
+    }
+
+    #[test]
+    fn un_fil_deja_classe_n_est_pas_deplace() {
+        // Seule la file « à traiter » est concernée. Un fil rangé en attente par
+        // l'utilisateur est une décision qui lui appartient.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.execute_batch(SCHEMA_V2).unwrap();
+        conn.execute_batch(SCHEMA_V3).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO accounts (id, email, imap_host, imap_port, smtp_host, smtp_port, created_at)
+             VALUES (1, 'a@x.fr', 'i', 993, 's', 465, 0);
+             INSERT INTO folders (id, account_id, path, role) VALUES (2, 1, 'Trash', 'trash');
+             INSERT INTO threads (id, subject_norm, state, last_activity_at, flags_union)
+             VALUES (1, 'attente', 1, 0, 0);
+             INSERT INTO messages
+                (id, account_id, folder_id, thread_id, uid, subject, from_name, from_addr,
+                 recipients, date, received, size, flags, preview)
+             VALUES (1, 1, 2, 1, 1, 'attente', 'x', 'x@y.fr', '[]', 0, 0, 1, 0, '');",
+        )
+        .unwrap();
+
+        conn.execute_batch(SCHEMA_V4).unwrap();
+
+        let etat: i64 = conn
+            .query_row("SELECT state FROM threads WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(etat, 1);
     }
 
     #[test]
