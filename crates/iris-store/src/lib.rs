@@ -21,7 +21,7 @@ mod model;
 mod rules;
 mod threads;
 
-pub use accounts::AccountServers;
+pub use accounts::{AccountServers, UnifiedFolder};
 pub use attachments::StoredAttachment;
 pub use migrations::CURRENT_VERSION;
 pub use model::{

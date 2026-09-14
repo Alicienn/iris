@@ -39,6 +39,15 @@ pub enum OpPayload {
         folder: String,
         uids: Vec<u32>,
     },
+    /// Créer un dossier sur ce compte.
+    ///
+    /// Passe par le journal comme tout le reste : créer un dossier sur cent boîtes
+    /// est cent allers-retours réseau, et faire attendre l'utilisateur devant eux
+    /// contredirait l'invariant n° 3. L'arborescence le montre tout de suite ; les
+    /// serveurs l'apprennent ensuite.
+    CreateFolder {
+        folder: String,
+    },
 }
 
 impl OpPayload {
@@ -47,6 +56,7 @@ impl OpPayload {
             Self::SetFlags { .. } => OpKind::SetFlags,
             Self::Move { .. } => OpKind::MoveMessage,
             Self::Delete { .. } => OpKind::DeleteMessage,
+            Self::CreateFolder { .. } => OpKind::CreateFolder,
         }
     }
 
@@ -74,6 +84,7 @@ impl OpPayload {
             Self::Delete { folder, uids } => {
                 format!("{account}:delete:{folder}:{}", join(uids))
             }
+            Self::CreateFolder { folder } => format!("{account}:mkdir:{folder}"),
         }
     }
 
@@ -90,8 +101,18 @@ impl OpPayload {
         match self {
             Self::SetFlags { folder, .. }
             | Self::Move { folder, .. }
-            | Self::Delete { folder, .. } => folder,
+            | Self::Delete { folder, .. }
+            | Self::CreateFolder { folder } => folder,
         }
+    }
+
+    /// L'opération exige-t-elle que son dossier soit sélectionné d'abord ?
+    ///
+    /// Non pour la création, et c'est tout l'intérêt de le demander : sélectionner un
+    /// dossier qui n'existe pas encore échoue, et échouerait exactement sur celui
+    /// qu'on vient de demander à créer.
+    pub fn needs_selection(&self) -> bool {
+        !matches!(self, Self::CreateFolder { .. })
     }
 }
 
@@ -145,7 +166,7 @@ pub async fn replay_account(
 
         // On ne sélectionne le dossier que lorsqu'il change : une sélection IMAP
         // coûte un aller-retour complet.
-        if dossier_courant.as_deref() != Some(charge.folder()) {
+        if charge.needs_selection() && dossier_courant.as_deref() != Some(charge.folder()) {
             if let Err(e) = conn.select(charge.folder()).await {
                 store.fail_op(op.id, &e.to_string(), now)?;
                 rapport.failed += 1;
@@ -189,6 +210,7 @@ async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> 
             // seul filet de sécurité de l'utilisateur.
             conn.store_flags(uids, Flags::DELETED, true).await
         }
+        OpPayload::CreateFolder { folder } => conn.create_folder(folder).await,
     }
 }
 

@@ -32,6 +32,8 @@ pub struct ThreadList {
     spam_only: bool,
     state: WorkflowState,
     accounts: Vec<AccountId>,
+    /// Restriction à un dossier, par son nom unifié.
+    folder: Option<String>,
     /// Préfixe chargé, dans l'ordre d'affichage.
     rows: Vec<ThreadRow>,
     cursor: Option<ListCursor>,
@@ -81,6 +83,7 @@ impl ThreadList {
             spam_only: false,
             state,
             accounts: Vec::new(),
+            folder: None,
             rows: Vec::new(),
             cursor: None,
             exhausted: false,
@@ -134,14 +137,23 @@ impl ThreadList {
         true
     }
 
+    pub fn set_folder(&mut self, folder: Option<String>) -> bool {
+        if self.folder == folder {
+            return false;
+        }
+        self.folder = folder;
+        true
+    }
+
     pub fn set_now(&mut self, now: Timestamp) {
         self.now = now;
     }
 
     fn query(&self) -> ListQuery {
-        let base = ListQuery::new(self.state, self.page_size)
+        let mut base = ListQuery::new(self.state, self.page_size)
             .for_accounts(self.accounts.clone())
             .hiding_snoozed(self.now);
+        base.folder = self.folder.clone();
         if self.spam_only {
             base.only_spam()
         } else {

@@ -8,6 +8,7 @@
 pub mod accounts;
 pub mod controller;
 pub mod modules;
+pub mod folders;
 pub mod logging;
 pub mod oauth;
 pub mod paths;

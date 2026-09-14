@@ -463,6 +463,24 @@ impl ImapConnection for ImapClient {
         Ok(())
     }
 
+    async fn create_folder(&mut self, path: &str) -> Result<()> {
+        let session = self.session()?;
+        match session.create(path).await {
+            Ok(()) => Ok(()),
+            // « ALREADYEXISTS », ou n'importe laquelle des formulations que les
+            // serveurs emploient pour la même chose. Le but est atteint : le dossier
+            // est là. Remonter une erreur ferait échouer un rejeu qui a réussi.
+            Err(e) => {
+                let dit = e.to_string().to_lowercase();
+                if dit.contains("alreadyexists") || dit.contains("already exists") {
+                    Ok(())
+                } else {
+                    Err(protocol_error("création du dossier", e))
+                }
+            }
+        }
+    }
+
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()> {
         if uids.is_empty() {
             return Ok(());

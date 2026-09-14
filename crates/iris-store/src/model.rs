@@ -235,6 +235,12 @@ pub struct ListQuery {
     /// Reprendre après cette position. `None` pour commencer au début.
     pub after: Option<ListCursor>,
     pub spam: SpamFilter,
+    /// Restriction à un dossier, par son nom unifié. `None` signifie « partout ».
+    ///
+    /// Un **nom**, pas un identifiant. Un dossier est la même idée sur les cent
+    /// boîtes — « Devis » est « Devis » — et le filtre le suit à travers elles. Choisir
+    /// en plus un compte croise les deux : ce compte-là, dans ce dossier-là.
+    pub folder: Option<String>,
 }
 
 impl ListQuery {
@@ -246,7 +252,15 @@ impl ListQuery {
             limit,
             after: None,
             spam: SpamFilter::Exclude,
+            folder: None,
         }
+    }
+
+    /// Ne montrer que ce dossier, sur tous les comptes qui en ont un.
+    pub fn in_folder(mut self, folder: impl Into<String>) -> Self {
+        let nom = folder.into();
+        self.folder = (!nom.trim().is_empty()).then_some(nom);
+        self
     }
 
     pub fn for_accounts(mut self, accounts: Vec<AccountId>) -> Self {
@@ -280,6 +294,7 @@ pub enum OpKind {
     DeleteMessage,
     SendMessage,
     AppendMessage,
+    CreateFolder,
 }
 
 impl OpKind {
@@ -290,6 +305,7 @@ impl OpKind {
             Self::DeleteMessage => "delete_message",
             Self::SendMessage => "send_message",
             Self::AppendMessage => "append_message",
+            Self::CreateFolder => "create_folder",
         }
     }
 
@@ -300,6 +316,7 @@ impl OpKind {
             "delete_message" => Some(Self::DeleteMessage),
             "send_message" => Some(Self::SendMessage),
             "append_message" => Some(Self::AppendMessage),
+            "create_folder" => Some(Self::CreateFolder),
             _ => None,
         }
     }

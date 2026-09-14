@@ -26,6 +26,18 @@ pub enum Request {
     /// Show the mail the server threw out, or go back to the queues.
     ShowSpam(bool),
     FilterAccounts(Vec<iris_types::AccountId>),
+    /// Ne montrer qu'un dossier, par son nom unifié. `None` pour tout montrer.
+    FilterFolder(Option<String>),
+    /// Cocher ou décocher un fil.
+    ToggleMark(ThreadId),
+    /// Cocher tout ce qui va de l'ancre jusqu'ici.
+    ExtendMark(ThreadId),
+    /// Cocher tout ce qui est chargé.
+    MarkAll,
+    /// Tout décocher.
+    ClearMarks,
+    /// Agir sur le lot coché, ou à défaut sur la ligne courante.
+    ApplyToMarked(Action),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
@@ -72,6 +84,11 @@ pub struct Snapshot {
     /// La recherche en cours, s'il y en a une. Les lignes en sont alors issues, et
     /// les compteurs d'onglets continuent de décrire les files, pas les résultats.
     pub search: Option<SearchSummary>,
+    /// Les fils cochés. L'interface s'en sert pour marquer les lignes et pour
+    /// décider si la barre d'actions groupées a lieu d'être.
+    pub marked: std::collections::BTreeSet<ThreadId>,
+    /// Le dossier montré, s'il y en a un.
+    pub folder: Option<String>,
     /// What went wrong with the last request, if anything did.
     ///
     /// An action that fails has to say so. This was a `tracing::error!` and nothing
@@ -201,6 +218,47 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         Request::SwitchTab(state) => Ok(!vm.set_tab(state)?.is_empty()),
         Request::ShowSpam(showing) => Ok(!vm.set_showing_spam(showing)?.is_empty()),
         Request::FilterAccounts(accounts) => Ok(!vm.set_accounts_filter(accounts)?.is_empty()),
+        Request::FilterFolder(folder) => Ok(!vm.set_folder_filter(folder)?.is_empty()),
+        Request::ToggleMark(thread) => {
+            vm.toggle_mark(thread);
+            Ok(true)
+        }
+        Request::ExtendMark(thread) => {
+            vm.extend_mark_to(thread);
+            Ok(true)
+        }
+        Request::MarkAll => {
+            vm.mark_all_visible();
+            Ok(true)
+        }
+        Request::ClearMarks => Ok(vm.clear_marks()),
+        Request::ApplyToMarked(action) => {
+            let cibles = vm.selection().targets();
+            if cibles.is_empty() {
+                return Ok(false);
+            }
+
+            // Un lot passe par `apply_many`, qui pose **une** entrée d'annulation pour
+            // l'ensemble : cinquante messages archivés d'un geste doivent revenir d'un
+            // geste, et non de cinquante.
+            let touches =
+                actions.apply_many(&cibles, action, Timestamp::from_millis(now_millis()))?;
+            if touches == 0 {
+                return Ok(false);
+            }
+
+            let mut diff = ViewDiff::default();
+            diff.threads.extend(cibles.iter().copied());
+            diff.lists.insert(vm.active_tab());
+            vm.apply_diff(&diff)?;
+
+            // Ce qui a quitté la liste quitte le lot : le garder ferait porter
+            // l'action suivante sur des lignes que personne ne voit.
+            let restants: std::collections::BTreeSet<ThreadId> =
+                vm.visible_threads().into_iter().collect();
+            vm.selection_mut().retain_marks(|t| restants.contains(&t));
+            Ok(true)
+        }
         Request::EnsureLoaded(index) => Ok(vm.ensure_loaded(index)? > 0),
         Request::Apply(action) => {
             let Some(thread) = vm.selection().thread() else {
@@ -280,6 +338,8 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
 
     Snapshot {
         error: None,
+        marked: vm.selection().marked().clone(),
+        folder: vm.folder_filter().map(str::to_string),
         rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),
         active_tab: vm.active_tab(),

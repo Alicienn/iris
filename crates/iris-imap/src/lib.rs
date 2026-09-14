@@ -289,6 +289,14 @@ pub trait ImapConnection: Send + std::fmt::Debug {
 
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()>;
 
+    /// Crée un dossier.
+    ///
+    /// Réussir silencieusement s'il existe déjà fait partie du contrat : créer un
+    /// dossier « partout » veut dire le demander à des serveurs dont certains l'ont
+    /// déjà, et un refus qu'on a provoqué soi-même ressemble à une panne dans le
+    /// journal. C'est l'idempotence qu'exige le rejeu.
+    async fn create_folder(&mut self, path: &str) -> Result<()>;
+
     /// Dépose un message dans un dossier.
     ///
     /// Sert à conserver ce qu'on envoie : sans cela, un message parti depuis Iris

@@ -383,6 +383,15 @@ impl ImapConnection for FakeConnection {
         Ok(())
     }
 
+    async fn create_folder(&mut self, path: &str) -> Result<()> {
+        self.take_error()?;
+        let mut state = self.state.lock().unwrap();
+        // Déjà là : on ne s'en plaint pas. C'est le contrat du trait, et c'est ce que
+        // le rejeu rencontrera le plus souvent.
+        state.folders.entry(path.to_string()).or_default();
+        Ok(())
+    }
+
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()> {
         self.take_error()?;
         let path = self.current()?;

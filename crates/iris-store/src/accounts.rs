@@ -29,6 +29,23 @@ const ACCOUNT_COLUMNS: &str = "id, email, display_name, imap_host, imap_port, im
      smtp_host, smtp_port, smtp_tls, auth_kind, group_name, pinned, enabled, \
      created_at, last_activity_at";
 
+/// Un dossier tel que l'interface le montre : un nom, sur toutes les boîtes à la fois.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnifiedFolder {
+    /// Le chemin IMAP, qui est aussi le nom : `INBOX.Devis`.
+    pub path: String,
+    /// Le rôle, quand les serveurs s'accordent dessus. `min` sur les rôles suffit :
+    /// deux serveurs qui rangent le même nom différemment est un cas qui n'arrive pas
+    /// pour les dossiers que nous créons, et pour les autres le rôle n'est qu'une
+    /// icône.
+    pub role: FolderRole,
+    /// Sur combien de boîtes il existe. Ce qui dit à l'utilisateur si « Devis » est
+    /// partout ou seulement sur trois comptes.
+    pub accounts: u32,
+    /// Combien de conversations il contient, tous comptes confondus.
+    pub threads: u32,
+}
+
 /// Ce qu'un compte sait de ses serveurs.
 ///
 /// Groupé plutôt que passé en huit arguments : sept d'entre eux sont des chaînes et
@@ -161,6 +178,72 @@ impl Store {
                 return Err(Error::store(format!("compte {id} introuvable")));
             }
             Ok(())
+        })
+    }
+
+    /// Les dossiers, vus comme un seul jeu plutôt que comme cent.
+    ///
+    /// Un dossier « Devis » sur douze boîtes est **un** dossier. C'est la seule vue
+    /// qui tienne au-delà de quelques comptes : une arborescence qui répète la même
+    /// dizaine de noms pour chaque boîte est une arborescence que personne ne déplie.
+    ///
+    /// Le décompte est celui des fils, pas des messages : c'est ce que la liste
+    /// affiche, et compter les messages annoncerait quarante là où douze lignes
+    /// apparaîtront.
+    pub fn unified_folders(&self) -> Result<Vec<UnifiedFolder>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT f.path,
+                            min(f.role),
+                            count(DISTINCT f.account_id),
+                            count(DISTINCT m.thread_id)
+                     FROM folders f
+                     LEFT JOIN messages m ON m.folder_id = f.id
+                     GROUP BY f.path
+                     ORDER BY f.path",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(UnifiedFolder {
+                        path: r.get(0)?,
+                        role: FolderRole::parse(&r.get::<_, String>(1)?),
+                        accounts: r.get::<_, i64>(2)? as u32,
+                        threads: r.get::<_, i64>(3)? as u32,
+                    })
+                })
+                .map_err(|e| sql_err("liste des dossiers", e))?;
+
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("liste des dossiers", e))
+        })
+    }
+
+    /// Les comptes qui n'ont pas encore ce dossier.
+    ///
+    /// Ce sont ceux à qui il faut le demander. Créer un dossier veut dire le créer
+    /// partout ; le demander à un serveur qui l'a déjà obtient un refus, et un refus
+    /// qu'on a provoqué soi-même ressemble à une panne dans le journal.
+    pub fn accounts_without_folder(&self, path: &str) -> Result<Vec<AccountId>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT a.id FROM accounts a
+                     WHERE a.enabled = 1
+                       AND NOT EXISTS (SELECT 1 FROM folders f
+                                       WHERE f.account_id = a.id AND f.path = ?1)
+                     ORDER BY a.id",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+
+            let rows = stmt
+                .query_map(params![path], |r| Ok(AccountId(r.get(0)?)))
+                .map_err(|e| sql_err("comptes sans le dossier", e))?;
+
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("comptes sans le dossier", e))
         })
     }
 

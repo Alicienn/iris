@@ -37,6 +37,8 @@ pub struct ViewModel {
     active_tab: WorkflowState,
     selection: Selection,
     accounts: Vec<AccountId>,
+    /// Le dossier montré, par son nom unifié. `None` signifie « partout ».
+    folder: Option<String>,
     counts: [u32; 3],
     now: Timestamp,
     /// The spam list. Kept beside the three queues rather than among them: it is not
@@ -85,6 +87,7 @@ impl ViewModel {
             active_tab: WorkflowState::Todo,
             selection: Selection::default(),
             accounts: Vec::new(),
+            folder: None,
             counts: [0; 3],
             now,
             spam: ThreadList::spam(now),
@@ -328,6 +331,76 @@ impl ViewModel {
     }
 
     /// Restreint l'affichage à certains comptes.
+    /// Ne montrer qu'un dossier, ou tout.
+    ///
+    /// Se combine avec le filtre de comptes plutôt que de le remplacer : « ce qu'il y
+    /// a dans Devis, chez ce client-là » est la question qu'on pose le plus souvent
+    /// dès qu'on a plus d'une boîte, et deux filtres qui s'annulent l'un l'autre ne
+    /// permettent jamais de la poser.
+    pub fn set_folder_filter(&mut self, folder: Option<String>) -> Result<ViewUpdate> {
+        if self.folder == folder {
+            return Ok(ViewUpdate::default());
+        }
+        self.folder = folder.clone();
+
+        let store = Arc::clone(&self.store);
+        for liste in self.lists.iter_mut().chain(std::iter::once(&mut self.spam)) {
+            liste.set_folder(folder.clone());
+            liste.reload(&store)?;
+        }
+
+        // Ce qui était coché ne l'est plus : le lot décrivait une liste qui n'est plus
+        // à l'écran, et agir dessus porterait sur des lignes que personne ne voit.
+        self.selection.clear_marks();
+        self.refresh_search()?;
+        self.select_first();
+        self.refresh_counts()?;
+
+        Ok(ViewUpdate {
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
+            counts_changed: true,
+            selection_changed: true,
+            search_changed: false,
+        })
+    }
+
+    /// Le dossier montré, s'il y en a un.
+    pub fn folder_filter(&self) -> Option<&str> {
+        self.folder.as_deref()
+    }
+
+    // --- La sélection multiple ---
+
+    pub fn selection_mut(&mut self) -> &mut Selection {
+        &mut self.selection
+    }
+
+    /// Les identifiants affichés, dans l'ordre. Ce qu'une extension parcourt.
+    pub fn visible_threads(&self) -> Vec<ThreadId> {
+        self.rows().iter().map(|r| r.id).collect()
+    }
+
+    pub fn toggle_mark(&mut self, thread: ThreadId) {
+        self.selection.toggle_mark(thread);
+    }
+
+    pub fn extend_mark_to(&mut self, thread: ThreadId) {
+        let visibles = self.visible_threads();
+        self.selection.extend_mark_to(thread, &visibles);
+    }
+
+    pub fn mark_all_visible(&mut self) {
+        let visibles = self.visible_threads();
+        self.selection.mark_all(&visibles);
+    }
+
+    pub fn clear_marks(&mut self) -> bool {
+        self.selection.clear_marks()
+    }
+
     pub fn set_accounts_filter(&mut self, accounts: Vec<AccountId>) -> Result<ViewUpdate> {
         if self.accounts == accounts {
             return Ok(ViewUpdate::default());

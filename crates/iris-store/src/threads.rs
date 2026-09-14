@@ -84,7 +84,11 @@ impl Store {
                 args.push(SqlValue::Integer(now.millis()));
             }
 
-            if !q.accounts.is_empty() {
+            // Le compte seul. Quand un dossier est également choisi, la clause
+            // ci-dessous porte les deux et celle-ci n'a plus lieu d'être : la répéter
+            // demanderait « ce compte quelque part » en plus de « ce compte dans ce
+            // dossier », ce qui est plus large, pas plus étroit.
+            if !q.accounts.is_empty() && q.folder.is_none() {
                 let placeholders = std::iter::repeat_n("?", q.accounts.len())
                     .collect::<Vec<_>>()
                     .join(",");
@@ -94,6 +98,36 @@ impl Store {
                                     AND ta.account_id IN ({placeholders}))"
                 ));
                 args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
+            }
+
+            // Le dossier. Une existence plutôt qu'une jointure : un fil peut porter
+            // des messages dans plusieurs dossiers et sur plusieurs comptes, et une
+            // jointure le rendrait autant de fois qu'il a de messages qui collent.
+            //
+            // Croisé avec le filtre de comptes lorsque les deux sont posés : le même
+            // `EXISTS` porte les deux conditions, donc c'est bien « ce compte-là dans
+            // ce dossier-là » et non « ce compte quelque part, ce dossier ailleurs ».
+            if let Some(dossier) = &q.folder {
+                if q.accounts.is_empty() {
+                    sql.push_str(
+                        " AND EXISTS (SELECT 1 FROM messages m
+                                      JOIN folders f ON f.id = m.folder_id
+                                      WHERE m.thread_id = threads.id AND f.path = ?)",
+                    );
+                    args.push(SqlValue::Text(dossier.clone()));
+                } else {
+                    let placeholders = std::iter::repeat_n("?", q.accounts.len())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    sql.push_str(&format!(
+                        " AND EXISTS (SELECT 1 FROM messages m
+                                      JOIN folders f ON f.id = m.folder_id
+                                      WHERE m.thread_id = threads.id AND f.path = ?
+                                        AND m.account_id IN ({placeholders}))"
+                    ));
+                    args.push(SqlValue::Text(dossier.clone()));
+                    args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
+                }
             }
 
             if let Some(cur) = q.after {
