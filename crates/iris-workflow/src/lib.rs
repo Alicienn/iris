@@ -257,6 +257,131 @@ impl Workflow {
         Ok(true)
     }
 
+    /// Moves every message in a thread to a folder, and marks the thread done.
+    ///
+    /// Archiving is two things at once, and both are expected: the mail leaves the
+    /// inbox on the server, and the conversation leaves the queue here. Doing only
+    /// the second would let the next sync put it straight back.
+    pub fn archive(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
+        self.move_thread(
+            thread,
+            iris_store::FolderRole::Archive,
+            OpKind::MoveMessage,
+            now,
+        )
+    }
+
+    /// Moves every message in a thread to the bin.
+    ///
+    /// Deleting means moving to the trash folder, never erasing. A client that
+    /// destroys mail on a keystroke is a client nobody can afford to use quickly, and
+    /// the whole point of keyboard triage is speed.
+    pub fn delete(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
+        self.move_thread(
+            thread,
+            iris_store::FolderRole::Trash,
+            OpKind::DeleteMessage,
+            now,
+        )
+    }
+
+    /// The shared part of archiving and deleting.
+    fn move_thread(
+        &self,
+        thread: ThreadId,
+        role: iris_store::FolderRole,
+        kind: OpKind,
+        now: Timestamp,
+    ) -> Result<bool> {
+        let messages = self.store.thread_messages(thread)?;
+        if messages.is_empty() {
+            return Ok(false);
+        }
+
+        let before = self.snapshot(thread, now, true)?;
+        let mut moved = 0;
+
+        // Grouped per account, because the destination folder is per account and a
+        // thread can span several of them once regrouping has run.
+        let mut per_account: BTreeMap<AccountId, Vec<(FolderId, u32)>> = BTreeMap::new();
+        for m in &messages {
+            per_account
+                .entry(m.account)
+                .or_default()
+                .push((m.folder, m.uid));
+        }
+
+        for (account, items) in per_account {
+            let Some(target) = self
+                .store
+                .folders(account)?
+                .into_iter()
+                .find(|f| f.role == role)
+            else {
+                // No such folder on this server: say so rather than pretend. Silently
+                // marking the thread done would lose the mail on the next sync.
+                return Err(Error::Config(format!(
+                    "this account has no {} folder",
+                    role.as_str()
+                )));
+            };
+
+            for (folder, uid) in items {
+                if folder == target.id {
+                    continue;
+                }
+                self.journal_move(account, folder, uid, &target.path, kind, now)?;
+                moved += 1;
+            }
+        }
+
+        if moved == 0 {
+            return Ok(false);
+        }
+
+        // Locally the thread leaves the queue at once; the server hears about it when
+        // the journal replays. That is invariant 3: nothing waits for the network.
+        let previous = before.state;
+        self.store.set_thread_state(thread, WorkflowState::Done)?;
+        self.record_undo(before);
+        self.bus.publish(Event::ThreadStateChanged {
+            thread,
+            from: previous,
+            to: WorkflowState::Done,
+            cause: TransitionCause::Manual,
+        });
+        Ok(true)
+    }
+
+    /// Records a move for the server to carry out later.
+    fn journal_move(
+        &self,
+        account: AccountId,
+        folder: FolderId,
+        uid: u32,
+        destination: &str,
+        kind: OpKind,
+        now: Timestamp,
+    ) -> Result<()> {
+        let source = self
+            .store
+            .folders(account)?
+            .into_iter()
+            .find(|f| f.id == folder)
+            .map(|f| f.path)
+            .unwrap_or_default();
+
+        let payload = format!(
+            r#"{{"op":"move","folder":{},"uids":[{uid}],"to":{}}}"#,
+            quote(&source),
+            quote(destination)
+        );
+        let key = format!("{account}:move:{source}:{uid}:{destination}");
+
+        self.store.enqueue_op(account, kind, &payload, &key, now)?;
+        Ok(())
+    }
+
     // --- Undo ---
 
     /// Reverses the last action.
@@ -880,6 +1005,96 @@ mod tests {
         f.workflow.set_read(thread, true, t(1)).unwrap();
         let entry = f.workflow.undo(t(2)).unwrap().unwrap();
         assert!(!entry.flags.is_empty(), "the flags must be recoverable");
+    }
+
+    #[test]
+    fn archiving_moves_the_mail_and_clears_the_queue() {
+        // Both halves matter: without the move, the next sync puts it straight back.
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        let thread = f.thread();
+        let before = f.store.pending_op_count().unwrap();
+
+        assert!(f.workflow.archive(thread, t(1)).unwrap());
+        assert_eq!(f.state(thread), WorkflowState::Done);
+        assert_eq!(
+            f.store.pending_op_count().unwrap(),
+            before + 1,
+            "the server has to be told"
+        );
+    }
+
+    #[test]
+    fn deleting_moves_to_the_bin_rather_than_erasing() {
+        // A client that destroys mail on a keystroke is one nobody can use quickly.
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+        let thread = f.thread();
+
+        assert!(f.workflow.delete(thread, t(1)).unwrap());
+        assert_eq!(
+            f.store.thread_messages(thread).unwrap().len(),
+            1,
+            "the message still exists locally until the server confirms"
+        );
+    }
+
+    #[test]
+    fn archiving_without_an_archive_folder_says_so() {
+        // Marking it done anyway would lose the mail at the next sync.
+        let f = fixture();
+        let thread = f.thread();
+
+        let error = f.workflow.archive(thread, t(1)).unwrap_err().to_string();
+        assert!(error.contains("archive"), "got: {error}");
+        assert_eq!(f.state(thread), WorkflowState::Todo, "nothing moved");
+    }
+
+    #[test]
+    fn archiving_an_empty_thread_does_nothing() {
+        let f = fixture();
+        assert!(!f.workflow.archive(ThreadId(9999), t(1)).unwrap());
+    }
+
+    #[test]
+    fn archiving_twice_queues_one_operation() {
+        // The journal key is the same both times, so the server is told once.
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        let thread = f.thread();
+
+        f.workflow.archive(thread, t(1)).unwrap();
+        let after_first = f.store.pending_op_count().unwrap();
+        f.workflow.archive(thread, t(2)).unwrap();
+
+        assert_eq!(f.store.pending_op_count().unwrap(), after_first);
+    }
+
+    #[test]
+    fn archiving_is_undoable() {
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        let thread = f.thread();
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(1))
+            .unwrap();
+
+        f.workflow.archive(thread, t(2)).unwrap();
+        f.workflow.undo(t(3)).unwrap();
+
+        assert_eq!(
+            f.state(thread),
+            WorkflowState::Waiting,
+            "undo returns it where it was, not to the default"
+        );
     }
 
     #[test]

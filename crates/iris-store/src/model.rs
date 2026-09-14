@@ -211,6 +211,18 @@ pub struct ListCursor {
     pub id: ThreadId,
 }
 
+/// What a list should do about mail the server judged unwanted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpamFilter {
+    /// Leave it out. The default, because the three queues are about work to do and
+    /// spam is not work.
+    #[default]
+    Exclude,
+    /// Show only spam, whatever state it is in. Spam is a property of the message,
+    /// not a stage of the workflow, so its list crosses all three.
+    Only,
+}
+
 /// Ce qu'on demande à la liste.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListQuery {
@@ -222,6 +234,7 @@ pub struct ListQuery {
     pub limit: u32,
     /// Reprendre après cette position. `None` pour commencer au début.
     pub after: Option<ListCursor>,
+    pub spam: SpamFilter,
 }
 
 impl ListQuery {
@@ -232,6 +245,7 @@ impl ListQuery {
             hide_snoozed_until: None,
             limit,
             after: None,
+            spam: SpamFilter::Exclude,
         }
     }
 
@@ -247,6 +261,12 @@ impl ListQuery {
 
     pub fn hiding_snoozed(mut self, now: Timestamp) -> Self {
         self.hide_snoozed_until = Some(now);
+        self
+    }
+
+    /// Only the mail the server judged unwanted, across every state.
+    pub fn only_spam(mut self) -> Self {
+        self.spam = SpamFilter::Only;
         self
     }
 }

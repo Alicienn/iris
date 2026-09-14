@@ -476,6 +476,7 @@ fn run_gui() -> Result<()> {
         runtime.handle().clone(),
     )));
 
+    shell::wire_window_controls(&fenetre);
     let carnet = shell::wire_callbacks(
         &fenetre,
         Arc::clone(&controller),

@@ -145,6 +145,68 @@ component RemoteContentBanner inherits Rectangle {
     }
 }
 
+// One action in the toolbar.
+//
+// Glyph plus tooltip rather than glyph plus label: six labelled buttons would take
+// the width the subject needs, and the keyboard shortcut in the tooltip is how
+// someone graduates from clicking to typing.
+component ToolButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> danger;
+    in property <bool> active;
+
+    callback clicked();
+
+    width: 28px;
+    height: 26px;
+    border-radius: Tokens.radius-small;
+    background: root.active
+        ? Tokens.surface-active
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.clicked(); }
+
+    Text {
+        text: root.glyph;
+        font-size: Tokens.size-body;
+        color: root.danger && touch.has-hover
+            ? Tokens.error
+            : (root.active ? Tokens.text : Tokens.text-secondary);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    // The tooltip carries the shortcut, so the toolbar teaches the keyboard rather
+    // than competing with it.
+    if touch.has-hover: Rectangle {
+        y: parent.height + 4px;
+        width: tip.preferred-width + 12px;
+        height: 20px;
+        border-radius: Tokens.radius-small;
+        background: Tokens.surface-high;
+        border-width: 1px;
+        border-color: Tokens.border;
+
+        tip := Text {
+            text: root.shortcut == "" ? root.label : root.label + "  " + root.shortcut;
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
 // La colonne de lecture, avec la réponse intégrée au bas du fil.
 export component ConversationView inherits VerticalLayout {
     in property <MessageData> message;
@@ -153,11 +215,20 @@ export component ConversationView inherits VerticalLayout {
     in property <bool> sending;
     in property <int> undo-seconds;
 
+    in property <bool> unread;
+    in property <bool> starred;
+
     callback send();
     callback cancel-send();
     callback load-images();
     callback reply-all();
     callback save-attachment(int);
+    callback archive();
+    callback delete-thread();
+    callback toggle-unread();
+    callback toggle-star();
+    callback snooze();
+    callback mark-done();
 
     if root.empty: Rectangle {
         VerticalLayout {
@@ -207,6 +278,58 @@ export component ConversationView inherits VerticalLayout {
             }
         }
 
+        // The toolbar. Every one of these was previously reachable only from the
+        // palette or a key nobody had been told about.
+        HorizontalLayout {
+            spacing: 2px;
+            vertical-stretch: 0;
+
+            ToolButton {
+                glyph: "✓";
+                label: "Mark as done";
+                shortcut: "E";
+                clicked => { root.mark-done(); }
+            }
+            ToolButton {
+                glyph: "▤";
+                label: "Archive";
+                shortcut: "A";
+                clicked => { root.archive(); }
+            }
+            ToolButton {
+                glyph: "⏱";
+                label: "Snooze until tomorrow";
+                shortcut: "S";
+                clicked => { root.snooze(); }
+            }
+
+            Rectangle { width: Tokens.space-2; }
+
+            ToolButton {
+                glyph: root.unread ? "●" : "○";
+                label: root.unread ? "Mark as read" : "Mark as unread";
+                shortcut: "R";
+                clicked => { root.toggle-unread(); }
+            }
+            ToolButton {
+                glyph: "◆";
+                label: root.starred ? "Remove star" : "Star";
+                shortcut: "F";
+                active: root.starred;
+                clicked => { root.toggle-star(); }
+            }
+
+            Rectangle {}
+
+            ToolButton {
+                glyph: "🗑";
+                label: "Delete";
+                shortcut: "Shift+3";
+                danger: true;
+                clicked => { root.delete-thread(); }
+            }
+        }
+
         if root.message.blocked-images > 0 || root.message.has-tracker: RemoteContentBanner {
             blocked-images: root.message.blocked-images;
             has-tracker: root.message.has-tracker;
@@ -215,20 +338,31 @@ export component ConversationView inherits VerticalLayout {
 
         // Corps. Rendu par le moteur complet quand la mise en page l'exige,
         // dessine bloc par bloc sinon.
+        // A scroll view only scrolls when its viewport is taller than the frame, and
+        // the viewport does not grow on its own: it has to be told how tall the
+        // content is. Without this binding the body was silently clipped at the
+        // window height, with no way to reach the rest of a long message.
         ScrollView {
-            if root.message.body-is-image: Image {
-                source: root.message.body-image;
-                // L'image est rendue a la largeur du panneau : elle se contente
-                // d'occuper sa hauteur naturelle, sans etre etiree.
-                image-fit: contain;
-                width: 100%;
-                height: self.source.height * 1px;
-            }
+            vertical-stretch: 1;
+            viewport-height: corps.preferred-height;
 
-            if !root.message.body-is-image: VerticalLayout {
+            corps := VerticalLayout {
                 spacing: Tokens.space-2;
-                for block in root.message.blocks: MessageBlock {
-                    block: block;
+
+                if root.message.body-is-image: Image {
+                    source: root.message.body-image;
+                    // Rendered at the width of the panel: it takes its natural
+                    // height rather than being stretched.
+                    image-fit: contain;
+                    width: 100%;
+                    height: self.source.height * 1px;
+                }
+
+                if !root.message.body-is-image: VerticalLayout {
+                    spacing: Tokens.space-2;
+                    for block in root.message.blocks: MessageBlock {
+                        block: block;
+                    }
                 }
             }
         }

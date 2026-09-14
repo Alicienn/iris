@@ -129,6 +129,22 @@ pub fn builtin_commands() -> Vec<Command> {
             true,
         ),
         Command::new(
+            "thread.archive",
+            "Archive",
+            "a",
+            "Conversation",
+            CommandKind::Thread(Action::Archive),
+            true,
+        ),
+        Command::new(
+            "thread.delete",
+            "Delete",
+            "Shift+3",
+            "Conversation",
+            CommandKind::Thread(Action::Delete),
+            true,
+        ),
+        Command::new(
             "thread.snooze.3h",
             "Snooze for 3 hours",
             "",

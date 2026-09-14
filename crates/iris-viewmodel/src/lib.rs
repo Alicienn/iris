@@ -39,6 +39,11 @@ pub struct ViewModel {
     accounts: Vec<AccountId>,
     counts: [u32; 3],
     now: Timestamp,
+    /// The spam list. Kept beside the three queues rather than among them: it is not
+    /// a stage of the workflow, it is everything the workflow was spared.
+    spam: ThreadList,
+    /// True while the spam list is the one on screen.
+    showing_spam: bool,
     /// L'index plein texte, quand il est disponible.
     index: Option<Arc<SearchIndex>>,
     /// La recherche en cours. Tant qu'elle est là, elle **remplace** la liste
@@ -82,6 +87,8 @@ impl ViewModel {
             accounts: Vec::new(),
             counts: [0; 3],
             now,
+            spam: ThreadList::spam(now),
+            showing_spam: false,
             index: None,
             search: None,
         }
@@ -125,7 +132,48 @@ impl ViewModel {
     }
 
     pub fn list(&self) -> &ThreadList {
+        if self.showing_spam {
+            return &self.spam;
+        }
         &self.lists[self.active_tab.as_i64() as usize]
+    }
+
+    /// Is the spam list the one on screen?
+    pub fn showing_spam(&self) -> bool {
+        self.showing_spam
+    }
+
+    /// How many conversations the server judged unwanted.
+    pub fn spam_count(&self) -> u32 {
+        self.store.spam_count().unwrap_or(0)
+    }
+
+    /// Switches to the spam list, or back to the queues.
+    pub fn set_showing_spam(&mut self, showing: bool) -> Result<ViewUpdate> {
+        if self.showing_spam == showing {
+            return Ok(ViewUpdate::default());
+        }
+        self.showing_spam = showing;
+        // Leaving the queues also leaves any search: the results were drawn from the
+        // queues, and showing them under a tab that excludes their contents would be
+        // a list labelled as something it is not.
+        let was_searching = self.search.take().is_some();
+
+        if showing {
+            let store = Arc::clone(&self.store);
+            self.spam.ensure_loaded(&store, 0)?;
+        }
+        self.select_first();
+
+        Ok(ViewUpdate {
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
+            counts_changed: false,
+            selection_changed: true,
+            search_changed: was_searching,
+        })
     }
 
     pub fn list_of(&self, state: WorkflowState) -> &ThreadList {
@@ -254,9 +302,10 @@ impl ViewModel {
 
     /// Change d'onglet. La liste correspondante est chargée à la demande.
     pub fn set_tab(&mut self, state: WorkflowState) -> Result<ViewUpdate> {
-        if self.active_tab == state {
+        if self.active_tab == state && !self.showing_spam {
             return Ok(ViewUpdate::default());
         }
+        self.showing_spam = false;
         self.active_tab = state;
         // Changer d'onglet est une sortie de recherche : les résultats ne sont pas
         // rangés par file, et les garder afficherait la mauvaise chose sous le
@@ -286,7 +335,7 @@ impl ViewModel {
         self.accounts = accounts.clone();
 
         let store = Arc::clone(&self.store);
-        for liste in &mut self.lists {
+        for liste in self.lists.iter_mut().chain(std::iter::once(&mut self.spam)) {
             liste.set_accounts(accounts.clone());
             liste.reload(&store)?;
         }
@@ -319,12 +368,24 @@ impl ViewModel {
         let store = Arc::clone(&self.store);
         let onglet = self.active_tab;
 
-        let liste = self.lists[onglet.as_i64() as usize].apply(
-            &store,
-            diff.full_refresh,
-            &diff.threads,
-            &diff.lists,
-        )?;
+        let liste = if self.showing_spam {
+            self.spam
+                .apply(&store, diff.full_refresh, &diff.threads, &diff.lists)?
+        } else {
+            self.lists[onglet.as_i64() as usize].apply(
+                &store,
+                diff.full_refresh,
+                &diff.threads,
+                &diff.lists,
+            )?
+        };
+
+        // The spam list is invalidated by any change while it is out of sight, so it
+        // is rebuilt from the database when the user comes back to it rather than
+        // showing what was true some time ago.
+        if !self.showing_spam && diff.full_refresh {
+            self.spam.trim(0);
+        }
 
         // Les listes inactives sont invalidées sans être rechargées : elles le seront
         // quand l'utilisateur y viendra. Recharger trois listes à chaque diff
@@ -453,7 +514,7 @@ impl ViewModel {
 
     pub fn set_now(&mut self, now: Timestamp) {
         self.now = now;
-        for liste in &mut self.lists {
+        for liste in self.lists.iter_mut().chain(std::iter::once(&mut self.spam)) {
             liste.set_now(now);
         }
     }

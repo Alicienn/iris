@@ -25,7 +25,7 @@ pub use attachments::StoredAttachment;
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Folder, FolderRole, ListCursor, ListQuery, NewAccount, NewMessage, OpKind,
-    PendingOp, StoredMessage, ThreadRow,
+    PendingOp, SpamFilter, StoredMessage, ThreadRow,
 };
 pub use rules::StoredRule;
 

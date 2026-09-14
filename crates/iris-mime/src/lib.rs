@@ -17,5 +17,8 @@ pub mod parse;
 pub mod sanitize;
 pub mod unsubscribe;
 
+pub mod spam;
+
 pub use parse::{attachment_bytes, parse, strip_tags, Parsed};
 pub use sanitize::{sanitize, Sanitized, Tracker, TrackerReason};
+pub use spam::{headers_say_spam, strip_marker, subject_is_tagged};

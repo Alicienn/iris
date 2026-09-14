@@ -11,6 +11,7 @@ import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
 import { ModulesPanel } from "modules.slint";
 import { ComposePanel } from "compose.slint";
+import { TitleBar } from "titlebar.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -157,6 +158,10 @@ component StatusBar inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "Iris";
+    // The system frame is replaced by our own. A dark application under a light
+    // system frame reads as two programs stacked on each other, and the seam falls
+    // exactly where the eye enters the window.
+    no-frame: true;
     preferred-width: 1280px;
     preferred-height: 800px;
     min-width: 720px;
@@ -175,7 +180,12 @@ export component AppWindow inherits Window {
     in property <int> selected-account: 0;
     in property <int> active-tab: 0;
     in property <int> unified-count;
+    in property <int> spam-count;
+    in property <bool> showing-spam;
     in property <bool> conversation-empty: true;
+    in property <bool> window-maximised;
+    in property <bool> selected-unread;
+    in property <bool> selected-starred;
     in property <bool> loading;
     in property <bool> syncing;
     in property <int> pending-ops;
@@ -236,6 +246,18 @@ export component AppWindow inherits Window {
     // --- Événements ---
     callback thread-selected(int);
     callback tab-selected(int);
+    callback spam-selected();
+    callback window-minimise();
+    callback window-toggle-maximise();
+    callback window-close();
+    callback window-drag(length, length);
+    callback window-drag-started();
+    callback thread-archive();
+    callback thread-delete();
+    callback thread-toggle-unread();
+    callback thread-toggle-star();
+    callback thread-snooze();
+    callback thread-done();
     callback account-selected(int);
     callback resume-account(int);
     callback unified-selected();
@@ -276,7 +298,28 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
 
+        // Removing the system frame removes the outline it drew. Without one, a dark
+        // window on a dark desktop has no boundary at all — it looks like a hole
+        // rather than a window.
+        Rectangle {
+            width: 100%;
+            height: 100%;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            background: transparent;
+        }
+
         VerticalLayout {
+            TitleBar {
+                title: "Iris";
+                maximised: root.window-maximised;
+                minimise => { root.window-minimise(); }
+                toggle-maximise => { root.window-toggle-maximise(); }
+                close => { root.window-close(); }
+                drag(dx, dy) => { root.window-drag(dx, dy); }
+                drag-started => { root.window-drag-started(); }
+            }
+
             HorizontalLayout {
                 // Colonne 1 : les comptes.
                 Sidebar {
@@ -305,6 +348,9 @@ export component AppWindow inherits Window {
                         height: 100%;
                         rows: root.rows;
                         searching: root.searching;
+                        spam-count: root.spam-count;
+                        showing-spam: root.showing-spam;
+                        spam-selected => { root.spam-selected(); }
                         search-summary: root.search-summary;
                         search-explanation: root.search-explanation;
                         search-query <=> root.search-query;
@@ -326,6 +372,14 @@ export component AppWindow inherits Window {
                 ConversationView {
                     message: root.message;
                     empty: root.conversation-empty;
+                    unread: root.selected-unread;
+                    starred: root.selected-starred;
+                    archive => { root.thread-archive(); }
+                    delete-thread => { root.thread-delete(); }
+                    toggle-unread => { root.thread-toggle-unread(); }
+                    toggle-star => { root.thread-toggle-star(); }
+                    snooze => { root.thread-snooze(); }
+                    mark-done => { root.thread-done(); }
                     reply-text <=> root.reply-text;
                     sending: root.sending;
                     undo-seconds: root.undo-seconds;

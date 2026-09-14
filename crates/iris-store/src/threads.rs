@@ -8,6 +8,12 @@ use iris_types::{
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Row};
 use std::collections::BTreeMap;
 
+/// The `Flags::SPAM` bit, as SQL sees it.
+///
+/// Written here rather than imported because it is interpolated into query text; the
+/// test below pins it to the constant so the two cannot drift apart.
+const SPAM_BIT: u32 = 1 << 9;
+
 const THREAD_COLUMNS: &str = "id, state, last_activity_at, last_from_name, last_from_addr, \
      last_subject, last_preview, message_count, unread_count, flags_union, snooze_until";
 
@@ -57,8 +63,21 @@ impl Store {
     /// Avec `OFFSET`, elle coûterait un million de lignes lues.
     pub fn list_threads(&self, q: &ListQuery) -> Result<Vec<ThreadRow>> {
         self.with_conn(|c| {
-            let mut sql = format!("SELECT {THREAD_COLUMNS} FROM threads WHERE state = ?");
-            let mut args: Vec<SqlValue> = vec![SqlValue::Integer(q.state.as_i64())];
+            // A spam list crosses the three states: whether the server threw a
+            // message out has nothing to do with whether it was answered.
+            let mut sql = match q.spam {
+                crate::model::SpamFilter::Only => format!(
+                    "SELECT {THREAD_COLUMNS} FROM threads WHERE (flags_union & {SPAM_BIT}) != 0"
+                ),
+                crate::model::SpamFilter::Exclude => format!(
+                    "SELECT {THREAD_COLUMNS} FROM threads \
+                     WHERE state = ? AND (flags_union & {SPAM_BIT}) = 0"
+                ),
+            };
+            let mut args: Vec<SqlValue> = match q.spam {
+                crate::model::SpamFilter::Only => Vec::new(),
+                crate::model::SpamFilter::Exclude => vec![SqlValue::Integer(q.state.as_i64())],
+            };
 
             if let Some(now) = q.hide_snoozed_until {
                 sql.push_str(" AND (snooze_until IS NULL OR snooze_until <= ?)");
@@ -141,13 +160,28 @@ impl Store {
     pub fn state_counts(&self, now: Option<Timestamp>) -> Result<[u32; 3]> {
         self.with_conn(|c| {
             let mut counts = [0u32; 3];
+            // The counts must agree with the lists, so spam is left out of them too.
+            // A badge that counts rows the list refuses to show is a badge that lies.
             let (sql, hide) = match now {
                 Some(_) => (
-                    "SELECT state, count(*) FROM threads
-                     WHERE snooze_until IS NULL OR snooze_until <= ? GROUP BY state",
+                    concat!(
+                        "SELECT state, count(*) FROM threads
+                         WHERE (flags_union & ",
+                        stringify!(512),
+                        ") = 0
+                           AND (snooze_until IS NULL OR snooze_until <= ?) GROUP BY state"
+                    ),
                     true,
                 ),
-                None => ("SELECT state, count(*) FROM threads GROUP BY state", false),
+                None => (
+                    concat!(
+                        "SELECT state, count(*) FROM threads
+                         WHERE (flags_union & ",
+                        stringify!(512),
+                        ") = 0 GROUP BY state"
+                    ),
+                    false,
+                ),
             };
             let mut stmt = c
                 .prepare_cached(sql)
@@ -179,6 +213,20 @@ impl Store {
     /// changed: the thread that lost a message may now be empty, and the one that
     /// gained it has a new last activity, a new count, and possibly a new account in
     /// its list.
+    /// How many conversations the server judged unwanted.
+    pub fn spam_count(&self) -> Result<u32> {
+        self.with_conn(|c| {
+            let n: i64 = c
+                .prepare_cached(&format!(
+                    "SELECT count(*) FROM threads WHERE (flags_union & {SPAM_BIT}) != 0"
+                ))
+                .map_err(|e| sql_err("préparation", e))?
+                .query_row([], |r| r.get(0))
+                .map_err(|e| sql_err("comptage du spam", e))?;
+            Ok(n as u32)
+        })
+    }
+
     pub fn move_message_to_thread(&self, message: MessageId, target: ThreadId) -> Result<bool> {
         self.with_tx(|tx| {
             let previous: Option<i64> = tx

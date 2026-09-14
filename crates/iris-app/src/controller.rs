@@ -23,6 +23,8 @@ pub enum Request {
     SelectThread(ThreadId),
     Move(Movement),
     SwitchTab(WorkflowState),
+    /// Show the mail the server threw out, or go back to the queues.
+    ShowSpam(bool),
     FilterAccounts(Vec<iris_types::AccountId>),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
@@ -64,6 +66,9 @@ pub struct Snapshot {
     /// Message affiché dans la colonne de lecture, s'il y en a un.
     pub messages: Vec<iris_store::StoredMessage>,
     pub pending_ops: u64,
+    /// Conversations the server judged unwanted, and whether that list is on screen.
+    pub spam_count: u32,
+    pub showing_spam: bool,
     /// La recherche en cours, s'il y en a une. Les lignes en sont alors issues, et
     /// les compteurs d'onglets continuent de décrire les files, pas les résultats.
     pub search: Option<SearchSummary>,
@@ -179,6 +184,7 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         Request::SelectThread(t) => Ok(vm.select(t)),
         Request::Move(m) => vm.move_selection(m),
         Request::SwitchTab(state) => Ok(!vm.set_tab(state)?.is_empty()),
+        Request::ShowSpam(showing) => Ok(!vm.set_showing_spam(showing)?.is_empty()),
         Request::FilterAccounts(accounts) => Ok(!vm.set_accounts_filter(accounts)?.is_empty()),
         Request::EnsureLoaded(index) => Ok(vm.ensure_loaded(index)? > 0),
         Request::Apply(action) => {
@@ -266,6 +272,8 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         total,
         messages,
         pending_ops: store.pending_op_count().unwrap_or(0),
+        spam_count: vm.spam_count(),
+        showing_spam: vm.showing_spam(),
         search: recherche,
     }
 }

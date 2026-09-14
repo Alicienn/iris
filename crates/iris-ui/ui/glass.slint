@@ -57,6 +57,22 @@ export component Glass inherits Rectangle {
         background: Tokens.edge-light;
     }
 
+    // A short fall of light down the top of the panel.
+    //
+    // The one-pixel edge alone reads as a drawn line; this is what makes it read as
+    // an edge catching light. Twenty-four pixels, fading to nothing — long enough to
+    // be felt, short enough that nobody notices it as a gradient.
+    Rectangle {
+        y: 1px;
+        height: 24px;
+        width: 100%;
+        border-top-left-radius: root.radius;
+        border-top-right-radius: root.radius;
+        background: @linear-gradient(180deg,
+            Tokens.edge-light.transparentize(0.75) 0%,
+            Tokens.edge-light.transparentize(1.0) 100%);
+    }
+
     @children
 }
 

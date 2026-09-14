@@ -68,6 +68,13 @@ impl Flags {
     pub const HAS_TRACKER: Self = Self(1 << 7);
     /// Le message propose un désabonnement exploitable.
     pub const UNSUBSCRIBABLE: Self = Self(1 << 8);
+    /// Le serveur a jugé ce message indésirable. Ce n'est pas notre verdict : nous ne
+    /// faisons que lire celui qu'il a écrit, dans un en-tête ou dans le sujet.
+    ///
+    /// C'est un drapeau et non un quatrième état du workflow, pour la même raison que
+    /// le report : « est-ce du spam » et « ai-je quelque chose à faire » sont deux
+    /// questions indépendantes, et les confondre ferait perdre l'une des deux.
+    pub const SPAM: Self = Self(1 << 9);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {

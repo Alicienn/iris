@@ -207,6 +207,32 @@ fn missing_uids(locaux: &[u32], distants: &[u32]) -> Vec<u32> {
     out
 }
 
+/// Has the server already judged this message unwanted?
+///
+/// Iris does not classify spam itself — see `iris_mime::spam` for why. It reads the
+/// verdict from wherever the provider left it.
+fn is_spam(folder: &Folder, raw: &[u8], subject: &str) -> bool {
+    // Filed in the junk folder: there is nothing left to decide.
+    if folder.role == iris_store::FolderRole::Junk {
+        return true;
+    }
+    if iris_mime::subject_is_tagged(subject) {
+        return true;
+    }
+
+    // Only the header block is examined. Scanning a whole message for these strings
+    // would match any mail that happens to quote one — including, reliably, mail
+    // about spam filtering.
+    let head_end = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .or_else(|| raw.windows(2).position(|w| w == b"\n\n"))
+        .unwrap_or(raw.len().min(16 * 1024));
+
+    let headers = String::from_utf8_lossy(&raw[..head_end]);
+    iris_mime::headers_say_spam(&headers)
+}
+
 /// Traduit un message brut du serveur en message à insérer.
 fn to_new_message(
     account: AccountId,
@@ -221,7 +247,23 @@ fn to_new_message(
 
     // Les drapeaux du serveur et ceux déduits du contenu se combinent : le serveur
     // sait ce qui est lu, nous savons ce qui contient une pièce jointe.
-    let flags = brut.flags.with(analyse.derived_flags);
+    let mut flags = brut.flags.with(analyse.derived_flags);
+
+    // Whether this is spam is the server's judgement, read back rather than
+    // recomputed: from the folder it filed the message in, from the headers its
+    // filter wrote, or from the marker it stapled to the subject. Three sources
+    // because providers use different ones, and any of them is a verdict.
+    if is_spam(folder, &brut.content, &analyse.subject) {
+        flags = flags.with(iris_types::Flags::SPAM);
+    }
+
+    let subject = if flags.contains(iris_types::Flags::SPAM) {
+        // The marker has done its job once the message is filed; leaving it on every
+        // row pushes the actual subject off the end of the line.
+        iris_mime::strip_marker(&analyse.subject)
+    } else {
+        analyse.subject.clone()
+    };
 
     Ok(NewMessage {
         account,
@@ -230,7 +272,7 @@ fn to_new_message(
         rfc_message_id: analyse.rfc_message_id.map(|m| m.0),
         in_reply_to: analyse.in_reply_to.map(|m| m.0),
         references: analyse.references.into_iter().map(|m| m.0).collect(),
-        subject: analyse.subject,
+        subject,
         from_name: expediteur.and_then(|a| a.name.clone()).unwrap_or_default(),
         from_addr: expediteur.map(|a| a.addr.clone()).unwrap_or_default(),
         recipients_json: destinataires,

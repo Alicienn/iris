@@ -68,6 +68,16 @@ impl Keymap {
             KeyOutcome::Command(CommandKind::Thread(Action::SnoozeHours(24))),
         );
         lier(
+            "a",
+            KeyOutcome::Command(CommandKind::Thread(Action::Archive)),
+        );
+        // "#" rather than a bare letter: deleting is the one action that reaches for
+        // a different folder, and a single keystroke is too easy to hit by accident.
+        lier(
+            "#",
+            KeyOutcome::Command(CommandKind::Thread(Action::Delete)),
+        );
+        lier(
             "r",
             KeyOutcome::Command(CommandKind::Thread(Action::MarkRead)),
         );

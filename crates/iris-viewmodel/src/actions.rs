@@ -33,6 +33,10 @@ pub enum Action {
     MarkRead,
     MarkUnread,
     ToggleFlag,
+    /// Move out of the inbox and off the queue.
+    Archive,
+    /// Move to the bin. Never an erasure.
+    Delete,
 }
 
 impl Action {
@@ -46,6 +50,10 @@ impl Action {
             Self::MarkRead => Some("r"),
             Self::MarkUnread => Some("Shift+r"),
             Self::ToggleFlag => Some("f"),
+            Self::Archive => Some("a"),
+            // Shift, because deleting is the one action here that reaches for a
+            // different folder on the server. A single letter is too easy to hit.
+            Self::Delete => Some("Shift+3"),
             Self::Unsnooze => None,
         }
     }
@@ -61,6 +69,8 @@ impl Action {
             Self::MarkRead => "Mark as read".into(),
             Self::MarkUnread => "Mark as unread".into(),
             Self::ToggleFlag => "Star".into(),
+            Self::Archive => "Archive".into(),
+            Self::Delete => "Delete".into(),
         }
     }
 
@@ -132,6 +142,8 @@ impl Actions {
             Action::Unsnooze => self.workflow.unsnooze(thread, now)?,
             Action::MarkRead => self.workflow.set_read(thread, true, now)?,
             Action::MarkUnread => self.workflow.set_read(thread, false, now)?,
+            Action::Archive => self.workflow.archive(thread, now)?,
+            Action::Delete => self.workflow.delete(thread, now)?,
             Action::ToggleFlag => {
                 let starred = self
                     .workflow
@@ -261,6 +273,8 @@ mod tests {
             Action::MarkRead,
             Action::MarkUnread,
             Action::ToggleFlag,
+            Action::Archive,
+            Action::Delete,
         ] {
             assert!(!action.label().is_empty(), "{action:?} has no label");
         }

@@ -283,6 +283,55 @@ pub fn wire_callbacks(
         });
     }
 
+    // The toolbar sends the same requests as the keys, so a button and a keystroke
+    // can never do subtly different things.
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_thread_archive(move || c.send(Request::Apply(iris_viewmodel::Action::Archive)));
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_thread_delete(move || c.send(Request::Apply(iris_viewmodel::Action::Delete)));
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_thread_done(move || c.send(Request::Apply(iris_viewmodel::Action::Done)));
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_thread_snooze(move || {
+            c.send(Request::Apply(iris_viewmodel::Action::SnoozeHours(24)))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_thread_toggle_star(move || {
+            c.send(Request::Apply(iris_viewmodel::Action::ToggleFlag))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_thread_toggle_unread(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // One button, two meanings, decided by what the message currently is.
+            c.send(Request::Apply(if fenetre.get_selected_unread() {
+                iris_viewmodel::Action::MarkRead
+            } else {
+                iris_viewmodel::Action::MarkUnread
+            }));
+        });
+    }
+
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_spam_selected(move || {
+            c.send(Request::ShowSpam(true));
+        });
+    }
+
     {
         let c = Arc::clone(&controller);
         fenetre.on_account_selected(move |id| {
@@ -451,6 +500,20 @@ pub fn apply_snapshot(
     // La vue unifiée compte la file de travail, comme les lignes de comptes.
     fenetre.set_unified_count(snapshot.counts[0] as i32);
     fenetre.set_pending_ops(snapshot.pending_ops as i32);
+    fenetre.set_spam_count(snapshot.spam_count as i32);
+
+    // What the toolbar's two toggles should say. Taken from the row rather than the
+    // message, because both are properties of the conversation as the list shows it.
+    let selectionne = snapshot
+        .selected
+        .and_then(|t| snapshot.rows.iter().find(|r| r.id == t));
+    fenetre.set_selected_unread(selectionne.map(|r| r.is_unread()).unwrap_or(false));
+    fenetre.set_selected_starred(
+        selectionne
+            .map(|r| r.flags_union.contains(iris_types::Flags::FLAGGED))
+            .unwrap_or(false),
+    );
+    fenetre.set_showing_spam(snapshot.showing_spam);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
 
     match &snapshot.search {
@@ -529,17 +592,58 @@ fn corps_du_message(
         return apercu();
     };
 
-    let corps = iris_types::BlobId::from_hex(hex)
+    let brut = iris_types::BlobId::from_hex(hex)
         .and_then(|id| services.blobs.get(id).ok().flatten())
         .unwrap_or_default();
 
-    let texte = String::from_utf8_lossy(&corps);
-    let assaini = iris_mime::sanitize(&texte);
+    // What is stored is the whole RFC 5322 message: headers, boundaries, every part.
+    // It has to be parsed before anything is shown. Handing the raw bytes to the HTML
+    // sanitiser instead — which is what happened here for far too long — puts
+    // `Return-Path`, every `Received` hop and the DKIM signature on screen where the
+    // message should be.
+    let analyse = match iris_mime::parse(&brut) {
+        Ok(analyse) => analyse,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not parse the message");
+            return apercu();
+        }
+    };
 
-    renderer.render(&assaini.html, 800.0).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "rendu du corps en échec");
+    // HTML first when both are offered: it is what the sender laid out. The parser has
+    // already sanitised it, so nothing here needs to sanitise it again.
+    let html = match (&analyse.html_body, &analyse.text_body) {
+        (Some(sanitized), _) => sanitized.html.clone(),
+        (None, Some(texte)) => plain_text_to_html(texte),
+        // A message with neither part is not broken — a bare attachment carrier looks
+        // exactly like this — so the preview stands in rather than an error.
+        (None, None) => return apercu(),
+    };
+
+    renderer.render(&html, 800.0).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "rendering the body failed");
         apercu()
     })
+}
+
+/// Wraps a plain-text body so the HTML renderer can lay it out.
+///
+/// Plain text is not HTML, and feeding it in raw would collapse every line break and
+/// swallow anything between angle brackets — which in mail is usually an address.
+fn plain_text_to_html(texte: &str) -> String {
+    let mut out = String::with_capacity(texte.len() + 64);
+    out.push_str("<div style=\"white-space:pre-wrap\">");
+
+    for c in texte.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            c => out.push(c),
+        }
+    }
+
+    out.push_str("</div>");
+    out
 }
 
 /// Enveloppe permettant de renvoyer un instantané vers la boucle d'interface.
@@ -1318,6 +1422,90 @@ fn nom_sur(nom: &str) -> String {
     match nettoye.trim_matches('.').trim() {
         "" => "piece-jointe".to_string(),
         propre => propre.to_string(),
+    }
+}
+
+/// Wires the window controls that replaced the system frame.
+///
+/// Everything here exists because the frame was removed, and each piece has to behave
+/// the way the frame did. Minimise and maximise are one call each; dragging is the
+/// only one with any substance, because only the platform window knows where it is.
+pub fn wire_window_controls(fenetre: &AppWindow) {
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_window_minimise(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.window().set_minimized(true);
+            }
+        });
+    }
+
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_window_toggle_maximise(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let now_maximised = !fenetre.window().is_maximized();
+            fenetre.window().set_maximized(now_maximised);
+            fenetre.set_window_maximised(now_maximised);
+        });
+    }
+
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_window_close(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                let _ = fenetre.window().hide();
+            }
+            let _ = slint::quit_event_loop();
+        });
+    }
+
+    // Dragging: the title bar reports how far the pointer has moved since it was
+    // pressed, and the window moves by the same amount. The position is re-read at
+    // the start of each drag rather than tracked continuously, so a window moved by
+    // any other means — snapped, moved by the keyboard — is not fought over.
+    let origine: Arc<std::sync::Mutex<Option<slint::PhysicalPosition>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    {
+        let origine = Arc::clone(&origine);
+        let faible = fenetre.as_weak();
+        fenetre.on_window_drag_started(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            *origine.lock().expect("poisoned drag") = Some(fenetre.window().position());
+        });
+    }
+
+    {
+        let origine = Arc::clone(&origine);
+        let faible = fenetre.as_weak();
+        fenetre.on_window_drag(move |dx, dy| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(depart) = *origine.lock().expect("poisoned drag") else {
+                return;
+            };
+
+            // A maximised window being dragged should come loose and follow the
+            // pointer, which is what every other window on the desktop does.
+            if fenetre.window().is_maximized() {
+                fenetre.window().set_maximized(false);
+                fenetre.set_window_maximised(false);
+                *origine.lock().expect("poisoned drag") = Some(fenetre.window().position());
+                return;
+            }
+
+            let echelle = fenetre.window().scale_factor();
+            fenetre.window().set_position(slint::PhysicalPosition::new(
+                depart.x + (dx * echelle) as i32,
+                depart.y + (dy * echelle) as i32,
+            ));
+        });
     }
 }
 

@@ -155,11 +155,15 @@ component ThreadRow inherits Rectangle {
 export component StateTabs inherits HorizontalLayout {
     in property <int> active;
     in property <[int]> counts;
+    in property <int> spam-count;
+    in property <bool> showing-spam;
 
     callback selected(int);
+    callback spam-selected();
 
     padding: Tokens.space-2;
     spacing: Tokens.space-1;
+    vertical-stretch: 0;
 
     for label[i] in ["To do", "Waiting", "Done"]: Rectangle {
         height: 24px;
@@ -184,8 +188,12 @@ export component StateTabs inherits HorizontalLayout {
             Text {
                 text: label;
                 font-size: Tokens.size-small;
-                font-weight: root.active == i ? Tokens.weight-bold : Tokens.weight-body;
-                color: root.active == i ? Tokens.accent-text : Tokens.text-secondary;
+                font-weight: (root.active == i && !root.showing-spam)
+                    ? Tokens.weight-bold
+                    : Tokens.weight-body;
+                color: (root.active == i && !root.showing-spam)
+                    ? Tokens.accent-text
+                    : Tokens.text-secondary;
                 vertical-alignment: center;
             }
 
@@ -194,7 +202,9 @@ export component StateTabs inherits HorizontalLayout {
             if root.counts[i] > 0: Text {
                 text: root.counts[i];
                 font-size: Tokens.size-small;
-                color: root.active == i ? Tokens.accent-text : Tokens.text-muted;
+                color: (root.active == i && !root.showing-spam)
+                    ? Tokens.accent-text
+                    : Tokens.text-muted;
                 vertical-alignment: center;
             }
         }
@@ -205,6 +215,47 @@ export component StateTabs inherits HorizontalLayout {
     }
 
     Rectangle {}
+
+    // Spam sits apart from the three, after a gap, because it is not a stage of the
+    // work: it is everything the work was spared. It only appears once there is
+    // something in it — an empty tab is a permanent reminder of nothing.
+    if root.spam-count > 0: Rectangle {
+        height: 24px;
+        border-radius: 99px;
+        background: root.showing-spam
+            ? Tokens.accent
+            : (spam-touch.has-hover ? Tokens.surface-hover : transparent);
+        animate background { duration: Tokens.instant; }
+
+        accessible-role: tab;
+        accessible-label: "Spam";
+        accessible-item-selected: root.showing-spam;
+        accessible-action-default => { root.spam-selected(); }
+
+        HorizontalLayout {
+            padding-left: Tokens.space-3;
+            padding-right: Tokens.space-3;
+            spacing: Tokens.space-2;
+
+            Text {
+                text: "Spam";
+                font-size: Tokens.size-small;
+                font-weight: root.showing-spam ? Tokens.weight-bold : Tokens.weight-body;
+                color: root.showing-spam ? Tokens.accent-text : Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.spam-count;
+                font-size: Tokens.size-small;
+                color: root.showing-spam ? Tokens.accent-text : Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+
+        spam-touch := TouchArea {
+            clicked => { root.spam-selected(); }
+        }
+    }
 }
 
 // La barre de recherche.
@@ -231,8 +282,15 @@ export component SearchBar inherits VerticalLayout {
     padding-top: Tokens.space-2;
     spacing: Tokens.space-1;
 
+    // Take the height it needs and no more. Inside a vertical layout every child
+    // stretches by default, so with an empty list the search field was inflating to
+    // fill the column — a text input the height of the window.
+    vertical-stretch: 0;
+
     HorizontalLayout {
         spacing: Tokens.space-1;
+        vertical-stretch: 0;
+        height: 30px;
 
         field := LineEdit {
             accessible-label: "Search";
@@ -280,6 +338,7 @@ export component SearchBar inherits VerticalLayout {
     // personne ne confirme est une syntaxe que personne n'apprend.
     if root.active: HorizontalLayout {
         spacing: Tokens.space-2;
+        vertical-stretch: 0;
 
         Text {
             text: root.summary;
@@ -304,6 +363,8 @@ export component ThreadListView inherits VerticalLayout {
     in property <bool> loading;
     in property <string> empty-message: "Nothing to do.";
     in property <bool> searching;
+    in property <int> spam-count;
+    in property <bool> showing-spam;
     in property <string> search-summary;
     in property <string> search-explanation;
     in-out property <string> search-query;
@@ -313,6 +374,7 @@ export component ThreadListView inherits VerticalLayout {
     callback scrolled-near-end();
     callback search-submitted(string);
     callback search-cleared();
+    callback spam-selected();
 
     public function focus-search() {
         bar.focus-field();
@@ -333,7 +395,10 @@ export component ThreadListView inherits VerticalLayout {
     if !root.searching: StateTabs {
         active: root.active-tab;
         counts: root.counts;
+        spam-count: root.spam-count;
+        showing-spam: root.showing-spam;
         selected(i) => { root.tab-selected(i); }
+        spam-selected => { root.spam-selected(); }
     }
 
     Rectangle {
@@ -342,10 +407,13 @@ export component ThreadListView inherits VerticalLayout {
     }
 
     if root.rows.length == 0 && !root.loading: Rectangle {
+        vertical-stretch: 1;
         VerticalLayout {
             alignment: center;
             Text {
-                text: root.searching ? "No results." : root.empty-message;
+                text: root.searching
+                    ? "No results."
+                    : (root.showing-spam ? "No spam." : root.empty-message);
                 font-size: Tokens.size-body;
                 color: Tokens.text-muted;
                 horizontal-alignment: center;
@@ -354,6 +422,7 @@ export component ThreadListView inherits VerticalLayout {
     }
 
     if root.rows.length > 0: list := ListView {
+        vertical-stretch: 1;
         for entry in root.rows: ThreadRow {
             data: entry;
             selected: entry.id == root.selected-id;

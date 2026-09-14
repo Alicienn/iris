@@ -28,6 +28,8 @@ pub const PREFETCH: usize = 40;
 /// Une liste paginée pour un état de workflow donné.
 #[derive(Debug)]
 pub struct ThreadList {
+    /// Show only what the server judged unwanted, across every state.
+    spam_only: bool,
     state: WorkflowState,
     accounts: Vec<AccountId>,
     /// Préfixe chargé, dans l'ordre d'affichage.
@@ -60,8 +62,23 @@ impl ListUpdate {
 }
 
 impl ThreadList {
+    /// A list of the mail the server threw out.
+    ///
+    /// It is not tied to a state: whether a message was answered has nothing to do
+    /// with whether a filter rejected it, so this list crosses all three queues.
+    pub fn spam(now: Timestamp) -> Self {
+        let mut list = Self::new(WorkflowState::Todo, now);
+        list.spam_only = true;
+        list
+    }
+
+    pub fn is_spam_list(&self) -> bool {
+        self.spam_only
+    }
+
     pub fn new(state: WorkflowState, now: Timestamp) -> Self {
         Self {
+            spam_only: false,
             state,
             accounts: Vec::new(),
             rows: Vec::new(),
@@ -122,9 +139,14 @@ impl ThreadList {
     }
 
     fn query(&self) -> ListQuery {
-        ListQuery::new(self.state, self.page_size)
+        let base = ListQuery::new(self.state, self.page_size)
             .for_accounts(self.accounts.clone())
-            .hiding_snoozed(self.now)
+            .hiding_snoozed(self.now);
+        if self.spam_only {
+            base.only_spam()
+        } else {
+            base
+        }
     }
 
     /// Charge ce qu'il faut pour que l'indice demandé soit disponible.

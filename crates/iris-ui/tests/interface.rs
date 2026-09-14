@@ -835,6 +835,131 @@ fn abandonner_un_message_est_possible() {
     assert!(!f.get_compose_open());
 }
 
+// --- The window frame we draw ourselves ---
+
+fn les_boutons_de_fenetre_sont_nommes() {
+    // Replacing the system frame means replacing everything it gave a screen reader.
+    let f = fenetre();
+    assert!(par_libelle(&f, "Minimise").is_some());
+    assert!(par_libelle(&f, "Close").is_some());
+    assert!(par_libelle(&f, "Maximise").is_some());
+}
+
+fn le_bouton_d_agrandissement_dit_ce_qu_il_va_faire() {
+    // "Restore" and "Maximise" are different actions; a button that does not say
+    // which one it will do is a guess.
+    let f = fenetre();
+    f.set_window_maximised(true);
+    assert!(par_libelle(&f, "Restore").is_some());
+    assert!(par_libelle(&f, "Maximise").is_none());
+}
+
+fn fermer_la_fenetre_est_rapporte() {
+    let f = fenetre();
+    let fermetures = Rc::new(RefCell::new(0));
+    {
+        let fermetures = Rc::clone(&fermetures);
+        f.on_window_close(move || *fermetures.borrow_mut() += 1);
+    }
+
+    par_libelle(&f, "Close")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*fermetures.borrow(), 1);
+}
+
+// --- The reading toolbar ---
+
+fn la_barre_d_actions_est_absente_sans_conversation() {
+    let f = fenetre();
+    f.set_conversation_empty(true);
+    assert!(par_libelle(&f, "Archive").is_none());
+}
+
+fn chaque_action_de_lecture_est_atteignable() {
+    // All of these existed already, reachable only by a key nobody had been told
+    // about.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+
+    for label in [
+        "Mark as done",
+        "Archive",
+        "Snooze until tomorrow",
+        "Star",
+        "Delete",
+    ] {
+        assert!(par_libelle(&f, label).is_some(), "missing: {label}");
+    }
+}
+
+fn archiver_est_rapporte() {
+    let f = fenetre();
+    f.set_conversation_empty(false);
+
+    let archives = Rc::new(RefCell::new(0));
+    {
+        let archives = Rc::clone(&archives);
+        f.on_thread_archive(move || *archives.borrow_mut() += 1);
+    }
+
+    par_libelle(&f, "Archive")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*archives.borrow(), 1);
+}
+
+fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
+    // One button, two meanings, decided by what the message currently is.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+
+    f.set_selected_unread(true);
+    assert!(par_libelle(&f, "Mark as read").is_some());
+
+    f.set_selected_unread(false);
+    assert!(par_libelle(&f, "Mark as unread").is_some());
+}
+
+// --- Spam ---
+
+fn l_onglet_spam_n_apparait_que_s_il_y_a_du_spam() {
+    // An empty tab is a permanent reminder of nothing.
+    let f = fenetre();
+    f.set_spam_count(0);
+    assert!(par_libelle(&f, "Spam").is_none());
+
+    f.set_spam_count(3);
+    assert!(par_libelle(&f, "Spam").is_some());
+}
+
+fn choisir_l_onglet_spam_est_rapporte() {
+    let f = fenetre();
+    f.set_spam_count(3);
+
+    let choix = Rc::new(RefCell::new(0));
+    {
+        let choix = Rc::clone(&choix);
+        f.on_spam_selected(move || *choix.borrow_mut() += 1);
+    }
+
+    par_libelle(&f, "Spam")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*choix.borrow(), 1);
+}
+
+fn l_onglet_spam_se_marque_comme_actif() {
+    let f = fenetre();
+    f.set_spam_count(3);
+    f.set_showing_spam(true);
+
+    assert_eq!(
+        par_libelle(&f, "Spam").unwrap().accessible_item_selected(),
+        Some(true)
+    );
+}
+
 // --- Ce qui doit rester vrai partout ---
 
 fn aucun_bouton_ne_reste_sans_nom() {
@@ -987,6 +1112,43 @@ fn main() {
         (
             "les_champs_de_l_ecran_d_ajout_sont_nommes",
             les_champs_de_l_ecran_d_ajout_sont_nommes as fn(),
+        ),
+        (
+            "les_boutons_de_fenetre_sont_nommes",
+            les_boutons_de_fenetre_sont_nommes as fn(),
+        ),
+        (
+            "le_bouton_d_agrandissement_dit_ce_qu_il_va_faire",
+            le_bouton_d_agrandissement_dit_ce_qu_il_va_faire as fn(),
+        ),
+        (
+            "fermer_la_fenetre_est_rapporte",
+            fermer_la_fenetre_est_rapporte as fn(),
+        ),
+        (
+            "la_barre_d_actions_est_absente_sans_conversation",
+            la_barre_d_actions_est_absente_sans_conversation as fn(),
+        ),
+        (
+            "chaque_action_de_lecture_est_atteignable",
+            chaque_action_de_lecture_est_atteignable as fn(),
+        ),
+        ("archiver_est_rapporte", archiver_est_rapporte as fn()),
+        (
+            "le_bouton_de_lecture_dit_ce_qu_il_va_faire",
+            le_bouton_de_lecture_dit_ce_qu_il_va_faire as fn(),
+        ),
+        (
+            "l_onglet_spam_n_apparait_que_s_il_y_a_du_spam",
+            l_onglet_spam_n_apparait_que_s_il_y_a_du_spam as fn(),
+        ),
+        (
+            "choisir_l_onglet_spam_est_rapporte",
+            choisir_l_onglet_spam_est_rapporte as fn(),
+        ),
+        (
+            "l_onglet_spam_se_marque_comme_actif",
+            l_onglet_spam_se_marque_comme_actif as fn(),
         ),
         (
             "les_themes_sont_montres_pas_seulement_nommes",

@@ -1,0 +1,129 @@
+import { Tokens } from "tokens.slint";
+
+// A window control.
+//
+// Deliberately the same size and spacing as the system's, because muscle memory for
+// the close button is measured in pixels and people do not enjoy relearning it. Only
+// the colours change.
+component WindowButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    // Close goes red on hover, like everywhere else on this platform. Breaking that
+    // convention would be style at the expense of the one control nobody may misfire.
+    in property <bool> closes;
+
+    callback clicked();
+
+    width: 46px;
+    height: 100%;
+    background: touch.has-hover
+        ? (root.closes ? #e81123 : Tokens.surface-hover)
+        : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    Text {
+        text: root.glyph;
+        // The system frame draws these in Segoe MDL2; matching it is what keeps them
+        // from looking like text that happens to be shaped like a cross.
+        font-family: "Segoe Fluent Icons, Segoe MDL2 Assets";
+        font-size: 10px;
+        color: (root.closes && touch.has-hover) ? #ffffff : Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The window's own title bar.
+//
+// Replacing the system frame is not decoration for its own sake: a dark application
+// under a light system frame looks like two programs stacked on top of each other,
+// and the seam falls exactly where the eye enters the window.
+//
+// What it must not do is behave differently from the frame it replaces. Double-click
+// maximises, dragging moves, the three buttons sit where they always sit, and the
+// close button turns red.
+export component TitleBar inherits Rectangle {
+    in property <string> title;
+    in property <bool> maximised;
+
+    callback minimise();
+    callback toggle-maximise();
+    callback close();
+    // Dragging is handled in Rust: only the platform window knows where it is.
+    callback drag(length, length);
+    callback drag-started();
+
+    height: 32px;
+    background: Tokens.surface-low;
+
+    // The hairline is the only thing separating the bar from the content beneath it.
+    // Without it the window has no top edge at all on a dark desktop.
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-3;
+        spacing: 0px;
+
+        Text {
+            text: root.title;
+            font-family: Tokens.font-family;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+
+        // The draggable region is everything the buttons do not claim.
+        Rectangle {
+            horizontal-stretch: 1;
+
+            drag-area := TouchArea {
+                moved => {
+                    if (self.pressed) {
+                        root.drag(
+                            self.mouse-x - self.pressed-x,
+                            self.mouse-y - self.pressed-y,
+                        );
+                    }
+                }
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.left
+                        && event.kind == PointerEventKind.down) {
+                        root.drag-started();
+                    }
+                }
+                double-clicked => { root.toggle-maximise(); }
+            }
+        }
+
+        WindowButton {
+            glyph: "\u{e921}";
+            label: "Minimise";
+            clicked => { root.minimise(); }
+        }
+        WindowButton {
+            // Two distinct glyphs, because "restore" and "maximise" are different
+            // actions and a button that does not say which it will do is a guess.
+            glyph: root.maximised ? "\u{e923}" : "\u{e922}";
+            label: root.maximised ? "Restore" : "Maximise";
+            clicked => { root.toggle-maximise(); }
+        }
+        WindowButton {
+            glyph: "\u{e8bb}";
+            label: "Close";
+            closes: true;
+            clicked => { root.close(); }
+        }
+    }
+}
