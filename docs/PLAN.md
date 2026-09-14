@@ -201,3 +201,14 @@ l'interface accessible, et l'accessibilité cesse d'être une intention.
 - [x] **S24.1** Rôles et libellés d'accessibilité sur tout ce qui se clique.
 - [x] **S24.2** Tests d'interface sans écran, pilotant la vraie fenêtre.
 - [x] **S24.3** Intégration continue : compilation, tests, format et lint.
+
+## E25 — Foundations: the engines nobody was calling
+
+An audit of what the application actually invokes found three crates entirely
+unwired, and two of them duplicating logic that was live elsewhere. A feature that
+cannot be reached costs as much as one that does not exist, and lies about what the
+application can do on top.
+
+- [x] **S25.1** One state machine: undo, snooze and follow-ups in a single engine.
+- [x] **S25.2** Rules: stored, run on arrival, and simulated before they are trusted.
+- [x] **S25.3** Subject-based regrouping, opt-in and bounded.

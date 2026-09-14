@@ -2,7 +2,9 @@
 
 use crate::model::{ListQuery, ThreadRow};
 use crate::{sql_err, Store};
-use iris_types::{AccountId, Address, Flags, Result, Snooze, ThreadId, Timestamp, WorkflowState};
+use iris_types::{
+    AccountId, Address, Flags, MessageId, Result, Snooze, ThreadId, Timestamp, WorkflowState,
+};
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Row};
 use std::collections::BTreeMap;
 
@@ -171,6 +173,70 @@ impl Store {
     }
 
     /// Change l'état d'un fil. Retourne l'état précédent.
+    /// Moves a message into another thread, and refreshes both.
+    ///
+    /// Used by cross-account regrouping. Both aggregates are recomputed because both
+    /// changed: the thread that lost a message may now be empty, and the one that
+    /// gained it has a new last activity, a new count, and possibly a new account in
+    /// its list.
+    pub fn move_message_to_thread(&self, message: MessageId, target: ThreadId) -> Result<bool> {
+        self.with_tx(|tx| {
+            let previous: Option<i64> = tx
+                .prepare_cached("SELECT thread_id FROM messages WHERE id = ?1")
+                .map_err(|e| sql_err("préparation", e))?
+                .query_row([message.get()], |r| r.get(0))
+                .ok();
+
+            let Some(previous) = previous else {
+                return Ok(false);
+            };
+            if previous == target.get() {
+                return Ok(false);
+            }
+
+            tx.prepare_cached("UPDATE messages SET thread_id = ?2 WHERE id = ?1")
+                .map_err(|e| sql_err("préparation", e))?
+                .execute(params![message.get(), target.get()])
+                .map_err(|e| sql_err("déplacement du message", e))?;
+
+            // The account list is what lets a unified view filter by mailbox; a
+            // thread that gained a message from another account must say so.
+            let account: i64 = tx
+                .prepare_cached("SELECT account_id FROM messages WHERE id = ?1")
+                .map_err(|e| sql_err("préparation", e))?
+                .query_row([message.get()], |r| r.get(0))
+                .map_err(|e| sql_err("lecture du compte", e))?;
+
+            tx.prepare_cached(
+                "INSERT OR IGNORE INTO thread_accounts (thread_id, account_id) VALUES (?1, ?2)",
+            )
+            .map_err(|e| sql_err("préparation", e))?
+            .execute(params![target.get(), account])
+            .map_err(|e| sql_err("rattachement du compte", e))?;
+
+            crate::messages::refresh_thread(tx, ThreadId(previous))?;
+            crate::messages::refresh_thread(tx, target)?;
+            Ok(true)
+        })
+    }
+
+    /// Removes threads that no longer hold any message.
+    ///
+    /// A thread emptied by regrouping would otherwise show as a blank row.
+    pub fn prune_empty_threads(&self) -> Result<usize> {
+        self.with_conn(|c| {
+            let removed = c
+                .prepare_cached(
+                    "DELETE FROM threads
+                     WHERE id NOT IN (SELECT DISTINCT thread_id FROM messages)",
+                )
+                .map_err(|e| sql_err("préparation", e))?
+                .execute([])
+                .map_err(|e| sql_err("purge des fils vides", e))?;
+            Ok(removed)
+        })
+    }
+
     pub fn set_thread_state(
         &self,
         thread: ThreadId,

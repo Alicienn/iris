@@ -2,6 +2,7 @@ pub mod body;
 pub mod engine;
 pub mod folder;
 pub mod maintenance;
+pub mod regroup;
 pub mod replay;
 pub mod rules;
 pub mod scheduler;
@@ -13,6 +14,7 @@ pub use engine::{
 };
 pub use folder::{sync_folder, FolderReport, FolderSyncOptions};
 pub use maintenance::MaintenanceReport;
+pub use regroup::{RegroupOptions, RegroupReport};
 pub use replay::{enqueue, replay_account, OpPayload, ReplayReport};
 pub use rules::{facts_of, RulesReport};
 pub use scheduler::{Priority, ScheduleConfig, Scheduler, SyncOutcome};

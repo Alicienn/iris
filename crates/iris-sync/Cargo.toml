@@ -11,6 +11,7 @@ iris-store = { workspace = true }
 iris-kernel = { workspace = true }
 iris-workflow = { workspace = true }
 iris-rules = { workspace = true }
+iris-thread = { workspace = true }
 iris-imap = { workspace = true }
 iris-mime = { workspace = true }
 iris-index = { workspace = true }
