@@ -83,7 +83,7 @@ pub async fn sync_folder(
     let validite_changee = folder.uid_validity != 0 && folder.uid_validity != etat.uid_validity;
     if validite_changee {
         tracing::warn!(
-            dossier = %folder.path,
+            folder = %folder.path,
             avant = folder.uid_validity,
             apres = etat.uid_validity,
             "UIDVALIDITY modifié : effacement local avant relecture"
@@ -144,7 +144,7 @@ pub async fn sync_folder(
                 Ok(m) => lot.push(m),
                 // Un message illisible ne doit pas interrompre la synchronisation
                 // des dix mille autres.
-                Err(e) => tracing::warn!(uid = brut.uid, erreur = %e, "message ignoré"),
+                Err(e) => tracing::warn!(uid = brut.uid, error = %e, "message ignoré"),
             }
         }
 

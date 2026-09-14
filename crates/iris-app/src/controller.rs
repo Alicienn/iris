@@ -164,7 +164,7 @@ fn run(
             Ok(false) => {}
             // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
             // resterait figée sans explication.
-            Err(e) => tracing::error!(erreur = %e, "vue-modèle"),
+            Err(e) => tracing::error!(error = %e, "vue-modèle"),
         }
     }
 }

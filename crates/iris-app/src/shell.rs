@@ -178,7 +178,7 @@ impl CommandBook {
                 true
             }
             None => {
-                tracing::warn!(plugin = %plugin, "commande de plugin sans destinataire");
+                tracing::warn!(plugin = %plugin, "plugin command with nowhere to go");
                 false
             }
         }
@@ -532,7 +532,7 @@ fn corps_du_message(
     let assaini = iris_mime::sanitize(&texte);
 
     renderer.render(&assaini.html, 800.0).unwrap_or_else(|e| {
-        tracing::warn!(erreur = %e, "rendu du corps en échec");
+        tracing::warn!(error = %e, "rendu du corps en échec");
         apercu()
     })
 }
@@ -612,7 +612,7 @@ impl BodyLoader {
             let obtenus = resultats.iter().filter(|(_, r)| r.is_ok()).count();
             for (message, resultat) in &resultats {
                 if let Err(e) = resultat {
-                    tracing::warn!(message = %message, erreur = %e, "corps non téléchargé");
+                    tracing::warn!(message = %message, error = %e, "body not downloaded");
                 }
             }
             if obtenus > 0 {
@@ -660,7 +660,7 @@ pub fn wire_reply(
             let message = match send.compose_reply(thread, &texte, iris_smtp::ReplyScope::Sender) {
                 Ok(m) => m,
                 Err(e) => {
-                    tracing::warn!(erreur = %e, "composition de la réponse");
+                    tracing::warn!(error = %e, "composing the reply");
                     fenetre.set_status(format!("Cannot reply: {e}").into());
                     return;
                 }
@@ -745,7 +745,7 @@ pub fn wire_settings(
         let chemin = chemin.clone();
         move |reglages: &Settings| {
             if let Err(e) = reglages.save(&chemin) {
-                tracing::warn!(erreur = %e, "enregistrement des réglages");
+                tracing::warn!(error = %e, "saving the settings");
             }
         }
     };
@@ -771,7 +771,7 @@ pub fn wire_settings(
                 Err(e) => {
                     // Un thème qui refuse de se charger laisse l'ancien en place :
                     // mieux vaut l'apparence précédente qu'un écran à moitié peint.
-                    tracing::warn!(theme = %nom, erreur = %e, "thème refusé");
+                    tracing::warn!(theme = %nom, error = %e, "theme refused");
                     fenetre.set_status(format!("Theme \"{nom}\" could not be read.").into());
                     return;
                 }
@@ -918,7 +918,7 @@ pub fn wire_account_setup(
                 // sinon rien n'arrive avant le prochain démarrage.
                 if resultat.is_ok() {
                     if let Err(e) = engine.load_accounts(now()).await {
-                        tracing::warn!(erreur = %e, "chargement du compte ajouté");
+                        tracing::warn!(error = %e, "chargement du compte ajouté");
                     }
                 }
 
@@ -1002,7 +1002,7 @@ pub fn wire_account_setup(
                     let engine = Arc::clone(&engine);
                     runtime_manuel.spawn(async move {
                         if let Err(e) = engine.load_accounts(now()).await {
-                            tracing::warn!(erreur = %e, "chargement du compte ajouté");
+                            tracing::warn!(error = %e, "chargement du compte ajouté");
                         }
                     });
                 }

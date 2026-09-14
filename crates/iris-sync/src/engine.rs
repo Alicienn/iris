@@ -230,7 +230,7 @@ impl SyncEngine {
         let analyse = match iris_mime::parse(raw) {
             Ok(a) => a,
             Err(e) => {
-                tracing::warn!(message = %message.id, erreur = %e, "analyse des pièces jointes");
+                tracing::warn!(message = %message.id, error = %e, "parsing attachments");
                 return;
             }
         };
@@ -239,7 +239,7 @@ impl SyncEngine {
             .store()
             .record_attachments(message.id, &analyse.attachments)
         {
-            tracing::warn!(message = %message.id, erreur = %e, "recensement des pièces jointes");
+            tracing::warn!(message = %message.id, error = %e, "recording attachments");
         }
     }
 
@@ -452,7 +452,7 @@ impl SyncEngine {
                         // un défaut que l'utilisateur mettra sur le compte de la
                         // recherche, pas sur celui de la synchronisation.
                         if let Err(e) = self.index_new_messages(dossier.id) {
-                            tracing::warn!(erreur = %e, "indexation");
+                            tracing::warn!(error = %e, "indexing");
                         }
                         // Rules run on arrival, not on a schedule: a rule that
                         // archives a newsletter should do it before the user sees
@@ -463,8 +463,8 @@ impl SyncEngine {
                 // Un dossier illisible — droits insuffisants, boîte partagée
                 // disparue — ne doit pas condamner le compte entier.
                 Err(e) => tracing::warn!(
-                    compte = %account, dossier = %dossier.path, erreur = %e,
-                    "dossier ignoré"
+                    account = %account, folder = %dossier.path, error = %e,
+                    "folder skipped"
                 ),
             }
         }
@@ -516,7 +516,7 @@ impl SyncEngine {
                     .map(|m| m.id)
                     .collect(),
                 Err(e) => {
-                    tracing::warn!(erreur = %e, "lecture pour les règles");
+                    tracing::warn!(error = %e, "reading for the rules");
                     return;
                 }
             };
@@ -528,7 +528,7 @@ impl SyncEngine {
                 "rules applied"
             ),
             Ok(_) => {}
-            Err(e) => tracing::warn!(erreur = %e, "application des règles"),
+            Err(e) => tracing::warn!(error = %e, "applying the rules"),
         }
     }
 

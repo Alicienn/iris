@@ -136,7 +136,7 @@ pub async fn replay_account(
             Err(e) => {
                 // Une charge illisible ne deviendra jamais lisible : la garder
                 // bloquerait la file du compte pour toujours.
-                tracing::error!(op = %op.id, erreur = %e, "opération abandonnée");
+                tracing::error!(op = %op.id, error = %e, "opération abandonnée");
                 store.complete_op(op.id)?;
                 rapport.dropped += 1;
                 continue;
@@ -168,7 +168,7 @@ pub async fn replay_account(
             Err(e) => {
                 // Erreur définitive : le dossier cible n'existe plus, le message a
                 // disparu. Réessayer indéfiniment bloquerait tout le compte.
-                tracing::warn!(op = %op.id, erreur = %e, "opération abandonnée");
+                tracing::warn!(op = %op.id, error = %e, "opération abandonnée");
                 store.complete_op(op.id)?;
                 rapport.dropped += 1;
             }

@@ -12,58 +12,58 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("configuration invalide : {0}")]
+    #[error("invalid configuration: {0}")]
     Config(String),
 
-    #[error("stockage : {0}")]
+    #[error("storage: {0}")]
     Store(String),
 
-    #[error("index de recherche : {0}")]
+    #[error("search index: {0}")]
     Index(String),
 
-    #[error("contenu introuvable : {0}")]
+    #[error("content not found: {0}")]
     BlobMissing(String),
 
-    #[error("analyse du message : {0}")]
+    #[error("parsing the message: {0}")]
     Parse(String),
 
-    #[error("réseau : {0}")]
+    #[error("network: {0}")]
     Network(String),
 
-    #[error("protocole {protocol} : {message}")]
+    #[error("{protocol}: {message}")]
     Protocol {
         protocol: &'static str,
         message: String,
     },
 
-    #[error("authentification refusée pour {account}")]
+    #[error("authentication refused for {account}")]
     AuthFailed { account: String },
 
-    #[error("jeton expiré pour {account}")]
+    #[error("token expired for {account}")]
     TokenExpired { account: String },
 
-    #[error("serveur occupé, réessayer dans {retry_after_secs} s")]
+    #[error("server busy, retry in {retry_after_secs}s")]
     Throttled { retry_after_secs: u64 },
 
-    #[error("le serveur a invalidé son état ({reason}) : resynchronisation complète requise")]
+    #[error("the server invalidated its state ({reason}): a full resync is required")]
     ResyncRequired { reason: String },
 
-    #[error("module « {0} » absent ou non démarré")]
+    #[error("module \"{0}\" is missing or not started")]
     ModuleMissing(String),
 
-    #[error("capacité « {capability} » refusée à « {requester} »")]
+    #[error("\"{requester}\" was denied the \"{capability}\" capability")]
     CapabilityDenied {
         capability: String,
         requester: String,
     },
 
-    #[error("plugin « {plugin} » : {message}")]
+    #[error("plugin \"{plugin}\": {message}")]
     Plugin { plugin: String, message: String },
 
-    #[error("entrée-sortie : {0}")]
+    #[error("input/output: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("opération annulée")]
+    #[error("operation cancelled")]
     Cancelled,
 
     #[error("{0}")]

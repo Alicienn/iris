@@ -168,9 +168,19 @@ pub async fn authorize(
         ))
     })?;
 
-    // Le port est réservé avant d'ouvrir le navigateur : entre les deux, l'utilisateur
-    // peut avoir déjà accepté, et une redirection qui arrive sur un port fermé perd
-    // l'autorisation sans rien dire.
+    // Loopback is checked before the browser opens. Sending someone to their provider,
+    // watching them type their password, and only then discovering that the answer has
+    // nowhere to land is the worst possible order to find this out.
+    if !iris_oauth::loopback_works() {
+        return Err(Error::Config(
+            "this machine cannot open a local connection, which browser sign-in needs.              A firewall or security policy is usually the cause."
+                .into(),
+        ));
+    }
+
+    // The port is reserved before opening the browser: between the two the user may
+    // already have accepted, and a redirect arriving on a closed port loses the
+    // authorisation without a word.
     let (ecoute, port) = iris_oauth::reserve_port()?;
 
     let entropie = entropie();
@@ -195,7 +205,7 @@ pub async fn authorize(
     // d'une heure. Le dire tout de suite vaut mieux que le découvrir demain.
     if jetons.refresh_token.is_none() {
         tracing::warn!(
-            compte = %email,
+            account = %email,
             "aucun jeton de rafraîchissement reçu : l'accès expirera sans réautorisation"
         );
     }

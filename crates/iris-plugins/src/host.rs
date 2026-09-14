@@ -145,8 +145,8 @@ impl Plugin {
                     self.disabled = Some(e.to_string());
                     tracing::warn!(
                         plugin = %self.manifest.id,
-                        erreur = %e,
-                        "plugin désactivé après échecs répétés"
+                        error = %e,
+                        "plugin disabled after repeated failures"
                     );
                 }
                 Err(e)

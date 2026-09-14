@@ -100,7 +100,7 @@ impl ThemeWatcher {
                     });
                 }
                 Ok(_) => {}
-                Err(e) => tracing::warn!(erreur = %e, "rechargement des thèmes"),
+                Err(e) => tracing::warn!(error = %e, "rechargement des thèmes"),
             }
         }
     }

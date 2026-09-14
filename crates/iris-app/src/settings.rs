@@ -99,7 +99,7 @@ impl Settings {
         match toml::from_str(&texte) {
             Ok(reglages) => Self::sanitize(reglages),
             Err(e) => {
-                tracing::warn!(fichier = %path.display(), erreur = %e, "réglages illisibles");
+                tracing::warn!(fichier = %path.display(), error = %e, "settings could not be read");
                 Self::default()
             }
         }

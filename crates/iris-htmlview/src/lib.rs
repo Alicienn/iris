@@ -132,7 +132,7 @@ impl HtmlRenderer for AdaptiveRenderer {
                 match moteur.render(sanitized_html, width) {
                     Ok(r) => Ok(r),
                     Err(e) => {
-                        tracing::warn!(erreur = %e, "moteur complet en échec, repli sur le texte riche");
+                        tracing::warn!(error = %e, "moteur complet en échec, repli sur le texte riche");
                         self.simple.render(sanitized_html, width)
                     }
                 }

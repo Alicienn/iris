@@ -15,7 +15,9 @@
 
 pub mod http;
 
-pub use http::{open_browser, reserve_port, wait_for_redirect, HttpEndpoint, Redirect};
+pub use http::{
+    loopback_works, open_browser, reserve_port, wait_for_redirect, HttpEndpoint, Redirect,
+};
 
 use async_trait::async_trait;
 use iris_types::{Error, Result, Timestamp};

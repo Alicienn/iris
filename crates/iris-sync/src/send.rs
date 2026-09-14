@@ -124,14 +124,14 @@ impl SendService {
             Ok(false) => bilan.note = Some("aucun dossier « envoyés » connu".into()),
             // Un dépôt raté ne remet pas l'envoi en cause : le message est parti.
             Err(e) => {
-                tracing::warn!(erreur = %e, "dépôt dans les messages envoyés");
+                tracing::warn!(error = %e, "dépôt dans les messages envoyés");
                 bilan.note = Some(format!("copie non déposée : {e}"));
             }
         }
 
         match self.mark_waiting(thread, now) {
             Ok(change) => bilan.moved_to_waiting = change,
-            Err(e) => tracing::warn!(erreur = %e, "passage en attente"),
+            Err(e) => tracing::warn!(error = %e, "passage en attente"),
         }
 
         bilan
@@ -275,7 +275,7 @@ pub async fn pump_outbox(
                 context.finished(handle, Ok(bilan));
             }
             OutboxEvent::Failed { handle, error } => {
-                tracing::warn!(erreur = %error, "envoi en échec");
+                tracing::warn!(error = %error, "envoi en échec");
                 context.finished(handle, Err(error));
             }
             OutboxEvent::Cancelled { handle } => context.cancelled(handle),

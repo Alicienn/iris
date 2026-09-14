@@ -91,13 +91,13 @@ impl PluginService {
         let report = match registre.load_dir(&dir) {
             Ok(r) => r,
             Err(e) => {
-                tracing::warn!(dossier = %dir.display(), erreur = %e, "lecture des plugins");
+                tracing::warn!(folder = %dir.display(), error = %e, "reading the plugins folder");
                 Default::default()
             }
         };
 
         for (nom, raison) in &report.rejected {
-            tracing::warn!(plugin = %nom, raison = %raison, "plugin écarté");
+            tracing::warn!(plugin = %nom, reason = %raison, "plugin rejected");
         }
 
         // What every loaded plugin declared, captured before the registry moves into
@@ -129,7 +129,7 @@ impl PluginService {
         for (id, resultat) in registre.dispatch(entry_points::INIT, "{}") {
             match resultat {
                 Ok(trace) => journaliser(&id, &trace),
-                Err(e) => tracing::warn!(plugin = %id, erreur = %e, "initialisation"),
+                Err(e) => tracing::warn!(plugin = %id, error = %e, "initialisation"),
             }
         }
 
@@ -207,12 +207,12 @@ fn run(
                 }
                 // L'échec d'un plugin est une nouvelle sans gravité : le registre
                 // compte les fautes et finira par le mettre hors circuit.
-                Err(e) => tracing::warn!(plugin = %id, erreur = %e, "appel de plugin"),
+                Err(e) => tracing::warn!(plugin = %id, error = %e, "plugin call"),
             }
         }
 
         for (id, raison) in registre.disabled() {
-            tracing::warn!(plugin = %id, raison = %raison, "plugin hors circuit");
+            tracing::warn!(plugin = %id, reason = %raison, "plugin out of circulation");
         }
     }
 }
@@ -225,7 +225,7 @@ fn journaliser(id: &str, trace: &iris_plugins::CallTrace) {
     for refus in &trace.denied {
         // Un refus se dit : sinon l'auteur du plugin cherche longtemps pourquoi
         // son code « ne fait rien ».
-        tracing::warn!(plugin = %id, permission = %refus, "permission refusée");
+        tracing::warn!(plugin = %id, permission = %refus, "permission denied");
     }
 }
 
@@ -259,7 +259,7 @@ fn effets(
         // Une action porte sur le fil de l'événement en cours. Sans fil, elle n'a
         // pas de cible : un plugin ne choisit pas sur quoi il agit.
         let Some(thread) = thread else {
-            tracing::warn!(plugin = %plugin, "action sans fil, ignorée");
+            tracing::warn!(plugin = %plugin, "action with no thread, ignored");
             continue;
         };
         match action_depuis_json(brut) {
@@ -268,7 +268,7 @@ fn effets(
                 thread,
                 action,
             }),
-            None => tracing::warn!(plugin = %plugin, demande = %brut, "action non reconnue"),
+            None => tracing::warn!(plugin = %plugin, request = %brut, "unrecognised action"),
         }
     }
 
@@ -371,7 +371,7 @@ pub fn apply_effect(effect: &PluginEffect, controller: &Controller) -> Option<St
             thread,
             action,
         } => {
-            tracing::info!(plugin = %plugin, fil = %thread, action = ?action, "action de plugin");
+            tracing::info!(plugin = %plugin, thread = %thread, action = ?action, "plugin action");
             controller.send(Request::ApplyTo(*thread, *action));
             None
         }
@@ -379,7 +379,7 @@ pub fn apply_effect(effect: &PluginEffect, controller: &Controller) -> Option<St
         // lui parle, sans quoi l'application porte le chapeau.
         PluginEffect::Notify { plugin, message } => Some(format!("{plugin} : {message}")),
         PluginEffect::Command { plugin, spec } => {
-            tracing::info!(plugin = %plugin, commande = %spec, "commande proposée");
+            tracing::info!(plugin = %plugin, commande = %spec, "command offered");
             None
         }
     }

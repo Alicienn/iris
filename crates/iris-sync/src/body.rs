@@ -114,7 +114,7 @@ impl SyncEngine {
         let messages = match self.store().thread_messages(thread) {
             Ok(m) => m,
             Err(e) => {
-                tracing::warn!(fil = %thread, erreur = %e, "lecture du fil");
+                tracing::warn!(thread = %thread, error = %e, "lecture du fil");
                 return Vec::new();
             }
         };

@@ -67,7 +67,7 @@ impl PluginRegistry {
             match self.load_one(&chemin) {
                 Ok(id) => rapport.loaded.push(id),
                 Err(e) => {
-                    tracing::warn!(plugin = %nom, erreur = %e, "plugin écarté");
+                    tracing::warn!(plugin = %nom, error = %e, "plugin rejected");
                     rapport.rejected.push((nom, e.to_string()));
                 }
             }

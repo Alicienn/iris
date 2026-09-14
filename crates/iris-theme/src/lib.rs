@@ -122,7 +122,7 @@ impl ThemeRegistry {
         }
 
         for e in &erreurs {
-            tracing::warn!(erreur = %e, "thème ignoré");
+            tracing::warn!(error = %e, "thème ignoré");
         }
 
         // Le thème actif a pu être rechargé : on le remplace par sa nouvelle version.

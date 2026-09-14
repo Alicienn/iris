@@ -176,7 +176,7 @@ impl RealIo {
         // Un résolveur indisponible ne doit pas empêcher la découverte : les étapes
         // DNS sont simplement sautées.
         let resolver = DnsResolver::from_system()
-            .inspect_err(|e| tracing::warn!(erreur = %e, "DNS indisponible"))
+            .inspect_err(|e| tracing::warn!(error = %e, "DNS indisponible"))
             .ok();
         Self {
             fetcher: HttpFetcher::new(),
