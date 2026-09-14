@@ -156,9 +156,10 @@ export component Sidebar inherits Glass {
 
     radius: 0px;
     border-width: 0px;
-    // Belt and braces for the row above: whatever the layout decides, the sidebar
-    // does not draw outside itself.
-    clip: true;
+    // No clipping here, deliberately. It would contain the row above, but it would
+    // also cut every tooltip these buttons raise, and a tooltip that stops at the
+    // panel edge is worse than the overflow it prevents. The row is fixed where it
+    // was broken instead: the filter field can now shrink.
 
     VerticalLayout {
         padding: Tokens.space-2;
