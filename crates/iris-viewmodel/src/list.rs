@@ -124,6 +124,12 @@ impl ThreadList {
         true
     }
 
+    /// La portée de départ, à la construction.
+    pub fn in_scope(mut self, scope: iris_store::Scope) -> Self {
+        self.scope = scope;
+        self
+    }
+
     pub fn set_scope(&mut self, scope: iris_store::Scope) -> bool {
         if self.scope == scope {
             return false;

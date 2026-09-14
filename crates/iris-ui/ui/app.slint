@@ -6,7 +6,8 @@ import {
 } from "types.slint";
 import { ThreadListView, ThreadContextMenu } from "list.slint";
 import { Sidebar, AccountContextMenu } from "sidebar.slint";
-import { FolderTree, NewFolderPanel } from "folders.slint";
+import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel }
+    from "folders.slint";
 import { FolderNodeData } from "types.slint";
 import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
@@ -377,6 +378,8 @@ export component AppWindow inherits Window {
     in property <string> folder-name;
     in property <int> account-count;
     in property <int> marked-count;
+    /// La charge d'un glisser. Opaque ici : construite côté Rust.
+    in property <data-transfer> drag-payload;
     in property <string> marked-label;
     // Y a-t-il une icône dans la zone de notification pour faire revenir la fenêtre ?
     // Elle décide de ce que veut dire « fermer ».
@@ -393,6 +396,15 @@ export component AppWindow inherits Window {
     in property <string> plugin-settings-error;
     in property <[PluginSettingData]> plugin-settings;
     in property <bool> new-folder-open;
+    in property <bool> folder-menu-open;
+    in property <string> folder-menu-path;
+    in property <bool> folder-menu-permanent;
+    in-out property <length> folder-menu-x;
+    in-out property <length> folder-menu-y;
+    in property <bool> rename-folder-open;
+    in property <string> rename-folder-current;
+    in property <string> rename-folder-error;
+    in-out property <string> rename-folder-name;
     in property <string> new-folder-error;
     in-out property <string> new-folder-name;
     callback folder-selected(string);
@@ -406,9 +418,17 @@ export component AppWindow inherits Window {
     callback plugin-setting-changed(string, string);
     callback plugin-settings-dismissed();
     callback new-folder-requested();
+    callback folder-dropped(string);
+    callback folder-menu-requested(string);
+    callback folder-menu-dismissed();
+    callback folder-rename-requested();
+    callback folder-rename-confirmed();
+    callback folder-rename-dismissed();
+    callback folder-delete-requested();
     callback new-folder-create();
     callback new-folder-dismissed();
     callback row-mark-toggled(int);
+    callback row-drag-started(int);
     callback row-mark-extended(int);
     callback bulk-done();
     callback bulk-archive();
@@ -434,6 +454,9 @@ export component AppWindow inherits Window {
     callback reply-all();
     callback load-images();
     callback toggle-message(int);
+    /// Annuler et rétablir, aux touches que tout le monde connaît.
+    callback undo();
+    callback redo();
     callback save-attachment(int);
     callback palette-query-changed(string);
     callback search-submitted(string);
@@ -516,9 +539,11 @@ export component AppWindow inherits Window {
                     sync-account(id) => { root.sync-account(id); }
                     sync-all => { root.sync-all(); }
                     open-settings => { root.settings-open = true; }
+                    open-modules => { root.modules-open = true; }
+                    open-plugin-browser => { root.browser-requested(); }
                     account-menu(id, mx, my) => {
                         root.account-menu-x = mx;
-                        root.account-menu-y = my + 32px;
+                        root.account-menu-y = my;
                         root.account-menu-requested(id);
                     }
                 }
@@ -531,7 +556,11 @@ export component AppWindow inherits Window {
                 // comptes : les deux se croisent — « ce compte-là, dans ce
                 // dossier-là » — et une liste où l'on choisit tantôt l'un tantôt
                 // l'autre ne montre jamais les deux choix en même temps.
-                if !root.sidebar-collapsed: Glass {
+                // La colonne des dossiers ne se replie pas avec celle des comptes.
+                // Le bouton dit « Collapse the accounts » : il repliait les deux, donc
+                // il faisait une chose de plus que ce qu'il annonçait, et la seule
+                // façon de garder les dossiers était de garder aussi les comptes.
+                Glass {
                     width: 170px;
                     radius: 0px;
                     border-width: 0px;
@@ -546,11 +575,17 @@ export component AppWindow inherits Window {
                             folder-selected(p) => { root.folder-selected(p); }
                             all-selected => { root.folder-cleared(); }
                             new-folder => { root.new-folder-requested(); }
+                            folder-dropped(p) => { root.folder-dropped(p); }
+                            folder-menu(p, mx, my) => {
+                                root.folder-menu-x = mx;
+                                root.folder-menu-y = my;
+                                root.folder-menu-requested(p);
+                            }
                         }
                     }
                 }
 
-                if !root.sidebar-collapsed: Rectangle {
+                Rectangle {
                     width: 1px;
                     background: Tokens.border;
                 }
@@ -573,11 +608,12 @@ export component AppWindow inherits Window {
                         search-cleared => { root.search-cleared(); }
                         row-context-menu(id, mx, my) => {
                             root.thread-selected(id);
-                            // The coordinates arrive relative to the list column, so
-                            // the sidebar's width has to be added back before the
-                            // menu is placed against the window.
-                            root.context-menu-x = mx + (root.sidebar-collapsed ? 44px : 200px) + 1px;
-                            root.context-menu-y = my + 32px;
+                            // Déjà en coordonnées de fenêtre. Rien à rajouter : la
+                            // version précédente recollait des largeurs de colonnes
+                            // écrites en dur, qui devenaient fausses à la première
+                            // colonne ajoutée — et il y en a une de plus depuis.
+                            root.context-menu-x = mx;
+                            root.context-menu-y = my;
                             root.context-menu-open = true;
                         }
                         selected-id: root.selected-thread;
@@ -588,8 +624,10 @@ export component AppWindow inherits Window {
                         folder-name: root.folder-name;
                         folder-left => { root.folder-cleared(); }
                         marked-count: root.marked-count;
+                        drag-payload: root.drag-payload;
                         marked-label: root.marked-label;
                         row-mark-toggled(id) => { root.row-mark-toggled(id); }
+                        row-drag-started(id) => { root.row-drag-started(id); }
                         row-mark-extended(id) => { root.row-mark-extended(id); }
                         bulk-done => { root.bulk-done(); }
                         bulk-archive => { root.bulk-archive(); }
@@ -683,6 +721,28 @@ export component AppWindow inherits Window {
         error: root.plugin-settings-error;
         changed(k, v) => { root.plugin-setting-changed(k, v); }
         dismissed => { root.plugin-settings-dismissed(); }
+    }
+
+    if root.folder-menu-open: FolderContextMenu {
+        width: 100%;
+        height: 100%;
+        folder: root.folder-menu-path;
+        permanent: root.folder-menu-permanent;
+        menu-x: root.folder-menu-x;
+        menu-y: root.folder-menu-y;
+        rename => { root.folder-rename-requested(); }
+        remove => { root.folder-delete-requested(); }
+        dismissed => { root.folder-menu-dismissed(); }
+    }
+
+    if root.rename-folder-open: RenameFolderPanel {
+        width: 100%;
+        height: 100%;
+        current: root.rename-folder-current;
+        error: root.rename-folder-error;
+        name <=> root.rename-folder-name;
+        rename => { root.folder-rename-confirmed(); }
+        dismissed => { root.folder-rename-dismissed(); }
     }
 
     if root.new-folder-open: NewFolderPanel {
@@ -885,6 +945,43 @@ export component AppWindow inherits Window {
                 root.search-cleared();
                 return accept;
             }
+
+            // Échap vide la sélection avant tout le reste des files : c'est le geste
+            // de sortie d'un mode, et un lot coché est un mode.
+            if (event.text == Key.Escape && root.marked-count > 0) {
+                root.bulk-clear();
+                return accept;
+            }
+
+            // Suppr supprime. C'était « # », choisi parce qu'une lettre nue est trop
+            // facile à heurter — mais Suppr n'est pas une lettre, personne ne
+            // l'atteint par accident, et c'est la touche que tout le monde essaie en
+            // premier. « # » reste, pour qui l'a appris.
+            if (event.text == Key.Delete) {
+                root.bulk-delete();
+                return accept;
+            }
+
+            // Annuler et rétablir, aux touches de partout. Le clavier les envoie avant
+            // que la table de raccourcis ne les voie, parce que ce sont des
+            // combinaisons et que la table ne connaît que des touches nues.
+            if (event.text == "z" && event.modifiers.control && event.modifiers.shift) {
+                root.redo();
+                return accept;
+            }
+            if (event.text == "Z" && event.modifiers.control) {
+                root.redo();
+                return accept;
+            }
+            if (event.text == "z" && event.modifiers.control) {
+                root.undo();
+                return accept;
+            }
+            if (event.text == "y" && event.modifiers.control) {
+                root.redo();
+                return accept;
+            }
+
             root.key-pressed(event.text);
             return accept;
         }

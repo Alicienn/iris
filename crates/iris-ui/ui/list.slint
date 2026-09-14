@@ -12,10 +12,15 @@ import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 component ThreadRow inherits Rectangle {
     in property <ThreadRowData> data;
     in property <bool> selected;
+    /// Un lot est en cours. Toutes les cases apparaissent, pas seulement celle de la
+    /// ligne survolée : une fois qu'on en a coché une, la question posée par la liste
+    /// n'est plus « lequel lire » mais « lesquels d'autres ».
+    in property <bool> selection-mode;
 
     callback clicked();
     callback mark-toggled();
     callback mark-extended();
+    callback drag-started();
 
     // Vrai entre un appui modifié et le relâchement qui le suit.
     property <bool> modified-click;
@@ -63,6 +68,80 @@ component ThreadRow inherits Rectangle {
         background: root.data.account-tint;
     }
 
+    // Le glisser vers un dossier.
+    //
+    // La charge n'est pas transportée par le glisser : elle est **déjà connue**. Ce
+    // qu'on déplace est le lot coché, ou à défaut la ligne empoignée, et c'est la même
+    // règle que pour toutes les autres actions. Faire voyager un identifiant dans un
+    // objet de transfert opaque, puis le relire à l'arrivée, ajouterait un second
+    // chemin par lequel une action peut se tromper de cible.
+    //
+    // « move » seulement : glisser un message dans un dossier le range, ne le duplique
+    // pas. Deux copies du même message dans deux dossiers, c'est ce qu'un client de
+    // courrier doit éviter de produire par accident.
+    in property <data-transfer> payload;
+
+    drag := DragArea {
+        allow-move: true;
+        data: root.payload;
+        changed dragging => {
+            if (self.dragging) {
+                root.drag-started();
+            }
+        }
+    }
+
+    // Déclarée **avant** la mise en page, donc sous elle.
+    //
+    // Dans Slint, le dernier frère est au-dessus et reçoit l'événement le
+    // premier. Cette zone était déclarée en dernier : elle recouvrait la case à
+    // cocher, et cliquer la case ouvrait le message au lieu de le sélectionner.
+    // Le geste existait, il n'atteignait jamais sa cible.
+    row-touch := TouchArea {
+        // Right-click is how everyone expects to reach the actions on a list row,
+        // and it was reaching nothing.
+        //
+        // Ctrl and Shift are read here rather than in Rust: which row was clicked and
+        // which keys were down are one event, and splitting them across the boundary
+        // would mean guessing afterwards which click a modifier belonged to.
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right
+                && event.kind == PointerEventKind.down) {
+                root.clicked();
+                // La position **absolue**, dans la fenêtre.
+                //
+                // C'était « mouse + root.y », où `root.y` est la position de la ligne
+                // dans le viewport de la liste — pas à l'écran. Elle croît sans borne
+                // à mesure qu'on défile, donc le menu s'ouvrait de plus en plus loin
+                // vers le bas, ce qui de l'extérieur ressemble à du hasard. Et
+                // l'appelant compensait en rajoutant des largeurs de colonnes écrites
+                // en dur, qui cessaient d'être vraies dès qu'une colonne changeait.
+                root.context-menu(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            } else if (event.button == PointerEventButton.left
+                && event.kind == PointerEventKind.down) {
+                if (event.modifiers.shift) {
+                    root.modified-click = true;
+                    root.mark-extended();
+                } else if (event.modifiers.control) {
+                    root.modified-click = true;
+                    root.mark-toggled();
+                }
+            }
+        }
+        clicked => {
+            // Un clic simple ouvre. Un clic modifié a déjà été traité à l'appui :
+            // ouvrir en plus ferait deux choses pour un seul geste, et la seconde
+            // serait celle que l'utilisateur n'a pas demandée.
+            if (root.modified-click) {
+                root.modified-click = false;
+            } else {
+                root.clicked();
+            }
+        }
+    }
+
     HorizontalLayout {
         padding-left: Tokens.row-padding-x;
         padding-right: Tokens.row-padding-x;
@@ -72,7 +151,7 @@ component ThreadRow inherits Rectangle {
         // une colonne de cases vides devant chaque ligne fait passer la liste pour un
         // formulaire, et le cas courant reste de lire un message, pas d'en cocher
         // quarante.
-        if root.data.marked || row-touch.has-hover: Rectangle {
+        if root.data.marked || root.selection-mode || row-touch.has-hover: Rectangle {
             width: 15px;
             height: 15px;
             y: (parent.height - self.height) / 2;
@@ -195,40 +274,6 @@ component ThreadRow inherits Rectangle {
         opacity: 0.5;
     }
 
-    row-touch := TouchArea {
-        // Right-click is how everyone expects to reach the actions on a list row,
-        // and it was reaching nothing.
-        //
-        // Ctrl and Shift are read here rather than in Rust: which row was clicked and
-        // which keys were down are one event, and splitting them across the boundary
-        // would mean guessing afterwards which click a modifier belonged to.
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.right
-                && event.kind == PointerEventKind.down) {
-                root.clicked();
-                root.context-menu(self.mouse-x + root.x, self.mouse-y + root.y);
-            } else if (event.button == PointerEventButton.left
-                && event.kind == PointerEventKind.down) {
-                if (event.modifiers.shift) {
-                    root.modified-click = true;
-                    root.mark-extended();
-                } else if (event.modifiers.control) {
-                    root.modified-click = true;
-                    root.mark-toggled();
-                }
-            }
-        }
-        clicked => {
-            // Un clic simple ouvre. Un clic modifié a déjà été traité à l'appui :
-            // ouvrir en plus ferait deux choses pour un seul geste, et la seconde
-            // serait celle que l'utilisateur n'a pas demandée.
-            if (root.modified-click) {
-                root.modified-click = false;
-            } else {
-                root.clicked();
-            }
-        }
-    }
 }
 
 // The menu a right-click opens.
@@ -616,6 +661,7 @@ export component ThreadListView inherits VerticalLayout {
     in property <string> search-summary;
     in property <string> search-explanation;
     in property <int> marked-count;
+    in property <data-transfer> drag-payload;
     in property <string> marked-label;
     in-out property <string> search-query;
 
@@ -628,6 +674,7 @@ export component ThreadListView inherits VerticalLayout {
     callback row-context-menu(int, length, length);
     callback row-mark-toggled(int);
     callback row-mark-extended(int);
+    callback row-drag-started(int);
     callback bulk-done();
     callback bulk-archive();
     callback bulk-delete();
@@ -779,7 +826,10 @@ export component ThreadListView inherits VerticalLayout {
         for entry in root.rows: ThreadRow {
             data: entry;
             selected: entry.id == root.selected-id;
+            selection-mode: root.marked-count > 0;
+            payload: root.drag-payload;
             clicked => { root.row-clicked(entry.id); }
+            drag-started => { root.row-drag-started(entry.id); }
             context-menu(x, y) => { root.row-context-menu(entry.id, x, y); }
             mark-toggled => { root.row-mark-toggled(entry.id); }
             mark-extended => { root.row-mark-extended(entry.id); }

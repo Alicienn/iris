@@ -329,3 +329,98 @@ mod tests_counts {
         assert_eq!(grouped_count(1_240_000), "1\u{202f}240\u{202f}000");
     }
 }
+
+/// Le type d'une pièce jointe, en un mot et en une icône.
+///
+/// Réduit à ce qu'un lecteur a besoin de savoir avant d'ouvrir : est-ce un document,
+/// une image, une feuille de calcul, une archive. Le type MIME complet —
+/// `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` — est exact et
+/// n'aide personne à décider s'il faut cliquer.
+///
+/// Le nom de l'icône est un mot, pas un chemin : le jeu d'icônes appartient à
+/// l'interface, et faire traverser des données SVG dans ce sens mettrait des dessins
+/// dans du code Rust, où plus personne ne penserait à les tenir à jour.
+pub fn attachment_kind(filename: &str, mime: &str) -> (&'static str, &'static str) {
+    let extension = filename
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    // Le type déclaré d'abord, l'extension ensuite. Un serveur qui annonce `image/png`
+    // sait mieux que le nom du fichier ; un fichier nommé `.pdf` et servi en
+    // `application/octet-stream` — ce que font beaucoup de serveurs — se rattrape par
+    // son extension.
+    if mime.starts_with("image/") {
+        return ("Image", "image");
+    }
+    if mime.starts_with("video/") {
+        return ("Video", "image");
+    }
+    if mime.starts_with("audio/") {
+        return ("Audio", "image");
+    }
+
+    match extension.as_str() {
+        "pdf" => ("PDF", "file-text"),
+        "doc" | "docx" | "odt" | "rtf" => ("Document", "file-text"),
+        "xls" | "xlsx" | "ods" | "csv" => ("Spreadsheet", "table"),
+        "ppt" | "pptx" | "odp" => ("Slides", "image"),
+        "zip" | "rar" | "7z" | "tar" | "gz" => ("Archive", "archive"),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "heic" => ("Image", "image"),
+        "txt" | "md" | "log" => ("Text", "file-text"),
+        "eml" | "msg" => ("Message", "envelope-closed"),
+        "" => ("File", "paperclip"),
+        autre if autre.len() <= 4 => ("File", "paperclip"),
+        _ => ("File", "paperclip"),
+    }
+}
+
+#[cfg(test)]
+mod tests_attachments {
+    use super::*;
+
+    #[test]
+    fn le_type_declare_prime_sur_le_nom() {
+        // Un serveur qui annonce « image/png » sait mieux que le nom du fichier.
+        assert_eq!(attachment_kind("scan.dat", "image/png").0, "Image");
+    }
+
+    #[test]
+    fn l_extension_rattrape_un_type_generique() {
+        // Beaucoup de serveurs servent tout en « application/octet-stream ».
+        assert_eq!(
+            attachment_kind("devis.pdf", "application/octet-stream").0,
+            "PDF"
+        );
+        assert_eq!(
+            attachment_kind("comptes.xlsx", "application/octet-stream").0,
+            "Spreadsheet"
+        );
+    }
+
+    #[test]
+    fn la_casse_de_l_extension_est_ignoree() {
+        assert_eq!(attachment_kind("DEVIS.PDF", "").0, "PDF");
+    }
+
+    #[test]
+    fn un_fichier_sans_extension_reste_un_fichier() {
+        // Et garde le trombone : inventer un type serait affirmer ce qu'on ignore.
+        let (nom, icone) = attachment_kind("LISEZMOI", "");
+        assert_eq!(nom, "File");
+        assert_eq!(icone, "paperclip");
+    }
+
+    #[test]
+    fn chaque_type_a_une_icone() {
+        for (fichier, mime) in [
+            ("a.pdf", ""),
+            ("a.png", ""),
+            ("a.zip", ""),
+            ("a.csv", ""),
+            ("a", "image/gif"),
+        ] {
+            assert!(!attachment_kind(fichier, mime).1.is_empty());
+        }
+    }
+}

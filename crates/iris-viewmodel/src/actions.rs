@@ -167,6 +167,16 @@ impl Actions {
         self.workflow.undo(now)
     }
 
+    /// Refait ce que la dernière annulation a défait.
+    pub fn redo(&self, now: Timestamp) -> Result<Option<UndoEntry>> {
+        self.workflow.redo(now)
+    }
+
+    /// Range un fil dans un dossier nommé.
+    pub fn move_to_folder(&self, thread: ThreadId, path: &str, now: Timestamp) -> Result<bool> {
+        self.workflow.move_to_folder(thread, path, now)
+    }
+
     /// Applies an action to several threads, for batch triage.
     pub fn apply_many(
         &self,

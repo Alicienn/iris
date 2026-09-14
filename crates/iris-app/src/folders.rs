@@ -233,6 +233,94 @@ pub fn create_everywhere(store: &Store, parent: Option<&str>, name: &str, now: T
     Ok(comptes.len())
 }
 
+/// Renomme un dossier, sur toutes les boîtes qui l'ont.
+///
+/// Le nouveau nom garde le parent de l'ancien : renommer « Devis » en « Offres » sous
+/// `INBOX` donne `INBOX.Offres`, pas `INBOX.Devis.Offres` ni `Offres` à la racine.
+pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) -> Result<usize> {
+    let nom = validate(name).map_err(Error::Config)?;
+
+    let parent = path.rsplit_once(SEPARATEURS).map(|(p, _)| p.to_string());
+    let cible = match &parent {
+        Some(p) => format!("{p}.{nom}"),
+        None => nom,
+    };
+    if cible == path {
+        return Ok(0);
+    }
+
+    let comptes = store.accounts_with_folder(path)?;
+    for compte in &comptes {
+        let charge = iris_store::OpPayload::RenameFolder {
+            folder: path.to_string(),
+            target: cible.clone(),
+        };
+        iris_sync::enqueue(store, *compte, &charge, now)?;
+    }
+
+    Ok(comptes.len())
+}
+
+/// Supprime un dossier, **en gardant ce qu'il contient**.
+///
+/// C'est la contrainte qui décide de tout le reste. `DELETE` sur un dossier plein
+/// détruit son contenu sur le serveur ; personne ne s'attend à perdre du courrier en
+/// rangeant ses dossiers. Le courrier est donc déplacé vers la boîte de réception
+/// **avant**, par des opérations enfilées devant la suppression — le journal les rejoue
+/// dans l'ordre par compte, ce qui garantit que le dossier est vide quand son tour
+/// arrive.
+///
+/// Un rôle ne se supprime pas : la corbeille, les indésirables et la boîte de réception
+/// appartiennent au serveur, et les retirer d'ici les ferait revenir à la
+/// synchronisation suivante en donnant l'impression que la suppression a échoué.
+pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<usize> {
+    let comptes = store.accounts_with_folder(path)?;
+
+    for compte in &comptes {
+        let dossiers = store.folders(*compte)?;
+        let Some(source) = dossiers.iter().find(|f| f.path == path) else {
+            continue;
+        };
+        if source.role != iris_store::FolderRole::Other {
+            return Err(Error::Config(
+                "that folder belongs to the server and cannot be removed".into(),
+            ));
+        }
+
+        // Où va le courrier. La boîte de réception : c'est l'endroit d'où il vient et
+        // celui où on ira le rechercher. Le mettre à la corbeille serait interpréter
+        // « je ne veux plus de ce dossier » comme « je ne veux plus de ce courrier ».
+        let Some(refuge) = dossiers
+            .iter()
+            .find(|f| f.role == iris_store::FolderRole::Inbox)
+        else {
+            return Err(Error::Config(
+                "this account has no inbox to move the mail into".into(),
+            ));
+        };
+
+        // Un déplacement par lot de cinquante : une opération par message ferait
+        // autant d'entrées de journal que le dossier a de courrier, et un dossier de
+        // huit cents messages produirait huit cents allers-retours là où seize
+        // suffisent.
+        for lot in store.folder_uids(source.id)?.chunks(50) {
+            let charge = iris_store::OpPayload::Move {
+                folder: path.to_string(),
+                uids: lot.to_vec(),
+                target: refuge.path.clone(),
+            };
+            iris_sync::enqueue(store, *compte, &charge, now)?;
+        }
+
+        let charge = iris_store::OpPayload::DeleteFolder {
+            folder: path.to_string(),
+        };
+        iris_sync::enqueue(store, *compte, &charge, now)?;
+    }
+
+    Ok(comptes.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

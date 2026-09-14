@@ -392,6 +392,24 @@ impl ImapConnection for FakeConnection {
         Ok(())
     }
 
+    async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()> {
+        self.take_error()?;
+        let mut state = self.state.lock().unwrap();
+        if let Some(contenu) = state.folders.remove(from) {
+            state.folders.insert(to.to_string(), contenu);
+        } else {
+            // Absent : soit déjà renommé, soit jamais là. Le but est atteint.
+            state.folders.entry(to.to_string()).or_default();
+        }
+        Ok(())
+    }
+
+    async fn delete_folder(&mut self, path: &str) -> Result<()> {
+        self.take_error()?;
+        self.state.lock().unwrap().folders.remove(path);
+        Ok(())
+    }
+
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()> {
         self.take_error()?;
         let path = self.current()?;

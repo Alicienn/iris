@@ -221,6 +221,27 @@ impl Store {
         })
     }
 
+    /// Les comptes qui ont ce dossier.
+    ///
+    /// Le miroir de la fonction ci-dessous : renommer et supprimer s'adressent à ceux
+    /// qui l'ont, créer à ceux qui ne l'ont pas.
+    pub fn accounts_with_folder(&self, path: &str) -> Result<Vec<AccountId>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT DISTINCT account_id FROM folders WHERE path = ?1 ORDER BY account_id",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+
+            let rows = stmt
+                .query_map(params![path], |r| Ok(AccountId(r.get(0)?)))
+                .map_err(|e| sql_err("comptes ayant le dossier", e))?;
+
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("comptes ayant le dossier", e))
+        })
+    }
+
     /// Les comptes qui n'ont pas encore ce dossier.
     ///
     /// Ce sont ceux à qui il faut le demander. Créer un dossier veut dire le créer

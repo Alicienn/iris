@@ -39,6 +39,11 @@ pub enum Request {
     ClearMarks,
     /// Agir sur le lot coché, ou à défaut sur la ligne courante.
     ApplyToMarked(Action),
+    /// Ranger le lot coché — ou la ligne courante — dans un dossier.
+    ///
+    /// Le glisser-déposer et l'entrée « Déplacer vers » du menu passent tous deux par
+    /// ici : deux gestes, une seule règle sur ce qu'ils atteignent.
+    MoveMarkedToFolder(String),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
@@ -47,6 +52,8 @@ pub enum Request {
     /// l'utilisateur regarde au moment où ils répondent.
     ApplyTo(iris_types::ThreadId, Action),
     Undo,
+    /// Refait ce que la dernière annulation a défait.
+    Redo,
     /// Change les automatismes du flux de travail.
     SetAutomation(AutomationSettings),
     /// Cherche. Une requête vide quitte la recherche.
@@ -238,6 +245,33 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             Ok(true)
         }
         Request::ClearMarks => Ok(vm.clear_marks()),
+        Request::MoveMarkedToFolder(chemin) => {
+            let cibles = vm.selection().targets();
+            if cibles.is_empty() {
+                return Ok(false);
+            }
+
+            let maintenant = Timestamp::from_millis(now_millis());
+            let mut touches = 0;
+            for fil in &cibles {
+                if actions.move_to_folder(*fil, &chemin, maintenant)? {
+                    touches += 1;
+                }
+            }
+            if touches == 0 {
+                return Ok(false);
+            }
+
+            let mut diff = ViewDiff::default();
+            diff.threads.extend(cibles.iter().copied());
+            diff.full_refresh = true;
+            vm.apply_diff(&diff)?;
+
+            let restants: std::collections::BTreeSet<ThreadId> =
+                vm.visible_threads().into_iter().collect();
+            vm.selection_mut().retain_marks(|t| restants.contains(&t));
+            Ok(true)
+        }
         Request::ApplyToMarked(action) => {
             let cibles = vm.selection().targets();
             if cibles.is_empty() {
@@ -273,8 +307,14 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             appliquer(vm, actions, thread, action)
         }
         Request::ApplyTo(thread, action) => appliquer(vm, actions, thread, action),
-        Request::Undo => {
-            let Some(record) = actions.undo(Timestamp::from_millis(now_millis()))? else {
+        Request::Undo | Request::Redo => {
+            let maintenant = Timestamp::from_millis(now_millis());
+            let resultat = if request == Request::Undo {
+                actions.undo(maintenant)?
+            } else {
+                actions.redo(maintenant)?
+            };
+            let Some(record) = resultat else {
                 return Ok(false);
             };
             let mut diff = ViewDiff::default();

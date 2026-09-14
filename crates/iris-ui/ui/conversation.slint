@@ -200,6 +200,13 @@ export component ConversationView inherits VerticalLayout {
     callback mark-done();
     callback toggle-message(int);
 
+    /// Toutes les pièces jointes sont-elles montrées ?
+    ///
+    /// Quatre par défaut. Douze pastilles sur trois rangs mangeraient la moitié du
+    /// volet pour un message qu'on est venu lire ; « +8 » tient sur la même ligne et
+    /// dit exactement ce qui manque.
+    in-out property <bool> attachments-expanded;
+
     if root.empty: Rectangle {
         VerticalLayout {
             alignment: center;
@@ -416,46 +423,142 @@ export component ConversationView inherits VerticalLayout {
             }
         }
 
+        // Le bandeau des pièces jointes.
+        //
+        // Une par pastille, avec son type et sa taille : « devis.pdf » seul ne dit pas
+        // s'il faut l'ouvrir maintenant ou attendre d'être au bureau, et « PDF · 2,4 Mo »
+        // le dit. Un glyphe « ▣ » tenait lieu d'icône ; c'était un carré vide dans la
+        // plupart des polices.
+        //
+        // La rangée **défile horizontalement** au lieu de s'empiler. Douze pièces
+        // jointes sur trois rangs mangeraient la moitié du volet de lecture pour un
+        // message qu'on est venu lire ; sur une rangée qui défile, elles coûtent
+        // toujours la même hauteur.
         if root.message.attachments.length > 0: HorizontalLayout {
+            vertical-stretch: 0;
+            height: 42px;
             spacing: Tokens.space-2;
-            // Une pièce jointe affichée mais qu'on ne peut pas ouvrir est une
-            // promesse à moitié tenue : la pastille est le bouton d'enregistrement.
-            for name[i] in root.message.attachments: Rectangle {
-                height: 24px;
-                border-radius: Tokens.radius-small;
-                background: piece.has-hover ? Tokens.surface-hover : Tokens.surface;
-                border-width: 1px;
-                border-color: Tokens.border;
-                animate background { duration: Tokens.instant; }
 
-                accessible-role: button;
-                accessible-label: "Save " + name;
-                accessible-action-default => { root.save-attachment(i); }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.paperclip;
+                size: 14px;
+                tint: Tokens.text-muted;
+            }
 
-                HorizontalLayout {
-                    padding-left: Tokens.space-2;
-                    padding-right: Tokens.space-2;
-                    spacing: Tokens.space-1;
+            Text {
+                text: root.message.attachments.length;
+                font-size: Tokens.size-small;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+            }
 
-                    Text {
-                        text: piece.has-hover ? "↓" : "▣";
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-muted;
-                        vertical-alignment: center;
+            // Une rangée simple, qui déborde plutôt qu'elle ne défile.
+            //
+            // Un « Flickable » aurait défilé, mais ses enfants ne se laissent pas
+            // atteindre par l'arbre d'accessibilité, et une pastille qu'un lecteur
+            // d'écran ne voit pas est une pastille qui n'existe pas pour la moitié des
+            // gens. Le débordement est borné autrement : au-delà de quatre pièces
+            // jointes, les suivantes sont comptées plutôt que dessinées, et le
+            // décompte ouvre la liste entière.
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: Tokens.space-2;
+
+                for piece[i] in root.message.attachments: Rectangle {
+                    width: (i < 4 || root.attachments-expanded) ? 190px : 0px;
+                    visible: i < 4 || root.attachments-expanded;
+                    border-radius: Tokens.radius-small;
+                    background: piece-touch.has-hover
+                        ? Tokens.surface-hover
+                        : Tokens.surface;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+                    animate background { duration: Tokens.instant; }
+
+                    accessible-role: button;
+                    accessible-label: "Save " + piece.name;
+                    accessible-description: piece.kind + ", " + piece.size;
+                    accessible-action-default => { root.save-attachment(i); }
+
+                    HorizontalLayout {
+                        padding-left: Tokens.space-2;
+                        padding-right: Tokens.space-2;
+                        spacing: Tokens.space-2;
+
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: piece.icon == "image" ? Icons.image
+                                : piece.icon == "archive" ? Icons.archive
+                                : piece.icon == "table" ? Icons.list
+                                : piece.icon == "file-text" ? Icons.quote
+                                : piece.icon == "envelope-closed" ? Icons.envelope-closed
+                                : Icons.paperclip;
+                            size: 16px;
+                            tint: Tokens.text-secondary;
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 1px;
+
+                            Text {
+                                text: piece.name;
+                                font-size: Tokens.size-small;
+                                color: Tokens.text;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: piece.kind + " · " + piece.size;
+                                font-size: 10px;
+                                color: Tokens.text-muted;
+                                overflow: elide;
+                            }
+                        }
+
+                        // Le geste est l'enregistrement : la flèche n'apparaît qu'au
+                        // survol, pour ne pas répéter sur chaque pastille ce qui ne
+                        // concerne que celle qu'on vise.
+                        if piece-touch.has-hover: Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.chevron-down;
+                            size: 13px;
+                            tint: Tokens.text;
+                        }
                     }
+
+                    piece-touch := TouchArea {
+                        clicked => { root.save-attachment(i); }
+                    }
+                }
+
+                if root.message.attachments.length > 4 && !root.attachments-expanded: Rectangle {
+                    width: 78px;
+                    border-radius: Tokens.radius-small;
+                    background: reste.has-hover ? Tokens.surface-hover : transparent;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+
+                    accessible-role: button;
+                    accessible-label: "Show all "
+                        + root.message.attachments.length + " attachments";
+                    accessible-action-default => { root.attachments-expanded = true; }
+
                     Text {
-                        text: name;
+                        text: "+" + (root.message.attachments.length - 4);
                         font-size: Tokens.size-small;
                         color: Tokens.text-secondary;
+                        horizontal-alignment: center;
                         vertical-alignment: center;
+                    }
+                    reste := TouchArea {
+                        clicked => { root.attachments-expanded = true; }
                     }
                 }
 
-                piece := TouchArea {
-                    clicked => { root.save-attachment(i); }
-                }
+                Rectangle {}
             }
-            Rectangle {}
         }
 
         // La réponse est intégrée au bas du fil, jamais dans une fenêtre à part :

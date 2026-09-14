@@ -481,6 +481,42 @@ impl ImapConnection for ImapClient {
         }
     }
 
+    async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()> {
+        let session = self.session()?;
+        match session.rename(from, to).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Déjà renommé — le rejeu repasse — ou la source a disparu sous ce
+                // nom-là. Dans les deux cas le but est atteint et échouer ferait
+                // bloquer la file du compte sur une opération qui n'a plus d'objet.
+                let dit = e.to_string().to_lowercase();
+                if dit.contains("alreadyexists")
+                    || dit.contains("already exists")
+                    || dit.contains("nonexistent")
+                {
+                    Ok(())
+                } else {
+                    Err(protocol_error("renommage du dossier", e))
+                }
+            }
+        }
+    }
+
+    async fn delete_folder(&mut self, path: &str) -> Result<()> {
+        let session = self.session()?;
+        match session.delete(path).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let dit = e.to_string().to_lowercase();
+                if dit.contains("nonexistent") || dit.contains("does not exist") {
+                    Ok(())
+                } else {
+                    Err(protocol_error("suppression du dossier", e))
+                }
+            }
+        }
+    }
+
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()> {
         if uids.is_empty() {
             return Ok(());

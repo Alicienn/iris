@@ -50,6 +50,17 @@ export struct MessageBlockData {
     link: string,
 }
 
+// Une pièce jointe, telle que le bandeau la montre.
+export struct AttachmentData {
+    name: string,
+    // La taille, déjà mise en forme : « 1,2 Mo ».
+    size: string,
+    // Le type, réduit à un mot : « PDF », « Image », « Feuille de calcul ».
+    kind: string,
+    // Le dessin qui va avec le type.
+    icon: string,
+}
+
 export struct MessageData {
     // Corps rendu par le moteur HTML complet, quand la mise en page l'exige. Les
     // blocs restent renseignes : ils servent de repli et d'ancrage a
@@ -64,7 +75,7 @@ export struct MessageData {
     blocks: [MessageBlockData],
     blocked-images: int,
     has-tracker: bool,
-    attachments: [string],
+    attachments: [AttachmentData],
     // L'identifiant du message, pour le déplier ou le replier.
     id: int,
     // Le corps est-il rendu ?

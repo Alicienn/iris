@@ -6,7 +6,9 @@
 //! décision.
 
 use crate::format::{account_tint, display_subject, grouped_count, relative_date, short_count};
-use crate::{AccountRowData, CommandData, MessageBlockData, MessageData, ThreadRowData};
+use crate::{
+    AccountRowData, AttachmentData, CommandData, MessageBlockData, MessageData, ThreadRowData,
+};
 use iris_htmlview::Rendered;
 use iris_htmlview::{Block, RichText};
 use iris_store::{Account, StoredMessage, ThreadRow};
@@ -178,7 +180,7 @@ pub fn body_image(width: u32, height: u32, rgba: &[u8]) -> Option<Image> {
 pub fn message_view_rendered(
     message: &StoredMessage,
     rendered: &Rendered,
-    attachments: &[String],
+    attachments: &[AttachmentData],
     now: Timestamp,
 ) -> MessageData {
     match rendered {
@@ -202,7 +204,7 @@ pub fn message_view_rendered(
 pub fn message_view(
     message: &StoredMessage,
     body: &RichText,
-    attachments: &[String],
+    attachments: &[AttachmentData],
     now: Timestamp,
 ) -> MessageData {
     MessageData {
@@ -221,12 +223,7 @@ pub fn message_view(
         blocks: ModelRc::new(VecModel::from(message_blocks(body))),
         blocked_images: body.blocked_images as i32,
         has_tracker: message.flags.contains(Flags::HAS_TRACKER),
-        attachments: ModelRc::new(VecModel::from(
-            attachments
-                .iter()
-                .map(SharedString::from)
-                .collect::<Vec<_>>(),
-        )),
+        attachments: ModelRc::new(VecModel::from(attachments.to_vec())),
         id: message.id.get() as i32,
         // Déplié par défaut : cette fonction n'est appelée que pour un message dont on
         // veut le corps. Les messages repliés passent par `message_header`, qui ne
@@ -258,7 +255,7 @@ pub fn message_header(message: &StoredMessage, now: Timestamp) -> MessageData {
         blocks: ModelRc::new(VecModel::from(Vec::<MessageBlockData>::new())),
         blocked_images: 0,
         has_tracker: message.flags.contains(Flags::HAS_TRACKER),
-        attachments: ModelRc::new(VecModel::from(Vec::<SharedString>::new())),
+        attachments: ModelRc::new(VecModel::from(Vec::<AttachmentData>::new())),
         id: message.id.get() as i32,
         expanded: false,
         preview: message.preview.as_str().into(),
@@ -520,7 +517,12 @@ mod tests {
         let vue = message_view(
             &message,
             &RichText::default(),
-            &["devis.pdf".to_string()],
+            &[AttachmentData {
+                name: "devis.pdf".into(),
+                size: "2,4 Mo".into(),
+                kind: "PDF".into(),
+                icon: "file-text".into(),
+            }],
             now(),
         );
 

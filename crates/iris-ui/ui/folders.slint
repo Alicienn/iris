@@ -2,6 +2,7 @@ import { Tokens } from "tokens.slint";
 import { FolderNodeData } from "types.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 // Une ligne de l'arborescence.
@@ -15,6 +16,8 @@ component FolderRow inherits Rectangle {
     in property <int> accounts-total;
 
     callback clicked();
+    callback dropped();
+    callback context-menu(length, length);
 
     // Un dossier de courrier se reconnaît à sa forme avant de se lire. Ceux que
     // l'utilisateur crée n'ont pas de rôle et prennent l'icône ordinaire.
@@ -29,10 +32,27 @@ component FolderRow inherits Rectangle {
 
     height: 24px;
     border-radius: Tokens.radius-small;
-    background: root.selected
-        ? Tokens.surface-active
-        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    // Le survol d'un glisser se marque plus fort qu'un survol de souris : c'est le
+    // moment où l'utilisateur doit être certain de l'endroit où il lâche, et une
+    // nuance de gris de plus ne suffirait pas à le lui dire.
+    background: depot.has-drag
+        ? Tokens.accent.transparentize(0.75)
+        : (root.selected
+            ? Tokens.surface-active
+            : (touch.has-hover ? Tokens.surface-hover : transparent));
+    border-width: depot.has-drag ? 1px : 0px;
+    border-color: Tokens.accent;
     animate background { duration: Tokens.instant; }
+
+    depot := DropArea {
+        can-drop(event) => {
+            return DragAction.move;
+        }
+        dropped(event) => {
+            root.dropped();
+            return DragAction.move;
+        }
+    }
 
     accessible-role: list-item;
     accessible-label: root.node.name;
@@ -97,6 +117,16 @@ component FolderRow inherits Rectangle {
     }
 
     touch := TouchArea {
+        // Clic droit : renommer, supprimer. Les mêmes coordonnées absolues que
+        // partout ailleurs, pour la même raison.
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right
+                && event.kind == PointerEventKind.down) {
+                root.context-menu(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
         clicked => { root.clicked(); }
     }
 }
@@ -110,6 +140,8 @@ export component FolderTree inherits VerticalLayout {
     callback folder-selected(string);
     callback all-selected();
     callback new-folder();
+    callback folder-dropped(string);
+    callback folder-menu(string, length, length);
 
     spacing: 1px;
 
@@ -188,6 +220,8 @@ export component FolderTree inherits VerticalLayout {
             accounts-total: root.accounts-total;
             selected: node.path == root.selected-path;
             clicked => { root.folder-selected(node.path); }
+            dropped => { root.folder-dropped(node.path); }
+            context-menu(mx, my) => { root.folder-menu(node.path, mx, my); }
         }
     }
 }
@@ -300,6 +334,185 @@ export component NewFolderPanel inherits Rectangle {
 
                     TouchArea {
                         clicked => { root.create(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Le menu qu'un clic droit sur un dossier ouvre.
+//
+// Deux actions, et seulement sur les dossiers que quelqu'un a créés. La corbeille,
+// les indésirables et la boîte de réception appartiennent au serveur : les proposer à
+// la suppression offrirait un geste qui échouerait, ou pire, réussirait localement et
+// les ferait revenir à la synchronisation suivante.
+export component FolderContextMenu inherits Rectangle {
+    in property <string> folder;
+    in property <bool> permanent;
+    in property <length> menu-x;
+    in property <length> menu-y;
+
+    callback rename();
+    callback remove();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 220px;
+        menu-height: entries.preferred-height + 8px;
+
+        entries := VerticalLayout {
+            padding: 4px;
+
+            HorizontalLayout {
+                padding-left: Tokens.space-2;
+                padding-right: Tokens.space-2;
+                height: 22px;
+                Text {
+                    text: root.folder;
+                    font-size: 9px;
+                    letter-spacing: 0.5px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            MenuSeparator {}
+
+            if root.permanent: HorizontalLayout {
+                padding-left: Tokens.space-2;
+                padding-right: Tokens.space-2;
+                height: 26px;
+                Text {
+                    text: "The server owns this folder.";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+
+            if !root.permanent: MenuEntry {
+                icon: Icons.pencil;
+                label: "Rename…";
+                activated => { root.rename(); root.dismissed(); }
+            }
+
+            if !root.permanent: MenuEntry {
+                icon: Icons.trash;
+                label: "Delete folder…";
+                danger: true;
+                activated => { root.remove(); root.dismissed(); }
+            }
+        }
+    }
+}
+
+// Renommer un dossier.
+export component RenameFolderPanel inherits Rectangle {
+    in property <string> current;
+    in property <string> error;
+    in-out property <string> name;
+
+    callback rename();
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(420px, parent.width - 80px);
+        height: 200px;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 26px;
+                Text {
+                    text: "Rename folder";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Rectangle {}
+                IconButton {
+                    icon: Icons.window-close;
+                    label: "Cancel";
+                    button-size: 24px;
+                    icon-size: 13px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            LineEdit {
+                accessible-label: "New folder name";
+                font-size: Tokens.size-body;
+                text <=> root.name;
+                accepted => { root.rename(); }
+            }
+
+            Text {
+                text: "Renamed on every mailbox that has it. The mail stays inside.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                wrap: word-wrap;
+            }
+
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+
+            Rectangle {}
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 28px;
+                Rectangle {}
+                Rectangle {
+                    width: 110px;
+                    border-radius: Tokens.radius-small;
+                    background: Tokens.accent;
+
+                    accessible-role: button;
+                    accessible-label: "Rename the folder";
+                    accessible-action-default => { root.rename(); }
+
+                    Text {
+                        text: "Rename";
+                        font-size: Tokens.size-small;
+                        font-weight: Tokens.weight-bold;
+                        color: Tokens.accent-text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.rename(); }
                     }
                 }
             }

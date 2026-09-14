@@ -297,6 +297,17 @@ pub trait ImapConnection: Send + std::fmt::Debug {
     /// journal. C'est l'idempotence qu'exige le rejeu.
     async fn create_folder(&mut self, path: &str) -> Result<()>;
 
+    /// Renomme un dossier. Réussir quand la cible porte déjà ce nom.
+    async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()>;
+
+    /// Supprime un dossier, **sans toucher à ce qu'il contient**.
+    ///
+    /// Le courrier est déplacé ailleurs avant l'appel, par l'appelant : `DELETE` sur
+    /// un dossier plein détruit son contenu sur le serveur, et personne ne s'attend à
+    /// perdre du courrier en rangeant ses dossiers. Réussir quand il n'existe déjà
+    /// plus, comme la création.
+    async fn delete_folder(&mut self, path: &str) -> Result<()>;
+
     /// Dépose un message dans un dossier.
     ///
     /// Sert à conserver ce qu'on envoie : sans cela, un message parti depuis Iris

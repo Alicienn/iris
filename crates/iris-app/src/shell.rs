@@ -15,7 +15,7 @@ use iris_types::{ThreadId, WorkflowState};
 use iris_ui::bridge;
 use iris_ui::commands::{self, CommandKind};
 use iris_ui::keymap::{KeyOutcome, Keymap};
-use iris_ui::{AppWindow, FolderNodeData, PluginSettingData, Tokens};
+use iris_ui::{AppWindow, AttachmentData, FolderNodeData, PluginSettingData, Tokens};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -460,6 +460,17 @@ pub fn wire_callbacks(
         });
     }
 
+    // Annuler et rétablir. Un « Ctrl+Z » classique : il défait la dernière action de
+    // triage, et un second l'action d'avant.
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_undo(move || c.send(Request::Undo));
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_redo(move || c.send(Request::Redo));
+    }
+
     {
         let c = Arc::clone(&controller);
         fenetre.on_account_selected(move |id| {
@@ -740,17 +751,12 @@ pub fn remplir_conversation(
 
             let montrer = images_shown().contains(&message.id.get());
             let corps = corps_du_message(services, renderer, message, montrer);
-            // Les pièces incrustées sont écartées : une image de signature n'est pas
-            // un document reçu, et la lister ferait chercher un fichier qui n'existe
-            // pas.
-            let pieces: Vec<String> = services
-                .store
-                .visible_attachments(message.id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|p| p.meta.filename)
-                .collect();
-            bridge::message_view_rendered(message, &corps, &pieces, maintenant)
+            bridge::message_view_rendered(
+                message,
+                &corps,
+                &pieces_jointes(services, message.id),
+                maintenant,
+            )
         })
         .collect();
 
@@ -761,6 +767,32 @@ pub fn remplir_conversation(
         fenetre.set_message(vue.clone());
     }
     fenetre.set_messages(ModelRc::new(VecModel::from(vues)));
+}
+
+/// Les pièces jointes d'un message, prêtes pour le bandeau.
+///
+/// Les pièces incrustées sont écartées : une image de signature n'est pas un document
+/// reçu, et la lister ferait chercher un fichier qui n'existe pas.
+///
+/// Le type et la taille accompagnent le nom. « devis.pdf » seul ne dit pas s'il faut
+/// l'ouvrir maintenant ou attendre d'être au bureau ; « PDF · 2,4 Mo » le dit.
+fn pieces_jointes(services: &Services, message: iris_types::MessageId) -> Vec<AttachmentData> {
+    services
+        .store
+        .visible_attachments(message)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| {
+            let (genre, icone) =
+                iris_ui::format::attachment_kind(&p.meta.filename, &p.meta.mime_type);
+            AttachmentData {
+                name: p.meta.filename.as_str().into(),
+                size: iris_ui::format::human_size(p.meta.size).into(),
+                kind: genre.into(),
+                icon: icone.into(),
+            }
+        })
+        .collect()
 }
 
 /// Les messages que le lecteur a dépliés.
@@ -861,23 +893,9 @@ pub fn wire_remote_images(
 
         images_shown().insert(message.id.get());
 
-        // Redrawn here rather than through the view-model: nothing about the thread
-        // has changed, only what we are willing to render of it, and asking the
-        // view-model for a fresh snapshot would rebuild a list to repaint one panel.
-        let corps = corps_du_message(&services, renderer.as_ref(), message, true);
-        let pieces: Vec<String> = services
-            .store
-            .visible_attachments(message.id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.meta.filename)
-            .collect();
-        fenetre.set_message(bridge::message_view_rendered(
-            message,
-            &corps,
-            &pieces,
-            now(),
-        ));
+        // Redessiné par le même chemin que l'affichage initial : rien du fil n'a
+        // changé, seulement ce qu'on accepte d'en rendre.
+        remplir_conversation(&fenetre, &services, renderer.as_ref(), &messages, now());
     });
 }
 
@@ -2110,6 +2128,28 @@ pub fn scope_depuis(choix: &str) -> iris_store::Scope {
     }
 }
 
+/// Le chemin que le serveur connaît, depuis le nom que l'arborescence affiche.
+///
+/// L'arborescence montre « Devis » là où le serveur a `INBOX.Devis` : le préfixe est
+/// une vérité de protocole qu'on n'affiche pas. La retrouver ici plutôt que la
+/// transporter dans l'interface garde une seule source — le magasin — pour ce que les
+/// dossiers s'appellent vraiment.
+fn chemin_reel(services: &Services, affiche: &str) -> Option<String> {
+    services
+        .store
+        .unified_folders()
+        .ok()?
+        .into_iter()
+        .find(|f| {
+            f.role == iris_store::FolderRole::Other
+                && f.path
+                    .rsplit(['.', '/'])
+                    .next()
+                    .is_some_and(|dernier| dernier == affiche)
+        })
+        .map(|f| f.path)
+}
+
 /// Wires the folder tree and the folder-creation panel.
 ///
 /// Créer un dossier le crée **partout**. C'est le choix central de tout ce module :
@@ -2128,6 +2168,165 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
         let controller = Arc::clone(&controller);
         fenetre.on_folder_cleared(move || {
             controller.send(Request::ShowScope(iris_store::Scope::Queue))
+        });
+    }
+
+    // --- Glisser un message dans un dossier ---
+    //
+    // Ce qui est déplacé, c'est le lot coché ou la ligne courante : la même règle que
+    // pour toutes les autres actions. Le glisser ne transporte rien, il désigne une
+    // cible ; l'application sait déjà ce qu'elle tient.
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_row_drag_started(move |id| {
+            // Empoigner une ligne hors du lot la sélectionne : lâcher un message qu'on
+            // vient de traîner pour en déplacer trois autres serait un piège.
+            controller.send(Request::SelectThread(iris_types::ThreadId(id as i64)));
+        });
+    }
+
+    // La charge du glisser.
+    //
+    // Slint refuse de démarrer un glisser dont `data` n'est pas posée, et le dit à la
+    // compilation. Elle porte donc un texte — ce que le glisser signifie — plutôt que
+    // les identifiants : la cible est déjà connue de l'application, et la faire voyager
+    // en double ouvrirait un second chemin par lequel une action peut se tromper.
+    //
+    // Le texte a une utilité propre : sur les systèmes qui l'acceptent, lâcher hors de
+    // la fenêtre dépose cette phrase, ce qui vaut mieux que de ne rien déposer.
+    {
+        let mut charge = slint::DataTransfer::default();
+        charge.set_plain_text("Iris — conversation".into());
+        fenetre.set_drag_payload(charge);
+    }
+    {
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_dropped(move |choix| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // On ne range que dans un vrai dossier. Lâcher sur « Spam » ou « Corbeille »
+            // veut dire autre chose — marquer indésirable, jeter — et confondre les
+            // deux ferait d'un geste de rangement une suppression.
+            match scope_depuis(choix.as_str()) {
+                iris_store::Scope::Path(chemin) => {
+                    controller.send(Request::MoveMarkedToFolder(chemin));
+                }
+                iris_store::Scope::Role(iris_store::FolderRole::Trash) => {
+                    controller.send(Request::ApplyToMarked(iris_viewmodel::Action::Delete));
+                }
+                iris_store::Scope::Role(iris_store::FolderRole::Archive) => {
+                    controller.send(Request::ApplyToMarked(iris_viewmodel::Action::Archive));
+                }
+                _ => fenetre.set_status("That folder cannot take dropped mail.".into()),
+            }
+        });
+    }
+
+    // --- Renommer, supprimer ---
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_menu_requested(move |chemin| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let permanent = chemin.starts_with("role:");
+            let nom = crate::folders::scope_name(&scope_depuis(chemin.as_str()));
+
+            fenetre.set_folder_menu_path(nom.as_str().into());
+            fenetre.set_folder_menu_permanent(permanent);
+            fenetre.set_folder_menu_open(true);
+            let _ = &services;
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_menu_dismissed(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_folder_menu_open(false);
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_rename_requested(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_folder_menu_open(false);
+                fenetre.set_rename_folder_current(fenetre.get_folder_menu_path());
+                fenetre.set_rename_folder_name(fenetre.get_folder_menu_path());
+                fenetre.set_rename_folder_error(Default::default());
+                fenetre.set_rename_folder_open(true);
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_rename_dismissed(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_rename_folder_open(false);
+            }
+        });
+    }
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_rename_confirmed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // Le chemin réel, pas le nom affiché : l'arborescence montre « Devis » là
+            // où le serveur connaît « INBOX.Devis ».
+            let Some(chemin) = chemin_reel(&services, fenetre.get_folder_menu_path().as_str())
+            else {
+                fenetre.set_rename_folder_error("That folder no longer exists.".into());
+                return;
+            };
+
+            match crate::folders::rename_everywhere(
+                &services.store,
+                &chemin,
+                fenetre.get_rename_folder_name().as_str(),
+                now(),
+            ) {
+                Ok(0) => fenetre.set_rename_folder_error("It already has that name.".into()),
+                Ok(n) => {
+                    fenetre.set_rename_folder_open(false);
+                    fenetre.set_status(format!("Renaming on {n} mailbox(es)…").into());
+                }
+                Err(e) => fenetre.set_rename_folder_error(e.to_string().into()),
+            }
+        });
+    }
+    {
+        let services = services.clone();
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_delete_requested(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_folder_menu_open(false);
+
+            let Some(chemin) = chemin_reel(&services, fenetre.get_folder_menu_path().as_str())
+            else {
+                return;
+            };
+
+            match crate::folders::delete_everywhere(&services.store, &chemin, now()) {
+                Ok(n) => {
+                    // La vue revenait sur un dossier qui n'existe plus : elle repart
+                    // sur la boîte de réception.
+                    controller.send(Request::ShowScope(iris_viewmodel::depart()));
+                    fenetre.set_status(
+                        format!("Folder removed on {n} mailbox(es) — the mail moved to the inbox.")
+                            .into(),
+                    );
+                    refresh_folders(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_status(format!("Could not remove it: {e}").into()),
+            }
         });
     }
 
@@ -2160,11 +2359,25 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             };
 
             let nom = fenetre.get_new_folder_name().to_string();
+
             // Le dossier choisi devient le parent : créer « 2026 » alors qu'on regarde
-            // « Devis » veut dire « Devis.2026 », qui est ce qu'on attend d'un bouton
+            // « Devis » veut dire « Devis.2026 », ce qu'on attend d'un bouton
             // « nouveau dossier » pressé depuis un dossier.
-            let parent = fenetre.get_selected_folder().to_string();
-            let parent = (!parent.is_empty()).then_some(parent);
+            //
+            // Un **rôle** n'est pas un parent. La corbeille et les indésirables sont
+            // imposés par le serveur ; y créer une sous-branche donnerait un dossier
+            // dans la poubelle. La sélection est donc lue par le même analyseur que
+            // partout ailleurs, et seul un vrai chemin devient un parent.
+            let parent = match scope_depuis(fenetre.get_selected_folder().as_str()) {
+                iris_store::Scope::Path(chemin) => Some(chemin),
+                _ => None,
+            };
+
+            let ferme = |fenetre: &AppWindow| {
+                fenetre.set_new_folder_open(false);
+                fenetre.set_new_folder_name(Default::default());
+                fenetre.set_new_folder_error(Default::default());
+            };
 
             match crate::folders::create_everywhere(
                 &services.store,
@@ -2172,19 +2385,21 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                 &nom,
                 now(),
             ) {
-                // Zéro compte à prévenir veut dire qu'il est déjà partout, ce qui est
-                // l'état recherché — mais silence sur un bouton pressé serait pris
-                // pour une panne, alors on le dit.
+                // Zéro compte à prévenir veut dire qu'il existe déjà partout : le but
+                // est atteint. Garder la fenêtre ouverte sur une erreur punirait
+                // l'utilisateur d'avoir demandé quelque chose qui était déjà fait.
                 Ok(0) => {
-                    fenetre.set_new_folder_error("That folder already exists everywhere.".into());
+                    ferme(&fenetre);
+                    fenetre.set_status("That folder already exists everywhere.".into());
                 }
                 Ok(n) => {
-                    fenetre.set_new_folder_open(false);
-                    fenetre.set_status(
-                        format!("Creating the folder on {n} mailbox(es)…").into(),
-                    );
+                    ferme(&fenetre);
+                    fenetre
+                        .set_status(format!("Creating the folder on {n} mailbox(es)…").into());
                     refresh_folders(&fenetre, &services);
                 }
+                // Seul un nom refusé garde la fenêtre : c'est le seul cas où il reste
+                // quelque chose à corriger sur place.
                 Err(e) => fenetre.set_new_folder_error(e.to_string().into()),
             }
         });

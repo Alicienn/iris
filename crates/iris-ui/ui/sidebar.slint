@@ -119,7 +119,12 @@ component AccountRow inherits Rectangle {
         pointer-event(event) => {
             if (event.button == PointerEventButton.right
                 && event.kind == PointerEventKind.down) {
-                root.context-menu(self.mouse-x + root.x, self.mouse-y + root.y);
+                // Absolue, comme pour les lignes de messages : la liste des comptes
+                // est virtualisée elle aussi, et `root.y` y désigne une position dans
+                // le viewport, pas à l'écran.
+                root.context-menu(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
             }
         }
         clicked => { root.clicked(); }
@@ -155,6 +160,8 @@ export component Sidebar inherits Glass {
     callback sync-account(int);
     callback sync-all();
     callback open-settings();
+    callback open-modules();
+    callback open-plugin-browser();
     callback account-menu(int, length, length);
 
     radius: 0px;
@@ -236,7 +243,7 @@ export component Sidebar inherits Glass {
             clicked => { root.account-selected(account.id); }
             resume => { root.resume-account(account.id); }
             sync => { root.sync-account(account.id); }
-            context-menu(mx, my) => { root.account-menu(account.id, mx, my + self.y); }
+            context-menu(mx, my) => { root.account-menu(account.id, mx, my); }
         }
 
         if !root.collapsed && root.others.length > 0: SectionLabel { text: "ACCOUNTS"; }
@@ -252,7 +259,7 @@ export component Sidebar inherits Glass {
                 clicked => { root.account-selected(account.id); }
                 resume => { root.resume-account(account.id); }
                 sync => { root.sync-account(account.id); }
-                context-menu(mx, my) => { root.account-menu(account.id, mx, my + parent.y); }
+                context-menu(mx, my) => { root.account-menu(account.id, mx, my); }
             }
         }
 
@@ -291,6 +298,27 @@ export component Sidebar inherits Glass {
             }
 
             Rectangle {}
+
+            // Les modules et leur catalogue, à côté des réglages.
+            //
+            // Le navigateur de modules n'était atteignable que depuis l'écran des
+            // modules, lui-même atteignable par la palette de commandes — c'est-à-dire
+            // par un raccourci qu'il faut connaître pour découvrir une fonction faite
+            // pour la découverte. Deux boutons de plus valent mieux qu'une porte
+            // cachée derrière une autre porte.
+            IconButton {
+                icon: Icons.puzzle;
+                label: "Modules — rules and plugins";
+                button-size: 24px;
+                clicked => { root.open-modules(); }
+            }
+
+            IconButton {
+                icon: Icons.store;
+                label: "Add modules";
+                button-size: 24px;
+                clicked => { root.open-plugin-browser(); }
+            }
 
             IconButton {
                 icon: Icons.gear;

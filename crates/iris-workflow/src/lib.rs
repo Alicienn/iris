@@ -57,6 +57,27 @@ pub struct Applied {
     pub outcome: Option<TransitionOutcome>,
 }
 
+/// Où un déplacement envoie le courrier.
+///
+/// Deux façons de nommer un dossier, et la distinction compte. Un **rôle** est le même
+/// sur tous les serveurs et doit exister : archiver sans dossier d'archives est une
+/// erreur qu'il faut dire. Un **chemin** est un dossier que quelqu'un a créé, et un
+/// compte qui ne l'a pas est simplement un compte qui ne l'a pas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Destination<'a> {
+    Role(iris_store::FolderRole),
+    Path(&'a str),
+}
+
+impl Destination<'_> {
+    fn describe(&self) -> &str {
+        match self {
+            Self::Role(role) => role.as_str(),
+            Self::Path(chemin) => chemin,
+        }
+    }
+}
+
 /// The workflow engine.
 #[derive(Debug)]
 pub struct Workflow {
@@ -64,6 +85,12 @@ pub struct Workflow {
     bus: EventBus,
     settings: RwLock<AutomationSettings>,
     undo: Mutex<Vec<UndoEntry>>,
+    /// Ce qu'une annulation a défait, pour pouvoir le refaire.
+    ///
+    /// La pile est **vidée par toute nouvelle action**, comme partout ailleurs :
+    /// rétablir après avoir fait autre chose entre-temps rejouerait une action dans un
+    /// monde qui a changé sous elle, et le résultat ne serait celui qu'attend personne.
+    redo: Mutex<Vec<UndoEntry>>,
 }
 
 impl Workflow {
@@ -73,6 +100,7 @@ impl Workflow {
             bus,
             settings: RwLock::new(settings),
             undo: Mutex::new(Vec::new()),
+            redo: Mutex::new(Vec::new()),
         }
     }
 
@@ -265,7 +293,7 @@ impl Workflow {
     pub fn archive(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
         self.move_thread(
             thread,
-            iris_store::FolderRole::Archive,
+            Destination::Role(iris_store::FolderRole::Archive),
             OpKind::MoveMessage,
             now,
         )
@@ -279,17 +307,31 @@ impl Workflow {
     pub fn delete(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
         self.move_thread(
             thread,
-            iris_store::FolderRole::Trash,
+            Destination::Role(iris_store::FolderRole::Trash),
             OpKind::DeleteMessage,
             now,
         )
+    }
+
+    /// Range un fil dans un dossier nommé.
+    ///
+    /// Le glisser-déposer, et l'entrée « Déplacer vers » du menu. Le dossier est
+    /// désigné par son nom unifié : le fil peut porter des messages sur plusieurs
+    /// boîtes, et chacune range dans **son** dossier de ce nom. C'est ce que veut dire
+    /// « un dossier est un nom, pas un endroit », appliqué au geste plutôt qu'à
+    /// l'arborescence.
+    ///
+    /// Un compte qui n'a pas ce dossier voit ses messages rester où ils sont. Refuser
+    /// le déplacement entier pour une boîte qui manque à l'appel punirait les autres.
+    pub fn move_to_folder(&self, thread: ThreadId, path: &str, now: Timestamp) -> Result<bool> {
+        self.move_thread(thread, Destination::Path(path), OpKind::MoveMessage, now)
     }
 
     /// The shared part of archiving and deleting.
     fn move_thread(
         &self,
         thread: ThreadId,
-        role: iris_store::FolderRole,
+        destination: Destination<'_>,
         kind: OpKind,
         now: Timestamp,
     ) -> Result<bool> {
@@ -312,17 +354,25 @@ impl Workflow {
         }
 
         for (account, items) in per_account {
-            let Some(target) = self
-                .store
-                .folders(account)?
-                .into_iter()
-                .find(|f| f.role == role)
-            else {
+            let dossiers = self.store.folders(account)?;
+            let trouve = match destination {
+                Destination::Role(role) => dossiers.into_iter().find(|f| f.role == role),
+                // Un compte sans ce dossier est ignoré, pas fatal : le fil est peut-être
+                // à cheval sur deux boîtes dont une seule a « Devis ».
+                Destination::Path(chemin) => {
+                    match dossiers.into_iter().find(|f| f.path == chemin) {
+                        Some(f) => Some(f),
+                        None => continue,
+                    }
+                }
+            };
+
+            let Some(target) = trouve else {
                 // No such folder on this server: say so rather than pretend. Silently
                 // marking the thread done would lose the mail on the next sync.
                 return Err(Error::Config(format!(
                     "this account has no {} folder",
-                    role.as_str()
+                    destination.describe()
                 )));
             };
 
@@ -403,11 +453,46 @@ impl Workflow {
         let Some(entry) = self.pop_undo() else {
             return Ok(None);
         };
+        self.restore(entry, now, true)
+    }
 
+    /// Refait ce que la dernière annulation a défait.
+    ///
+    /// Exactement la même mécanique, dans l'autre sens. Une entrée décrit « remets le
+    /// fil dans cet état » : annuler et rétablir sont la même opération, appliquée à
+    /// des instantanés pris à deux moments. Écrire deux implémentations en ferait deux
+    /// choses qui finiraient par ne plus se répondre.
+    pub fn redo(&self, now: Timestamp) -> Result<Option<UndoEntry>> {
+        let Some(entry) = self.redo.lock().ok().and_then(|mut r| r.pop()) else {
+            return Ok(None);
+        };
+        self.restore(entry, now, false)
+    }
+
+    pub fn redo_depth(&self) -> usize {
+        self.redo.lock().map(|r| r.len()).unwrap_or(0)
+    }
+
+    /// Remet un fil dans l'état décrit, et empile l'inverse.
+    ///
+    /// `vers_redo` dit dans quelle pile va l'instantané de l'état courant : annuler
+    /// alimente la pile de rétablissement, rétablir alimente celle d'annulation. C'est
+    /// la seule différence entre les deux.
+    fn restore(
+        &self,
+        entry: UndoEntry,
+        now: Timestamp,
+        vers_redo: bool,
+    ) -> Result<Option<UndoEntry>> {
         // The thread may be gone by now, in which case there is nothing to restore.
         let Some(current) = self.store.thread_row(entry.thread)? else {
             return Ok(None);
         };
+
+        // L'état d'avant, capturé avant d'écrire : c'est ce que le geste inverse
+        // rejouera. Le prendre après restaurerait ce qu'on vient d'installer.
+        let inverse = self.snapshot(entry.thread, now, !entry.flags.is_empty())?;
+        self.push(if vers_redo { &self.redo } else { &self.undo }, inverse);
 
         if current.state != entry.state {
             self.store.set_thread_state(entry.thread, entry.state)?;
@@ -565,7 +650,17 @@ impl Workflow {
     }
 
     fn record_undo(&self, entry: UndoEntry) {
-        if let Ok(mut stack) = self.undo.lock() {
+        // Une nouvelle action ferme l'avenir qu'un rétablissement aurait rejoué.
+        // Refaire après avoir fait autre chose appliquerait une action dans un monde
+        // qui a changé sous elle.
+        if let Ok(mut redo) = self.redo.lock() {
+            redo.clear();
+        }
+        self.push(&self.undo, entry);
+    }
+
+    fn push(&self, pile: &Mutex<Vec<UndoEntry>>, entry: UndoEntry) {
+        if let Ok(mut stack) = pile.lock() {
             if stack.len() == UNDO_DEPTH {
                 stack.remove(0);
             }
@@ -764,6 +859,73 @@ mod tests {
         assert_eq!(f.state(thread), WorkflowState::Waiting);
         f.workflow.undo(t(4)).unwrap();
         assert_eq!(f.state(thread), WorkflowState::Todo);
+    }
+
+    #[test]
+    fn redo_puts_back_what_undo_took_away() {
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Done);
+
+        f.workflow.undo(t(2)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Todo);
+
+        f.workflow.redo(t(3)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Done);
+    }
+
+    #[test]
+    fn redo_on_an_empty_stack_is_not_an_error() {
+        let f = fixture();
+        assert!(f.workflow.redo(t(1)).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_new_action_closes_the_future_redo_would_have_replayed() {
+        // Rétablir après avoir fait autre chose rejouerait une action dans un monde
+        // qui a changé sous elle, et le résultat n'est celui qu'attend personne.
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+        f.workflow.undo(t(2)).unwrap();
+        assert_eq!(f.workflow.redo_depth(), 1);
+
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(3))
+            .unwrap();
+        assert_eq!(f.workflow.redo_depth(), 0);
+        assert!(f.workflow.redo(t(4)).unwrap().is_none());
+        assert_eq!(f.state(thread), WorkflowState::Waiting);
+    }
+
+    #[test]
+    fn undo_and_redo_walk_the_same_history_both_ways() {
+        let f = fixture();
+        let thread = f.thread();
+
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(1))
+            .unwrap();
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(2))
+            .unwrap();
+
+        f.workflow.undo(t(3)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Waiting);
+        f.workflow.undo(t(4)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Todo);
+
+        f.workflow.redo(t(5)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Waiting);
+        f.workflow.redo(t(6)).unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Done);
     }
 
     #[test]

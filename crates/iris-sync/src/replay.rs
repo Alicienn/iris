@@ -110,6 +110,8 @@ async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> 
             conn.store_flags(uids, Flags::DELETED, true).await
         }
         OpPayload::CreateFolder { folder } => conn.create_folder(folder).await,
+        OpPayload::RenameFolder { folder, target } => conn.rename_folder(folder, target).await,
+        OpPayload::DeleteFolder { folder } => conn.delete_folder(folder).await,
     }
 }
 

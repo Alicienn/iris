@@ -70,19 +70,33 @@ impl ViewUpdate {
     }
 }
 
+/// Ce que la colonne du milieu montre à l'ouverture.
+///
+/// La boîte de réception, pas « tous les dossiers ». C'est ce qu'un client de courrier
+/// montre en s'ouvrant, et c'est la conséquence directe d'avoir des dossiers : ranger
+/// un message dans « Devis » doit le faire **quitter** la boîte de réception, sinon
+/// ranger ne range rien. « Tous les dossiers » reste à une ligne de là, pour les
+/// moments où l'on cherche sans savoir où.
+pub fn depart() -> iris_store::Scope {
+    iris_store::Scope::Role(iris_store::FolderRole::Inbox)
+}
+
 impl ViewModel {
     pub fn new(store: Arc<Store>, now: Timestamp) -> Self {
         Self {
             store,
+            // Les trois listes partent de la même portée que le vue-modèle. Les
+            // laisser sur « tout » ferait afficher, au premier dessin, une liste que
+            // l'arborescence ne désigne pas.
             lists: [
-                ThreadList::new(WorkflowState::Todo, now),
-                ThreadList::new(WorkflowState::Waiting, now),
-                ThreadList::new(WorkflowState::Done, now),
+                ThreadList::new(WorkflowState::Todo, now).in_scope(depart()),
+                ThreadList::new(WorkflowState::Waiting, now).in_scope(depart()),
+                ThreadList::new(WorkflowState::Done, now).in_scope(depart()),
             ],
             active_tab: WorkflowState::Todo,
             selection: Selection::default(),
             accounts: Vec::new(),
-            scope: iris_store::Scope::Queue,
+            scope: depart(),
             counts: [0; 3],
             now,
             index: None,

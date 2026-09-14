@@ -46,6 +46,20 @@ pub enum OpPayload {
     CreateFolder {
         folder: String,
     },
+    /// Renommer un dossier sur ce compte.
+    RenameFolder {
+        folder: String,
+        target: String,
+    },
+    /// Supprimer un dossier sur ce compte.
+    ///
+    /// **Vide.** Ce que le dossier contenait a été déplacé avant, par des opérations
+    /// de déplacement enfilées devant celle-ci : `DELETE` sur un dossier plein détruit
+    /// son contenu sur le serveur, et personne ne s'attend à perdre du courrier en
+    /// rangeant ses dossiers.
+    DeleteFolder {
+        folder: String,
+    },
 }
 
 impl OpPayload {
@@ -54,7 +68,9 @@ impl OpPayload {
             Self::SetFlags { .. } => crate::OpKind::SetFlags,
             Self::Move { .. } => crate::OpKind::MoveMessage,
             Self::Delete { .. } => crate::OpKind::DeleteMessage,
-            Self::CreateFolder { .. } => crate::OpKind::CreateFolder,
+            Self::CreateFolder { .. }
+            | Self::RenameFolder { .. }
+            | Self::DeleteFolder { .. } => crate::OpKind::CreateFolder,
         }
     }
 
@@ -79,6 +95,10 @@ impl OpPayload {
                 format!("{account}:delete:{folder}:{}", join(uids))
             }
             Self::CreateFolder { folder } => format!("{account}:mkdir:{folder}"),
+            Self::RenameFolder { folder, target } => {
+                format!("{account}:mvdir:{folder}:{target}")
+            }
+            Self::DeleteFolder { folder } => format!("{account}:rmdir:{folder}"),
         }
     }
 
@@ -99,7 +119,9 @@ impl OpPayload {
             Self::SetFlags { folder, .. }
             | Self::Move { folder, .. }
             | Self::Delete { folder, .. }
-            | Self::CreateFolder { folder } => folder,
+            | Self::CreateFolder { folder }
+            | Self::RenameFolder { folder, .. }
+            | Self::DeleteFolder { folder } => folder,
         }
     }
 
@@ -108,7 +130,13 @@ impl OpPayload {
     /// Non pour la création : sélectionner un dossier qui n'existe pas encore échoue,
     /// et échouerait précisément sur celui qu'on vient de demander à créer.
     pub fn needs_selection(&self) -> bool {
-        !matches!(self, Self::CreateFolder { .. })
+        // Aucune opération sur un dossier ne le sélectionne. Créer sélectionnerait ce
+        // qui n'existe pas encore ; renommer et supprimer échouent sur un dossier
+        // qu'on tient ouvert, ce que la plupart des serveurs refusent.
+        !matches!(
+            self,
+            Self::CreateFolder { .. } | Self::RenameFolder { .. } | Self::DeleteFolder { .. }
+        )
     }
 }
 

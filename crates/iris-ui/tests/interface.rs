@@ -336,12 +336,21 @@ fn ajouter_un_compte_est_atteignable_depuis_la_barre_laterale() {
 
 // --- Les pièces jointes ---
 
+fn piece(nom: &str, genre: &str, taille: &str) -> iris_ui::AttachmentData {
+    iris_ui::AttachmentData {
+        name: nom.into(),
+        kind: genre.into(),
+        size: taille.into(),
+        icon: "paperclip".into(),
+    }
+}
+
 fn une_piece_jointe_s_enregistre_par_son_nom() {
     let f = fenetre();
     f.set_message(MessageData {
         attachments: modele(vec![
-            SharedString::from("devis.pdf"),
-            SharedString::from("plan.png"),
+            piece("devis.pdf", "PDF", "2,4 Mo"),
+            piece("plan.png", "Image", "180 ko"),
         ]),
         ..Default::default()
     });
@@ -353,9 +362,14 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
         f.on_save_attachment(move |i| enregistres.borrow_mut().push(i));
     }
 
-    par_libelle(&f, "Save plan.png")
-        .expect("la pastille doit être un bouton")
-        .invoke_accessible_default_action();
+    let pastille = par_libelle(&f, "Save plan.png").expect("la pastille doit être un bouton");
+    // Le type et la taille sont annoncés avec le nom : « plan.png » seul ne dit pas
+    // s'il faut l'ouvrir maintenant ou attendre d'être au bureau.
+    assert_eq!(
+        pastille.accessible_description().map(|d| d.to_string()),
+        Some("Image, 180 ko".into())
+    );
+    pastille.invoke_accessible_default_action();
 
     assert_eq!(
         *enregistres.borrow(),
@@ -939,7 +953,7 @@ fn message(id: i32, de: &str, deplie: bool) -> MessageData {
         preview: "Bonjour…".into(),
         expanded: deplie,
         blocks: modele(Vec::new()),
-        attachments: modele(Vec::new()),
+        attachments: modele(Vec::<iris_ui::AttachmentData>::new()),
         blocked_images: 0,
         has_tracker: false,
         body_is_image: false,
@@ -1137,6 +1151,34 @@ fn quitter_un_dossier_est_rapporte() {
         .unwrap()
         .invoke_accessible_default_action();
     assert_eq!(*sorties.borrow(), 1);
+}
+
+fn beaucoup_de_pieces_jointes_sont_comptees_pas_empilees() {
+    // Douze pastilles sur trois rangs mangeraient la moitié du volet de lecture pour
+    // un message qu'on est venu lire.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_message(MessageData {
+        attachments: modele(
+            (0..12)
+                .map(|i| piece(&format!("f{i}.pdf"), "PDF", "1 Mo"))
+                .collect(),
+        ),
+        ..Default::default()
+    });
+
+    assert!(par_libelle(&f, "Save f0.pdf").is_some(), "les premières sont là");
+    assert!(
+        par_libelle(&f, "Save f11.pdf").is_none(),
+        "les dernières sont comptées, pas dessinées"
+    );
+
+    let tout = par_libelle(&f, "Show all 12 attachments").expect("le décompte est un bouton");
+    tout.invoke_accessible_default_action();
+    assert!(
+        par_libelle(&f, "Save f11.pdf").is_some(),
+        "et il les montre toutes"
+    );
 }
 
 // --- Le menu contextuel d'un compte ---
@@ -1517,6 +1559,10 @@ fn main() {
         (
             "un_grand_compteur_est_abrege",
             un_grand_compteur_est_abrege as fn(),
+        ),
+        (
+            "beaucoup_de_pieces_jointes_sont_comptees_pas_empilees",
+            beaucoup_de_pieces_jointes_sont_comptees_pas_empilees as fn(),
         ),
         (
             "un_fil_montre_tous_ses_messages",
