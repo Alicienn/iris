@@ -216,6 +216,12 @@ export component SettingsPanel inherits Rectangle {
             spacing: Tokens.space-3;
 
             HorizontalLayout {
+                // Its own height, because a row in a vertical layout takes a share of
+                // whatever is going unless it says otherwise, and a title bar that
+                // grows is height stolen from the settings below it.
+                vertical-stretch: 0;
+                height: 28px;
+
                 Text {
                     text: "Settings";
                     font-family: Tokens.font-family;
