@@ -23,6 +23,17 @@ component AccountRow inherits Rectangle {
         : (touch.has-hover ? Tokens.surface-hover : transparent);
     animate background { duration: Tokens.instant; }
 
+    accessible-role: list-item;
+    accessible-label: root.account.label;
+    // Le compte en panne le dit dans sa description : un lecteur d'écran ne voit
+    // pas le point d'exclamation, et c'est précisément l'information qui presse.
+    accessible-description: root.account.needs-attention
+        ? "En pause après des échecs répétés"
+        : root.account.count + " à traiter";
+    accessible-item-selected: root.selected;
+    accessible-item-selectable: true;
+    accessible-action-default => { root.clicked(); }
+
     HorizontalLayout {
         padding-left: Tokens.space-2;
         padding-right: Tokens.space-2;
@@ -57,6 +68,10 @@ component AccountRow inherits Rectangle {
             width: 16px;
             border-radius: Tokens.radius-small;
             background: reprise.has-hover ? Tokens.surface-hover : transparent;
+
+            accessible-role: button;
+            accessible-label: "Réessayer " + root.account.label;
+            accessible-action-default => { root.resume(); }
 
             Text {
                 text: reprise.has-hover ? "↻" : "!";
@@ -113,6 +128,7 @@ export component Sidebar inherits Glass {
             spacing: Tokens.space-1;
 
             LineEdit {
+                accessible-label: "Filtrer les comptes";
                 placeholder-text: "Filtrer les comptes…";
                 font-size: Tokens.size-small;
                 text <=> root.filter;
@@ -124,6 +140,10 @@ export component Sidebar inherits Glass {
                 width: 24px;
                 border-radius: Tokens.radius-small;
                 background: ajout.has-hover ? Tokens.surface-hover : Tokens.surface;
+
+                accessible-role: button;
+                accessible-label: "Ajouter un compte";
+                accessible-action-default => { root.add-account(); }
 
                 Text {
                     text: "+";

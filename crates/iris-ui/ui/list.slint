@@ -20,6 +20,16 @@ component ThreadRow inherits Rectangle {
 
     animate background { duration: Tokens.instant; }
 
+    // Ce qu'un lecteur d'écran annonce. L'ordre suit celui de la lecture visuelle —
+    // qui écrit, à quel sujet, quand — parce que c'est l'ordre dans lequel on décide
+    // si un message mérite qu'on s'y arrête.
+    accessible-role: list-item;
+    accessible-label: root.data.from + ", " + root.data.subject + ", " + root.data.date;
+    accessible-description: root.data.unread ? "Non lu" : "Lu";
+    accessible-item-selected: root.selected;
+    accessible-item-selectable: true;
+    accessible-action-default => { root.clicked(); }
+
     // Le marqueur de sélection : un trait vertical, pas un fond coloré. Sur une
     // liste dense, un aplat de couleur écrase la lisibilité du texte.
     Rectangle {
@@ -154,6 +164,13 @@ export component StateTabs inherits HorizontalLayout {
     for label[i] in ["À traiter", "En attente", "Traité"]: Rectangle {
         height: 24px;
         border-radius: 99px;
+
+        accessible-role: tab;
+        accessible-label: label;
+        accessible-description: root.counts[i] + " conversations";
+        accessible-item-selected: root.active == i;
+        accessible-action-default => { root.selected(i); }
+
         background: root.active == i
             ? Tokens.accent
             : (tab-touch.has-hover ? Tokens.surface-hover : Tokens.surface);
@@ -218,6 +235,7 @@ export component SearchBar inherits VerticalLayout {
         spacing: Tokens.space-1;
 
         field := LineEdit {
+            accessible-label: "Rechercher";
             placeholder-text: "Rechercher — de:marie is:unread…";
             font-size: Tokens.size-small;
             text <=> root.query;
@@ -233,6 +251,13 @@ export component SearchBar inherits VerticalLayout {
             width: 24px;
             border-radius: Tokens.radius-small;
             background: close-touch.has-hover ? Tokens.surface-hover : transparent;
+
+            accessible-role: button;
+            accessible-label: "Quitter la recherche";
+            accessible-action-default => {
+                root.query = "";
+                root.cleared();
+            }
 
             Text {
                 text: "✕";

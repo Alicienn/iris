@@ -198,6 +198,6 @@ Les deux se tiennent : le harnais de test sans écran de Slint retrouve les él�
 par leur libellé d'accessibilité. Écrire les tests d'interface oblige donc à rendre
 l'interface accessible, et l'accessibilité cesse d'être une intention.
 
-- [ ] **S24.1** Rôles et libellés d'accessibilité sur tout ce qui se clique.
-- [ ] **S24.2** Tests d'interface sans écran, pilotant la vraie fenêtre.
+- [x] **S24.1** Rôles et libellés d'accessibilité sur tout ce qui se clique.
+- [x] **S24.2** Tests d'interface sans écran, pilotant la vraie fenêtre.
 - [ ] **S24.3** Intégration continue : compilation, tests, format et lint.

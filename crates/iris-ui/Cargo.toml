@@ -17,3 +17,12 @@ tracing = "0.1"
 
 [build-dependencies]
 slint-build = "1.17"
+
+[dev-dependencies]
+i-slint-backend-testing = "1.17"
+
+# La plateforme de test de Slint est liée à un fil ; le harnais de Rust en crée
+# un par test. Ce test fournit donc son propre `main`.
+[[test]]
+name = "interface"
+harness = false

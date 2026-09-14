@@ -40,6 +40,7 @@ component CommandPalette inherits Rectangle {
             spacing: Tokens.space-2;
 
             input := LineEdit {
+                accessible-label: "Commande";
                 placeholder-text: "Commande, compte, recherche…";
                 font-size: Tokens.size-title;
                 text <=> root.query;

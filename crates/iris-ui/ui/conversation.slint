@@ -245,6 +245,10 @@ export component ConversationView inherits VerticalLayout {
                 border-color: Tokens.border;
                 animate background { duration: Tokens.instant; }
 
+                accessible-role: button;
+                accessible-label: "Enregistrer " + name;
+                accessible-action-default => { root.save-attachment(i); }
+
                 HorizontalLayout {
                     padding-left: Tokens.space-2;
                     padding-right: Tokens.space-2;
@@ -284,6 +288,7 @@ export component ConversationView inherits VerticalLayout {
                 spacing: Tokens.space-2;
 
                 TextEdit {
+                    accessible-label: "Votre réponse";
                     text <=> root.reply-text;
                     placeholder-text: "Répondre…";
                     font-size: Tokens.size-body;
