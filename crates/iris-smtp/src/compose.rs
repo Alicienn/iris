@@ -66,17 +66,14 @@ impl Outgoing {
     /// Vérifie qu'un message est envoyable.
     pub fn validate(&self) -> Result<(), String> {
         if !self.from.looks_valid() {
-            return Err(format!(
-                "adresse d'expédition invalide : « {} »",
-                self.from.addr
-            ));
+            return Err(format!("invalid sender address: \"{}\"", self.from.addr));
         }
         if self.to.is_empty() && self.cc.is_empty() && self.bcc.is_empty() {
-            return Err("aucun destinataire".into());
+            return Err("no recipient".into());
         }
         for a in self.to.iter().chain(&self.cc).chain(&self.bcc) {
             if !a.looks_valid() {
-                return Err(format!("destinataire invalide : « {} »", a.addr));
+                return Err(format!("invalid recipient: \"{}\"", a.addr));
             }
         }
         Ok(())
@@ -440,16 +437,16 @@ mod tests {
     #[test]
     fn la_validation_refuse_un_message_sans_destinataire() {
         let m = Outgoing::new(moi(), vec![], "Sujet");
-        assert!(m.validate().unwrap_err().contains("aucun destinataire"));
+        assert!(m.validate().unwrap_err().contains("no recipient"));
     }
 
     #[test]
     fn la_validation_refuse_une_adresse_malformee() {
         let m = Outgoing::new(moi(), vec![Address::new("pas-une-adresse")], "Sujet");
-        assert!(m.validate().unwrap_err().contains("destinataire invalide"));
+        assert!(m.validate().unwrap_err().contains("invalid recipient"));
 
         let m = Outgoing::new(Address::new("cassé"), vec![Address::new("a@b.fr")], "S");
-        assert!(m.validate().unwrap_err().contains("expédition"));
+        assert!(m.validate().unwrap_err().contains("invalid sender"));
     }
 
     #[test]

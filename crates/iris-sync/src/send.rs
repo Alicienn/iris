@@ -45,6 +45,46 @@ impl SendService {
         &self.outbox
     }
 
+    /// Prepares a brand new message.
+    ///
+    /// Recipients are parsed from what the user typed, which is a comma or
+    /// semicolon separated list, because that is what everyone types and refusing it
+    /// would teach nothing. An address that does not parse is reported by name rather
+    /// than silently dropped: a message quietly sent to three of four people is worse
+    /// than one that refuses to go.
+    pub fn compose_new(
+        &self,
+        account: iris_types::AccountId,
+        to: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<Outgoing> {
+        let compte = self
+            .engine
+            .store()
+            .account(account)?
+            .ok_or_else(|| Error::store(format!("account {account} not found")))?;
+
+        let (recipients, rejected) = parse_recipients(to);
+        if let Some(bad) = rejected.first() {
+            return Err(Error::Config(format!("\"{bad}\" is not an email address")));
+        }
+        if recipients.is_empty() {
+            return Err(Error::Config("no recipient".into()));
+        }
+
+        let from = if compte.display_name.trim().is_empty() {
+            iris_types::Address::new(compte.email.clone())
+        } else {
+            iris_types::Address::named(compte.display_name.clone(), compte.email.clone())
+        };
+
+        let mut message = Outgoing::new(from, recipients, subject.trim());
+        message.text_body = body.to_string();
+        message.date = crate::engine::now_utc();
+        Ok(message)
+    }
+
     /// Prépare une réponse au dernier message d'un fil.
     ///
     /// La composition est séparée de l'envoi : l'interface peut ainsi montrer les
@@ -373,6 +413,40 @@ pub fn mailer_for(account: &iris_store::Account, password: &str) -> Result<Arc<d
         )?
     };
     Ok(Arc::new(expediteur))
+}
+
+/// Splits what the user typed into addresses, and says which ones made no sense.
+///
+/// Commas and semicolons both separate, because both are typed and neither is wrong.
+/// Whitespace around an address is trimmed, and an empty entry — a trailing comma —
+/// is ignored rather than reported: it is a typing artefact, not a mistake.
+pub fn parse_recipients(input: &str) -> (Vec<iris_types::Address>, Vec<String>) {
+    let mut good = Vec::new();
+    let mut bad = Vec::new();
+
+    for piece in input.split([',', ';']) {
+        let piece = piece.trim();
+        if piece.is_empty() {
+            continue;
+        }
+
+        // "Marie <marie@x.fr>" is what a mail client offers when you pick from a
+        // list, so it must round-trip through a field the user can also type into.
+        let address = match (piece.rfind('<'), piece.rfind('>')) {
+            (Some(open), Some(close)) if close > open + 1 => iris_types::Address::named(
+                piece[..open].trim().trim_matches('"'),
+                piece[open + 1..close].trim(),
+            ),
+            _ => iris_types::Address::new(piece),
+        };
+        if address.looks_valid() {
+            good.push(address);
+        } else {
+            bad.push(piece.to_string());
+        }
+    }
+
+    (good, bad)
 }
 
 #[cfg(test)]
@@ -712,5 +786,110 @@ mod tests {
         let etat = f.service.status();
         assert_eq!(etat.pending, 0);
         assert_eq!(etat.delay_secs, 10);
+    }
+
+    // --- Composing a new message ---
+
+    #[test]
+    fn recipients_are_split_on_commas_and_semicolons() {
+        // Both are typed by real people, and neither is wrong.
+        let (good, bad) = parse_recipients("a@x.fr, b@x.fr; c@x.fr");
+        assert_eq!(good.len(), 3);
+        assert!(bad.is_empty());
+    }
+
+    #[test]
+    fn whitespace_and_trailing_separators_are_forgiven() {
+        // A trailing comma is a typing artefact, not a mistake.
+        let (good, bad) = parse_recipients("  a@x.fr ,, b@x.fr ,");
+        assert_eq!(good.len(), 2);
+        assert!(bad.is_empty());
+    }
+
+    #[test]
+    fn a_named_address_keeps_its_name() {
+        let (good, _) = parse_recipients("Marie Dupont <marie@x.fr>");
+        assert_eq!(good[0].addr, "marie@x.fr");
+        assert_eq!(good[0].display(), "Marie Dupont");
+    }
+
+    #[test]
+    fn a_nonsense_recipient_is_named_rather_than_dropped() {
+        // A message quietly sent to three of four people is worse than one that
+        // refuses to go.
+        let (good, bad) = parse_recipients("a@x.fr, not-an-address");
+        assert_eq!(good.len(), 1);
+        assert_eq!(bad, ["not-an-address"]);
+    }
+
+    #[tokio::test]
+    async fn a_new_message_is_composed_from_the_account() {
+        let f = fixture();
+        let account = f.store.accounts().unwrap()[0].id;
+
+        let message = f
+            .service
+            .compose_new(account, "marie@x.fr", "Quote", "Here it is.")
+            .unwrap();
+
+        assert_eq!(message.to.len(), 1);
+        assert_eq!(message.subject, "Quote");
+        assert_eq!(message.text_body, "Here it is.");
+        assert!(message.validate().is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_new_message_without_a_recipient_is_refused() {
+        let f = fixture();
+        let account = f.store.accounts().unwrap()[0].id;
+
+        let error = f
+            .service
+            .compose_new(account, "   ", "Quote", "Body")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no recipient"), "got: {error}");
+    }
+
+    #[tokio::test]
+    async fn a_bad_recipient_stops_the_whole_message() {
+        let f = fixture();
+        let account = f.store.accounts().unwrap()[0].id;
+
+        let error = f
+            .service
+            .compose_new(account, "marie@x.fr, oops", "Quote", "Body")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("oops"),
+            "the offending address must be named: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_message_is_not_a_reply_to_anything() {
+        // Threading on an unrelated Message-ID would drop the message into someone
+        // else's conversation.
+        let f = fixture();
+        let account = f.store.accounts().unwrap()[0].id;
+
+        let message = f
+            .service
+            .compose_new(account, "marie@x.fr", "Quote", "Body")
+            .unwrap();
+        assert!(message.in_reply_to.is_none());
+        assert!(message.references.is_empty());
+    }
+
+    #[tokio::test]
+    async fn composing_for_an_unknown_account_fails_clearly() {
+        let f = fixture();
+        let error = f
+            .service
+            .compose_new(iris_types::AccountId(999), "a@x.fr", "S", "B")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not found"), "got: {error}");
     }
 }

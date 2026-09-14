@@ -662,6 +662,109 @@ fn ajouter_une_regle_est_atteignable() {
     assert!(par_libelle(&f, "From sender or domain").is_some());
 }
 
+// --- Writing a new message ---
+
+fn ecrire_un_message_n_existe_pas_avant_d_etre_demande() {
+    let f = fenetre();
+    assert!(par_libelle(&f, "Send").is_none());
+
+    f.set_compose_open(true);
+    assert!(par_libelle(&f, "Send").is_some());
+}
+
+fn les_champs_d_un_nouveau_message_sont_nommes() {
+    let f = fenetre();
+    f.set_compose_open(true);
+
+    assert!(par_libelle(&f, "To").is_some());
+    assert!(par_libelle(&f, "Subject").is_some());
+    assert!(par_libelle(&f, "Message").is_some());
+}
+
+fn envoyer_est_inactif_sans_destinataire() {
+    // Nothing can be done with a message that has nowhere to go.
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_to("".into());
+
+    assert_eq!(
+        par_libelle(&f, "Send").unwrap().accessible_enabled(),
+        Some(false)
+    );
+
+    f.set_compose_to("marie@x.fr".into());
+    assert_eq!(
+        par_libelle(&f, "Send").unwrap().accessible_enabled(),
+        Some(true)
+    );
+}
+
+fn envoyer_declenche_l_envoi() {
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_to("marie@x.fr".into());
+
+    let envois = Rc::new(RefCell::new(0));
+    {
+        let envois = Rc::clone(&envois);
+        f.on_compose_send(move || *envois.borrow_mut() += 1);
+    }
+
+    par_libelle(&f, "Send")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*envois.borrow(), 1);
+}
+
+fn pendant_le_delai_le_bouton_devient_une_annulation() {
+    // The correction is one click where the mistake was.
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_sending(true);
+    f.set_compose_undo_seconds(7);
+
+    assert!(par_libelle(&f, "Send").is_none());
+    let undo = par_libelle(&f, "Undo send").expect("the undo button must take its place");
+
+    let annulations = Rc::new(RefCell::new(0));
+    {
+        let annulations = Rc::clone(&annulations);
+        f.on_compose_cancel(move || *annulations.borrow_mut() += 1);
+    }
+
+    undo.invoke_accessible_default_action();
+    assert_eq!(*annulations.borrow(), 1);
+}
+
+fn l_expediteur_est_visible_des_le_depart() {
+    // With a hundred mailboxes, sending from the wrong one is the mistake that costs.
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_sender("from me@work.example".into());
+
+    assert!(textes(&f).iter().any(|l| l.contains("me@work.example")));
+}
+
+fn une_erreur_de_composition_est_montree() {
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_error("\"oops\" is not an email address".into());
+
+    assert!(textes(&f)
+        .iter()
+        .any(|l| l.contains("not an email address")));
+}
+
+fn abandonner_un_message_est_possible() {
+    let f = fenetre();
+    f.set_compose_open(true);
+
+    par_libelle(&f, "Discard")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert!(!f.get_compose_open());
+}
+
 // --- Ce qui doit rester vrai partout ---
 
 fn aucun_bouton_ne_reste_sans_nom() {
@@ -814,6 +917,38 @@ fn main() {
         (
             "les_champs_de_l_ecran_d_ajout_sont_nommes",
             les_champs_de_l_ecran_d_ajout_sont_nommes as fn(),
+        ),
+        (
+            "ecrire_un_message_n_existe_pas_avant_d_etre_demande",
+            ecrire_un_message_n_existe_pas_avant_d_etre_demande as fn(),
+        ),
+        (
+            "les_champs_d_un_nouveau_message_sont_nommes",
+            les_champs_d_un_nouveau_message_sont_nommes as fn(),
+        ),
+        (
+            "envoyer_est_inactif_sans_destinataire",
+            envoyer_est_inactif_sans_destinataire as fn(),
+        ),
+        (
+            "envoyer_declenche_l_envoi",
+            envoyer_declenche_l_envoi as fn(),
+        ),
+        (
+            "pendant_le_delai_le_bouton_devient_une_annulation",
+            pendant_le_delai_le_bouton_devient_une_annulation as fn(),
+        ),
+        (
+            "l_expediteur_est_visible_des_le_depart",
+            l_expediteur_est_visible_des_le_depart as fn(),
+        ),
+        (
+            "une_erreur_de_composition_est_montree",
+            une_erreur_de_composition_est_montree as fn(),
+        ),
+        (
+            "abandonner_un_message_est_possible",
+            abandonner_un_message_est_possible as fn(),
         ),
         (
             "les_modules_n_existent_pas_avant_d_etre_ouverts",

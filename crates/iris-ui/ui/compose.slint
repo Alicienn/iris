@@ -1,0 +1,157 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { LineEdit, TextEdit } from "std-widgets.slint";
+
+// Writing a new message.
+//
+// A window rather than a third column: a new message has no conversation to sit
+// under, and giving it one of the three columns would mean deciding which of the
+// user's other two views to take away.
+//
+// Sending goes through the same queue as a reply, so the ten-second window to change
+// your mind works here too. That is not a detail — it is the reason nobody has to
+// re-read a message four times before pressing send.
+export component ComposePanel inherits Rectangle {
+    in property <string> sender;
+    in property <bool> sending;
+    in property <int> undo-seconds;
+    in property <string> error;
+    in-out property <string> to;
+    in-out property <string> subject;
+    in-out property <string> body;
+
+    callback send();
+    callback cancel-send();
+    callback dismissed();
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(640px, parent.width - 80px);
+        height: min(520px, parent.height - 80px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-2;
+
+            HorizontalLayout {
+                Text {
+                    text: "New message";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                }
+                Rectangle {}
+                // Which address this leaves from, always visible. With a hundred
+                // mailboxes, sending from the wrong one is the mistake that costs.
+                Text {
+                    text: root.sender;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            LineEdit {
+                accessible-label: "To";
+                placeholder-text: "To — separate addresses with commas";
+                font-size: Tokens.size-body;
+                text <=> root.to;
+            }
+
+            LineEdit {
+                accessible-label: "Subject";
+                placeholder-text: "Subject";
+                font-size: Tokens.size-body;
+                text <=> root.subject;
+            }
+
+            TextEdit {
+                accessible-label: "Message";
+                placeholder-text: "Write your message…";
+                font-size: Tokens.size-body;
+                text <=> root.body;
+            }
+
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                Rectangle {}
+
+                Rectangle {
+                    width: 90px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: annuler.has-hover ? Tokens.surface-hover : Tokens.surface;
+
+                    accessible-role: button;
+                    accessible-label: "Discard";
+                    accessible-action-default => { root.dismissed(); }
+
+                    Text {
+                        text: "Discard";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    annuler := TouchArea {
+                        clicked => { root.dismissed(); }
+                    }
+                }
+
+                // During the undo window the send button becomes the undo button, in
+                // the same place: the correction is one click where the mistake was.
+                Rectangle {
+                    width: 160px;
+                    height: 28px;
+                    border-radius: Tokens.radius-small;
+                    background: root.sending ? Tokens.surface : Tokens.accent;
+
+                    accessible-role: button;
+                    accessible-label: root.sending
+                        ? "Undo send"
+                        : "Send";
+                    accessible-enabled: root.sending || root.to != "";
+                    accessible-action-default => {
+                        root.sending ? root.cancel-send() : root.send();
+                    }
+
+                    Text {
+                        text: root.sending
+                            ? "Undo send (" + root.undo-seconds + "s)"
+                            : "Send";
+                        font-size: Tokens.size-small;
+                        font-weight: Tokens.weight-bold;
+                        color: root.sending ? Tokens.text-secondary : Tokens.accent-text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            root.sending ? root.cancel-send() : root.send();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

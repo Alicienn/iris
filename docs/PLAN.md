@@ -212,3 +212,11 @@ application can do on top.
 - [x] **S25.1** One state machine: undo, snooze and follow-ups in a single engine.
 - [x] **S25.2** Rules: stored, run on arrival, and simulated before they are trusted.
 - [x] **S25.3** Subject-based regrouping, opt-in and bounded.
+
+## E26 — English, and the screens for the modules
+
+- [x] **S26.1** Everything the user reads, in English: interface, palette, status bar,
+      command line, doctor report, log lines, error messages, dates.
+- [x] **S26.2** A modules screen: rules read as sentences, plugins with their powers.
+- [x] **S26.3** Compose: a new message, not only a reply.
+- [ ] **S26.4** More themes, and a picker that shows them.

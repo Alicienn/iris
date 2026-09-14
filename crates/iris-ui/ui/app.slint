@@ -9,6 +9,7 @@ import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
 import { ModulesPanel } from "modules.slint";
+import { ComposePanel } from "compose.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -181,6 +182,15 @@ export component AppWindow inherits Window {
     in property <bool> sending;
     in property <int> undo-seconds;
 
+    in-out property <bool> compose-open;
+    in property <string> compose-sender;
+    in property <bool> compose-sending;
+    in property <int> compose-undo-seconds;
+    in property <string> compose-error;
+    in-out property <string> compose-to;
+    in-out property <string> compose-subject;
+    in-out property <string> compose-body;
+
     in-out property <bool> modules-open;
     in property <[RuleRowData]> rules;
     in property <[PluginRowData]> plugins;
@@ -250,6 +260,8 @@ export component AppWindow inherits Window {
     callback rule-removed(string);
     callback rule-added();
     callback plugins-reloaded();
+    callback compose-send();
+    callback compose-cancel();
 
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
@@ -334,6 +346,21 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.compose-open: ComposePanel {
+        width: 100%;
+        height: 100%;
+        sender: root.compose-sender;
+        sending: root.compose-sending;
+        undo-seconds: root.compose-undo-seconds;
+        error: root.compose-error;
+        to <=> root.compose-to;
+        subject <=> root.compose-subject;
+        body <=> root.compose-body;
+        send => { root.compose-send(); }
+        cancel-send => { root.compose-cancel(); }
+        dismissed => { root.compose-open = false; }
+    }
+
     if root.modules-open: ModulesPanel {
         width: 100%;
         height: 100%;
@@ -407,6 +434,17 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == "k" && event.modifiers.control) {
                 root.palette-open = !root.palette-open;
+                return accept;
+            }
+            // "c" writes a new message, the convention every mail client shares.
+            if (event.text == "c" && !root.compose-open && !root.palette-open) {
+                root.compose-open = true;
+                return accept;
+            }
+            // Escape does not throw away a draft: leaving the window open is
+            // recoverable, losing what someone wrote is not.
+            if (event.text == Key.Escape && root.compose-open) {
+                root.compose-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.modules-open) {

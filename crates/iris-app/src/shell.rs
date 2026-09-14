@@ -393,6 +393,11 @@ fn dispatch(
                 fenetre.set_add_account_open(true);
             }
         }
+        CommandKind::Compose => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                fenetre.set_compose_open(true);
+            }
+        }
         CommandKind::Modules => {
             if let Some(fenetre) = fenetre.upgrade() {
                 fenetre.set_modules_open(true);
@@ -1293,6 +1298,101 @@ fn nom_sur(nom: &str) -> String {
     }
 }
 
+/// Wires the compose window.
+///
+/// It shares the outbox with replies, so the ten-second window to change your mind
+/// works the same way here. Reimplementing the delay would give the application two
+/// answers to "can I still stop this?", and only one of them would be right.
+pub fn wire_compose(
+    fenetre: &AppWindow,
+    services: &Services,
+    send: Arc<SendService>,
+    account: iris_types::AccountId,
+) {
+    let pending: Arc<std::sync::Mutex<Option<iris_smtp::SendHandle>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    // Which mailbox this leaves from, shown from the start: with a hundred accounts,
+    // sending from the wrong one is the mistake that costs.
+    if let Ok(Some(compte)) = services.store.account(account) {
+        fenetre.set_compose_sender(format!("from {}", compte.email).into());
+    }
+
+    {
+        let send = Arc::clone(&send);
+        let pending = Arc::clone(&pending);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_compose_send(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+
+            let message = match send.compose_new(
+                account,
+                fenetre.get_compose_to().as_str(),
+                fenetre.get_compose_subject().as_str(),
+                fenetre.get_compose_body().as_str(),
+            ) {
+                Ok(message) => message,
+                Err(e) => {
+                    fenetre.set_compose_error(e.to_string().into());
+                    return;
+                }
+            };
+
+            // A message with no subject leaves anyway. Refusing it would be the
+            // application deciding what matters in someone else's correspondence.
+            match send.queue(message) {
+                Ok(handle) => {
+                    *pending.lock().expect("poisoned send") = Some(handle);
+                    fenetre.set_compose_error(Default::default());
+                    fenetre.set_compose_sending(true);
+                    fenetre.set_compose_undo_seconds(send.status().delay_secs as i32);
+                }
+                Err(e) => fenetre.set_compose_error(format!("Send refused: {e}").into()),
+            }
+        });
+    }
+
+    {
+        let send = Arc::clone(&send);
+        let pending = Arc::clone(&pending);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_compose_cancel(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let handle = pending.lock().expect("poisoned send").take();
+
+            match handle.map(|h| send.cancel(h)) {
+                Some(true) => {
+                    fenetre.set_compose_sending(false);
+                    fenetre.set_status("Send cancelled — your message is still here.".into());
+                }
+                // Already gone: say so plainly rather than pretend.
+                Some(false) => {
+                    fenetre.set_compose_sending(false);
+                    fenetre.set_compose_open(false);
+                    clear_compose(&fenetre);
+                    fenetre.set_status("Too late — the message has gone.".into());
+                }
+                None => fenetre.set_compose_sending(false),
+            }
+        });
+    }
+}
+
+/// Empties the compose window once a message is safely away.
+pub fn clear_compose(fenetre: &AppWindow) {
+    fenetre.set_compose_to(Default::default());
+    fenetre.set_compose_subject(Default::default());
+    fenetre.set_compose_body(Default::default());
+    fenetre.set_compose_error(Default::default());
+    fenetre.set_compose_sending(false);
+}
+
 /// Wires the modules screen: rules and plugins.
 ///
 /// The list is rebuilt from the store after every change rather than patched in
@@ -1508,6 +1608,7 @@ mod tests {
                 | CommandKind::Search
                 | CommandKind::AddAccount
                 | CommandKind::Modules
+                | CommandKind::Compose
                 | CommandKind::Plugin { .. }
                 | CommandKind::Quit => {}
                 CommandKind::Settings | CommandKind::Reload => {}

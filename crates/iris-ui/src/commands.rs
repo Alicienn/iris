@@ -23,6 +23,8 @@ pub enum CommandKind {
     AddAccount,
     /// Rules and plugins: everything that acts on mail without the user.
     Modules,
+    /// Write a new message.
+    Compose,
     /// Fournie par un plugin. La charge est renvoyée telle quelle au plugin qui
     /// l'a déclarée : l'hôte n'a pas à comprendre ce qu'elle veut dire.
     Plugin {

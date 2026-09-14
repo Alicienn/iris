@@ -452,6 +452,13 @@ fn run_gui() -> Result<()> {
     match build_send_service(&services) {
         Ok((envoi, evenements)) => {
             shell::wire_reply(&fenetre, Arc::clone(&envoi), Arc::clone(&selection));
+            // Writing a new message uses the same outbox as a reply, so the delay to
+            // change your mind behaves identically.
+            if let Ok(comptes) = services.store.accounts() {
+                if let Some(compte) = comptes.iter().find(|c| c.enabled) {
+                    shell::wire_compose(&fenetre, &services, Arc::clone(&envoi), compte.id);
+                }
+            }
             let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
             runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
         }
