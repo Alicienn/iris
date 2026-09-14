@@ -174,9 +174,6 @@ pub async fn add_bulk(
 
 /// Ajoute un compte dont la configuration est fournie à la main.
 ///
-/// Appelé par l'écran de configuration manuelle, qui n'est pas encore construit ;
-/// la fonction est en place et testée pour que cet écran n'ait rien à décider.
-///
 /// Le repli quand la découverte échoue. Il existe parce qu'aucune chaîne de
 /// découverte ne couvre tout, et qu'un utilisateur bloqué doit garder une porte.
 pub fn add_account_manual(

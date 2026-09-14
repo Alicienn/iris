@@ -245,11 +245,21 @@ fn cmd_doctor() -> Result<()> {
     Ok(())
 }
 
+/// Allume ou éteint le témoin de synchronisation.
+///
+/// Passe par la boucle d'interface : la fenêtre ne se touche que depuis son propre
+/// fil, et ce chemin est le seul endroit où les deux mondes se rencontrent.
+fn signaler_synchronisation(fenetre: &slint::Weak<iris_ui::AppWindow>, actif: bool) {
+    let _ = fenetre.upgrade_in_event_loop(move |fenetre| {
+        fenetre.set_syncing(actif);
+    });
+}
+
 /// Construit le service d'envoi à partir du premier compte actif.
 ///
-/// Un seul expéditeur pour l'instant : choisir l'identité d'envoi demande une
-/// décision d'interface qui n'est pas encore prise, et ouvrir une connexion SMTP par
-/// compte coûterait cher pour rien.
+/// Un seul expéditeur : choisir l'identité d'envoi demande une décision d'interface
+/// qui n'est pas prise, et ouvrir une connexion SMTP par compte coûterait cher pour
+/// rien tant que personne ne peut choisir laquelle utiliser.
 fn build_send_service(
     services: &Services,
 ) -> Result<(
@@ -519,7 +529,13 @@ fn run_gui() -> Result<()> {
                     Err(e) => tracing::warn!(erreur = %e, "échéances"),
                 }
 
+                // « En cours » est allumé pendant le tour, éteint après : sans ce
+                // signal, une synchronisation lente est indiscernable d'une
+                // application qui ne fait rien, et l'utilisateur relance.
+                signaler_synchronisation(&faible, true);
                 let rapport = engine.tick(now()).await;
+                signaler_synchronisation(&faible, false);
+
                 if rapport.changed() {
                     tracing::info!(
                         ajoutes = rapport.messages_added,

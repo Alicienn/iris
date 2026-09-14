@@ -26,6 +26,10 @@ pub fn build(services: &Services) -> iris_types::Result<AppWindow> {
         .map_err(|e| iris_types::Error::other(format!("création de la fenêtre : {e}")))?;
 
     bridge::apply_theme(&fenetre.global::<Tokens>(), &services.themes.active());
+    // Avant le premier instantané, la liste est vide parce qu'elle n'est pas encore
+    // lue — pas parce qu'il n'y a rien. Annoncer « Rien à traiter » à ce moment-là
+    // serait un mensonge d'un dixième de seconde, mais un mensonge quand même.
+    fenetre.set_loading(true);
     refresh_accounts(&fenetre, services, &[]);
 
     Ok(fenetre)
@@ -44,20 +48,30 @@ pub fn refresh_accounts(
     let suspendus: std::collections::BTreeSet<iris_types::AccountId> =
         suspendus.iter().copied().collect();
 
+    // Ce qui reste à traiter, boîte par boîte. Le nombre total de messages ne dirait
+    // rien de ce qu'il y a à faire, et un « 12 483 » permanent n'apprend rien.
+    let a_traiter = services.store.todo_counts_by_account(now()).unwrap_or_default();
+
     let (epingles, autres): (Vec<_>, Vec<_>) = comptes.iter().partition(|c| c.pinned);
 
     let vers_modele = |liste: Vec<&iris_store::Account>| {
         ModelRc::new(VecModel::from(
             liste
                 .into_iter()
-                .map(|c| bridge::account_row(c, 0, suspendus.contains(&c.id)))
+                .map(|c| {
+                    bridge::account_row(
+                        c,
+                        a_traiter.get(&c.id).copied().unwrap_or(0),
+                        suspendus.contains(&c.id),
+                    )
+                })
                 .collect::<Vec<_>>(),
         ))
     };
 
     fenetre.set_pinned_accounts(vers_modele(epingles));
     fenetre.set_other_accounts(vers_modele(autres));
-    fenetre.set_unified_count(0);
+    fenetre.set_unified_count(a_traiter.values().sum::<u32>() as i32);
 
     if let Some(message) = message_suspension(&comptes, &suspendus) {
         fenetre.set_status(message.into());
@@ -385,6 +399,7 @@ pub fn apply_snapshot(
     snapshot: &Snapshot,
 ) {
     let maintenant = now();
+    fenetre.set_loading(false);
 
     // Les adresses des comptes servent à colorer les lignes ; on les résout une fois
     // par instantané, pas une fois par ligne.
@@ -403,6 +418,7 @@ pub fn apply_snapshot(
     fenetre.set_counts(ModelRc::new(VecModel::from(
         snapshot.counts.iter().map(|c| *c as i32).collect::<Vec<_>>(),
     )));
+    // La vue unifiée compte la file de travail, comme les lignes de comptes.
     fenetre.set_unified_count(snapshot.counts[0] as i32);
     fenetre.set_pending_ops(snapshot.pending_ops as i32);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
@@ -1246,9 +1262,7 @@ mod tests {
                 | CommandKind::AddAccount
                 | CommandKind::Plugin { .. }
                 | CommandKind::Quit => {}
-                CommandKind::Settings | CommandKind::Reload => {
-                    // Écrans non encore construits, ignorés à dessein.
-                }
+                CommandKind::Settings | CommandKind::Reload => {}
             }
         }
     }

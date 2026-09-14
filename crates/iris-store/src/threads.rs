@@ -5,7 +5,8 @@ use crate::{sql_err, Store};
 use iris_types::{
     AccountId, Address, Flags, Result, Snooze, ThreadId, Timestamp, WorkflowState,
 };
-use rusqlite::{params_from_iter, types::Value as SqlValue, Row};
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, Row};
+use std::collections::BTreeMap;
 
 const THREAD_COLUMNS: &str = "id, state, last_activity_at, last_from_name, last_from_addr, \
      last_subject, last_preview, message_count, unread_count, flags_union, snooze_until";
@@ -99,6 +100,42 @@ impl Store {
     }
 
     /// Nombre de fils par état, pour les compteurs des onglets.
+    /// Fils à traiter, par compte.
+    ///
+    /// Ce que la barre latérale affiche à droite de chaque boîte. La file de travail
+    /// est le seul décompte qui vaille : le nombre total de messages d'un compte ne
+    /// dit rien de ce qu'il reste à faire, et un « 12 483 » permanent n'apprend rien.
+    ///
+    /// Les fils reportés en sont exclus : ils ont été mis de côté exprès, et les
+    /// compter les remettrait sous les yeux par la petite porte.
+    pub fn todo_counts_by_account(&self, now: Timestamp) -> Result<BTreeMap<AccountId, u32>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT ta.account_id, count(*)
+                     FROM thread_accounts ta
+                     JOIN threads t ON t.id = ta.thread_id
+                     WHERE t.state = ?1 AND (t.snooze_until IS NULL OR t.snooze_until <= ?2)
+                     GROUP BY ta.account_id",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+
+            let rows = stmt
+                .query_map(
+                    params![WorkflowState::Todo.as_i64(), now.millis()],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+                )
+                .map_err(|e| sql_err("compteurs par compte", e))?;
+
+            let mut sortie = BTreeMap::new();
+            for row in rows {
+                let (compte, n) = row.map_err(|e| sql_err("compteurs par compte", e))?;
+                sortie.insert(AccountId(compte), n as u32);
+            }
+            Ok(sortie)
+        })
+    }
+
     pub fn state_counts(&self, now: Option<Timestamp>) -> Result<[u32; 3]> {
         self.with_conn(|c| {
             let mut counts = [0u32; 3];
@@ -541,5 +578,80 @@ mod tests {
         let f = fixture();
         let t = f.thread_at(1000, "A");
         assert_eq!(f.store.thread_accounts(t).unwrap(), [f.account]);
+    }
+
+    #[test]
+    fn les_fils_a_traiter_sont_comptes_par_compte() {
+        // C'est ce que la barre latérale affiche à droite de chaque boîte.
+        let f = fixture();
+        let second = f
+            .store
+            .create_account(&NewAccount::new("b@x.fr", "i", "s"), Timestamp::EPOCH)
+            .unwrap();
+        let dossier_b = f.store.upsert_folder(second, "INBOX", FolderRole::Inbox).unwrap();
+
+        f.thread_at(1000, "Marie");
+        f.thread_at(2000, "Luc");
+        f.store
+            .insert_message(&NewMessage {
+                account: second,
+                folder: dossier_b,
+                uid: 900,
+                rfc_message_id: Some("b1@x".into()),
+                in_reply_to: None,
+                references: vec![],
+                subject: "Chez b".into(),
+                from_name: "Luc".into(),
+                from_addr: "luc@x.fr".into(),
+                recipients_json: "[]".into(),
+                date: Timestamp::from_millis(1),
+                received: Timestamp::from_millis(1),
+                size: 10,
+                flags: Flags::NONE,
+                preview: String::new(),
+            })
+            .unwrap();
+
+        let comptes = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        assert_eq!(comptes.get(&f.account), Some(&2));
+        assert_eq!(comptes.get(&second), Some(&1));
+    }
+
+    #[test]
+    fn un_fil_traite_ne_compte_plus() {
+        // Le total des messages ne dirait rien de ce qu'il reste à faire.
+        let f = fixture();
+        let fil = f.thread_at(1000, "Marie");
+        f.store.set_thread_state(fil, WorkflowState::Done).unwrap();
+
+        let comptes = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        assert_eq!(comptes.get(&f.account), None);
+    }
+
+    #[test]
+    fn un_fil_reporte_ne_compte_pas_avant_son_echeance() {
+        // Il a été mis de côté exprès : le compter le remettrait sous les yeux par
+        // la petite porte.
+        let f = fixture();
+        let fil = f.thread_at(1000, "Marie");
+        f.store
+            .snooze_thread(
+                fil,
+                Snooze { until: Timestamp::from_millis(50_000), restore_to: WorkflowState::Todo },
+            )
+            .unwrap();
+
+        let avant = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        assert_eq!(avant.get(&f.account), None);
+
+        let apres = f.store.todo_counts_by_account(Timestamp::from_millis(60_000)).unwrap();
+        assert_eq!(apres.get(&f.account), Some(&1));
+    }
+
+    #[test]
+    fn un_compte_sans_fil_n_apparait_pas() {
+        let f = fixture();
+        let comptes = f.store.todo_counts_by_account(Timestamp::from_millis(10_000)).unwrap();
+        assert!(comptes.is_empty());
     }
 }
