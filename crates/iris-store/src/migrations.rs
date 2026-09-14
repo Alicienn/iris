@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 4;
+pub const CURRENT_VERSION: i64 = 5;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -38,7 +38,41 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "take binned mail out of the queue",
         sql: SCHEMA_V4,
     },
+    Migration {
+        version: 5,
+        name: "repair the moves that could never replay",
+        sql: SCHEMA_V5,
+    },
 ];
+
+/// Réécrit les opérations de déplacement que le rejeu n'a jamais su lire.
+///
+/// Le producteur écrivait `"to"`, le consommateur attendait `"target"`. Chaque
+/// archivage et chaque suppression était donc jugé illisible, abandonné, et marqué
+/// terminé sans avoir rien fait. Le fil quittait la file localement ; sur le serveur,
+/// le message n'a jamais bougé.
+///
+/// La correction du code empêche d'en écrire de nouveaux. Celle-ci répare ceux qui
+/// existent : le nom du champ est corrigé, et l'opération est remise en attente,
+/// parce qu'aucune n'a jamais réussi — elles ont été abandonnées, pas exécutées.
+/// L'utilisateur a demandé ces déplacements ; il n'y a pas de raison de les perdre.
+///
+/// Un UID qui n'existe plus fait échouer le rejeu d'une erreur définitive, que la
+/// boucle traite déjà en abandonnant l'opération. Le pire cas est donc de revenir à
+/// l'état actuel, ce qui est le bon pire cas.
+///
+/// La condition porte sur `'"to":'` plutôt que sur le type d'opération : elle décrit
+/// exactement les lignes cassées, et une ligne saine que l'on toucherait par
+/// approximation serait une régression introduite par une réparation.
+const SCHEMA_V5: &str = r#"
+UPDATE op_journal
+SET payload = replace(payload, '"to":', '"target":'),
+    done = 0,
+    attempts = 0,
+    next_attempt_at = 0,
+    last_error = NULL
+WHERE payload LIKE '%"op":"move"%' AND payload LIKE '%"to":%';
+"#;
 
 /// Takes out of the work queue every thread that only exists in the bin.
 ///
@@ -423,6 +457,77 @@ mod tests {
             })
             .unwrap();
         assert_eq!(thread & 512, 512);
+    }
+
+    #[test]
+    fn les_deplacements_casses_sont_repares_et_remis_en_attente() {
+        // Ce sont des actions que l'utilisateur a demandées et qui n'ont jamais eu
+        // lieu. Corriger le code sans les réparer laisserait le courrier là où il
+        // n'aurait jamais dû rester.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        for sql in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
+            conn.execute_batch(sql).unwrap();
+        }
+
+        conn.execute_batch(
+            r#"INSERT INTO op_journal
+                 (id, account_id, kind, payload, idempotency_key, created_at, done, attempts)
+               VALUES
+                 (1, 1, 'move_message',
+                  '{"op":"move","folder":"INBOX","uids":[7],"to":"INBOX.Archive"}',
+                  'k1', 0, 1, 3),
+                 (2, 1, 'set_flags',
+                  '{"op":"set_flags","folder":"INBOX","uids":[8],"flags":4,"add":true}',
+                  'k2', 0, 1, 0);"#,
+        )
+        .unwrap();
+
+        conn.execute_batch(SCHEMA_V5).unwrap();
+
+        let (charge, fini, essais): (String, i64, i64) = conn
+            .query_row(
+                "SELECT payload, done, attempts FROM op_journal WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+
+        assert!(charge.contains(r#""target":"INBOX.Archive""#), "obtenu : {charge}");
+        assert!(!charge.contains(r#""to":"#), "l'ancien nom doit disparaître");
+        assert_eq!(fini, 0, "l'opération doit être rejouée");
+        assert_eq!(essais, 0, "et repartir d'un compteur neuf");
+    }
+
+    #[test]
+    fn les_operations_saines_ne_sont_pas_touchees() {
+        // Une ligne saine réveillée par une réparation serait une régression
+        // introduite par la réparation elle-même.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        for sql in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
+            conn.execute_batch(sql).unwrap();
+        }
+
+        conn.execute_batch(
+            r#"INSERT INTO op_journal
+                 (id, account_id, kind, payload, idempotency_key, created_at, done)
+               VALUES
+                 (1, 1, 'set_flags',
+                  '{"op":"set_flags","folder":"INBOX","uids":[8],"flags":4,"add":true}',
+                  'k1', 0, 1),
+                 (2, 1, 'move_message',
+                  '{"op":"move","folder":"INBOX","uids":[9],"target":"INBOX.Archive"}',
+                  'k2', 0, 1);"#,
+        )
+        .unwrap();
+
+        conn.execute_batch(SCHEMA_V5).unwrap();
+
+        let reveilles: i64 = conn
+            .query_row("SELECT count(*) FROM op_journal WHERE done = 0", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(reveilles, 0, "aucune ligne saine ne doit être remise en file");
     }
 
     #[test]
