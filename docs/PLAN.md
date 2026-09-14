@@ -186,3 +186,18 @@ Google, et « tout est un module ».
 - [x] **S23.4** Compteurs par compte dans la barre latérale.
 - [x] **S23.5** L'état de la synchronisation, visible pendant qu'elle a lieu.
 - [x] **S23.6** Les commentaires devenus faux depuis que les écrans existent.
+
+## E24 — Un logiciel, pas un prototype
+
+Deux réserves posées à la fin d'E23 tiennent toujours, et l'une d'elles est
+embarrassante : Slint a été choisi contre Makepad **notamment pour son
+accessibilité**, et aucun élément de l'interface ne déclare de rôle. L'argument était
+juste ; ne pas en tirer parti le rend creux.
+
+Les deux se tiennent : le harnais de test sans écran de Slint retrouve les éléments
+par leur libellé d'accessibilité. Écrire les tests d'interface oblige donc à rendre
+l'interface accessible, et l'accessibilité cesse d'être une intention.
+
+- [ ] **S24.1** Rôles et libellés d'accessibilité sur tout ce qui se clique.
+- [ ] **S24.2** Tests d'interface sans écran, pilotant la vraie fenêtre.
+- [ ] **S24.3** Intégration continue : compilation, tests, format et lint.
