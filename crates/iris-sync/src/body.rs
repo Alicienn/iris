@@ -91,6 +91,10 @@ impl SyncEngine {
         // synchronisation : la recherche gagne le texte, pas seulement l'en-tête.
         self.reindex_with_body(&stocke, &brut)?;
 
+        // Les pièces jointes n'existent qu'à partir d'ici : l'enveloppe ne dit pas
+        // ce qu'un message contient, seul le corps complet le dit.
+        self.record_attachments(&stocke, &brut);
+
         Ok(FetchedBody { message, blob, from_cache: false, bytes: brut.len() })
     }
 
@@ -149,6 +153,26 @@ mod tests {
     use iris_kernel::EventBus;
     use iris_store::NewAccount;
     use iris_types::{Flags, Timestamp};
+
+    /// Un message MIME portant une pièce jointe et une image incrustée.
+    fn message_avec_pieces(sujet: &str) -> Vec<u8> {
+        format!(
+            "Subject: {sujet}\r\nFrom: Marie <marie@example.com>\r\n\
+             Message-ID: <{sujet}@x>\r\n\
+             MIME-Version: 1.0\r\n\
+             Content-Type: multipart/mixed; boundary=\"SEP\"\r\n\r\n\
+             --SEP\r\nContent-Type: text/plain\r\n\r\nVoici le devis.\r\n\
+             --SEP\r\nContent-Type: application/pdf\r\n\
+             Content-Disposition: attachment; filename=\"devis.pdf\"\r\n\r\n\
+             %PDF-faux\r\n\
+             --SEP\r\nContent-Type: image/png\r\n\
+             Content-ID: <logo>\r\n\
+             Content-Disposition: inline; filename=\"logo.png\"\r\n\r\n\
+             PNG-faux\r\n\
+             --SEP--\r\n"
+        )
+        .into_bytes()
+    }
 
     fn message(sujet: &str, corps: &str) -> Vec<u8> {
         format!(
@@ -368,5 +392,80 @@ mod tests {
 
         assert_eq!(purge_orphan_bodies(&f.store, &f.blobs).unwrap(), 0);
         assert_eq!(f.blobs.stats().unwrap().count, 1);
+    }
+
+    #[tokio::test]
+    async fn le_corps_revele_les_pieces_jointes() {
+        // L'enveloppe ne les connaît pas : seul le corps complet dit ce qu'un
+        // message contient.
+        let f = fixture();
+        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.synchroniser().await;
+
+        let message = f.premier_message();
+        assert!(f.store.attachments(message).unwrap().is_empty(), "rien avant le corps");
+
+        f.engine.fetch_body(message).await.unwrap();
+
+        let pieces = f.store.attachments(message).unwrap();
+        assert_eq!(pieces.len(), 2, "le PDF et l'image incrustée");
+        assert_eq!(pieces[0].meta.filename, "devis.pdf");
+    }
+
+    #[tokio::test]
+    async fn seules_les_pieces_utiles_sont_listees() {
+        let f = fixture();
+        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.synchroniser().await;
+
+        let message = f.premier_message();
+        f.engine.fetch_body(message).await.unwrap();
+
+        let visibles = f.store.visible_attachments(message).unwrap();
+        assert_eq!(visibles.len(), 1);
+        assert_eq!(visibles[0].meta.filename, "devis.pdf");
+    }
+
+    #[tokio::test]
+    async fn les_octets_se_ressortent_du_message_brut() {
+        // Ils ne sont pas dupliqués dans la base : le message les contient déjà.
+        let f = fixture();
+        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.synchroniser().await;
+
+        let message = f.premier_message();
+        let corps = f.engine.fetch_body(message).await.unwrap();
+        let brut = f.blobs.get(corps.blob).unwrap().unwrap();
+
+        let piece = f.store.visible_attachments(message).unwrap().remove(0);
+        let octets = iris_mime::attachment_bytes(&brut, piece.index).unwrap();
+        assert!(
+            String::from_utf8_lossy(&octets).contains("%PDF-faux"),
+            "le rang doit désigner le bon fichier"
+        );
+    }
+
+    #[tokio::test]
+    async fn retelecharger_un_corps_ne_duplique_pas_les_pieces() {
+        let f = fixture();
+        f.server.deliver("INBOX", &message_avec_pieces("Devis"), Flags::NONE);
+        f.synchroniser().await;
+
+        let message = f.premier_message();
+        f.engine.fetch_body(message).await.unwrap();
+        f.engine.fetch_body(message).await.unwrap();
+
+        assert_eq!(f.store.attachments(message).unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn un_message_sans_piece_n_en_invente_pas() {
+        let f = fixture();
+        f.server.deliver("INBOX", &message("Bonjour", "Rien de particulier."), Flags::NONE);
+        f.synchroniser().await;
+
+        let message = f.premier_message();
+        f.engine.fetch_body(message).await.unwrap();
+        assert!(f.store.attachments(message).unwrap().is_empty());
     }
 }

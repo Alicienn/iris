@@ -201,6 +201,26 @@ impl SyncEngine {
         Ok(messages.len())
     }
 
+    /// Recense les pièces jointes que le corps vient de révéler.
+    ///
+    /// L'enveloppe ne les connaît pas : seul le corps complet dit ce qu'un message
+    /// contient. Un échec d'analyse n'est pas propagé — le corps est téléchargé et
+    /// lisible, et perdre la liste des pièces jointes ne justifie pas de rendre
+    /// l'ouverture du message impossible.
+    pub(crate) fn record_attachments(&self, message: &iris_store::StoredMessage, raw: &[u8]) {
+        let analyse = match iris_mime::parse(raw) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!(message = %message.id, erreur = %e, "analyse des pièces jointes");
+                return;
+            }
+        };
+
+        if let Err(e) = self.store().record_attachments(message.id, &analyse.attachments) {
+            tracing::warn!(message = %message.id, erreur = %e, "recensement des pièces jointes");
+        }
+    }
+
     /// Remplace l'entrée d'index d'un message par une entrée incluant son corps.
     pub(crate) fn reindex_with_body(
         &self,

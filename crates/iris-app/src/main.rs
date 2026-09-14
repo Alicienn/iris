@@ -434,6 +434,7 @@ fn run_gui() -> Result<()> {
         });
     }
 
+    shell::wire_attachments(&fenetre, &services, Arc::clone(&selection));
     shell::wire_account_setup(
         &fenetre,
         &services,

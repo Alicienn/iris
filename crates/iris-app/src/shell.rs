@@ -424,7 +424,15 @@ pub fn apply_snapshot(
 
     if let Some(message) = snapshot.messages.last() {
         let corps = corps_du_message(services, renderer, message);
-        let pieces = Vec::new();
+        // Les pièces incrustées sont écartées : une image de signature n'est pas un
+        // document reçu, et la lister ferait chercher un fichier qui n'existe pas.
+        let pieces: Vec<String> = services
+            .store
+            .visible_attachments(message.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.meta.filename)
+            .collect();
         fenetre.set_message(bridge::message_view_rendered(message, &corps, &pieces, maintenant));
     }
 }
@@ -1094,6 +1102,125 @@ fn config_saisie(
     })
 }
 
+/// Branche l'enregistrement des pièces jointes.
+///
+/// Le fichier va dans le dossier de téléchargements du système, sans boîte de
+/// dialogue : à ce stade l'utilisateur a déjà cliqué sur ce qu'il voulait, et lui
+/// demander où le mettre ajouterait un geste à une décision déjà prise. La barre
+/// d'état dit où le fichier a atterri.
+pub fn wire_attachments(
+    fenetre: &AppWindow,
+    services: &Services,
+    selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
+) {
+    let services = services.clone();
+    let faible = fenetre.as_weak();
+
+    fenetre.on_save_attachment(move |rang| {
+        let Some(fenetre) = faible.upgrade() else { return };
+        let Some(thread) = *selection.lock().expect("sélection empoisonnée") else { return };
+
+        match enregistrer_piece(&services, thread, rang as usize) {
+            Ok(chemin) => fenetre.set_status(format!("Enregistré : {}", chemin.display()).into()),
+            Err(e) => fenetre.set_status(format!("Enregistrement impossible : {e}").into()),
+        }
+    });
+}
+
+/// Écrit une pièce jointe sur le disque et rend son chemin.
+fn enregistrer_piece(
+    services: &Services,
+    thread: ThreadIdent,
+    rang: usize,
+) -> iris_types::Result<std::path::PathBuf> {
+    let messages = services.store.thread_messages(thread)?;
+    let message = messages
+        .last()
+        .ok_or_else(|| iris_types::Error::other("conversation vide"))?;
+
+    let pieces = services.store.visible_attachments(message.id)?;
+    let piece = pieces
+        .get(rang)
+        .ok_or_else(|| iris_types::Error::other("pièce jointe introuvable"))?;
+
+    // Les octets viennent du message brut, jamais d'une copie : c'est ce qui évite
+    // de stocker deux fois toutes les pièces jointes de la boîte.
+    let blob = message
+        .body_blob
+        .as_deref()
+        .and_then(iris_types::BlobId::from_hex)
+        .ok_or_else(|| iris_types::Error::other("le corps n'est pas encore téléchargé"))?;
+
+    let brut = services
+        .blobs
+        .get(blob)?
+        .ok_or_else(|| iris_types::Error::other("contenu absent du cache"))?;
+
+    let octets = iris_mime::attachment_bytes(&brut, piece.index)
+        .ok_or_else(|| iris_types::Error::other("pièce jointe absente du message"))?;
+
+    let destination = chemin_libre(&dossier_telechargements(), &piece.meta.filename);
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&destination, octets)?;
+    Ok(destination)
+}
+
+/// Le dossier de téléchargements de l'utilisateur, ou son dossier personnel.
+fn dossier_telechargements() -> std::path::PathBuf {
+    directories::UserDirs::new()
+        .and_then(|d| d.download_dir().map(|p| p.to_path_buf()))
+        .or_else(|| directories::UserDirs::new().map(|d| d.home_dir().to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
+/// Trouve un nom libre dans le dossier.
+///
+/// Écraser un fichier existant du même nom ferait perdre à l'utilisateur la première
+/// version sans le prévenir — deux factures s'appellent souvent « facture.pdf ».
+fn chemin_libre(dossier: &std::path::Path, nom: &str) -> std::path::PathBuf {
+    let nom = nom_sur(nom);
+    let candidat = dossier.join(&nom);
+    if !candidat.exists() {
+        return candidat;
+    }
+
+    let chemin = std::path::Path::new(&nom);
+    let tronc = chemin.file_stem().and_then(|s| s.to_str()).unwrap_or("piece-jointe");
+    let extension = chemin.extension().and_then(|s| s.to_str());
+
+    for n in 2..1000 {
+        let essai = match extension {
+            Some(ext) => dossier.join(format!("{tronc} ({n}).{ext}")),
+            None => dossier.join(format!("{tronc} ({n})")),
+        };
+        if !essai.exists() {
+            return essai;
+        }
+    }
+    candidat
+}
+
+/// Rend un nom de fichier inoffensif.
+///
+/// Le nom vient d'un message reçu : rien n'empêche un expéditeur d'y mettre
+/// « ../../autre-chose ». On ne garde que le dernier segment, débarrassé des
+/// séparateurs — un fichier écrit hors du dossier choisi serait une faille, pas une
+/// commodité.
+fn nom_sur(nom: &str) -> String {
+    let dernier = nom.rsplit(['/', '\\']).next().unwrap_or(nom).trim();
+    let nettoye: String = dernier
+        .chars()
+        .filter(|c| !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'))
+        .collect();
+
+    match nettoye.trim_matches('.').trim() {
+        "" => "piece-jointe".to_string(),
+        propre => propre.to_string(),
+    }
+}
+
 /// Modèle vide, pour initialiser une liste avant le premier instantané.
 pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
     ModelRc::from(Rc::new(VecModel::from(Vec::<T>::new())))
@@ -1177,6 +1304,53 @@ mod tests {
         // Sinon la panne resterait muette au moment où elle est la plus étrange.
         let message = message_suspension(&[], &ensemble(&[7])).unwrap();
         assert!(message.starts_with("1 compte en pause"), "obtenu : {message}");
+    }
+
+    #[test]
+    fn un_nom_de_fichier_hostile_est_ramene_a_son_dernier_segment() {
+        // Rien n'empêche un expéditeur d'appeler sa pièce jointe « ../../passwd ».
+        assert_eq!(nom_sur("../../etc/passwd"), "passwd");
+        assert_eq!(nom_sur("..\\..\\windows\\system32\\x.dll"), "x.dll");
+        assert_eq!(nom_sur("devis.pdf"), "devis.pdf");
+    }
+
+    #[test]
+    fn un_nom_vide_ou_uniquement_ponctue_recoit_un_nom_de_secours() {
+        assert_eq!(nom_sur(""), "piece-jointe");
+        assert_eq!(nom_sur("..."), "piece-jointe");
+        assert_eq!(nom_sur("   "), "piece-jointe");
+        assert_eq!(nom_sur("/"), "piece-jointe");
+    }
+
+    #[test]
+    fn les_caracteres_interdits_sont_retires() {
+        assert_eq!(nom_sur("fact:ure?.pdf"), "facture.pdf");
+    }
+
+    #[test]
+    fn un_fichier_existant_n_est_pas_ecrase() {
+        // Deux factures s'appellent souvent « facture.pdf ».
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("facture.pdf"), b"premiere").unwrap();
+
+        let libre = chemin_libre(dir.path(), "facture.pdf");
+        assert_eq!(libre.file_name().unwrap(), "facture (2).pdf");
+    }
+
+    #[test]
+    fn le_premier_enregistrement_garde_son_nom() {
+        let dir = tempfile::tempdir().unwrap();
+        let libre = chemin_libre(dir.path(), "devis.pdf");
+        assert_eq!(libre.file_name().unwrap(), "devis.pdf");
+    }
+
+    #[test]
+    fn un_fichier_sans_extension_est_numerote_aussi() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("LISEZMOI"), b"x").unwrap();
+
+        let libre = chemin_libre(dir.path(), "LISEZMOI");
+        assert_eq!(libre.file_name().unwrap(), "LISEZMOI (2)");
     }
 
     #[test]

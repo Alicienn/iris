@@ -157,6 +157,7 @@ export component ConversationView inherits VerticalLayout {
     callback cancel-send();
     callback load-images();
     callback reply-all();
+    callback save-attachment(int);
 
     if root.empty: Rectangle {
         VerticalLayout {
@@ -234,21 +235,37 @@ export component ConversationView inherits VerticalLayout {
 
         if root.message.attachments.length > 0: HorizontalLayout {
             spacing: Tokens.space-2;
-            for name in root.message.attachments: Rectangle {
+            // Une pièce jointe affichée mais qu'on ne peut pas ouvrir est une
+            // promesse à moitié tenue : la pastille est le bouton d'enregistrement.
+            for name[i] in root.message.attachments: Rectangle {
                 height: 24px;
                 border-radius: Tokens.radius-small;
-                background: Tokens.surface;
+                background: piece.has-hover ? Tokens.surface-hover : Tokens.surface;
                 border-width: 1px;
                 border-color: Tokens.border;
+                animate background { duration: Tokens.instant; }
+
                 HorizontalLayout {
                     padding-left: Tokens.space-2;
                     padding-right: Tokens.space-2;
+                    spacing: Tokens.space-1;
+
+                    Text {
+                        text: piece.has-hover ? "↓" : "▣";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
                     Text {
                         text: name;
                         font-size: Tokens.size-small;
                         color: Tokens.text-secondary;
                         vertical-alignment: center;
                     }
+                }
+
+                piece := TouchArea {
+                    clicked => { root.save-attachment(i); }
                 }
             }
             Rectangle {}

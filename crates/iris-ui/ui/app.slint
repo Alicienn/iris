@@ -223,6 +223,7 @@ export component AppWindow inherits Window {
     callback cancel-send();
     callback reply-all();
     callback load-images();
+    callback save-attachment(int);
     callback palette-query-changed(string);
     callback search-submitted(string);
     callback search-cleared();
@@ -302,6 +303,7 @@ export component AppWindow inherits Window {
                     cancel-send => { root.cancel-send(); }
                     reply-all => { root.reply-all(); }
                     load-images => { root.load-images(); }
+                    save-attachment(i) => { root.save-attachment(i); }
                 }
             }
 

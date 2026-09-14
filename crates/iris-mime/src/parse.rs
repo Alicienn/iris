@@ -256,6 +256,20 @@ fn decode_entities(s: &str) -> String {
         .replace("&apos;", "'")
 }
 
+/// Extrait le contenu d'une pièce jointe, par son rang.
+///
+/// Les octets ne sont pas dupliqués dans la base : le message brut est déjà dans le
+/// magasin de contenus, et il les contient. On les en ressort au moment où
+/// l'utilisateur enregistre le fichier, ce qui coûte une analyse et économise autant
+/// d'octets que le message en pèse.
+///
+/// Le rang est celui de `Parsed::attachments`, dans le même ordre.
+pub fn attachment_bytes(raw: &[u8], index: usize) -> Option<Vec<u8>> {
+    let message = MessageParser::default().parse(raw)?;
+    let part = message.attachments().nth(index)?;
+    Some(part.contents().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

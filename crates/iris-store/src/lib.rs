@@ -13,12 +13,14 @@
 #![warn(missing_debug_implementations)]
 
 mod accounts;
+mod attachments;
 mod journal;
 mod messages;
 mod migrations;
 mod model;
 mod threads;
 
+pub use attachments::StoredAttachment;
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Folder, FolderRole, ListCursor, ListQuery, NewAccount, NewMessage, OpKind,
