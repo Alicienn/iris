@@ -248,3 +248,41 @@ Prerequisite, not a story of its own: an installer (Inno Setup produces a single
 SmartScreen, which only a signing certificate silences, and portability: Iris keeps
 its data in `%APPDATA%\Iris`, so a copy on a USB stick still leaves traces. A portable
 mode that keeps the database beside the binary is a separate, small piece of work.
+
+## E28 — What sixteen screenshots showed
+
+An epic written from a user's own list rather than from a plan. Half of it turned out
+to be one cause with many faces, which is the usual shape of a bug report: people
+describe symptoms, and the symptoms are further apart than the fault.
+
+- [x] **S28.1** An opaque ground for anything that floats. Every `surface` token is a
+      white wash at three to nine percent — right on our own backdrop, invisible over
+      the application. The context menu, the tooltips and the settings panel were all
+      the same mistake, and there are now `panel` and `panel-high`, mixed from each
+      theme's own two colours so they stay right in both directions.
+- [x] **S28.2** Icons instead of characters. "◆▣◉⏱" exist in Unicode and in almost no
+      interface font: a starred thread showed a lozenge because that is the one Inter
+      carries, and an attachment showed an empty box. Also the last two "✕" glyphs and
+      a gear that looks like a gear.
+- [x] **S28.3** The grain tiles. `image-fit: preserve` centres what it cannot fill, so
+      a 64-pixel texture drew one square in the middle of every empty panel — the grey
+      patch that hovered above "Nothing to do".
+- [x] **S28.4** A Delete that deletes, and errors that reach the user. Moving mail that
+      is already in the bin produces nothing to send, so the action reported
+      "unchanged" and the button appeared dead; and a failed action was a log line in a
+      build with no console.
+- [x] **S28.5** The bin is not work to do. 485 of 740 messages were in Trash and every
+      one of them was in the queue. Schema 4 clears the backlog, ingest stops it coming
+      back, and a thread with one message deleted and a reply in the inbox stays.
+- [x] **S28.6** Remote images, end to end. No image had ever rendered — Blitz fetches
+      through a `NetProvider` and none was installed, so the button under "N images
+      blocked" had nowhere to go. There is one now: `data:` with no network, HTTPS only
+      for a message the reader has unblocked, once, no redirects, capped at 8 MB.
+- [x] **S28.7** An account is reachable from its own row. Right-click for sync,
+      password, servers, pin, disable, remove — changing a password used to require the
+      mailbox to fail first so the warning marker would appear. Editing rewrites the
+      account in place, because deleting and recreating would cost the user their
+      mailbox history over a hostname typo.
+- [x] **S28.8** Counts shorten to 1.2k and 1.24M with the exact figure on hover, the
+      collapse chevron stays in its column, the density chips match the queue tabs, and
+      "After N days" is a row rather than a box the height of the panel.
