@@ -806,13 +806,62 @@ fn pendant_le_delai_le_bouton_devient_une_annulation() {
     assert_eq!(*annulations.borrow(), 1);
 }
 
-fn l_expediteur_est_visible_des_le_depart() {
-    // With a hundred mailboxes, sending from the wrong one is the mistake that costs.
+fn l_expediteur_se_choisit() {
+    // With a hundred mailboxes, sending from the wrong one is the mistake that costs,
+    // so the sender is a choice rather than whichever account happened to be first.
     let f = fenetre();
     f.set_compose_open(true);
-    f.set_compose_sender("from me@work.example".into());
+    f.set_compose_senders(modele(vec![
+        SharedString::from("me@work.example"),
+        SharedString::from("me@home.example"),
+    ]));
 
-    assert!(textes(&f).iter().any(|l| l.contains("me@work.example")));
+    assert!(par_libelle(&f, "From").is_some());
+}
+
+fn les_copies_restent_pliees_jusqu_a_ce_qu_on_les_demande() {
+    // Most messages have neither, and two empty fields at the top of every draft is
+    // furniture between the writer and the writing.
+    let f = fenetre();
+    f.set_compose_open(true);
+
+    assert!(par_libelle(&f, "Cc").is_none());
+    assert!(par_libelle(&f, "Add Cc and Bcc").is_some());
+
+    f.set_compose_show_cc(true);
+    assert!(par_libelle(&f, "Cc").is_some());
+    assert!(par_libelle(&f, "Bcc").is_some());
+}
+
+fn une_piece_jointe_se_retire() {
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_attachments(modele(vec![SharedString::from("plan.pdf")]));
+
+    let retires = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let retires = Rc::clone(&retires);
+        f.on_compose_remove_attachment(move |i| retires.borrow_mut().push(i));
+    }
+
+    par_libelle(&f, "Remove plan.pdf")
+        .expect("an attachment must be removable")
+        .invoke_accessible_default_action();
+    assert_eq!(*retires.borrow(), [0]);
+}
+
+fn reduire_la_fenetre_ne_jette_pas_le_brouillon() {
+    // Losing what somebody was writing is not a recoverable mistake.
+    let f = fenetre();
+    f.set_compose_open(true);
+    f.set_compose_body("half a sentence".into());
+
+    par_libelle(&f, "Minimise")
+        .expect("the draft must be tuckable")
+        .invoke_accessible_default_action();
+
+    assert!(f.get_compose_open(), "the draft is still there");
+    assert_eq!(f.get_compose_body(), "half a sentence");
 }
 
 fn une_erreur_de_composition_est_montree() {
@@ -1182,9 +1231,18 @@ fn main() {
             "pendant_le_delai_le_bouton_devient_une_annulation",
             pendant_le_delai_le_bouton_devient_une_annulation as fn(),
         ),
+        ("l_expediteur_se_choisit", l_expediteur_se_choisit as fn()),
         (
-            "l_expediteur_est_visible_des_le_depart",
-            l_expediteur_est_visible_des_le_depart as fn(),
+            "les_copies_restent_pliees_jusqu_a_ce_qu_on_les_demande",
+            les_copies_restent_pliees_jusqu_a_ce_qu_on_les_demande as fn(),
+        ),
+        (
+            "une_piece_jointe_se_retire",
+            une_piece_jointe_se_retire as fn(),
+        ),
+        (
+            "reduire_la_fenetre_ne_jette_pas_le_brouillon",
+            reduire_la_fenetre_ne_jette_pas_le_brouillon as fn(),
         ),
         (
             "une_erreur_de_composition_est_montree",

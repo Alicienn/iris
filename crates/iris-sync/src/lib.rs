@@ -19,4 +19,4 @@ pub use regroup::{RegroupOptions, RegroupReport};
 pub use replay::{enqueue, replay_account, OpPayload, ReplayReport};
 pub use rules::{facts_of, RulesReport};
 pub use scheduler::{Priority, ScheduleConfig, Scheduler, SyncOutcome};
-pub use send::{pump_outbox, SendContext, SendService, SentOutcome};
+pub use send::{pump_outbox, Draft, SendContext, SendService, SentOutcome};

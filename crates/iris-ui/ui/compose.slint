@@ -1,148 +1,407 @@
 import { Tokens } from "tokens.slint";
 import { Floating } from "glass.slint";
-import { LineEdit, TextEdit } from "std-widgets.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import { LineEdit, TextEdit, ComboBox, ListView } from "std-widgets.slint";
 
-// Writing a new message.
+// One labelled field of the header block.
+component Field inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> value;
+
+    callback accepted();
+
+    spacing: Tokens.space-2;
+    height: 30px;
+
+    Text {
+        width: 34px;
+        text: root.label;
+        font-size: Tokens.size-small;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+    }
+
+    LineEdit {
+        accessible-label: root.label;
+        placeholder-text: root.placeholder;
+        font-size: Tokens.size-body;
+        text <=> root.value;
+        accepted => { root.accepted(); }
+    }
+}
+
+// The formatting strip.
 //
-// A window rather than a third column: a new message has no conversation to sit
-// under, and giving it one of the three columns would mean deciding which of the
-// user's other two views to take away.
+// Only what people actually reach for. A word processor's worth of controls in a
+// mail window is a row of buttons nobody presses, taking the space the message needs.
+component FormatBar inherits HorizontalLayout {
+    callback apply(string);
+
+    spacing: 1px;
+    height: 26px;
+
+    IconButton {
+        icon: Icons.bold;
+        label: "Bold";
+        shortcut: "Ctrl+B";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("bold"); }
+    }
+    IconButton {
+        icon: Icons.italic;
+        label: "Italic";
+        shortcut: "Ctrl+I";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("italic"); }
+    }
+    IconButton {
+        icon: Icons.underline;
+        label: "Underline";
+        shortcut: "Ctrl+U";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("underline"); }
+    }
+
+    Rectangle { width: Tokens.space-2; }
+
+    IconButton {
+        icon: Icons.link;
+        label: "Insert link";
+        shortcut: "Ctrl+K";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("link"); }
+    }
+    IconButton {
+        icon: Icons.list;
+        label: "Bulleted list";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("list"); }
+    }
+    IconButton {
+        icon: Icons.quote;
+        label: "Quote";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("quote"); }
+    }
+    IconButton {
+        icon: Icons.code;
+        label: "Code";
+        button-size: 26px;
+        icon-size: 15px;
+        clicked => { root.apply("code"); }
+    }
+
+    Rectangle {}
+}
+
+// Writing a message.
 //
-// Sending goes through the same queue as a reply, so the ten-second window to change
-// your mind works here too. That is not a detail — it is the reason nobody has to
-// re-read a message four times before pressing send.
+// A modal by default, because writing deserves the whole window, with one gesture to
+// tuck it into the corner when a message needs checking mid-sentence. The two states
+// are the same element at different sizes rather than two windows: the transition is
+// then a single animation of x, y, width and height, and the draft cannot be lost in
+// the handover because there is no handover.
 export component ComposePanel inherits Rectangle {
-    in property <string> sender;
+    in property <[string]> senders;
+    in property <int> sender-index;
     in property <bool> sending;
     in property <int> undo-seconds;
     in property <string> error;
+    in property <[string]> attachments;
+    in-out property <bool> minimised;
+    in-out property <bool> show-cc;
     in-out property <string> to;
+    in-out property <string> cc;
+    in-out property <string> bcc;
     in-out property <string> subject;
     in-out property <string> body;
 
     callback send();
     callback cancel-send();
     callback dismissed();
+    callback sender-chosen(int);
+    callback attach();
+    callback attach-image();
+    callback remove-attachment(int);
+    callback format(string);
 
-    background: #00000066;
+    // The veil fades out as the window shrinks: a minimised draft must not keep the
+    // rest of the application behind glass.
+    background: root.minimised ? transparent : #00000066;
+    animate background { duration: Tokens.moderate; easing: ease-in-out; }
 
-    TouchArea {
-        clicked => { root.dismissed(); }
+    if !root.minimised: TouchArea {
+        clicked => { root.minimised = true; }
     }
 
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(640px, parent.width - 80px);
-        height: min(520px, parent.height - 80px);
+    frame := Floating {
+        // The morph. One element, four animated properties — nothing is created or
+        // destroyed between the two states, so the text being typed survives.
+        x: root.minimised
+            ? parent.width - self.width - Tokens.space-3
+            : (parent.width - self.width) / 2;
+        y: root.minimised
+            ? parent.height - self.height - Tokens.space-3
+            : (parent.height - self.height) / 2;
+        width: root.minimised ? 300px : min(720px, parent.width - 80px);
+        height: root.minimised ? 40px : min(600px, parent.height - 80px);
+
+        animate x, y, width, height {
+            duration: Tokens.moderate;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
 
         TouchArea {}
 
         VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-2;
+            padding: root.minimised ? Tokens.space-2 : Tokens.space-4;
+            spacing: root.minimised ? 0px : Tokens.space-2;
+            animate padding, spacing { duration: Tokens.moderate; }
 
+            // --- Title row, present in both states ---
             HorizontalLayout {
+                spacing: Tokens.space-2;
+                height: root.minimised ? 24px : 28px;
+
                 Text {
-                    text: "New message";
+                    text: root.minimised
+                        ? (root.subject == "" ? "New message" : root.subject)
+                        : "New message";
                     font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
+                    font-size: root.minimised ? Tokens.size-body : Tokens.size-title;
                     font-weight: Tokens.weight-bold;
                     color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
                 }
+
                 Rectangle {}
-                // Which address this leaves from, always visible. With a hundred
-                // mailboxes, sending from the wrong one is the mistake that costs.
+
+                IconButton {
+                    icon: root.minimised ? Icons.window-maximise : Icons.minus;
+                    label: root.minimised ? "Expand" : "Minimise";
+                    button-size: 24px;
+                    icon-size: 14px;
+                    clicked => { root.minimised = !root.minimised; }
+                }
+                IconButton {
+                    icon: Icons.window-close;
+                    label: "Discard";
+                    button-size: 24px;
+                    icon-size: 14px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            // Everything below is hidden while tucked away. `if` rather than opacity,
+            // so a minimised draft costs nothing to keep on screen.
+            if !root.minimised: Rectangle { height: 1px; background: Tokens.border; }
+
+            // --- Who it comes from ---
+            //
+            // A picker rather than a fixed address: with a hundred mailboxes, sending
+            // from the wrong one is the mistake that costs, and it is invisible until
+            // the reply arrives somewhere unexpected.
+            if !root.minimised: HorizontalLayout {
+                spacing: Tokens.space-2;
+                height: 30px;
+
                 Text {
-                    text: root.sender;
+                    width: 34px;
+                    text: "From";
                     font-size: Tokens.size-small;
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                 }
+                ComboBox {
+                    accessible-label: "From";
+                    model: root.senders;
+                    current-index: root.sender-index;
+                    selected(value) => { root.sender-chosen(self.current-index); }
+                }
             }
 
-            Rectangle { height: 1px; background: Tokens.border; }
+            if !root.minimised: HorizontalLayout {
+                spacing: Tokens.space-2;
 
-            LineEdit {
-                accessible-label: "To";
-                placeholder-text: "To — separate addresses with commas";
-                font-size: Tokens.size-body;
-                text <=> root.to;
+                Field {
+                    label: "To";
+                    placeholder: "Separate addresses with commas";
+                    value <=> root.to;
+                }
+
+                // Cc and Bcc stay folded until asked for. Most messages have neither,
+                // and two empty fields at the top of every draft is two lines of
+                // furniture between the writer and the writing.
+                if !root.show-cc: Rectangle {
+                    width: 54px;
+                    height: 30px;
+                    border-radius: Tokens.radius-small;
+                    background: cc-touch.has-hover ? Tokens.surface-hover : transparent;
+
+                    accessible-role: button;
+                    accessible-label: "Add Cc and Bcc";
+                    accessible-action-default => { root.show-cc = true; }
+
+                    Text {
+                        text: "Cc Bcc";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    cc-touch := TouchArea {
+                        clicked => { root.show-cc = true; }
+                    }
+                }
             }
 
-            LineEdit {
-                accessible-label: "Subject";
-                placeholder-text: "Subject";
-                font-size: Tokens.size-body;
-                text <=> root.subject;
+            if !root.minimised && root.show-cc: Field {
+                label: "Cc";
+                placeholder: "Also send to";
+                value <=> root.cc;
+            }
+            if !root.minimised && root.show-cc: Field {
+                label: "Bcc";
+                placeholder: "Send without showing the address";
+                value <=> root.bcc;
             }
 
-            TextEdit {
+            if !root.minimised: Field {
+                label: "Subject";
+                placeholder: "Subject";
+                value <=> root.subject;
+            }
+
+            if !root.minimised: Rectangle { height: 1px; background: Tokens.border; }
+
+            if !root.minimised: FormatBar {
+                apply(what) => { root.format(what); }
+            }
+
+            if !root.minimised: TextEdit {
                 accessible-label: "Message";
                 placeholder-text: "Write your message…";
                 font-size: Tokens.size-body;
                 text <=> root.body;
+                vertical-stretch: 1;
             }
 
-            if root.error != "": Text {
+            // --- What is going with it ---
+            if !root.minimised && root.attachments.length > 0: HorizontalLayout {
+                spacing: Tokens.space-1;
+                height: 24px;
+
+                for name[i] in root.attachments: Rectangle {
+                    width: label.preferred-width + 34px;
+                    border-radius: Tokens.radius-small;
+                    background: Tokens.surface;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+
+                    accessible-role: button;
+                    accessible-label: "Remove " + name;
+                    accessible-action-default => { root.remove-attachment(i); }
+
+                    HorizontalLayout {
+                        padding-left: Tokens.space-1;
+                        padding-right: Tokens.space-1;
+                        spacing: 2px;
+
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.paperclip;
+                            size: 12px;
+                            tint: Tokens.text-muted;
+                        }
+                        label := Text {
+                            text: name;
+                            font-size: Tokens.size-small;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.window-close;
+                            size: 10px;
+                            tint: retirer.has-hover ? Tokens.error : Tokens.text-muted;
+                        }
+                    }
+
+                    retirer := TouchArea {
+                        clicked => { root.remove-attachment(i); }
+                    }
+                }
+                Rectangle {}
+            }
+
+            if !root.minimised && root.error != "": Text {
                 text: root.error;
                 font-size: Tokens.size-small;
                 color: Tokens.error;
                 wrap: word-wrap;
             }
 
-            HorizontalLayout {
+            // --- The bottom row ---
+            if !root.minimised: HorizontalLayout {
                 spacing: Tokens.space-2;
-                Rectangle {}
+                height: 28px;
 
-                Rectangle {
-                    width: 90px;
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: annuler.has-hover ? Tokens.surface-hover : Tokens.surface;
-
-                    accessible-role: button;
-                    accessible-label: "Discard";
-                    accessible-action-default => { root.dismissed(); }
-
-                    Text {
-                        text: "Discard";
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-secondary;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    annuler := TouchArea {
-                        clicked => { root.dismissed(); }
-                    }
+                IconButton {
+                    icon: Icons.paperclip;
+                    label: "Attach a file";
+                    button-size: 28px;
+                    clicked => { root.attach(); }
+                }
+                IconButton {
+                    icon: Icons.image;
+                    label: "Insert an image";
+                    button-size: 28px;
+                    clicked => { root.attach-image(); }
                 }
 
-                // During the undo window the send button becomes the undo button, in
-                // the same place: the correction is one click where the mistake was.
+                Rectangle {}
+
+                // During the delay the send button becomes the undo button, in the
+                // same place: the correction is one click where the mistake was.
                 Rectangle {
-                    width: 160px;
-                    height: 28px;
+                    width: 170px;
                     border-radius: Tokens.radius-small;
                     background: root.sending ? Tokens.surface : Tokens.accent;
 
                     accessible-role: button;
-                    accessible-label: root.sending
-                        ? "Undo send"
-                        : "Send";
+                    accessible-label: root.sending ? "Undo send" : "Send";
                     accessible-enabled: root.sending || root.to != "";
                     accessible-action-default => {
                         root.sending ? root.cancel-send() : root.send();
                     }
 
-                    Text {
-                        text: root.sending
-                            ? "Undo send (" + root.undo-seconds + "s)"
-                            : "Send";
-                        font-size: Tokens.size-small;
-                        font-weight: Tokens.weight-bold;
-                        color: root.sending ? Tokens.text-secondary : Tokens.accent-text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: Tokens.space-1;
+
+                        if !root.sending: Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.send;
+                            size: 14px;
+                            tint: Tokens.accent-text;
+                        }
+                        Text {
+                            text: root.sending
+                                ? "Undo send (" + root.undo-seconds + "s)"
+                                : "Send";
+                            font-size: Tokens.size-small;
+                            font-weight: Tokens.weight-bold;
+                            color: root.sending ? Tokens.text-secondary : Tokens.accent-text;
+                            vertical-alignment: center;
+                        }
                     }
 
                     TouchArea {
@@ -151,6 +410,13 @@ export component ComposePanel inherits Rectangle {
                         }
                     }
                 }
+            }
+
+            // Tucked away, the one thing worth showing is whether it is still going.
+            if root.minimised && root.sending: Text {
+                text: "Sending — " + root.undo-seconds + "s to undo";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
             }
         }
     }

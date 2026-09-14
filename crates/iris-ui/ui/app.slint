@@ -234,11 +234,17 @@ export component AppWindow inherits Window {
     in-out property <length> context-menu-y;
 
     in-out property <bool> compose-open;
-    in property <string> compose-sender;
+    in-out property <bool> compose-minimised;
+    in-out property <bool> compose-show-cc;
+    in property <[string]> compose-senders;
+    in property <int> compose-sender-index;
+    in property <[string]> compose-attachments;
     in property <bool> compose-sending;
     in property <int> compose-undo-seconds;
     in property <string> compose-error;
     in-out property <string> compose-to;
+    in-out property <string> compose-cc;
+    in-out property <string> compose-bcc;
     in-out property <string> compose-subject;
     in-out property <string> compose-body;
 
@@ -332,6 +338,11 @@ export component AppWindow inherits Window {
     callback plugins-reloaded();
     callback compose-send();
     callback compose-cancel();
+    callback compose-sender-chosen(int);
+    callback compose-attach();
+    callback compose-attach-image();
+    callback compose-remove-attachment(int);
+    callback compose-format(string);
 
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
@@ -503,15 +514,26 @@ export component AppWindow inherits Window {
     if root.compose-open: ComposePanel {
         width: 100%;
         height: 100%;
-        sender: root.compose-sender;
+        senders: root.compose-senders;
+        sender-index: root.compose-sender-index;
+        attachments: root.compose-attachments;
         sending: root.compose-sending;
         undo-seconds: root.compose-undo-seconds;
         error: root.compose-error;
+        minimised <=> root.compose-minimised;
+        show-cc <=> root.compose-show-cc;
         to <=> root.compose-to;
+        cc <=> root.compose-cc;
+        bcc <=> root.compose-bcc;
         subject <=> root.compose-subject;
         body <=> root.compose-body;
         send => { root.compose-send(); }
         cancel-send => { root.compose-cancel(); }
+        sender-chosen(i) => { root.compose-sender-chosen(i); }
+        attach => { root.compose-attach(); }
+        attach-image => { root.compose-attach-image(); }
+        remove-attachment(i) => { root.compose-remove-attachment(i); }
+        format(f) => { root.compose-format(f); }
         dismissed => { root.compose-open = false; }
     }
 

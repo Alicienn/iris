@@ -1847,26 +1847,95 @@ pub fn wire_account_recovery(
 /// Wires the compose window.
 ///
 /// It shares the outbox with replies, so the ten-second window to change your mind
-/// works the same way here. Reimplementing the delay would give the application two
+/// behaves the same way here. Reimplementing the delay would give the application two
 /// answers to "can I still stop this?", and only one of them would be right.
 pub fn wire_compose(
     fenetre: &AppWindow,
     services: &Services,
     send: Arc<SendService>,
-    account: iris_types::AccountId,
+    accounts: Vec<(iris_types::AccountId, String)>,
 ) {
     let pending: Arc<std::sync::Mutex<Option<iris_smtp::SendHandle>>> =
         Arc::new(std::sync::Mutex::new(None));
 
-    // Which mailbox this leaves from, shown from the start: with a hundred accounts,
-    // sending from the wrong one is the mistake that costs.
-    if let Ok(Some(compte)) = services.store.account(account) {
-        fenetre.set_compose_sender(format!("from {}", compte.email).into());
+    // Which mailboxes can send, in the order the sidebar lists them.
+    let identites = Arc::new(accounts);
+    fenetre.set_compose_senders(ModelRc::new(VecModel::from(
+        identites
+            .iter()
+            .map(|(_, email)| slint::SharedString::from(email.as_str()))
+            .collect::<Vec<_>>(),
+    )));
+
+    // What is going with the message. Held here rather than in the interface because
+    // the bytes are ours: the panel shows names, we keep the files.
+    let pieces: Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    // --- Choosing the sender ---
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_sender_chosen(move |index| {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_compose_sender_index(index);
+            }
+        });
     }
 
+    // --- Attaching ---
+    {
+        let pieces = Arc::clone(&pieces);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_attach(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            attach_files(&fenetre, &pieces, false);
+        });
+    }
+    {
+        let pieces = Arc::clone(&pieces);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_attach_image(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            attach_files(&fenetre, &pieces, true);
+        });
+    }
+    {
+        let pieces = Arc::clone(&pieces);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_remove_attachment(move |index| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let mut liste = pieces.lock().expect("poisoned attachments");
+            if (index as usize) < liste.len() {
+                liste.remove(index as usize);
+            }
+            show_attachments(&fenetre, &liste);
+        });
+    }
+
+    // --- Formatting ---
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_format(move |quoi| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let corps = fenetre.get_compose_body().to_string();
+            fenetre.set_compose_body(apply_markup(&corps, quoi.as_str()).into());
+        });
+    }
+
+    // --- Sending ---
     {
         let send = Arc::clone(&send);
         let pending = Arc::clone(&pending);
+        let pieces = Arc::clone(&pieces);
+        let identites = Arc::clone(&identites);
         let faible = fenetre.as_weak();
 
         fenetre.on_compose_send(move || {
@@ -1874,13 +1943,24 @@ pub fn wire_compose(
                 return;
             };
 
-            let message = match send.compose_new(
-                account,
-                fenetre.get_compose_to().as_str(),
-                fenetre.get_compose_subject().as_str(),
-                fenetre.get_compose_body().as_str(),
-            ) {
-                Ok(message) => message,
+            let index = fenetre.get_compose_sender_index().max(0) as usize;
+            let Some((compte, _)) = identites.get(index) else {
+                fenetre.set_compose_error("No account can send.".into());
+                return;
+            };
+
+            let brouillon = iris_sync::Draft {
+                account: *compte,
+                to: fenetre.get_compose_to().to_string(),
+                cc: fenetre.get_compose_cc().to_string(),
+                bcc: fenetre.get_compose_bcc().to_string(),
+                subject: fenetre.get_compose_subject().to_string(),
+                body: fenetre.get_compose_body().to_string(),
+                attachments: pieces.lock().expect("poisoned attachments").clone(),
+            };
+
+            let message = match send.compose_full(&brouillon) {
+                Ok(m) => m,
                 Err(e) => {
                     fenetre.set_compose_error(e.to_string().into());
                     return;
@@ -1904,6 +1984,7 @@ pub fn wire_compose(
     {
         let send = Arc::clone(&send);
         let pending = Arc::clone(&pending);
+        let pieces = Arc::clone(&pieces);
         let faible = fenetre.as_weak();
 
         fenetre.on_compose_cancel(move || {
@@ -1921,12 +2002,145 @@ pub fn wire_compose(
                 Some(false) => {
                     fenetre.set_compose_sending(false);
                     fenetre.set_compose_open(false);
+                    pieces.lock().expect("poisoned attachments").clear();
                     clear_compose(&fenetre);
                     fenetre.set_status("Too late — the message has gone.".into());
                 }
                 None => fenetre.set_compose_sending(false),
             }
         });
+    }
+
+    let _ = services;
+}
+
+/// Asks for files and reads them into the draft.
+///
+/// The bytes are read now rather than at send time on purpose: someone who attaches a
+/// file and then moves it has still attached the file they meant, and discovering
+/// otherwise ten seconds after pressing send is too late to do anything about.
+fn attach_files(
+    fenetre: &AppWindow,
+    pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
+    images_only: bool,
+) {
+    let mut dialogue = rfd::FileDialog::new();
+    if images_only {
+        dialogue = dialogue.add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+    }
+
+    let Some(chemins) = dialogue.pick_files() else {
+        return;
+    };
+
+    let mut liste = pieces.lock().expect("poisoned attachments");
+    let mut refuses = Vec::new();
+
+    for chemin in chemins {
+        // Twenty-five mebibytes is where most servers stop accepting, and a message
+        // refused after the undo window has closed cannot be recovered.
+        const MAX: u64 = 25 * 1024 * 1024;
+        match std::fs::metadata(&chemin).map(|m| m.len()) {
+            Ok(taille) if taille > MAX => {
+                refuses.push(format!(
+                    "{} is {:.0} MB — most servers refuse over 25",
+                    chemin.file_name().unwrap_or_default().to_string_lossy(),
+                    taille as f64 / (1024.0 * 1024.0)
+                ));
+                continue;
+            }
+            Err(e) => {
+                refuses.push(format!("{}: {e}", chemin.display()));
+                continue;
+            }
+            _ => {}
+        }
+
+        match std::fs::read(&chemin) {
+            Ok(contenu) => liste.push(iris_smtp::Attachment {
+                filename: chemin
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                mime_type: mime_for(&chemin),
+                content: contenu,
+            }),
+            Err(e) => refuses.push(format!("{}: {e}", chemin.display())),
+        }
+    }
+
+    show_attachments(fenetre, &liste);
+    fenetre.set_compose_error(refuses.join("\n").into());
+}
+
+/// Puts the attachment names in front of the user.
+fn show_attachments(fenetre: &AppWindow, pieces: &[iris_smtp::Attachment]) {
+    fenetre.set_compose_attachments(ModelRc::new(VecModel::from(
+        pieces
+            .iter()
+            .map(|p| slint::SharedString::from(p.filename.as_str()))
+            .collect::<Vec<_>>(),
+    )));
+}
+
+/// A media type from the file extension.
+///
+/// Guessed from the name, because sniffing the content would mean reading files we
+/// have already read and getting a different answer for no benefit: the recipient's
+/// client trusts the extension too.
+fn mime_for(path: &std::path::Path) -> String {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "html" | "htm" => "text/html",
+        "json" => "application/json",
+        "zip" => "application/zip",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+/// Applies a formatting mark to the draft.
+///
+/// Markdown, not a rich-text buffer. Slint's text editor hands us a plain string with
+/// no selection, so anything else would be a lie about what the editor can do — and
+/// markdown is legible as-is if the recipient's client shows the plain part.
+pub fn apply_markup(body: &str, what: &str) -> String {
+    let addition = match what {
+        "bold" => "**bold text**",
+        "italic" => "*italic text*",
+        "underline" => "__underlined text__",
+        "link" => "[label](https://example.com)",
+        "list" => "\n- first\n- second",
+        "quote" => "\n> quoted text",
+        "code" => "`code`",
+        _ => return body.to_string(),
+    };
+
+    // Appended with a space rather than inserted at a cursor: the editor does not
+    // expose one, and silently overwriting a selection nobody can see would be worse
+    // than adding at the end where it is visible and easy to move.
+    if body.is_empty() || body.ends_with(['\n', ' ']) {
+        format!("{body}{addition}")
+    } else {
+        format!("{body} {addition}")
     }
 }
 

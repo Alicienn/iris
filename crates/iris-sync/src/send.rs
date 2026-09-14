@@ -52,6 +52,55 @@ impl SendService {
     /// would teach nothing. An address that does not parse is reported by name rather
     /// than silently dropped: a message quietly sent to three of four people is worse
     /// than one that refuses to go.
+    /// Everything a written message can carry.
+    ///
+    /// A struct rather than eight arguments: the next field to arrive should not
+    /// change the shape of every call site, and eight positional strings is a
+    /// swapped pair waiting to happen.
+    pub fn compose_full(&self, draft: &Draft) -> Result<Outgoing> {
+        let compte = self
+            .engine
+            .store()
+            .account(draft.account)?
+            .ok_or_else(|| Error::store(format!("account {} not found", draft.account)))?;
+
+        let mut recipients = Vec::new();
+        let mut copies = Vec::new();
+        let mut blind = Vec::new();
+
+        for (champ, texte, cible) in [
+            ("To", &draft.to, &mut recipients),
+            ("Cc", &draft.cc, &mut copies),
+            ("Bcc", &draft.bcc, &mut blind),
+        ] {
+            let (bons, mauvais) = parse_recipients(texte);
+            if let Some(faux) = mauvais.first() {
+                return Err(Error::Config(format!(
+                    "{champ}: \"{faux}\" is not an email address"
+                )));
+            }
+            *cible = bons;
+        }
+
+        if recipients.is_empty() && copies.is_empty() && blind.is_empty() {
+            return Err(Error::Config("no recipient".into()));
+        }
+
+        let from = if compte.display_name.trim().is_empty() {
+            iris_types::Address::new(compte.email.clone())
+        } else {
+            iris_types::Address::named(compte.display_name.clone(), compte.email.clone())
+        };
+
+        let mut message = Outgoing::new(from, recipients, draft.subject.trim());
+        message.cc = copies;
+        message.bcc = blind;
+        message.text_body = draft.body.clone();
+        message.attachments = draft.attachments.clone();
+        message.date = crate::engine::now_utc();
+        Ok(message)
+    }
+
     pub fn compose_new(
         &self,
         account: iris_types::AccountId,
@@ -413,6 +462,33 @@ pub fn mailer_for(account: &iris_store::Account, password: &str) -> Result<Arc<d
         )?
     };
     Ok(Arc::new(expediteur))
+}
+
+/// A message being written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Draft {
+    pub account: iris_types::AccountId,
+    pub to: String,
+    pub cc: String,
+    pub bcc: String,
+    pub subject: String,
+    pub body: String,
+    pub attachments: Vec<iris_smtp::Attachment>,
+}
+
+impl Draft {
+    /// An empty draft for one mailbox.
+    pub fn new(account: iris_types::AccountId) -> Self {
+        Self {
+            account,
+            to: String::new(),
+            cc: String::new(),
+            bcc: String::new(),
+            subject: String::new(),
+            body: String::new(),
+            attachments: Vec::new(),
+        }
+    }
 }
 
 /// Splits what the user typed into addresses, and says which ones made no sense.

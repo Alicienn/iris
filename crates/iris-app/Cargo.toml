@@ -41,6 +41,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 directories = "6"
+# Native file pickers. `xdg-portal` off: the Windows build has no use for it and
+# it drags in a GTK stack that has no business in this binary.
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 rpassword = "7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

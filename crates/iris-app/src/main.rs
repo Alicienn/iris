@@ -505,12 +505,18 @@ fn run_gui() -> Result<()> {
         Ok((envoi, evenements)) => {
             shell::wire_reply(&fenetre, Arc::clone(&envoi), Arc::clone(&selection));
             // Writing a new message uses the same outbox as a reply, so the delay to
-            // change your mind behaves identically.
-            if let Ok(comptes) = services.store.accounts() {
-                if let Some(compte) = comptes.iter().find(|c| c.enabled) {
-                    shell::wire_compose(&fenetre, &services, Arc::clone(&envoi), compte.id);
-                }
-            }
+            // change your mind behaves identically. Every enabled mailbox is offered
+            // as a sender: with a hundred of them, sending from the wrong one is the
+            // mistake that costs.
+            let identites: Vec<(iris_types::AccountId, String)> = services
+                .store
+                .accounts()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|c| c.enabled)
+                .map(|c| (c.id, c.email))
+                .collect();
+            shell::wire_compose(&fenetre, &services, Arc::clone(&envoi), identites);
             let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
             runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
         }
