@@ -286,3 +286,39 @@ describe symptoms, and the symptoms are further apart than the fault.
 - [x] **S28.8** Counts shorten to 1.2k and 1.24M with the exact figure on hover, the
       collapse chevron stays in its column, the density chips match the queue tabs, and
       "After N days" is a row rather than a box the height of the panel.
+
+## E29 — Folders, batches, and the system
+
+- [x] **S29.1** A log on disk. A release build has no console and aborts on panic: a
+      crash left one event-viewer line saying `0xc0000409` at an offset in a stripped
+      binary. Everything tracing produces now goes to a rotated file, a panic hook
+      writes the message and backtrace straight to it, and the release profile keeps
+      its symbol table so the backtrace has names in it.
+- [x] **S29.2** HTML signatures show their logo. The logo is not a web address — it is
+      a part of the message, referenced by `cid:`. Nothing could fetch it because there
+      was nothing to fetch. The parser keeps those parts and they go back into the body
+      as data: URLs before rendering.
+- [x] **S29.3** Bulk selection. A marked set beside the current thread, never folded
+      into it: the current row decides what the reading pane shows, the marked set
+      decides what the next action hits. Extending only ever adds.
+- [x] **S29.4** Folders as one set across every mailbox. A folder is a name, not a
+      place; creating one creates it everywhere, through the operation journal; picking
+      an account *and* a folder crosses the two.
+- [x] **S29.5** A tray icon. Left click restores, right click offers open or quit,
+      hover gives the unread count. It is what makes closing the window reversible, and
+      therefore what makes background sync honest.
+- [x] **S29.6** E27, all three. `mailto:` needs three registry entries agreeing, not
+      one. Notifications are real toasts under Iris's own AppUserModelID, which means
+      an installed copy — the workaround is to borrow PowerShell's identity, and a
+      notification that lies about its sender is worse than none. Start at login writes
+      one value under `Run` and passes `--tray`.
+- [x] **S29.7** An installer. Inno Setup, no elevation, everything in the user's
+      profile. The Start Menu shortcut carries the AppUserModelID, which is the one
+      line that makes notifications exist. Uninstalling removes the cache and keeps the
+      mail.
+- [x] **S29.8** A module browser and per-module settings. Install from a folder with no
+      network at all, or from an HTTPS catalogue whose address is a setting with no
+      default. Permissions above the install button, never behind it.
+- [x] **S29.9** The build directory had reached 188 GB and filled the disk, which is
+      what took the application down. Line tables only in dev, no debug info for
+      dependencies, and free space in `iris doctor`.
