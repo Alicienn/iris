@@ -151,6 +151,18 @@ Un plugin défaillant est désactivé, jamais fatal. Le contrat vit dans
 les tests se trouve dans
 [`examples/marquer-infolettres`](crates/iris-plugins/examples/marquer-infolettres).
 
+Les plugins tournent dans leur propre fil : un plugin qui part en boucle consomme son
+carburant, pas une image. Ce qu'ils reçoivent est délibérément pauvre — expéditeur,
+sujet, étiquettes, jamais le corps ni l'identifiant du compte — et ce qu'ils demandent
+revient sous forme d'intentions, appliquées par le même chemin que le clavier. Les
+commandes qu'ils déclarent apparaissent dans la palette sans redémarrage.
+
+Les comptes Google et Microsoft passent par le navigateur du système, jamais par une
+fenêtre intégrée : il faut voir la barre d'adresse de son fournisseur pour savoir à qui
+l'on donne son mot de passe. L'identifiant client n'est pas dans le binaire — un secret
+distribué à tout le monde n'en est pas un — il se configure dans `iris.toml`, et son
+absence est annoncée en clair plutôt que déguisée en échec d'authentification.
+
 ---
 
 ## Vie privée
