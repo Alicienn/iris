@@ -24,6 +24,15 @@ component ThreadRow inherits Rectangle {
 
     // Vrai entre un appui modifié et le relâchement qui le suit.
     property <bool> modified-click;
+
+    /// La bande de gauche où un clic coche au lieu d'ouvrir.
+    ///
+    /// La case n'a plus de zone tactile à elle : c'est celle de la ligne qui lit
+    /// l'abscisse du clic. Une seule zone par ligne, donc plus rien à se disputer — ni
+    /// le survol, ni l'ordre de déclaration, ni le clic lui-même. La bande couvre la
+    /// case et sa gouttière, parce que viser quinze pixels demande de la précision et
+    /// que rater vers la droite ouvrirait le message.
+    property <length> checkbox-zone: Tokens.row-padding-x + 15px + Tokens.space-2;
     callback context-menu(length, length);
 
     height: Tokens.row-height;
@@ -81,6 +90,17 @@ component ThreadRow inherits Rectangle {
     // courrier doit éviter de produire par accident.
     in property <data-transfer> payload;
 
+    // La zone de glissement **contient** le reste de la ligne.
+    //
+    // Elle était déclarée en frère, et vide. Slint met le dernier frère au-dessus et lui
+    // donne l'événement en premier : la zone tactile de la ligne, déclarée après,
+    // recouvrait entièrement la zone de glissement, qui ne voyait jamais un appui. Le
+    // geste n'échouait pas — il n'existait pas, et rien ne se soulevait sous le curseur.
+    //
+    // Une `DragArea` est faite pour envelopper : elle laisse passer les clics vers ses
+    // enfants et ne retient le pointeur qu'au-delà du seuil de glissement. C'est ce qui
+    // permet à une même ligne d'être cliquable et déplaçable sans que les deux gestes se
+    // disputent quoi que ce soit.
     drag := DragArea {
         allow-move: true;
         data: root.payload;
@@ -89,7 +109,6 @@ component ThreadRow inherits Rectangle {
                 root.drag-started();
             }
         }
-    }
 
     // Déclarée **avant** la mise en page, donc sous elle.
     //
@@ -136,6 +155,8 @@ component ThreadRow inherits Rectangle {
             // serait celle que l'utilisateur n'a pas demandée.
             if (root.modified-click) {
                 root.modified-click = false;
+            } else if (self.mouse-x < root.checkbox-zone) {
+                root.mark-toggled();
             } else {
                 root.clicked();
             }
@@ -147,11 +168,21 @@ component ThreadRow inherits Rectangle {
         padding-right: Tokens.row-padding-x;
         spacing: Tokens.space-2;
 
-        // La case à cocher. Elle n'apparaît qu'au survol ou quand elle est cochée :
-        // une colonne de cases vides devant chaque ligne fait passer la liste pour un
-        // formulaire, et le cas courant reste de lire un message, pas d'en cocher
-        // quarante.
-        if root.data.marked || root.selection-mode || row-touch.has-hover: Rectangle {
+        // La case à cocher, **toujours** présente et rarement visible.
+        //
+        // Elle n'était dessinée qu'au survol, ce qui la faisait scintiller pour deux
+        // raisons qui s'additionnaient. Elle avait sa propre zone tactile : passer
+        // dessus retirait le survol à la ligne, la condition devenait fausse, la case
+        // disparaissait, la ligne récupérait le survol, la case revenait — une boucle,
+        // à la fréquence de l'affichage. Et comme elle entrait et sortait d'une mise en
+        // page, tout le contenu de la ligne se décalait de vingt-trois pixels à chaque
+        // aller-retour.
+        //
+        // Les deux disparaissent en réservant la place une fois pour toutes : la case
+        // occupe sa colonne en permanence, le survol ne change que son opacité, et rien
+        // ne bouge. C'est aussi ce que fait toute liste de courrier qui tient la route,
+        // pour la même raison.
+        Rectangle {
             width: 15px;
             height: 15px;
             y: (parent.height - self.height) / 2;
@@ -159,6 +190,13 @@ component ThreadRow inherits Rectangle {
             border-width: 1px;
             border-color: root.data.marked ? Tokens.accent : Tokens.border-strong;
             background: root.data.marked ? Tokens.accent : transparent;
+
+            // Zéro quand personne ne regarde. Une case invisible occupe toujours sa
+            // colonne : ce qui apparaît est un dessin, pas un élément de mise en page.
+            opacity: root.data.marked || root.selection-mode || row-touch.has-hover
+                ? 1.0
+                : 0.0;
+            animate opacity { duration: Tokens.instant; }
 
             accessible-role: checkbox;
             accessible-label: "Select this conversation";
@@ -172,10 +210,6 @@ component ThreadRow inherits Rectangle {
                 size: 11px;
                 weight: 3.0;
                 tint: Tokens.accent-text;
-            }
-
-            TouchArea {
-                clicked => { root.mark-toggled(); }
             }
         }
 
@@ -266,6 +300,8 @@ component ThreadRow inherits Rectangle {
             }
         }
     }
+
+    } // drag
 
     Rectangle {
         y: parent.height - 1px;

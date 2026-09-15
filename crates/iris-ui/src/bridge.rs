@@ -129,8 +129,16 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
             },
             Block::Image { alt, blocked } => MessageBlockData {
                 kind: "image".into(),
+                // Sans texte de remplacement, il n'y a pas de tiret à mettre : la
+                // plupart des images bloquées sont des pixels de suivi, qui n'en
+                // portent jamais, et la ligne commençait donc par « — » précédé d'une
+                // espace, comme une phrase à laquelle on aurait coupé le début.
                 text: if *blocked {
-                    format!("{alt} — remote image blocked").into()
+                    if alt.is_empty() {
+                        "Remote image blocked".into()
+                    } else {
+                        format!("{alt} — remote image blocked").into()
+                    }
                 } else {
                     alt.as_str().into()
                 },

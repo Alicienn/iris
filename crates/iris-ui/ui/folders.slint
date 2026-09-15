@@ -44,6 +44,12 @@ component FolderRow inherits Rectangle {
     border-color: Tokens.accent;
     animate background { duration: Tokens.instant; }
 
+    // La cible du glisser **contient** la ligne, elle n'est pas posée à côté.
+    //
+    // Elle était déclarée en premier et vide, et la zone tactile de la ligne, déclarée
+    // en dernier, passait par-dessus. Le pointeur ne descendait donc jamais jusqu'ici :
+    // aucun cadre ne s'allumait à l'approche, aucun lâcher n'arrivait. Le symétrique
+    // exact du défaut côté liste, et il fallait les deux pour que le geste marche.
     depot := DropArea {
         can-drop(event) => {
             return DragAction.move;
@@ -52,7 +58,6 @@ component FolderRow inherits Rectangle {
             root.dropped();
             return DragAction.move;
         }
-    }
 
     accessible-role: list-item;
     accessible-label: root.node.name;
@@ -129,6 +134,8 @@ component FolderRow inherits Rectangle {
         }
         clicked => { root.clicked(); }
     }
+
+    } // depot
 }
 
 // L'arborescence des dossiers.

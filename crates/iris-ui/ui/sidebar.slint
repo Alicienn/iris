@@ -21,6 +21,25 @@ component AccountRow inherits Rectangle {
     callback sync();
     callback context-menu(length, length);
 
+    // Vrai pendant la seconde qui suit un clic sur la synchronisation.
+    //
+    // Le bouton renvoyait le geste dans le vide : la synchronisation d'une seule boîte
+    // dure parfois moins d'une seconde et n'a pas d'état visible à elle, donc cliquer
+    // ne produisait rien du tout à l'écran. On ne pouvait pas savoir si le clic avait
+    // porté, et le réflexe est alors de recliquer.
+    //
+    // Ce qu'on montre n'est pas une animation décorative : la flèche devient une coche.
+    // C'est le seul signe qui dise « c'est parti » plutôt que « ça tourne », et c'est la
+    // vérité — la demande est envoyée, le reste se passe ailleurs et se lit dans la
+    // barre d'état.
+    property <bool> just-synced;
+
+    confirmation := Timer {
+        interval: 1200ms;
+        running: root.just-synced;
+        triggered => { root.just-synced = false; }
+    }
+
     height: 26px;
     border-radius: Tokens.radius-small;
     background: root.selected
@@ -64,6 +83,13 @@ component AccountRow inherits Rectangle {
             background: root.account.tint;
         }
 
+        // Une adresse tronquée est une adresse illisible.
+        //
+        // La colonne fait deux cents pixels et une adresse professionnelle en fait
+        // davantage : « contact@ma-scierie… » et « contact@techni-eur… » ne se
+        // distinguent que par ce que l'ellipse mange. Sur cent boîtes, deux qui se
+        // ressemblent au début se ressemblent complètement, et l'infobulle est le seul
+        // endroit où l'adresse entière tient sans élargir la colonne pour tout le monde.
         if !root.compact: Text {
             text: root.account.label;
             font-size: Tokens.size-body;
@@ -71,6 +97,10 @@ component AccountRow inherits Rectangle {
             color: root.selected ? Tokens.text : Tokens.text-secondary;
             vertical-alignment: center;
             overflow: elide;
+
+            Tooltip {
+                text: @markdown("\{root.account.label}");
+            }
         }
 
         Rectangle {}
@@ -83,7 +113,15 @@ component AccountRow inherits Rectangle {
         // glyph for "careful", and this is not a caution, it is a mailbox that has
         // stopped working. Red carries that on its own at thirteen pixels, where the
         // triangle's outline mostly reads as a smudge.
+        // `y` explicite, comme tout ce qui l'entoure dans cette rangée.
+        //
+        // Un `IconButton` a une hauteur fixe ; dans une disposition horizontale, un
+        // enfant de hauteur fixe se pose en haut de sa case. Il flottait donc au-dessus
+        // de la ligne de texte, décalé de trois pixels vers le haut, sur une rangée de
+        // vingt-six. La pastille de couleur et le compteur, eux, se centraient déjà —
+        // c'est ce décalage entre voisins qui se voyait, plus que la position elle-même.
         if root.account.needs-attention: IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.exclamation;
             label: "Fix " + root.account.label;
             icon-size: 15px;
@@ -95,15 +133,30 @@ component AccountRow inherits Rectangle {
 
         // Syncing one mailbox on demand, without waiting for the schedule or
         // dragging the other ninety-nine along with it.
-        if touch.has-hover && !root.compact && !root.account.needs-attention: IconButton {
-            icon: Icons.refresh;
-            label: "Sync " + root.account.label;
+        //
+        // Visible aussi pendant la confirmation : le bouton n'apparaît qu'au survol, et
+        // sans cela la coche disparaîtrait avec le curseur — c'est-à-dire au moment
+        // précis où l'on regarde ailleurs pour voir ce qui s'est passé.
+        if (touch.has-hover || root.just-synced)
+            && !root.compact && !root.account.needs-attention: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: root.just-synced ? Icons.check : Icons.refresh;
+            label: root.just-synced
+                ? "Syncing " + root.account.label + "…"
+                : "Sync " + root.account.label;
             icon-size: 13px;
             button-size: 20px;
-            clicked => { root.sync(); }
+            tint: Tokens.accent;
+            tinted: root.just-synced;
+            active: root.just-synced;
+            clicked => {
+                root.just-synced = true;
+                root.sync();
+            }
         }
 
-        if !root.compact && root.account.count > 0 && !touch.has-hover: Text {
+        if !root.compact && root.account.count > 0
+            && !touch.has-hover && !root.just-synced: Text {
             text: root.account.count-label;
             font-size: Tokens.size-small;
             color: Tokens.text-muted;

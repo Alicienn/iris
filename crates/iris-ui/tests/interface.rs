@@ -129,6 +129,22 @@ fn une_conversation_lue_le_dit() {
     );
 }
 
+fn la_case_a_cocher_occupe_toujours_sa_colonne() {
+    // Elle n'était dessinée qu'au survol, et sa propre zone tactile volait ce survol à
+    // la ligne : la condition redevenait fausse, la case disparaissait, la ligne
+    // récupérait le survol, la case revenait — une boucle à la fréquence de l'écran, et
+    // vingt-trois pixels de contenu qui se décalaient à chaque aller-retour.
+    //
+    // Elle est maintenant toujours là, et seule son opacité change. Un test
+    // d'accessibilité ne survole rien : que la case existe ici est exactement la preuve
+    // que sa présence ne dépend plus du curseur.
+    let f = fenetre();
+    f.set_rows(modele(vec![ligne(7, "Marie", "Devis", false)]));
+
+    let case = par_libelle(&f, "Select this conversation").expect("la case à cocher");
+    assert_eq!(case.accessible_checked(), Some(false));
+}
+
 fn actionner_une_ligne_ouvre_la_bonne_conversation() {
     // Sans l'identifiant, deux lignes voisines ouvriraient la même conversation.
     let f = fenetre();
@@ -1000,7 +1016,12 @@ fn un_message_replie_s_annonce_comme_tel() {
 fn deplier_un_message_est_rapporte() {
     let f = fenetre();
     f.set_conversation_empty(false);
-    f.set_messages(modele(vec![message(7, "Marie", false)]));
+    // Deux messages, parce que la poignée n'existe que là. Le test en posait un seul :
+    // il vérifiait le pliage sur le seul fil où le pliage n'a pas de sens.
+    f.set_messages(modele(vec![
+        message(7, "Marie", false),
+        message(8, "Luc", true),
+    ]));
 
     let demandes = Rc::new(RefCell::new(Vec::<i32>::new()));
     {
@@ -1012,6 +1033,31 @@ fn deplier_un_message_est_rapporte() {
         .unwrap()
         .invoke_accessible_default_action();
     assert_eq!(*demandes.borrow(), [7]);
+}
+
+fn un_fil_d_un_seul_message_ne_repete_pas_son_en_tete() {
+    // Le cas le plus fréquent de tous. L'en-tête y répétait mot pour mot le titre situé
+    // trois lignes plus haut — même nom, même heure — et son chevron proposait de
+    // replier le seul message du fil, c'est-à-dire de masquer tout ce qu'on venait
+    // d'ouvrir.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_messages(modele(vec![message(7, "Marie", true)]));
+
+    assert!(
+        par_libelle(&f, "Collapse Marie, 12:30").is_none(),
+        "un message seul n'a pas de poignée de pliage"
+    );
+
+    // Et le corps est bien là : ce qui disparaît est l'en-tête, pas le message.
+    f.set_messages(modele(vec![
+        message(7, "Marie", true),
+        message(8, "Luc", true),
+    ]));
+    assert!(
+        par_libelle(&f, "Collapse Marie, 12:30").is_some(),
+        "à deux, la poignée revient"
+    );
 }
 
 fn le_compte_choisi_est_celui_qui_est_allume() {
@@ -1310,6 +1356,10 @@ fn main() {
             une_conversation_lue_le_dit as fn(),
         ),
         (
+            "la_case_a_cocher_occupe_toujours_sa_colonne",
+            la_case_a_cocher_occupe_toujours_sa_colonne as fn(),
+        ),
+        (
             "actionner_une_ligne_ouvre_la_bonne_conversation",
             actionner_une_ligne_ouvre_la_bonne_conversation as fn(),
         ),
@@ -1575,6 +1625,10 @@ fn main() {
         (
             "deplier_un_message_est_rapporte",
             deplier_un_message_est_rapporte as fn(),
+        ),
+        (
+            "un_fil_d_un_seul_message_ne_repete_pas_son_en_tete",
+            un_fil_d_un_seul_message_ne_repete_pas_son_en_tete as fn(),
         ),
         (
             "le_compte_choisi_est_celui_qui_est_allume",

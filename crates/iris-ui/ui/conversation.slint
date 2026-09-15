@@ -19,12 +19,18 @@ component MessageBlock inherits Rectangle {
             background: Tokens.border;
         }
 
+        // Dessinée, pas tapée. C'était « ▣ », un caractère qui existe en Unicode et
+        // dans presque aucune police d'interface : ce qui s'affichait devant chaque
+        // image bloquée était le carré vide de la police de repli. La même faute que
+        // les quatre marqueurs de la liste, au même endroit du raisonnement, corrigée
+        // là-bas et pas ici.
         if root.block.kind == "image": HorizontalLayout {
             spacing: Tokens.space-2;
-            Text {
-                text: "▣";
-                color: Tokens.text-muted;
-                font-size: Tokens.size-body;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.image;
+                size: 14px;
+                tint: Tokens.text-muted;
             }
             Text {
                 text: root.block.text;
@@ -128,9 +134,15 @@ component RemoteContentBanner inherits Rectangle {
         spacing: Tokens.space-2;
 
         Text {
+            // « 1 remote image(s) blocked » est une phrase qu'un programme écrit et
+            // qu'aucune personne ne prononce — et elle apparaît à l'endroit précis où
+            // l'on demande à quelqu'un de décider s'il fait confiance à un inconnu.
+            // Avoir l'air d'un formulaire à ce moment-là n'est pas gratuit.
             text: root.has-tracker
                 ? "This sender is trying to learn when you read this message."
-                : root.blocked-images + " remote image(s) blocked.";
+                : (root.blocked-images == 1
+                    ? "1 remote image blocked."
+                    : root.blocked-images + " remote images blocked.");
             font-size: Tokens.size-small;
             color: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
             vertical-alignment: center;
@@ -334,9 +346,16 @@ export component ConversationView inherits VerticalLayout {
                         background: Tokens.border;
                     }
 
-                    // L'en-tête, toujours là, et cliquable : c'est la poignée qui
-                    // déplie et replie.
-                    Rectangle {
+                    // L'en-tête, et la poignée qui déplie et replie — sauf quand il n'y
+                    // a qu'un message.
+                    //
+                    // Dans ce cas il ne servait à rien deux fois. Il répétait mot pour
+                    // mot ce que le titre venait de dire trois lignes plus haut, nom de
+                    // l'expéditeur et heure comprises ; et son chevron proposait de
+                    // replier le seul message du fil, c'est-à-dire de masquer la totalité
+                    // de ce qu'on venait d'ouvrir. Un fil d'un message est le cas le plus
+                    // fréquent de tous.
+                    if root.messages.length > 1: Rectangle {
                         height: 34px;
                         border-radius: Tokens.radius-small;
                         background: entete.has-hover ? Tokens.surface-hover : transparent;

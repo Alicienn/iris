@@ -150,6 +150,25 @@ mod tests {
         Timestamp::from_millis(1_700_000_000_000)
     }
 
+    #[test]
+    fn un_seul_ne_prend_pas_de_s() {
+        assert_eq!(plural(1, "remote image"), "1 remote image");
+        assert_eq!(plural(2, "remote image"), "2 remote images");
+    }
+
+    #[test]
+    fn zero_est_pluriel() {
+        // « 0 message » se dit en français et « 0 messages » en anglais. L'application
+        // est en anglais.
+        assert_eq!(plural(0, "message"), "0 messages");
+    }
+
+    #[test]
+    fn un_pluriel_irregulier_se_donne_en_entier() {
+        assert_eq!(plural_of(1, "reply", "replies"), "1 reply");
+        assert_eq!(plural_of(3, "reply", "replies"), "3 replies");
+    }
+
     fn il_y_a(secondes: i64) -> Timestamp {
         Timestamp::from_millis(now().millis() - secondes * 1000)
     }
@@ -283,6 +302,24 @@ pub fn short_count(n: u64) -> String {
         1_000_000..=999_999_999 => trim(n / 1_000_000, (n % 1_000_000) / 10_000, 2, 'M'),
         _ => trim(n / 1_000_000_000, (n % 1_000_000_000) / 10_000_000, 2, 'G'),
     }
+}
+
+/// A count and its noun, with the noun in the right number.
+///
+/// "1 remote image(s) blocked" is the kind of thing a program says and a person never
+/// does. The parenthesis is there because writing the branch felt like work, and it
+/// appears in the one place the user is being asked to make a decision — whether to
+/// load something a stranger sent. Sounding like a form at that moment is not free.
+///
+/// Only regular plurals. An irregular one — "one reply, two replies" — is passed whole
+/// as `plural`, which is shorter than any rule that would guess it right.
+pub fn plural(n: u64, singular: &str) -> String {
+    plural_of(n, singular, &format!("{singular}s"))
+}
+
+/// The same, when the plural is not the singular plus an *s*.
+pub fn plural_of(n: u64, singular: &str, plural: &str) -> String {
+    format!("{n} {}", if n == 1 { singular } else { plural })
 }
 
 /// The same count in full, grouped in threes.

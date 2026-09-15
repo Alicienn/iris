@@ -187,7 +187,9 @@ pub fn wire_sync(
                     fenetre.set_syncing(false);
                     match resultat {
                         Ok(0) => fenetre.set_status("Up to date.".into()),
-                        Ok(n) => fenetre.set_status(format!("{n} new message(s).").into()),
+                        Ok(n) => fenetre.set_status(
+                            format!("{}.", iris_ui::format::plural(n as u64, "new message")).into(),
+                        ),
                         Err(e) => fenetre.set_status(format!("Sync failed: {e}").into()),
                     }
                 });
@@ -2737,7 +2739,9 @@ pub fn wire_account_menu(
             runtime_sync.spawn(async move {
                 let resultat = engine.sync_now(compte, now()).await;
                 let _ = faible.upgrade_in_event_loop(move |fenetre| match resultat {
-                    Ok(n) => fenetre.set_status(format!("{n} new message(s).").into()),
+                    Ok(n) => fenetre.set_status(
+                        format!("{}.", iris_ui::format::plural(n as u64, "new message")).into(),
+                    ),
                     Err(e) => fenetre.set_status(format!("Sync failed: {e}").into()),
                 });
             });
@@ -2974,7 +2978,11 @@ pub fn wire_account_recovery(
                     match resultat {
                         Ok(n) => {
                             fenetre.set_problem_result(
-                                format!("Working again — {n} message(s) fetched.").into(),
+                                format!(
+                                    "Working again — {} fetched.",
+                                    iris_ui::format::plural(n as u64, "message")
+                                )
+                                .into(),
                             );
                             fenetre.set_problem_open(false);
                         }
@@ -3038,7 +3046,11 @@ pub fn wire_account_recovery(
                         Ok(n) => {
                             fenetre.set_problem_open(false);
                             fenetre.set_status(
-                                format!("Account working again — {n} message(s).").into(),
+                                format!(
+                                    "Account working again — {}.",
+                                    iris_ui::format::plural(n as u64, "message")
+                                )
+                                .into(),
                             );
                         }
                         Err(e) => fenetre.set_problem_result(format!("Still refused: {e}").into()),
