@@ -35,6 +35,8 @@ pub enum Request {
     ExtendMark(ThreadId),
     /// Cocher tout ce qui est chargé.
     MarkAll,
+    /// Les filtres rapides de la liste.
+    SetFilters(iris_store::Filters),
     /// Tout décocher.
     ClearMarks,
     /// Agir sur le lot coché, ou à défaut sur la ligne courante.
@@ -101,6 +103,9 @@ pub struct Snapshot {
     pub marked: std::collections::BTreeSet<ThreadId>,
     /// Ce que la colonne du milieu montre : une file, ou un dossier.
     pub scope: iris_store::Scope,
+    /// Les filtres rapides allumés. L'interface en dessine les pastilles ; elle ne les
+    /// mémorise pas, pour qu'il n'y ait qu'une seule idée de ce qui est actif.
+    pub filters: iris_store::Filters,
     /// Les comptes montrés. Vide signifie « tous ».
     ///
     /// L'interface s'en sert pour marquer la bonne ligne dans la barre latérale.
@@ -244,6 +249,7 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             vm.extend_mark_to(thread);
             Ok(true)
         }
+        Request::SetFilters(f) => Ok(!vm.set_filters(f)?.is_empty()),
         Request::MarkAll => {
             vm.mark_all_visible();
             Ok(true)
@@ -401,6 +407,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         error: None,
         marked: vm.selection().marked().clone(),
         scope: vm.scope().clone(),
+        filters: vm.filters(),
         accounts: vm.accounts_filter().to_vec(),
         rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),

@@ -46,6 +46,12 @@ pub struct ThreadList {
     total: u32,
     /// Instant de référence pour masquer les fils reportés.
     now: Timestamp,
+    /// Les filtres rapides : non lus, pièces jointes, épinglés.
+    ///
+    /// Portés par la liste et non par la portée, parce qu'ils ne disent pas *où* l'on
+    /// regarde mais *ce qu'on garde* : on filtre la boîte de réception comme on filtre
+    /// la corbeille, et changer de dossier ne doit pas les oublier.
+    filters: iris_store::Filters,
 }
 
 /// Ce qu'une mise à jour a changé, pour que l'interface ne redessine que l'utile.
@@ -77,6 +83,7 @@ impl ThreadList {
             page_size: PAGE_SIZE,
             total: 0,
             now,
+            filters: iris_store::Filters::default(),
         }
     }
 
@@ -147,7 +154,21 @@ impl ThreadList {
             .for_accounts(self.accounts.clone())
             .hiding_snoozed(self.now);
         base.scope = self.scope.clone();
+        base.filters = self.filters;
         base
+    }
+
+    pub fn filters(&self) -> iris_store::Filters {
+        self.filters
+    }
+
+    /// Change les filtres. Rend `true` si quelque chose a bougé.
+    pub fn set_filters(&mut self, filters: iris_store::Filters) -> bool {
+        if self.filters == filters {
+            return false;
+        }
+        self.filters = filters;
+        true
     }
 
     /// Charge ce qu'il faut pour que l'indice demandé soit disponible.
@@ -214,7 +235,7 @@ impl ThreadList {
             self.total = self.rows.len() as u32;
             return Ok(());
         }
-        let counts = store.state_counts(&self.accounts, Some(self.now))?;
+        let counts = store.state_counts(&self.accounts, Some(self.now), self.filters)?;
         self.total = counts[self.state.as_i64() as usize];
         Ok(())
     }

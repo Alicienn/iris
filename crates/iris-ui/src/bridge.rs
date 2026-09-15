@@ -436,6 +436,7 @@ mod tests {
             enabled: true,
             created_at: Timestamp::EPOCH,
             last_activity_at: Timestamp::EPOCH,
+            signature: String::new(),
         }
     }
 

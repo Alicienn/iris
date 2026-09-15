@@ -22,12 +22,13 @@ fn account_from_row(r: &Row<'_>) -> rusqlite::Result<Account> {
         enabled: r.get::<_, i64>("enabled")? != 0,
         created_at: Timestamp::from_millis(r.get("created_at")?),
         last_activity_at: Timestamp::from_millis(r.get("last_activity_at")?),
+        signature: r.get("signature")?,
     })
 }
 
 const ACCOUNT_COLUMNS: &str = "id, email, display_name, imap_host, imap_port, imap_tls, \
      smtp_host, smtp_port, smtp_tls, auth_kind, group_name, pinned, enabled, \
-     created_at, last_activity_at";
+     created_at, last_activity_at, signature";
 
 /// Un dossier tel que l'interface le montre : un nom, sur toutes les boîtes à la fois.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,6 +271,26 @@ impl Store {
 
     pub fn touch_account(&self, id: AccountId, now: Timestamp) -> Result<()> {
         self.update_account_field(id, "last_activity_at", now.millis())
+    }
+
+    /// Enregistre la signature d'un compte.
+    ///
+    /// Sans normalisation : ce que l'utilisateur a écrit est ce qui part. Retirer les
+    /// blancs de fin ferait disparaître une ligne vide voulue, et une signature est du
+    /// texte que quelqu'un a mis en forme exprès.
+    pub fn set_account_signature(&self, id: AccountId, signature: &str) -> Result<()> {
+        self.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE accounts SET signature = ?1 WHERE id = ?2",
+                    params![signature, id.get()],
+                )
+                .map_err(|e| sql_err("mise à jour de la signature", e))?;
+            if n == 0 {
+                return Err(Error::store(format!("compte {id} introuvable")));
+            }
+            Ok(())
+        })
     }
 
     fn update_account_field(&self, id: AccountId, column: &'static str, value: i64) -> Result<()> {

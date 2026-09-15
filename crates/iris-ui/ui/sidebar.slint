@@ -401,6 +401,7 @@ export component AccountContextMenu inherits Rectangle {
     callback sync-now();
     callback edit-account();
     callback change-password();
+    callback edit-signature();
     callback toggle-pinned();
     callback toggle-enabled();
     callback remove-account();
@@ -455,6 +456,14 @@ export component AccountContextMenu inherits Rectangle {
                 icon: Icons.pencil;
                 label: "Edit account…";
                 activated => { root.edit-account(); root.dismissed(); }
+            }
+            // Par compte, et donc ici plutôt que dans les réglages généraux : c'est la
+            // raison d'avoir plusieurs comptes qu'on ne signe pas une facture comme on
+            // écrit à sa sœur.
+            MenuEntry {
+                icon: Icons.quote;
+                label: "Signature…";
+                activated => { root.edit-signature(); root.dismissed(); }
             }
 
             MenuSeparator {}

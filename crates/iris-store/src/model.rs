@@ -50,6 +50,12 @@ pub struct Account {
     pub enabled: bool,
     pub created_at: Timestamp,
     pub last_activity_at: Timestamp,
+    /// Ce qui est ajouté au bas des messages envoyés depuis ce compte.
+    ///
+    /// Par compte, parce que c'est la raison d'en avoir plusieurs : on ne signe pas une
+    /// facture comme on écrit à sa sœur. Vide par défaut — personne ne veut découvrir
+    /// une signature inventée par le programme au bas d'un message déjà parti.
+    pub signature: String,
 }
 
 /// Description d'un compte à créer.
@@ -267,6 +273,37 @@ pub struct ListQuery {
     pub after: Option<ListCursor>,
     /// Une file de travail, ou un dossier. Voir [`Scope`].
     pub scope: Scope,
+    /// Ce qui réduit la liste sans changer d'endroit. Voir [`Filters`].
+    pub filters: Filters,
+}
+
+/// Les filtres rapides, au-dessus de la liste.
+///
+/// La recherche répond à « où est ce message dont je me souviens » ; un filtre répond à
+/// « lesquels de ces deux cents me restent ». Ce sont deux gestes différents, et sur une
+/// file de cent quatre-vingt-huit c'est le second qu'on fait le plus souvent.
+///
+/// Cumulatifs, et par un **et** : « non lus avec une pièce jointe » est la question
+/// qu'on se pose, jamais « non lus ou avec une pièce jointe ».
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Filters {
+    pub unread: bool,
+    pub attachments: bool,
+    pub starred: bool,
+}
+
+impl Filters {
+    pub fn is_empty(&self) -> bool {
+        !self.unread && !self.attachments && !self.starred
+    }
+
+    /// Combien sont allumés. Sert à le dire à l'écran sans recompter ailleurs.
+    pub fn count(&self) -> usize {
+        [self.unread, self.attachments, self.starred]
+            .iter()
+            .filter(|b| **b)
+            .count()
+    }
 }
 
 impl ListQuery {
@@ -278,7 +315,14 @@ impl ListQuery {
             limit,
             after: None,
             scope: Scope::Queue,
+            filters: Filters::default(),
         }
+    }
+
+    /// Ne montrer que ce que ces filtres laissent passer.
+    pub fn filtered(mut self, filters: Filters) -> Self {
+        self.filters = filters;
+        self
     }
 
     /// Ne montrer que ce dossier, sur tous les comptes qui en ont un.

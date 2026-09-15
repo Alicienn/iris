@@ -109,6 +109,31 @@ fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
             args.insert(position, SqlValue::Text(chemin.clone()));
         }
     }
+
+    // Les filtres rapides, dans la même clause partagée que la portée — et pour la même
+    // raison. Un filtre appliqué à la liste mais pas aux compteurs ferait annoncer « 42 »
+    // au-dessus de sept lignes, ce qui est exactement la divergence que cette fonction
+    // existe pour empêcher.
+    //
+    // Les drapeaux sont dénormalisés sur le fil : `unread_count` et l'union des drapeaux
+    // de ses messages. Un fil compte donc comme portant une pièce jointe dès qu'un de
+    // ses messages en porte une, ce qui est ce qu'on cherche — on filtre des
+    // conversations, pas des messages.
+    if q.filters.unread {
+        sql.push_str(" AND unread_count > 0");
+    }
+    if q.filters.attachments {
+        sql.push_str(&format!(
+            " AND (flags_union & {}) != 0",
+            Flags::HAS_ATTACHMENT.0
+        ));
+    }
+    if q.filters.starred {
+        sql.push_str(&format!(
+            " AND (flags_union & {}) != 0",
+            Flags::FLAGGED.0
+        ));
+    }
 }
 
 fn row_from_sql(r: &Row<'_>) -> rusqlite::Result<ThreadRow> {
@@ -326,7 +351,12 @@ impl Store {
     /// et une pastille qui compte des lignes que la liste refuse est une pastille qui
     /// ment. C'est arrivé : 191 dans la barre latérale, 188 dans l'onglet, sur le même
     /// écran, parce que l'une comptait les indésirables et l'autre non.
-    pub fn state_counts(&self, accounts: &[AccountId], now: Option<Timestamp>) -> Result<[u32; 3]> {
+    pub fn state_counts(
+        &self,
+        accounts: &[AccountId],
+        now: Option<Timestamp>,
+        filters: crate::model::Filters,
+    ) -> Result<[u32; 3]> {
         self.with_conn(|c| {
             let mut counts = [0u32; 3];
             // Les **non lus**, pas le total.
@@ -350,8 +380,12 @@ impl Store {
                 args.push(SqlValue::Integer(now.millis()));
             }
 
+            // Les filtres rapides voyagent avec la portée, sans quoi les onglets
+            // annonceraient un nombre que la liste filtrée en dessous ne montre pas —
+            // la divergence même que cette fonction partagée existe pour empêcher.
             let portee = ListQuery {
                 accounts: accounts.to_vec(),
+                filters,
                 ..ListQuery::new(WorkflowState::Todo, 0)
             };
             push_scope(&mut sql, &mut args, &portee);
@@ -608,6 +642,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Filters;
     use crate::model::{FolderRole, NewAccount, NewMessage};
     use iris_types::FolderId;
 
@@ -666,6 +701,77 @@ mod tests {
     }
 
     #[test]
+    fn un_filtre_reduit_la_liste_et_les_compteurs_ensemble() {
+        // C'est toute la raison pour laquelle ils partagent une clause. Un filtre
+        // appliqué à la liste mais pas aux compteurs ferait annoncer « 3 » au-dessus
+        // d'une seule ligne — la divergence que `push_scope` existe pour empêcher, et
+        // qui s'est déjà produite une fois entre la barre latérale et les onglets.
+        let f = fixture();
+        f.thread_at(1000, "A");
+        f.thread_at(2000, "B");
+        let lu = f.thread_at(3000, "C");
+
+        // Un des trois est lu.
+        f.store.apply_flag_changes(f.folder, &[(3, Flags::SEEN)]).unwrap();
+        let _ = lu;
+
+        let non_lus = Filters {
+            unread: true,
+            ..Default::default()
+        };
+        let page = f
+            .store
+            .list_threads(&ListQuery::new(WorkflowState::Todo, 10).filtered(non_lus))
+            .unwrap();
+        assert_eq!(page.len(), 2);
+
+        let compteurs = f.store.state_counts(&[], None, non_lus).unwrap();
+        assert_eq!(
+            compteurs[0] as usize,
+            page.len(),
+            "le compteur et la liste disent le même nombre"
+        );
+    }
+
+    #[test]
+    fn les_filtres_se_cumulent_par_un_et() {
+        // « Non lus avec une pièce jointe » est la question qu'on se pose ; jamais
+        // « non lus ou avec une pièce jointe ».
+        let f = fixture();
+        f.thread_at(1000, "Ni l'un ni l'autre");
+        f.thread_at(2000, "Avec pièce jointe");
+        f.store
+            .apply_flag_changes(f.folder, &[(2, Flags::HAS_ATTACHMENT)])
+            .unwrap();
+
+        let deux = Filters {
+            unread: true,
+            attachments: true,
+            starred: false,
+        };
+        let page = f
+            .store
+            .list_threads(&ListQuery::new(WorkflowState::Todo, 10).filtered(deux))
+            .unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].from_display, "Avec pièce jointe");
+    }
+
+    #[test]
+    fn sans_filtre_rien_n_est_retire() {
+        let f = fixture();
+        f.thread_at(1000, "A");
+        f.thread_at(2000, "B");
+
+        assert!(Filters::default().is_empty());
+        let page = f
+            .store
+            .list_threads(&ListQuery::new(WorkflowState::Todo, 10))
+            .unwrap();
+        assert_eq!(page.len(), 2);
+    }
+
+    #[test]
     fn les_compteurs_d_onglet_comptent_les_non_lus() {
         // Un nombre à côté d'un onglet répond à « qu'est-ce qui m'attend ». Le total ne
         // répond pas à cette question : « Done 865 » compte du courrier dont on s'est
@@ -675,7 +781,7 @@ mod tests {
         f.thread_at(2000, "Non lu");
 
         assert_eq!(
-            f.store.state_counts(&[], None).unwrap()[0],
+            f.store.state_counts(&[], None, Filters::default()).unwrap()[0],
             2,
             "les deux fils arrivent non lus"
         );
@@ -684,7 +790,7 @@ mod tests {
         f.store
             .apply_flag_changes(f.folder, &[(1, Flags::SEEN)])
             .unwrap();
-        assert_eq!(f.store.state_counts(&[], None).unwrap()[0], 1);
+        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap()[0], 1);
 
         // Et la barre latérale dit le même nombre, sans quoi deux compteurs
         // contradictoires se retrouvent sur le même écran.
@@ -910,12 +1016,12 @@ mod tests {
         let a = f.thread_at(1000, "A");
         f.thread_at(2000, "B");
 
-        assert_eq!(f.store.state_counts(&[], None).unwrap(), [2, 0, 0]);
+        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap(), [2, 0, 0]);
         assert_eq!(
             f.store.set_thread_state(a, WorkflowState::Done).unwrap(),
             Some(WorkflowState::Todo)
         );
-        assert_eq!(f.store.state_counts(&[], None).unwrap(), [1, 0, 1]);
+        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap(), [1, 0, 1]);
     }
 
     #[test]
@@ -933,10 +1039,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(f.store.state_counts(&[], None).unwrap()[0], 2);
+        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap()[0], 2);
         assert_eq!(
             f.store
-                .state_counts(&[], Some(Timestamp::from_millis(1)))
+                .state_counts(&[], Some(Timestamp::from_millis(1)), Filters::default())
                 .unwrap()[0],
             1
         );

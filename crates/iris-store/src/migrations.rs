@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 7;
+pub const CURRENT_VERSION: i64 = 8;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -53,7 +53,25 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "a thread remembers which mailbox it came from",
         sql: SCHEMA_V7,
     },
+    Migration {
+        version: 8,
+        name: "each mailbox gets a signature",
+        sql: SCHEMA_V8,
+    },
 ];
+
+/// Une signature par compte.
+///
+/// Tout client de courrier en a une depuis toujours ; Iris envoyait chaque message non
+/// signé, et la seule parade était de retaper quatre lignes à chaque fois. Par compte
+/// et non globale, parce que c'est la raison d'avoir plusieurs comptes : on ne signe pas
+/// une facture comme on écrit à sa sœur.
+///
+/// Vide par défaut. Personne ne veut découvrir une signature inventée par le programme
+/// au bas d'un message déjà parti.
+const SCHEMA_V8: &str = r#"
+ALTER TABLE accounts ADD COLUMN signature TEXT NOT NULL DEFAULT '';
+"#;
 
 /// Donne à chaque fil le compte de son dernier message.
 ///

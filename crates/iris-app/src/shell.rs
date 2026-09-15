@@ -712,6 +712,9 @@ pub fn apply_snapshot(
             .map(|c| *c as i32)
             .collect::<Vec<_>>(),
     )));
+    fenetre.set_filter_unread(snapshot.filters.unread);
+    fenetre.set_filter_attachments(snapshot.filters.attachments);
+    fenetre.set_filter_starred(snapshot.filters.starred);
     fenetre.set_marked_count(snapshot.marked.len() as i32);
     fenetre.set_marked_label(iris_ui::format::short_count(snapshot.marked.len() as u64).into());
     // Ce que l'arborescence doit montrer comme choisi. Un rôle est désigné par son nom
@@ -2733,6 +2736,35 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
             controller.send(Request::ExtendMark(iris_types::ThreadId(id as i64)));
         });
     }
+    // Les filtres rapides.
+    //
+    // L'état vit dans le vue-modèle, pas ici : c'est lui qui filtre les trois files et
+    // recompte. La fenêtre bascule un drapeau et renvoie le tout, ce qui évite d'avoir
+    // deux idées de ce qui est allumé.
+    {
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_filter_toggled(move |quoi| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let mut filtres = iris_store::Filters {
+                unread: fenetre.get_filter_unread(),
+                attachments: fenetre.get_filter_attachments(),
+                starred: fenetre.get_filter_starred(),
+            };
+            match quoi.as_str() {
+                "unread" => filtres.unread = !filtres.unread,
+                "attachments" => filtres.attachments = !filtres.attachments,
+                "starred" => filtres.starred = !filtres.starred,
+                // « Clear » : tout éteindre d'un geste. Un filtre laissé allumé fait
+                // croire à une boîte vide, et c'est la panne la plus déroutante qu'un
+                // filtre puisse produire.
+                _ => filtres = iris_store::Filters::default(),
+            }
+            controller.send(Request::SetFilters(filtres));
+        });
+    }
     {
         let controller = Arc::clone(&controller);
         fenetre.on_bulk_select_all(move || controller.send(Request::MarkAll));
@@ -3089,6 +3121,48 @@ pub fn wire_account_menu(
             prefill_from_account(&fenetre, &details, false);
             fenetre
                 .set_add_account_hint("Enter the new password. The servers are unchanged.".into());
+        });
+    }
+
+    // --- La signature ---
+    //
+    // Tout client de courrier en a une depuis toujours ; Iris envoyait chaque message
+    // non signé, et la seule parade était de retaper quatre lignes à chaque fois.
+    {
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_signature(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+            fenetre.set_signature_account(details.email.as_str().into());
+            fenetre.set_signature_text(details.signature.as_str().into());
+            fenetre.set_signature_open(true);
+        });
+    }
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_signature_saved(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(details) = courant() else {
+                return;
+            };
+            let texte = fenetre.get_signature_text().to_string();
+            match services.store.set_account_signature(details.id, &texte) {
+                Ok(()) if texte.trim().is_empty() => {
+                    fenetre.set_status("Signature removed.".into())
+                }
+                Ok(()) => fenetre.set_status("Signature saved.".into()),
+                Err(e) => fenetre.set_status(format!("Could not save it: {e}").into()),
+            }
         });
     }
 
@@ -4261,6 +4335,7 @@ mod tests {
             pinned: false,
             created_at: iris_types::Timestamp::EPOCH,
             last_activity_at: iris_types::Timestamp::EPOCH,
+            signature: String::new(),
         }
     }
 

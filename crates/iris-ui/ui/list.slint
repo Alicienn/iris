@@ -582,6 +582,57 @@ export component BulkBar inherits Rectangle {
 }
 
 // Les onglets d'état.
+// Une pastille de filtre : allumée ou éteinte, et elle le dit.
+//
+// La même forme que les onglets qu'elle accompagne, en plus petit — ce sont deux
+// réducteurs de la même liste, et leur donner deux apparences ferait croire à deux
+// mécanismes distincts.
+component FilterChip inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> active;
+
+    callback toggled();
+
+    width: contenu.preferred-width + 2 * Tokens.space-2;
+    border-radius: Tokens.radius-small;
+    background: root.active
+        ? Tokens.accent
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    border-width: root.active ? 0px : 1px;
+    border-color: Tokens.border;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-checked: root.active;
+    accessible-action-default => { root.toggled(); }
+
+    contenu := HorizontalLayout {
+        x: Tokens.space-2;
+        spacing: 4px;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 11px;
+            filled: root.active;
+            tint: root.active ? Tokens.accent-text : Tokens.text-muted;
+        }
+        Text {
+            text: root.label;
+            font-size: Tokens.size-small;
+            font-weight: root.active ? Tokens.weight-bold : Tokens.weight-body;
+            color: root.active ? Tokens.accent-text : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.toggled(); }
+    }
+}
+
 export component StateTabs inherits HorizontalLayout {
     in property <int> active;
     in property <[int]> counts;
@@ -792,6 +843,11 @@ export component ThreadListView inherits VerticalLayout {
     /// écrivait « Mark as read » d'après le fil ouvert dans la colonne de lecture, qui
     /// n'est plus celui sur lequel on vient de cliquer. La ligne, elle, le sait.
     callback row-context-menu(int, length, length, bool, bool);
+    in property <bool> filter-unread;
+    in property <bool> filter-attachments;
+    in property <bool> filter-starred;
+    callback filter-toggled(string);
+
     callback row-mark-toggled(int);
     callback row-mark-extended(int);
     callback row-drag-started(int);
@@ -947,6 +1003,68 @@ export component ThreadListView inherits VerticalLayout {
             count-labels: root.count-labels;
             count-fulls: root.count-fulls;
             selected(i) => { root.tab-selected(i); }
+        }
+    }
+
+    // Les filtres rapides.
+    //
+    // La recherche répond à « où est ce message dont je me souviens » ; un filtre répond
+    // à « lesquels de ces deux cents me restent ». Deux gestes différents, et sur une
+    // file de cent quatre-vingt-huit c'est le second qu'on fait le plus souvent.
+    //
+    // Cachés pendant une recherche et pendant un lot coché : dans les deux cas la
+    // question posée par la liste est déjà autre chose, et un troisième réducteur
+    // au-dessus rendrait indevinable ce qui est montré.
+    if !root.searching && root.marked-count == 0: HorizontalLayout {
+        vertical-stretch: 0;
+        height: 26px;
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        padding-bottom: 2px;
+        spacing: Tokens.space-1;
+
+        FilterChip {
+            label: "Unread";
+            icon: Icons.envelope-closed;
+            active: root.filter-unread;
+            toggled => { root.filter-toggled("unread"); }
+        }
+        FilterChip {
+            label: "Attachments";
+            icon: Icons.paperclip;
+            active: root.filter-attachments;
+            toggled => { root.filter-toggled("attachments"); }
+        }
+        FilterChip {
+            label: "Starred";
+            icon: Icons.star;
+            active: root.filter-starred;
+            toggled => { root.filter-toggled("starred"); }
+        }
+
+        Rectangle {}
+
+        // Une sortie visible. Un filtre laissé allumé fait croire à une boîte vide, et
+        // c'est la panne la plus déroutante qu'un filtre puisse produire.
+        if root.filter-unread || root.filter-attachments || root.filter-starred: Rectangle {
+            width: 46px;
+            border-radius: Tokens.radius-small;
+            background: effacer.has-hover ? Tokens.surface-hover : transparent;
+
+            accessible-role: button;
+            accessible-label: "Clear the filters";
+            accessible-action-default => { root.filter-toggled("none"); }
+
+            Text {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                text: "Clear";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+            }
+            effacer := TouchArea {
+                clicked => { root.filter-toggled("none"); }
+            }
         }
     }
 

@@ -17,6 +17,7 @@ import { PluginBrowser, CatalogueRowData, PluginSettingData }
     from "plugins.slint";
 import { ComposePanel } from "compose.slint";
 import { Icon, Icons } from "icons.slint";
+import { SignaturePanel } from "signature.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
@@ -464,6 +465,11 @@ export component AppWindow inherits Window {
     callback folder-delete-requested();
     callback new-folder-create();
     callback new-folder-dismissed();
+    in property <bool> filter-unread;
+    in property <bool> filter-attachments;
+    in property <bool> filter-starred;
+    callback filter-toggled(string);
+
     callback row-mark-toggled(int);
     callback row-drag-started(int);
     callback row-mark-extended(int);
@@ -478,6 +484,11 @@ export component AppWindow inherits Window {
     callback account-menu-sync();
     callback account-menu-edit();
     callback account-menu-password();
+    callback account-menu-signature();
+    in-out property <bool> signature-open;
+    in property <string> signature-account;
+    in-out property <string> signature-text;
+    callback signature-saved();
     callback account-menu-pin();
     callback account-menu-enable();
     callback account-menu-remove();
@@ -724,6 +735,10 @@ export component AppWindow inherits Window {
                         marked-count: root.marked-count;
                         drag-payload: root.drag-payload;
                         marked-label: root.marked-label;
+                        filter-unread: root.filter-unread;
+                        filter-attachments: root.filter-attachments;
+                        filter-starred: root.filter-starred;
+                        filter-toggled(quoi) => { root.filter-toggled(quoi); }
                         row-mark-toggled(id) => { root.row-mark-toggled(id); }
                         row-drag-started(id) => { root.row-drag-started(id); }
                         row-mark-extended(id) => { root.row-mark-extended(id); }
@@ -856,6 +871,7 @@ export component AppWindow inherits Window {
         sync-now => { root.account-menu-sync(); }
         edit-account => { root.account-menu-edit(); }
         change-password => { root.account-menu-password(); }
+        edit-signature => { root.account-menu-signature(); }
         toggle-pinned => { root.account-menu-pin(); }
         toggle-enabled => { root.account-menu-enable(); }
         remove-account => { root.account-menu-remove(); }
@@ -912,6 +928,15 @@ export component AppWindow inherits Window {
         recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
         recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
         dismissed => { root.compose-dismissed(); root.compose-open = false; }
+    }
+
+    if root.signature-open: SignaturePanel {
+        width: 100%;
+        height: 100%;
+        account: root.signature-account;
+        signature <=> root.signature-text;
+        saved => { root.signature-saved(); root.signature-open = false; }
+        dismissed => { root.signature-open = false; }
     }
 
     if root.modules-open: ModulesPanel {

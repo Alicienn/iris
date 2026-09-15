@@ -279,7 +279,13 @@ impl ViewModel {
     /// le total de toutes les boîtes pendant qu'on en regarde une seule décrit un
     /// écran qui n'existe pas.
     pub fn refresh_counts(&mut self) -> Result<bool> {
-        let nouveaux = self.store.state_counts(&self.accounts, Some(self.now))?;
+        // Et au même filtre rapide, pour la même raison : « non lus » coché doit se
+        // lire dans les trois nombres, sans quoi l'onglet promet des lignes que la
+        // liste en dessous ne montre pas.
+        let filtres = self.list().filters();
+        let nouveaux = self
+            .store
+            .state_counts(&self.accounts, Some(self.now), filtres)?;
         let change = nouveaux != self.counts;
         self.counts = nouveaux;
         Ok(change)
@@ -380,6 +386,42 @@ impl ViewModel {
 
     pub fn clear_marks(&mut self) -> bool {
         self.selection.clear_marks()
+    }
+
+    /// Les filtres rapides : non lus, pièces jointes, épinglés.
+    ///
+    /// Appliqués aux **trois** files, pas seulement à celle qu'on regarde. Un filtre
+    /// qui s'oublierait en changeant d'onglet demanderait de le recocher à chaque
+    /// passage, et donnerait trois écrans qui ne répondent pas à la même question.
+    pub fn set_filters(&mut self, filters: iris_store::Filters) -> Result<ViewUpdate> {
+        let store = Arc::clone(&self.store);
+        let mut change = false;
+        for liste in self.lists.iter_mut() {
+            if liste.set_filters(filters) {
+                liste.reload(&store)?;
+                change = true;
+            }
+        }
+        if !change {
+            return Ok(ViewUpdate::default());
+        }
+
+        self.select_first();
+        self.refresh_counts()?;
+
+        Ok(ViewUpdate {
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
+            counts_changed: true,
+            selection_changed: true,
+            ..Default::default()
+        })
+    }
+
+    pub fn filters(&self) -> iris_store::Filters {
+        self.list().filters()
     }
 
     pub fn set_accounts_filter(&mut self, accounts: Vec<AccountId>) -> Result<ViewUpdate> {

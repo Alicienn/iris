@@ -95,7 +95,7 @@ impl SendService {
         let mut message = Outgoing::new(from, recipients, draft.subject.trim());
         message.cc = copies;
         message.bcc = blind;
-        message.text_body = draft.body.clone();
+        message.text_body = avec_signature(&draft.body, &compte.signature);
         message.attachments = draft.attachments.clone();
         message.date = crate::engine::now_utc();
         Ok(message)
@@ -181,8 +181,15 @@ impl SendService {
         };
 
         let mut reponse = iris_smtp::reply(&cible, &identite, scope);
-        // Le texte de l'utilisateur passe devant la citation, qui suit.
-        reponse.text_body = format!("{body}{}", reponse.text_body);
+        // Le texte de l'utilisateur passe devant la citation, qui suit. La signature
+        // s'intercale entre les deux : sous ce qu'on vient d'écrire, au-dessus de ce
+        // qu'on cite. La mettre tout en bas la placerait après le message de
+        // l'interlocuteur, où personne ne la cherche.
+        reponse.text_body = format!(
+            "{}{}",
+            avec_signature(body, &compte.signature),
+            reponse.text_body
+        );
         Ok(reponse)
     }
 
@@ -371,6 +378,29 @@ impl SendService {
             .filter_map(|m| m.rfc_message_id.clone().map(RfcMessageId))
             .collect()
     }
+}
+
+/// Ajoute la signature au bas d'un corps de message.
+///
+/// Le séparateur est `-- ` suivi d'un retour à la ligne : c'est la convention, vieille
+/// de quarante ans et comprise par tout le monde, qui dit à un autre client où le
+/// message s'arrête et où la signature commence. Sans elle, une réponse cite la
+/// signature comme si elle faisait partie du texte.
+///
+/// L'espace après les deux tirets n'est pas une coquille : c'est ce que la convention
+/// exige, et un client sur deux ne reconnaît pas la ligne sans lui.
+fn avec_signature(corps: &str, signature: &str) -> String {
+    if signature.trim().is_empty() {
+        return corps.to_string();
+    }
+    // Le séparateur déjà là veut dire que l'utilisateur l'a écrit lui-même, ou qu'on
+    // repasse sur un brouillon signé. Deux signatures valent moins que zéro.
+    if corps.contains("\n-- \n") || corps.starts_with("-- \n") {
+        return corps.to_string();
+    }
+
+    let corps = corps.trim_end_matches('\n');
+    format!("{corps}\n\n-- \n{}\n", signature.trim_end_matches('\n'))
 }
 
 fn none_if_empty(s: &str) -> Option<String> {
@@ -574,6 +604,43 @@ pub fn parse_recipients(input: &str) -> (Vec<iris_types::Address>, Vec<String>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_signature_est_separee_par_la_convention() {
+        // « -- » suivi d'une espace et d'un retour à la ligne : quarante ans d'usage, et
+        // c'est ce qui dit à un autre client où le message s'arrête. Sans, une réponse
+        // cite la signature comme si elle faisait partie du texte.
+        let corps = avec_signature("Bonjour,", "Marie\n01 23 45 67 89");
+        assert_eq!(corps, "Bonjour,\n\n-- \nMarie\n01 23 45 67 89\n");
+        assert!(corps.contains("\n-- \n"), "l'espace après les tirets compte");
+    }
+
+    #[test]
+    fn sans_signature_le_corps_ne_bouge_pas() {
+        // Le défaut. Personne ne veut découvrir une signature inventée par le programme
+        // au bas d'un message déjà parti.
+        assert_eq!(avec_signature("Bonjour,", ""), "Bonjour,");
+        assert_eq!(avec_signature("Bonjour,", "   \n "), "Bonjour,");
+    }
+
+    #[test]
+    fn on_ne_signe_pas_deux_fois() {
+        // Le cas du brouillon repris, et celui de quelqu'un qui écrit son séparateur
+        // lui-même. Deux signatures valent moins que zéro.
+        let deja = "Bonjour,\n\n-- \nMarie\n";
+        assert_eq!(avec_signature(deja, "Marie"), deja);
+    }
+
+    #[test]
+    fn la_signature_ne_laisse_pas_de_lignes_vides_en_trop() {
+        // Un éditeur laisse volontiers deux ou trois retours à la ligne à la fin ; les
+        // empiler sous le séparateur ferait flotter la signature au milieu de rien.
+        assert_eq!(
+            avec_signature("Bonjour,\n\n\n", "Marie"),
+            "Bonjour,\n\n-- \nMarie\n"
+        );
+    }
+
     use crate::engine::{EngineConfig, StaticCredentials};
     use iris_imap::fake::FakeServer;
     use iris_imap::{Connector, FolderKind};
