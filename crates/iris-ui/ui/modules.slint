@@ -2,6 +2,7 @@ import { Tokens } from "tokens.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
 import { RuleRowData, PluginRowData } from "types.slint";
+import { PluginSettingsBody, PluginSettingData } from "plugins.slint";
 import { ListView, LineEdit, CheckBox } from "std-widgets.slint";
 
 // A section heading.
@@ -207,6 +208,20 @@ export component ModulesPanel inherits Rectangle {
     in-out property <string> new-rule-name;
     in-out property <string> new-rule-sender;
 
+    /// Le module dont on règle les options, ou rien du tout.
+    ///
+    /// Ce panneau montre alors ses réglages **à la place** de la liste, dans la même
+    /// fenêtre. Ils s'ouvraient auparavant dans une seconde modale, déclarée plus haut
+    /// que celle-ci : le dernier frère passant devant, l'écran des modules recouvrait
+    /// entièrement ce qu'il venait d'ouvrir, et cliquer « Settings » n'avait l'air de
+    /// rien faire.
+    in property <string> settings-plugin;
+    in property <[PluginSettingData]> plugin-settings;
+    in property <string> settings-error;
+
+    callback settings-changed(string, string);
+    callback settings-closed();
+
     callback rule-toggled(string, bool);
     callback rule-simulated(string);
     callback rule-removed(string);
@@ -237,12 +252,23 @@ export component ModulesPanel inherits Rectangle {
             spacing: Tokens.space-3;
 
             HorizontalLayout {
+                spacing: Tokens.space-2;
+
+                // Le retour, et non une croix : on est descendu d'un cran dans la même
+                // fenêtre, et ce qu'on veut est remonter, pas tout fermer.
+                if root.settings-plugin != "": SmallButton {
+                    label: "‹ Modules";
+                    clicked => { root.settings-closed(); }
+                }
+
                 Text {
-                    text: "Modules";
+                    text: root.settings-plugin != "" ? root.settings-plugin : "Modules";
                     font-family: Tokens.font-family;
                     font-size: Tokens.size-title;
                     font-weight: Tokens.weight-bold;
                     color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
                 }
                 Rectangle {}
                 SmallButton {
@@ -252,6 +278,19 @@ export component ModulesPanel inherits Rectangle {
             }
 
             Rectangle { height: 1px; background: Tokens.border; }
+
+            if root.settings-plugin != "": PluginSettingsBody {
+                vertical-stretch: 1;
+                settings: root.plugin-settings;
+                error: root.settings-error;
+                changed(k, v) => { root.settings-changed(k, v); }
+            }
+
+            // Toute la liste, cachée d'un bloc quand on règle un module. Un seul
+            // conditionnel plutôt que dix : en oublier un laisserait la moitié de
+            // l'écran précédent visible sous les réglages.
+            if root.settings-plugin == "": VerticalLayout {
+            spacing: Tokens.space-3;
 
             GroupLabel { text: "RULES"; }
 
@@ -347,6 +386,8 @@ export component ModulesPanel inherits Rectangle {
             }
 
             Rectangle {}
+
+            }
         }
     }
 }

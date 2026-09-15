@@ -192,6 +192,7 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> notifications;
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
+    in-out property <bool> keep-running;
     /// Ce que le système ne permet pas ici, et pourquoi.
     in property <string> system-note;
 
@@ -324,6 +325,15 @@ export component SettingsPanel inherits Rectangle {
             }
 
             GroupLabel { text: "SYSTEM"; }
+
+            // Le premier des trois, parce que c'est celui qui décide de ce que fait le
+            // geste le plus courant : fermer la fenêtre.
+            SettingToggle {
+                label: "Keep running when I close the window";
+                hint: "Iris stays in the notification area and keeps syncing. Off: closing quits, and the tray icon goes away.";
+                value <=> root.keep-running;
+                toggled => { root.system-changed(); }
+            }
 
             SettingToggle {
                 label: "Tell me when mail arrives";

@@ -287,58 +287,26 @@ export component PluginBrowser inherits Rectangle {
 //
 // Dessinés à partir de ce que son manifeste déclare : l'application ne sait rien de
 // ce qu'un module a besoin de demander, et ne doit rien en savoir.
-export component PluginSettingsPanel inherits Rectangle {
-    in property <string> plugin-name;
+/// Les réglages d'un module, sans fenêtre autour.
+///
+/// Séparé du panneau parce qu'ils s'affichent désormais **dans** l'écran des modules,
+/// à la place de la liste. Ils étaient une seconde fenêtre modale par-dessus la
+/// première, et comme le dernier frère déclaré passe devant, c'est l'écran des modules
+/// qui passait devant : cliquer « Settings » ouvrait quelque chose derrière ce qu'on
+/// regardait, et rien ne semblait se produire.
+///
+/// Empiler deux fenêtres modales pour deux niveaux d'une même chose était de toute
+/// façon la mauvaise forme. Une modale est une question ; « quel module » et « quels
+/// réglages » sont une seule question posée en deux temps.
+export component PluginSettingsBody inherits VerticalLayout {
     in property <[PluginSettingData]> settings;
     in property <string> error;
 
     callback changed(string, string);
-    callback dismissed();
 
-    background: Tokens.scrim;
+    spacing: Tokens.space-3;
 
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
-
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(480px, parent.width - 80px);
-        height: min(520px, parent.height - 80px);
-
-        TouchArea {}
-
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
-
-            HorizontalLayout {
-                vertical-stretch: 0;
-                height: 26px;
-
-                Text {
-                    text: root.plugin-name;
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
-                Rectangle {}
-                IconButton {
-                    icon: Icons.window-close;
-                    label: "Close";
-                    button-size: 24px;
-                    icon-size: 13px;
-                    clicked => { root.dismissed(); }
-                }
-            }
-
-            Rectangle { height: 1px; background: Tokens.border; }
-
-            if root.settings.length == 0: VerticalLayout {
+    if root.settings.length == 0: VerticalLayout {
                 vertical-stretch: 1;
                 alignment: center;
                 Text {
@@ -404,6 +372,4 @@ export component PluginSettingsPanel inherits Rectangle {
                 color: Tokens.text-muted;
                 wrap: word-wrap;
             }
-        }
-    }
 }

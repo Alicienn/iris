@@ -208,8 +208,17 @@ pub struct TypographyTokens {
 impl Default for TypographyTokens {
     fn default() -> Self {
         Self {
-            family: "Inter".into(),
-            family_mono: "JetBrains Mono".into(),
+            // « Segoe UI Variable Text », et non « Inter ».
+            //
+            // Inter était nommée dans les cinq thèmes et n'est installée sur aucune
+            // machine Windows : l'application dessinait donc depuis toujours avec la
+            // police de repli, et le jeton décrivait une intention que personne ne
+            // voyait. Segoe UI Variable Text est livrée avec Windows 11, dessinée pour
+            // les tailles d'interface — de douze à vingt-quatre pixels, exactement la
+            // plage d'ici — et plus étroite qu'Inter, donc le changement resserre au
+            // lieu de faire déborder.
+            family: "Segoe UI Variable Text".into(),
+            family_mono: "Cascadia Mono".into(),
             size_small: 11.0,
             size_body: 13.0,
             size_title: 15.0,
@@ -300,7 +309,7 @@ mod tests {
         let t = Theme::from_toml("name = \"essai\"").unwrap();
         assert_eq!(t.name, "essai");
         assert_eq!(t.radius.medium, 9.0);
-        assert_eq!(t.typography.family, "Inter");
+        assert_eq!(t.typography.family, "Segoe UI Variable Text");
         assert_eq!(t.color.background, Color::rgb(0x0a, 0x0b, 0x0d));
     }
 

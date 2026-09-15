@@ -13,9 +13,10 @@ import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
 import { ModulesPanel } from "modules.slint";
-import { PluginBrowser, PluginSettingsPanel, CatalogueRowData, PluginSettingData }
+import { PluginBrowser, CatalogueRowData, PluginSettingData }
     from "plugins.slint";
 import { ComposePanel } from "compose.slint";
+import { Icon, Icons } from "icons.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
@@ -230,6 +231,21 @@ export component AppWindow inherits Window {
     min-height: 480px;
     background: Tokens.background;
 
+    // La police de toute la fenêtre, en un seul endroit.
+    //
+    // Elle n'était posée nulle part. Le thème en déclarait une, une poignée d'éléments
+    // la demandaient explicitement — les titres, l'expéditeur d'une ligne — et tout le
+    // reste de l'application prenait celle que Slint choisit par défaut. Deux polices
+    // cohabitaient donc à l'écran sans que personne l'ait décidé, et changer le jeton
+    // n'en changeait qu'une.
+    //
+    // `default-font-family` la donne à tout ce qui n'en demande pas d'autre, c'est-à-
+    // dire à presque tout : les déclarations restantes deviennent redondantes plutôt
+    // que nécessaires.
+    default-font-family: Tokens.font-family;
+    default-font-size: Tokens.size-body;
+    default-font-weight: Tokens.weight-body;
+
     // --- Données ---
     in property <[ThreadRowData]> rows;
     in property <[AccountRowData]> pinned-accounts;
@@ -342,6 +358,7 @@ export component AppWindow inherits Window {
     in-out property <bool> notifications: true;
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
+    in-out property <bool> keep-running: true;
     in property <string> system-note;
 
     in-out property <bool> palette-open;
@@ -586,6 +603,57 @@ export component AppWindow inherits Window {
 
                     VerticalLayout {
                         padding: Tokens.space-2;
+                        spacing: Tokens.space-2;
+
+                        // Écrire un message.
+                        //
+                        // L'éditeur existait en entier — destinataires, copie, copie
+                        // cachée, pièces jointes, mise en forme — et rien à l'écran n'y
+                        // menait : la touche « c » et la palette, c'est-à-dire deux
+                        // choses qu'il faut déjà savoir. Une fonction qu'on ne peut
+                        // atteindre qu'en connaissant son raccourci est une fonction
+                        // qui n'existe pas pour celui qui ouvre l'application.
+                        //
+                        // En haut de la colonne, au-dessus des dossiers, là où tout
+                        // client de courrier le met : c'est le seul bouton de cette
+                        // fenêtre qui crée quelque chose au lieu d'agir sur ce qui est
+                        // déjà là, et il mérite d'être le premier qu'on voie.
+                        Rectangle {
+                            height: 30px;
+                            border-radius: Tokens.radius-small;
+                            background: ecrire-touch.has-hover
+                                ? Tokens.accent
+                                : Tokens.accent.transparentize(0.12);
+                            animate background { duration: Tokens.instant; }
+
+                            accessible-role: button;
+                            accessible-label: "Write a new message";
+                            accessible-description: "C";
+                            accessible-action-default => { root.compose-open = true; }
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: Tokens.space-1;
+
+                                Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    data: Icons.pencil;
+                                    size: 13px;
+                                    tint: Tokens.accent-text;
+                                }
+                                Text {
+                                    text: "New message";
+                                    font-size: Tokens.size-small;
+                                    font-weight: Tokens.weight-bold;
+                                    color: Tokens.accent-text;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            ecrire-touch := TouchArea {
+                                clicked => { root.compose-open = true; }
+                            }
+                        }
 
                         FolderTree {
                             folders: root.folders;
@@ -738,16 +806,6 @@ export component AppWindow inherits Window {
         dismissed => { root.browser-dismissed(); }
     }
 
-    if root.plugin-settings-open: PluginSettingsPanel {
-        width: 100%;
-        height: 100%;
-        plugin-name: root.plugin-settings-name;
-        settings: root.plugin-settings;
-        error: root.plugin-settings-error;
-        changed(k, v) => { root.plugin-setting-changed(k, v); }
-        dismissed => { root.plugin-settings-dismissed(); }
-    }
-
     if root.folder-menu-open: FolderContextMenu {
         width: 100%;
         height: 100%;
@@ -863,7 +921,19 @@ export component AppWindow inherits Window {
         plugins-reloaded => { root.plugins-reloaded(); }
         browse-plugins => { root.browser-requested(); }
         configure-plugin(id) => { root.plugin-settings-requested(id); }
-        dismissed => { root.modules-open = false; }
+
+        // Les réglages du module, dans cette fenêtre-ci et non dans une seconde
+        // par-dessus. Le nom vide veut dire « la liste ».
+        settings-plugin: root.plugin-settings-open ? root.plugin-settings-name : "";
+        plugin-settings: root.plugin-settings;
+        settings-error: root.plugin-settings-error;
+        settings-changed(k, v) => { root.plugin-setting-changed(k, v); }
+        settings-closed => { root.plugin-settings-dismissed(); }
+
+        dismissed => {
+            root.plugin-settings-dismissed();
+            root.modules-open = false;
+        }
     }
 
     if root.add-account-open: AccountSetupPanel {
@@ -901,6 +971,7 @@ export component AppWindow inherits Window {
         notifications <=> root.notifications;
         start-at-login <=> root.start-at-login;
         handle-mailto <=> root.handle-mailto;
+        keep-running <=> root.keep-running;
         system-note: root.system-note;
         system-changed => { root.system-changed(); }
         theme-chosen(i) => { root.theme-chosen(i); }

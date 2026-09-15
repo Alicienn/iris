@@ -551,6 +551,33 @@ fn les_modules_n_existent_pas_avant_d_etre_ouverts() {
     assert!(par_libelle(&f, "Add rule").is_some());
 }
 
+fn les_reglages_d_un_module_remplacent_la_liste_au_lieu_de_s_empiler() {
+    // Ils s'ouvraient dans une seconde fenêtre modale, déclarée avant celle des
+    // modules : le dernier frère passant devant, l'écran des modules recouvrait
+    // entièrement ce qu'il venait d'ouvrir, et cliquer « Settings » n'avait l'air de
+    // rien faire du tout.
+    let f = fenetre();
+    f.set_modules_open(true);
+    f.set_plugins(modele(vec![plugin("Sorter", "Can read mail", "")]));
+
+    assert!(par_libelle(&f, "Add rule").is_some(), "la liste est là");
+
+    f.set_plugin_settings_name("Sorter".into());
+    f.set_plugin_settings_open(true);
+
+    assert!(
+        par_libelle(&f, "Add rule").is_none(),
+        "la liste cède la place au lieu de rester dessous"
+    );
+    assert!(
+        par_libelle(&f, "‹ Modules").is_some(),
+        "et l'on peut remonter d'un cran sans tout fermer"
+    );
+
+    f.set_plugin_settings_open(false);
+    assert!(par_libelle(&f, "Add rule").is_some(), "la liste revient");
+}
+
 fn une_regle_dit_ce_qu_elle_fait() {
     // A rule you cannot read at a glance is a rule you switch off.
     let f = fenetre();
@@ -1552,6 +1579,10 @@ fn main() {
         (
             "les_modules_n_existent_pas_avant_d_etre_ouverts",
             les_modules_n_existent_pas_avant_d_etre_ouverts as fn(),
+        ),
+        (
+            "les_reglages_d_un_module_remplacent_la_liste_au_lieu_de_s_empiler",
+            les_reglages_d_un_module_remplacent_la_liste_au_lieu_de_s_empiler as fn(),
         ),
         (
             "une_regle_dit_ce_qu_elle_fait",

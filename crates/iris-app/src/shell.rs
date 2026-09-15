@@ -1349,6 +1349,7 @@ pub fn wire_settings(
         fenetre.set_follow_up_enabled(reglages.automation.follow_up_enabled);
         fenetre.set_follow_up_days(reglages.automation.follow_up_days as i32);
         fenetre.set_notifications(reglages.notifications);
+        fenetre.set_keep_running(reglages.keep_running);
 
         // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
         // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
@@ -1445,6 +1446,9 @@ pub fn wire_settings(
 
             let mut reglages = courant.lock().expect("réglages empoisonnés");
             reglages.notifications = fenetre.get_notifications();
+            // Rien à demander au système pour celui-ci : il ne décide que de ce que
+            // fait la fermeture de la fenêtre, et de l'icône qui va avec.
+            reglages.keep_running = fenetre.get_keep_running();
 
             let mut plaintes: Vec<String> = Vec::new();
 
@@ -2156,8 +2160,13 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
             // Sans zone de notification, il n'y aurait aucun moyen de le faire revenir
             // et la fenêtre aurait simplement disparu : dans ce cas seulement, fermer
             // veut dire quitter.
+            //
+            // Et quand l'utilisateur a demandé que non, aussi. Une application qui
+            // refuse de partir quand on lui dit de partir est une application dont on
+            // se méfie, et quelqu'un qui relève son courrier deux fois par jour n'a
+            // aucune raison de la laisser tourner entre les deux.
             let _ = fenetre.window().hide();
-            if !fenetre.get_tray_available() {
+            if !fenetre.get_tray_available() || !fenetre.get_keep_running() {
                 let _ = slint::quit_event_loop();
             }
         });

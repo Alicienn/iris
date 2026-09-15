@@ -92,6 +92,19 @@ pub struct Settings {
     /// Iris est inscrite comme client de courrier possible du système.
     #[serde(default)]
     pub handle_mailto: bool,
+    /// Continuer en arrière-plan quand on ferme la fenêtre.
+    ///
+    /// Par défaut : oui, et c'est ce qui donne son sens à l'icône de la zone de
+    /// notification — un client qui se synchronise en arrière-plan et qui s'arrête
+    /// quand on ferme sa fenêtre ne se synchronise pas.
+    ///
+    /// Mais c'est un choix, pas une évidence. Une application qui refuse de partir
+    /// quand on lui demande de partir est une application dont on se méfie, et
+    /// quelqu'un qui relève son courrier deux fois par jour n'a aucune raison de la
+    /// laisser tourner entre les deux. Refuser éteint aussi l'icône : la laisser
+    /// promettrait un programme qui tourne encore.
+    #[serde(default = "vrai")]
+    pub keep_running: bool,
 }
 
 /// La valeur par défaut d'un réglage qui doit être allumé.
@@ -109,6 +122,7 @@ impl Default for Settings {
             notifications: true,
             start_at_login: false,
             handle_mailto: false,
+            keep_running: true,
         }
     }
 }
@@ -186,6 +200,7 @@ mod tests {
             notifications: false,
             start_at_login: true,
             handle_mailto: true,
+            keep_running: false,
         };
 
         reglages.save(&chemin).unwrap();
@@ -201,6 +216,19 @@ mod tests {
         std::fs::write(&chemin, "ceci = = n'est pas du toml").unwrap();
 
         assert_eq!(Settings::load(&chemin), Settings::default());
+    }
+
+    #[test]
+    fn un_fichier_anterieur_continue_de_tourner_en_arriere_plan() {
+        // Le réglage est nouveau ; le fichier de quelqu'un qui utilise déjà Iris ne le
+        // contient pas. Son absence doit vouloir dire « comme avant », c'est-à-dire
+        // continuer — un défaut à faux ferait quitter l'application à la première
+        // fermeture de fenêtre, sans que rien n'ait été demandé.
+        let (_d, chemin) = fichier();
+        std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+        std::fs::write(&chemin, "theme = \"mono\"\n").unwrap();
+
+        assert!(Settings::load(&chemin).keep_running);
     }
 
     #[test]

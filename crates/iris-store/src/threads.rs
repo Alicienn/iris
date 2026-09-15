@@ -282,12 +282,18 @@ impl Store {
             // Les mêmes exclusions que l'onglet « À faire », parce que c'est le même
             // nombre. La barre latérale annonçait 191 pendant que l'onglet annonçait
             // 188 : elle comptait les indésirables et la corbeille, lui non.
+            //
+            // Et les non lus comme lui, pour la même raison : les deux répondent à
+            // « qu'est-ce qui m'attend », l'un par compte et l'autre par file. Changer
+            // l'un sans l'autre remettrait deux nombres différents sur le même écran,
+            // ce qui est précisément la faute que le paragraphe ci-dessus décrit.
             let mut stmt = c
                 .prepare_cached(&format!(
                     "SELECT ta.account_id, count(*)
                      FROM thread_accounts ta
                      JOIN threads t ON t.id = ta.thread_id
                      WHERE t.state = ?1
+                       AND t.unread_count > 0
                        AND (t.snooze_until IS NULL OR t.snooze_until <= ?2)
                        AND (t.flags_union & {SPAM_BIT}) = 0
                        AND EXISTS (SELECT 1 FROM messages m
@@ -323,7 +329,20 @@ impl Store {
     pub fn state_counts(&self, accounts: &[AccountId], now: Option<Timestamp>) -> Result<[u32; 3]> {
         self.with_conn(|c| {
             let mut counts = [0u32; 3];
-            let mut sql = String::from("SELECT state, count(*) FROM threads WHERE 1 = 1");
+            // Les **non lus**, pas le total.
+            //
+            // Le nombre à côté d'un onglet répond à « qu'est-ce qui m'attend », et un
+            // total ne répond pas à cette question : « Done 865 » compte du courrier
+            // dont on s'est occupé, et « To do 188 » compte des fils qu'on a déjà lus
+            // et laissés là. Un compteur qui ne bouge pas quand on travaille cesse
+            // d'être lu, et c'est le prochain qui compte qu'on ne verra pas.
+            //
+            // Un fil est non lu s'il contient au moins un message non lu, ce que
+            // `unread_count` porte déjà, dénormalisé. Le zéro est donc dit par
+            // l'absence de ligne, comme avant : rien à faire de plus.
+            let mut sql = String::from(
+                "SELECT state, count(*) FROM threads WHERE unread_count > 0",
+            );
             let mut args: Vec<SqlValue> = Vec::new();
 
             if let Some(now) = now {
@@ -644,6 +663,37 @@ mod tests {
                 .unwrap()
                 .thread
         }
+    }
+
+    #[test]
+    fn les_compteurs_d_onglet_comptent_les_non_lus() {
+        // Un nombre à côté d'un onglet répond à « qu'est-ce qui m'attend ». Le total ne
+        // répond pas à cette question : « Done 865 » compte du courrier dont on s'est
+        // occupé, et un compteur qui ne bouge pas quand on travaille cesse d'être lu.
+        let f = fixture();
+        let lu = f.thread_at(1000, "Lu");
+        f.thread_at(2000, "Non lu");
+
+        assert_eq!(
+            f.store.state_counts(&[], None).unwrap()[0],
+            2,
+            "les deux fils arrivent non lus"
+        );
+
+        // Le même fil, lu.
+        f.store
+            .apply_flag_changes(f.folder, &[(1, Flags::SEEN)])
+            .unwrap();
+        assert_eq!(f.store.state_counts(&[], None).unwrap()[0], 1);
+
+        // Et la barre latérale dit le même nombre, sans quoi deux compteurs
+        // contradictoires se retrouvent sur le même écran.
+        let par_compte = f
+            .store
+            .todo_counts_by_account(Timestamp::from_millis(9999))
+            .unwrap();
+        assert_eq!(par_compte.get(&f.account).copied(), Some(1));
+        let _ = lu;
     }
 
     #[test]

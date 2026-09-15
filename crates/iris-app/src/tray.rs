@@ -84,6 +84,19 @@ mod plateforme {
             })
         }
 
+        /// Montre ou retire l'icône, sans la détruire.
+        ///
+        /// Le réglage « continuer en arrière-plan » se décide en cours de route, et une
+        /// icône qui resterait après qu'on l'a refusée promettrait un programme qui
+        /// tourne encore alors qu'il s'arrêtera à la fermeture. La reconstruire à chaque
+        /// bascule coûterait la relecture de l'icône de l'exécutable, pour un
+        /// interrupteur.
+        pub fn set_visible(&self, visible: bool) {
+            if let Err(e) = self.icone.set_visible(visible) {
+                tracing::warn!(error = %e, "notification area visibility");
+            }
+        }
+
         /// Met à jour le nombre de non-lus affiché au survol.
         pub fn set_unread(&mut self, unread: u32) {
             if self.dernier == Some(unread) {
@@ -163,6 +176,7 @@ mod plateforme {
             None
         }
         pub fn set_unread(&mut self, _unread: u32) {}
+        pub fn set_visible(&self, _visible: bool) {}
         pub fn poll(&self) -> Option<TrayCommand> {
             None
         }

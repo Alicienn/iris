@@ -909,6 +909,8 @@ fn run_gui(
         let controller_zone = Arc::clone(&controller);
         let minuterie = slint::Timer::default();
         let mut precedent = u32::MAX;
+        // L'état de l'icône tel qu'on l'a laissé. `None` : jamais réglé, donc à régler.
+        let mut visible: Option<bool> = None;
 
         minuterie.start(
             slint::TimerMode::Repeated,
@@ -917,6 +919,22 @@ fn run_gui(
                 let Some(zone) = zone.as_mut() else {
                     return;
                 };
+
+                // L'icône suit le réglage « continuer en arrière-plan ».
+                //
+                // Relue ici plutôt que poussée depuis l'écran des réglages : la zone de
+                // notification ne vit que dans cette fermeture, et lui faire traverser
+                // la moitié de l'application pour un interrupteur reviendrait à ouvrir
+                // un chemin de plus vers un objet qui n'a pas le droit de quitter ce
+                // fil. Une comparaison par tour ne se mesure pas ; l'appel qui suit
+                // n'a lieu qu'au changement.
+                if let Some(fenetre) = faible.upgrade() {
+                    let voulue = fenetre.get_keep_running();
+                    if visible != Some(voulue) {
+                        zone.set_visible(voulue);
+                        visible = Some(voulue);
+                    }
+                }
 
                 match zone.poll() {
                     Some(iris_app::tray::TrayCommand::Open) => {
