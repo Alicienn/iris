@@ -97,7 +97,13 @@ Source: "..\README.md";                DestDir: "{app}"; Flags: ignoreversion is
 ;
 ; Ce que l'installateur a posé, la désinstallation le retire ; le fichier de réglages,
 ; écrit par l'application, reste — comme le reste de ce qui appartient à l'utilisateur.
-Source: "plugins\*"; DestDir: "{userappdata}\Iris\plugins"; \
+;
+; Le chemin est celui que l'application calcule, et pas celui qu'on devinerait : Iris
+; passe par « directories », qui sur Windows compose
+; %APPDATA%\<organisation>\<application>\data — donc « Iris\Iris\data », avec le nom
+; deux fois. Une copie posée sous « Iris\plugins » ne serait jamais lue, l'écran des
+; modules resterait vide, et rien ne le dirait.
+Source: "plugins\*"; DestDir: "{userappdata}\Iris\Iris\data\plugins"; \
     Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: plugins
 
 [Icons]
@@ -139,6 +145,6 @@ Filename: "{app}\{#AppExe}"; Parameters: "unregister"; \
 Type: filesandordirs; Name: "{localappdata}\Iris\Iris\cache"
 
 ; Le courrier, les réglages et le coffre ne sont **pas** effacés. Ils sont sous
-; {userappdata}\Iris et appartiennent à l'utilisateur : une désinstallation qui
+; {userappdata}\Iris\Iris\data et appartiennent à l'utilisateur : une désinstallation qui
 ; emporte dix ans de courrier est une désinstallation qu'on ne pardonne pas. Le cache
 ; ci-dessus, lui, est entièrement reconstructible — c'est pour cela qu'il est séparé.

@@ -176,11 +176,31 @@ fn open_services() -> Result<Services> {
     // faut aucun, et le demander pour rien serait absurde.
     match Services::open(chemins.clone(), None) {
         Ok(s) => Ok(s),
-        Err(_) => {
+
+        // Une seule erreur appelle un mot de passe : celle qui dit qu'il en faut un.
+        //
+        // Le repli était écrit `Err(_)`, et toute panne d'ouverture devenait une
+        // demande de mot de passe maître : une base verrouillée par une autre instance,
+        // un index illisible, un disque plein. Lancée depuis un raccourci, sans entrée
+        // standard, la demande échouait à son tour — et l'application mourait sur
+        // « Descripteur non valide (os error 6) », qui ne décrit aucune des trois.
+        Err(e) if besoin_d_un_mot_de_passe(&e) => {
             let master = prompt_secret("Mot de passe maître du coffre : ")?;
             Services::open(chemins, Some(master))
         }
+
+        Err(e) => Err(e),
     }
+}
+
+/// L'ouverture a-t-elle échoué faute de mot de passe maître, ou pour autre chose ?
+///
+/// Reconnu au message, faute d'un type d'erreur qui le distingue. C'est fragile et
+/// c'est assumé : le seul autre choix serait une variante d'erreur traversant quatre
+/// caisses pour un cas qui n'arrive qu'ici, et se tromper coûte une demande de mot de
+/// passe superflue plutôt qu'un démarrage impossible.
+fn besoin_d_un_mot_de_passe(e: &iris_types::Error) -> bool {
+    matches!(e, iris_types::Error::Config(m) if m.contains("mot de passe maître"))
 }
 
 fn prompt_secret(invite: &str) -> Result<Secret> {

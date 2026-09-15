@@ -54,10 +54,10 @@ machine is touched.
 ## What the uninstaller removes, and what it keeps
 
 Removed: the program, the shortcuts, the registry entries, the cache under
-`%LOCALAPPDATA%\Iris`, which is entirely rebuildable, and the three module files it
-placed under `%APPDATA%\Iris\plugins`.
+`%LOCALAPPDATA%\Iris\Iris\cache`, which is entirely rebuildable, and the three module
+files it placed under `%APPDATA%\Iris\Iris\data\plugins`.
 
-Kept: everything under `%APPDATA%\Iris` that the installer did not put there — the
+Kept: everything under `%APPDATA%\Iris\Iris` that the installer did not put there — the
 database, the settings, the vault, and each module's `settings.toml`, which the
 application writes and which survives a reinstall. That is the user's mail, not the
 installer's. An uninstall that takes ten years of correspondence with it is not
@@ -68,12 +68,17 @@ settings are written beside its manifest, and a module under `Program Files` wou
 a module whose settings cannot be changed on a machine where the user cannot write
 there. The application reads exactly one modules directory, and that is it.
 
+The doubled name is not a typo. Iris locates its data through the `directories` crate,
+which on Windows composes `%APPDATA%\<organisation>\<application>\data` — and both are
+"Iris". A copy dropped under `%APPDATA%\Iris\plugins`, which is what anyone would write,
+is never read: the Modules screen simply stays empty, and nothing says why.
+
 ## What it does not solve
 
 **SmartScreen.** An unsigned installer downloaded from the web gets "Windows protected
 your PC" until enough people have run it, or until it is signed with a code-signing
 certificate. Nothing in the script changes that; only a certificate does.
 
-**Portability.** Iris keeps its data in `%APPDATA%\Iris`, so a copy on a USB stick
+**Portability.** Iris keeps its data in `%APPDATA%\Iris\Iris`, so a copy on a USB stick
 still leaves traces on the machine. A portable mode that puts the database beside the
 binary is separate, small, and not done.
