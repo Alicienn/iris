@@ -599,10 +599,41 @@ impl SyncEngine {
                 }
                 // Un dossier illisible — droits insuffisants, boîte partagée
                 // disparue — ne doit pas condamner le compte entier.
-                Err(e) => tracing::warn!(
-                    account = %account, folder = %dossier.path, error = %e,
-                    "folder skipped"
-                ),
+                Err(e) => {
+                    // Sauf quand le serveur dit qu'il n'existe pas : alors on l'oublie.
+                    //
+                    // Sans cela, un dossier supprimé — par Iris, par un autre client,
+                    // par l'administrateur — reste dans la copie locale pour toujours.
+                    // Il continue d'apparaître dans la colonne, et chaque
+                    // synchronisation retente de le sélectionner : le journal se
+                    // remplit du même « Mailbox doesn't exist » à chaque tour, et rien
+                    // ne le nettoie jamais.
+                    //
+                    // Reconnu au code de réponse IMAP, `NONEXISTENT`, et non au texte
+                    // qui l'accompagne : celui-là change d'un serveur à l'autre. Une
+                    // panne de réseau ou un refus de droits ne dit pas cela et ne fait
+                    // donc rien disparaître — c'est la distinction qui compte, parce
+                    // qu'oublier un dossier pour cause de coupure effacerait sa copie
+                    // locale d'un simple câble débranché.
+                    let disparu = e.to_string().contains("[NONEXISTENT]");
+                    tracing::warn!(
+                        account = %account, folder = %dossier.path, error = %e,
+                        gone = disparu, "folder skipped"
+                    );
+                    if disparu {
+                        if let Err(e) = self.store.clear_folder(dossier.id) {
+                            tracing::warn!(error = %e, "vidage du dossier disparu");
+                        }
+                        match self.store.forget_folder(account, &dossier.path) {
+                            Ok(true) => tracing::info!(
+                                account = %account, folder = %dossier.path,
+                                "folder dropped: the server no longer has it"
+                            ),
+                            Ok(false) => {}
+                            Err(e) => tracing::warn!(error = %e, "oubli du dossier disparu"),
+                        }
+                    }
+                }
             }
         }
 
