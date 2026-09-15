@@ -165,6 +165,18 @@ impl FakeServer {
         }
     }
 
+    /// Fait répondre le serveur sans `UIDVALIDITY`, comme quand la réponse au SELECT
+    /// est tronquée ou que la connexion tombe au mauvais moment.
+    ///
+    /// Zéro n'est pas une valeur : c'est l'absence de valeur. Un client qui la prend
+    /// pour un changement efface le contenu local d'un dossier qui n'a pas bougé.
+    pub fn drop_uid_validity(&self, folder: &str) {
+        let mut state = self.state.lock().unwrap();
+        if let Some(f) = state.folders.get_mut(folder) {
+            f.uid_validity = 0;
+        }
+    }
+
     pub fn fail_next(&self, message: &str) {
         self.state.lock().unwrap().next_error = Some(message.to_string());
     }

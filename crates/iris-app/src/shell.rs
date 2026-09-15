@@ -1239,6 +1239,48 @@ impl BodyLoader {
     }
 }
 
+/// Compose et met en file une réponse, à l'expéditeur ou à tous.
+///
+/// Les deux boutons font le même travail à un mot près, et ce mot est la seule chose
+/// qui les distingue : qui reçoit. Écrire deux fois la même trentaine de lignes, c'est
+/// s'assurer qu'un jour l'un des deux corrigera un défaut que l'autre gardera.
+fn envoyer_reponse(
+    fenetre: &AppWindow,
+    send: &iris_sync::SendService,
+    en_cours: &std::sync::Mutex<Option<iris_smtp::SendHandle>>,
+    selection: &std::sync::Mutex<Option<iris_types::ThreadId>>,
+    portee: iris_smtp::ReplyScope,
+) {
+    let texte = fenetre.get_reply_text().to_string();
+    if texte.trim().is_empty() {
+        return;
+    }
+    let Some(thread) = *selection.lock().expect("sélection") else {
+        return;
+    };
+
+    let message = match send.compose_reply(thread, &texte, portee) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(error = %e, "composing the reply");
+            fenetre.set_status(format!("Cannot reply: {e}").into());
+            return;
+        }
+    };
+
+    match send.queue(message) {
+        Ok(handle) => {
+            *en_cours.lock().expect("envoi") = Some(handle);
+            // Le bouton devient un bouton d'annulation, au même endroit :
+            // le geste de rattrapage est immédiat.
+            fenetre.set_sending(true);
+            fenetre.set_undo_seconds(send.status().delay_secs as i32);
+            fenetre.set_reply_text(Default::default());
+        }
+        Err(e) => fenetre.set_status(format!("Send refused: {e}").into()),
+    }
+}
+
 /// Branche la zone de réponse.
 pub fn wire_reply(
     fenetre: &AppWindow,
@@ -1258,34 +1300,40 @@ pub fn wire_reply(
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let texte = fenetre.get_reply_text().to_string();
-            if texte.trim().is_empty() {
-                return;
-            }
-            let Some(thread) = *selection.lock().expect("sélection") else {
+            envoyer_reponse(
+                &fenetre,
+                &send,
+                &en_cours,
+                &selection,
+                iris_smtp::ReplyScope::Sender,
+            );
+        });
+    }
+
+    // « Reply all », qui n'était relié à rien.
+    //
+    // Le bouton était déclaré dans l'interface, transmis depuis la vue de conversation
+    // jusqu'à la fenêtre, et s'arrêtait là : aucun gestionnaire en Rust. Cliquer dessus
+    // ne faisait rien du tout, sans message ni trace. C'était le seul orphelin des cent
+    // trois rappels déclarés — le test qui balaie les autres est juste en dessous, pour
+    // que ce soit le dernier.
+    {
+        let send = Arc::clone(&send);
+        let en_cours = Arc::clone(&en_cours);
+        let selection = Arc::clone(&selection);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_reply_all(move || {
+            let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-
-            let message = match send.compose_reply(thread, &texte, iris_smtp::ReplyScope::Sender) {
-                Ok(m) => m,
-                Err(e) => {
-                    tracing::warn!(error = %e, "composing the reply");
-                    fenetre.set_status(format!("Cannot reply: {e}").into());
-                    return;
-                }
-            };
-
-            match send.queue(message) {
-                Ok(handle) => {
-                    *en_cours.lock().expect("envoi") = Some(handle);
-                    // Le bouton devient un bouton d'annulation, au même endroit :
-                    // le geste de rattrapage est immédiat.
-                    fenetre.set_sending(true);
-                    fenetre.set_undo_seconds(send.status().delay_secs as i32);
-                    fenetre.set_reply_text(Default::default());
-                }
-                Err(e) => fenetre.set_status(format!("Send refused: {e}").into()),
-            }
+            envoyer_reponse(
+                &fenetre,
+                &send,
+                &en_cours,
+                &selection,
+                iris_smtp::ReplyScope::All,
+            );
         });
     }
 

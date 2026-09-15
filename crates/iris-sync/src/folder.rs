@@ -80,7 +80,27 @@ pub async fn sync_folder(
     let capacites = conn.capabilities();
 
     // Le serveur a-t-il reconstruit la boîte ?
-    let validite_changee = folder.uid_validity != 0 && folder.uid_validity != etat.uid_validity;
+    //
+    // Les deux côtés doivent être connus. Le zéro local était déjà écarté — c'est la
+    // première visite, on ne sait rien — mais pas le zéro **du serveur**, et celui-là
+    // ne veut pas dire « boîte reconstruite » : il veut dire que la réponse au SELECT
+    // n'en portait pas, ou qu'on ne l'a pas lue.
+    //
+    // Le journal en garde la trace : quatre dossiers passés à `apres=0` dans la même
+    // seconde, chacun suivi d'un effacement local et du re-téléchargement complet de
+    // son contenu. Quatre boîtes ne sont pas reconstruites en même temps ; c'était une
+    // connexion coupée. Le prix d'une erreur ici est tout le contenu local d'un
+    // dossier, donc le doute profite au cache.
+    let validite_changee = folder.uid_validity != 0
+        && etat.uid_validity != 0
+        && folder.uid_validity != etat.uid_validity;
+
+    if etat.uid_validity == 0 {
+        tracing::warn!(
+            folder = %folder.path,
+            "le serveur n'a pas donné d'UIDVALIDITY : rien n'est effacé"
+        );
+    }
     if validite_changee {
         tracing::warn!(
             folder = %folder.path,
@@ -96,7 +116,13 @@ pub async fn sync_folder(
     // que ce soit. Une passe interrompue doit pouvoir reprendre a l'UID ou elle s'est
     // arretee ; sans cette ecriture, elle se croirait a sa premiere visite et
     // repartirait indefiniment de zero.
-    if validite_changee || folder.uid_validity != etat.uid_validity {
+    //
+    // Jamais avec un zéro, en revanche, et c'est la seconde moitié du même défaut.
+    // Écraser une valeur connue par l'absence de valeur fait croire à la passe suivante
+    // qu'elle n'est jamais venue : `premiere_visite` devient vrai, la synchronisation
+    // repart complète, et tout le dossier redescend. C'est le `added=88` qui suivait
+    // chaque `apres=0` dans le journal.
+    if etat.uid_validity != 0 && folder.uid_validity != etat.uid_validity {
         store.update_folder_sync_state(
             folder.id,
             etat.uid_validity,
@@ -166,13 +192,18 @@ pub async fn sync_folder(
     // L'état de synchronisation n'est enregistré qu'à la fin, et seulement si la
     // passe est complète : l'enregistrer trop tôt ferait manquer définitivement les
     // messages restants après une interruption.
+    //
+    // La validité qu'on réécrit est celle qu'on avait quand le serveur n'en donne pas.
+    // Le reste de la passe s'est déroulé normalement — les UID sont les mêmes qu'avant,
+    // puisque rien ne dit le contraire — et il n'y a aucune raison de perdre en chemin
+    // la seule chose qui permettra la prochaine fois de reprendre où l'on s'arrête.
     if !rapport.more_available {
-        store.update_folder_sync_state(
-            folder.id,
-            etat.uid_validity,
-            etat.uid_next,
-            etat.highest_modseq,
-        )?;
+        let validite = if etat.uid_validity != 0 {
+            etat.uid_validity
+        } else {
+            folder.uid_validity
+        };
+        store.update_folder_sync_state(folder.id, validite, etat.uid_next, etat.highest_modseq)?;
     }
 
     Ok(rapport)
@@ -456,6 +487,39 @@ mod tests {
         assert!(r.full_resync);
         // Le message est relu, pas dupliqué.
         assert_eq!(f.store.message_count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn un_uidvalidity_absent_n_efface_rien() {
+        // Zéro n'est pas une valeur, c'est l'absence de valeur — une réponse au SELECT
+        // tronquée, une connexion tombée. Le prendre pour un changement effaçait le
+        // contenu local du dossier et le retéléchargeait en entier.
+        //
+        // Le journal de l'utilisateur en portait la trace : quatre dossiers passés à
+        // « apres=0 » dans la même seconde, puis « added=88 ». Quatre boîtes ne sont
+        // pas reconstruites en même temps.
+        let f = fixture();
+        f.server
+            .deliver("INBOX", &message("Ancien", "ancien@x"), Flags::NONE);
+        f.sync(FolderSyncOptions::default()).await;
+        assert_eq!(f.store.message_count().unwrap(), 1);
+
+        f.server.drop_uid_validity("INBOX");
+        let r = f.sync(FolderSyncOptions::default()).await;
+
+        assert!(!r.uid_validity_changed, "rien n'a changé, rien n'est effacé");
+        assert_eq!(f.store.message_count().unwrap(), 1);
+
+        // Et la valeur connue survit : sans cela la passe suivante se croirait à sa
+        // première visite et redescendrait tout le dossier.
+        let dossier = f
+            .store
+            .folders(f.account)
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path == "INBOX")
+            .unwrap();
+        assert_ne!(dossier.uid_validity, 0, "la valeur connue n'est pas écrasée");
     }
 
     #[tokio::test]

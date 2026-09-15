@@ -63,6 +63,15 @@ pub struct Outbox {
     pending: Arc<Mutex<HashMap<SendHandle, oneshot::Sender<()>>>>,
     next: AtomicU64,
     events: mpsc::UnboundedSender<OutboxEvent>,
+    /// L'exécuteur sur lequel les envois partent.
+    ///
+    /// Porté par la file plutôt que déduit de l'appelant, et c'est ce qui a coûté un
+    /// plantage : `queue` faisait `tokio::spawn`, qui exige d'être appelé **depuis**
+    /// un exécuteur. Le bouton « Send » l'appelait depuis le fil de l'interface, où il
+    /// n'y en a aucun, et l'application disparaissait au clic avec « there is no
+    /// reactor running ». Rien dans la signature ne disait qu'il fallait un exécuteur ;
+    /// maintenant, il est impossible d'en construire une sans.
+    runtime: tokio::runtime::Handle,
 }
 
 impl Outbox {
@@ -70,6 +79,7 @@ impl Outbox {
     pub fn new(
         mailer: Arc<dyn Mailer>,
         delay: Duration,
+        runtime: tokio::runtime::Handle,
     ) -> (Self, mpsc::UnboundedReceiver<OutboxEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (
@@ -79,6 +89,7 @@ impl Outbox {
                 pending: Arc::new(Mutex::new(HashMap::new())),
                 next: AtomicU64::new(1),
                 events: tx,
+                runtime,
             },
             rx,
         )
@@ -107,7 +118,7 @@ impl Outbox {
         let events = self.events.clone();
         let delay = self.delay;
 
-        tokio::spawn(async move {
+        self.runtime.spawn(async move {
             // Course entre l'échéance et l'annulation. Le premier qui arrive gagne.
             let annule = tokio::select! {
                 _ = tokio::time::sleep(delay) => false,
@@ -187,7 +198,11 @@ mod tests {
         Arc<FakeMailer>,
     ) {
         let mailer = Arc::new(FakeMailer::new());
-        let (outbox, rx) = Outbox::new(Arc::clone(&mailer) as Arc<dyn Mailer>, delay);
+        let (outbox, rx) = Outbox::new(
+            Arc::clone(&mailer) as Arc<dyn Mailer>,
+            delay,
+            tokio::runtime::Handle::current(),
+        );
         (outbox, rx, mailer)
     }
 
@@ -323,5 +338,35 @@ mod tests {
 
         assert!(outbox.cancel(h));
         assert!(!outbox.cancel(h));
+    }
+
+    #[test]
+    fn mettre_en_file_depuis_un_fil_ordinaire_ne_fait_pas_paniquer() {
+        // C'est exactement ce que fait le bouton « Send ».
+        //
+        // L'interface tourne sur le fil principal, où il n'y a aucun exécuteur, et
+        // `queue` faisait `tokio::spawn` — qui exige d'être appelé depuis un exécuteur
+        // et panique sinon. Cliquer « Send » faisait donc disparaître l'application,
+        // avec « there is no reactor running » dans le journal et rien à l'écran.
+        //
+        // Tous les autres tests de ce fichier sont `#[tokio::test]`, c'est-à-dire
+        // exactement le contexte que l'application n'a pas : ils ne pouvaient pas le
+        // voir. Celui-ci est volontairement synchrone, et n'a pas d'autre raison
+        // d'être.
+        let executeur = tokio::runtime::Runtime::new().unwrap();
+        let mailer = Arc::new(FakeMailer::new());
+        let (outbox, mut evenements) = Outbox::new(
+            Arc::clone(&mailer) as Arc<dyn Mailer>,
+            DEFAULT_DELAY,
+            executeur.handle().clone(),
+        );
+
+        let h = outbox.queue(message("Devis"));
+
+        assert!(outbox.is_pending(h), "le message est bien en attente");
+        assert!(matches!(
+            evenements.try_recv(),
+            Ok(OutboxEvent::Queued { .. })
+        ));
     }
 }

@@ -464,6 +464,7 @@ fn signaler_synchronisation(fenetre: &slint::Weak<iris_ui::AppWindow>, actif: bo
 /// rien tant que personne ne peut choisir laquelle utiliser.
 fn build_send_service(
     services: &Services,
+    runtime: tokio::runtime::Handle,
 ) -> Result<(
     Arc<iris_sync::SendService>,
     tokio::sync::mpsc::UnboundedReceiver<iris_smtp::OutboxEvent>,
@@ -483,7 +484,8 @@ fn build_send_service(
         })?;
 
     let expediteur = iris_sync::send::mailer_for(&compte, motdepasse.expose())?;
-    let (outbox, evenements) = iris_smtp::Outbox::new(expediteur, iris_smtp::DEFAULT_DELAY);
+    let (outbox, evenements) =
+        iris_smtp::Outbox::new(expediteur, iris_smtp::DEFAULT_DELAY, runtime);
 
     Ok((
         Arc::new(iris_sync::SendService::new(
@@ -640,7 +642,7 @@ fn run_gui(
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui
     // doit arriver après un envoi arrive même si la fenêtre se ferme entre-temps.
-    match build_send_service(&services) {
+    match build_send_service(&services, runtime.handle().clone()) {
         Ok((envoi, evenements)) => {
             shell::wire_reply(&fenetre, Arc::clone(&envoi), Arc::clone(&selection));
             // Writing a new message uses the same outbox as a reply, so the delay to

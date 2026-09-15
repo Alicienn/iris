@@ -584,6 +584,7 @@ mod tests {
         let (outbox, events) = Outbox::new(
             Arc::clone(&mailer) as Arc<dyn Mailer>,
             Duration::from_secs(10),
+            tokio::runtime::Handle::current(),
         );
         let service = Arc::new(SendService::new(
             Arc::clone(&engine),
@@ -767,6 +768,7 @@ mod tests {
         let (outbox, _rx) = Outbox::new(
             Arc::clone(&mailer) as Arc<dyn Mailer>,
             Duration::from_secs(1),
+            tokio::runtime::Handle::current(),
         );
         let service = SendService::new(engine, Arc::new(outbox), bus);
 
