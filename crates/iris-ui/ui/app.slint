@@ -18,6 +18,7 @@ import { PluginBrowser, CatalogueRowData, PluginSettingData }
 import { ComposePanel } from "compose.slint";
 import { Icon, Icons } from "icons.slint";
 import { SignaturePanel } from "signature.slint";
+import { SourcePanel } from "source.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
@@ -463,6 +464,11 @@ export component AppWindow inherits Window {
     callback folder-rename-confirmed();
     callback folder-rename-dismissed();
     callback folder-delete-requested();
+    in property <bool> folder-menu-emptyable;
+    /// La clé brute — « role:trash » ou un chemin — pas le nom affiché.
+    in-out property <string> folder-menu-key;
+    callback folder-mark-read-requested();
+    callback folder-empty-requested();
     callback new-folder-create();
     callback new-folder-dismissed();
     in property <bool> filter-unread;
@@ -506,6 +512,13 @@ export component AppWindow inherits Window {
     callback undo();
     callback redo();
     callback save-attachment(int);
+    callback open-attachment(int);
+    /// Le message tel qu'il est arrivé, en-têtes compris.
+    in-out property <bool> source-open;
+    in property <string> source-subject;
+    in property <string> source-text;
+    in property <bool> source-unavailable;
+    callback view-source();
     callback palette-query-changed(string);
     callback search-submitted(string);
     callback search-cleared();
@@ -781,6 +794,7 @@ export component AppWindow inherits Window {
                     reply-all => { root.reply-all(); }
                     load-images => { root.load-images(); }
                     save-attachment(i) => { root.save-attachment(i); }
+                    open-attachment(i) => { root.open-attachment(i); }
                 }
             }
 
@@ -832,6 +846,9 @@ export component AppWindow inherits Window {
         height: 100%;
         folder: root.folder-menu-path;
         permanent: root.folder-menu-permanent;
+        emptyable: root.folder-menu-emptyable;
+        mark-read => { root.folder-mark-read-requested(); }
+        empty => { root.folder-empty-requested(); }
         menu-x: root.folder-menu-x;
         menu-y: root.folder-menu-y;
         rename => { root.folder-rename-requested(); }
@@ -897,6 +914,7 @@ export component AppWindow inherits Window {
         toggle-unread => { root.menu-toggle-unread(root.context-menu-thread); }
         toggle-star => { root.menu-toggle-star(root.context-menu-thread); }
         delete-thread => { root.menu-delete(root.context-menu-thread); }
+        view-source => { root.view-source(); }
         dismissed => { root.context-menu-open = false; }
         reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
     }
@@ -928,6 +946,15 @@ export component AppWindow inherits Window {
         recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
         recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
         dismissed => { root.compose-dismissed(); root.compose-open = false; }
+    }
+
+    if root.source-open: SourcePanel {
+        width: 100%;
+        height: 100%;
+        subject: root.source-subject;
+        source: root.source-text;
+        unavailable: root.source-unavailable;
+        dismissed => { root.source-open = false; }
     }
 
     if root.signature-open: SignaturePanel {
@@ -1052,6 +1079,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.compose-open) {
                 root.compose-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.source-open) {
+                root.source-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.modules-open) {

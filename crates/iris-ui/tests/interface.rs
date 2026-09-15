@@ -373,12 +373,16 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
     f.set_conversation_empty(false);
 
     let enregistres = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let ouverts = Rc::new(RefCell::new(Vec::<i32>::new()));
     {
         let enregistres = Rc::clone(&enregistres);
         f.on_save_attachment(move |i| enregistres.borrow_mut().push(i));
+        let ouverts = Rc::clone(&ouverts);
+        f.on_open_attachment(move |i| ouverts.borrow_mut().push(i));
     }
 
-    let pastille = par_libelle(&f, "Save plan.png").expect("la pastille doit être un bouton");
+    // La pastille ouvre : neuf fois sur dix on veut regarder le fichier, pas le garder.
+    let pastille = par_libelle(&f, "Open plan.png").expect("la pastille doit être un bouton");
     // Le type et la taille sont annoncés avec le nom : « plan.png » seul ne dit pas
     // s'il faut l'ouvrir maintenant ou attendre d'être au bureau.
     assert_eq!(
@@ -386,12 +390,14 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
         Some("Image, 180 ko".into())
     );
     pastille.invoke_accessible_default_action();
+    assert_eq!(*ouverts.borrow(), [1], "le rang doit désigner le bon fichier");
 
-    assert_eq!(
-        *enregistres.borrow(),
-        [1],
-        "le rang doit désigner le bon fichier"
-    );
+    // Et l'enregistrement garde son bouton, atteignable sans souris : il n'apparaît
+    // qu'au survol, mais il est **toujours** dans l'arbre — le cacher par un `if` le
+    // retirerait du clavier et des lecteurs d'écran en même temps que de l'écran.
+    let garder = par_libelle(&f, "Save plan.png").expect("le bouton d'enregistrement existe");
+    garder.invoke_accessible_default_action();
+    assert_eq!(*enregistres.borrow(), [1]);
 }
 
 // --- Les panneaux ---
@@ -1240,9 +1246,9 @@ fn beaucoup_de_pieces_jointes_sont_comptees_pas_empilees() {
         ..Default::default()
     });
 
-    assert!(par_libelle(&f, "Save f0.pdf").is_some(), "les premières sont là");
+    assert!(par_libelle(&f, "Open f0.pdf").is_some(), "les premières sont là");
     assert!(
-        par_libelle(&f, "Save f11.pdf").is_none(),
+        par_libelle(&f, "Open f11.pdf").is_none(),
         "les dernières sont comptées, pas dessinées"
     );
 

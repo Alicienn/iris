@@ -357,11 +357,15 @@ export component NewFolderPanel inherits Rectangle {
 export component FolderContextMenu inherits Rectangle {
     in property <string> folder;
     in property <bool> permanent;
+    /// Vider a un sens ici : la corbeille et les indésirables, et rien d'autre.
+    in property <bool> emptyable;
     in property <length> menu-x;
     in property <length> menu-y;
 
     callback rename();
     callback remove();
+    callback mark-read();
+    callback empty();
     callback dismissed();
 
     TouchArea {
@@ -393,6 +397,28 @@ export component FolderContextMenu inherits Rectangle {
                     vertical-alignment: center;
                     overflow: elide;
                 }
+            }
+
+            MenuSeparator {}
+
+            // Tout marquer lu, sur n'importe quel dossier — y compris ceux du serveur.
+            //
+            // C'est l'autre moitié du travail après une semaine d'absence : ouvrir deux
+            // cents messages un par un pour éteindre une pastille n'est pas du triage.
+            MenuEntry {
+                icon: Icons.envelope-open;
+                label: "Mark all as read";
+                activated => { root.mark-read(); root.dismissed(); }
+            }
+
+            // Vider, seulement là où cela veut dire quelque chose. « Vider la boîte de
+            // réception » n'est pas une commande, c'est un accident : la corbeille et
+            // les indésirables sont les deux endroits dont le contenu est déjà décidé.
+            if root.emptyable: MenuEntry {
+                icon: Icons.trash;
+                label: "Empty this folder…";
+                danger: true;
+                activated => { root.empty(); root.dismissed(); }
             }
 
             MenuSeparator {}

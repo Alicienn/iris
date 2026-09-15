@@ -345,6 +345,42 @@ mod windows_impl {
 
 pub use windows_impl::{register_mailto, set_start_at_login, status, unregister_mailto, Registration};
 
+/// Ouvre un fichier avec l'application que le système lui associe.
+///
+/// Enregistrer une pièce jointe puis aller la chercher dans l'explorateur fait trois
+/// gestes là où tout autre client en demande un. Ce qui est ouvert est un fichier que
+/// nous venons d'écrire nous-mêmes, à un chemin que nous avons choisi — jamais une
+/// adresse ni une commande venue du message.
+///
+/// C'est le système qui décide avec quoi : Iris ne connaît aucun format et n'a pas à
+/// deviner. Un `.exe` reçu en pièce jointe est ouvert comme le ferait un double-clic
+/// dans l'explorateur, avec les mêmes garde-fous — SmartScreen, la marque de
+/// provenance — et c'est le bon endroit pour cette décision, parce qu'elle est déjà
+/// prise là par quelqu'un dont c'est le métier.
+pub fn open_path(path: &std::path::Path) -> iris_types::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Par l'explorateur plutôt que par `cmd /c start` : ce dernier passe le chemin
+        // à un interpréteur de commandes, où une esperluette dans un nom de fichier
+        // devient un séparateur d'instructions.
+        const SANS_FENETRE: u32 = 0x0800_0000;
+        std::process::Command::new("explorer.exe")
+            .arg(path)
+            .creation_flags(SANS_FENETRE)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| iris_types::Error::other(format!("ouverture : {e}")))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err(iris_types::Error::other(
+            "opening files is only wired up on Windows",
+        ))
+    }
+}
+
 /// Ce qu'un `mailto:` demande d'écrire.
 ///
 /// Analysé ici plutôt que dans l'écran de composition, parce que c'est une grammaire

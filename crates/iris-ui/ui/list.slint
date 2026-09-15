@@ -335,6 +335,7 @@ export component ThreadContextMenu inherits Rectangle {
     callback toggle-unread();
     callback toggle-star();
     callback delete-thread();
+    callback view-source();
     callback dismissed();
     /// Un clic droit ailleurs : ferme ici, et rouvre là-bas.
     callback reopen-at(length, length);
@@ -429,6 +430,14 @@ export component ThreadContextMenu inherits Rectangle {
             }
 
             MenuSeparator {}
+
+            // Le message tel qu'il est arrivé. Rarement, et alors rien d'autre ne fait
+            // l'affaire.
+            MenuEntry {
+                icon: Icons.code;
+                label: "View source";
+                activated => { root.view-source(); root.dismissed(); }
+            }
 
             MenuEntry {
                 icon: Icons.trash;

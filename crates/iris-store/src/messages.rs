@@ -342,6 +342,74 @@ impl Store {
         })
     }
 
+    /// Les UID des messages non lus d'un dossier.
+    ///
+    /// Seulement les non lus : marquer lu ce qui l'est déjà enverrait au serveur des
+    /// ordres qui ne changent rien, par lots de cinquante, pour une boîte de mille
+    /// messages dont trois sont neufs.
+    pub fn folder_unread_uids(&self, folder: FolderId) -> Result<Vec<u32>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(&format!(
+                    "SELECT uid FROM messages
+                     WHERE folder_id = ?1 AND (flags & {}) = 0
+                     ORDER BY uid",
+                    Flags::SEEN.0
+                ))
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map(params![folder.get()], |r| {
+                    r.get::<_, i64>(0).map(|u| u as u32)
+                })
+                .map_err(|e| sql_err("uids non lus", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("uids non lus", e))
+        })
+    }
+
+    /// Marque lu tout ce que contient un dossier, localement.
+    ///
+    /// Localement d'abord : la pastille doit s'éteindre au clic, pas à la
+    /// synchronisation suivante. L'ordre part vers le serveur par le journal, comme
+    /// toute autre action.
+    pub fn mark_folder_read(&self, folder: FolderId) -> Result<usize> {
+        self.with_tx(|tx| {
+            let threads: Vec<ThreadId> = {
+                let mut stmt = tx
+                    .prepare_cached(&format!(
+                        "SELECT DISTINCT thread_id FROM messages
+                         WHERE folder_id = ?1 AND (flags & {}) = 0",
+                        Flags::SEEN.0
+                    ))
+                    .map_err(|e| sql_err("préparation", e))?;
+                let rows = stmt
+                    .query_map(params![folder.get()], |r| r.get::<_, i64>(0).map(ThreadId))
+                    .map_err(|e| sql_err("fils du dossier", e))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|e| sql_err("fils du dossier", e))?
+            };
+
+            let n = tx
+                .execute(
+                    &format!(
+                        "UPDATE messages SET flags = flags | {}
+                         WHERE folder_id = ?1 AND (flags & {}) = 0",
+                        Flags::SEEN.0,
+                        Flags::SEEN.0
+                    ),
+                    params![folder.get()],
+                )
+                .map_err(|e| sql_err("marquage du dossier", e))?;
+
+            // Les agrégats du fil portent le compte de non-lus : sans ce recalcul, la
+            // liste continuerait d'afficher en gras des messages qui ne le sont plus.
+            for t in threads {
+                refresh_thread(tx, t)?;
+            }
+            Ok(n)
+        })
+    }
+
     /// Supprime tous les messages d'un dossier.
     ///
     /// Utilisé quand le serveur a changé son `UIDVALIDITY` : les UID connus ne

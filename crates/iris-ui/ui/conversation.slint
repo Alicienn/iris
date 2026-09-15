@@ -229,6 +229,7 @@ export component ConversationView inherits VerticalLayout {
     callback load-images();
     callback reply-all();
     callback save-attachment(int);
+    callback open-attachment(int);
     callback archive();
     callback delete-thread();
     callback toggle-unread();
@@ -534,10 +535,17 @@ export component ConversationView inherits VerticalLayout {
                     border-color: Tokens.border;
                     animate background { duration: Tokens.instant; }
 
+                    // Le clic **ouvre**, et la flèche enregistre.
+                    //
+                    // Neuf fois sur dix on veut seulement regarder le PDF, pas le
+                    // garder — et enregistrer puis retrouver le fichier dans
+                    // l'explorateur faisait trois gestes là où tout autre client en
+                    // demande un. Le geste rare garde son bouton ; le geste courant
+                    // prend la pastille entière.
                     accessible-role: button;
-                    accessible-label: "Save " + piece.name;
+                    accessible-label: "Open " + piece.name;
                     accessible-description: piece.kind + ", " + piece.size;
-                    accessible-action-default => { root.save-attachment(i); }
+                    accessible-action-default => { root.open-attachment(i); }
 
                     HorizontalLayout {
                         padding-left: Tokens.space-2;
@@ -574,19 +582,47 @@ export component ConversationView inherits VerticalLayout {
                             }
                         }
 
-                        // Le geste est l'enregistrement : la flèche n'apparaît qu'au
-                        // survol, pour ne pas répéter sur chaque pastille ce qui ne
-                        // concerne que celle qu'on vise.
-                        if piece-touch.has-hover: Icon {
+                        // Enregistrer, pour qui veut garder le fichier. Déclaré après
+                        // la zone tactile de la pastille dans l'ordre du dessin mais
+                        // **au-dessus** d'elle pour l'événement, puisque le dernier
+                        // frère l'emporte : c'est ce qui permet à un bouton dans un
+                        // bouton de faire autre chose que son parent.
+                        // Toujours présent, rarement visible — la même règle que la
+                        // case à cocher d'une ligne de liste, et pour deux raisons.
+                        // Un `if` le retirerait de l'arbre d'accessibilité, donc du
+                        // clavier et des lecteurs d'écran ; et il ferait sauter la
+                        // largeur de la pastille à chaque passage de souris.
+                        Rectangle {
+                            width: 20px;
+                            height: 20px;
                             y: (parent.height - self.height) / 2;
-                            data: Icons.chevron-down;
-                            size: 13px;
-                            tint: Tokens.text;
+                            border-radius: Tokens.radius-small;
+                            opacity: piece-touch.has-hover || garder.has-hover ? 1.0 : 0.0;
+                            animate opacity { duration: Tokens.instant; }
+                            background: garder.has-hover
+                                ? Tokens.surface-active
+                                : transparent;
+
+                            accessible-role: button;
+                            accessible-label: "Save " + piece.name;
+                            accessible-action-default => { root.save-attachment(i); }
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.chevron-down;
+                                size: 13px;
+                                tint: Tokens.text;
+                            }
+
+                            garder := TouchArea {
+                                clicked => { root.save-attachment(i); }
+                            }
                         }
                     }
 
                     piece-touch := TouchArea {
-                        clicked => { root.save-attachment(i); }
+                        clicked => { root.open-attachment(i); }
                     }
                 }
 

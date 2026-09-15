@@ -2171,6 +2171,116 @@ pub fn wire_attachments(
     });
 }
 
+/// Branche l'affichage du message brut.
+///
+/// Ce que le serveur a livré, en-têtes compris, sans rien interpréter. Ça compte moins
+/// souvent que le reste, et quand ça compte rien d'autre ne fait l'affaire : un message
+/// qui arrive de travers, un expéditeur qui n'est pas celui qu'il prétend, une règle qui
+/// se déclenche quand elle ne devrait pas.
+pub fn wire_source(
+    fenetre: &AppWindow,
+    services: &Services,
+    selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
+) {
+    let services = services.clone();
+    let faible = fenetre.as_weak();
+
+    fenetre.on_view_source(move || {
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        let Some(thread) = *selection.lock().expect("sélection empoisonnée") else {
+            return;
+        };
+
+        let messages = services.store.thread_messages(thread).unwrap_or_default();
+        let Some(message) = messages.last() else {
+            return;
+        };
+
+        fenetre.set_source_subject(message.subject.as_str().into());
+
+        let brut = message
+            .body_blob
+            .as_deref()
+            .and_then(iris_types::BlobId::from_hex)
+            .and_then(|id| services.blobs.get(id).ok().flatten());
+
+        match brut {
+            Some(octets) => {
+                // Le message est de l'ASCII étendu au mieux : les en-têtes sont encodés
+                // en pur ASCII par le protocole, et le corps porte ce que l'expéditeur a
+                // choisi. `from_utf8_lossy` rend donc le texte lisible sans jamais
+                // échouer, ce qui est exactement ce qu'on veut d'un écran de diagnostic.
+                let texte = String::from_utf8_lossy(&octets);
+                // Borné : un message avec une pièce jointe de dix mégaoctets est dix
+                // mégaoctets de base64, que personne ne lit et qu'aucun champ de saisie
+                // ne devrait avoir à disposer.
+                const MAX: usize = 256 * 1024;
+                let coupe = if texte.len() > MAX {
+                    let mut t = texte.chars().take(MAX).collect::<String>();
+                    t.push_str("\n\n[…] truncated — the rest is attachment data.\n");
+                    t
+                } else {
+                    texte.into_owned()
+                };
+                fenetre.set_source_text(coupe.into());
+                fenetre.set_source_unavailable(false);
+            }
+            None => {
+                fenetre.set_source_text(Default::default());
+                fenetre.set_source_unavailable(true);
+            }
+        }
+
+        fenetre.set_source_open(true);
+    });
+}
+
+/// Ouvre une pièce jointe avec l'application que le système lui associe.
+///
+/// Enregistrer puis retrouver le fichier dans l'explorateur fait trois gestes là où tout
+/// autre client en demande un — et neuf fois sur dix on veut seulement regarder le PDF,
+/// pas le garder.
+///
+/// Il est tout de même écrit sur disque, dans les téléchargements et non dans un dossier
+/// temporaire : ouvrir depuis un emplacement que le système peut nettoyer sous
+/// l'application donne un fichier qui disparaît pendant qu'on le lit, et personne ne
+/// comprend pourquoi.
+pub fn wire_attachment_open(
+    fenetre: &AppWindow,
+    services: &Services,
+    selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
+) {
+    let services = services.clone();
+    let faible = fenetre.as_weak();
+    fenetre.on_open_attachment(move |rang| {
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        let Some(thread) = *selection.lock().expect("sélection empoisonnée") else {
+            return;
+        };
+
+        let resultat = enregistrer_piece(&services, thread, rang as usize)
+            .and_then(|chemin| crate::platform::open_path(&chemin).map(|()| chemin));
+
+        match resultat {
+            Ok(chemin) => fenetre.set_status(
+                format!(
+                    "Opened {} — the copy is in your downloads.",
+                    chemin
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                )
+                .into(),
+            ),
+            Err(e) => fenetre.set_status(format!("Could not open it: {e}").into()),
+        }
+    });
+}
+
 /// Écrit une pièce jointe sur le disque et rend son chemin.
 fn enregistrer_piece(
     services: &Services,
@@ -2544,8 +2654,17 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             let permanent = chemin.starts_with("role:");
             let nom = crate::folders::scope_name(&scope_depuis(chemin.as_str()));
 
+            // La clé brute voyage à côté du nom affiché : « Spam » ne suffit pas à
+            // retrouver un rôle, et deux dossiers peuvent porter le même nom court.
+            let portee = scope_depuis(chemin.as_str());
             fenetre.set_folder_menu_path(nom.as_str().into());
+            fenetre.set_folder_menu_key(chemin.clone());
             fenetre.set_folder_menu_permanent(permanent);
+            fenetre.set_folder_menu_emptyable(matches!(
+                portee,
+                iris_store::Scope::Role(iris_store::FolderRole::Trash)
+                    | iris_store::Scope::Role(iris_store::FolderRole::Junk)
+            ));
             fenetre.set_folder_menu_open(true);
             let _ = &services;
         });
@@ -2635,6 +2754,70 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                     refresh_folders(&fenetre, &services);
                 }
                 Err(e) => fenetre.set_status(format!("Could not remove it: {e}").into()),
+            }
+        });
+    }
+
+    // --- Tout marquer lu, vider ---
+    //
+    // Les deux gestes en gros que tout client de courrier a et qu'Iris n'avait pas. La
+    // corbeille de cette boîte affichait huit cent soixante-cinq.
+    {
+        let services = services.clone();
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_mark_read_requested(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_folder_menu_open(false);
+            let portee = scope_depuis(fenetre.get_folder_menu_key().as_str());
+
+            match crate::folders::mark_read_everywhere(&services.store, &portee, now()) {
+                Ok(0) => fenetre.set_status("Nothing unread there.".into()),
+                Ok(n) => {
+                    controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
+                        full_refresh: true,
+                        ..Default::default()
+                    })));
+                    fenetre.set_status(
+                        format!("{} marked as read.", iris_ui::format::plural(n as u64, "message"))
+                            .into(),
+                    );
+                    refresh_folders(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_status(format!("Could not do it: {e}").into()),
+            }
+        });
+    }
+    {
+        let services = services.clone();
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_empty_requested(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_folder_menu_open(false);
+            let portee = scope_depuis(fenetre.get_folder_menu_key().as_str());
+
+            match crate::folders::empty_everywhere(&services.store, &portee, now()) {
+                Ok(0) => fenetre.set_status("It is already empty.".into()),
+                Ok(n) => {
+                    controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
+                        full_refresh: true,
+                        ..Default::default()
+                    })));
+                    fenetre.set_status(
+                        format!(
+                            "{} deleted for good.",
+                            iris_ui::format::plural(n as u64, "message")
+                        )
+                        .into(),
+                    );
+                    refresh_folders(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_status(format!("Could not empty it: {e}").into()),
             }
         });
     }

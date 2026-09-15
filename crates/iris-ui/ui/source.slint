@@ -1,0 +1,96 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import { TextEdit } from "std-widgets.slint";
+
+// Le message tel qu'il est arrivé.
+//
+// En-têtes compris, sans rien interpréter. Ça compte moins souvent que le reste, et
+// quand ça compte rien d'autre ne fait l'affaire : un message qui arrive de travers, un
+// expéditeur qui n'est pas celui qu'il prétend, une règle qui se déclenche quand elle ne
+// devrait pas. Thunderbird a Ctrl+U, les autres l'enterrent dans un menu.
+export component SourcePanel inherits Rectangle {
+    in property <string> subject;
+    in property <string> source;
+    /// Le message n'a pas encore été téléchargé, ou plus rien n'en reste.
+    in property <bool> unavailable;
+
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(860px, parent.width - 60px);
+        height: min(700px, parent.height - 60px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-2;
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                height: 28px;
+                spacing: Tokens.space-2;
+
+                Text {
+                    text: "Source";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.subject;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Rectangle {}
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.window-close;
+                    label: "Close";
+                    shortcut: "Esc";
+                    button-size: 24px;
+                    icon-size: 13px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            if root.unavailable: VerticalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+                Text {
+                    text: "This message has not been downloaded yet.";
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                }
+            }
+
+            // Un champ de saisie plutôt qu'un texte : c'est ce qui permet de
+            // sélectionner et de copier une ligne d'en-tête, qui est tout ce qu'on vient
+            // faire ici. En lecture seule, parce qu'un message reçu ne se modifie pas.
+            if !root.unavailable: TextEdit {
+                vertical-stretch: 1;
+                accessible-label: "Message source";
+                read-only: true;
+                font-size: Tokens.size-small;
+                wrap: no-wrap;
+                text: root.source;
+            }
+        }
+    }
+}

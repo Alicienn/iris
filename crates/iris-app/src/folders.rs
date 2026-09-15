@@ -20,7 +20,7 @@
 //! eux contredirait l'invariant n° 3. L'arborescence montre le dossier tout de suite ;
 //! les serveurs l'apprennent ensuite.
 
-use iris_store::{Store, UnifiedFolder};
+use iris_store::{Scope, Store, UnifiedFolder};
 use iris_sync::OpPayload;
 use iris_types::{Error, Result, Timestamp};
 
@@ -273,6 +273,110 @@ pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) 
 /// Un rôle ne se supprime pas : la corbeille, les indésirables et la boîte de réception
 /// appartiennent au serveur, et les retirer d'ici les ferait revenir à la
 /// synchronisation suivante en donnant l'impression que la suppression a échoué.
+/// Marque lu tout ce que contient un dossier, sur toutes les boîtes qui l'ont.
+///
+/// L'autre moitié du travail après une semaine d'absence : ouvrir deux cents messages
+/// un par un pour éteindre une pastille n'est pas du triage, et tout client de courrier
+/// sait le faire depuis toujours.
+///
+/// Comme le reste, par le journal : le drapeau est posé localement et l'ordre part vers
+/// le serveur, en un lot par cinquante plutôt qu'un par message.
+pub fn mark_read_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Result<usize> {
+    let mut touches = 0usize;
+
+    for compte in store.accounts()? {
+        for dossier in store.folders(compte.id)? {
+            if !concerne(scope, &dossier) {
+                continue;
+            }
+
+            let non_lus = store.folder_unread_uids(dossier.id)?;
+            if non_lus.is_empty() {
+                continue;
+            }
+
+            // Localement d'abord : la pastille doit s'éteindre au clic, pas à la
+            // synchronisation suivante.
+            store.mark_folder_read(dossier.id)?;
+
+            for lot in non_lus.chunks(50) {
+                let charge = iris_store::OpPayload::SetFlags {
+                    folder: dossier.path.clone(),
+                    uids: lot.to_vec(),
+                    flags: iris_types::Flags::SEEN.0,
+                    add: true,
+                };
+                iris_sync::enqueue(store, compte.id, &charge, now)?;
+            }
+            touches += non_lus.len();
+        }
+    }
+
+    Ok(touches)
+}
+
+/// Jette tout ce que contient un dossier, sur toutes les boîtes qui l'ont.
+///
+/// Seulement la corbeille et les indésirables. « Vider la boîte de réception » n'est pas
+/// une commande, c'est un accident : ces deux dossiers-là sont les seuls dont le contenu
+/// a déjà été décidé, et vider ailleurs supprimerait du courrier que personne n'a jugé.
+pub fn empty_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Result<usize> {
+    if !videable(scope) {
+        return Err(Error::Config(
+            "only the bin and the junk folder can be emptied".into(),
+        ));
+    }
+
+    let mut jetes = 0usize;
+
+    for compte in store.accounts()? {
+        for dossier in store.folders(compte.id)? {
+            if !concerne(scope, &dossier) {
+                continue;
+            }
+
+            let uids = store.folder_uids(dossier.id)?;
+            if uids.is_empty() {
+                continue;
+            }
+
+            for lot in uids.chunks(50) {
+                let charge = iris_store::OpPayload::Delete {
+                    folder: dossier.path.clone(),
+                    uids: lot.to_vec(),
+                };
+                iris_sync::enqueue(store, compte.id, &charge, now)?;
+            }
+
+            // Localement tout de suite, comme pour la suppression d'un dossier : la
+            // corbeille doit se vider sous les yeux, pas à la prochaine passe.
+            store.clear_folder(dossier.id)?;
+            jetes += uids.len();
+        }
+    }
+
+    Ok(jetes)
+}
+
+/// Le dossier est-il celui que la portée désigne ?
+fn concerne(scope: &Scope, dossier: &iris_store::Folder) -> bool {
+    match scope {
+        Scope::Role(role) => dossier.role == *role,
+        Scope::Path(chemin) => dossier.path == *chemin,
+        // « Toutes les files » ne désigne aucun dossier, et un geste qui viderait tout
+        // parce qu'on n'a rien choisi serait le pire de cet écran.
+        Scope::Queue => false,
+    }
+}
+
+/// Vider n'a de sens que là où le contenu est déjà jugé.
+fn videable(scope: &Scope) -> bool {
+    matches!(
+        scope,
+        Scope::Role(iris_store::FolderRole::Trash) | Scope::Role(iris_store::FolderRole::Junk)
+    )
+}
+
 pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<usize> {
     let comptes = store.accounts_with_folder(path)?;
 
