@@ -8,6 +8,7 @@
 pub mod accounts;
 pub mod catalogue;
 pub mod controller;
+pub mod draft;
 pub mod modules;
 pub mod folders;
 pub mod logging;

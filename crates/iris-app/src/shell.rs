@@ -1372,6 +1372,43 @@ pub fn wire_reply(
         });
     }
 
+    // Transférer : l'éditeur ordinaire, prérempli.
+    //
+    // Il n'y avait aucun moyen de faire suivre un message — répondre, et rien d'autre.
+    // Passer par l'éditeur plutôt que par un chemin à part donne au transfert tout ce
+    // que l'éditeur sait déjà faire : les copies, les pièces jointes, un mot avant la
+    // citation, le délai d'annulation.
+    {
+        let send = Arc::clone(&send);
+        let selection = Arc::clone(&selection);
+        let faible = fenetre.as_weak();
+
+        fenetre.on_forward_thread(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(thread) = *selection.lock().expect("sélection") else {
+                return;
+            };
+
+            match send.forward_prefill(thread) {
+                Ok((sujet, corps)) => {
+                    // Le destinataire reste vide, et le curseur y va : c'est la seule
+                    // chose qu'un transfert ne peut pas deviner.
+                    fenetre.set_compose_to(Default::default());
+                    fenetre.set_compose_cc(Default::default());
+                    fenetre.set_compose_bcc(Default::default());
+                    fenetre.set_compose_subject(sujet.into());
+                    fenetre.set_compose_body(corps.into());
+                    fenetre.set_compose_error(Default::default());
+                    fenetre.set_compose_minimised(false);
+                    fenetre.set_compose_open(true);
+                }
+                Err(e) => fenetre.set_status(format!("Cannot forward: {e}").into()),
+            }
+        });
+    }
+
     // « Reply all », qui n'était relié à rien.
     //
     // Le bouton était déclaré dans l'interface, transmis depuis la vue de conversation
@@ -3392,6 +3429,51 @@ pub fn wire_compose(
         });
     }
 
+    // --- Le brouillon, gardé sur disque ---
+    //
+    // Le texte vivait dans les propriétés de l'interface : il réapparaissait tant que
+    // l'application tournait et disparaissait avec elle. Quelqu'un qui ferme l'éditeur
+    // pour vérifier une adresse, puis quitte, avait perdu son message — sans
+    // avertissement, parce que rien ne savait qu'il y en avait un.
+    let chemin_brouillon = services.paths.draft();
+
+    // Ce qui restait de la dernière fois, remis en place au démarrage.
+    if let Some(garde) = crate::draft::Draft::load(&chemin_brouillon) {
+        fenetre.set_compose_to(garde.to.into());
+        fenetre.set_compose_cc(garde.cc.into());
+        fenetre.set_compose_bcc(garde.bcc.into());
+        fenetre.set_compose_subject(garde.subject.into());
+        fenetre.set_compose_body(garde.body.into());
+        // Les copies s'affichent d'elles-mêmes si elles portent quelque chose : les
+        // replier cacherait un destinataire que l'utilisateur a saisi.
+        fenetre.set_compose_show_cc(
+            !fenetre.get_compose_cc().is_empty() || !fenetre.get_compose_bcc().is_empty(),
+        );
+        fenetre.set_status("An unsent message was restored — see New message.".into());
+    }
+
+    {
+        let chemin = chemin_brouillon.clone();
+        let pieces = Arc::clone(&pieces);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_dismissed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let garde = crate::draft::Draft {
+                to: fenetre.get_compose_to().to_string(),
+                cc: fenetre.get_compose_cc().to_string(),
+                bcc: fenetre.get_compose_bcc().to_string(),
+                subject: fenetre.get_compose_subject().to_string(),
+                body: fenetre.get_compose_body().to_string(),
+                lost_attachments: pieces.lock().expect("poisoned attachments").len() as u32,
+            };
+            if let Err(e) = garde.save(&chemin) {
+                tracing::warn!(error = %e, "saving the draft");
+            }
+        });
+    }
+
     // --- Les correspondants déjà rencontrés ---
     //
     // La table qui les garde existait depuis la première migration et n'avait jamais
@@ -3500,6 +3582,7 @@ pub fn wire_compose(
         let pending = Arc::clone(&pending);
         let pieces = Arc::clone(&pieces);
         let identites = Arc::clone(&identites);
+        let chemin_envoi = chemin_brouillon.clone();
         let faible = fenetre.as_weak();
 
         fenetre.on_compose_send(move || {
@@ -3539,6 +3622,12 @@ pub fn wire_compose(
                     fenetre.set_compose_error(Default::default());
                     fenetre.set_compose_sending(true);
                     fenetre.set_compose_undo_seconds(send.status().delay_secs as i32);
+                    // Le message est parti — ou part dans dix secondes. Le garder en
+                    // brouillon le ferait revenir à la prochaine ouverture, à côté de
+                    // sa propre copie dans les messages envoyés.
+                    if let Err(e) = crate::draft::Draft::clear(&chemin_envoi) {
+                        tracing::warn!(error = %e, "clearing the draft");
+                    }
                 }
                 Err(e) => fenetre.set_compose_error(format!("Send refused: {e}").into()),
             }

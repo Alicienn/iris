@@ -403,6 +403,7 @@ export component AppWindow inherits Window {
     callback thread-toggle-unread();
     callback thread-toggle-star();
     callback thread-snooze();
+    callback forward-thread();
     callback thread-done();
     callback account-selected(int);
     callback resume-account(int);
@@ -517,6 +518,7 @@ export component AppWindow inherits Window {
     callback compose-attach-image();
     callback compose-remove-attachment(int);
     callback compose-format(string);
+    callback compose-dismissed();
     in property <[string]> compose-suggestions;
     callback compose-recipient-typed(string, string);
     callback compose-recipient-picked(string, string);
@@ -754,6 +756,7 @@ export component AppWindow inherits Window {
                     toggle-unread => { root.thread-toggle-unread(); }
                     toggle-star => { root.thread-toggle-star(); }
                     snooze => { root.thread-snooze(); }
+                    forward-thread => { root.forward-thread(); }
                     mark-done => { root.thread-done(); }
                     reply-text <=> root.reply-text;
                     sending: root.sending;
@@ -908,7 +911,7 @@ export component AppWindow inherits Window {
         suggestions: root.compose-suggestions;
         recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
         recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
-        dismissed => { root.compose-open = false; }
+        dismissed => { root.compose-dismissed(); root.compose-open = false; }
     }
 
     if root.modules-open: ModulesPanel {

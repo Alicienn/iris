@@ -186,6 +186,52 @@ impl SendService {
         Ok(reponse)
     }
 
+    /// De quoi préremplir l'éditeur pour transférer un fil : le sujet et la citation.
+    ///
+    /// Transférer passe par l'éditeur ordinaire plutôt que par un chemin à lui. Un
+    /// transfert a besoin exactement de ce que l'éditeur sait déjà faire — choisir un
+    /// destinataire, en mettre en copie, joindre un fichier, écrire un mot avant la
+    /// citation — et un second chemin d'envoi serait un second endroit où les erreurs
+    /// se corrigent une fois sur deux.
+    ///
+    /// Rend `(sujet, corps)`. Les destinataires restent vides : c'est la seule chose
+    /// qu'un transfert ne peut pas deviner, et la seule qu'il faut donc demander.
+    pub fn forward_prefill(&self, thread: ThreadId) -> Result<(String, String)> {
+        let messages = self.engine.store().thread_messages(thread)?;
+        let dernier = messages
+            .last()
+            .ok_or_else(|| Error::store(format!("fil {thread} vide")))?;
+
+        let compte = self
+            .engine
+            .store()
+            .account(dernier.account)?
+            .ok_or_else(|| Error::store("compte du fil introuvable"))?;
+
+        let cible = ReplyTarget {
+            message_id: dernier.rfc_message_id.clone().map(RfcMessageId),
+            references: self.reference_chain(dernier),
+            subject: dernier.subject.clone(),
+            from: vec![Address {
+                name: none_if_empty(&dernier.from_name),
+                addr: dernier.from_addr.clone(),
+            }],
+            to: vec![],
+            cc: vec![],
+            reply_to: vec![],
+            date: dernier.received,
+            text_body: self.original_body(dernier),
+        };
+
+        let identite = Address {
+            name: none_if_empty(&compte.display_name),
+            addr: compte.email.clone(),
+        };
+
+        let transfert = iris_smtp::forward(&cible, &identite, vec![]);
+        Ok((transfert.subject, transfert.text_body))
+    }
+
     /// Met une réponse en file. Elle partira après le délai d'annulation.
     pub fn queue(&self, message: Outgoing) -> Result<SendHandle> {
         message.validate().map_err(Error::Config)?;

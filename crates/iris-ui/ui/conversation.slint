@@ -209,6 +209,7 @@ export component ConversationView inherits VerticalLayout {
     callback toggle-unread();
     callback toggle-star();
     callback snooze();
+    callback forward-thread();
     callback mark-done();
     callback toggle-message(int);
 
@@ -290,6 +291,18 @@ export component ConversationView inherits VerticalLayout {
                 label: "Snooze until tomorrow";
                 shortcut: "S";
                 clicked => { root.snooze(); }
+            }
+
+            // Transférer, qui n'existait nulle part.
+            //
+            // On pouvait répondre et rien d'autre : faire suivre un message à quelqu'un
+            // demandait de le recopier à la main. Le bouton ouvre l'éditeur ordinaire,
+            // sujet et citation déjà remplis, destinataire vide — c'est la seule chose
+            // qu'un transfert ne peut pas deviner.
+            IconButton {
+                icon: Icons.forward;
+                label: "Forward";
+                clicked => { root.forward-thread(); }
             }
 
             Rectangle { width: Tokens.space-2; }

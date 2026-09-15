@@ -88,6 +88,13 @@ impl Paths {
     pub fn settings(&self) -> PathBuf {
         self.config.join("iris.toml")
     }
+
+    /// Le message en cours d'écriture, s'il y en a un.
+    ///
+    /// Dans les données et non dans le cache : un brouillon n'est pas reconstructible.
+    pub fn draft(&self) -> PathBuf {
+        self.data.join("draft.json")
+    }
 }
 
 #[cfg(test)]
