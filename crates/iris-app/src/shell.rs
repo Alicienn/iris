@@ -462,6 +462,64 @@ pub fn wire_callbacks(
         });
     }
 
+    // Les mêmes actions, sur le fil que le menu contextuel a visé.
+    //
+    // `ApplyTo` et non `Apply` : la sélection ne bouge pas. C'est toute la différence,
+    // et c'est ce qui permet au clic droit de ne plus ouvrir le message pour pouvoir
+    // proposer de le jeter.
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_menu_archive(move |id| {
+            c.send(Request::ApplyTo(fil(id), iris_viewmodel::Action::Archive))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_menu_delete(move |id| {
+            c.send(Request::ApplyTo(fil(id), iris_viewmodel::Action::Delete))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_menu_done(move |id| {
+            c.send(Request::ApplyTo(fil(id), iris_viewmodel::Action::Done))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_menu_snooze(move |id| {
+            c.send(Request::ApplyTo(
+                fil(id),
+                iris_viewmodel::Action::SnoozeHours(24),
+            ))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_menu_toggle_star(move |id| {
+            c.send(Request::ApplyTo(fil(id), iris_viewmodel::Action::ToggleFlag))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_menu_toggle_unread(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // L'état du fil visé, que la ligne a transmis avec la demande — pas celui
+            // du fil ouvert à la lecture, qui n'est plus le même.
+            c.send(Request::ApplyTo(
+                fil(id),
+                if fenetre.get_context_menu_unread() {
+                    iris_viewmodel::Action::MarkRead
+                } else {
+                    iris_viewmodel::Action::MarkUnread
+                },
+            ));
+        });
+    }
+
     // Annuler et rétablir. Un « Ctrl+Z » classique : il défait la dernière action de
     // triage, et un second l'action d'avant.
     {
@@ -617,15 +675,25 @@ pub fn apply_snapshot(
     let maintenant = now();
     fenetre.set_loading(false);
 
-    // Les adresses des comptes servent à colorer les lignes ; on les résout une fois
-    // par instantané, pas une fois par ligne.
+    // Les adresses des comptes servent à colorer les lignes. Résolues une fois par
+    // instantané et non une fois par ligne — mais **par compte**, ce qui manquait :
+    // c'était l'adresse du premier compte pour toutes les lignes, donc une seule
+    // couleur pour cent boîtes. La pastille n'était pas discrète, elle était fausse,
+    // et un repère qui affirme la même chose partout est pire qu'aucun repère.
     let comptes = services.store.accounts().unwrap_or_default();
+    let adresses: std::collections::HashMap<iris_types::AccountId, String> = comptes
+        .iter()
+        .map(|c| (c.id, c.email.clone()))
+        .collect();
     let adresse_par_defaut = comptes.first().map(|c| c.email.clone()).unwrap_or_default();
 
     let lignes: Vec<_> = snapshot
         .rows
         .iter()
-        .map(|r| bridge::thread_row(r, &adresse_par_defaut, maintenant, snapshot.marked.contains(&r.id)))
+        .map(|r| {
+            let adresse = adresses.get(&r.account).unwrap_or(&adresse_par_defaut);
+            bridge::thread_row(r, adresse, maintenant, snapshot.marked.contains(&r.id))
+        })
         .collect();
 
     // An action that failed says so where the user is looking, and stays there until
@@ -736,6 +804,7 @@ pub fn remplir_conversation(
     maintenant: iris_types::Timestamp,
 ) {
     let Some(dernier) = messages.last() else {
+        conversation_rendue().clear();
         fenetre.set_messages(ModelRc::new(VecModel::from(Vec::<
             iris_ui::MessageData,
         >::new())));
@@ -743,6 +812,31 @@ pub fn remplir_conversation(
     };
 
     let ouverts = expanded_messages();
+
+    // Rien à refaire si rien n'a changé.
+    //
+    // C'est le gel signalé en cochant une case. Un instantané est émis à chaque
+    // requête — cocher, décocher, changer d'onglet — et cette fonction rendait à chaque
+    // fois le corps du message ouvert : mise en page complète et rastérisation, sur le
+    // fil de l'interface. Le journal montre des corps de vingt-neuf mille pixels de
+    // haut ; à ce format, l'opération se compte en secondes, et pendant ce temps la
+    // fenêtre ne répond plus. Cocher une case n'a rien à voir avec le message affiché,
+    // et le payait quand même.
+    //
+    // La signature couvre tout ce qui change le rendu : quels messages, dans quel état,
+    // lesquels sont dépliés et lesquels ont accepté les images distantes. Le reste d'un
+    // instantané — la sélection, les compteurs, les cases cochées — n'y figure pas,
+    // parce que rien de tout cela ne se voit dans la colonne de lecture.
+    let signature = signature_conversation(messages, dernier.id, &ouverts, &images_shown());
+
+    {
+        let mut derniere = conversation_rendue();
+        if *derniere == signature {
+            return;
+        }
+        *derniere = signature;
+    }
+
     let vues: Vec<iris_ui::MessageData> = messages
         .iter()
         .map(|message| {
@@ -805,6 +899,52 @@ fn expanded_messages() -> std::sync::MutexGuard<'static, std::collections::BTree
     static OUVERTS: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<i64>>> =
         std::sync::OnceLock::new();
     OUVERTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Un message tel qu'il a été rendu : son identifiant, ses drapeaux, s'il est déplié,
+/// s'il a le droit d'aller chercher ses images.
+type EtatRendu = (i64, u32, bool, bool);
+
+/// Décrit une conversation par ce qui, en elle, change ce qui est dessiné.
+///
+/// Pure et à part, parce que c'est la seule décision du cache et qu'elle se trompe dans
+/// deux directions opposées. Trop large, elle rend à chaque case cochée et la fenêtre
+/// se fige. Trop étroite, elle laisse à l'écran un message qui a changé — et ce genre
+/// de faute-là ne se voit pas tout de suite.
+fn signature_conversation(
+    messages: &[iris_store::StoredMessage],
+    dernier: iris_types::MessageId,
+    ouverts: &std::collections::BTreeSet<i64>,
+    images: &std::collections::BTreeSet<i64>,
+) -> Vec<EtatRendu> {
+    messages
+        .iter()
+        .map(|m| {
+            (
+                m.id.get(),
+                m.flags.0,
+                // Le dernier est toujours déplié, la même règle qu'au dessin.
+                m.id == dernier || ouverts.contains(&m.id.get()),
+                images.contains(&m.id.get()),
+            )
+        })
+        .collect()
+}
+
+/// Ce que la colonne de lecture montre déjà, décrit assez pour savoir si c'est à
+/// refaire.
+///
+/// Un par message : son identifiant, ses drapeaux, s'il est déplié, et s'il a le droit
+/// d'aller chercher ses images. Ce sont exactement les quatre choses qui changent ce
+/// qui est dessiné. Tout ce qui n'y figure pas — la sélection, les compteurs, le lot
+/// coché — peut varier autant qu'il veut sans qu'un seul pixel de cette colonne bouge.
+fn conversation_rendue() -> std::sync::MutexGuard<'static, Vec<EtatRendu>> {
+    static RENDUE: std::sync::OnceLock<std::sync::Mutex<Vec<EtatRendu>>> =
+        std::sync::OnceLock::new();
+    RENDUE
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2116,6 +2256,14 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
 
 /// Lit ce que l'arborescence a renvoyé.
 ///
+/// L'identifiant de fil que l'interface manipule, en entier de trente-deux bits.
+///
+/// Slint n'a pas d'entier de soixante-quatre bits ; la conversion se fait donc à chaque
+/// frontière, et vaut mieux ici qu'écrite six fois de suite.
+fn fil(id: i32) -> iris_types::ThreadId {
+    iris_types::ThreadId(id as i64)
+}
+
 /// Un rôle arrive préfixé `role:`, un dossier créé arrive par son chemin. Deux espaces
 /// de noms qui ne peuvent pas se marcher dessus : un chemin IMAP ne commence jamais
 /// par `role:`, et un rôle inconnu retombe sur le chemin plutôt que d'être perdu.
@@ -3629,6 +3777,109 @@ pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
 mod tests {
     use super::*;
     use iris_ui::commands::builtin_commands;
+
+    fn message(id: i64, flags: iris_types::Flags) -> iris_store::StoredMessage {
+        iris_store::StoredMessage {
+            id: iris_types::MessageId(id),
+            account: iris_types::AccountId(1),
+            folder: iris_types::FolderId(1),
+            thread: iris_types::ThreadId(1),
+            uid: id as u32,
+            rfc_message_id: None,
+            subject: "Sujet".into(),
+            from_name: "Marie".into(),
+            from_addr: "marie@x.fr".into(),
+            date: iris_types::Timestamp::from_millis(0),
+            received: iris_types::Timestamp::from_millis(0),
+            size: 10,
+            flags,
+            preview: "aperçu".into(),
+            body_blob: None,
+        }
+    }
+
+    #[test]
+    fn cocher_une_case_ne_change_pas_la_signature_de_la_conversation() {
+        // Le gel. Un instantané part à chaque requête, et la colonne de lecture rendait
+        // le corps du message ouvert à chacun d'eux : mise en page et rastérisation, sur
+        // le fil de l'interface, pour des corps que le journal montre à vingt-neuf mille
+        // pixels de haut. Cocher une case n'a rien à voir avec le message affiché.
+        //
+        // Rien de ce que coche ou sélectionne l'utilisateur n'entre ici : c'est
+        // exactement ce que ce test dit, et la raison pour laquelle la signature est
+        // calculée à part.
+        let vide = std::collections::BTreeSet::new();
+        let messages = [message(1, iris_types::Flags::SEEN)];
+        let dernier = iris_types::MessageId(1);
+
+        let avant = signature_conversation(&messages, dernier, &vide, &vide);
+        let apres = signature_conversation(&messages, dernier, &vide, &vide);
+        assert_eq!(avant, apres);
+    }
+
+    #[test]
+    fn ce_qui_se_voit_change_bien_la_signature() {
+        // L'autre direction, et la plus dangereuse : une signature trop étroite laisse
+        // à l'écran un message qui n'est plus celui qu'on montre, et cela ne se voit pas
+        // tout de suite.
+        let vide = std::collections::BTreeSet::new();
+        let dernier = iris_types::MessageId(2);
+        let base = [
+            message(1, iris_types::Flags::SEEN),
+            message(2, iris_types::Flags::SEEN),
+        ];
+        let reference = signature_conversation(&base, dernier, &vide, &vide);
+
+        // Un message de plus.
+        let plus = [
+            message(1, iris_types::Flags::SEEN),
+            message(2, iris_types::Flags::SEEN),
+            message(3, iris_types::Flags::NONE),
+        ];
+        assert_ne!(
+            signature_conversation(&plus, dernier, &vide, &vide),
+            reference
+        );
+
+        // Un drapeau qui change.
+        let relu = [
+            message(1, iris_types::Flags::NONE),
+            message(2, iris_types::Flags::SEEN),
+        ];
+        assert_ne!(
+            signature_conversation(&relu, dernier, &vide, &vide),
+            reference
+        );
+
+        // Un message qu'on déplie.
+        let ouverts = std::collections::BTreeSet::from([1]);
+        assert_ne!(
+            signature_conversation(&base, dernier, &ouverts, &vide),
+            reference
+        );
+
+        // Des images qu'on accepte.
+        let images = std::collections::BTreeSet::from([2]);
+        assert_ne!(
+            signature_conversation(&base, dernier, &vide, &images),
+            reference
+        );
+    }
+
+    #[test]
+    fn le_dernier_message_compte_comme_deplie() {
+        // La signature doit suivre la règle du dessin, sans quoi déplier le dernier
+        // message — qui l'est déjà — invaliderait le cache pour rien.
+        let vide = std::collections::BTreeSet::new();
+        let messages = [message(7, iris_types::Flags::SEEN)];
+        let dernier = iris_types::MessageId(7);
+
+        let deja = std::collections::BTreeSet::from([7]);
+        assert_eq!(
+            signature_conversation(&messages, dernier, &vide, &vide),
+            signature_conversation(&messages, dernier, &deja, &vide)
+        );
+    }
 
     #[test]
     fn chaque_commande_est_traitee_par_le_repartiteur() {

@@ -126,7 +126,13 @@ component ThreadRow inherits Rectangle {
         pointer-event(event) => {
             if (event.button == PointerEventButton.right
                 && event.kind == PointerEventKind.down) {
-                root.clicked();
+                // Plus de `root.clicked()` ici.
+                //
+                // Un clic droit ouvrait le message : il chargeait le corps dans la
+                // colonne de lecture et le marquait lu, pour quelqu'un qui voulait
+                // seulement voir la liste des actions — et qui la voulait peut-être
+                // pour le jeter. Le menu emporte donc sa propre cible, et n'a plus
+                // besoin que la sélection la désigne à sa place.
                 // La position **absolue**, dans la fenêtre.
                 //
                 // C'était « mouse + root.y », où `root.y` est la position de la ligne
@@ -330,13 +336,29 @@ export component ThreadContextMenu inherits Rectangle {
     callback toggle-star();
     callback delete-thread();
     callback dismissed();
+    /// Un clic droit ailleurs : ferme ici, et rouvre là-bas.
+    callback reopen-at(length, length);
 
     // The veil catches the click that closes the menu. Without it the menu stays up
     // until something else happens to take the focus.
+    //
+    // Il avale aussi le clic droit, et c'est ce qui rendait le menu si pénible à
+    // déplacer : viser une autre ligne demandait de fermer d'abord, dans le vide, puis
+    // de recliquer. Le voile ne peut pas laisser passer l'événement — rien ne le peut
+    // dans Slint — alors il transmet le point, et la liste retrouve la ligne.
     TouchArea {
         width: 100%;
         height: 100%;
         clicked => { root.dismissed(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right
+                && event.kind == PointerEventKind.down) {
+                root.dismissed();
+                root.reopen-at(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
     }
 
     MenuSurface {
@@ -442,7 +464,14 @@ export component BulkBar inherits Rectangle {
 
         Rectangle { width: Tokens.space-1; }
 
+        // `y` explicite sur chacun.
+        //
+        // Un `IconButton` fait vingt-deux pixels de haut dans une barre qui en fait
+        // trente : dans une disposition horizontale, un enfant de hauteur fixe se pose
+        // en haut de sa case. Les cinq icônes flottaient donc quatre pixels au-dessus
+        // de leur ligne, pendant que le texte « 2 selected », lui, se centrait.
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.check;
             label: "Mark as done";
             shortcut: "E";
@@ -451,6 +480,7 @@ export component BulkBar inherits Rectangle {
             clicked => { root.mark-done(); }
         }
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.archive;
             label: "Archive";
             shortcut: "A";
@@ -459,6 +489,7 @@ export component BulkBar inherits Rectangle {
             clicked => { root.archive(); }
         }
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.envelope-open;
             label: "Mark as read";
             button-size: 24px;
@@ -466,6 +497,7 @@ export component BulkBar inherits Rectangle {
             clicked => { root.mark-read(); }
         }
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.envelope-closed;
             label: "Mark as unread";
             button-size: 24px;
@@ -473,6 +505,7 @@ export component BulkBar inherits Rectangle {
             clicked => { root.mark-unread(); }
         }
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.trash;
             label: "Delete";
             button-size: 24px;
@@ -483,15 +516,44 @@ export component BulkBar inherits Rectangle {
 
         Rectangle {}
 
-        IconButton {
-            icon: Icons.list;
-            label: "Select everything loaded";
-            shortcut: "Ctrl+A";
-            button-size: 24px;
-            icon-size: 14px;
-            clicked => { root.select-all(); }
+        // « Select all » en toutes lettres.
+        //
+        // C'était une icône de liste, et personne ne l'a reconnue — la demande d'un
+        // bouton « tout sélectionner » est arrivée alors qu'il était déjà là. Aucun
+        // dessin ne dit « tout », et les six voisins sont des verbes qu'une icône sait
+        // porter : cocher, archiver, jeter. Celui-ci a besoin d'un mot.
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: tout.preferred-width + 2 * Tokens.space-2;
+            height: 24px;
+            border-radius: Tokens.radius-small;
+            background: tout-touch.has-hover ? Tokens.surface-hover : transparent;
+            animate background { duration: Tokens.instant; }
+
+            accessible-role: button;
+            accessible-label: "Select everything loaded";
+            accessible-description: "Ctrl+A";
+            accessible-action-default => { root.select-all(); }
+
+            tout := Text {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                text: "Select all";
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+            }
+
+            tout-touch := TouchArea {
+                clicked => { root.select-all(); }
+            }
+
+            Tooltip {
+                text: @markdown("Select everything loaded  Ctrl+A");
+            }
         }
+
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.window-close;
             label: "Clear the selection";
             shortcut: "Esc";
@@ -707,7 +769,12 @@ export component ThreadListView inherits VerticalLayout {
     callback search-submitted(string);
     callback search-cleared();
     callback folder-left();
-    callback row-context-menu(int, length, length);
+    /// Le fil, la position, et son état — lu et épinglé.
+    ///
+    /// L'état voyage avec la demande parce que le menu ne sélectionne plus rien : il
+    /// écrivait « Mark as read » d'après le fil ouvert dans la colonne de lecture, qui
+    /// n'est plus celui sur lequel on vient de cliquer. La ligne, elle, le sait.
+    callback row-context-menu(int, length, length, bool, bool);
     callback row-mark-toggled(int);
     callback row-mark-extended(int);
     callback row-drag-started(int);
@@ -721,6 +788,37 @@ export component ThreadListView inherits VerticalLayout {
 
     public function focus-search() {
         bar.focus-field();
+    }
+
+    /// Rouvre le menu contextuel sur la ligne qui se trouve à ce point de la fenêtre.
+    ///
+    /// Le voile qui ferme le menu couvre toute la fenêtre, donc un clic droit sur une
+    /// autre ligne n'atteignait jamais cette ligne : il fallait cliquer dans le vide
+    /// pour fermer, puis recliquer sur la ligne voulue. Trois gestes pour en faire un.
+    ///
+    /// Le voile renvoie donc le point ici, et la liste retrouve la ligne elle-même. Le
+    /// calcul est exact plutôt qu'approché parce que toutes les lignes ont la même
+    /// hauteur, fixée par le même jeton que celui qu'elles emploient : il n'y a pas
+    /// d'estimation, seulement une division.
+    ///
+    /// Hors de la liste, ou au-delà de la dernière ligne, rien ne se passe — le menu
+    /// s'est fermé et c'est tout ce qui était demandé. Ouvrir un menu sur la mauvaise
+    /// ligne serait bien pire que de n'en ouvrir aucun : « Delete » y est.
+    public function reopen-context-menu-at(px: length, py: length) {
+        if (root.rows.length == 0) {
+            return;
+        }
+        // Position du point dans le contenu défilé de la liste.
+        let dans-liste = py - list.absolute-position.y + (-list.viewport-y);
+        if (px < list.absolute-position.x
+            || px > list.absolute-position.x + list.width
+            || dans-liste < 0
+            || dans-liste >= root.rows.length * Tokens.row-height) {
+            return;
+        }
+        let index = floor(dans-liste / Tokens.row-height);
+        let ligne = root.rows[index];
+        root.row-context-menu(ligne.id, px, py, ligne.unread, ligne.flagged);
     }
 
     bar := SearchBar {
@@ -840,9 +938,18 @@ export component ThreadListView inherits VerticalLayout {
         background: Tokens.border;
     }
 
-    if root.rows.length == 0 && !root.loading: Rectangle {
+    // La liste et son message de vide partagent une même case, au lieu d'être deux
+    // frères qui s'étirent chacun de leur côté.
+    //
+    // Ils étaient deux blocs conditionnels, ce qui enfermait la vue de liste dans une
+    // portée où plus rien ne pouvait la nommer — et la fonction qui retrouve une ligne
+    // sous un point a besoin de sa position et de son défilement. La liste existe donc
+    // toujours ; quand il n'y a rien dedans, elle ne dessine rien et le message passe
+    // au travers.
+    Rectangle {
         vertical-stretch: 1;
-        VerticalLayout {
+
+        if root.rows.length == 0 && !root.loading: VerticalLayout {
             alignment: center;
             Text {
                 text: root.searching
@@ -855,10 +962,8 @@ export component ThreadListView inherits VerticalLayout {
                 horizontal-alignment: center;
             }
         }
-    }
 
-    if root.rows.length > 0: list := ListView {
-        vertical-stretch: 1;
+    list := ListView {
         for entry in root.rows: ThreadRow {
             data: entry;
             selected: entry.id == root.selected-id;
@@ -866,7 +971,9 @@ export component ThreadListView inherits VerticalLayout {
             payload: root.drag-payload;
             clicked => { root.row-clicked(entry.id); }
             drag-started => { root.row-drag-started(entry.id); }
-            context-menu(x, y) => { root.row-context-menu(entry.id, x, y); }
+            context-menu(x, y) => {
+                root.row-context-menu(entry.id, x, y, entry.unread, entry.flagged);
+            }
             mark-toggled => { root.row-mark-toggled(entry.id); }
             mark-extended => { root.row-mark-extended(entry.id); }
         }
@@ -878,5 +985,7 @@ export component ThreadListView inherits VerticalLayout {
                 root.scrolled-near-end();
             }
         }
+    }
+
     }
 }

@@ -15,7 +15,8 @@ use std::collections::BTreeMap;
 const SPAM_BIT: u32 = 1 << 9;
 
 const THREAD_COLUMNS: &str = "id, state, last_activity_at, last_from_name, last_from_addr, \
-     last_subject, last_preview, message_count, unread_count, flags_union, snooze_until";
+     last_subject, last_preview, message_count, unread_count, flags_union, snooze_until, \
+     last_account_id";
 
 /// Ajoute à la requête ce que la portée demandée impose.
 ///
@@ -132,6 +133,7 @@ fn row_from_sql(r: &Row<'_>) -> rusqlite::Result<ThreadRow> {
         unread_count: r.get::<_, i64>(8)? as u32,
         flags_union: Flags(r.get::<_, i64>(9)? as u32),
         snoozed_until: r.get::<_, Option<i64>>(10)?.map(Timestamp::from_millis),
+        account: AccountId(r.get(11)?),
     })
 }
 
@@ -642,6 +644,58 @@ mod tests {
                 .unwrap()
                 .thread
         }
+    }
+
+    #[test]
+    fn chaque_ligne_porte_son_propre_compte() {
+        // La pastille de couleur de la liste vient de là. L'interface la calculait à
+        // partir de l'adresse du **premier** compte pour toutes les lignes : cent
+        // boîtes, une seule couleur, et un repère qui affirmait quelque chose de faux
+        // au lieu de ne rien dire. Le fil doit donc porter son compte, et ce test est
+        // ce qui l'y oblige.
+        let f = fixture();
+        let autre = f
+            .store
+            .create_account(
+                &NewAccount::new("b@y.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
+            .unwrap();
+        let autre_dossier = f
+            .store
+            .upsert_folder(autre, "INBOX", FolderRole::Inbox)
+            .unwrap();
+
+        f.thread_at(1000, "Depuis A");
+        f.store
+            .insert_message(&NewMessage {
+                account: autre,
+                folder: autre_dossier,
+                uid: 900,
+                rfc_message_id: Some("autre@x".into()),
+                in_reply_to: None,
+                references: vec![],
+                subject: "Depuis B".into(),
+                from_name: "Depuis B".into(),
+                from_addr: "exp@example.com".into(),
+                recipients_json: "[]".into(),
+                date: Timestamp::from_millis(2000),
+                received: Timestamp::from_millis(2000),
+                size: 10,
+                flags: Flags::NONE,
+                preview: "aperçu".into(),
+            })
+            .unwrap();
+
+        let page = f
+            .store
+            .list_threads(&ListQuery::new(WorkflowState::Todo, 10))
+            .unwrap();
+        let comptes: Vec<_> = page
+            .iter()
+            .map(|r| (r.from_display.as_str(), r.account))
+            .collect();
+        assert_eq!(comptes, [("Depuis B", autre), ("Depuis A", f.account)]);
     }
 
     #[test]

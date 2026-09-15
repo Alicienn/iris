@@ -355,6 +355,7 @@ mod tests {
             unread_count: 1,
             flags_union: Flags::HAS_ATTACHMENT | Flags::FLAGGED,
             snoozed_until: None,
+            account: iris_types::AccountId(1),
         }
     }
 

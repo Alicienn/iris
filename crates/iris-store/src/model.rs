@@ -180,6 +180,12 @@ pub struct ThreadRow {
     pub unread_count: u32,
     pub flags_union: Flags,
     pub snoozed_until: Option<Timestamp>,
+    /// Le compte du dernier message du fil.
+    ///
+    /// Dénormalisé comme l'expéditeur et le sujet, et pour la même raison : la liste
+    /// doit se servir sans jointure. Il porte la pastille de couleur, qui est la seule
+    /// chose disant de quelle boîte un message vient quand on les regarde toutes.
+    pub account: AccountId,
 }
 
 impl ThreadRow {
@@ -457,6 +463,7 @@ mod tests {
             unread_count: 1,
             flags_union: Flags::HAS_ATTACHMENT,
             snoozed_until: None,
+            account: AccountId(1),
         };
         assert!(row.is_unread());
         assert!(row.has_attachment());

@@ -608,12 +608,15 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
     let mut unread = 0i64;
     let mut last_activity = 0i64;
     let mut union = 0i64;
-    let mut last: Option<(String, String, String, String)> = None;
+    // Le compte accompagne les quatre autres champs du dernier message : la pastille
+    // de couleur de la liste en vient, et c'est la seule chose qui dise de quelle
+    // boîte un message arrive quand on les regarde toutes ensemble.
+    let mut last: Option<(String, String, String, String, i64)> = None;
 
     {
         let mut stmt = tx
             .prepare_cached(
-                "SELECT flags, received, from_name, from_addr, subject, preview
+                "SELECT flags, received, from_name, from_addr, subject, preview, account_id
                  FROM messages WHERE thread_id = ?1 ORDER BY received DESC, id DESC",
             )
             .map_err(|e| sql_err("preparation", e))?;
@@ -639,6 +642,7 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
                     r.get(3).map_err(|e| sql_err("agregats du fil", e))?,
                     r.get(4).map_err(|e| sql_err("agregats du fil", e))?,
                     r.get(5).map_err(|e| sql_err("agregats du fil", e))?,
+                    r.get(6).map_err(|e| sql_err("agregats du fil", e))?,
                 ));
             }
         }
@@ -658,8 +662,8 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
         .prepare_cached(
             "UPDATE threads SET message_count = ?1, unread_count = ?2, last_activity_at = ?3,
                                 flags_union = ?4, last_from_name = ?5, last_from_addr = ?6,
-                                last_subject = ?7, last_preview = ?8
-             WHERE id = ?9",
+                                last_subject = ?7, last_preview = ?8, last_account_id = ?9
+             WHERE id = ?10",
         )
         .map_err(|e| sql_err("preparation", e))?;
     stmt.execute(params![
@@ -671,6 +675,7 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
         last.1,
         last.2,
         last.3,
+        last.4,
         thread.get()
     ])
     .map_err(|e| sql_err("mise a jour du fil", e))?;

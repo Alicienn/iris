@@ -286,6 +286,13 @@ export component AppWindow inherits Window {
     in-out property <bool> context-menu-open;
     in-out property <length> context-menu-x;
     in-out property <length> context-menu-y;
+    /// Le fil sur lequel le menu agit — pas celui qui est ouvert à la lecture.
+    ///
+    /// Les deux étaient confondus, et c'est pourquoi un clic droit ouvrait le message.
+    /// Ce sont deux questions différentes : « lequel je lis » et « lequel je vise ».
+    in-out property <int> context-menu-thread;
+    in-out property <bool> context-menu-unread;
+    in-out property <bool> context-menu-starred;
 
     in-out property <bool> compose-open;
     in-out property <bool> compose-minimised;
@@ -364,6 +371,18 @@ export component AppWindow inherits Window {
     callback window-drag-started();
     callback thread-archive();
     callback thread-delete();
+
+    // Les mêmes actions, sur un fil nommé plutôt que sur celui qui est ouvert.
+    //
+    // La barre d'outils agit sur ce qu'on lit ; le menu contextuel agit sur ce qu'on a
+    // visé. Confondre les deux obligeait le clic droit à sélectionner d'abord, donc à
+    // ouvrir le message pour pouvoir proposer de le jeter.
+    callback menu-done(int);
+    callback menu-archive(int);
+    callback menu-snooze(int);
+    callback menu-toggle-unread(int);
+    callback menu-toggle-star(int);
+    callback menu-delete(int);
     callback thread-toggle-unread();
     callback thread-toggle-star();
     callback thread-snooze();
@@ -606,8 +625,14 @@ export component AppWindow inherits Window {
                         search-query <=> root.search-query;
                         search-submitted(q) => { root.search-submitted(q); }
                         search-cleared => { root.search-cleared(); }
-                        row-context-menu(id, mx, my) => {
-                            root.thread-selected(id);
+                        row-context-menu(id, mx, my, non-lu, epingle) => {
+                            // Plus de `thread-selected` : un clic droit ouvrait le
+                            // message, chargeait son corps et le marquait lu, pour
+                            // quelqu'un qui voulait seulement voir les actions
+                            // possibles — dont « Delete ». Le menu porte sa cible.
+                            root.context-menu-thread = id;
+                            root.context-menu-unread = non-lu;
+                            root.context-menu-starred = epingle;
                             // Déjà en coordonnées de fenêtre. Rien à rajouter : la
                             // version précédente recollait des largeurs de colonnes
                             // écrites en dur, qui devenaient fausses à la première
@@ -778,16 +803,22 @@ export component AppWindow inherits Window {
         height: 100%;
         menu-x: root.context-menu-x;
         menu-y: root.context-menu-y;
-        unread: root.selected-unread;
-        starred: root.selected-starred;
-        open-thread => { root.context-menu-open = false; }
-        mark-done => { root.thread-done(); }
-        archive => { root.thread-archive(); }
-        snooze => { root.thread-snooze(); }
-        toggle-unread => { root.thread-toggle-unread(); }
-        toggle-star => { root.thread-toggle-star(); }
-        delete-thread => { root.thread-delete(); }
+        unread: root.context-menu-unread;
+        starred: root.context-menu-starred;
+        // Chaque action porte sa cible. « Ouvrir » est la seule qui sélectionne, parce
+        // que c'est la seule qu'on lui demande de faire.
+        open-thread => {
+            root.context-menu-open = false;
+            root.thread-selected(root.context-menu-thread);
+        }
+        mark-done => { root.menu-done(root.context-menu-thread); }
+        archive => { root.menu-archive(root.context-menu-thread); }
+        snooze => { root.menu-snooze(root.context-menu-thread); }
+        toggle-unread => { root.menu-toggle-unread(root.context-menu-thread); }
+        toggle-star => { root.menu-toggle-star(root.context-menu-thread); }
+        delete-thread => { root.menu-delete(root.context-menu-thread); }
         dismissed => { root.context-menu-open = false; }
+        reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
     }
 
     if root.compose-open: ComposePanel {

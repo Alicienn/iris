@@ -316,6 +316,21 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
             folder: path.to_string(),
         };
         iris_sync::enqueue(store, *compte, &charge, now)?;
+
+        // Et localement, tout de suite.
+        //
+        // Ce bloc manquait, et c'est tout le défaut : le serveur recevait bien les deux
+        // ordres, mais la colonne des dossiers lit la copie locale, où la ligne restait
+        // pour toujours. Le dossier supprimé revenait à chaque ouverture, et chaque
+        // synchronisation essayait ensuite de sélectionner une boîte que le serveur
+        // avait déjà retirée.
+        //
+        // Le vidage précède l'oubli pour que les fils soient recalculés au passage :
+        // sans lui, la cascade emporterait les messages sans que personne ne remette à
+        // jour les agrégats du fil, et la liste montrerait des conversations dont le
+        // compteur ne correspond plus à rien.
+        store.clear_folder(source.id)?;
+        store.forget_folder(*compte, path)?;
     }
 
     Ok(comptes.len())
@@ -480,5 +495,58 @@ mod tests {
     #[test]
     fn un_nom_correct_est_conserve_tel_quel_aux_espaces_pres() {
         assert_eq!(validate("  Devis clients  ").unwrap(), "Devis clients");
+    }
+
+    #[test]
+    fn supprimer_un_dossier_le_retire_aussi_de_la_copie_locale() {
+        // Le défaut : les deux opérations partaient bien dans le journal, et rien
+        // n'était fait ici. La colonne des dossiers lit la copie locale — le dossier
+        // « supprimé » revenait donc à chaque ouverture, et chaque synchronisation
+        // essayait ensuite de sélectionner une boîte que le serveur avait déjà retirée.
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let compte = store
+            .create_account(
+                &iris_store::NewAccount::new("a@x.fr", "i", "s"),
+                maintenant,
+            )
+            .unwrap();
+        store
+            .upsert_folder(compte, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        store
+            .upsert_folder(compte, "INBOX.Devis", FolderRole::Other)
+            .unwrap();
+
+        assert_eq!(delete_everywhere(&store, "INBOX.Devis", maintenant).unwrap(), 1);
+
+        let restants: Vec<_> = store
+            .folders(compte)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        assert_eq!(restants, ["INBOX"], "le dossier doit disparaître d'ici aussi");
+    }
+
+    #[test]
+    fn un_dossier_du_serveur_ne_se_supprime_pas() {
+        // La boîte de réception, la corbeille et les indésirables appartiennent au
+        // serveur. Les retirer localement les ferait revenir à la synchronisation
+        // suivante, en ayant perdu ce qu'ils contenaient entre-temps.
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let compte = store
+            .create_account(
+                &iris_store::NewAccount::new("a@x.fr", "i", "s"),
+                maintenant,
+            )
+            .unwrap();
+        store
+            .upsert_folder(compte, "INBOX", FolderRole::Inbox)
+            .unwrap();
+
+        assert!(delete_everywhere(&store, "INBOX", maintenant).is_err());
+        assert_eq!(store.folders(compte).unwrap().len(), 1);
     }
 }

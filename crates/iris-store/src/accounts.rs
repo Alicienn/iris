@@ -324,6 +324,36 @@ impl Store {
         })
     }
 
+    /// Retire un dossier de la copie locale.
+    ///
+    /// Ce que l'application faisait en supprimant un dossier, c'était mettre deux
+    /// opérations dans le journal — déplacer le courrier vers la boîte de réception,
+    /// puis supprimer le dossier — et **rien** localement. Le serveur obéissait ; la
+    /// colonne des dossiers, qui lit la copie locale, gardait la ligne pour toujours.
+    /// Ensuite chaque synchronisation essayait de sélectionner une boîte qui n'existait
+    /// plus, et le journal se remplissait de « Mailbox doesn't exist ».
+    ///
+    /// Les messages partent avec, par cascade. Ce n'est pas une perte : la
+    /// **première** opération de la file les a déplacés vers la boîte de réception du
+    /// serveur, et la prochaine synchronisation les redescendra avec les UID que le
+    /// serveur leur aura donnés là-bas. Les réaffecter ici en gardant leurs anciens UID
+    /// serait pire — la contrainte d'unicité porte sur `(dossier, uid)`, et deux
+    /// messages venant de deux dossiers finiraient par se marcher dessus.
+    ///
+    /// Si l'opération serveur échoue, le dossier réapparaît à la prochaine liste. C'est
+    /// le bon comportement : la copie locale est un cache, et le serveur a le dernier
+    /// mot dans les deux sens.
+    pub fn forget_folder(&self, account: AccountId, path: &str) -> Result<bool> {
+        self.with_conn(|c| {
+            c.execute(
+                "DELETE FROM folders WHERE account_id = ?1 AND path = ?2",
+                params![account.get(), path],
+            )
+            .map(|n| n > 0)
+            .map_err(|e| sql_err("suppression du dossier", e))
+        })
+    }
+
     pub fn folders(&self, account: AccountId) -> Result<Vec<Folder>> {
         self.with_conn(|c| {
             let mut stmt = c

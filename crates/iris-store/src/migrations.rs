@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 6;
+pub const CURRENT_VERSION: i64 = 7;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -48,7 +48,37 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "the bin is a folder, not a state",
         sql: SCHEMA_V6,
     },
+    Migration {
+        version: 7,
+        name: "a thread remembers which mailbox it came from",
+        sql: SCHEMA_V7,
+    },
 ];
+
+/// Donne à chaque fil le compte de son dernier message.
+///
+/// La liste dessine une pastille de couleur à gauche de chaque ligne, dont tout
+/// l'intérêt est de dire de quelle boîte vient le message quand on les regarde toutes
+/// ensemble. Elle était calculée à partir de l'adresse du **premier compte**, la même
+/// pour toutes les lignes : cent boîtes, une seule couleur, et un repère qui affirmait
+/// quelque chose de faux plutôt que de ne rien dire.
+///
+/// La colonne rejoint les autres colonnes dénormalisées du fil, pour la raison qui les
+/// a toutes mises là : une page de liste doit se servir en une seule lecture d'index,
+/// sans jointure. Le remplissage initial prend le compte du message le plus récent de
+/// chaque fil — exactement ce que `refresh_thread` maintiendra ensuite.
+const SCHEMA_V7: &str = r#"
+ALTER TABLE threads ADD COLUMN last_account_id INTEGER NOT NULL DEFAULT 0;
+
+UPDATE threads
+SET last_account_id = COALESCE((
+        SELECT m.account_id
+        FROM messages m
+        WHERE m.thread_id = threads.id
+        ORDER BY m.received DESC, m.id DESC
+        LIMIT 1
+    ), 0);
+"#;
 
 /// Défait la migration 4 : la corbeille n'est pas un état, c'est un endroit.
 ///
