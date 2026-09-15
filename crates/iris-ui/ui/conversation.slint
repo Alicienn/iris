@@ -24,7 +24,32 @@ component MessageBlock inherits Rectangle {
         // image bloquée était le carré vide de la police de repli. La même faute que
         // les quatre marqueurs de la liste, au même endroit du raisonnement, corrigée
         // là-bas et pas ici.
-        if root.block.kind == "image": HorizontalLayout {
+        // L'image, quand le message la porte. Sinon, ce qu'on peut en dire.
+        //
+        // Elle n'était jamais dessinée : la source était lue seulement pour savoir si
+        // elle était bloquée, et le reste jeté. Un logo de signature déjà présent dans
+        // le message s'affichait donc comme une icône avec le mot « image » à côté —
+        // et dans un fil de dix messages signés de trois pastilles, cela faisait trente
+        // lignes qui ne montraient rien.
+        //
+        // À sa taille naturelle, bornée à la largeur de la colonne. Étirer une pastille
+        // de cent pixels sur huit cents la rendrait floue et occuperait l'écran pour
+        // une décoration ; c'est précisément l'accumulation dont il s'agit.
+        // La largeur vient de la mise en page, jamais du parent : la lire ici ferait
+        // dépendre la largeur du bloc de la largeur du bloc, et le compilateur Slint
+        // refuse la boucle — à juste titre, puisqu'elle n'a pas de solution.
+        //
+        // La hauteur est celle de l'image, et `contain` réduit si la colonne est plus
+        // étroite. Le décodeur borne déjà la largeur à celle de la colonne de lecture,
+        // donc le cas courant est un dessin à l'échelle un.
+        if root.block.kind == "image" && root.block.has-picture: Image {
+            source: root.block.picture;
+            image-fit: contain;
+            horizontal-alignment: left;
+            height: root.block.picture.height * 1px;
+        }
+
+        if root.block.kind == "image" && !root.block.has-picture: HorizontalLayout {
             spacing: Tokens.space-2;
             Icon {
                 y: (parent.height - self.height) / 2;

@@ -48,6 +48,10 @@ export struct MessageBlockData {
     bold: bool,
     italic: bool,
     link: string,
+    // L'image, quand le message la transportait lui-même. Vide sinon : une image
+    // distante n'est pas allée la chercher, et une image bloquée ne le sera pas.
+    picture: image,
+    has-picture: bool,
 }
 
 // Une pièce jointe, telle que le bandeau la montre.

@@ -81,6 +81,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                     .find_map(|s| s.link.clone())
                     .unwrap_or_default()
                     .into(),
+                ..Default::default()
             },
             Block::Heading { level, spans } => MessageBlockData {
                 kind: "heading".into(),
@@ -90,6 +91,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: true,
                 italic: false,
                 link: SharedString::default(),
+                ..Default::default()
             },
             Block::ListItem { depth, spans, .. } => MessageBlockData {
                 kind: "list".into(),
@@ -99,6 +101,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
+                ..Default::default()
             },
             Block::Quote { depth, spans } => MessageBlockData {
                 kind: "quote".into(),
@@ -108,6 +111,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
+                ..Default::default()
             },
             Block::Code(text) => MessageBlockData {
                 kind: "code".into(),
@@ -117,6 +121,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
+                ..Default::default()
             },
             Block::Rule => MessageBlockData {
                 kind: "rule".into(),
@@ -126,8 +131,13 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
+                ..Default::default()
             },
-            Block::Image { alt, blocked } => MessageBlockData {
+            Block::Image {
+                alt,
+                blocked,
+                pixels,
+            } => MessageBlockData {
                 kind: "image".into(),
                 // Sans texte de remplacement, il n'y a pas de tiret à mettre : la
                 // plupart des images bloquées sont des pixels de suivi, qui n'en
@@ -147,6 +157,14 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: true,
                 link: SharedString::default(),
+                // Le logo de signature que le message portait déjà. Sans cela, dix
+                // messages signés de trois pastilles donnaient trente lignes montrant
+                // une icône et le mot « image ».
+                picture: pixels
+                    .as_ref()
+                    .and_then(|p| body_image(p.width, p.height, &p.rgba))
+                    .unwrap_or_default(),
+                has_picture: pixels.is_some(),
             },
             Block::TableRow(cells) => MessageBlockData {
                 kind: "table".into(),
@@ -161,6 +179,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
+                ..Default::default()
             },
         })
         .collect()
@@ -478,11 +497,16 @@ mod tests {
             blocks: vec![Block::Image {
                 alt: "Bannière".into(),
                 blocked: true,
+                pixels: None,
             }],
             blocked_images: 1,
         };
         let blocs = message_blocks(&rich);
         assert!(blocs[0].text.as_str().contains("blocked"));
+        assert!(
+            !blocs[0].has_picture,
+            "une image bloquée n'a rien à montrer, c'est tout l'intérêt"
+        );
     }
 
     #[test]

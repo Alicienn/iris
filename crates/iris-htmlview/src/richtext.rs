@@ -40,6 +40,29 @@ impl Inline {
     }
 }
 
+/// Une image décodée, prête à dessiner.
+///
+/// Décodée ici plutôt que dans l'interface, comme tout le reste de ce module : ce qui
+/// traverse la frontière est déjà sûr, et l'interface ne voit jamais ni HTML ni format
+/// de fichier.
+#[derive(Clone, PartialEq, Eq)]
+pub struct InlineImage {
+    pub width: u32,
+    pub height: u32,
+    /// RGBA, sans compression, `width * height * 4` octets.
+    pub rgba: Vec<u8>,
+}
+
+impl std::fmt::Debug for InlineImage {
+    /// Sans les pixels : un `dbg!` sur un bloc ne doit pas cracher un mégaoctet.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InlineImage")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .finish()
+    }
+}
+
 /// Un bloc de contenu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
@@ -60,10 +83,19 @@ pub enum Block {
     },
     Code(String),
     Rule,
-    /// Une image, décrite mais non chargée.
+    /// Une image.
+    ///
+    /// `pixels` porte celles que le message transporte lui-même — un logo de signature,
+    /// une capture collée dans le corps. Elles étaient jetées : la source n'était lue
+    /// que pour savoir si elle était bloquée, et l'image devenait une icône avec le mot
+    /// « image » à côté. Dans un fil de dix messages où chacun signe avec trois
+    /// pastilles, cela faisait trente lignes qui ne montraient rien.
+    ///
+    /// Vide pour une image distante — bloquée, ou simplement pas encore là.
     Image {
         alt: String,
         blocked: bool,
+        pixels: Option<InlineImage>,
     },
     /// Une ligne de tableau, aplatie en cellules.
     TableRow(Vec<Vec<Inline>>),
@@ -279,6 +311,10 @@ pub fn parse(html: &str) -> RichText {
                     doc.blocks.push(Block::Image {
                         alt,
                         blocked: bloquee,
+                        // Celles que le message porte lui-même sont déjà là, en
+                        // `data:` — les jeter revenait à afficher une icône à la place
+                        // d'un logo qu'on avait sous la main.
+                        pixels: (!bloquee).then(|| image_incrustee(&source)).flatten(),
                     });
                 }
                 "table" => {
@@ -346,6 +382,95 @@ fn tag_name(tag: &str) -> String {
         .next()
         .unwrap_or("")
         .to_lowercase()
+}
+
+/// Combien de pixels de large une image du corps peut occuper.
+///
+/// La colonne de lecture en fait huit cents ; au-delà, rien ne se verrait de plus et
+/// tout se paierait en mémoire. Une photo de téléphone fait quatre mille pixels de
+/// large, soit quarante-huit mégaoctets une fois décompressée — pour une vignette qui
+/// sera dessinée à six cents.
+const LARGEUR_MAX: u32 = 800;
+/// La même borne en hauteur, pour les bandeaux verticaux.
+const HAUTEUR_MAX: u32 = 2_000;
+
+/// Décode une image que le message transporte lui-même.
+///
+/// Seulement `data:` : une source `http` est une image distante, et aller la chercher
+/// ici enverrait un accusé de lecture à l'expéditeur au moment précis où l'on affiche
+/// le message. C'est la décision de tout ce module, et elle ne se contourne pas par
+/// l'endroit d'où l'on appelle.
+fn image_incrustee(source: &str) -> Option<InlineImage> {
+    let reste = source.strip_prefix("data:")?;
+    let (_type, donnees) = reste.split_once(";base64,")?;
+
+    // Une base64 démesurée n'est même pas décodée : trois octets pour quatre, donc
+    // trente mégaoctets de texte valent vingt-deux mégaoctets d'image compressée, ce
+    // qu'aucune signature ne contient et qu'aucun corps de message n'a à contenir.
+    if donnees.len() > 32 * 1024 * 1024 {
+        return None;
+    }
+
+    let octets = decode_base64(donnees)?;
+    let image = image::load_from_memory(&octets).ok()?;
+
+    // Réduite si besoin, avant tout autre travail : c'est la seule borne entre un
+    // message et la mémoire de l'application.
+    let (l, h) = (image.width(), image.height());
+    let image = if l > LARGEUR_MAX || h > HAUTEUR_MAX {
+        image.resize(
+            LARGEUR_MAX,
+            HAUTEUR_MAX,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        image
+    };
+
+    let rgba = image.to_rgba8();
+    Some(InlineImage {
+        width: rgba.width(),
+        height: rgba.height(),
+        rgba: rgba.into_raw(),
+    })
+}
+
+/// Décodage base64, sans dépendance et sans cas d'erreur intéressant.
+///
+/// L'encodeur symétrique vit dans `iris-mime` ; celui-ci lit ce que lui-même a écrit,
+/// quelques millisecondes plus tôt, dans le même processus. Ce qui n'est pas de la
+/// base64 rend `None`, et l'image redevient une icône — le comportement qu'on avait
+/// pour toutes.
+fn decode_base64(texte: &str) -> Option<Vec<u8>> {
+    fn valeur(c: u8) -> Option<u8> {
+        match c {
+            b'A'..=b'Z' => Some(c - b'A'),
+            b'a'..=b'z' => Some(c - b'a' + 26),
+            b'0'..=b'9' => Some(c - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+
+    let mut sortie = Vec::with_capacity(texte.len() / 4 * 3);
+    let mut tampon = 0u32;
+    let mut bits = 0u32;
+
+    for c in texte.bytes() {
+        // Les sauts de ligne sont légaux dans une base64 transportée par courrier.
+        if c == b'=' || c.is_ascii_whitespace() {
+            continue;
+        }
+        let v = valeur(c)?;
+        tampon = (tampon << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            sortie.push((tampon >> bits) as u8);
+        }
+    }
+    Some(sortie)
 }
 
 fn attribute(tag: &str, name: &str) -> Option<String> {
@@ -514,11 +639,85 @@ mod tests {
         assert_eq!(parse("<p>Bonjour</p>").max_quote_depth(), 0);
     }
 
+    /// Un PNG de deux pixels sur un, en base64. Le plus petit fichier qui prouve
+    /// qu'un décodeur a fait son travail plutôt que d'avoir eu de la chance.
+    const PNG_2X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z\
+        8DwHwQBEPgD/U6VwW8AAAAASUVORK5CYII=";
+
+    #[test]
+    fn un_logo_de_signature_est_reellement_decode() {
+        // La source n'était lue que pour savoir si l'image était bloquée, et le reste
+        // jeté : un logo que le message transportait lui-même s'affichait comme une
+        // icône avec le mot « image » à côté. Dans un fil de dix messages signés de
+        // trois pastilles, cela faisait trente lignes qui ne montraient rien.
+        let doc = parse(&format!(
+            "<p>Cordialement</p><img src=\"data:image/png;base64,{PNG_2X1}\" alt=\"logo\">"
+        ));
+
+        let Some(Block::Image { pixels, .. }) = doc
+            .blocks
+            .iter()
+            .find(|b| matches!(b, Block::Image { .. }))
+        else {
+            panic!("l'image doit être là");
+        };
+
+        let image = pixels.as_ref().expect("elle doit être décodée");
+        assert_eq!((image.width, image.height), (2, 1));
+        assert_eq!(image.rgba.len(), 8, "deux pixels RGBA");
+    }
+
+    #[test]
+    fn une_image_distante_n_est_pas_allee_chercher() {
+        // Aller chercher une image `http` au moment de l'affichage enverrait un accusé
+        // de lecture à l'expéditeur. C'est la décision de tout ce module, et elle ne se
+        // contourne pas par l'endroit d'où l'on appelle.
+        let doc = parse("<img src=\"https://exemple.fr/pixel.gif\" alt=\"x\">");
+        let Some(Block::Image { pixels, .. }) = doc.blocks.first() else {
+            panic!("l'image doit être décrite");
+        };
+        assert!(pixels.is_none());
+    }
+
+    #[test]
+    fn une_source_illisible_redevient_une_icone() {
+        // Le comportement qu'on avait pour toutes : dire qu'il y a une image, sans
+        // prétendre la montrer.
+        for source in [
+            "data:image/png;base64,pas de la base64 !!",
+            "data:image/png,brut",
+            "data:",
+            "",
+        ] {
+            let doc = parse(&format!("<img src=\"{source}\" alt=\"x\">"));
+            let Some(Block::Image { pixels, .. }) = doc.blocks.first() else {
+                panic!("« {source} » : l'image doit rester décrite");
+            };
+            assert!(pixels.is_none(), "« {source} » n'est pas décodable");
+        }
+    }
+
+    #[test]
+    fn une_image_bloquee_n_est_jamais_decodee() {
+        // Le marqueur inerte que pose l'assainissement. Même si quelque chose parvenait
+        // à ressembler à une source valable, une image bloquée reste bloquée.
+        let doc = parse("<img src=\"iris:blocked\" alt=\"pixel\">");
+        let Some(Block::Image {
+            pixels, blocked, ..
+        }) = doc.blocks.first()
+        else {
+            panic!("l'image doit être décrite");
+        };
+        assert!(*blocked);
+        assert!(pixels.is_none());
+        assert_eq!(doc.blocked_images, 1);
+    }
+
     #[test]
     fn une_image_bloquee_est_signalee() {
         let doc = parse(r#"<img src="iris:blocked" alt="Bannière">"#);
         match &doc.blocks[0] {
-            Block::Image { alt, blocked } => {
+            Block::Image { alt, blocked, .. } => {
                 assert_eq!(alt, "Bannière");
                 assert!(blocked);
             }

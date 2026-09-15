@@ -19,6 +19,21 @@ remote-images = ["dep:reqwest"]
 [dependencies]
 iris-types = { workspace = true }
 tracing = "0.1"
+# Décoder les images que le message transporte lui-même. Sans elle, un logo de
+# signature déjà présent dans le message s'affichait comme une icône et le mot
+# « image ».
+#
+# Les formats et rien d'autre : pas de lecture de fichiers, pas de codeurs. Ce qui
+# entre ici vient d'un inconnu, et chaque décodeur supplémentaire est une surface de
+# plus à laquelle on ne pense jamais. La caisse est déjà dans l'arbre par le moteur de
+# rendu, donc elle ne coûte pas une dépendance de plus.
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+] }
 blitz-dom = { version = "0.2", optional = true }
 blitz-html = { version = "0.2", optional = true }
 blitz-paint = { version = "0.2", optional = true }
