@@ -44,6 +44,12 @@ pub enum PluginEffect {
         thread: ThreadId,
         action: Action,
     },
+    /// Ranger un fil dans un dossier.
+    File {
+        plugin: String,
+        thread: ThreadId,
+        folder: String,
+    },
     /// Ajouter une commande à la palette.
     Command { plugin: String, spec: String },
     /// Afficher un message.
@@ -126,10 +132,19 @@ impl PluginService {
 
         // `init` avant tout événement : c'est le contrat, et un plugin qui n'a pas
         // été initialisé n'a aucune raison de savoir répondre.
-        for (id, resultat) in registre.dispatch(entry_points::INIT, "{}") {
-            match resultat {
-                Ok(trace) => journaliser(&id, &trace),
-                Err(e) => tracing::warn!(plugin = %id, error = %e, "initialisation"),
+        //
+        // Ses réglages lui sont remis **à ce moment-là**, et une seule fois. Les
+        // joindre à chaque événement les ferait analyser à chaque message, pour des
+        // valeurs qui ne changent pas — et un plugin qui reçoit sa configuration au
+        // démarrage est un plugin dont le comportement ne peut pas dériver en cours de
+        // route. Changer un réglage demande un redémarrage, comme installer un module ;
+        // c'est la même contrainte, et elle a la même cause.
+        for (id, reglages) in reglages_des_plugins(&dir, &registre) {
+            for (rendu, resultat) in registre.dispatch_one(&id, entry_points::INIT, &reglages) {
+                match resultat {
+                    Ok(trace) => journaliser(&rendu, &trace),
+                    Err(e) => tracing::warn!(plugin = %rendu, error = %e, "initialisation"),
+                }
             }
         }
 
@@ -263,10 +278,15 @@ fn effets(
             continue;
         };
         match action_depuis_json(brut) {
-            Some(action) => sortie.push(PluginEffect::Act {
+            Some(Demande::Etat(action)) => sortie.push(PluginEffect::Act {
                 plugin: plugin.to_string(),
                 thread,
                 action,
+            }),
+            Some(Demande::Ranger(folder)) => sortie.push(PluginEffect::File {
+                plugin: plugin.to_string(),
+                thread,
+                folder,
             }),
             None => tracing::warn!(plugin = %plugin, request = %brut, "unrecognised action"),
         }
@@ -275,13 +295,45 @@ fn effets(
     sortie
 }
 
+/// Ce qu'un plugin peut demander.
+///
+/// Le vocabulaire est **fermé** et volontairement court. Chaque verbe ajouté est une
+/// chose de plus qu'un module peut faire à votre courrier, et la question à se poser
+/// n'est pas « est-ce utile » mais « accepterais-je qu'un module inconnu le fasse ».
+/// Déplacer, reporter, marquer : oui, tout est réversible et visible. Envoyer,
+/// supprimer définitivement, lire un secret : jamais.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Demande {
+    /// Une transition du flux de travail.
+    Etat(Action),
+    /// Ranger dans un dossier, par son nom unifié.
+    Ranger(String),
+}
+
 /// Lit `{"action":"done"}` et compagnie.
-fn action_depuis_json(brut: &str) -> Option<Action> {
+fn action_depuis_json(brut: &str) -> Option<Demande> {
     let valeur: serde_json::Value = serde_json::from_str(brut).ok()?;
+
     match valeur.get("action")?.as_str()? {
-        "done" | "traite" => Some(Action::Done),
-        "todo" | "a_traiter" => Some(Action::Todo),
-        "waiting" | "en_attente" => Some(Action::Waiting),
+        "done" | "traite" => Some(Demande::Etat(Action::Done)),
+        "todo" | "a_traiter" => Some(Demande::Etat(Action::Todo)),
+        "waiting" | "en_attente" => Some(Demande::Etat(Action::Waiting)),
+        "star" | "epingler" => Some(Demande::Etat(Action::ToggleFlag)),
+        "read" | "lu" => Some(Demande::Etat(Action::MarkRead)),
+        "unread" | "non_lu" => Some(Demande::Etat(Action::MarkUnread)),
+        // Le report en heures. Borné à un an : un plugin qui demande dix mille heures
+        // ne reporte pas, il fait disparaître, et la différence compte.
+        "snooze" | "reporter" => {
+            let heures = valeur.get("hours").and_then(|h| h.as_u64()).unwrap_or(24);
+            Some(Demande::Etat(Action::SnoozeHours(
+                heures.clamp(1, 24 * 365) as u32
+            )))
+        }
+        "move" | "ranger" => {
+            let dossier = valeur.get("folder")?.as_str()?.trim();
+            // Un chemin vide rangerait « quelque part », ce qui n'existe pas.
+            (!dossier.is_empty()).then(|| Demande::Ranger(dossier.to_string()))
+        }
         _ => None,
     }
 }
@@ -319,6 +371,26 @@ fn payload_pour(event: &Event, store: &Store) -> Option<(String, Option<ThreadId
     }
 }
 
+/// Les réglages de chaque plugin, en JSON, prêts pour son initialisation.
+///
+/// Les valeurs effectives — celles que l'utilisateur a choisies, complétées par les
+/// défauts que le manifeste déclare. Un plugin n'a pas à connaître ses propres défauts
+/// une seconde fois, dans son code, en risquant qu'ils divergent du manifeste.
+fn reglages_des_plugins(dir: &Path, registre: &PluginRegistry) -> Vec<(String, String)> {
+    registre
+        .manifests()
+        .into_iter()
+        .map(|(manifeste, _)| {
+            let valeurs = iris_plugins::SettingValues::load(&dir.join(&manifeste.id));
+            let effectives = valeurs.effective(&manifeste.settings);
+            (
+                manifeste.id.clone(),
+                serde_json::to_string(&effectives).unwrap_or_else(|_| "{}".into()),
+            )
+        })
+        .collect()
+}
+
 /// Ce qu'un plugin apprend d'un message.
 ///
 /// Volontairement pauvre : l'expéditeur, le sujet, et des étiquettes. Pas de corps,
@@ -343,6 +415,18 @@ fn detail_message(id: MessageId, store: &Store) -> Option<(serde_json::Value, Th
         etiquettes.push("unread");
     }
 
+    // Les noms des pièces jointes, sans leur contenu.
+    //
+    // Un trieur a besoin de savoir qu'il s'agit d'une facture ; il n'a pas besoin de
+    // la lire. La distinction est le principe de tout ce qui traverse cette frontière :
+    // ce qu'on ne transmet pas ne peut pas fuir.
+    let pieces: Vec<String> = store
+        .visible_attachments(id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.meta.filename)
+        .collect();
+
     Some((
         serde_json::json!({
             "event": "message-added",
@@ -350,9 +434,32 @@ fn detail_message(id: MessageId, store: &Store) -> Option<(serde_json::Value, Th
             "de": message.from_addr,
             "sujet": message.subject,
             "etiquettes": etiquettes,
+            "pieces": pieces,
+            // L'heure d'arrivée, décomposée. Un plugin qui reporte le courrier reçu
+            // hors des heures de bureau ne doit pas avoir à refaire un calendrier en
+            // WebAssembly pour savoir quel jour on est.
+            "recu": message.received.millis(),
+            "heure": heure_du_jour(message.received),
+            "jour": jour_de_semaine(message.received),
         }),
         message.thread,
     ))
+}
+
+/// L'heure locale d'un instant, de 0 à 23.
+///
+/// En temps universel, faute d'un fuseau : Iris n'en connaît aucun, et en inventer un
+/// serait pire que de le dire. Un plugin qui règle des heures de bureau les règle donc
+/// en UTC, ce que son écran de réglages doit annoncer.
+fn heure_du_jour(t: iris_types::Timestamp) -> i64 {
+    t.seconds().rem_euclid(86_400) / 3600
+}
+
+/// Le jour de la semaine, de 0 (lundi) à 6 (dimanche).
+///
+/// Le 1er janvier 1970 était un jeudi, ce qui met le décalage à 3.
+fn jour_de_semaine(t: iris_types::Timestamp) -> i64 {
+    (t.seconds().div_euclid(86_400) + 3).rem_euclid(7)
 }
 
 /// Relie le bus aux plugins.
@@ -373,6 +480,15 @@ pub fn apply_effect(effect: &PluginEffect, controller: &Controller) -> Option<St
         } => {
             tracing::info!(plugin = %plugin, thread = %thread, action = ?action, "plugin action");
             controller.send(Request::ApplyTo(*thread, *action));
+            None
+        }
+        PluginEffect::File {
+            plugin,
+            thread,
+            folder,
+        } => {
+            tracing::info!(plugin = %plugin, thread = %thread, folder = %folder, "plugin filing");
+            controller.send(Request::MoveThreadToFolder(*thread, folder.clone()));
             None
         }
         // Une notification de plugin est attribuée : l'utilisateur doit savoir qui
@@ -428,16 +544,30 @@ mod tests {
     fn les_deux_langues_sont_acceptees() {
         assert_eq!(
             action_depuis_json("{\"action\":\"traite\"}"),
-            Some(Action::Done)
+            Some(Demande::Etat(Action::Done))
         );
         assert_eq!(
             action_depuis_json("{\"action\":\"waiting\"}"),
-            Some(Action::Waiting)
+            Some(Demande::Etat(Action::Waiting))
         );
         assert_eq!(
             action_depuis_json("{\"action\":\"a_traiter\"}"),
-            Some(Action::Todo)
+            Some(Demande::Etat(Action::Todo))
         );
+    }
+
+    #[test]
+    fn ranger_exige_un_dossier() {
+        assert_eq!(
+            action_depuis_json("{\"action\":\"move\",\"folder\":\"Compta\"}"),
+            Some(Demande::Ranger("Compta".into()))
+        );
+        // Un chemin vide rangerait « quelque part », ce qui n'existe pas.
+        assert_eq!(
+            action_depuis_json("{\"action\":\"move\",\"folder\":\"  \"}"),
+            None
+        );
+        assert_eq!(action_depuis_json("{\"action\":\"move\"}"), None);
     }
 
     #[test]

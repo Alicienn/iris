@@ -3,3 +3,9 @@
 **/*.rs.bk
 .env
 data/
+
+# Les modules livrés, compilés par packaging/build-plugins.ps1. Reconstruits en une
+# seconde depuis les caisses ; les garder ici mettrait trois binaires dans chaque
+# revue de code et une occasion de livrer un wasm plus vieux que sa source.
+/packaging/plugins/
+/packaging/output/

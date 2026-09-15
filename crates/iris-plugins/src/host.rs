@@ -44,11 +44,28 @@ struct HostState {
     limits: StoreLimits,
 }
 
+/// L'instance vivante d'un plugin : sa mémoire, entre deux appels.
+///
+/// Elle survit d'un appel au suivant, et c'est **le** point du contrat : l'hôte remet
+/// ses réglages à un module une seule fois, à l'initialisation, et le module les garde.
+/// Une instance neuve à chaque événement rendrait cette phrase fausse — un module lirait
+/// sa liste d'expéditeurs, la rangerait dans une variable, et la retrouverait vide au
+/// premier message. C'est exactement ce qui arrivait, sans rien dire : le module se
+/// chargeait, s'initialisait, tournait sans erreur, et ne faisait jamais rien.
+struct Vivant {
+    store: Store<HostState>,
+    instance: Instance,
+    /// La trace, partagée avec l'état de l'hôte, vidée avant chaque appel.
+    trace: Arc<Mutex<CallTrace>>,
+}
+
 /// Un plugin chargé, prêt à être appelé.
 pub struct Plugin {
     manifest: Manifest,
     module: Module,
     engine: Engine,
+    /// L'instance, construite au premier appel et gardée ensuite.
+    vivant: Option<Vivant>,
     /// Échecs consécutifs. Au-delà du seuil, le plugin est mis hors circuit.
     failures: u32,
     disabled: Option<String>,
@@ -72,23 +89,38 @@ impl Plugin {
         let mut config = wasmtime::Config::new();
         // Sans carburant, rien ne peut interrompre une boucle infinie.
         config.consume_fuel(true);
-        // Les fils partagés sont hors sujet pour un plugin de messagerie et
-        // ouvriraient une voie de contention que nous ne saurions pas borner. La
-        // fonctionnalité n'est de toute façon pas compilée dans cette configuration
-        // de wasmtime ; on note l'intention ici pour qu'elle ne soit pas réactivée
-        // par inadvertance en changeant les options du paquet.
-        config.wasm_reference_types(false);
+        // Les types de référence restent **actifs**, et il a fallu s'y reprendre à
+        // deux fois pour le comprendre.
+        //
+        // Cette ligne les coupait, dans l'intention d'écarter les fils partagés — qui
+        // sont une tout autre fonctionnalité, `wasm_threads`, et qui n'est pas compilée
+        // dans cette configuration de wasmtime. Le seul effet réel était de refuser
+        // tout module produit par un rustc récent : depuis la version 1.82, la cible
+        // `wasm32-unknown-unknown` encode ses appels indirects sous la forme que les
+        // types de référence introduisent. Les trois modules livrés avec Iris ne se
+        // chargeaient pas, et le message disait « zero byte expected » au milieu d'une
+        // fonction de formatage de `core` — ce qui ne mène nulle part.
+        //
+        // Il n'y a donc rien à couper ici. Ce qu'un module peut faire est décidé par
+        // les fonctions que l'hôte lui importe, pas par le jeu d'instructions qu'il a
+        // le droit d'employer pour appeler les siennes.
 
         let engine = Engine::new(&config)
             .map_err(|e| plugin_error(&manifest.id, format!("moteur : {e}")))?;
 
+        // `{e:#}` et non `{e}` : wasmtime rend une erreur en chaîne, et le premier
+        // maillon ne dit que « failed to compile <nom mangé de la fonction> ». La
+        // raison — une fonctionnalité wasm refusée, un octet invalide — est le second.
+        // Sans le dièse, le message affiché nomme précisément la seule chose qui
+        // n'aide pas.
         let module = Module::new(&engine, wasm)
-            .map_err(|e| plugin_error(&manifest.id, format!("compilation : {e}")))?;
+            .map_err(|e| plugin_error(&manifest.id, format!("compilation : {e:#}")))?;
 
         Ok(Self {
             manifest,
             module,
             engine,
+            vivant: None,
             failures: 0,
             disabled: None,
         })
@@ -154,7 +186,8 @@ impl Plugin {
         }
     }
 
-    fn call_inner(&self, export: &str, payload: &str) -> Result<CallTrace> {
+    /// Construit l'instance : la mémoire du module, et le lien vers l'hôte.
+    fn instancier(&self) -> Result<Vivant> {
         let limits: Limits = self.manifest.limits;
         let trace = Arc::new(Mutex::new(CallTrace::default()));
 
@@ -173,9 +206,6 @@ impl Plugin {
 
         let mut store = Store::new(&self.engine, etat);
         store.limiter(|s| &mut s.limits);
-        store
-            .set_fuel(limits.fuel_per_call)
-            .map_err(|e| plugin_error(&self.manifest.id, format!("carburant : {e}")))?;
 
         let mut linker = Linker::new(&self.engine);
         register_host_functions(&mut linker, &self.manifest.id)?;
@@ -184,23 +214,103 @@ impl Plugin {
             .instantiate(&mut store, &self.module)
             .map_err(|e| plugin_error(&self.manifest.id, format!("instanciation : {e}")))?;
 
+        Ok(Vivant {
+            store,
+            instance,
+            trace,
+        })
+    }
+
+    fn call_inner(&mut self, export: &str, payload: &str) -> Result<CallTrace> {
+        let limits: Limits = self.manifest.limits;
+
+        if self.vivant.is_none() {
+            self.vivant = Some(self.instancier()?);
+        }
+        // Une erreur laisse l'instance dans un état dont on ne sait rien — une pile
+        // interrompue au milieu d'un emprunt, un tas à moitié écrit. On la jette et le
+        // prochain appel repart d'une instance neuve, qui aura perdu ses réglages : ce
+        // n'est pas gratuit, mais continuer sur une mémoire dont l'invariant est rompu
+        // le serait encore moins.
+        let mut echoue = true;
+        let resultat = self.appeler(export, payload, limits, &mut echoue);
+        if echoue {
+            self.vivant = None;
+        }
+        resultat
+    }
+
+    fn appeler(
+        &mut self,
+        export: &str,
+        payload: &str,
+        limits: Limits,
+        echoue: &mut bool,
+    ) -> Result<CallTrace> {
+        let id = self.manifest.id.clone();
+        let vivant = self.vivant.as_mut().expect("instanciée juste au-dessus");
+        let store = &mut vivant.store;
+        let instance = vivant.instance;
+
+        // Le carburant est un budget **par appel**, pas par instance : le remettre ici
+        // est ce qui rend cette phrase vraie maintenant que l'instance dure.
+        store
+            .set_fuel(limits.fuel_per_call)
+            .map_err(|e| plugin_error(&id, format!("carburant : {e}")))?;
+
+        // Le tas du module ne se libère pas de lui-même — un allocateur linéaire est ce
+        // qu'un plugin peut se payer. Sans ce rappel, chaque événement en consommerait
+        // un morceau et le module finirait par ne plus pouvoir recevoir de charge, après
+        // quelques centaines de messages, en pleine journée. L'export est facultatif :
+        // un module écrit à la main peut ne rien allouer du tout.
+        //
+        // Il n'est pas appelé avant l'initialisation, ce qui donne son sens à la marque
+        // que le kit pose : ce qu'un module range à l'initialisation reste, ce qu'il
+        // alloue pour un message part avec lui.
+        if export != crate::entry_points::INIT {
+            if let Ok(reset) = instance.get_typed_func::<(), ()>(&mut *store, "iris_reset") {
+                reset
+                    .call(&mut *store, ())
+                    .map_err(|e| translate_trap(&id, e))?;
+            }
+        }
+
+        if let Ok(mut t) = vivant.trace.lock() {
+            *t = CallTrace::default();
+        }
+
         // La charge est déposée dans la mémoire du plugin, à un emplacement qu'il a
         // lui-même réservé : l'hôte n'écrit jamais à un endroit qu'il a choisi seul.
-        let (ptr, len) = write_payload(&mut store, &instance, payload, &self.manifest.id)?;
+        let (ptr, len) = write_payload(store, &instance, payload, &id)?;
 
         let fonction = instance
-            .get_func(&mut store, export)
-            .ok_or_else(|| plugin_error(&self.manifest.id, format!("« {export} » absent")))?;
+            .get_func(&mut *store, export)
+            .ok_or_else(|| plugin_error(&id, format!("« {export} » absent")))?;
 
-        let mut resultats = vec![Val::I32(0)];
+        // Le tampon de sortie doit faire exactement la taille que la fonction annonce,
+        // sans quoi wasmtime refuse l'appel avant même de l'exécuter.
+        //
+        // Un point d'entrée ne rend rien d'utile — l'hôte apprend ce qu'un module veut
+        // par les fonctions qu'il appelle, pas par sa valeur de retour. Mais le nombre
+        // de résultats dépend de la façon dont le module a été écrit : le plugin
+        // d'exemple est en WebAssembly textuel et rend un `i32` ; ceux compilés depuis
+        // Rust ne rendent rien, parce que c'est ce qu'écrit une fonction qui ne rend
+        // rien. Un tampon d'une seule case supposait la première forme et refusait la
+        // seconde, avec « expected 0 results, got 1 » — un message qui semble accuser
+        // le module alors qu'il décrit l'hôte.
+        let arite = fonction.ty(&*store).results().len();
+        let mut resultats = vec![Val::I32(0); arite];
         fonction
-            .call(&mut store, &[Val::I32(ptr), Val::I32(len)], &mut resultats)
-            .map_err(|e| translate_trap(&self.manifest.id, e))?;
+            .call(&mut *store, &[Val::I32(ptr), Val::I32(len)], &mut resultats)
+            .map_err(|e| translate_trap(&id, e))?;
 
-        let trace = trace
+        let trace = vivant
+            .trace
             .lock()
-            .map_err(|_| plugin_error(&self.manifest.id, "trace"))?
+            .map_err(|_| plugin_error(&id, "trace"))?
             .clone();
+
+        *echoue = false;
         Ok(trace)
     }
 }

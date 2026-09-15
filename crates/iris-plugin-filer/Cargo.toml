@@ -1,0 +1,14 @@
+[package]
+name = "iris-plugin-filer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# `cdylib` pour WebAssembly, `rlib` pour que les règles se testent ici. Une règle de
+# rangement qu'on ne peut vérifier qu'en s'envoyant une facture n'est pas vérifiée.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+iris-plugin-sdk = { path = "../iris-plugin-sdk" }

@@ -44,6 +44,10 @@ pub enum Request {
     /// Le glisser-déposer et l'entrée « Déplacer vers » du menu passent tous deux par
     /// ici : deux gestes, une seule règle sur ce qu'ils atteignent.
     MoveMarkedToFolder(String),
+    /// Ranger un fil désigné. C'est par là que passent les plugins de classement :
+    /// ils agissent sur ce qu'on leur a montré, pas sur ce que l'utilisateur regarde
+    /// au moment où ils répondent.
+    MoveThreadToFolder(ThreadId, String),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
@@ -245,6 +249,17 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             Ok(true)
         }
         Request::ClearMarks => Ok(vm.clear_marks()),
+        Request::MoveThreadToFolder(fil, chemin) => {
+            let maintenant = Timestamp::from_millis(now_millis());
+            if !actions.move_to_folder(fil, &chemin, maintenant)? {
+                return Ok(false);
+            }
+            let mut diff = ViewDiff::default();
+            diff.threads.insert(fil);
+            diff.full_refresh = true;
+            vm.apply_diff(&diff)?;
+            Ok(true)
+        }
         Request::MoveMarkedToFolder(chemin) => {
             let cibles = vm.selection().targets();
             if cibles.is_empty() {

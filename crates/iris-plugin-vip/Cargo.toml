@@ -1,0 +1,15 @@
+[package]
+name = "iris-plugin-vip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# `cdylib` pour WebAssembly, `rlib` pour que la logique se teste sur la machine de
+# développement. Sans le second, la seule façon de vérifier une décision de tri serait
+# de lancer l'application entière et de s'envoyer un message.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+iris-plugin-sdk = { path = "../iris-plugin-sdk" }

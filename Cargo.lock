@@ -3997,6 +3997,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-plugin-filer"
+version = "0.1.0"
+dependencies = [
+ "iris-plugin-sdk",
+]
+
+[[package]]
+name = "iris-plugin-office-hours"
+version = "0.1.0"
+dependencies = [
+ "iris-plugin-sdk",
+]
+
+[[package]]
+name = "iris-plugin-sdk"
+version = "0.1.0"
+
+[[package]]
+name = "iris-plugin-vip"
+version = "0.1.0"
+dependencies = [
+ "iris-plugin-sdk",
+]
+
+[[package]]
 name = "iris-plugins"
 version = "0.1.0"
 dependencies = [

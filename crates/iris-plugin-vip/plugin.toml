@@ -1,0 +1,26 @@
+id = "vip"
+name = "VIP"
+version = "1.0.0"
+description = "Mail from the people you name is starred and stays in the queue."
+author = "Iris"
+entry = "plugin.wasm"
+
+# Lire pour reconnaître l'expéditeur, écrire pour épingler et remettre à traiter.
+# Rien d'autre : ce module n'a pas besoin de savoir de quel compte vient le message,
+# et chaque permission superflue est une raison d'hésiter à l'installation.
+[permissions]
+read_mail = true
+write_mail = true
+
+[limits]
+# Quelques comparaisons de chaînes par message. Un budget serré limite les dégâts
+# d'une version future mal écrite.
+fuel_per_call = 300000
+memory_pages = 32
+
+[[settings]]
+key = "people"
+label = "People who matter"
+hint = "One address or @domain per line. Empty means the module does nothing."
+kind = "text"
+default = ""

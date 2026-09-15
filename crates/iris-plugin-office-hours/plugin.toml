@@ -1,0 +1,45 @@
+id = "office-hours"
+name = "Office hours"
+version = "1.0.0"
+description = "Mail arriving outside your working hours waits until the next working morning."
+author = "Iris"
+entry = "plugin.wasm"
+
+# Lire l'heure d'arrivée, écrire pour reporter. Ce module ne lit ni l'expéditeur ni le
+# sujet et n'a aucune raison de le faire : il ne décide rien à partir du contenu.
+[permissions]
+read_mail = true
+write_mail = true
+
+[limits]
+# Une soustraction et une boucle de sept tours. Le budget est serré exprès.
+fuel_per_call = 200000
+memory_pages = 32
+
+[[settings]]
+key = "enabled"
+label = "Defer mail outside working hours"
+hint = "Off until you turn it on: installing a module should not start moving your mail."
+kind = "toggle"
+default = "false"
+
+[[settings]]
+key = "start"
+label = "Working day starts at"
+hint = "Hour, 0-23, in UTC. Iris does not know your time zone."
+kind = "number"
+default = "8"
+
+[[settings]]
+key = "end"
+label = "Working day ends at"
+hint = "Hour, 0-23, in UTC. Must be after the start, or nothing is deferred."
+kind = "number"
+default = "18"
+
+[[settings]]
+key = "weekend"
+label = "Defer weekend mail too"
+hint = "Saturday and Sunday count as outside working hours."
+kind = "toggle"
+default = "true"

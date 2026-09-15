@@ -1,0 +1,15 @@
+[package]
+name = "iris-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Volontairement sans dépendance.
+#
+# Un plugin est compilé vers WebAssembly et tourne dans un bac à sable sans réseau,
+# sans horloge et sans système de fichiers. Presque toute caisse du registre suppose au
+# moins une des trois. Trente lignes de lecture JSON écrites ici pèsent moins qu'un
+# arbre de dépendances dont chaque nœud est une raison de plus pour un module de ne
+# plus compiler.
+[dependencies]

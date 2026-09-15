@@ -69,10 +69,26 @@ Name: "mailto"; Description: "Offer Iris for mailto: links"; \
     Description/fr: "Proposer Iris pour les liens mailto:"
 Name: "startup"; Description: "Start Iris when I sign in"; \
     Description/fr: "Démarrer Iris à l'ouverture de session"; Flags: unchecked
+; Les trois modules livrés. Cochés, parce qu'installés ils ne font rien : chacun
+; démarre sans règle, sans nom et sans horaire, et attend qu'on lui en donne.
+Name: "plugins"; Description: "Install the bundled modules (VIP, Office hours, Filer)"; \
+    Description/fr: "Installer les modules livrés (VIP, Heures de bureau, Rangement)"
 
 [Files]
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md";                DestDir: "{app}"; Flags: ignoreversion isreadme
+
+; Les trois modules livrés, dans le profil de l'utilisateur et non sous {app}.
+;
+; L'application ne lit qu'un seul dossier de modules, et c'est celui-là. Ce n'est pas
+; un raccourci : les réglages d'un module s'écrivent à côté de son manifeste, et un
+; module posé sous « Program Files » serait un module dont on ne peut pas changer les
+; réglages sur une machine où l'utilisateur n'y écrit pas.
+;
+; Ce que l'installateur a posé, la désinstallation le retire ; le fichier de réglages,
+; écrit par l'application, reste — comme le reste de ce qui appartient à l'utilisateur.
+Source: "plugins\*"; DestDir: "{userappdata}\Iris\plugins"; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: plugins
 
 [Icons]
 ; L'AppUserModelID sur le raccourci du menu Démarrer : c'est **la** ligne qui fait

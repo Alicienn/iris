@@ -175,6 +175,25 @@ impl PluginRegistry {
             })
             .collect()
     }
+
+    /// Appelle **un** plugin, avec une charge qui lui est propre.
+    ///
+    /// L'initialisation en a besoin : chaque module reçoit ses réglages, pas ceux des
+    /// autres. Renvoie une liste d'une entrée au plus, pour que l'appelant traite le
+    /// résultat comme ceux de `dispatch` — un seul chemin de journalisation.
+    pub fn dispatch_one(
+        &mut self,
+        id: &str,
+        export: &str,
+        payload: &str,
+    ) -> Vec<(String, Result<crate::CallTrace>)> {
+        match self.plugins.get_mut(id) {
+            Some(plugin) if !plugin.is_disabled() => {
+                vec![(id.to_string(), plugin.call(export, payload))]
+            }
+            _ => Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,15 @@
+[package]
+name = "iris-plugin-office-hours"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# `cdylib` pour WebAssembly, `rlib` pour que la logique se teste sur la machine de
+# développement. Le calcul du report se vérifie en une milliseconde ici ; en attendant
+# vendredi soir dans l'application, il se vérifie une fois par semaine.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+iris-plugin-sdk = { path = "../iris-plugin-sdk" }

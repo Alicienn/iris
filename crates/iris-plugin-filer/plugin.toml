@@ -1,0 +1,33 @@
+id = "filer"
+name = "Filer"
+version = "1.0.0"
+description = "Files threads into folders when the subject or an attachment name matches a rule you wrote."
+author = "Iris"
+entry = "plugin.wasm"
+
+# Lire le sujet et les noms de pièces jointes, écrire pour déplacer. Ce module ne voit
+# jamais le contenu d'une pièce jointe : savoir qu'il s'agit d'une facture suffit à la
+# ranger, et ce qu'on ne transmet pas ne peut pas fuir.
+[permissions]
+read_mail = true
+write_mail = true
+
+[limits]
+# Le coût est un produit : une recherche de sous-chaîne par règle, sur le sujet et sur
+# chaque nom de pièce jointe. Trente règles et vingt pièces jointes font six cents
+# recherches pour un seul message, et c'est le module livré le plus cher des trois.
+#
+# Un demi-million ne suffisait pas, ce que seul un essai sur le vrai WebAssembly pouvait
+# dire — un budget trop court ne se voit pas en test unitaire, il se voit le jour où
+# quelqu'un reçoit un message chargé et où le module se désactive tout seul après trois
+# échecs. Cinq millions couvrent ce cas avec de la marge, et restent la moitié de ce
+# qu'un module obtient sans rien demander.
+fuel_per_call = 5000000
+memory_pages = 32
+
+[[settings]]
+key = "rules"
+label = "Filing rules"
+hint = "One per line: pattern -> Folder. First match wins. Lines starting with # are ignored. The folder must already exist."
+kind = "text"
+default = ""
