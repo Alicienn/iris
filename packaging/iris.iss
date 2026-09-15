@@ -63,16 +63,26 @@ RestartApplications=no
 Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
 
+; Les libellés traduits passent par [CustomMessages] et « {cm:...} ». Un paramètre
+; « Description/fr » se lit très bien mais n'existe pas : Inno le refuse à la
+; compilation, et c'est la seule façon correcte d'écrire la même chose.
+[CustomMessages]
+en.TaskMailto=Offer Iris for mailto: links
+fr.TaskMailto=Proposer Iris pour les liens mailto:
+en.TaskStartup=Start Iris when I sign in
+fr.TaskStartup=Démarrer Iris à l'ouverture de session
+en.TaskPlugins=Install the bundled modules (VIP, Office hours, Filer)
+fr.TaskPlugins=Installer les modules livrés (VIP, Heures de bureau, Rangement)
+en.RegisteringMail=Registering Iris as a mail client…
+fr.RegisteringMail=Inscription d'Iris comme client de courrier…
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
-Name: "mailto"; Description: "Offer Iris for mailto: links"; \
-    Description/fr: "Proposer Iris pour les liens mailto:"
-Name: "startup"; Description: "Start Iris when I sign in"; \
-    Description/fr: "Démarrer Iris à l'ouverture de session"; Flags: unchecked
-; Les trois modules livrés. Cochés, parce qu'installés ils ne font rien : chacun
-; démarre sans règle, sans nom et sans horaire, et attend qu'on lui en donne.
-Name: "plugins"; Description: "Install the bundled modules (VIP, Office hours, Filer)"; \
-    Description/fr: "Installer les modules livrés (VIP, Heures de bureau, Rangement)"
+Name: "mailto"; Description: "{cm:TaskMailto}"
+Name: "startup"; Description: "{cm:TaskStartup}"; Flags: unchecked
+; Les trois modules livrés. Cochés, parce qu'installés ils ne font rien : aucun n'a de
+; liste, de règle ni d'interrupteur ouvert, et chacun attend qu'on lui en donne.
+Name: "plugins"; Description: "{cm:TaskPlugins}"
 
 [Files]
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -112,7 +122,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 ; écriraient les mêmes clés, et deux copies de la même vérité finissent par diverger :
 ; celle qui compte est celle que le code connaît.
 Filename: "{app}\{#AppExe}"; Parameters: "register"; \
-    StatusMsg: "Registering Iris as a mail client…"; \
+    StatusMsg: "{cm:RegisteringMail}"; \
     Flags: runhidden waituntilterminated; Tasks: mailto
 
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; \

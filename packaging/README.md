@@ -4,14 +4,29 @@
 
 ```
 cargo build --release
+powershell -File packaging\build-plugins.ps1
 iscc packaging\iris.iss
 ```
 
-The result is `packaging\output\iris-setup-0.1.0.exe`.
+The result is `packaging\output\iris-setup-0.1.0.exe`, around 16 MB.
 
-[Inno Setup 6](https://jrsoftware.org/isdl.php) provides `iscc`. Add it to `PATH`, or
-call it by its full path — the default is
-`C:\Program Files (x86)\Inno Setup 6\ISCC.exe`.
+The middle step compiles the three bundled modules to WebAssembly and lays them out
+under `packaging\plugins\<id>\` exactly as the registry reads them — one directory per
+module, manifest and binary side by side. The installer copies that tree verbatim, so
+the layout is written down in one place. It needs the wasm target:
+
+```
+rustup target add wasm32-unknown-unknown
+```
+
+Skipping the step does not break the compile; it produces an installer whose "install
+the bundled modules" box installs nothing.
+
+[Inno Setup 6](https://jrsoftware.org/isdl.php) provides `iscc`, or
+`winget install JRSoftware.InnoSetup`. Where it lands depends on how it was installed —
+`%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe` for a per-user install,
+`C:\Program Files (x86)\Inno Setup 6\ISCC.exe` for a machine-wide one. Add it to `PATH`
+or call it by its full path.
 
 ## Why there is an installer at all
 
@@ -38,12 +53,20 @@ machine is touched.
 
 ## What the uninstaller removes, and what it keeps
 
-Removed: the program, the shortcuts, the registry entries, and the cache under
-`%LOCALAPPDATA%\Iris`, which is entirely rebuildable.
+Removed: the program, the shortcuts, the registry entries, the cache under
+`%LOCALAPPDATA%\Iris`, which is entirely rebuildable, and the three module files it
+placed under `%APPDATA%\Iris\plugins`.
 
-Kept: everything under `%APPDATA%\Iris` — the database, the settings, the vault. That
-is the user's mail, not the installer's. An uninstall that takes ten years of
-correspondence with it is not forgiven.
+Kept: everything under `%APPDATA%\Iris` that the installer did not put there — the
+database, the settings, the vault, and each module's `settings.toml`, which the
+application writes and which survives a reinstall. That is the user's mail, not the
+installer's. An uninstall that takes ten years of correspondence with it is not
+forgiven.
+
+The modules go into the profile rather than next to the program on purpose: a module's
+settings are written beside its manifest, and a module under `Program Files` would be
+a module whose settings cannot be changed on a machine where the user cannot write
+there. The application reads exactly one modules directory, and that is it.
 
 ## What it does not solve
 

@@ -66,6 +66,13 @@ round: hours and days are exactly the kind of thing a plugin must ask and an app
 must not decide. And it turns background sync from something that interrupts into
 something that accumulates — which is the point of a queue.
 
+It is also the only one of the three that ships **off**. The other two are inert until
+you write something into them: an empty list of people names nobody, an empty list of
+rules files nothing. This one has plausible hours from the start, so without a switch it
+would begin taking mail out of the view on the evening it was installed. Snoozing is the
+one sorting action that removes a message before anyone has seen it, which is exactly
+the kind of thing that should wait to be asked for.
+
 ### `filer` — attachments go where attachments belong
 
 *Idea 3, sharpened.* Matches subject and attachment names against patterns and files the
@@ -90,5 +97,41 @@ cargo build --release -p iris-plugin-vip -p iris-plugin-office-hours -p iris-plu
 ```
 
 The build script `packaging/build-plugins.ps1` does that and lays out each plugin's
-directory — `plugin.toml` beside `plugin.wasm` — under `plugins/`, ready to be installed
-from Modules → Add.
+directory — `plugin.toml` beside `plugin.wasm` — under `packaging/plugins/`, ready to be
+installed from Modules → Add. The installer copies that tree into
+`%APPDATA%\Iris\plugins`, which is the one directory the application reads.
+
+## What running them actually took
+
+The host had never run a plugin compiled from Rust. Its example is hand-written
+WebAssembly, and every difference between the two turned out to be a defect — each one
+silent, which is why they had all survived:
+
+- **Reference types were switched off**, in the belief that they were shared threads.
+  Since rustc 1.82 the `wasm32-unknown-unknown` target encodes indirect calls that way,
+  so every module built from Rust was refused outright. The message named a formatting
+  routine inside `core` and said "zero byte expected", which leads nowhere.
+- **The results buffer was one slot wide.** A Rust function that returns nothing returns
+  nothing; wasmtime rejected the call before running it, with "expected 0 results, got
+  1" — a message that seems to accuse the module while describing the host.
+- **The instance was rebuilt on every call.** Whatever a module learned at `iris_init`
+  was gone by the first message. Nothing errored: the modules loaded, initialised, ran,
+  and did nothing whatsoever. This was the worst of the four, because it is invisible
+  from both sides.
+- **The SDK's case-insensitive search allocated** a lowercased copy of the haystack per
+  call, on a bump heap that never frees — six hundred copies for one message with thirty
+  rules and twenty attachments.
+
+Keeping the instance alive raises the question that the per-call instance had been
+answering by accident. A heap that never frees runs out; a module would have stopped
+being able to receive a payload after a few hundred messages, mid-afternoon, with
+nothing to explain why sorting had stopped. The SDK now exports `iris_reset`, which the
+host calls before every event and never before `iris_init`: what a module files away at
+startup stays, and what it allocates for one message leaves with it.
+
+`crates/iris-plugins/tests/livres_wasm.rs` is what found all four, and is the only thing
+that could. It loads the real compiled binaries, dispatches payloads of the shape the
+host actually composes, and pushes two thousand messages through a single instance.
+The unit tests in each crate check the decision — who matters, when the day starts,
+where an invoice goes. Everything above lives in the space between those tests and the
+running application.
