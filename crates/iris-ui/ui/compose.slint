@@ -4,30 +4,79 @@ import { Icon, Icons, IconButton } from "icons.slint";
 import { LineEdit, TextEdit, ComboBox, ListView } from "std-widgets.slint";
 
 // One labelled field of the header block.
-component Field inherits HorizontalLayout {
+component Field inherits VerticalLayout {
     in property <string> label;
     in property <string> placeholder;
     in-out property <string> value;
+    /// Les correspondants qui ressemblent à ce qu'on tape. Vide : rien ne s'affiche.
+    in property <[string]> suggestions;
 
     callback accepted();
+    callback edited(string);
+    callback picked(string);
 
-    spacing: Tokens.space-2;
-    height: 30px;
+    spacing: 2px;
 
-    Text {
-        width: 34px;
-        text: root.label;
-        font-size: Tokens.size-small;
-        color: Tokens.text-muted;
-        vertical-alignment: center;
+    HorizontalLayout {
+        spacing: Tokens.space-2;
+        height: 30px;
+
+        Text {
+            width: 34px;
+            text: root.label;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+
+        champ := LineEdit {
+            accessible-label: root.label;
+            placeholder-text: root.placeholder;
+            font-size: Tokens.size-body;
+            text <=> root.value;
+            accepted => { root.accepted(); }
+            edited(t) => { root.edited(t); }
+        }
     }
 
-    LineEdit {
-        accessible-label: root.label;
-        placeholder-text: root.placeholder;
-        font-size: Tokens.size-body;
-        text <=> root.value;
-        accepted => { root.accepted(); }
+    // Les correspondants proposés, en pastilles sous le champ.
+    //
+    // Sous le champ et non par-dessus : une liste flottante demanderait une couche
+    // au-dessus de tout, et ce fichier a déjà payé trois fois le prix de l'ordre
+    // d'empilement. Ici rien ne recouvre rien — la fenêtre grandit de vingt-quatre
+    // pixels le temps qu'on choisisse, et c'est tout.
+    if champ.has-focus && root.suggestions.length > 0: HorizontalLayout {
+        padding-left: 34px + Tokens.space-2;
+        spacing: Tokens.space-1;
+        height: 24px;
+
+        for proposition in root.suggestions: Rectangle {
+            width: etiquette.preferred-width + 2 * Tokens.space-2;
+            border-radius: Tokens.radius-small;
+            background: pastille.has-hover ? Tokens.accent : Tokens.surface;
+            border-width: 1px;
+            border-color: Tokens.border;
+            animate background { duration: Tokens.instant; }
+
+            accessible-role: button;
+            accessible-label: proposition;
+            accessible-action-default => { root.picked(proposition); }
+
+            etiquette := Text {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                text: proposition;
+                font-size: Tokens.size-small;
+                color: pastille.has-hover ? Tokens.accent-text : Tokens.text-secondary;
+                overflow: elide;
+            }
+
+            pastille := TouchArea {
+                clicked => { root.picked(proposition); }
+            }
+        }
+
+        Rectangle {}
     }
 }
 
@@ -131,6 +180,10 @@ export component ComposePanel inherits Rectangle {
     callback attach-image();
     callback remove-attachment(int);
     callback format(string);
+    /// Les correspondants proposés pour le champ en cours de saisie.
+    in property <[string]> suggestions;
+    callback recipient-typed(string, string);
+    callback recipient-picked(string, string);
 
     // The veil fades out as the window shrinks: a minimised draft must not keep the
     // rest of the application behind glass.
@@ -235,6 +288,9 @@ export component ComposePanel inherits Rectangle {
                     label: "To";
                     placeholder: "Separate addresses with commas";
                     value <=> root.to;
+                    suggestions: root.suggestions;
+                    edited(t) => { root.recipient-typed("to", t); }
+                    picked(c) => { root.recipient-picked("to", c); }
                 }
 
                 // Cc and Bcc stay folded until asked for. Most messages have neither,
@@ -267,11 +323,17 @@ export component ComposePanel inherits Rectangle {
                 label: "Cc";
                 placeholder: "Also send to";
                 value <=> root.cc;
+                suggestions: root.suggestions;
+                edited(t) => { root.recipient-typed("cc", t); }
+                picked(c) => { root.recipient-picked("cc", c); }
             }
             if !root.minimised && root.show-cc: Field {
                 label: "Bcc";
                 placeholder: "Send without showing the address";
                 value <=> root.bcc;
+                suggestions: root.suggestions;
+                edited(t) => { root.recipient-typed("bcc", t); }
+                picked(c) => { root.recipient-picked("bcc", c); }
             }
 
             if !root.minimised: Field {

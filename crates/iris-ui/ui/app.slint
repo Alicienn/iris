@@ -396,7 +396,7 @@ export component AppWindow inherits Window {
     // ouvrir le message pour pouvoir proposer de le jeter.
     callback menu-done(int);
     callback menu-archive(int);
-    callback menu-snooze(int);
+    callback menu-snooze(int, string);
     callback menu-toggle-unread(int);
     callback menu-toggle-star(int);
     callback menu-delete(int);
@@ -517,6 +517,9 @@ export component AppWindow inherits Window {
     callback compose-attach-image();
     callback compose-remove-attachment(int);
     callback compose-format(string);
+    in property <[string]> compose-suggestions;
+    callback compose-recipient-typed(string, string);
+    callback compose-recipient-picked(string, string);
 
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
@@ -871,7 +874,7 @@ export component AppWindow inherits Window {
         }
         mark-done => { root.menu-done(root.context-menu-thread); }
         archive => { root.menu-archive(root.context-menu-thread); }
-        snooze => { root.menu-snooze(root.context-menu-thread); }
+        snooze(quand) => { root.menu-snooze(root.context-menu-thread, quand); }
         toggle-unread => { root.menu-toggle-unread(root.context-menu-thread); }
         toggle-star => { root.menu-toggle-star(root.context-menu-thread); }
         delete-thread => { root.menu-delete(root.context-menu-thread); }
@@ -902,6 +905,9 @@ export component AppWindow inherits Window {
         attach-image => { root.compose-attach-image(); }
         remove-attachment(i) => { root.compose-remove-attachment(i); }
         format(f) => { root.compose-format(f); }
+        suggestions: root.compose-suggestions;
+        recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
+        recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
         dismissed => { root.compose-open = false; }
     }
 

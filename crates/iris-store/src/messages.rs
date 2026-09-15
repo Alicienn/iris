@@ -6,7 +6,7 @@
 //! celui, fréquent, où la réponse arrive avant l'original — sur une boîte
 //! synchronisée en désordre, l'ignorer produirait deux fils là où il n'y en a qu'un.
 
-use crate::model::{NewMessage, StoredMessage};
+use crate::model::{Contact, NewMessage, StoredMessage};
 use crate::{sql_err, Store};
 use iris_types::{
     AccountId, Flags, FolderId, MessageId, Result, ThreadId, Timestamp, WorkflowState,
@@ -373,6 +373,50 @@ impl Store {
         })
     }
 
+    /// Les correspondants qui ressemblent à ce qu'on est en train de taper.
+    ///
+    /// Classés par ce qu'on a reçu d'eux, puis par récence. Un correspondant qui écrit
+    /// souvent est celui qu'on vise le plus probablement ; à volume égal, le plus
+    /// récent l'emporte, parce qu'une adresse abandonnée il y a trois ans ne doit pas
+    /// rester en tête d'une liste pour toujours.
+    ///
+    /// La recherche porte sur l'adresse **et** sur le nom : on cherche « marie » aussi
+    /// souvent qu'on cherche « @client.fr », et n'accepter que l'un des deux reviendrait
+    /// à demander de se souvenir de ce dont on ne se souvient justement pas.
+    pub fn contacts_like(&self, fragment: &str, limit: u32) -> Result<Vec<Contact>> {
+        let fragment = fragment.trim().to_lowercase();
+        if fragment.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.with_conn(|c| {
+            let motif = format!("%{}%", fragment.replace('%', "\\%").replace('_', "\\_"));
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT addr_key, display, received_count
+                     FROM contacts_seen
+                     WHERE addr_key LIKE ?1 ESCAPE '\\'
+                        OR lower(display) LIKE ?1 ESCAPE '\\'
+                     ORDER BY received_count DESC, last_seen_at DESC
+                     LIMIT ?2",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+
+            let rows = stmt
+                .query_map(params![motif, limit as i64], |r| {
+                    Ok(Contact {
+                        address: r.get(0)?,
+                        display: r.get(1)?,
+                        seen: r.get::<_, i64>(2)? as u32,
+                    })
+                })
+                .map_err(|e| sql_err("correspondants", e))?;
+
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("correspondants", e))
+        })
+    }
+
     /// Nombre de messages, tous comptes confondus. Utile aux mesures.
     pub fn message_count(&self) -> Result<u64> {
         self.with_conn(|c| {
@@ -517,6 +561,39 @@ fn insert_message_tx_deferred(tx: &Transaction<'_>, m: &NewMessage) -> Result<In
             .map_err(|e| sql_err("preparation", e))?;
         stmt.execute(params![thread.get(), m.account.get()])
             .map_err(|e| sql_err("rattachement du compte au fil", e))?;
+    }
+
+    // On retient qui écrit.
+    //
+    // La table existait depuis la première migration et personne ne l'avait jamais
+    // remplie : le champ « À » de l'éditeur n'a donc jamais rien proposé, et taper une
+    // adresse de mémoire est le plus sûr moyen de l'écrire de travers — un client de
+    // courrier qui ne connaît pas ses correspondants fait retaper cent fois par mois
+    // ce qu'il a reçu cent fois.
+    //
+    // Ici et non ailleurs : c'est le seul endroit par lequel passe tout message
+    // entrant, une fois, et l'écriture tient dans la transaction qui insère déjà.
+    if !m.from_addr.trim().is_empty() {
+        let mut stmt = tx
+            .prepare_cached(
+                "INSERT INTO contacts_seen (addr_key, display, received_count, last_seen_at)
+                 VALUES (?1, ?2, 1, ?3)
+                 ON CONFLICT(addr_key) DO UPDATE SET
+                     received_count = received_count + 1,
+                     last_seen_at   = max(last_seen_at, excluded.last_seen_at),
+                     -- Un nom vide ne doit pas effacer celui qu'on avait : la moitié
+                     -- des messages n'en portent pas, et le dernier arrivé n'est pas
+                     -- le mieux renseigné.
+                     display = CASE WHEN excluded.display <> '' THEN excluded.display
+                                    ELSE display END",
+            )
+            .map_err(|e| sql_err("preparation", e))?;
+        stmt.execute(params![
+            m.from_addr.trim().to_lowercase(),
+            m.from_name.trim(),
+            m.received.millis(),
+        ])
+        .map_err(|e| sql_err("memoire des correspondants", e))?;
     }
 
     Ok(Inserted {
@@ -736,6 +813,79 @@ mod tests {
                 preview: format!("aperçu {id}"),
             }
         }
+    }
+
+    #[test]
+    fn les_correspondants_s_apprennent_du_courrier_recu() {
+        // La table existait depuis la première migration et personne ne l'avait jamais
+        // remplie : le champ « À » de l'éditeur ne proposait donc rien, et il fallait
+        // retaper de mémoire des adresses reçues cent fois.
+        let f = fixture();
+        f.store.insert_message(&f.msg("un@x", 1000)).unwrap();
+        f.store.insert_message(&f.msg("deux@x", 2000)).unwrap();
+
+        let trouves = f.store.contacts_like("mar", 10).unwrap();
+        assert_eq!(trouves.len(), 1, "une seule adresse, vue deux fois");
+        assert_eq!(trouves[0].address, "marie@example.com");
+        assert_eq!(trouves[0].display, "Marie");
+        assert_eq!(trouves[0].seen, 2);
+        assert_eq!(trouves[0].to_header(), "Marie <marie@example.com>");
+    }
+
+    #[test]
+    fn on_cherche_un_correspondant_par_son_nom_autant_que_par_son_adresse() {
+        // On se souvient de « Marie » bien plus souvent que de « m.durand@… », et
+        // n'accepter que l'adresse reviendrait à demander ce dont on ne se souvient
+        // justement pas.
+        let f = fixture();
+        let mut m = f.msg("x@x", 1000);
+        m.from_name = "Marie Durand".into();
+        m.from_addr = "m.durand@client.fr".into();
+        f.store.insert_message(&m).unwrap();
+
+        assert_eq!(f.store.contacts_like("durand", 10).unwrap().len(), 1);
+        assert_eq!(f.store.contacts_like("client.fr", 10).unwrap().len(), 1);
+        assert_eq!(f.store.contacts_like("inconnu", 10).unwrap().len(), 0);
+        assert!(
+            f.store.contacts_like("  ", 10).unwrap().is_empty(),
+            "un champ vide ne propose pas tout le carnet"
+        );
+    }
+
+    #[test]
+    fn le_plus_frequent_vient_en_premier() {
+        let f = fixture();
+        for i in 0..3 {
+            let mut m = f.msg(&format!("a{i}@x"), 1000 + i);
+            m.from_addr = "souvent@x.fr".into();
+            m.from_name = "Souvent".into();
+            f.store.insert_message(&m).unwrap();
+        }
+        let mut rare = f.msg("b@x", 9000);
+        rare.from_addr = "rare@x.fr".into();
+        rare.from_name = "Rare".into();
+        f.store.insert_message(&rare).unwrap();
+
+        let trouves = f.store.contacts_like("x.fr", 10).unwrap();
+        assert_eq!(trouves[0].address, "souvent@x.fr");
+        assert_eq!(
+            trouves[1].address, "rare@x.fr",
+            "plus récent, mais vu une fois"
+        );
+    }
+
+    #[test]
+    fn un_nom_vide_n_efface_pas_celui_qu_on_avait() {
+        // La moitié des messages n'en portent pas, et le dernier arrivé n'est pas le
+        // mieux renseigné.
+        let f = fixture();
+        f.store.insert_message(&f.msg("un@x", 1000)).unwrap();
+
+        let mut anonyme = f.msg("deux@x", 2000);
+        anonyme.from_name = String::new();
+        f.store.insert_message(&anonyme).unwrap();
+
+        assert_eq!(f.store.contacts_like("marie", 10).unwrap()[0].display, "Marie");
     }
 
     #[test]

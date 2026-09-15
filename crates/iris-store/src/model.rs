@@ -372,6 +372,31 @@ pub struct PendingOp {
     pub last_error: Option<String>,
 }
 
+/// Quelqu'un à qui on a déjà eu affaire.
+///
+/// La seule mémoire que l'application garde des gens, et elle est faite d'un compte et
+/// d'une date : rien d'inféré, rien de deviné, seulement ce qui est arrivé.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Contact {
+    /// L'adresse, en minuscules — c'est la clé.
+    pub address: String,
+    /// Le nom affiché la dernière fois qu'il en portait un. Souvent vide.
+    pub display: String,
+    /// Combien de messages reçus. Sert à classer, pas à juger.
+    pub seen: u32,
+}
+
+impl Contact {
+    /// Ce qu'on écrit dans un champ de destinataire.
+    pub fn to_header(&self) -> String {
+        if self.display.trim().is_empty() {
+            self.address.clone()
+        } else {
+            format!("{} <{}>", self.display.trim(), self.address)
+        }
+    }
+}
+
 /// Un message tel que relu du store, pour l'affichage d'un fil.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredMessage {

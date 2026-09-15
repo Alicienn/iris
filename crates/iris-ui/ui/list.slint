@@ -331,7 +331,7 @@ export component ThreadContextMenu inherits Rectangle {
     callback open-thread();
     callback mark-done();
     callback archive();
-    callback snooze();
+    callback snooze(string);
     callback toggle-unread();
     callback toggle-star();
     callback delete-thread();
@@ -389,11 +389,28 @@ export component ThreadContextMenu inherits Rectangle {
                 shortcut: "A";
                 activated => { root.archive(); root.dismissed(); }
             }
+            // Trois échéances plutôt qu'une.
+            //
+            // « Demain » était la seule, figée à vingt-quatre heures dans le code — donc
+            // un message reporté à vingt-trois heures revenait à vingt-trois heures le
+            // lendemain, au moment précis où l'on ne veut pas de courrier. Les trois
+            // choix couvrent ce que reporter veut dire en pratique : plus tard
+            // aujourd'hui, demain matin, la semaine prochaine.
             MenuEntry {
                 icon: Icons.clock;
-                label: "Snooze until tomorrow";
+                label: "Snooze until this evening";
+                activated => { root.snooze("evening"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Snooze until tomorrow morning";
                 shortcut: "S";
-                activated => { root.snooze(); root.dismissed(); }
+                activated => { root.snooze("tomorrow"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Snooze until Monday";
+                activated => { root.snooze("monday"); root.dismissed(); }
             }
 
             MenuSeparator {}

@@ -487,10 +487,10 @@ pub fn wire_callbacks(
     }
     {
         let c = Arc::clone(&controller);
-        fenetre.on_menu_snooze(move |id| {
+        fenetre.on_menu_snooze(move |id, quand| {
             c.send(Request::ApplyTo(
                 fil(id),
-                iris_viewmodel::Action::SnoozeHours(24),
+                iris_viewmodel::Action::SnoozeHours(heures_de_report(&quand, now())),
             ))
         });
     }
@@ -1236,6 +1236,68 @@ impl BodyLoader {
     /// Oublie la dernière demande, pour autoriser un nouvel essai.
     pub fn reset(&self) {
         *self.demande.lock().expect("téléchargement empoisonné") = None;
+    }
+}
+
+/// Combien d'heures pour une échéance nommée.
+///
+/// « Demain » valait vingt-quatre heures, écrites en dur. Un message reporté à vingt-
+/// trois heures revenait donc à vingt-trois heures le lendemain — au moment précis où
+/// l'on ne veut pas de courrier. Une échéance se compte jusqu'à une heure du jour, pas
+/// en durée depuis maintenant.
+///
+/// En temps universel, comme tout le reste de l'application : elle ne connaît aucun
+/// fuseau, et en inventer un ici serait pire que de s'en passer.
+fn heures_de_report(quand: &str, maintenant: iris_types::Timestamp) -> u32 {
+    const MATIN: i64 = 8;
+    const SOIR: i64 = 18;
+
+    let heure = maintenant.seconds().rem_euclid(86_400) / 3600;
+    // Le 1er janvier 1970 était un jeudi, ce qui met le décalage à 3.
+    let jour = (maintenant.seconds().div_euclid(86_400) + 3).rem_euclid(7);
+
+    let heures = match quand {
+        // Ce soir, si le soir est encore devant. Sinon demain matin : proposer une
+        // échéance déjà passée ferait revenir le message aussitôt.
+        "evening" if heure < SOIR => SOIR - heure,
+        "evening" => 24 - heure + MATIN,
+        // Lundi matin. Un lundi, c'est le lundi **suivant** : reporter à aujourd'hui
+        // n'est pas reporter.
+        "monday" => {
+            let jours = ((7 - jour) % 7).max(if jour == 0 { 7 } else { 0 });
+            let jours = if jours == 0 { 7 } else { jours };
+            jours * 24 - heure + MATIN
+        }
+        // Demain matin.
+        _ => 24 - heure + MATIN,
+    };
+
+    // Au moins une heure : une échéance à zéro serait un report qui n'en est pas un.
+    heures.max(1) as u32
+}
+
+/// Le destinataire en cours de frappe : ce qui suit la dernière virgule.
+///
+/// Un champ « À » contient « marie@x.fr, l » et c'est « l » qu'on cherche à compléter.
+/// Chercher sur la chaîne entière ne proposerait jamais rien dès le second
+/// destinataire.
+fn dernier_destinataire(champ: &str) -> String {
+    champ
+        .rsplit(',')
+        .next()
+        .unwrap_or(champ)
+        .trim()
+        .to_string()
+}
+
+/// Remplace le dernier destinataire par celui qu'on vient de choisir.
+///
+/// La virgule finale n'est pas de la coquetterie : elle dit que le champ attend la
+/// suite, et évite d'avoir à la taper avant de continuer.
+fn remplace_dernier_destinataire(champ: &str, choix: &str) -> String {
+    match champ.rfind(',') {
+        Some(i) => format!("{}, {choix}, ", champ[..i].trim_end_matches([',', ' '])),
+        None => format!("{choix}, "),
     }
 }
 
@@ -3330,6 +3392,60 @@ pub fn wire_compose(
         });
     }
 
+    // --- Les correspondants déjà rencontrés ---
+    //
+    // La table qui les garde existait depuis la première migration et n'avait jamais
+    // été remplie : le champ « À » ne proposait donc rien, et retaper de mémoire une
+    // adresse reçue cent fois est le plus sûr moyen de l'écrire de travers.
+    {
+        let store = Arc::clone(&services.store);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_recipient_typed(move |_champ, texte| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // Seul le dernier fragment compte : un champ contient « marie@x, l » et
+            // c'est « l » qu'on est en train de taper.
+            let fragment = dernier_destinataire(&texte);
+            let propositions = if fragment.chars().count() < 2 {
+                // À une lettre, tout ressemble à tout. Proposer quarante adresses
+                // n'aide personne et cache le champ derrière ses propres suggestions.
+                Vec::new()
+            } else {
+                store
+                    .contacts_like(&fragment, 4)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|c| slint::SharedString::from(c.to_header()))
+                    .collect()
+            };
+            fenetre.set_compose_suggestions(ModelRc::new(VecModel::from(propositions)));
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_recipient_picked(move |champ, choix| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let actuel = match champ.as_str() {
+                "cc" => fenetre.get_compose_cc().to_string(),
+                "bcc" => fenetre.get_compose_bcc().to_string(),
+                _ => fenetre.get_compose_to().to_string(),
+            };
+
+            let complete = remplace_dernier_destinataire(&actuel, &choix);
+            match champ.as_str() {
+                "cc" => fenetre.set_compose_cc(complete.into()),
+                "bcc" => fenetre.set_compose_bcc(complete.into()),
+                _ => fenetre.set_compose_to(complete.into()),
+            }
+            fenetre.set_compose_suggestions(ModelRc::new(VecModel::from(Vec::<
+                slint::SharedString,
+            >::new())));
+        });
+    }
+
     // --- Attaching ---
     {
         let pieces = Arc::clone(&pieces);
@@ -3853,6 +3969,85 @@ mod tests {
             preview: "aperçu".into(),
             body_blob: None,
         }
+    }
+
+    /// Un instant à une heure donnée d'un jour donné. Jour 0 = jeudi 1er janvier 1970.
+    fn instant(jour: i64, heure: i64) -> iris_types::Timestamp {
+        iris_types::Timestamp::from_millis((jour * 86_400 + heure * 3600) * 1000)
+    }
+
+    #[test]
+    fn un_report_vise_une_heure_du_jour_pas_une_duree() {
+        // « Demain » valait vingt-quatre heures écrites en dur : un message reporté à
+        // vingt-trois heures revenait à vingt-trois heures, au moment précis où l'on ne
+        // veut pas de courrier.
+        //
+        // Jour 4 = lundi (le 1er janvier 1970 était un jeudi).
+        assert_eq!(heures_de_report("tomorrow", instant(4, 23)), 9, "23 h → 8 h");
+        assert_eq!(heures_de_report("tomorrow", instant(4, 10)), 22);
+    }
+
+    #[test]
+    fn ce_soir_bascule_a_demain_une_fois_le_soir_passe() {
+        // Proposer une échéance déjà passée ferait revenir le message aussitôt.
+        assert_eq!(heures_de_report("evening", instant(4, 10)), 8, "10 h → 18 h");
+        assert_eq!(heures_de_report("evening", instant(4, 20)), 12, "20 h → 8 h");
+    }
+
+    #[test]
+    fn lundi_veut_dire_le_lundi_suivant() {
+        // Un lundi, reporter « à lundi » et retomber sur aujourd'hui ne serait pas
+        // reporter.
+        let vendredi = instant(1, 10); // jour 1 = vendredi
+        assert_eq!(heures_de_report("monday", vendredi), 3 * 24 - 10 + 8);
+
+        let lundi = instant(4, 10);
+        assert_eq!(heures_de_report("monday", lundi), 7 * 24 - 10 + 8);
+    }
+
+    #[test]
+    fn un_report_ne_vaut_jamais_zero() {
+        // Une échéance nulle serait un report qui n'en est pas un, et le fil
+        // reviendrait au premier passage du planificateur.
+        for jour in 0..7 {
+            for heure in 0..24 {
+                for quand in ["evening", "tomorrow", "monday"] {
+                    assert!(
+                        heures_de_report(quand, instant(jour, heure)) >= 1,
+                        "{quand} à {heure} h, jour {jour}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn on_complete_le_destinataire_en_cours_pas_toute_la_ligne() {
+        // Un champ « À » contient « marie@x.fr, l » et c'est « l » qu'on tape. Chercher
+        // sur la chaîne entière ne proposerait plus rien dès le second destinataire.
+        assert_eq!(dernier_destinataire("l"), "l");
+        assert_eq!(dernier_destinataire("marie@x.fr, l"), "l");
+        assert_eq!(dernier_destinataire("marie@x.fr,  luc"), "luc");
+        assert_eq!(dernier_destinataire("marie@x.fr, "), "");
+    }
+
+    #[test]
+    fn choisir_un_correspondant_ne_touche_pas_aux_precedents() {
+        // Le geste doit ajouter, jamais remplacer : quelqu'un qui a déjà saisi trois
+        // adresses et en complète une quatrième ne s'attend pas à en perdre trois.
+        assert_eq!(
+            remplace_dernier_destinataire("mar", "Marie <marie@x.fr>"),
+            "Marie <marie@x.fr>, "
+        );
+        assert_eq!(
+            remplace_dernier_destinataire("luc@x.fr, mar", "Marie <marie@x.fr>"),
+            "luc@x.fr, Marie <marie@x.fr>, "
+        );
+        // Le champ finit par une virgule : on n'en ajoute pas une seconde.
+        assert_eq!(
+            remplace_dernier_destinataire("luc@x.fr, ", "Marie <marie@x.fr>"),
+            "luc@x.fr, Marie <marie@x.fr>, "
+        );
     }
 
     #[test]
