@@ -515,6 +515,38 @@ fn les_champs_de_l_ecran_d_ajout_sont_nommes() {
     assert!(par_libelle(&f, "Password").is_some());
 }
 
+// --- La confirmation qui passe ---
+
+fn aucune_confirmation_tant_qu_il_n_y_a_rien_a_confirmer() {
+    // Une bulle vide reste une bulle : elle prendrait la place et le regard.
+    let f = fenetre();
+    assert!(
+        par_libelle(&f, "contact@example.com added and working.").is_none(),
+        "rien ne doit flotter sur une fenêtre au repos"
+    );
+}
+
+fn une_confirmation_est_lisible_par_dessus_l_application() {
+    let f = fenetre();
+    f.set_toast("contact@example.com added and working.".into());
+
+    assert!(
+        textes(&f).contains(&"contact@example.com added and working.".to_string()),
+        "la confirmation doit être affichée, pas seulement rangée dans une propriété"
+    );
+}
+
+fn la_confirmation_survit_a_la_fermeture_de_l_ecran_d_ajout() {
+    // C'est tout son intérêt : le panneau se ferme au moment où le compte est
+    // accepté, et ce qui reste à l'écran doit dire pourquoi il s'est fermé.
+    let f = fenetre();
+    f.set_add_account_open(true);
+    f.set_toast("contact@example.com added and working.".into());
+    f.set_add_account_open(false);
+
+    assert!(textes(&f).contains(&"contact@example.com added and working.".to_string()));
+}
+
 // --- The modules screen ---
 
 fn rule(id: &str, name: &str, enabled: bool, applied: i32) -> RuleRowData {
@@ -1007,7 +1039,41 @@ fn message(id: i32, de: &str, deplie: bool) -> MessageData {
         has_tracker: false,
         body_is_image: false,
         body_image: slint::Image::default(),
+        body_loading: false,
     }
+}
+
+fn un_corps_qui_n_est_pas_encore_arrive_le_dit() {
+    // C'était le seul écran que l'application n'a pas le droit de produire : un
+    // panneau blanc qui ne distingue pas « ça charge » de « il n'y a rien ».
+    let f = fenetre();
+    f.set_conversation_empty(false);
+
+    let mut attendu = message(1, "Huile Direct", true);
+    attendu.body_loading = true;
+    f.set_messages(modele(vec![attendu]));
+
+    assert!(
+        textes(&f).iter().any(|t| t.contains("Loading")),
+        "l'attente doit être annoncée, en toutes lettres"
+    );
+}
+
+fn un_corps_arrive_mais_vide_le_dit_aussi() {
+    // L'autre moitié du même défaut : le corps est là et ne donne rien à lire.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_messages(modele(vec![message(1, "Huile Direct", true)]));
+
+    let vus = textes(&f);
+    assert!(
+        vus.iter().any(|t| t.contains("nothing to display")),
+        "un corps vide doit se dire : {vus:?}"
+    );
+    assert!(
+        !vus.iter().any(|t| t.contains("Loading")),
+        "et ne doit pas prétendre attendre"
+    );
 }
 
 fn un_fil_montre_tous_ses_messages() {
@@ -1652,6 +1718,14 @@ fn main() {
             beaucoup_de_pieces_jointes_sont_comptees_pas_empilees as fn(),
         ),
         (
+            "un_corps_qui_n_est_pas_encore_arrive_le_dit",
+            un_corps_qui_n_est_pas_encore_arrive_le_dit as fn(),
+        ),
+        (
+            "un_corps_arrive_mais_vide_le_dit_aussi",
+            un_corps_arrive_mais_vide_le_dit_aussi as fn(),
+        ),
+        (
             "un_fil_montre_tous_ses_messages",
             un_fil_montre_tous_ses_messages as fn(),
         ),
@@ -1670,6 +1744,18 @@ fn main() {
         (
             "le_compte_choisi_est_celui_qui_est_allume",
             le_compte_choisi_est_celui_qui_est_allume as fn(),
+        ),
+        (
+            "aucune_confirmation_tant_qu_il_n_y_a_rien_a_confirmer",
+            aucune_confirmation_tant_qu_il_n_y_a_rien_a_confirmer as fn(),
+        ),
+        (
+            "une_confirmation_est_lisible_par_dessus_l_application",
+            une_confirmation_est_lisible_par_dessus_l_application as fn(),
+        ),
+        (
+            "la_confirmation_survit_a_la_fermeture_de_l_ecran_d_ajout",
+            la_confirmation_survit_a_la_fermeture_de_l_ecran_d_ajout as fn(),
         ),
         (
             "la_version_est_toujours_affichee",

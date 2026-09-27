@@ -162,7 +162,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 // une icône et le mot « image ».
                 picture: pixels
                     .as_ref()
-                    .and_then(|p| body_image(p.width, p.height, &p.rgba))
+                    .and_then(|p| image_incrustee(p.width, p.height, &p.rgba))
                     .unwrap_or_default(),
                 has_picture: pixels.is_some(),
             },
@@ -189,36 +189,86 @@ fn join(spans: &[iris_htmlview::Inline]) -> String {
     spans.iter().map(|s| s.text.as_str()).collect()
 }
 
-/// Convertit une image rendue en image affichable.
+/// Une image que le message transportait lui-meme, prete a dessiner.
 ///
-/// La copie est inevitable — les deux cotes possedent leur tampon — mais elle a lieu
-/// une fois par message ouvert, jamais par frame.
-pub fn body_image(width: u32, height: u32, rgba: &[u8]) -> Option<Image> {
+/// La copie demeure ici, et c'est normal : ces pixels-la appartiennent au bloc de
+/// texte riche qui les porte, et ils pesent quelques kilo-octets — un logo de
+/// signature, une pastille. Ce qui a ete supprime est la copie de l'autre image,
+/// celle du corps entier, qui se compte en dizaines de megaoctets.
+fn image_incrustee(width: u32, height: u32, rgba: &[u8]) -> Option<Image> {
     let attendu = (width as usize) * (height as usize) * 4;
     if rgba.len() != attendu || attendu == 0 {
         // Une image mal dimensionnee vaut mieux refusee qu'affichee de travers.
         return None;
     }
-    let tampon = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(rgba, width, height);
-    Some(Image::from_rgba8(tampon))
+    Some(Image::from_rgba8(
+        SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(rgba, width, height),
+    ))
+}
+
+/// Le tampon que le moteur de rendu remplit : celui de l'interface, directement.
+///
+/// La copie « inevitable » ne l'etait pas. Le moteur ecrivait dans un tampon a lui,
+/// que l'interface recopiait ensuite dans le sien : deux fois la meme image en
+/// memoire, et pour une infolettre longue affichee large, cinquante-huit megaoctets
+/// payes deux fois, au moment precis ou l'on ouvre un message. Le moteur reclame
+/// desormais ce tampon-ci une fois la hauteur connue, et peint dedans.
+#[derive(Default)]
+pub struct ImageSink {
+    tampon: Option<SharedPixelBuffer<Rgba8Pixel>>,
+}
+
+impl std::fmt::Debug for ImageSink {
+    /// Sans les pixels : un `dbg!` sur un rendu ne doit pas cracher un megaoctet.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageSink")
+            .field(
+                "taille",
+                &self.tampon.as_ref().map(|t| (t.width(), t.height())),
+            )
+            .finish()
+    }
+}
+
+impl ImageSink {
+    /// L'image peinte, si elle a bien la taille que le rendu annonce.
+    ///
+    /// La verification reste : un tampon d'une taille et un rendu d'une autre
+    /// signifient qu'un moteur s'est trompe, et une image affichee de travers est
+    /// pire qu'une absence d'image.
+    pub fn image(self, width: u32, height: u32) -> Option<Image> {
+        let tampon = self.tampon?;
+        if tampon.width() != width || tampon.height() != height || width == 0 || height == 0 {
+            return None;
+        }
+        Some(Image::from_rgba8(tampon))
+    }
+}
+
+impl iris_htmlview::PixelSink for ImageSink {
+    fn rgba(&mut self, width: u32, height: u32) -> &mut [u8] {
+        self.tampon
+            .insert(SharedPixelBuffer::new(width, height))
+            .make_mut_bytes()
+    }
 }
 
 /// Compose la vue d'un message a partir d'un rendu, quelle qu'en soit la forme.
+///
+/// `pixels` est le tampon prete au moteur : s'il a compose une image, elle est
+/// dedans, et personne ne la recopie pour la lui prendre.
 pub fn message_view_rendered(
     message: &StoredMessage,
     rendered: &Rendered,
+    pixels: ImageSink,
     attachments: &[AttachmentData],
     now: Timestamp,
 ) -> MessageData {
     match rendered {
         Rendered::Blocks(blocs) => message_view(message, blocs, attachments, now),
-        Rendered::Texture {
-            width,
-            height,
-            rgba,
-        } => {
+        Rendered::Texture { width, height } => {
             let mut vue = message_view(message, &RichText::default(), attachments, now);
-            if let Some(image) = body_image(*width, *height, rgba) {
+            if let Some(image) = pixels.image(*width, *height) {
                 vue.body_image = image;
                 vue.body_is_image = true;
             }
@@ -238,6 +288,7 @@ pub fn message_view(
         // Sans rendu par image, ces deux champs restent inertes.
         body_image: Image::default(),
         body_is_image: false,
+        body_loading: false,
         from: if message.from_name.trim().is_empty() {
             message.from_addr.as_str().into()
         } else {
@@ -270,6 +321,7 @@ pub fn message_header(message: &StoredMessage, now: Timestamp) -> MessageData {
     MessageData {
         body_image: Image::default(),
         body_is_image: false,
+        body_loading: false,
         from: if message.from_name.trim().is_empty() {
             message.from_addr.as_str().into()
         } else {
@@ -587,9 +639,13 @@ mod tests {
         let rendu = Rendered::Texture {
             width: 4,
             height: 2,
-            rgba: vec![0u8; 4 * 2 * 4],
         };
-        let vue = message_view_rendered(&message, &rendu, &[], now());
+        let mut pixels = ImageSink::default();
+        {
+            use iris_htmlview::PixelSink;
+            pixels.rgba(4, 2);
+        }
+        let vue = message_view_rendered(&message, &rendu, pixels, &[], now());
 
         assert!(vue.body_is_image);
         assert_eq!(vue.body_image.size().width, 4);
@@ -598,8 +654,18 @@ mod tests {
     #[test]
     fn une_image_mal_dimensionnee_est_refusee() {
         // Mieux vaut retomber sur les blocs qu'afficher une image de travers.
-        assert!(body_image(4, 2, &[0u8; 3]).is_none());
-        assert!(body_image(0, 0, &[]).is_none());
+        use iris_htmlview::PixelSink;
+
+        let mut pixels = ImageSink::default();
+        pixels.rgba(4, 2);
+        // Le rendu annonce une taille que le tampon n'a pas.
+        assert!(pixels.image(8, 2).is_none());
+
+        assert!(ImageSink::default().image(4, 2).is_none(), "aucun tampon");
+
+        let mut vide = ImageSink::default();
+        vide.rgba(0, 0);
+        assert!(vide.image(0, 0).is_none());
     }
 
     #[test]
@@ -622,7 +688,13 @@ mod tests {
             body_blob: None,
         };
         let vue =
-            message_view_rendered(&message, &Rendered::Blocks(RichText::default()), &[], now());
+            message_view_rendered(
+                &message,
+                &Rendered::Blocks(RichText::default()),
+                ImageSink::default(),
+                &[],
+                now(),
+            );
         assert!(!vue.body_is_image);
     }
 

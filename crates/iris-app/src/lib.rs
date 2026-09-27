@@ -12,6 +12,7 @@ pub mod draft;
 pub mod modules;
 pub mod folders;
 pub mod logging;
+pub mod memory;
 pub mod oauth;
 pub mod notify;
 pub mod paths;

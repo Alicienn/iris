@@ -21,6 +21,7 @@ import { SignaturePanel } from "signature.slint";
 import { SourcePanel } from "source.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
+import { Toast } from "toast.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -285,6 +286,11 @@ export component AppWindow inherits Window {
     in property <bool> syncing;
     in property <int> pending-ops;
     in-out property <string> status;
+    /// La confirmation qui passe, au-dessus de tout le reste. Vide, il n'y en a pas.
+    ///
+    /// Elle double la barre d'état pour les quelques faits qu'on ne peut pas se
+    /// permettre de manquer — un compte accepté par son serveur, par exemple.
+    in-out property <string> toast;
     /// Le numéro de version, affiché en permanence en bas à gauche.
     in property <string> version;
     in property <string> vitals;
@@ -1052,6 +1058,15 @@ export component AppWindow inherits Window {
             root.command-invoked(id);
         }
         dismissed => { root.palette-open = false; }
+    }
+
+    // En dernier : une confirmation recouverte par ce qu'elle confirme ne confirme
+    // rien.
+    if root.toast != "": Toast {
+        width: 100%;
+        height: 100%;
+        message: root.toast;
+        dismissed => { root.toast = ""; }
     }
 
     // Toutes les touches passent par Rust : les raccourcis sont des données, pas du

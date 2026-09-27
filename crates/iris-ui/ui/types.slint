@@ -90,6 +90,11 @@ export struct MessageData {
     expanded: bool,
     // Une ligne de texte, quand il est replié.
     preview: string,
+    // Le corps n'est pas encore là.
+    //
+    // Distinct d'un corps vide : l'un attend le serveur, l'autre n'a rien à montrer,
+    // et les deux donnaient le même écran blanc.
+    body-loading: bool,
 }
 
 export struct CommandData {

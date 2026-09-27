@@ -36,11 +36,10 @@ pub enum Rendered {
     /// Une suite de blocs, dessinés par l'interface elle-même.
     Blocks(RichText),
     /// Une image déjà composée, à afficher telle quelle.
-    Texture {
-        width: u32,
-        height: u32,
-        rgba: Vec<u8>,
-    },
+    ///
+    /// Les pixels ne sont pas ici : ils sont dans le tampon que l'appelant a fourni
+    /// (voir [`PixelSink`]). Ce qui reste est ce qu'il faut pour les lire.
+    Texture { width: u32, height: u32 },
 }
 
 impl Rendered {
@@ -52,6 +51,36 @@ impl Rendered {
     }
 }
 
+/// Où un moteur dépose ses pixels.
+///
+/// Le moteur écrivait dans un `Vec` à lui, que l'interface recopiait ensuite dans le
+/// sien : une image de message existait donc deux fois en mémoire, et pour un long
+/// message affiché large cela faisait cinquante-huit mégaoctets payés deux fois. La
+/// mise en page décide de la hauteur, donc l'appelant ne peut pas réserver le tampon
+/// d'avance ; il prête celui-ci **quand la taille est connue**, et le moteur peint
+/// dedans. Rien n'est recopié.
+pub trait PixelSink {
+    /// Réserve un tampon RGBA de `width × height` pixels et le prête à remplir.
+    ///
+    /// Le moteur est en droit d'attendre exactement `width * height * 4` octets.
+    fn rgba(&mut self, width: u32, height: u32) -> &mut [u8];
+}
+
+/// Le tampon de ceux qui n'en ont pas.
+///
+/// Les tests, et tout appelant qui veut simplement les octets. L'interface, elle,
+/// fournit le sien, qui est déjà celui qu'elle affichera.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct VecSink(pub Vec<u8>);
+
+impl PixelSink for VecSink {
+    fn rgba(&mut self, width: u32, height: u32) -> &mut [u8] {
+        self.0
+            .resize((width as usize) * (height as usize) * 4, 0);
+        &mut self.0
+    }
+}
+
 /// Un moteur de rendu de corps de message.
 pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
     /// Rend un corps **déjà assaini**.
@@ -59,7 +88,11 @@ pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
     /// L'assainissement n'est pas la responsabilité du moteur : il a lieu une fois, à
     /// l'analyse, et un moteur qui recevrait du HTML brut pourrait exécuter ce que
     /// l'assainissement aurait retiré.
-    fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered>;
+    ///
+    /// `pixels` n'est sollicité que par un moteur qui compose une image, et seulement
+    /// une fois la hauteur connue. Un moteur qui rend des blocs n'y touche jamais.
+    fn render(&self, sanitized_html: &str, width: f32, pixels: &mut dyn PixelSink)
+        -> Result<Rendered>;
 
     /// Le même rendu, en autorisant les ressources distantes.
     ///
@@ -67,8 +100,14 @@ pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
     /// qu'une signature modifiée partout : la quasi-totalité des moteurs n'ont pas de
     /// ressources à aller chercher, et leur imposer un argument qu'ils ignorent
     /// n'apprend rien à personne. Le défaut est le blocage, comme il se doit.
-    fn render_with(&self, sanitized_html: &str, width: f32, _allow_remote: bool) -> Result<Rendered> {
-        self.render(sanitized_html, width)
+    fn render_with(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        _allow_remote: bool,
+        pixels: &mut dyn PixelSink,
+    ) -> Result<Rendered> {
+        self.render(sanitized_html, width, pixels)
     }
 
     /// Nom du moteur, pour le diagnostic et les réglages.
@@ -137,8 +176,13 @@ impl AdaptiveRenderer {
 }
 
 impl HtmlRenderer for AdaptiveRenderer {
-    fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered> {
-        self.render_with(sanitized_html, width, false)
+    fn render(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        pixels: &mut dyn PixelSink,
+    ) -> Result<Rendered> {
+        self.render_with(sanitized_html, width, false, pixels)
     }
 
     fn render_with(
@@ -146,6 +190,7 @@ impl HtmlRenderer for AdaptiveRenderer {
         sanitized_html: &str,
         width: f32,
         allow_remote: bool,
+        pixels: &mut dyn PixelSink,
     ) -> Result<Rendered> {
         match &self.complete {
             // A message whose images the reader has asked to see goes to the full
@@ -155,15 +200,15 @@ impl HtmlRenderer for AdaptiveRenderer {
             Some(moteur) if allow_remote || self.needs_full_engine(sanitized_html) => {
                 // Un moteur complet peut échouer sur du HTML tordu ; le repli sur le
                 // texte riche vaut toujours mieux qu'un panneau vide.
-                match moteur.render_with(sanitized_html, width, allow_remote) {
+                match moteur.render_with(sanitized_html, width, allow_remote, pixels) {
                     Ok(r) => Ok(r),
                     Err(e) => {
                         tracing::warn!(error = %e, "moteur complet en échec, repli sur le texte riche");
-                        self.simple.render(sanitized_html, width)
+                        self.simple.render(sanitized_html, width, pixels)
                     }
                 }
             }
-            _ => self.simple.render(sanitized_html, width),
+            _ => self.simple.render(sanitized_html, width, pixels),
         }
     }
 
@@ -225,14 +270,21 @@ mod tests {
     }
 
     impl HtmlRenderer for MoteurComplet {
-        fn render(&self, _html: &str, _width: f32) -> Result<Rendered> {
+        fn render(
+            &self,
+            _html: &str,
+            _width: f32,
+            pixels: &mut dyn PixelSink,
+        ) -> Result<Rendered> {
             if self.echoue {
                 return Err(iris_types::Error::other("moteur en panne"));
             }
+            // Comme le vrai : la taille est décidée ici, et le tampon réclamé à ce
+            // moment-là seulement.
+            pixels.rgba(8, 4);
             Ok(Rendered::Texture {
-                width: 800,
-                height: 600,
-                rgba: vec![0; 4],
+                width: 8,
+                height: 4,
             })
         }
         fn name(&self) -> &'static str {
@@ -254,7 +306,10 @@ mod tests {
         let r = adaptatif(false);
         let html = "<p>Bonjour,</p><p>Voici le devis demandé.</p>";
         assert!(!r.needs_full_engine(html));
-        assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
+        assert!(r.render(html, 800.0, &mut VecSink::default())
+            .unwrap()
+            .as_blocks()
+            .is_some());
     }
 
     #[test]
@@ -263,7 +318,7 @@ mod tests {
         let html = "<table><tr><td><table><tr><td>Contenu</td></tr></table></td></tr></table>";
         assert!(r.needs_full_engine(html));
         assert!(matches!(
-            r.render(html, 800.0).unwrap(),
+            r.render(html, 800.0, &mut VecSink::default()).unwrap(),
             Rendered::Texture { .. }
         ));
     }
@@ -280,14 +335,20 @@ mod tests {
         // Un panneau vide serait pire qu'un rendu approximatif.
         let r = adaptatif(true);
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
-        assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
+        assert!(r.render(html, 800.0, &mut VecSink::default())
+            .unwrap()
+            .as_blocks()
+            .is_some());
     }
 
     #[test]
     fn sans_moteur_complet_tout_passe_par_le_texte_riche() {
         let r = AdaptiveRenderer::new(Box::new(RichTextRenderer));
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
-        assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
+        assert!(r.render(html, 800.0, &mut VecSink::default())
+            .unwrap()
+            .as_blocks()
+            .is_some());
         assert!(!r.is_full_fidelity());
     }
 

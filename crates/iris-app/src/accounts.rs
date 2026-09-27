@@ -8,6 +8,7 @@
 //! une par une n'est pas une expérience, c'est une punition.
 
 use iris_discover::{Auth, Discovery, RealIo, ServerConfig, Source};
+use iris_imap::{client::RustlsConnector, Connector, Credentials, Endpoint};
 use iris_secrets::{Secret, SecretKind, SecretStore};
 use iris_store::{AuthKind, NewAccount, Store};
 use iris_types::{AccountId, Error, Result, Timestamp};
@@ -85,6 +86,40 @@ pub fn parse_bulk(contents: &str) -> (Vec<BulkEntry>, Vec<String>) {
     }
 
     (entries, erreurs)
+}
+
+/// Ouvre une connexion et se présente, sans rien écrire.
+///
+/// Ce que l'écran d'ajout annonce ensuite dépend entièrement de cette réponse. Un
+/// compte créé sur la seule foi d'une découverte réussie affiche « ajouté » pour une
+/// adresse dont le mot de passe est faux : l'erreur n'apparaît qu'au premier cycle de
+/// synchronisation, ailleurs, plus tard, et sous une forme que personne ne relie à ce
+/// qui vient d'être tapé.
+///
+/// Seul l'IMAP est interrogé. C'est lui qui commande la lecture du courrier, donc
+/// l'essentiel de ce que l'utilisateur attend ; ouvrir en plus une session SMTP
+/// doublerait l'attente pour vérifier ce que beaucoup d'hébergeurs refusent de dire
+/// sans envoi réel.
+///
+/// La session est refermée proprement : un serveur qui compte les connexions ne doit
+/// pas payer nos vérifications.
+pub async fn verify_login(config: &ServerConfig, password: &str) -> Result<()> {
+    let endpoint = Endpoint {
+        host: config.imap_host.clone(),
+        port: config.imap_port,
+        tls_immediate: config.imap_transport == iris_discover::Transport::Tls,
+    };
+
+    let identifiants = Credentials::Password {
+        user: config.email.trim().to_lowercase(),
+        password: password.to_string(),
+    };
+
+    let mut connexion = RustlsConnector::new()
+        .connect(&endpoint, &identifiants)
+        .await?;
+    let _ = connexion.logout().await;
+    Ok(())
 }
 
 /// Ajoute un compte à partir de son adresse et de son mot de passe.

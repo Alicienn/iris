@@ -46,6 +46,9 @@ directories = "6"
 rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 rpassword = "7"
 tracing = "0.1"
+# La capture de pile de la décomposition mémoire. C'est la caisse dont la
+# bibliothèque standard se sert elle-même pour ses propres traces.
+backtrace = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # L'icône de la zone de notification. Windows seulement, et sans les fonctions par

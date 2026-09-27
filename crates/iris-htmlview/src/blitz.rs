@@ -89,12 +89,25 @@ impl BlitzRenderer {
         }
     }
 
-    /// Vérifie que la machine peut réellement rendre.
+    /// Vérifie que la machine peut réellement rendre, **et garde ce qu'elle a ouvert**.
     ///
     /// À appeler une fois au démarrage : mieux vaut savoir tout de suite qu'on
     /// restera en texte riche que de le découvrir à l'ouverture d'un message.
-    pub fn is_available() -> bool {
-        build_renderer(64, 64).is_some()
+    ///
+    /// La vérification ouvrait un périphérique graphique minuscule puis le jetait, et
+    /// le premier message ouvert en rouvrait un autre. Deux ouvertures pour un seul
+    /// usage : la seconde coûte huit cents millisecondes sur le fil de l'interface,
+    /// au moment précis où quelqu'un vient de cliquer sur un message. Le périphérique
+    /// de la sonde est donc conservé, et c'est lui qui rendra. Le gain en mémoire est
+    /// mince — le pilote réutilisait déjà ses réserves — mais le temps, lui, est bien
+    /// payé deux fois.
+    pub fn probe(scale: f32, dark: bool) -> Option<Self> {
+        let sonde = build_renderer(64, 64)?;
+        Some(Self {
+            renderer: Mutex::new(Some(sonde)),
+            scale: scale.clamp(0.5, 4.0),
+            dark,
+        })
     }
 }
 
@@ -107,8 +120,13 @@ fn build_renderer(width: u32, height: u32) -> Option<VelloImageRenderer> {
 }
 
 impl HtmlRenderer for BlitzRenderer {
-    fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered> {
-        self.render_with(sanitized_html, width, false)
+    fn render(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        pixels: &mut dyn crate::PixelSink,
+    ) -> Result<Rendered> {
+        self.render_with(sanitized_html, width, false, pixels)
     }
 
     fn render_with(
@@ -116,6 +134,7 @@ impl HtmlRenderer for BlitzRenderer {
         sanitized_html: &str,
         width: f32,
         allow_remote: bool,
+        pixels: &mut dyn crate::PixelSink,
     ) -> Result<Rendered> {
         let largeur = (width.round() as u32).clamp(MIN_WIDTH, MAX_WIDTH);
 
@@ -199,17 +218,28 @@ impl HtmlRenderer for BlitzRenderer {
             }
         };
 
-        let mut pixels = Vec::new();
+        // Le tampon de l'appelant, demandé maintenant : la hauteur ne se connaît
+        // qu'après la mise en page, et c'est tout l'intérêt de ne le réclamer qu'ici.
+        let tampon = pixels.rgba(largeur, hauteur);
+        let attendu = (largeur as usize) * (hauteur as usize) * 4;
+        if tampon.len() != attendu {
+            // Peindre dans un tampon plus court écrirait du blanc sur la fin de
+            // l'image, ou pire ; le dire vaut mieux que de le dessiner.
+            return Err(Error::other(format!(
+                "tampon de {} octets pour une image qui en demande {attendu}",
+                tampon.len()
+            )));
+        }
+
         let echelle = self.scale as f64;
-        rendeur.render_to_vec(
+        rendeur.render(
             |scene| paint_scene(scene, &document, echelle, largeur, hauteur),
-            &mut pixels,
+            tampon,
         );
 
         Ok(Rendered::Texture {
             width: largeur,
             height: hauteur,
-            rgba: pixels,
         })
     }
 
@@ -230,7 +260,12 @@ mod tests {
     /// a pas — une intégration continue sans GPU, par exemple —, ils s'abstiennent
     /// plutôt que d'échouer : leur absence de GPU n'est pas un défaut du code.
     fn moteur() -> Option<BlitzRenderer> {
-        BlitzRenderer::is_available().then(|| BlitzRenderer::new(1.0, true))
+        BlitzRenderer::probe(1.0, true)
+    }
+
+    /// Le tampon des tests.
+    fn tampon() -> crate::VecSink {
+        crate::VecSink::default()
     }
 
     #[test]
@@ -267,16 +302,14 @@ mod tests {
             return;
         };
 
-        let rendu = m.render("<p>Bonjour Marie</p>", 800.0).unwrap();
+        let mut pixels = tampon();
+        let rendu = m.render("<p>Bonjour Marie</p>", 800.0, &mut pixels).unwrap();
         match rendu {
-            Rendered::Texture {
-                width,
-                height,
-                rgba,
-            } => {
+            Rendered::Texture { width, height } => {
                 assert_eq!(width, 800);
                 assert!(height > 0);
-                assert_eq!(rgba.len(), (width * height * 4) as usize);
+                // Les pixels sont chez l'appelant, et ils y sont en entier.
+                assert_eq!(pixels.0.len(), (width * height * 4) as usize);
             }
             autre => panic!("attendu une image, obtenu {autre:?}"),
         }
@@ -286,9 +319,14 @@ mod tests {
     fn la_hauteur_suit_le_contenu() {
         let Some(m) = moteur() else { return };
 
-        let court = m.render("<p>Une ligne</p>", 800.0).unwrap();
+        let mut pixels = tampon();
+        let court = m.render("<p>Une ligne</p>", 800.0, &mut pixels).unwrap();
         let long = m
-            .render(&format!("<p>{}</p>", "Une ligne<br>".repeat(60)), 800.0)
+            .render(
+                &format!("<p>{}</p>", "Une ligne<br>".repeat(60)),
+                800.0,
+                &mut pixels,
+            )
             .unwrap();
 
         let hauteur = |r: &Rendered| match r {
@@ -306,7 +344,7 @@ mod tests {
         let Some(m) = moteur() else { return };
 
         for demandee in [10.0, 100_000.0] {
-            let rendu = m.render("<p>x</p>", demandee).unwrap();
+            let rendu = m.render("<p>x</p>", demandee, &mut tampon()).unwrap();
             if let Rendered::Texture { width, .. } = rendu {
                 assert!(
                     (MIN_WIDTH..=MAX_WIDTH).contains(&width),
@@ -326,14 +364,14 @@ mod tests {
               <tr><td><table><tr><td>Article</td><td>12 €</td></tr></table></td></tr>
             </table>"##;
 
-        let rendu = m.render(html, 800.0).unwrap();
+        let rendu = m.render(html, 800.0, &mut tampon()).unwrap();
         assert!(matches!(rendu, Rendered::Texture { .. }));
     }
 
     #[test]
     fn un_document_vide_ne_fait_pas_echouer_le_rendu() {
         let Some(m) = moteur() else { return };
-        assert!(m.render("", 800.0).is_ok());
+        assert!(m.render("", 800.0, &mut tampon()).is_ok());
     }
 
     #[test]
@@ -354,7 +392,41 @@ mod tests {
     fn l_absence_de_peripherique_ne_fait_pas_paniquer() {
         // On ne peut pas simuler l'absence de GPU, mais on peut vérifier que la
         // détection elle-même est sans danger et répétable.
-        let _ = BlitzRenderer::is_available();
-        let _ = BlitzRenderer::is_available();
+        let _ = BlitzRenderer::probe(1.0, true);
+        let _ = BlitzRenderer::probe(1.0, true);
+    }
+
+    #[test]
+    fn la_sonde_garde_le_peripherique_qu_elle_a_ouvert() {
+        // C'est tout son objet : le premier message ouvert ne doit pas payer une
+        // seconde ouverture, qui se compte en centaines de millisecondes.
+        let Some(m) = BlitzRenderer::probe(1.0, true) else {
+            eprintln!("aucun périphérique graphique : test ignoré");
+            return;
+        };
+        assert!(
+            m.renderer.lock().unwrap().is_some(),
+            "la sonde doit conserver son rendeur"
+        );
+    }
+
+    #[test]
+    fn un_tampon_trop_court_est_refuse_plutot_que_rempli_a_moitie() {
+        // Peindre dans un tampon plus court écrirait sur la fin de l'image.
+        #[derive(Default)]
+        struct Avare(Vec<u8>);
+        impl crate::PixelSink for Avare {
+            fn rgba(&mut self, _w: u32, _h: u32) -> &mut [u8] {
+                self.0.resize(16, 0);
+                &mut self.0
+            }
+        }
+
+        let Some(m) = moteur() else { return };
+        let erreur = m
+            .render("<p>Bonjour</p>", 800.0, &mut Avare::default())
+            .unwrap_err()
+            .to_string();
+        assert!(erreur.contains("tampon"), "obtenu : {erreur}");
     }
 }

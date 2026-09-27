@@ -81,6 +81,7 @@ fn run() -> Result<()> {
         "accounts" => cmd_list_accounts(),
         "sync" => cmd_sync(),
         "doctor" => cmd_doctor(),
+        "memory" => cmd_memory(),
         "--help" | "-h" | "help" => {
             print_help();
             Ok(())
@@ -148,6 +149,7 @@ fn print_help() {
          \x20 iris accounts                  List configured accounts\n\
          \x20 iris sync                      Synchronise once, without the interface\n\
          \x20 iris doctor                    Check the installation\n\
+         \x20 iris memory                    Break down what the data layer costs\n\
          \x20 iris register                  Offer Iris to Windows as a mail client\n\
          \x20 iris unregister                Withdraw that offer\n\
          \x20 iris --tray                    Start into the notification area\n\
@@ -384,6 +386,37 @@ fn free_space(_path: &std::path::Path) -> Option<u64> {
     None
 }
 
+/// Décompose la mémoire de la couche de données, sans interface.
+///
+/// La moitié de la question « pourquoi cinq cents mégaoctets » se règle ici : ce que
+/// coûtent la base, l'index et le coffre *seuls*, sans fenêtre, sans police et sans
+/// pilote graphique. Le reste de la facture est la différence entre ce chiffre et
+/// celui de l'application ouverte — et cette différence, mesurée plutôt que supposée,
+/// désigne le coupable.
+fn cmd_memory() -> Result<()> {
+    iris_app::memory::track_sites(true);
+    iris_app::memory::mark("processus démarré");
+
+    let services = open_services()?;
+    iris_app::memory::mark("base, index, coffre");
+
+    // Lire vraiment : un index ouvert et jamais interrogé n'a encore rien chargé, et
+    // mesurer cela reviendrait à mesurer un fichier fermé.
+    let comptes = services.store.accounts()?;
+    let messages = services.store.message_count()?;
+    iris_app::memory::mark("comptes et messages lus");
+
+    let documents = services.index.document_count();
+    iris_app::memory::mark("index interrogé");
+
+    println!(
+        "{} compte(s), {messages} message(s), {documents} document(s) indexés",
+        comptes.len()
+    );
+    println!("{}", iris_app::memory::report());
+    Ok(())
+}
+
 fn cmd_doctor() -> Result<()> {
     let chemins = Paths::system()?;
     println!("Locations");
@@ -544,12 +577,20 @@ fn run_gui(
     mailto: Option<iris_app::platform::MailtoRequest>,
     demarre_reduit: bool,
 ) -> Result<()> {
+    // La décomposition mémoire se règle avant tout le reste : ce qui est alloué avant
+    // qu'elle soit allumée est compté, mais sans provenance.
+    let rapport_memoire = iris_app::memory::requested_interval();
+    iris_app::memory::track_sites(rapport_memoire.is_some());
+    iris_app::memory::mark("processus démarré");
+
     let services = open_services()?;
+    iris_app::memory::mark("base, index, coffre");
 
     // L'exécuteur asynchrone tourne dans ses propres fils : la synchronisation ne
     // partage rien avec l'affichage.
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
+    iris_app::memory::mark("exécuteur asynchrone");
 
     // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
     // la première image, et non apparaître après un clignotement.
@@ -561,6 +602,7 @@ fn run_gui(
     }
 
     let fenetre = shell::build(&services)?;
+    iris_app::memory::mark("fenêtre construite");
     shell::appliquer_apparence(&fenetre, &services.themes.active(), reglages.density);
     services.engine.set_automation(reglages.automation);
     services.workflow.set_settings(reglages.automation);
@@ -571,6 +613,10 @@ fn run_gui(
     // Le moteur de rendu des corps est construit une fois : ouvrir un peripherique
     // graphique par message serait absurde.
     let renderer: Arc<dyn iris_htmlview::HtmlRenderer> = Arc::new(shell::build_renderer());
+    // Ce jalon-ci est le plus instructif des six : construire le moteur ouvre un
+    // second périphérique graphique, et ce que cela engage n'apparaît dans aucun
+    // compteur de tas.
+    iris_app::memory::mark("moteur HTML (périph. GPU)");
 
     // La sélection courante, partagée entre le puits d'instantanés et la zone de
     // réponse : répondre s'adresse au fil affiché.
@@ -987,6 +1033,40 @@ fn run_gui(
         // « mailto: » nu ne doit pas ouvrir deux champs vides de plus.
         fenetre.set_compose_show_cc(!demande.cc.is_empty() || !demande.bcc.is_empty());
         fenetre.set_compose_open(true);
+    }
+
+    iris_app::memory::mark("câblage terminé");
+
+    // Le jalon qui manquait.
+    //
+    // Les cinq précédents sont pris avant la boucle d'événements, donc avant que la
+    // fenêtre soit réellement présentée — et c'est la présentation qui ouvre le
+    // périphérique graphique. Sans ce relevé-ci, la plus grosse dépense du processus
+    // tombait dans l'intervalle entre le dernier jalon et le premier rapport, c'est-à-dire
+    // nulle part. Deux secondes : le temps que les premières images soient passées.
+    if rapport_memoire.is_some() {
+        slint::Timer::single_shot(std::time::Duration::from_secs(2), || {
+            iris_app::memory::mark("premières images affichées");
+        });
+    }
+
+    // Le rapport périodique, sur son propre fil.
+    //
+    // Sur un fil à lui parce que la question posée est « que retient l'application
+    // quand elle ne fait rien » : la poser depuis la boucle d'interface ne la ferait
+    // jamais poser pendant que la boucle travaille, c'est-à-dire précisément aux
+    // moments qui coûtent.
+    if let Some(intervalle) = rapport_memoire {
+        let fichier = services.paths.cache.join("memoire.txt");
+        std::thread::Builder::new()
+            .name("memoire".into())
+            .spawn(move || loop {
+                std::thread::sleep(intervalle);
+                let rapport = iris_app::memory::report();
+                let _ = std::fs::write(&fichier, &rapport);
+                tracing::info!("décomposition mémoire écrite dans {}", fichier.display());
+            })
+            .map_err(|e| iris_types::Error::other(format!("fil de rapport : {e}")))?;
     }
 
     // `run_event_loop_until_quit` et non `run` : la boucle doit survivre à la

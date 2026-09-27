@@ -849,13 +849,19 @@ pub fn remplir_conversation(
             }
 
             let montrer = images_shown().contains(&message.id.get());
-            let corps = corps_du_message(services, renderer, message, montrer);
-            bridge::message_view_rendered(
+            let mut pixels = bridge::ImageSink::default();
+            let corps = corps_du_message(services, renderer, message, montrer, &mut pixels);
+            let mut vue = bridge::message_view_rendered(
                 message,
                 &corps,
+                pixels,
                 &pieces_jointes(services, message.id),
                 maintenant,
-            )
+            );
+            // Le corps n'est pas encore descendu du serveur. L'écran doit le dire :
+            // un panneau vide ne distingue pas « ça arrive » de « il n'y a rien ».
+            vue.body_loading = message.body_blob.is_none();
+            vue
         })
         .collect();
 
@@ -909,7 +915,21 @@ fn expanded_messages() -> std::sync::MutexGuard<'static, std::collections::BTree
 
 /// Un message tel qu'il a été rendu : son identifiant, ses drapeaux, s'il est déplié,
 /// s'il a le droit d'aller chercher ses images.
-type EtatRendu = (i64, u32, bool, bool);
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EtatRendu {
+    id: i64,
+    flags: u32,
+    deplie: bool,
+    images: bool,
+    /// Le corps est-il téléchargé ?
+    ///
+    /// Il manquait, et c'était le défaut : à l'ouverture d'un message dont le corps
+    /// n'est pas encore là, la demande part, le corps arrive, un nouvel instantané
+    /// est émis — et la signature, identique, faisait renoncer au dessin. L'écran
+    /// restait vide jusqu'à ce qu'on aille sur un autre message et qu'on revienne,
+    /// ce qui changeait la liste et forçait enfin le rendu.
+    corps: bool,
+}
 
 /// Décrit une conversation par ce qui, en elle, change ce qui est dessiné.
 ///
@@ -925,14 +945,13 @@ fn signature_conversation(
 ) -> Vec<EtatRendu> {
     messages
         .iter()
-        .map(|m| {
-            (
-                m.id.get(),
-                m.flags.0,
-                // Le dernier est toujours déplié, la même règle qu'au dessin.
-                m.id == dernier || ouverts.contains(&m.id.get()),
-                images.contains(&m.id.get()),
-            )
+        .map(|m| EtatRendu {
+            id: m.id.get(),
+            flags: m.flags.0,
+            // Le dernier est toujours déplié, la même règle qu'au dessin.
+            deplie: m.id == dernier || ouverts.contains(&m.id.get()),
+            images: images.contains(&m.id.get()),
+            corps: m.body_blob.is_some(),
         })
         .collect()
 }
@@ -940,9 +959,9 @@ fn signature_conversation(
 /// Ce que la colonne de lecture montre déjà, décrit assez pour savoir si c'est à
 /// refaire.
 ///
-/// Un par message : son identifiant, ses drapeaux, s'il est déplié, et s'il a le droit
-/// d'aller chercher ses images. Ce sont exactement les quatre choses qui changent ce
-/// qui est dessiné. Tout ce qui n'y figure pas — la sélection, les compteurs, le lot
+/// Un par message : son identifiant, ses drapeaux, s'il est déplié, s'il a le droit
+/// d'aller chercher ses images, et si son corps est arrivé. Ce sont exactement les
+/// cinq choses qui changent ce qui est dessiné. Tout ce qui n'y figure pas — la sélection, les compteurs, le lot
 /// coché — peut varier autant qu'il veut sans qu'un seul pixel de cette colonne bouge.
 fn conversation_rendue() -> std::sync::MutexGuard<'static, Vec<EtatRendu>> {
     static RENDUE: std::sync::OnceLock<std::sync::Mutex<Vec<EtatRendu>>> =
@@ -1055,9 +1074,13 @@ pub fn build_renderer() -> iris_htmlview::AdaptiveRenderer {
 
     #[cfg(feature = "blitz")]
     {
-        if iris_htmlview::BlitzRenderer::is_available() {
+        // `probe` plutôt qu'un test suivi d'une construction : la vérification ouvre
+        // un périphérique graphique, et c'est celui-là même qui rendra. Le tester
+        // puis le jeter faisait payer la seconde ouverture — huit cents millisecondes
+        // — au premier message ouvert, sur le fil de l'interface.
+        if let Some(moteur) = iris_htmlview::BlitzRenderer::probe(1.0, true) {
             tracing::info!("body rendering: full engine available");
-            return simple.with_full_engine(Box::new(iris_htmlview::BlitzRenderer::new(1.0, true)));
+            return simple.with_full_engine(Box::new(moteur));
         }
         tracing::info!("body rendering: rich text only (no graphics device)");
     }
@@ -1074,6 +1097,9 @@ fn corps_du_message(
     renderer: &dyn iris_htmlview::HtmlRenderer,
     message: &iris_store::StoredMessage,
     allow_remote: bool,
+    // Le tampon de l'interface, prêté au moteur : s'il compose une image, elle est
+    // peinte là où elle sera affichée, et non recopiée depuis un tampon à lui.
+    pixels: &mut bridge::ImageSink,
 ) -> iris_htmlview::Rendered {
     let apercu = || {
         iris_htmlview::Rendered::Blocks(iris_htmlview::RichText {
@@ -1122,10 +1148,12 @@ fn corps_du_message(
         (None, None) => return apercu(),
     };
 
-    renderer.render_with(&html, 800.0, allow_remote).unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "rendering the body failed");
-        apercu()
-    })
+    renderer
+        .render_with(&html, 800.0, allow_remote, pixels)
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "rendering the body failed");
+            apercu()
+        })
 }
 
 /// Wraps a plain-text body so the HTML renderer can lay it out.
@@ -1181,7 +1209,7 @@ pub struct BodyLoader {
     engine: Arc<iris_sync::SyncEngine>,
     controller: Arc<Controller>,
     runtime: tokio::runtime::Handle,
-    demande: std::sync::Mutex<Option<ThreadIdent>>,
+    demande: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
 }
 
 impl BodyLoader {
@@ -1194,7 +1222,7 @@ impl BodyLoader {
             engine,
             controller,
             runtime,
-            demande: std::sync::Mutex::new(None),
+            demande: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -1219,6 +1247,7 @@ impl BodyLoader {
 
         let engine = Arc::clone(&self.engine);
         let controller = Arc::clone(&self.controller);
+        let demande = Arc::clone(&self.demande);
         self.runtime.spawn(async move {
             let resultats = engine.fetch_thread_bodies(thread).await;
             let obtenus = resultats.iter().filter(|(_, r)| r.is_ok()).count();
@@ -1227,7 +1256,14 @@ impl BodyLoader {
                     tracing::warn!(message = %message, error = %e, "body not downloaded");
                 }
             }
-            if obtenus > 0 {
+            if obtenus == 0 {
+                // Rien n'est arrivé : garder la demande en mémoire interdirait tout
+                // nouvel essai sur ce fil, et le volet attendrait indéfiniment.
+                let mut d = demande.lock().expect("téléchargement empoisonné");
+                if *d == Some(thread) {
+                    *d = None;
+                }
+            } else {
                 // Un diff ciblé plutôt qu'un rafraîchissement : seul ce fil a changé.
                 let mut diff = ViewDiff::default();
                 diff.threads.insert(thread);
@@ -1724,6 +1760,9 @@ pub fn wire_account_setup(
             fenetre.set_add_account_open(false);
             fenetre.set_add_account_editing(false);
             fenetre.set_add_account_manual(false);
+            // Sinon une vérification abandonnée en route laisserait le bouton éteint
+            // à la réouverture de l'écran.
+            fenetre.set_add_account_busy(false);
             fenetre.set_add_account_error(Default::default());
             fenetre.set_add_account_hint(Default::default());
             fenetre.set_new_email(Default::default());
@@ -1820,8 +1859,22 @@ pub fn wire_account_setup(
             let faible = fenetre.as_weak();
 
             let oauth = Arc::clone(&oauth_reglages);
+            let progression = faible.clone();
             runtime_ajout.spawn(async move {
-                let resultat = ajouter(&store, secrets, &oauth, &email, &motdepasse, now()).await;
+                let resultat = ajouter(
+                    &store,
+                    secrets,
+                    &oauth,
+                    &email,
+                    &motdepasse,
+                    now(),
+                    move |etape| {
+                        let _ = progression.upgrade_in_event_loop(move |fenetre| {
+                            fenetre.set_add_account_hint(etape.into());
+                        });
+                    },
+                )
+                .await;
 
                 // Le compte créé doit entrer dans l'ordonnanceur tout de suite,
                 // sinon rien n'arrive avant le prochain démarrage.
@@ -1831,26 +1884,45 @@ pub fn wire_account_setup(
                     }
                 }
 
+                // A refused password is not a failed lookup, and the screen owes two
+                // different answers. The error type carries the distinction; it has
+                // to be read here, because it does not cross the event loop.
+                let issue = match resultat {
+                    Ok(compte) => Ok((compte.email, compte.source.describe())),
+                    Err(e) => Err((
+                        matches!(e, iris_types::Error::AuthFailed { .. }),
+                        e.to_string(),
+                    )),
+                };
+
                 let _ = faible.upgrade_in_event_loop(move |fenetre| {
                     fenetre.set_add_account_busy(false);
-                    match resultat {
-                        Ok(compte) => {
-                            fenetre.set_add_account_open(false);
-                            fenetre.set_new_email(Default::default());
-                            fenetre.set_new_password(Default::default());
-                            fenetre.set_status(
-                                format!("{} ajouté ({}).", compte.email, compte.source.describe())
-                                    .into(),
-                            );
+                    match issue {
+                        Ok((adresse, source)) => {
+                            // Le panneau ne se ferme qu'ici : tant que le serveur n'a
+                            // pas répondu, l'écran reste celui où l'on corrige.
+                            fenetre.invoke_add_account_dismissed();
+                            announce(&fenetre, format!("{adresse} added and working."));
+                            fenetre.set_status(format!("{adresse} ajouté ({source}).").into());
                             refresh_accounts(&fenetre, &services_ui, &[]);
                             controller.send(Request::Bootstrap);
+                        }
+                        // Le serveur a répondu, et il a dit non. Les champs de
+                        // serveur ne serviraient à rien : ils sont justes. Ce qu'il
+                        // faut retaper est le mot de passe, dans le champ qui est
+                        // déjà là, sous le message qui le dit.
+                        Err((true, _)) => {
+                            fenetre.set_add_account_hint(Default::default());
+                            fenetre.set_add_account_error(
+                                "The server refused that password. Check it and try again.".into(),
+                            );
                         }
                         // L'échec bascule l'écran en configuration manuelle plutôt
                         // que de renvoyer l'utilisateur à un message d'erreur : ce
                         // qu'il lui faut à cet instant, ce sont les champs.
-                        Err(e) => {
+                        Err((false, message)) => {
                             fenetre.set_add_account_error(
-                                format!("No configuration found: {e}").into(),
+                                format!("Could not add it: {message}").into(),
                             );
                             prefill_manual(&fenetre);
                         }
@@ -1941,35 +2013,74 @@ pub fn wire_account_setup(
                 return;
             }
 
-            match crate::accounts::add_account_manual(
-                &store,
-                secrets.as_ref(),
-                &config,
-                &motdepasse,
-                None,
-                now(),
-            ) {
-                Ok(_) => {
-                    fenetre.set_add_account_open(false);
-                    fenetre.set_add_account_manual(false);
-                    fenetre.set_add_account_error(Default::default());
-                    fenetre.set_new_email(Default::default());
-                    fenetre.set_new_password(Default::default());
-                    fenetre.set_status(format!("{} added.", config.email).into());
-                    refresh_accounts(&fenetre, &services_ui, &[]);
-                    controller.send(Request::Bootstrap);
+            // Les serveurs viennent d'être saisis à la main : c'est le cas où la
+            // configuration a le plus de chances d'être fausse, et le moins de
+            // raisons d'être crue sur parole. On se connecte avant d'écrire quoi que
+            // ce soit, et l'écran reste ouvert pendant ce temps.
+            fenetre.set_add_account_busy(true);
+            fenetre.set_add_account_error(Default::default());
+            fenetre.set_add_account_hint("Connexion au serveur…".into());
 
-                    let engine = Arc::clone(&engine);
-                    runtime_manuel.spawn(async move {
-                        if let Err(e) = engine.load_accounts(now()).await {
-                            tracing::warn!(error = %e, "chargement du compte ajouté");
+            let store = Arc::clone(&store);
+            let secrets = Arc::clone(&secrets);
+            let engine = Arc::clone(&engine);
+            let services_ui = services_ui.clone();
+            let controller = Arc::clone(&controller);
+            let faible = fenetre.as_weak();
+            let adresse = config.email.clone();
+
+            runtime_manuel.spawn(async move {
+                let resultat = match crate::accounts::verify_login(&config, &motdepasse).await {
+                    Ok(()) => crate::accounts::add_account_manual(
+                        &store,
+                        secrets.as_ref(),
+                        &config,
+                        &motdepasse,
+                        None,
+                        now(),
+                    )
+                    .map(|_| ()),
+                    Err(e) => Err(e),
+                };
+
+                if resultat.is_ok() {
+                    if let Err(e) = engine.load_accounts(now()).await {
+                        tracing::warn!(error = %e, "chargement du compte ajouté");
+                    }
+                }
+
+                let issue = resultat.map_err(|e| {
+                    (
+                        matches!(e, iris_types::Error::AuthFailed { .. }),
+                        e.to_string(),
+                    )
+                });
+
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_add_account_busy(false);
+                    match issue {
+                        Ok(()) => {
+                            fenetre.invoke_add_account_dismissed();
+                            announce(&fenetre, format!("{adresse} added and working."));
+                            fenetre.set_status(format!("{adresse} added.").into());
+                            refresh_accounts(&fenetre, &services_ui, &[]);
+                            controller.send(Request::Bootstrap);
                         }
-                    });
-                }
-                Err(e) => {
-                    fenetre.set_add_account_error(format!("Could not add the account: {e}").into())
-                }
-            }
+                        Err((refuse, message)) => {
+                            fenetre.set_add_account_hint(Default::default());
+                            fenetre.set_add_account_error(
+                                if refuse {
+                                    "The server refused that password. Check it and try again."
+                                        .to_string()
+                                } else {
+                                    format!("Could not add the account: {message}")
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+                });
+            });
         });
     }
 }
@@ -1987,7 +2098,9 @@ async fn ajouter(
     email: &str,
     motdepasse: &str,
     maintenant: iris_types::Timestamp,
+    etape: impl Fn(&'static str),
 ) -> iris_types::Result<crate::accounts::AddedAccount> {
+    etape("Recherche de la configuration…");
     let decouverte = crate::accounts::discover(email).await?;
     let config = decouverte.config.clone();
 
@@ -2009,6 +2122,7 @@ async fn ajouter(
                 )));
             }
 
+            etape("Autorisation dans le navigateur…");
             crate::oauth::authorize(
                 Arc::clone(&secrets),
                 &reglages,
@@ -2030,6 +2144,15 @@ async fn ajouter(
                     config.email
                 )));
             }
+
+            // Se connecter d'abord, écrire ensuite. L'ordre inverse créait un compte
+            // et annonçait un succès sur la foi d'une découverte, c'est-à-dire d'une
+            // conjecture sur des serveurs, sans jamais avoir présenté le mot de passe
+            // à qui que ce soit. Le fournisseur d'identité, lui, a déjà dit oui : son
+            // autorisation *est* la vérification.
+            etape("Connexion au serveur…");
+            crate::accounts::verify_login(&config, motdepasse).await?;
+
             crate::accounts::add_account_manual(
                 store,
                 secrets.as_ref(),
@@ -2048,6 +2171,15 @@ async fn ajouter(
         source: decouverte.source,
         config,
     })
+}
+
+/// Affiche une confirmation par-dessus l'application.
+///
+/// La barre d'état reste la mémoire de ce qui s'est passé ; la bulle, elle, est là
+/// pour être vue. Les deux disent la même chose, et c'est voulu : celui qui regardait
+/// ailleurs retrouve le fait en bas de la fenêtre.
+fn announce(fenetre: &AppWindow, message: String) {
+    fenetre.set_toast(message.into());
 }
 
 /// Bascule l'écran en configuration manuelle, champs préremplis.
@@ -4460,6 +4592,15 @@ mod tests {
         let images = std::collections::BTreeSet::from([2]);
         assert_ne!(
             signature_conversation(&base, dernier, &vide, &images),
+            reference
+        );
+
+        // Un corps qui vient d'arriver. Sans lui, un message ouvert pour la première
+        // fois restait vide jusqu'à ce qu'on en ouvre un autre et qu'on y revienne.
+        let mut arrive = base.clone();
+        arrive[1].body_blob = Some("ab".into());
+        assert_ne!(
+            signature_conversation(&arrive, dernier, &vide, &vide),
             reference
         );
     }

@@ -350,7 +350,13 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
         }
         Request::Search(query) => Ok(!vm.search(&query)?.is_empty()),
         Request::ClearSearch => Ok(!vm.clear_search().is_empty()),
-        Request::Diff(diff) => Ok(!vm.apply_diff(&diff)?.is_empty()),
+        Request::Diff(diff) => {
+            // Le fil ouvert peut ne figurer dans aucune liste — ouvert depuis une
+            // recherche, par exemple. Le diff ne change alors aucune ligne, et sans
+            // cette clause le corps arrivé entre-temps ne serait jamais dessiné.
+            let lu = vm.selection().thread().is_some_and(|t| diff.threads.contains(&t));
+            Ok(!vm.apply_diff(&diff)?.is_empty() || lu)
+        }
         Request::Tick(now) => {
             vm.set_now(now);
             Ok(false)

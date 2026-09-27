@@ -2,6 +2,7 @@ import { Tokens } from "tokens.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { MessageData, MessageBlockData } from "types.slint";
 import { Glass } from "glass.slint";
+import { LoadingLine } from "spinner.slint";
 import { ScrollView, TextEdit, Button } from "std-widgets.slint";
 
 // Un bloc du corps du message.
@@ -462,7 +463,14 @@ export component ConversationView inherits VerticalLayout {
                         load-images => { root.load-images(); }
                     }
 
-                    if message.expanded && message.body-is-image: Image {
+                    // Le corps arrive encore. Sans cette ligne, l'écran était
+                    // vide et muet, et rien ne distinguait « ça charge » de « ce
+                    // message ne contient rien ».
+                    if message.expanded && message.body-loading: LoadingLine {
+                        label: "Loading the message…";
+                    }
+
+                    if message.expanded && !message.body-loading && message.body-is-image: Image {
                         source: message.body-image;
                         // Rendered at the width of the panel: it takes its natural
                         // height rather than being stretched.
@@ -471,10 +479,21 @@ export component ConversationView inherits VerticalLayout {
                         height: self.source.height * 1px;
                     }
 
-                    if message.expanded && !message.body-is-image: VerticalLayout {
+                    if message.expanded && !message.body-loading && !message.body-is-image: VerticalLayout {
                         spacing: Tokens.space-2;
                         for block in message.blocks: MessageBlock {
                             block: block;
+                        }
+
+                        // Le corps est arrivé et ne donne rien à lire : une page
+                        // faite d'images bloquées, ou un HTML vidé par
+                        // l'assainissement. Le dire, plutôt que de laisser croire
+                        // que ça charge encore.
+                        if message.blocks.length == 0: Text {
+                            text: "This message has nothing to display.";
+                            font-family: Tokens.font-family;
+                            font-size: Tokens.size-body;
+                            color: Tokens.text-muted;
                         }
                     }
                 }

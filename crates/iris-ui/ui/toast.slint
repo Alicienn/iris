@@ -1,0 +1,102 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+
+// La confirmation qui passe.
+//
+// The status bar already carries what the application is doing; it is ten pixels
+// tall, at the very bottom, and nobody looks at it after clicking "Add". An account
+// that has just been accepted by its server is not a running commentary — it is the
+// answer to the question the user asked a few seconds ago, and it has to arrive
+// where the eye already is.
+//
+// Hence a panel, over the application, that leaves on its own. It says nothing the
+// status bar does not; what it changes is that it is read.
+export component Toast inherits Rectangle {
+    in property <string> message;
+
+    callback dismissed();
+
+    // La bulle s'efface seule, comme le message de la barre d'état. Quatre secondes :
+    // le temps de lire une phrase qu'on attendait. Le compteur repart à chaque
+    // nouveau message, sinon le second hériterait de ce qui restait au premier.
+    changed message => {
+        if (root.message != "") {
+            expiration.restart();
+        }
+    }
+
+    expiration := Timer {
+        interval: 4s;
+        running: root.message != "";
+        triggered => { root.dismissed(); }
+    }
+
+    // L'entrée est déclenchée par une minuterie et non par `init` : une propriété
+    // modifiée dans l'instanciation même n'a pas d'ancienne valeur à animer, et la
+    // bulle apparaîtrait d'un coup.
+    property <bool> entered;
+
+    apparition := Timer {
+        interval: 1ms;
+        running: !root.entered;
+        triggered => { root.entered = true; }
+    }
+
+    bulle := Floating {
+        radius: Tokens.radius-medium;
+        x: (parent.width - self.width) / 2;
+        // Au-dessus de la barre d'état, jamais par-dessus : masquer l'état pour
+        // annoncer un succès échangerait une information contre une autre.
+        y: parent.height - self.height - Tokens.space-6 - (root.entered ? 0px : 12px);
+        // Sur mesure : une bulle de largeur fixe laisserait un blanc derrière les
+        // messages courts, et couperait les longs. La largeur suit le texte, bornée
+        // par la fenêtre.
+        width: min(libelle.preferred-width + Tokens.space-6 + Tokens.space-3, parent.width - Tokens.space-6);
+        height: 38px;
+        opacity: root.entered ? 1.0 : 0.0;
+
+        animate y, opacity {
+            duration: Tokens.moderate;
+            easing: cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        accessible-role: text;
+        accessible-label: root.message;
+
+        HorizontalLayout {
+            padding-left: Tokens.space-3;
+            padding-right: Tokens.space-3;
+            padding-top: Tokens.space-2;
+            padding-bottom: Tokens.space-2;
+            spacing: Tokens.space-2;
+
+            // La pastille. Elle ne dit qu'une chose, et c'est voulu : un échec
+            // s'affiche là où on peut le corriger, c'est-à-dire dans le panneau
+            // qu'il empêche de se fermer, et non dans une bulle qui s'en va.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Tokens.success;
+                }
+            }
+
+            libelle := Text {
+                text: root.message;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-body;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        // Un clic la chasse : une confirmation qu'on a déjà lue n'a plus rien à faire
+        // devant le contenu.
+        TouchArea {
+            clicked => { root.dismissed(); }
+        }
+    }
+}

@@ -23,7 +23,17 @@ pub struct Paths {
 
 impl Paths {
     /// Les emplacements standard du système.
+    ///
+    /// `IRIS_ROOT` les remplace tous les trois par des sous-répertoires d'une racine
+    /// choisie. C'est la porte qui manquait pour *mesurer* : décomposer la mémoire
+    /// d'une vraie boîte demande de l'ouvrir, et l'ouvrir pendant que l'application
+    /// tourne fait se disputer deux processus sur la même base. Une copie sous une
+    /// autre racine répond à la même question sans toucher au courrier de personne.
     pub fn system() -> Result<Self> {
+        if let Some(racine) = std::env::var_os("IRIS_ROOT") {
+            return Ok(Self::under(racine));
+        }
+
         let dirs = directories::ProjectDirs::from("fr", "Iris", "Iris")
             .ok_or_else(|| Error::Config("répertoire personnel introuvable".into()))?;
 

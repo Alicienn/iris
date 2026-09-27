@@ -227,7 +227,11 @@ fn process_cpu_time() -> Option<Duration> {
     platform::cpu_time()
 }
 
-fn resident_bytes() -> Option<u64> {
+/// L'ensemble résident du processus, en octets.
+///
+/// Public parce que la décomposition mémoire en a besoin elle aussi, et que deux
+/// lectures du même compteur finiraient par diverger.
+pub fn resident_bytes() -> Option<u64> {
     platform::resident_bytes()
 }
 

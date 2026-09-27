@@ -1,0 +1,96 @@
+import { Tokens } from "tokens.slint";
+
+// L'attente qui tourne.
+//
+// Elle n'existe que pour une raison : un panneau vide ne dit pas s'il attend ou s'il
+// a fini. Le corps d'un message qui n'est pas encore téléchargé laissait un écran
+// blanc, sans un mot — le seul état que l'application n'a pas le droit de produire.
+//
+// Un arc plutôt qu'un disque, et une rotation continue plutôt qu'une pulsation : ce
+// qui tourne à vitesse constante se lit comme « en cours » sans rien demander à
+// personne, là où un clignotement se lit comme une alerte.
+//
+// L'animation est une seule propriété animée en boucle, pas une minuterie qui
+// réveillerait la boucle d'affichage soixante fois par seconde pour incrémenter un
+// angle : le moteur interpole lui-même, à la cadence de l'écran, et s'arrête tout
+// seul quand l'élément disparaît.
+export component Spinner inherits Rectangle {
+    in property <length> diameter: 18px;
+    in property <brush> tint: Tokens.text-secondary;
+    /// Épaisseur du trait, dans la même grille de 24 unités que les icônes.
+    in property <float> weight: 2.0;
+
+    width: root.diameter;
+    height: root.diameter;
+
+    // La phase, de 0 à 1, en boucle. Tout le mouvement en découle.
+    //
+    // Ce n'est pas la forme qui tourne : `rotation-angle` n'existe pas sur un `Path`
+    // dans cette version de Slint, et une minuterie qui incrémenterait un angle
+    // réveillerait la boucle d'affichage soixante fois par seconde pour ça. Ce qui
+    // tourne est **l'éclat** : huit points fixes dont la luminosité suit la phase,
+    // décalés d'un huitième de tour chacun. L'œil y lit une rotation, et le moteur
+    // n'interpole qu'une seule valeur.
+    property <float> phase;
+
+    animate phase {
+        duration: 1s;
+        iteration-count: -1;
+        easing: linear;
+    }
+
+    init => {
+        root.phase = 1.0;
+    }
+
+    /// Rayon du cercle sur lequel les points sont posés.
+    property <length> rayon: (root.diameter - root.point) / 2;
+    /// Diamètre d'un point.
+    property <length> point: root.weight / 24 * root.diameter * 2;
+
+    for i in 8: Rectangle {
+        width: root.point;
+        height: root.point;
+        border-radius: root.point / 2;
+        background: root.tint;
+
+        x: root.diameter / 2 - root.point / 2 + root.rayon * Math.cos(45deg * i);
+        y: root.diameter / 2 - root.point / 2 + root.rayon * Math.sin(45deg * i);
+
+        // La traîne. Chaque point est décalé d'un huitième de tour, et son éclat
+        // décroît derrière la tête — c'est ce dégradé qui donne le sens de rotation,
+        // qu'une couronne uniforme n'aurait pas.
+        opacity: 0.15 + 0.85 * Math.mod(root.phase + i * 0.125, 1.0);
+    }
+}
+
+// L'attente, avec ses mots.
+//
+// Le texte est en anglais comme le reste de l'interface. « Loading… » et rien de
+// plus : annoncer ce qu'on attend au juste — le corps, les images, le serveur —
+// demanderait au lecteur de savoir ce que ces mots recouvrent.
+export component LoadingLine inherits HorizontalLayout {
+    in property <string> label: "Loading…";
+
+    spacing: Tokens.space-2;
+    alignment: start;
+
+    VerticalLayout {
+        alignment: center;
+        Spinner {
+            diameter: 16px;
+            tint: Tokens.text-muted;
+        }
+    }
+
+    Text {
+        text: root.label;
+        font-family: Tokens.font-family;
+        font-size: Tokens.size-body;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+        // Le libellé porte l'information ; l'anneau ne fait que la rendre vivante.
+        accessible-role: text;
+        accessible-label: root.label;
+    }
+}
