@@ -3,12 +3,19 @@
 ## Building the installer
 
 ```
-cargo build --release
-powershell -File packaging\build-plugins.ps1
-iscc packaging\iris.iss
+powershell -File packaging\build-installer.ps1
 ```
 
-The result is `packaging\output\iris-setup-0.1.0.exe`, around 16 MB.
+The result is `packaging\output\iris-setup-<version>.exe`, around 16 MB. The script runs
+the three steps below in order and passes the version from `Cargo.toml` to Inno Setup,
+so it is written in one place. The release workflow runs the same script when a
+`vX.Y.Z` tag is pushed.
+
+```
+cargo build --release
+powershell -File packaging\build-plugins.ps1
+iscc /DAppVersion=x.y.z packaging\iris.iss
+```
 
 The middle step compiles the three bundled modules to WebAssembly and lays them out
 under `packaging\plugins\<id>\` exactly as the registry reads them — one directory per

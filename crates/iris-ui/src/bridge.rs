@@ -60,6 +60,7 @@ pub fn account_row(account: &Account, unread: u32, suspended: bool) -> AccountRo
         count_full: grouped_count(unread as u64).into(),
         pinned: account.pinned,
         needs_attention: suspended,
+        problem: Default::default(),
         tint: Color::from_rgb_u8(r, g, b),
     }
 }

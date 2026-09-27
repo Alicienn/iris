@@ -55,6 +55,7 @@ fn compte(id: i32, nom: &str, a_traiter: i32, en_panne: bool) -> AccountRowData 
         count_full: iris_ui::format::grouped_count(a_traiter.max(0) as u64).into(),
         pinned: false,
         needs_attention: en_panne,
+        problem: Default::default(),
         tint: slint::Color::from_rgb_u8(0, 0, 0),
     }
 }
@@ -300,6 +301,25 @@ fn un_compte_en_panne_le_dit_a_voix_haute() {
     assert_eq!(
         ligne.accessible_description().map(|d| d.to_string()),
         Some("Paused after repeated failures".into())
+    );
+}
+
+fn un_compte_dont_la_synchro_a_echoue_dit_pourquoi() {
+    // Un seul échec suffit : attendre la mise en pause laissait le compte muet
+    // pendant plusieurs tours, alors que chaque synchronisation échouait.
+    let f = fenetre();
+    let mut c = compte(3, "moi@exemple.fr", 0, true);
+    c.problem = "password refused".into();
+    f.set_other_accounts(modele(vec![c]));
+
+    let ligne = par_libelle(&f, "moi@exemple.fr").unwrap();
+    assert_eq!(
+        ligne.accessible_description().map(|d| d.to_string()),
+        Some("Sync failed: password refused".into())
+    );
+    assert!(
+        par_libelle(&f, "Sync failed: password refused. Click for details.").is_some(),
+        "le point d'exclamation porte la raison"
     );
 }
 
@@ -1401,6 +1421,54 @@ fn un_grand_compteur_est_abrege() {
     );
 }
 
+// --- Changelog et mises à jour ---
+
+fn le_changelog_est_toujours_atteignable() {
+    let f = fenetre();
+    let bouton = par_libelle(&f, "What changed in each version").expect("le bouton Changelog");
+    bouton.invoke_accessible_default_action();
+    assert!(f.get_changelog_open());
+}
+
+fn le_bouton_de_mise_a_jour_n_existe_que_s_il_y_a_une_mise_a_jour() {
+    // Un « Update now » permanent qui ne fait rien apprend à ne plus regarder.
+    let f = fenetre();
+    assert!(par_libelle(&f, "Iris 0.3.0 is available").is_none());
+
+    f.set_update_version("0.3.0".into());
+    let bouton = par_libelle(&f, "Iris 0.3.0 is available").expect("le bouton Update now");
+    bouton.invoke_accessible_default_action();
+    assert!(f.get_update_open(), "le clic ouvre la confirmation, il n'installe rien");
+}
+
+fn la_confirmation_de_mise_a_jour_propose_d_installer_ou_d_attendre() {
+    let f = fenetre();
+    f.set_update_version("0.3.0".into());
+    f.set_update_open(true);
+
+    let confirme = Rc::new(RefCell::new(false));
+    {
+        let confirme = Rc::clone(&confirme);
+        f.on_update_confirmed(move || *confirme.borrow_mut() = true);
+    }
+    // Par son rôle : « Update now » est aussi écrit dans la barre d'état, sur un
+    // bouton dont le nom est l'infobulle.
+    testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().as_deref() == Some("Update now"))
+        .expect("le bouton de confirmation")
+        .invoke_accessible_default_action();
+    assert!(*confirme.borrow());
+
+    par_libelle(&f, "Later")
+        .expect("le bouton pour attendre")
+        .invoke_accessible_default_action();
+    assert!(!f.get_update_open());
+}
+
 // --- Ce qui doit rester vrai partout ---
 
 fn aucun_bouton_ne_reste_sans_nom() {
@@ -1768,6 +1836,22 @@ fn main() {
         (
             "la_fenetre_se_construit_sans_donnees",
             la_fenetre_se_construit_sans_donnees as fn(),
+        ),
+        (
+            "un_compte_dont_la_synchro_a_echoue_dit_pourquoi",
+            un_compte_dont_la_synchro_a_echoue_dit_pourquoi as fn(),
+        ),
+        (
+            "le_changelog_est_toujours_atteignable",
+            le_changelog_est_toujours_atteignable as fn(),
+        ),
+        (
+            "le_bouton_de_mise_a_jour_n_existe_que_s_il_y_a_une_mise_a_jour",
+            le_bouton_de_mise_a_jour_n_existe_que_s_il_y_a_une_mise_a_jour as fn(),
+        ),
+        (
+            "la_confirmation_de_mise_a_jour_propose_d_installer_ou_d_attendre",
+            la_confirmation_de_mise_a_jour_propose_d_installer_ou_d_attendre as fn(),
         ),
     ];
 

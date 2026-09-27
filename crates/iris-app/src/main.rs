@@ -684,6 +684,7 @@ fn run_gui(
         reglages.clone(),
         services.paths.settings(),
     );
+    shell::wire_updates(&fenetre, Arc::clone(&controller), runtime.handle().clone());
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui
@@ -881,6 +882,11 @@ fn run_gui(
                     let services = services_sync.clone();
                     let _ = faible.upgrade_in_event_loop(move |fenetre| {
                         shell::refresh_accounts(&fenetre, &services, &suspendus);
+                        // Les dossiers aussi : un tour peut en découvrir ou en oublier,
+                        // et la colonne n'était relue qu'au démarrage et après un geste
+                        // de l'utilisateur. Un dossier retiré du serveur y restait
+                        // jusqu'au prochain lancement.
+                        shell::refresh_folders(&fenetre, &services);
                     });
                 }
 

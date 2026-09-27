@@ -34,8 +34,11 @@ export struct AccountRowData {
     count-label: string,
     count-full: string,
     pinned: bool,
-    // Le compte est suspendu et attend une intervention.
+    // Its last sync failed, or it is paused after several: something to look at.
     needs-attention: bool,
+    // What went wrong, in a few words, for the red mark's tooltip. Empty when the
+    // account is merely paused.
+    problem: string,
     tint: color,
 }
 
@@ -161,4 +164,17 @@ export struct FolderNodeData {
     // appartient à l'interface, et des chemins SVG dans du code Rust sont des chemins
     // SVG que plus personne ne tient à jour.
     role: string,
+}
+
+// One line of the changelog, flattened so a single list can draw it.
+//
+// kind 0: a version — `text` is the number, `detail` the date, `tag` a short mark
+//         such as "Installed";
+// kind 1: a category — New, Improved, Fixed, Removed;
+// kind 2: one change.
+export struct ChangelogRowData {
+    kind: int,
+    text: string,
+    detail: string,
+    tag: string,
 }

@@ -1,0 +1,77 @@
+# Publishing a version.
+#
+# Pushing a tag `vX.Y.Z` builds the installer on Windows and publishes it as a GitHub
+# release, with that version's section of CHANGELOG.md as its notes. Every running
+# copy of Iris finds it at its next check — at launch, or within six hours.
+#
+# The tag must match the version in Cargo.toml: a release called 0.3.0 that installs
+# a binary saying 0.2.0 would be offered again forever.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  installer:
+    name: Installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $manifeste = Get-Content Cargo.toml -Raw
+          $version = [regex]::Match($manifeste, '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match Cargo.toml ($version)"
+          }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tests
+        run: cargo test -p iris-app --lib --no-default-features
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./packaging/build-installer.ps1
+
+      - name: Release notes
+        shell: pwsh
+        run: |
+          # This version's section of the changelog, without its heading: the
+          # release already carries the version as its title.
+          $texte = Get-Content CHANGELOG.md -Raw
+          $section = [regex]::Match($texte, "(?ms)^## \[?v?$([regex]::Escape($env:VERSION))\]?[^\n]*\n(.*?)(?=^## |\z)").Groups[1].Value.Trim()
+          if (-not $section) { throw "CHANGELOG.md has no section for $env:VERSION" }
+          Set-Content -Path notes.md -Value $section -Encoding utf8
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "packaging/output/iris-setup-$env:VERSION.exe" `
+            --title "Iris $env:VERSION" `
+            --notes-file notes.md `
+            --latest

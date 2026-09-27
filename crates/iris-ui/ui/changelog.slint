@@ -1,0 +1,347 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { Icons, IconButton } from "icons.slint";
+import { ChangelogRowData } from "types.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// What changed, version by version.
+//
+// One flat list rather than nested ones: versions, categories and changes are rows of
+// three kinds, which is what a scrolling list draws best and what Rust builds in one
+// pass.
+component ChangelogList inherits ScrollView {
+    in property <[ChangelogRowData]> rows;
+
+    viewport-width: self.visible-width;
+    viewport-height: lignes.preferred-height;
+
+    lignes := VerticalLayout {
+        padding-right: Tokens.space-2;
+        spacing: 2px;
+
+        for row[i] in root.rows: VerticalLayout {
+            // A version: the number, its date, and a mark for the one installed.
+            if row.kind == 0: VerticalLayout {
+                padding-top: i == 0 ? 0px : Tokens.space-4;
+                HorizontalLayout {
+                    spacing: Tokens.space-2;
+                    height: 22px;
+
+                    Text {
+                        text: row.text;
+                        font-size: Tokens.size-body;
+                        font-weight: Tokens.weight-bold;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: row.detail;
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                    if row.tag != "": Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        height: 16px;
+                        width: marque.preferred-width + 12px;
+                        border-radius: 8px;
+                        background: Tokens.surface-active;
+                        marque := Text {
+                            text: row.tag;
+                            font-size: 9px;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    Rectangle {}
+                }
+            }
+
+            // A category.
+            if row.kind == 1: Text {
+                text: row.text;
+                font-size: 9px;
+                letter-spacing: 1px;
+                color: Tokens.text-muted;
+                height: 22px;
+                vertical-alignment: bottom;
+            }
+
+            // One change.
+            if row.kind == 2: HorizontalLayout {
+                spacing: Tokens.space-2;
+                padding-left: Tokens.space-1;
+
+                Text {
+                    text: "•";
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-muted;
+                    width: 8px;
+                    vertical-alignment: top;
+                }
+                Text {
+                    text: row.text;
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-secondary;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+}
+
+// A button with words on it, in the two weights a dialog needs.
+component DialogButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    height: 28px;
+    width: max(96px, libelle.preferred-width + 24px);
+    border-radius: Tokens.radius-small;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Tokens.border;
+    background: root.primary
+        ? Tokens.accent
+        : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
+    opacity: root.enabled ? 1.0 : 0.5;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+
+    libelle := Text {
+        text: root.text;
+        font-size: Tokens.size-small;
+        font-weight: root.primary ? Tokens.weight-bold : Tokens.weight-body;
+        color: root.primary ? Tokens.accent-text : Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The title row every panel here shares.
+component PanelTitle inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <bool> closable: true;
+
+    callback close();
+
+    vertical-stretch: 0;
+    height: 28px;
+    spacing: Tokens.space-2;
+
+    Text {
+        text: root.title;
+        font-family: Tokens.font-family;
+        font-size: Tokens.size-title;
+        font-weight: Tokens.weight-bold;
+        color: Tokens.text;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.subtitle;
+        font-size: Tokens.size-small;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Rectangle {}
+    if root.closable: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.window-close;
+        label: "Close";
+        shortcut: "Esc";
+        button-size: 24px;
+        icon-size: 13px;
+        clicked => { root.close(); }
+    }
+}
+
+// Every version and what it changed.
+export component ChangelogPanel inherits Rectangle {
+    in property <[ChangelogRowData]> rows;
+    in property <string> version;
+
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    // Escape closes it wherever the focus was: opened with the mouse, the window's
+    // own shortcut handler no longer has the keyboard.
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismissed();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(560px, parent.width - 60px);
+        height: min(620px, parent.height - 60px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            PanelTitle {
+                title: "Changelog";
+                subtitle: root.version;
+                close => { root.dismissed(); }
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            ChangelogList {
+                vertical-stretch: 1;
+                rows: root.rows;
+            }
+        }
+    }
+}
+
+// Installing a newer version, after asking.
+//
+// The question comes with the answer to "what would I get": the changes since the
+// installed version. An update offered without them is a button nobody has a reason
+// to press — or a reason not to.
+export component UpdatePanel inherits Rectangle {
+    in property <string> current;
+    in property <string> available;
+    in property <[ChangelogRowData]> notes;
+    /// Downloading or starting the installer: the choice has been made.
+    in property <bool> busy;
+    /// 0 to 1 while downloading.
+    in property <float> progress;
+    in property <string> status;
+    in property <string> error;
+
+    callback confirmed();
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { if (!root.busy) { root.dismissed(); } }
+    }
+
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape && !root.busy) {
+                root.dismissed();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(500px, parent.width - 60px);
+        height: min(520px, parent.height - 60px);
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            PanelTitle {
+                title: "Update Iris";
+                subtitle: root.current + "  →  " + root.available;
+                closable: !root.busy;
+                close => { root.dismissed(); }
+            }
+
+            Text {
+                text: "Iris will close, install version " + root.available
+                    + " and open again. Your mail and settings are kept.";
+                font-size: Tokens.size-body;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+
+            Rectangle { height: 1px; background: Tokens.border; }
+
+            ChangelogList {
+                vertical-stretch: 1;
+                rows: root.notes;
+            }
+
+            if root.busy: VerticalLayout {
+                spacing: Tokens.space-1;
+                vertical-stretch: 0;
+
+                Rectangle {
+                    height: 4px;
+                    border-radius: 2px;
+                    background: Tokens.surface-low;
+                    clip: true;
+
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * clamp(root.progress, 0, 1);
+                        height: 100%;
+                        border-radius: 2px;
+                        background: Tokens.accent;
+                        animate width { duration: Tokens.quick; }
+                    }
+                }
+                Text {
+                    text: root.status;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                }
+            }
+
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                vertical-stretch: 0;
+                spacing: Tokens.space-2;
+                Rectangle {}
+                DialogButton {
+                    text: "Later";
+                    enabled: !root.busy;
+                    clicked => { root.dismissed(); }
+                }
+                DialogButton {
+                    text: root.error != "" ? "Try again" : "Update now";
+                    primary: true;
+                    enabled: !root.busy;
+                    clicked => { root.confirmed(); }
+                }
+            }
+        }
+    }
+}

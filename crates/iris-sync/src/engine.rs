@@ -112,13 +112,103 @@ pub struct AccountFailure {
 }
 
 impl AccountFailure {
-    /// What to put in front of the user.
-    pub fn advice(&self) -> &'static str {
+    /// A few words for a tooltip: what kind of failure, not the whole transcript.
+    pub fn summary(&self) -> &'static str {
         if self.needs_password {
-            "The server refused these credentials. Re-enter the password to try again."
+            "password refused"
+        } else if self.certificate().is_some() {
+            "certificate does not match the server name"
         } else {
-            "The server could not be reached. This usually clears on its own."
+            "server unreachable"
         }
+    }
+
+    /// What to put in front of the user.
+    pub fn advice(&self) -> String {
+        if self.needs_password {
+            return "The server refused these credentials. Re-enter the password to try again."
+                .into();
+        }
+        if let Some(mismatch) = self.certificate() {
+            // Retrying cannot help here, and "usually clears on its own" would send
+            // the user off to wait for something that will never happen.
+            let mut conseil = format!(
+                "The server's security certificate is not issued for {}, so Iris refuses \
+                 the connection. Edit the account and use the server name the certificate \
+                 covers",
+                if mismatch.host.is_empty() { "this server name" } else { &mismatch.host }
+            );
+            match mismatch.suggestion() {
+                Some(nom) => conseil.push_str(&format!(": {nom}.")),
+                None => conseil.push('.'),
+            }
+            return conseil;
+        }
+        "The server could not be reached. This usually clears on its own.".into()
+    }
+
+    /// The name the certificate was checked against, and the names it covers — when
+    /// this failure is a certificate issued for another name.
+    pub fn certificate(&self) -> Option<CertificateMismatch> {
+        CertificateMismatch::parse(&self.message)
+    }
+}
+
+/// A server whose certificate is issued for other names than the one dialled.
+///
+/// The usual cause on shared hosting: `mail.example.com` points at a machine whose
+/// certificate only names the host's own servers. The connection is refused, rightly,
+/// and the fix is to dial one of the names the certificate does cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CertificateMismatch {
+    /// The name that was dialled. Empty when the message did not say.
+    pub host: String,
+    /// The names the certificate is valid for.
+    pub valid_for: Vec<String>,
+}
+
+impl CertificateMismatch {
+    /// Read from the TLS library's message: `certificate not valid for name "x";
+    /// certificate is only valid for DnsName("a"), DnsName("b")`.
+    pub fn parse(message: &str) -> Option<Self> {
+        let bas = message.to_ascii_lowercase();
+        if !bas.contains("certificate") || !bas.contains("valid for") {
+            return None;
+        }
+        let host = message
+            .split("valid for name \"")
+            .nth(1)
+            .and_then(|r| r.split('"').next())
+            .unwrap_or_default()
+            .to_string();
+        let valid_for = message
+            .split("DnsName(\"")
+            .skip(1)
+            .filter_map(|r| r.split('"').next())
+            .map(str::to_string)
+            .collect();
+        Some(Self { host, valid_for })
+    }
+
+    /// The name to dial instead: the one that names the machine itself rather than one
+    /// of the services hosted on it (`autoconfig.`, `cpanel.` and the like).
+    pub fn suggestion(&self) -> Option<&str> {
+        const SERVICES: [&str; 10] = [
+            "autoconfig.",
+            "autodiscover.",
+            "cpanel.",
+            "cpcalendars.",
+            "cpcontacts.",
+            "webdisk.",
+            "webmail.",
+            "whm.",
+            "www.",
+            "*.",
+        ];
+        self.valid_for
+            .iter()
+            .map(String::as_str)
+            .find(|n| !SERVICES.iter().any(|s| n.starts_with(s)))
     }
 }
 
@@ -742,11 +832,25 @@ pub struct SyncAllReport {
 impl SyncAllReport {
     /// One line for the status bar.
     pub fn summary(&self) -> String {
+        // The accounts that failed, by name when there are few: "1 account could not
+        // be reached" sends the reader looking through the list for which one.
+        let qui = match self.failed.len() {
+            0 => String::new(),
+            1..=3 => self
+                .failed
+                .iter()
+                .map(|(email, _)| email.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            f => format!("{f} accounts"),
+        };
         match (self.added, self.failed.len()) {
             (0, 0) => "Up to date.".into(),
             (n, 0) => format!("{n} new message(s)."),
-            (0, f) => format!("{f} account(s) could not be reached."),
-            (n, f) => format!("{n} new message(s), {f} account(s) unreachable."),
+            (0, _) => format!("Sync failed for {qui} — see the red ! in the account list."),
+            (n, _) => format!(
+                "{n} new message(s). Sync failed for {qui} — see the red ! in the account list."
+            ),
         }
     }
 }
@@ -894,6 +998,46 @@ mod tests {
         let dossiers = f.store.folders(f.account).unwrap();
         assert_eq!(dossiers.len(), 3);
         assert!(dossiers.iter().any(|d| d.role == FolderRole::Archive));
+    }
+
+    #[test]
+    fn un_certificat_emis_pour_un_autre_nom_propose_le_bon() {
+        // The message rustls gives on shared hosting, as a user met it.
+        let panne = AccountFailure {
+            message: "network: négociation TLS avec mail.example.fr : invalid peer certificate: \
+                      certificate not valid for name \"mail.example.fr\"; certificate is only \
+                      valid for DnsName(\"autoconfig.host7.example.net\"), \
+                      DnsName(\"autodiscover.host7.example.net\"), DnsName(\"host7.example.net\"), \
+                      DnsName(\"cpanel.host7.example.net\")"
+                .into(),
+            needs_password: false,
+            at: t(0),
+        };
+        let ecart = panne.certificate().expect("reconnu comme un certificat");
+        assert_eq!(ecart.host, "mail.example.fr");
+        assert_eq!(ecart.valid_for.len(), 4);
+        assert_eq!(ecart.suggestion(), Some("host7.example.net"));
+        assert!(panne.advice().contains("host7.example.net"));
+        assert_eq!(panne.summary(), "certificate does not match the server name");
+
+        let reseau = AccountFailure {
+            message: "network: connection refused".into(),
+            needs_password: false,
+            at: t(0),
+        };
+        assert!(reseau.certificate().is_none());
+        assert_eq!(reseau.summary(), "server unreachable");
+    }
+
+    #[test]
+    fn le_bilan_nomme_les_comptes_en_echec() {
+        let rapport = SyncAllReport {
+            total: 3,
+            synced: 2,
+            added: 0,
+            failed: vec![("a@example.com".into(), "boom".into())],
+        };
+        assert!(rapport.summary().contains("a@example.com"));
     }
 
     #[tokio::test]

@@ -29,6 +29,10 @@ vault*
 *.p12
 *.pfx
 
+# Consignes locales de l'assistant : propres à ce poste, pas au projet.
+CLAUDE.md
+.claude/
+
 # Journaux et fichiers de travail
 *.log
 .superpowers/

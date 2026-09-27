@@ -20,11 +20,17 @@
 ;     passe appartiennent à l'utilisateur, pas à l'installateur. Ce qui est retiré est
 ;     ce qui a été posé.
 ;
-; Construction :  iscc packaging\iris.iss
+; Construction :  powershell -File packaging\build-installer.ps1
 ; Sortie       :  packaging\output\iris-setup-<version>.exe
+;
+; La version n'est pas écrite ici : elle vient de Cargo.toml, que le script passe
+; en /DAppVersion=x.y.z. Deux endroits où l'écrire, c'était un installateur 0.1.0
+; qui installait une 0.2.0 — et une mise à jour qui se proposait sans fin.
 
 #define AppName        "Iris"
-#define AppVersion     "0.1.0"
+#ifndef AppVersion
+  #error Pass the version: iscc /DAppVersion=x.y.z packaging\iris.iss (build-installer.ps1 does)
+#endif
 #define AppPublisher   "Iris"
 #define AppExe         "iris.exe"
 #define AppUserModelID "Iris.Mail"
@@ -134,6 +140,21 @@ Filename: "{app}\{#AppExe}"; Parameters: "register"; \
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; \
     Flags: nowait postinstall skipifsilent
 
+; Après une mise à jour lancée par Iris lui-même (« /UPDATE »), la rouvrir. Une
+; installation silencieuse n'exécute jamais la ligne ci-dessus, et l'utilisateur qui
+; a cliqué « Update now » verrait son application disparaître sans revenir.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: IsUpdate
+
+[Code]
+function IsUpdate: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/UPDATE') = 0 then
+      Result := True;
+end;
 [UninstallRun]
 ; Retirer avant de désinstaller : après, l'exécutable n'est plus là pour le faire, et
 ; les clés resteraient à pointer vers un fichier absent — Windows continuerait de

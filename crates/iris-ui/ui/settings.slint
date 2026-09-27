@@ -2,7 +2,7 @@ import { Tokens } from "tokens.slint";
 import { Floating } from "glass.slint";
 import { ThemeSwatchData } from "types.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
-import { CheckBox, SpinBox } from "std-widgets.slint";
+import { CheckBox, SpinBox, ScrollView } from "std-widgets.slint";
 
 // Un intitulé de section.
 component GroupLabel inherits Text {
@@ -176,8 +176,45 @@ component SettingToggle inherits VerticalLayout {
     }
 }
 
-// Les réglages.
-//
+// A button with words on it.
+component SettingsButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    height: 26px;
+    width: libelle.preferred-width + 24px;
+    border-radius: Tokens.radius-small;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Tokens.border;
+    background: root.primary
+        ? Tokens.accent
+        : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
+    opacity: root.enabled ? 1.0 : 0.6;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+
+    libelle := Text {
+        text: root.text;
+        font-size: Tokens.size-small;
+        font-weight: root.primary ? Tokens.weight-bold : Tokens.weight-body;
+        color: root.primary ? Tokens.accent-text : Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Les réglages.//
 // Trois sections, parce que ce sont les trois choses qui se règlent : l'apparence,
 // la densité, et ce que l'application fait toute seule. Tout le reste appartient au
 // thème, qui est un fichier.
@@ -195,7 +232,15 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> keep-running;
     /// Ce que le système ne permet pas ici, et pourquoi.
     in property <string> system-note;
+    /// "Iris 0.2.0", and what the last update check found.
+    in property <string> version;
+    in property <string> update-status;
+    in property <bool> update-checking;
+    /// The newer version on offer, empty when there is none.
+    in property <string> update-version;
 
+    callback check-for-updates();
+    callback install-update();
     callback theme-chosen(int);
     callback density-chosen(int);
     callback automation-changed();
@@ -251,119 +296,171 @@ export component SettingsPanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Tokens.border; }
 
-            GroupLabel { text: "THEME"; }
+            // The sections scroll: there are more of them than a short window holds,
+            // and a panel that cuts its last setting off hides the one you came for.
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.visible-width;
+                viewport-height: sections.preferred-height;
 
-            ThemePicker {
-                themes: root.themes;
-                selected: root.active-theme;
-                chosen(i) => { root.theme-chosen(i); }
-            }
+                sections := VerticalLayout {
+                    spacing: Tokens.space-3;
+                    padding-right: Tokens.space-2;
 
-            GroupLabel { text: "LIST DENSITY"; }
+                    GroupLabel { text: "THEME"; }
 
-            ChipRow {
-                options: ["Compact", "Normal", "Comfortable"];
-                selected: root.density;
-                chosen(i) => { root.density-chosen(i); }
-            }
+                    ThemePicker {
+                        themes: root.themes;
+                        selected: root.active-theme;
+                        chosen(i) => { root.theme-chosen(i); }
+                    }
 
-            GroupLabel { text: "AUTOMATIONS"; }
+                    GroupLabel { text: "LIST DENSITY"; }
 
-            SettingToggle {
-                label: "Replying marks the thread as waiting";
-                hint: "The thread leaves your queue and waits for the other side.";
-                value <=> root.reply-marks-waiting;
-                toggled => { root.automation-changed(); }
-            }
+                    ChipRow {
+                        options: ["Compact", "Normal", "Comfortable"];
+                        selected: root.density;
+                        chosen(i) => { root.density-chosen(i); }
+                    }
 
-            SettingToggle {
-                label: "A new message reopens the thread";
-                hint: "A finished thread that gets a follow-up comes back to your queue.";
-                value <=> root.new-message-reopens;
-                toggled => { root.automation-changed(); }
-            }
+                    GroupLabel { text: "AUTOMATIONS"; }
 
-            SettingToggle {
-                label: "Follow up on unanswered threads";
-                hint: "A thread waiting too long comes back on its own.";
-                value <=> root.follow-up-enabled;
-                toggled => { root.automation-changed(); }
-            }
+                    SettingToggle {
+                        label: "Replying marks the thread as waiting";
+                        hint: "The thread leaves your queue and waits for the other side.";
+                        value <=> root.reply-marks-waiting;
+                        toggled => { root.automation-changed(); }
+                    }
 
-            // A row, not a block. Inside a vertical layout every child stretches
-            // unless it is told not to, and a spin box given a hundred pixels of
-            // height is a box with a number lost in the middle of it.
-            if root.follow-up-enabled: HorizontalLayout {
-                spacing: Tokens.space-2;
-                vertical-stretch: 0;
-                height: 30px;
+                    SettingToggle {
+                        label: "A new message reopens the thread";
+                        hint: "A finished thread that gets a follow-up comes back to your queue.";
+                        value <=> root.new-message-reopens;
+                        toggled => { root.automation-changed(); }
+                    }
 
-                Text {
-                    text: "After";
-                    font-size: Tokens.size-body;
-                    color: Tokens.text-secondary;
-                    vertical-alignment: center;
+                    SettingToggle {
+                        label: "Follow up on unanswered threads";
+                        hint: "A thread waiting too long comes back on its own.";
+                        value <=> root.follow-up-enabled;
+                        toggled => { root.automation-changed(); }
+                    }
+
+                    // A row, not a block. Inside a vertical layout every child stretches
+                    // unless it is told not to, and a spin box given a hundred pixels of
+                    // height is a box with a number lost in the middle of it.
+                    if root.follow-up-enabled: HorizontalLayout {
+                        spacing: Tokens.space-2;
+                        vertical-stretch: 0;
+                        height: 30px;
+
+                        Text {
+                            text: "After";
+                            font-size: Tokens.size-body;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+
+                        SpinBox {
+                            width: 92px;
+                            height: 30px;
+                            minimum: 1;
+                            maximum: 365;
+                            value <=> root.follow-up-days;
+                            edited => { root.automation-changed(); }
+                        }
+
+                        Text {
+                            text: "days";
+                            font-size: Tokens.size-body;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {}
+                    }
+
+                    GroupLabel { text: "SYSTEM"; }
+
+                    // Le premier des trois, parce que c'est celui qui décide de ce que fait le
+                    // geste le plus courant : fermer la fenêtre.
+                    SettingToggle {
+                        label: "Keep running when I close the window";
+                        hint: "Iris stays in the notification area and keeps syncing. Off: closing quits, and the tray icon goes away.";
+                        value <=> root.keep-running;
+                        toggled => { root.system-changed(); }
+                    }
+
+                    SettingToggle {
+                        label: "Tell me when mail arrives";
+                        hint: "One notification per sync, not one per message.";
+                        value <=> root.notifications;
+                        toggled => { root.system-changed(); }
+                    }
+
+                    SettingToggle {
+                        label: "Start with Windows";
+                        hint: "Iris waits in the notification area rather than opening a window.";
+                        value <=> root.start-at-login;
+                        toggled => { root.system-changed(); }
+                    }
+
+                    SettingToggle {
+                        label: "Offer Iris for mailto: links";
+                        hint: "Windows still decides the default in its own settings.";
+                        value <=> root.handle-mailto;
+                        toggled => { root.system-changed(); }
+                    }
+
+                    if root.system-note != "": Text {
+                        text: root.system-note;
+                        font-size: Tokens.size-small;
+                        color: Tokens.warning;
+                        wrap: word-wrap;
+                    }
+
+                GroupLabel { text: "UPDATES"; }
+
+                // Checked at every launch and every few hours after; this is for
+                // whoever wants to know now.
+                HorizontalLayout {
+                    spacing: Tokens.space-2;
+                    vertical-stretch: 0;
+                    height: 28px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: root.version;
+                            font-size: Tokens.size-body;
+                            color: Tokens.text-secondary;
+                        }
+                        Text {
+                            text: root.update-status;
+                            font-size: Tokens.size-small;
+                            color: Tokens.text-muted;
+                            overflow: elide;
+                        }
+                    }
+
+                    Rectangle {}
+
+                    if root.update-version != "": SettingsButton {
+                        y: (parent.height - self.height) / 2;
+                        text: "Install " + root.update-version;
+                        primary: true;
+                        clicked => { root.install-update(); }
+                    }
+
+                    SettingsButton {
+                        y: (parent.height - self.height) / 2;
+                        text: root.update-checking ? "Checking…" : "Check for updates";
+                        enabled: !root.update-checking;
+                        clicked => { root.check-for-updates(); }
+                    }
                 }
-
-                SpinBox {
-                    width: 92px;
-                    height: 30px;
-                    minimum: 1;
-                    maximum: 365;
-                    value <=> root.follow-up-days;
-                    edited => { root.automation-changed(); }
                 }
-
-                Text {
-                    text: "days";
-                    font-size: Tokens.size-body;
-                    color: Tokens.text-secondary;
-                    vertical-alignment: center;
-                }
-
-                Rectangle {}
             }
-
-            GroupLabel { text: "SYSTEM"; }
-
-            // Le premier des trois, parce que c'est celui qui décide de ce que fait le
-            // geste le plus courant : fermer la fenêtre.
-            SettingToggle {
-                label: "Keep running when I close the window";
-                hint: "Iris stays in the notification area and keeps syncing. Off: closing quits, and the tray icon goes away.";
-                value <=> root.keep-running;
-                toggled => { root.system-changed(); }
-            }
-
-            SettingToggle {
-                label: "Tell me when mail arrives";
-                hint: "One notification per sync, not one per message.";
-                value <=> root.notifications;
-                toggled => { root.system-changed(); }
-            }
-
-            SettingToggle {
-                label: "Start with Windows";
-                hint: "Iris waits in the notification area rather than opening a window.";
-                value <=> root.start-at-login;
-                toggled => { root.system-changed(); }
-            }
-
-            SettingToggle {
-                label: "Offer Iris for mailto: links";
-                hint: "Windows still decides the default in its own settings.";
-                value <=> root.handle-mailto;
-                toggled => { root.system-changed(); }
-            }
-
-            if root.system-note != "": Text {
-                text: root.system-note;
-                font-size: Tokens.size-small;
-                color: Tokens.warning;
-                wrap: word-wrap;
-            }
-
-            Rectangle {}
 
             Text {
                 text: "Settings are saved as you change them.";

@@ -22,6 +22,8 @@ import { SourcePanel } from "source.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { Toast } from "toast.slint";
+import { ChangelogPanel, UpdatePanel } from "changelog.slint";
+import { ChangelogRowData } from "types.slint";
 import { ListView, LineEdit } from "std-widgets.slint";
 
 export { Tokens }
@@ -124,6 +126,55 @@ component CommandPalette inherits Rectangle {
     }
 }
 
+// A small word-and-icon button, sized for the status bar.
+component StatusButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> tooltip;
+    /// Drawn in the accent: something is waiting for the reader.
+    in property <bool> highlighted;
+
+    callback clicked();
+
+    height: 18px;
+    width: rang.preferred-width + 12px;
+    border-radius: Tokens.radius-small;
+    background: root.highlighted
+        ? (touch.has-hover ? Tokens.accent.darker(0.1) : Tokens.accent)
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.tooltip != "" ? root.tooltip : root.text;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 6px;
+        spacing: 4px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 11px;
+            tint: root.highlighted ? Tokens.accent-text : Tokens.text-muted;
+        }
+        Text {
+            text: root.text;
+            font-size: 10px;
+            font-weight: root.highlighted ? Tokens.weight-bold : Tokens.weight-body;
+            color: root.highlighted ? Tokens.accent-text : Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    if root.tooltip != "": Tooltip {
+        text: @markdown("\{root.tooltip}");
+    }
+}
+
 // Bandeau d'état, en bas : synchronisation, erreurs, annulation.
 component StatusBar inherits Rectangle {
     in-out property <string> status;
@@ -132,6 +183,11 @@ component StatusBar inherits Rectangle {
     in property <string> vitals;
     in property <string> last-sync;
     in property <string> version;
+    /// A newer version, when one is published. Empty: up to date, or not yet asked.
+    in property <string> update-version;
+
+    callback open-changelog();
+    callback open-update();
 
     height: 22px;
 
@@ -192,6 +248,26 @@ component StatusBar inherits Rectangle {
             font-size: 10px;
             color: Tokens.text-muted;
             vertical-alignment: center;
+        }
+
+        // What changed, and what could change: both next to the version they concern.
+        // The update button exists only while there is something to install — a
+        // permanent "Update" that does nothing teaches people to stop looking.
+        StatusButton {
+            y: (parent.height - self.height) / 2;
+            text: "Changelog";
+            icon: Icons.list;
+            tooltip: "What changed in each version";
+            clicked => { root.open-changelog(); }
+        }
+
+        if root.update-version != "": StatusButton {
+            y: (parent.height - self.height) / 2;
+            text: "Update now";
+            icon: Icons.download;
+            tooltip: "Iris " + root.update-version + " is available";
+            highlighted: true;
+            clicked => { root.open-update(); }
         }
 
         // When the servers were last heard from. An application that syncs on its own
@@ -295,6 +371,24 @@ export component AppWindow inherits Window {
     in property <string> version;
     in property <string> vitals;
     in property <string> last-sync;
+
+    // --- Changelog and updates ---
+    in-out property <bool> changelog-open;
+    in property <[ChangelogRowData]> changelog;
+    /// The newer version on offer. Empty when there is none.
+    in property <string> update-version;
+    in-out property <bool> update-open;
+    in property <[ChangelogRowData]> update-notes;
+    in property <bool> update-busy;
+    in property <float> update-progress;
+    in property <string> update-status;
+    in property <string> update-error;
+    /// What the last check found, for the settings panel.
+    in property <string> update-check-status;
+    in property <bool> update-checking;
+    callback check-for-updates();
+    callback update-confirmed();
+
     in property <bool> sending;
     in property <int> undo-seconds;
 
@@ -813,6 +907,9 @@ export component AppWindow inherits Window {
                 last-sync: root.last-sync;
                 syncing: root.syncing;
                 pending-ops: root.pending-ops;
+                update-version: root.update-version;
+                open-changelog => { root.changelog-open = true; }
+                open-update => { root.update-open = true; }
             }
         }
     }
@@ -1040,6 +1137,12 @@ export component AppWindow inherits Window {
         handle-mailto <=> root.handle-mailto;
         keep-running <=> root.keep-running;
         system-note: root.system-note;
+        version: root.version;
+        update-status: root.update-check-status;
+        update-checking: root.update-checking;
+        update-version: root.update-version;
+        check-for-updates => { root.check-for-updates(); }
+        install-update => { root.settings-open = false; root.update-open = true; }
         system-changed => { root.system-changed(); }
         theme-chosen(i) => { root.theme-chosen(i); }
         density-chosen(i) => { root.density-chosen(i); }
@@ -1058,6 +1161,28 @@ export component AppWindow inherits Window {
             root.command-invoked(id);
         }
         dismissed => { root.palette-open = false; }
+    }
+
+    if root.changelog-open: ChangelogPanel {
+        width: 100%;
+        height: 100%;
+        rows: root.changelog;
+        version: root.version;
+        dismissed => { root.changelog-open = false; }
+    }
+
+    if root.update-open: UpdatePanel {
+        width: 100%;
+        height: 100%;
+        current: root.version;
+        available: "Iris " + root.update-version;
+        notes: root.update-notes;
+        busy: root.update-busy;
+        progress: root.update-progress;
+        status: root.update-status;
+        error: root.update-error;
+        confirmed => { root.update-confirmed(); }
+        dismissed => { root.update-open = false; }
     }
 
     // En dernier : une confirmation recouverte par ce qu'elle confirme ne confirme
@@ -1094,6 +1219,16 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.compose-open) {
                 root.compose-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.changelog-open) {
+                root.changelog-open = false;
+                return accept;
+            }
+            // Not while installing: the choice is made, and the panel is the only
+            // thing saying what is happening.
+            if (event.text == Key.Escape && root.update-open && !root.update-busy) {
+                root.update-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.source-open) {

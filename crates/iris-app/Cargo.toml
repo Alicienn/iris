@@ -50,6 +50,11 @@ tracing = "0.1"
 # bibliothèque standard se sert elle-même pour ses propres traces.
 backtrace = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Les mises à jour : la même pile HTTP que la découverte et OAuth, donc rien de plus
+# à compiler, et l'empreinte SHA-256 par ring, déjà présent sous rustls.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
+ring = "0.17"
+hex = "0.4"
 
 # L'icône de la zone de notification. Windows seulement, et sans les fonctions par
 # défaut : celles-ci tirent une pile GTK qui ne sert qu'à Linux et n'a rien à faire

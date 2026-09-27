@@ -7,6 +7,7 @@
 
 pub mod accounts;
 pub mod catalogue;
+pub mod changelog;
 pub mod controller;
 pub mod draft;
 pub mod modules;
@@ -22,6 +23,7 @@ pub mod services;
 pub mod settings;
 pub mod shell;
 pub mod tray;
+pub mod update;
 pub mod vitals;
 
 pub use controller::{Controller, Request, Snapshot};

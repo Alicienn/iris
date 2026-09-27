@@ -51,6 +51,11 @@ pub fn refresh_accounts(
     let comptes = services.store.accounts().unwrap_or_default();
     let suspendus: std::collections::BTreeSet<iris_types::AccountId> =
         suspendus.iter().copied().collect();
+    // Why each account last failed. The mark used to wait for the scheduler to pause
+    // an account — several failures in a row — so a mailbox whose every sync failed
+    // looked healthy after "Sync all", after a manual sync, after a new password.
+    let pannes: std::collections::BTreeMap<iris_types::AccountId, iris_sync::AccountFailure> =
+        services.engine.failures().into_iter().collect();
 
     // Ce qui reste à traiter, boîte par boîte. Le nombre total de messages ne dirait
     // rien de ce qu'il y a à faire, et un « 12 483 » permanent n'apprend rien.
@@ -84,11 +89,16 @@ pub fn refresh_accounts(
             liste
                 .into_iter()
                 .map(|c| {
-                    bridge::account_row(
+                    let panne = pannes.get(&c.id);
+                    let mut ligne = bridge::account_row(
                         c,
                         a_traiter.get(&c.id).copied().unwrap_or(0),
-                        suspendus.contains(&c.id),
-                    )
+                        suspendus.contains(&c.id) || panne.is_some(),
+                    );
+                    if let Some(panne) = panne {
+                        ligne.problem = panne.summary().into();
+                    }
+                    ligne
                 })
                 .collect::<Vec<_>>(),
         ))
@@ -166,6 +176,7 @@ pub fn wire_sync(
     // --- One mailbox ---
     {
         let engine = Arc::clone(&services.engine);
+        let services_un = services.clone();
         let controller = Arc::clone(&controller);
         let runtime_un = runtime.clone();
         let faible = fenetre.as_weak();
@@ -178,11 +189,14 @@ pub fn wire_sync(
             fenetre.set_syncing(true);
 
             let engine = Arc::clone(&engine);
+            let services_un = services_un.clone();
             let controller = Arc::clone(&controller);
             let faible = fenetre.as_weak();
 
             runtime_un.spawn(async move {
                 let resultat = engine.sync_now(compte, now()).await;
+                let panne = engine.failure(compte);
+                let suspendus = engine.suspended_accounts().await;
                 let _ = faible.upgrade_in_event_loop(move |fenetre| {
                     fenetre.set_syncing(false);
                     match resultat {
@@ -190,8 +204,21 @@ pub fn wire_sync(
                         Ok(n) => fenetre.set_status(
                             format!("{}.", iris_ui::format::plural(n as u64, "new message")).into(),
                         ),
-                        Err(e) => fenetre.set_status(format!("Sync failed: {e}").into()),
+                        // The kind of failure and where to look, not the TLS library's
+                        // paragraph: the whole message is one click away, on the mark.
+                        Err(e) => fenetre.set_status(
+                            match panne {
+                                Some(p) => format!(
+                                    "Sync failed: {} — click the red ! next to the account.",
+                                    p.summary()
+                                ),
+                                None => format!("Sync failed: {e}"),
+                            }
+                            .into(),
+                        ),
                     }
+                    // The mark appears, or goes, now — not at the next scheduled pass.
+                    refresh_accounts(&fenetre, &services_un, &suspendus);
                 });
                 controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
                     full_refresh: true,
@@ -1702,6 +1729,206 @@ pub fn wire_settings(
     }
 }
 
+/// The changelog, flattened into the rows the window draws.
+///
+/// `installed` marks the running version, so the reader sees where they stand.
+pub fn changelog_rows(
+    releases: &[crate::changelog::Release],
+    installed: Option<&str>,
+) -> Vec<iris_ui::ChangelogRowData> {
+    let mut lignes = Vec::new();
+    for release in releases {
+        lignes.push(iris_ui::ChangelogRowData {
+            kind: 0,
+            text: release.version.as_str().into(),
+            detail: release.date.as_str().into(),
+            tag: if installed == Some(release.version.as_str()) {
+                "Installed".into()
+            } else {
+                Default::default()
+            },
+        });
+        for section in &release.sections {
+            lignes.push(iris_ui::ChangelogRowData {
+                kind: 1,
+                text: section.title.to_uppercase().into(),
+                ..Default::default()
+            });
+            for item in &section.items {
+                lignes.push(iris_ui::ChangelogRowData {
+                    kind: 2,
+                    text: item.as_str().into(),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    lignes
+}
+
+/// How often a running Iris asks again. It can stay open for weeks in the
+/// notification area, and "checked at launch" would then mean "never".
+const UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// The changelog window, the update check, and installing an update.
+///
+/// Checked a few seconds after launch — not before the first frame, which has better
+/// things to do than wait on GitHub — then every six hours, and on demand from the
+/// settings. A failed automatic check says nothing beyond the settings panel: being
+/// offline is not news. A failed manual one says why.
+pub fn wire_updates(
+    fenetre: &AppWindow,
+    controller: Arc<Controller>,
+    runtime: tokio::runtime::Handle,
+) {
+    let courante = crate::update::current();
+    fenetre.set_changelog(ModelRc::new(VecModel::from(changelog_rows(
+        &crate::changelog::bundled(),
+        Some(courante),
+    ))));
+    fenetre.set_update_check_status("Not checked yet.".into());
+
+    // What the last check found, for the install button to act on.
+    let offre: Arc<std::sync::Mutex<Option<crate::update::Available>>> = Default::default();
+
+    // One check at a time: a second click while the first is on its way would only
+    // race it to the same answer.
+    let verification = {
+        let offre = Arc::clone(&offre);
+        let faible = fenetre.as_weak();
+        let runtime = runtime.clone();
+        let en_cours = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        move |manuelle: bool| {
+            use std::sync::atomic::Ordering;
+            if en_cours.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let _ = faible.upgrade_in_event_loop(|f| {
+                f.set_update_checking(true);
+                f.set_update_check_status("Checking…".into());
+            });
+            let offre = Arc::clone(&offre);
+            let faible = faible.clone();
+            let en_cours = Arc::clone(&en_cours);
+            runtime.spawn(async move {
+                let resultat = crate::update::check().await;
+                en_cours.store(false, Ordering::SeqCst);
+                let _ = faible.upgrade_in_event_loop(move |f| {
+                    f.set_update_checking(false);
+                    match resultat {
+                        Ok(Some(dispo)) => {
+                            let nouvelle = f.get_update_version().as_str() != dispo.version.to_string();
+                            f.set_update_version(dispo.version.to_string().into());
+                            f.set_update_notes(ModelRc::new(VecModel::from(changelog_rows(
+                                &dispo.notes,
+                                None,
+                            ))));
+                            f.set_update_check_status(
+                                format!("Iris {} is available.", dispo.version).into(),
+                            );
+                            if nouvelle {
+                                f.set_status(
+                                    format!("Iris {} is available: Update now, in the status bar.", dispo.version)
+                                        .into(),
+                                );
+                            }
+                            *offre.lock().expect("offre empoisonnée") = Some(dispo);
+                        }
+                        Ok(None) => {
+                            f.set_update_check_status(
+                                format!("Iris {} is the latest version.", crate::update::current())
+                                    .into(),
+                            );
+                        }
+                        Err(e) => {
+                            tracing::info!(error = %e, manual = manuelle, "update check");
+                            f.set_update_check_status(format!("Could not check: {e}").into());
+                        }
+                    }
+                });
+            });
+        }
+    };
+
+    // At launch, then on a schedule.
+    {
+        let verification = verification.clone();
+        runtime.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+            loop {
+                verification(false);
+                tokio::time::sleep(UPDATE_INTERVAL).await;
+            }
+        });
+    }
+
+    fenetre.on_check_for_updates(move || verification(true));
+
+    // --- Installing ---
+    let faible = fenetre.as_weak();
+    fenetre.on_update_confirmed(move || {
+        let Some(f) = faible.upgrade() else {
+            return;
+        };
+        if f.get_update_busy() {
+            return;
+        }
+        let Some(dispo) = offre.lock().expect("offre empoisonnée").clone() else {
+            f.set_update_error("Nothing to install: check for updates first.".into());
+            return;
+        };
+
+        f.set_update_busy(true);
+        f.set_update_error(Default::default());
+        f.set_update_progress(0.0);
+        f.set_update_status("Downloading…".into());
+
+        let faible = faible.clone();
+        let controller = Arc::clone(&controller);
+        runtime.spawn(async move {
+            // The bar moves by whole percents: redrawing it for every network chunk
+            // would cost more than the download.
+            let dernier = Arc::new(std::sync::atomic::AtomicU32::new(u32::MAX));
+            let progression = {
+                let faible = faible.clone();
+                let dernier = Arc::clone(&dernier);
+                move |recus: u64, total: u64| {
+                    let pour_cent = (recus * 100).checked_div(total).unwrap_or(0).min(100) as u32;
+                    if dernier.swap(pour_cent, std::sync::atomic::Ordering::Relaxed) != pour_cent {
+                        let _ = faible.upgrade_in_event_loop(move |f| {
+                            f.set_update_progress(pour_cent as f32 / 100.0);
+                            f.set_update_status(format!("Downloading… {pour_cent}%").into());
+                        });
+                    }
+                }
+            };
+
+            let resultat = crate::update::download(
+                &dispo.installer,
+                &crate::update::download_dir(),
+                progression,
+            )
+            .await
+            .and_then(|chemin| crate::update::launch_installer(&chemin));
+
+            let _ = faible.upgrade_in_event_loop(move |f| match resultat {
+                Ok(()) => {
+                    // The installer waits for this process to go before it replaces
+                    // the executable. Leaving now is what lets it finish.
+                    f.set_update_status("Installing — Iris will open again in a moment.".into());
+                    tracing::info!(version = %dispo.version, "update: installer started, quitting");
+                    controller.shutdown();
+                    let _ = slint::quit_event_loop();
+                }
+                Err(e) => {
+                    f.set_update_busy(false);
+                    f.set_update_error(format!("The update failed: {e}").into());
+                }
+            });
+        });
+    });
+}
+
 /// A theme, reduced to what the picker draws.
 ///
 /// Three colours and a label. Showing the theme is what stops people trying each one
@@ -1824,13 +2051,36 @@ pub fn wire_account_setup(
                 ) {
                     Ok(()) => {
                         fenetre.invoke_add_account_dismissed();
-                        fenetre.set_status("Password saved.".into());
+                        fenetre.set_status("Password saved — checking it with the server…".into());
                         let engine = Arc::clone(&engine);
+                        let services_ui = services_ui.clone();
+                        let faible = fenetre.as_weak();
                         runtime_ajout.spawn(async move {
                             engine.resume_account(id, now()).await;
-                            if let Err(e) = engine.sync_now(id, now()).await {
+                            let resultat = engine.sync_now(id, now()).await;
+                            if let Err(e) = &resultat {
                                 tracing::warn!(error = %e, "sync after the password changed");
                             }
+                            let panne = engine.failure(id);
+                            let suspendus = engine.suspended_accounts().await;
+                            // Saying "Password saved" and nothing else left a refused
+                            // password looking accepted. The outcome is the answer.
+                            let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                                fenetre.set_status(
+                                    match (resultat, panne) {
+                                        (Ok(_), _) => "Password saved — the account works.".into(),
+                                        (Err(_), Some(p)) => format!(
+                                            "Password saved, but sync still fails: {} — click the red ! for details.",
+                                            p.summary()
+                                        ),
+                                        (Err(e), None) => {
+                                            format!("Password saved, but sync still fails: {e}")
+                                        }
+                                    }
+                                    .into(),
+                                );
+                                refresh_accounts(&fenetre, &services_ui, &suspendus);
+                            });
                         });
                     }
                     Err(e) => fenetre
@@ -2001,10 +2251,35 @@ pub fn wire_account_setup(
                         controller.send(Request::Bootstrap);
 
                         let engine = Arc::clone(&engine);
+                        let services_ui = services_ui.clone();
+                        let faible = fenetre.as_weak();
+                        let adresse = config.email.clone();
                         runtime_manuel.spawn(async move {
                             if let Err(e) = engine.load_accounts(now()).await {
                                 tracing::warn!(error = %e, "reloading the edited account");
                             }
+                            // Edited because it was failing, most of the time: whether
+                            // the change fixed it is the one thing worth saying next.
+                            engine.resume_account(id, now()).await;
+                            let resultat = engine.sync_now(id, now()).await;
+                            let panne = engine.failure(id);
+                            let suspendus = engine.suspended_accounts().await;
+                            let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                                fenetre.set_status(
+                                    match (resultat, panne) {
+                                        (Ok(_), _) => format!("{adresse} updated — the account works."),
+                                        (Err(_), Some(p)) => format!(
+                                            "{adresse} updated, but sync still fails: {} — click the red ! for details.",
+                                            p.summary()
+                                        ),
+                                        (Err(e), None) => {
+                                            format!("{adresse} updated, but sync still fails: {e}")
+                                        }
+                                    }
+                                    .into(),
+                                );
+                                refresh_accounts(&fenetre, &services_ui, &suspendus);
+                            });
                         });
                     }
                     Err(e) => fenetre
@@ -2651,7 +2926,13 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
         })
         .collect();
 
-    fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
+    // Relue après chaque synchronisation : ne remplacer le modèle que s'il a changé,
+    // sans quoi la colonne se redessinerait — et perdrait son défilement — à chaque
+    // tour, pour afficher la même chose.
+    let actuelles = fenetre.get_folders();
+    if actuelles.row_count() != lignes.len() || actuelles.iter().zip(&lignes).any(|(a, b)| a != *b) {
+        fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
+    }
     fenetre.set_account_count(services.store.accounts().map(|c| c.len()).unwrap_or(0) as i32);
 }
 
@@ -3628,7 +3909,7 @@ pub fn wire_account_recovery(
             fenetre.set_problem_advice(
                 panne
                     .as_ref()
-                    .map(|p| p.advice().to_string())
+                    .map(|p| p.advice())
                     .unwrap_or_else(|| "This mailbox was paused after repeated failures.".into())
                     .into(),
             );

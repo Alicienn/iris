@@ -5,81 +5,92 @@
 <h1 align="center">Iris</h1>
 
 <p align="center">
-  Un client de messagerie de bureau, rapide et sobre.<br>
-  Pensé pour traiter son courrier, pas pour le ranger.
+  A fast, quiet desktop mail client.<br>
+  Built for getting through your mail, not for filing it.
 </p>
 
 <p align="center">
   <a href="https://github.com/Alicienn/iris/releases/latest"><img src="https://img.shields.io/github/v/release/Alicienn/iris?label=version&color=555" alt="Version"></a>
-  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-555" alt="Windows 10 et 11">
-  <img src="https://img.shields.io/badge/licence-MIT%20%7C%20Apache--2.0-555" alt="Licence">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-555" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-555" alt="License">
 </p>
 
 ---
 
-## Points forts
+## Highlights
 
 | | |
 |---|---|
-| <img src="docs/assets/icons/inbox.svg" width="20" alt=""> | **Une file de travail.** Chaque conversation est *à traiter*, *en attente* ou *traitée*. Un geste suffit à la faire avancer. |
-| <img src="docs/assets/icons/users.svg" width="20" alt=""> | **Tous vos comptes au même endroit.** Une boîte unifiée, ou un compte à la fois, sans que cela ralentisse. |
-| <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Immédiat.** Ouvrir, archiver et chercher se font sans attente, même avec des centaines de milliers de messages. |
-| <img src="docs/assets/icons/shield.svg" width="20" alt=""> | **Respect de la vie privée.** Les images distantes et les pixels espions sont bloqués par défaut. Aucune télémétrie. |
-| <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Des règles et des extensions ajoutent des fonctions, et chacune est isolée du reste de l'application. |
-| <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Thèmes.** Plusieurs apparences sont fournies, sombres et claires. |
+| <img src="docs/assets/icons/inbox.svg" width="20" alt=""> | **A work queue.** Every conversation is *to do*, *waiting* or *done*. One keystroke moves it along. |
+| <img src="docs/assets/icons/users.svg" width="20" alt=""> | **All your accounts in one place.** A unified inbox, or one account at a time, without slowing down. |
+| <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Instant.** Opening, archiving and searching never make you wait, even with hundreds of thousands of messages. |
+| <img src="docs/assets/icons/shield.svg" width="20" alt=""> | **Private.** Remote images and tracking pixels are blocked by default. No telemetry. |
+| <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Rules and plugins add features, each one isolated from the rest of the app. |
+| <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Themes.** Several looks included, dark and light. |
 
-## Installation
+## Install
 
-<img src="docs/assets/icons/download.svg" width="20" alt=""> Téléchargez `iris-setup-<version>.exe` depuis la page
-[**Releases**](https://github.com/Alicienn/iris/releases/latest), puis lancez-le.
+<img src="docs/assets/icons/download.svg" width="20" alt=""> Download `iris-setup-<version>.exe` from
+[**Releases**](https://github.com/Alicienn/iris/releases/latest) and run it.
 
-- L'installation ne demande pas de droits administrateur.
-- Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur
-  *Informations complémentaires*, puis sur *Exécuter quand même*. Cet avertissement
-  apparaît parce que l'installateur n'est pas encore signé.
-- La désinstallation se fait depuis *Paramètres › Applications*. Vos messages et vos
-  réglages sont conservés.
+- No administrator rights needed.
+- If Windows shows "Windows protected your PC", click *More info*, then *Run anyway*.
+  The installer is not signed yet.
+- To uninstall, go to *Settings › Apps*. Your mail and settings are kept.
 
-## Premiers pas
+## Getting started
 
-1. Cliquez sur **+** en haut de la colonne des comptes.
-2. Saisissez votre adresse et votre mot de passe. Iris trouve seul les réglages du
-   serveur, et vous indique d'où il les tient.
-3. Vos messages arrivent, en commençant par la boîte de réception.
+1. Click **+** at the top of the accounts column.
+2. Enter your address and password. Iris finds the server settings on its own and tells
+   you where it found them.
+3. Your mail arrives, inbox first.
 
-Vos mots de passe restent dans le trousseau de Windows.
+Passwords are stored in the Windows credential store.
 
-## Raccourcis utiles
+## Updates
 
-| Touche | Action |
+Iris checks for a new version at launch and every few hours. When one is out, an
+**Update now** button appears in the status bar: one click, one confirmation, and Iris
+installs it and reopens. You can also check by hand in *Settings › Updates*.
+
+**Changelog**, next to it, lists what changed in each version.
+
+## Keyboard shortcuts
+
+| Key | Action |
 |---|---|
-| `E` | Marquer comme traité |
-| `A` | Archiver |
-| `S` | Reporter à demain |
-| `R` | Marquer comme lu ou non lu |
-| `F` | Suivre (étoile) |
-| `Maj`+`3` | Supprimer |
-| `F5` | Synchroniser tous les comptes |
-| `Ctrl`+`,` | Réglages |
+| `E` | Mark as done |
+| `A` | Archive |
+| `S` | Snooze until tomorrow |
+| `R` | Mark as read or unread |
+| `F` | Star |
+| `Shift`+`3` | Delete |
+| `C` | New message |
+| `Ctrl`+`K` | Command palette |
+| `F5` | Sync all accounts |
+| `Ctrl`+`,` | Settings |
 
-Survolez un bouton pour afficher son raccourci.
+Hover over any button to see its shortcut.
 
-## Limites actuelles
+## Current limits
 
-- Windows uniquement pour l'instant.
-- Les comptes IMAP avec mot de passe fonctionnent directement. Pour Gmail, utilisez
-  un [mot de passe d'application](https://myaccount.google.com/apppasswords). La
-  connexion par le navigateur (Gmail, Outlook) n'est pas encore activée dans les
-  versions publiées.
+- Windows only for now.
+- IMAP accounts with a password work out of the box. For Gmail, use an
+  [app password](https://myaccount.google.com/apppasswords). Browser sign-in (Gmail,
+  Outlook) is not enabled in published builds yet.
 
-## Signaler un problème
+## Privacy
 
-Ouvrez une [issue](https://github.com/Alicienn/iris/issues) en décrivant ce que vous
-faisiez et ce qui s'est passé. N'y joignez jamais un mot de passe ni le contenu d'un
-message privé.
+Iris talks to your mail servers, and to GitHub to ask for the latest version. That
+request carries no information about your mail or your accounts.
+
+## Reporting a problem
+
+Open an [issue](https://github.com/Alicienn/iris/issues) describing what you were doing
+and what happened. Never include a password or the content of a private message.
 
 ---
 
-<sub>Pour contribuer ou comprendre comment Iris est construit, lisez
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Distribué sous licence MIT ou
-Apache-2.0, au choix.</sub>
+<sub>To contribute or to see how Iris is built, read
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (in French). Licensed under MIT or
+Apache-2.0, at your option.</sub>
