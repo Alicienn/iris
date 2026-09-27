@@ -233,6 +233,8 @@ export component Sidebar inherits Glass {
             spacing: Tokens.space-1;
             vertical-stretch: 0;
             height: 26px;
+            // Alone in the collapsed rail, the chevron sat against the left edge.
+            alignment: root.collapsed ? LayoutAlignment.center : LayoutAlignment.stretch;
 
             if !root.collapsed: LineEdit {
                 accessible-label: "Filter accounts";
@@ -328,7 +330,50 @@ export component Sidebar inherits Glass {
         // --- Bottom row: sync everything, and the way into settings ---
         Rectangle { height: 1px; background: Tokens.border; }
 
-        HorizontalLayout {
+        // Collapsed, the column has 28px of content for a row that wants 112: the
+        // row overflowed into the folders column, where three of its four buttons
+        // sat half-hidden behind the folders' glass. Stacked, they fit, and each
+        // keeps its tooltip — which also carries the progress the text had shown.
+        if root.collapsed: HorizontalLayout {
+            alignment: center;
+            vertical-stretch: 0;
+
+            VerticalLayout {
+                spacing: Tokens.space-1;
+
+                IconButton {
+                    icon: Icons.refresh;
+                    label: !root.syncing ? "Sync all accounts"
+                        : root.sync-progress != "" ? "Syncing… " + root.sync-progress
+                        : "Syncing…";
+                    shortcut: "F5";
+                    button-size: 24px;
+                    active: root.syncing;
+                    clicked => { root.sync-all(); }
+                }
+                IconButton {
+                    icon: Icons.puzzle;
+                    label: "Modules — rules and plugins";
+                    button-size: 24px;
+                    clicked => { root.open-modules(); }
+                }
+                IconButton {
+                    icon: Icons.store;
+                    label: "Add modules";
+                    button-size: 24px;
+                    clicked => { root.open-plugin-browser(); }
+                }
+                IconButton {
+                    icon: Icons.gear;
+                    label: "Settings";
+                    shortcut: "Ctrl+,";
+                    button-size: 24px;
+                    clicked => { root.open-settings(); }
+                }
+            }
+        }
+
+        if !root.collapsed: HorizontalLayout {
             spacing: Tokens.space-1;
             vertical-stretch: 0;
             height: 26px;
@@ -342,7 +387,7 @@ export component Sidebar inherits Glass {
                 clicked => { root.sync-all(); }
             }
 
-            if !root.collapsed && root.sync-progress != "": Text {
+            if root.sync-progress != "": Text {
                 text: root.sync-progress;
                 font-size: Tokens.size-small;
                 color: Tokens.text-muted;
