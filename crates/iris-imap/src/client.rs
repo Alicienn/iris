@@ -271,6 +271,21 @@ fn flags_to_names(flags: Flags) -> String {
     format!("({})", noms.join(" "))
 }
 
+/// Un répertoire de travail du serveur, que LIST montre comme une boîte.
+///
+/// Quand Dovecot range le courrier à la racine du répertoire personnel, ses propres
+/// fichiers y deviennent des dossiers : `dovecot.lda-dupes.locks` (les verrous de la
+/// détection de doublons à la livraison) et `sieve` (les scripts de filtrage). Aucun
+/// ne contient de courrier, et le serveur les recrée à chaque livraison : les montrer
+/// offrait une suppression qui ne tenait jamais.
+fn is_server_internal(name: &str) -> bool {
+    let premier = name
+        .split(['.', '/'])
+        .find(|s| !s.eq_ignore_ascii_case("INBOX"))
+        .unwrap_or("");
+    premier == "dovecot" || premier.starts_with("dovecot-") || name == "sieve"
+}
+
 /// Déduit le rôle d'un dossier de ses attributs spéciaux, avec repli sur son nom.
 fn folder_kind(name: &str, attributes: &[async_imap::types::NameAttribute<'_>]) -> FolderKind {
     use async_imap::types::NameAttribute as A;
@@ -280,6 +295,12 @@ fn folder_kind(name: &str, attributes: &[async_imap::types::NameAttribute<'_>]) 
     for a in attributes {
         match a {
             A::NoSelect => return FolderKind::NoSelect,
+            // RFC 5258 : un nom qui n'existe que parce qu'il a des enfants. Aussi
+            // impossible à sélectionner qu'un `\Noselect`, et Dovecot l'emploie à sa
+            // place pour les branches de son arborescence.
+            A::Extension(s) if s.eq_ignore_ascii_case("\\NonExistent") => {
+                return FolderKind::NoSelect
+            }
             A::Sent => return FolderKind::Sent,
             A::Drafts => return FolderKind::Drafts,
             A::Trash => return FolderKind::Trash,
@@ -321,7 +342,7 @@ impl ImapConnection for ImapClient {
         while let Some(nom) = flux.next().await {
             let nom = nom.map_err(|e| protocol_error("liste des dossiers", e))?;
             let kind = folder_kind(nom.name(), nom.attributes());
-            if kind == FolderKind::NoSelect {
+            if kind == FolderKind::NoSelect || is_server_internal(nom.name()) {
                 continue;
             }
             out.push(RemoteFolder {
@@ -661,6 +682,20 @@ mod tests {
         assert_eq!(folder_kind("Peu importe", &[A::Trash]), FolderKind::Trash);
         assert_eq!(folder_kind("Tout", &[A::All]), FolderKind::Archive);
         assert_eq!(folder_kind("Racine", &[A::NoSelect]), FolderKind::NoSelect);
+        assert_eq!(
+            folder_kind("Branche", &[A::Extension("\\NonExistent".into())]),
+            FolderKind::NoSelect
+        );
+    }
+
+    #[test]
+    fn les_repertoires_de_dovecot_ne_sont_pas_des_dossiers() {
+        assert!(is_server_internal("dovecot/lda-dupes/locks"));
+        assert!(is_server_internal("dovecot.lda-dupes.locks"));
+        assert!(is_server_internal("INBOX.dovecot.lda-dupes.locks"));
+        assert!(is_server_internal("sieve"));
+        assert!(!is_server_internal("INBOX.Devis"));
+        assert!(!is_server_internal("Clients/sieve"));
     }
 
     #[test]

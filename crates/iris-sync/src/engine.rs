@@ -552,6 +552,30 @@ impl SyncEngine {
                 .upsert_folder(account, &d.path, translate_kind(d.kind))?;
         }
 
+        // Et ce que le serveur ne liste plus, on l'oublie.
+        //
+        // Seul un SELECT refusé en `[NONEXISTENT]` faisait disparaître un dossier. Un
+        // dossier devenu une simple branche, supprimé ailleurs, ou qu'on a appris à
+        // ignorer, restait donc dans la copie locale pour toujours — et revenait dans
+        // la colonne après chaque suppression. La garde : une liste sans boîte de
+        // réception n'est pas une réponse à laquelle on confie un effacement.
+        if distants.iter().any(|d| d.path.eq_ignore_ascii_case("INBOX")) {
+            let listes: std::collections::HashSet<&str> =
+                distants.iter().map(|d| d.path.as_str()).collect();
+            for local in self.store.folders(account)? {
+                if listes.contains(local.path.as_str()) {
+                    continue;
+                }
+                // Vidé d'abord, pour que les fils soient recalculés au passage.
+                self.store.clear_folder(local.id)?;
+                self.store.forget_folder(account, &local.path)?;
+                tracing::info!(
+                    account = %account, folder = %local.path,
+                    "folder dropped: the server no longer lists it"
+                );
+            }
+        }
+
         // Synchronisation, boîte de réception d'abord : c'est ce que l'utilisateur
         // regarde, et il ne doit pas attendre que « Archives 2019 » soit relu.
         let mut dossiers = self.store.folders(account)?;
@@ -870,6 +894,28 @@ mod tests {
         let dossiers = f.store.folders(f.account).unwrap();
         assert_eq!(dossiers.len(), 3);
         assert!(dossiers.iter().any(|d| d.role == FolderRole::Archive));
+    }
+
+    #[tokio::test]
+    async fn un_dossier_que_le_serveur_ne_liste_plus_est_oublie() {
+        // Sans cela, un dossier supprimé ailleurs ou devenu simple branche restait
+        // dans la colonne pour toujours, et revenait après chaque suppression.
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "dovecot/lda-dupes/locks", FolderRole::Other)
+            .unwrap();
+
+        f.engine.load_accounts(t(0)).await.unwrap();
+        f.engine.tick(t(0)).await;
+
+        let chemins: Vec<_> = f
+            .store
+            .folders(f.account)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.path)
+            .collect();
+        assert_eq!(chemins, ["INBOX"]);
     }
 
     #[tokio::test]

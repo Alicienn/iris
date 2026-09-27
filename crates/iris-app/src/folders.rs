@@ -136,26 +136,31 @@ pub fn tree(folders: &[UnifiedFolder]) -> Vec<FolderNode> {
     {
         // Le préfixe imposé par le serveur est retiré de l'affichage : `INBOX.Devis`
         // se lit « Devis ». Il reste dans la clé, qui est ce qui interroge la base.
-        let segments: Vec<&str> = dossier
-            .path
-            .split(SEPARATEURS)
-            .filter(|s| !s.eq_ignore_ascii_case("INBOX"))
-            .collect();
+        //
+        // Chaque segment garde où il finit dans le chemin réel, pour que la clé d'un
+        // parent fabriqué soit un préfixe de ce chemin. Elle était reconstruite en
+        // `INBOX.` + points : chez un serveur qui sépare par `/` et ne préfixe rien,
+        // cela désignait un dossier qui n'existe nulle part, que la suppression ne
+        // trouvait pas — et qui revenait aussitôt.
+        let chemin = dossier.path.as_str();
+        let mut segments: Vec<(&str, usize)> = Vec::new();
+        let mut debut = 0;
+        for (i, c) in chemin.char_indices() {
+            if SEPARATEURS.contains(&c) {
+                segments.push((&chemin[debut..i], i));
+                debut = i + c.len_utf8();
+            }
+        }
+        segments.push((&chemin[debut..], chemin.len()));
+        segments.retain(|(s, _)| !s.eq_ignore_ascii_case("INBOX"));
 
-        for (i, _) in segments.iter().enumerate() {
-            let affiche: Vec<&str> = segments[..=i].to_vec();
+        for (i, (segment, fin)) in segments.iter().enumerate() {
+            let affiche: Vec<&str> = segments[..=i].iter().map(|(s, _)| *s).collect();
             let feuille = i + 1 == segments.len();
-            // La clé garde le chemin réel de la feuille ; pour un parent fabriqué, on
-            // reconstruit celui que le serveur emploierait.
-            let clef = if feuille {
-                dossier.path.clone()
-            } else {
-                format!("INBOX.{}", affiche.join("."))
-            };
 
             let noeud = vus.entry(affiche.join(".")).or_insert_with(|| FolderNode {
-                name: segments[i].to_string(),
-                key: clef,
+                name: segment.to_string(),
+                key: chemin[..*fin].to_string(),
                 depth: i,
                 role: iris_store::FolderRole::Other,
                 is_role: false,
@@ -380,6 +385,15 @@ fn videable(scope: &Scope) -> bool {
 pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<usize> {
     let comptes = store.accounts_with_folder(path)?;
 
+    // Un dossier qu'aucune boîte ne porte : le parent qu'on a fabriqué pour ranger des
+    // sous-dossiers. Annoncer « supprimé sur 0 boîte » pour le voir aussitôt revenir
+    // était le pire des deux mondes.
+    if comptes.is_empty() {
+        return Err(Error::Config(
+            "this folder only groups the ones inside it; delete those instead".into(),
+        ));
+    }
+
     for compte in &comptes {
         let dossiers = store.folders(*compte)?;
         let Some(source) = dossiers.iter().find(|f| f.path == path) else {
@@ -574,6 +588,25 @@ mod tests {
     fn la_barre_oblique_est_lue_comme_le_point() {
         let arbre = tree(&[dossier("INBOX/Devis", 1)]);
         assert_eq!(noeud(&arbre, "Devis").depth, 0);
+    }
+
+    #[test]
+    fn un_parent_fabrique_porte_un_prefixe_du_chemin_reel() {
+        // Sa clé était `INBOX.` + points quel que soit le serveur : un dossier qui
+        // n'existait nulle part, que la suppression ne trouvait pas.
+        let arbre = tree(&[dossier("Projets/Devis/2026", 1)]);
+        assert_eq!(noeud(&arbre, "Projets").key, "Projets");
+        assert_eq!(noeud(&arbre, "Devis").key, "Projets/Devis");
+        assert_eq!(noeud(&arbre, "2026").key, "Projets/Devis/2026");
+
+        let arbre = tree(&[dossier("INBOX.Devis.2026", 1)]);
+        assert_eq!(noeud(&arbre, "Devis").key, "INBOX.Devis");
+    }
+
+    #[test]
+    fn supprimer_un_parent_fabrique_est_refuse() {
+        let store = Store::in_memory().unwrap();
+        assert!(delete_everywhere(&store, "Projets", Timestamp::from_millis(0)).is_err());
     }
 
     #[test]
