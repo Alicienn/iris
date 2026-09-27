@@ -39,6 +39,10 @@ fn ecart(avant: &memory::Regions, apres: &memory::Regions, quoi: &str) {
 }
 
 /// Un message d'infolettre, aussi long qu'on le demande.
+///
+/// Seuls les rendus Blitz s'en servent : sans le moteur, elle serait morte, et
+/// l'intégration continue compile sans lui avec les avertissements en erreurs.
+#[cfg(feature = "blitz")]
 fn message(paragraphes: usize) -> String {
     let mut html = String::from("<html><body style=\"font-family:sans-serif\">");
     for i in 0..paragraphes {
