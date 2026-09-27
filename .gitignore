@@ -1,11 +1,42 @@
+# Compilation
 /target
-.superpowers/
 **/*.rs.bk
-.env
-data/
+*.pdb
 
 # Les modules livrés, compilés par packaging/build-plugins.ps1. Reconstruits en une
 # seconde depuis les caisses ; les garder ici mettrait trois binaires dans chaque
 # revue de code et une occasion de livrer un wasm plus vieux que sa source.
 /packaging/plugins/
 /packaging/output/
+
+# Données locales : jamais dans un dépôt public. Un compte de test, une base, un
+# coffre ou un iris.toml portent des adresses, des mots de passe et du courrier.
+data/
+.env
+.env.*
+iris.toml
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.eml
+*.mbox
+vault*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Journaux et fichiers de travail
+*.log
+.superpowers/
+
+# Éditeurs et système
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

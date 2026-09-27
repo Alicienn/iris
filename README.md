@@ -1,201 +1,85 @@
-# Iris
+<p align="center">
+  <img src="docs/assets/logo.svg" width="96" height="96" alt="Iris">
+</p>
 
-Un client de messagerie de bureau, en Rust, conçu pour tenir **une centaine de boîtes
-et un million de messages** sur une machine, sans jamais cesser d'être immédiat.
+<h1 align="center">Iris</h1>
 
-Trois partis pris le distinguent :
+<p align="center">
+  Un client de messagerie de bureau, rapide et sobre.<br>
+  Pensé pour traiter son courrier, pas pour le ranger.
+</p>
 
-1. **L'axe d'organisation est le travail, pas le classement.** Une conversation est
-   *à traiter*, *en attente* ou *traitée*. Aucun rangement thématique n'est imposé.
-2. **La performance est une contrainte de conception**, pas une optimisation. Elle
-   dicte l'architecture — pagination par curseur, coalescence des événements,
-   vue-modèle hors du fil d'affichage — et non l'inverse.
-3. **Tout est module.** Le noyau ignore ce qu'est un mail. Thèmes, règles, protocoles
-   et extensions sont des modules, et un plugin tiers voit le même modèle de
-   permissions qu'un module interne.
-
----
-
-## État
-
-Le socle est complet et éprouvé : **779 tests** passent, dont ceux qui mettent
-réellement en faute la synchronisation, le bac à sable des plugins et le moteur de
-rendu.
-
-```bash
-cargo test --workspace          # la suite complète
-cargo run -p iris-app -- doctor # vérifie l'installation
-cargo run -p iris-app           # lance l'application
-```
-
-### Ligne de commande
-
-```
-iris [run]                     Lance l'application
-iris add-account <adresse>     Ajoute un compte (mot de passe demandé)
-iris import <fichier>          Ajoute des comptes en lot
-iris accounts                  Liste les comptes configurés
-iris sync                      Synchronise une fois, sans interface
-iris doctor                    Vérifie l'installation
-```
-
-Une adresse et un mot de passe suffisent : la découverte enchaîne table embarquée,
-autoconfiguration du domaine, base Mozilla, DNS `SRV`, `MX` et sondage — et **dit
-d'où vient la configuration proposée**, pour qu'une conjecture ne passe jamais pour
-une certitude.
+<p align="center">
+  <a href="https://github.com/Alicienn/iris/releases/latest"><img src="https://img.shields.io/github/v/release/Alicienn/iris?label=version&color=555" alt="Version"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-555" alt="Windows 10 et 11">
+  <img src="https://img.shields.io/badge/licence-MIT%20%7C%20Apache--2.0-555" alt="Licence">
+</p>
 
 ---
 
-## Mesures
+## Points forts
 
-Relevées sur un poste de développement ordinaire, avec
-`cargo test -p iris-app --release --test budgets -- --ignored` :
+| | |
+|---|---|
+| <img src="docs/assets/icons/inbox.svg" width="20" alt=""> | **Une file de travail.** Chaque conversation est *à traiter*, *en attente* ou *traitée*. Un geste suffit à la faire avancer. |
+| <img src="docs/assets/icons/users.svg" width="20" alt=""> | **Tous vos comptes au même endroit.** Une boîte unifiée, ou un compte à la fois, sans que cela ralentisse. |
+| <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Immédiat.** Ouvrir, archiver et chercher se font sans attente, même avec des centaines de milliers de messages. |
+| <img src="docs/assets/icons/shield.svg" width="20" alt=""> | **Respect de la vie privée.** Les images distantes et les pixels espions sont bloqués par défaut. Aucune télémétrie. |
+| <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Des règles et des extensions ajoutent des fonctions, et chacune est isolée du reste de l'application. |
+| <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Thèmes.** Plusieurs apparences sont fournies, sombres et claires. |
 
-| Mesure | Budget visé | Constaté |
-|---|---|---|
-| Première liste affichée, 100 000 fils | ≤ 400 ms | **48 à 99 ms** |
-| Lignes détenues en mémoire, 100 000 fils | proportionnel à l'affiché | **60** |
-| Page de liste servie pendant le défilement | ≤ 10 ms | **0,7 à 0,8 ms** |
-| Recherche plein texte, 200 000 documents | ≤ 80 ms | **1 à 5 ms** |
-| Action de triage | imperceptible | **97 µs** |
-| Ouverture à froid de tous les services | ≤ 2 s | **3,6 ms** |
-| Insertion, 100 000 messages | — | **0,92 s** |
+## Installation
 
-Les fourchettes sont réelles : d'une exécution à l'autre, la première liste varie du
-simple au double selon ce que le système d'exploitation a en cache. Publier la
-meilleure mesure serait plus flatteur et moins vrai.
+<img src="docs/assets/icons/download.svg" width="20" alt=""> Téléchargez `iris-setup-<version>.exe` depuis la page
+[**Releases**](https://github.com/Alicienn/iris/releases/latest), puis lancez-le.
 
-L'action de triage coûtait **41 µs** dans une version antérieure. Elle en coûte
-aujourd'hui 97, et c'est un échange assumé : chaque action est désormais annoncée sur
-le bus — sans quoi les plugins ne voient pas le tri de l'utilisateur — et son
-annulation restaure le report et les drapeaux, pas seulement l'état. Une mesure qui
-ne baisse jamais est une mesure qu'on a cessé de confronter à ce que le produit doit
-faire.
+- L'installation ne demande pas de droits administrateur.
+- Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur
+  *Informations complémentaires*, puis sur *Exécuter quand même*. Cet avertissement
+  apparaît parce que l'installateur n'est pas encore signé.
+- La désinstallation se fait depuis *Paramètres › Applications*. Vos messages et vos
+  réglages sont conservés.
 
-La dernière ligne mérite son histoire : la première version mettait **192 secondes**.
-Le rattachement d'une réponse arrivée avant son original interrogeait
-`messages.in_reply_to` sans index, ce qui rendait la synchronisation quadratique. Un
-test de non-régression garde désormais cette propriété.
+## Premiers pas
 
----
+1. Cliquez sur **+** en haut de la colonne des comptes.
+2. Saisissez votre adresse et votre mot de passe. Iris trouve seul les réglages du
+   serveur, et vous indique d'où il les tient.
+3. Vos messages arrivent, en commençant par la boîte de réception.
 
-## Architecture
+Vos mots de passe restent dans le trousseau de Windows.
 
-Cinq couches, plus un noyau transverse. Aucune dépendance en diagonale : une couche
-ne connaît que le contrat de celle qui la précède.
+## Raccourcis utiles
 
-```
-  Présentation   iris-ui · iris-htmlview · iris-theme        jamais d'entrée-sortie
-  Vue-modèle     iris-viewmodel                              testable sans interface
-  Domaine        iris-workflow · iris-thread · iris-rules    pur, sans entrée-sortie
-                 iris-search · iris-mime
-  Données        iris-store (SQLite) · iris-index (Tantivy)  vérité locale
-                 iris-blobs (zstd + LRU)
-  Réseau         iris-sync · iris-imap · iris-smtp           tokio
-                 iris-discover · iris-secrets · iris-oauth
-  Transverse     iris-kernel · iris-types · iris-plugins
-```
+| Touche | Action |
+|---|---|
+| `E` | Marquer comme traité |
+| `A` | Archiver |
+| `S` | Reporter à demain |
+| `R` | Marquer comme lu ou non lu |
+| `F` | Suivre (étoile) |
+| `Maj`+`3` | Supprimer |
+| `F5` | Synchroniser tous les comptes |
+| `Ctrl`+`,` | Réglages |
 
-### Les quatre invariants
+Survolez un bouton pour afficher son raccourci.
 
-Ils priment sur toute autre considération, et chacun est tenu par une **propriété de
-structure**, pas par de la discipline :
+## Limites actuelles
 
-1. **Zéro entrée-sortie sur le fil d'affichage.** Le vue-modèle vit dans son propre
-   fil et ne communique que par messages : le code qui interroge la base ne s'exécute
-   pas là où se dessinent les frames.
-2. **Rien n'est chargé en entier.** La liste ne détient qu'un préfixe, étendu par
-   curseur. La mémoire suit ce qui est affiché, jamais ce qui est stocké.
-3. **Toute action locale est instantanée, puis réconciliée.** Écriture immédiate,
-   journal d'opérations idempotent, rejeu vers le serveur. Aucun sablier pour un geste
-   de l'utilisateur.
-4. **Les événements sont groupés.** Coalescence par fenêtres de 16 ms, et un lot qui
-   touche plus de 256 fils dégénère en rafraîchissement complet — le coût côté
-   interface reste borné quelle que soit l'intensité de la synchronisation.
+- Windows uniquement pour l'instant.
+- Les comptes IMAP avec mot de passe fonctionnent directement. Pour Gmail, utilisez
+  un [mot de passe d'application](https://myaccount.google.com/apppasswords). La
+  connexion par le navigateur (Gmail, Outlook) n'est pas encore activée dans les
+  versions publiées.
+
+## Signaler un problème
+
+Ouvrez une [issue](https://github.com/Alicienn/iris/issues) en décrivant ce que vous
+faisiez et ce qui s'est passé. N'y joignez jamais un mot de passe ni le contenu d'un
+message privé.
 
 ---
 
-## Interface
-
-Trois colonnes : comptes, file de travail, conversation avec réponse intégrée.
-Le thème par défaut, `mono`, est un verre profond **monochrome** : la hiérarchie ne
-repose que sur la luminosité et la transparence. Deux presets accompagnent —
-`ice` et `sand` — chacun avec un unique accent désaturé.
-
-Un mot sur le verre, parce que c'est contre-intuitif : **il n'y a aucun flou**. Un
-flou d'arrière-plan sert à rendre lisible un panneau posé sur du contenu détaillé ;
-nos panneaux fixes sont posés sur notre propre dégradé, et flouter un dégradé lisse ne
-change rien à l'image tout en coûtant plusieurs millisecondes par frame. Ce qui produit
-l'impression de verre, ce sont la translucidité, l'arête lumineuse d'un pixel, et le
-grain — trois lignes de shader.
-
-Le corps des messages est rendu en texte riche par défaut, et par un **moteur HTML
-complet** (Blitz) lorsque la mise en page l'exige — infolettres en tableaux
-imbriqués, mise en page au pixel. Le choix est mesuré, pas deviné : payer un moteur
-complet pour un message écrit à la main serait absurde. Blitz rend **dans une image**
-plutôt que dans une texture partagée avec l'interface : un corps se redessine à
-l'ouverture, pas à chaque frame, et le partage de device lierait nos versions de wgpu
-à celles de deux projets tiers indépendants. Sans périphérique graphique compatible,
-l'application reste pleinement fonctionnelle en texte riche et le dit au démarrage.
-
-Un thème est **un fichier**, pas du code : couleurs, rayons, espacements, typographie,
-densité, durées et paramètres du verre vivent dans un TOML rechargé à chaud. Les trois
-thèmes livrés ne sont que trois fichiers parmi d'autres ; si le thème par défaut avait
-le moindre privilège dans le code, la modularité annoncée serait une fiction.
-
----
-
-## Extensions
-
-Les plugins sont du WebAssembly, exécuté en bac à sable. La question « un plugin
-peut-il nuire ? » a trois réponses, chacune vérifiée par un test qui met réellement un
-plugin en faute :
-
-- **le carburant** borne le temps d'exécution — une boucle infinie s'arrête en
-  quelques microsecondes, et le plugin est désactivé ;
-- **la mémoire** est plafonnée — un plugin gourmand est refusé, pas la machine ;
-- **les capacités** bornent ce qu'il peut demander, et le trousseau ne lui est jamais
-  accordé : un plugin capable de lire les mots de passe n'est plus un plugin.
-
-Un plugin défaillant est désactivé, jamais fatal. Le contrat vit dans
-[`wit/iris.wit`](crates/iris-plugins/wit/iris.wit) ; un exemple complet et exécuté par
-les tests se trouve dans
-[`examples/marquer-infolettres`](crates/iris-plugins/examples/marquer-infolettres).
-
-Les plugins tournent dans leur propre fil : un plugin qui part en boucle consomme son
-carburant, pas une image. Ce qu'ils reçoivent est délibérément pauvre — expéditeur,
-sujet, étiquettes, jamais le corps ni l'identifiant du compte — et ce qu'ils demandent
-revient sous forme d'intentions, appliquées par le même chemin que le clavier. Les
-commandes qu'ils déclarent apparaissent dans la palette sans redémarrage.
-
-Les comptes Google et Microsoft passent par le navigateur du système, jamais par une
-fenêtre intégrée : il faut voir la barre d'adresse de son fournisseur pour savoir à qui
-l'on donne son mot de passe. L'identifiant client n'est pas dans le binaire — un secret
-distribué à tout le monde n'en est pas un — il se configure dans `iris.toml`, et son
-absence est annoncée en clair plutôt que déguisée en échec d'authentification.
-
----
-
-## Vie privée
-
-- Images distantes bloquées par défaut ; c'est par leur simple chargement que
-  l'expéditeur apprend l'heure de lecture et l'adresse IP.
-- Pixels espions distingués des images légitimes par leurs dimensions, leur style ou
-  leur domaine — confondre les deux rendrait l'avertissement inutile.
-- HTML assaini avant rendu : ni script, ni formulaire, ni ressource externe.
-- Secrets dans le trousseau du système, avec repli sur un coffre Argon2id +
-  XChaCha20-Poly1305. Le type qui les transporte n'affiche jamais son contenu, pas même
-  en débogage.
-- Aucune télémétrie.
-
----
-
-## Documentation
-
-- [Spécification de conception](docs/superpowers/specs/2026-09-13-iris-design.md) —
-  les décisions et leurs raisons.
-- [Plan d'implémentation](docs/PLAN.md) — epics et stories, avec leur état.
-
-## Licence
-
-MIT ou Apache-2.0, au choix.
+<sub>Pour contribuer ou comprendre comment Iris est construit, lisez
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Distribué sous licence MIT ou
+Apache-2.0, au choix.</sub>
