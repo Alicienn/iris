@@ -661,10 +661,8 @@ mod tests {
             "<p>Cordialement</p><img src=\"data:image/png;base64,{PNG_2X1}\" alt=\"logo\">"
         ));
 
-        let Some(Block::Image { pixels, .. }) = doc
-            .blocks
-            .iter()
-            .find(|b| matches!(b, Block::Image { .. }))
+        let Some(Block::Image { pixels, .. }) =
+            doc.blocks.iter().find(|b| matches!(b, Block::Image { .. }))
         else {
             panic!("l'image doit être là");
         };

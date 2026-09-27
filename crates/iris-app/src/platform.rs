@@ -281,9 +281,8 @@ mod windows_impl {
             let mut cle: HKEY = std::ptr::null_mut();
             // SÛRETÉ : `chemin` vit jusqu'au retour ; la clé est refermée si elle
             // s'est ouverte.
-            let ouverte =
-                unsafe { RegOpenKeyExW(hive, chemin.as_ptr(), 0, KEY_READ, &mut cle) }
-                    == ERROR_SUCCESS;
+            let ouverte = unsafe { RegOpenKeyExW(hive, chemin.as_ptr(), 0, KEY_READ, &mut cle) }
+                == ERROR_SUCCESS;
             if ouverte {
                 unsafe { RegCloseKey(cle) };
             }
@@ -343,7 +342,9 @@ mod windows_impl {
     }
 }
 
-pub use windows_impl::{register_mailto, set_start_at_login, status, unregister_mailto, Registration};
+pub use windows_impl::{
+    register_mailto, set_start_at_login, status, unregister_mailto, Registration,
+};
 
 /// Ouvre un fichier avec l'application que le système lui associe.
 ///
@@ -537,8 +538,8 @@ mod tests {
     fn les_en_tetes_libres_sont_ignorees() {
         // Les honorer laisserait une page web écrire les en-têtes d'un message parti
         // de votre adresse.
-        let m = MailtoRequest::parse("mailto:a@x.fr?from=usurpateur@mal.fr&reply-to=x@y.fr")
-            .unwrap();
+        let m =
+            MailtoRequest::parse("mailto:a@x.fr?from=usurpateur@mal.fr&reply-to=x@y.fr").unwrap();
         assert_eq!(m.to, "a@x.fr");
         assert!(m.cc.is_empty() && m.bcc.is_empty());
     }

@@ -256,7 +256,10 @@ impl Scope {
     /// Non quand c'est précisément ce qu'on est allé chercher : ouvrir la corbeille
     /// pour la voir vide serait une plaisanterie.
     pub fn hides_put_aside(&self) -> bool {
-        !matches!(self, Self::Role(FolderRole::Trash) | Self::Role(FolderRole::Junk))
+        !matches!(
+            self,
+            Self::Role(FolderRole::Trash) | Self::Role(FolderRole::Junk)
+        )
     }
 }
 
@@ -356,7 +359,6 @@ impl ListQuery {
         self.hide_snoozed_until = Some(now);
         self
     }
-
 }
 
 /// Nature d'une opération en attente de réconciliation.

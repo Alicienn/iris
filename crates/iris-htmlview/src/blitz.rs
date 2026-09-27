@@ -170,9 +170,8 @@ impl HtmlRenderer for BlitzRenderer {
         // ces autres à leur tour ; trois tours suffisent à tout ce qui ressemble à du
         // courrier, et la borne empêche une page bâtie en boucle de nous y enfermer.
         for _ in 0..3 {
-            let arrivees: Vec<_> = std::mem::take(
-                &mut *en_attente.lock().unwrap_or_else(|e| e.into_inner()),
-            );
+            let arrivees: Vec<_> =
+                std::mem::take(&mut *en_attente.lock().unwrap_or_else(|e| e.into_inner()));
             if arrivees.is_empty() {
                 break;
             }
@@ -303,7 +302,9 @@ mod tests {
         };
 
         let mut pixels = tampon();
-        let rendu = m.render("<p>Bonjour Marie</p>", 800.0, &mut pixels).unwrap();
+        let rendu = m
+            .render("<p>Bonjour Marie</p>", 800.0, &mut pixels)
+            .unwrap();
         match rendu {
             Rendered::Texture { width, height } => {
                 assert_eq!(width, 800);

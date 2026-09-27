@@ -59,8 +59,7 @@ pub struct Catalogue {
 impl Catalogue {
     /// Lit un catalogue déjà téléchargé.
     pub fn parse(json: &str) -> Result<Self> {
-        serde_json::from_str(json)
-            .map_err(|e| Error::Config(format!("catalogue illisible : {e}")))
+        serde_json::from_str(json).map_err(|e| Error::Config(format!("catalogue illisible : {e}")))
     }
 
     /// Les entrées qui ne sont pas déjà installées.
@@ -149,9 +148,8 @@ pub fn install_from_dir(
         ));
     }
 
-    let wasm = std::fs::read(source.join(&manifeste.entry)).map_err(|e| {
-        Error::Config(format!("{} could not be read ({e})", manifeste.entry))
-    })?;
+    let wasm = std::fs::read(source.join(&manifeste.entry))
+        .map_err(|e| Error::Config(format!("{} could not be read ({e})", manifeste.entry)))?;
 
     let cible = plugins_dir.join(&manifeste.id);
     std::fs::create_dir_all(&cible)?;

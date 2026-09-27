@@ -19,8 +19,8 @@
 
 pub mod host;
 pub mod manifest;
-pub mod settings;
 mod registry;
+pub mod settings;
 
 pub use host::{CallTrace, Plugin};
 pub use manifest::{Limits, Manifest, Permissions, API_VERSION};

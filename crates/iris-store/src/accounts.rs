@@ -460,7 +460,10 @@ mod tests {
         // court à écrire et emporterait ses dossiers, ses messages et leurs états.
         let s = store();
         let id = s
-            .create_account(&NewAccount::new("marie@x.fr", "imap.x.fr", "smtp.x.fr"), now())
+            .create_account(
+                &NewAccount::new("marie@x.fr", "imap.x.fr", "smtp.x.fr"),
+                now(),
+            )
             .unwrap();
 
         s.update_account_servers(

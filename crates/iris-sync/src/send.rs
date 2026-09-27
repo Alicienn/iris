@@ -612,7 +612,10 @@ mod tests {
         // cite la signature comme si elle faisait partie du texte.
         let corps = avec_signature("Bonjour,", "Marie\n01 23 45 67 89");
         assert_eq!(corps, "Bonjour,\n\n-- \nMarie\n01 23 45 67 89\n");
-        assert!(corps.contains("\n-- \n"), "l'espace après les tirets compte");
+        assert!(
+            corps.contains("\n-- \n"),
+            "l'espace après les tirets compte"
+        );
     }
 
     #[test]

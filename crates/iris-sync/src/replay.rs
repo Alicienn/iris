@@ -134,9 +134,9 @@ pub fn enqueue(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iris_store::OpKind;
     use iris_imap::fake::FakeServer;
     use iris_imap::{Connector, Credentials, Endpoint, FolderKind, UidRange};
+    use iris_store::OpKind;
     use iris_store::{FolderRole, NewAccount};
     use iris_types::AccountId;
 

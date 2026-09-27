@@ -93,9 +93,7 @@ pub fn destination<'a>(sujet: &str, pieces: &[String], regles: &'a [Regle]) -> O
         .iter()
         .find(|r| {
             sdk::contient_insensible(sujet, &r.motif)
-                || pieces
-                    .iter()
-                    .any(|p| sdk::contient_insensible(p, &r.motif))
+                || pieces.iter().any(|p| sdk::contient_insensible(p, &r.motif))
         })
         .map(|r| r.dossier.as_str())
 }
@@ -115,9 +113,7 @@ pub fn lit_les_regles(brut: &str) -> Vec<Regle> {
             // `->` est cherché en premier ; `→` existe parce qu'un clavier français le
             // produit et qu'une règle refusée pour cause de flèche typographique serait
             // refusée sans que rien ne l'explique.
-            let (motif, dossier) = ligne
-                .split_once("->")
-                .or_else(|| ligne.split_once('→'))?;
+            let (motif, dossier) = ligne.split_once("->").or_else(|| ligne.split_once('→'))?;
             let motif = motif.trim();
             let dossier = dossier.trim();
             (!motif.is_empty() && !dossier.is_empty()).then(|| Regle {
@@ -196,7 +192,10 @@ mod tests {
         // L'ordre écrit décide. « La plus précise » demanderait à l'utilisateur de
         // deviner ce que le module trouve précis.
         let r = lit_les_regles("facture -> A\nfacture de mars -> B");
-        assert_eq!(destination("facture de mars", &sans_pieces(), &r), Some("A"));
+        assert_eq!(
+            destination("facture de mars", &sans_pieces(), &r),
+            Some("A")
+        );
     }
 
     #[test]
@@ -235,6 +234,9 @@ mod tests {
         // Le module compose son JSON à la main ; le champ qui vient de l'utilisateur
         // doit être traité comme tel, sans quoi la demande est mal lue plutôt
         // qu'ignorée.
-        assert_eq!(echappe(r#"Dossier "spécial"\x"#), r#"Dossier \"spécial\"\\x"#);
+        assert_eq!(
+            echappe(r#"Dossier "spécial"\x"#),
+            r#"Dossier \"spécial\"\\x"#
+        );
     }
 }

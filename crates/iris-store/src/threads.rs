@@ -129,10 +129,7 @@ fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
         ));
     }
     if q.filters.starred {
-        sql.push_str(&format!(
-            " AND (flags_union & {}) != 0",
-            Flags::FLAGGED.0
-        ));
+        sql.push_str(&format!(" AND (flags_union & {}) != 0", Flags::FLAGGED.0));
     }
 }
 
@@ -278,10 +275,7 @@ impl Store {
                     let sujet: String = r.get(2)?;
                     // Le nom quand il y en a un, l'adresse sinon : une bulle qui
                     // annonce « (sans nom) » n'apprend rien.
-                    Ok((
-                        if nom.trim().is_empty() { adresse } else { nom },
-                        sujet,
-                    ))
+                    Ok((if nom.trim().is_empty() { adresse } else { nom }, sujet))
                 },
             );
 
@@ -370,9 +364,8 @@ impl Store {
             // Un fil est non lu s'il contient au moins un message non lu, ce que
             // `unread_count` porte déjà, dénormalisé. Le zéro est donc dit par
             // l'absence de ligne, comme avant : rien à faire de plus.
-            let mut sql = String::from(
-                "SELECT state, count(*) FROM threads WHERE unread_count > 0",
-            );
+            let mut sql =
+                String::from("SELECT state, count(*) FROM threads WHERE unread_count > 0");
             let mut args: Vec<SqlValue> = Vec::new();
 
             if let Some(now) = now {
@@ -712,7 +705,9 @@ mod tests {
         let lu = f.thread_at(3000, "C");
 
         // Un des trois est lu.
-        f.store.apply_flag_changes(f.folder, &[(3, Flags::SEEN)]).unwrap();
+        f.store
+            .apply_flag_changes(f.folder, &[(3, Flags::SEEN)])
+            .unwrap();
         let _ = lu;
 
         let non_lus = Filters {
@@ -790,7 +785,10 @@ mod tests {
         f.store
             .apply_flag_changes(f.folder, &[(1, Flags::SEEN)])
             .unwrap();
-        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap()[0], 1);
+        assert_eq!(
+            f.store.state_counts(&[], None, Filters::default()).unwrap()[0],
+            1
+        );
 
         // Et la barre latérale dit le même nombre, sans quoi deux compteurs
         // contradictoires se retrouvent sur le même écran.
@@ -1016,12 +1014,18 @@ mod tests {
         let a = f.thread_at(1000, "A");
         f.thread_at(2000, "B");
 
-        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap(), [2, 0, 0]);
+        assert_eq!(
+            f.store.state_counts(&[], None, Filters::default()).unwrap(),
+            [2, 0, 0]
+        );
         assert_eq!(
             f.store.set_thread_state(a, WorkflowState::Done).unwrap(),
             Some(WorkflowState::Todo)
         );
-        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap(), [1, 0, 1]);
+        assert_eq!(
+            f.store.state_counts(&[], None, Filters::default()).unwrap(),
+            [1, 0, 1]
+        );
     }
 
     #[test]
@@ -1039,7 +1043,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(f.store.state_counts(&[], None, Filters::default()).unwrap()[0], 2);
+        assert_eq!(
+            f.store.state_counts(&[], None, Filters::default()).unwrap()[0],
+            2
+        );
         assert_eq!(
             f.store
                 .state_counts(&[], Some(Timestamp::from_millis(1)), Filters::default())

@@ -216,7 +216,12 @@ pub fn validate(name: &str) -> std::result::Result<String, String> {
 /// Renvoie le nombre de comptes à qui la demande a été adressée. Zéro n'est pas une
 /// erreur : il veut dire que le dossier existe déjà partout, ce qui est exactement
 /// l'état recherché.
-pub fn create_everywhere(store: &Store, parent: Option<&str>, name: &str, now: Timestamp) -> Result<usize> {
+pub fn create_everywhere(
+    store: &Store,
+    parent: Option<&str>,
+    name: &str,
+    now: Timestamp,
+) -> Result<usize> {
     let nom = validate(name).map_err(Error::Config)?;
 
     let chemin = match parent.map(str::trim).filter(|p| !p.is_empty()) {
@@ -515,7 +520,10 @@ mod tests {
             avec_role("INBOX.spam", FolderRole::Junk, 173),
         ]);
 
-        let spam: Vec<&FolderNode> = arbre.iter().filter(|n| n.role == FolderRole::Junk).collect();
+        let spam: Vec<&FolderNode> = arbre
+            .iter()
+            .filter(|n| n.role == FolderRole::Junk)
+            .collect();
         assert_eq!(spam.len(), 1, "une seule ligne pour les deux dossiers");
         assert_eq!(spam[0].name, "Spam", "le nom vient de nous, pas du serveur");
         assert_eq!(spam[0].threads, 173, "et il porte le total des deux");
@@ -544,7 +552,10 @@ mod tests {
         let arbre = tree(&[dossier("INBOX.Devis", 7)]);
         let devis = noeud(&arbre, "Devis");
         assert_eq!(devis.depth, 0, "premier niveau à l'écran");
-        assert_eq!(devis.key, "INBOX.Devis", "mais le vrai chemin interroge la base");
+        assert_eq!(
+            devis.key, "INBOX.Devis",
+            "mais le vrai chemin interroge la base"
+        );
     }
 
     #[test]
@@ -625,7 +636,10 @@ mod tests {
     #[test]
     fn les_caracteres_reserves_du_protocole_sont_refuses() {
         for mauvais in ["Devis\"", "Devis\\", "Dev%is", "Dev*is"] {
-            assert!(validate(mauvais).is_err(), "« {mauvais} » aurait dû être refusé");
+            assert!(
+                validate(mauvais).is_err(),
+                "« {mauvais} » aurait dû être refusé"
+            );
         }
     }
 
@@ -643,10 +657,7 @@ mod tests {
         let store = Store::in_memory().unwrap();
         let maintenant = Timestamp::from_millis(0);
         let compte = store
-            .create_account(
-                &iris_store::NewAccount::new("a@x.fr", "i", "s"),
-                maintenant,
-            )
+            .create_account(&iris_store::NewAccount::new("a@x.fr", "i", "s"), maintenant)
             .unwrap();
         store
             .upsert_folder(compte, "INBOX", FolderRole::Inbox)
@@ -655,7 +666,10 @@ mod tests {
             .upsert_folder(compte, "INBOX.Devis", FolderRole::Other)
             .unwrap();
 
-        assert_eq!(delete_everywhere(&store, "INBOX.Devis", maintenant).unwrap(), 1);
+        assert_eq!(
+            delete_everywhere(&store, "INBOX.Devis", maintenant).unwrap(),
+            1
+        );
 
         let restants: Vec<_> = store
             .folders(compte)
@@ -663,7 +677,11 @@ mod tests {
             .into_iter()
             .map(|f| f.path)
             .collect();
-        assert_eq!(restants, ["INBOX"], "le dossier doit disparaître d'ici aussi");
+        assert_eq!(
+            restants,
+            ["INBOX"],
+            "le dossier doit disparaître d'ici aussi"
+        );
     }
 
     #[test]
@@ -674,10 +692,7 @@ mod tests {
         let store = Store::in_memory().unwrap();
         let maintenant = Timestamp::from_millis(0);
         let compte = store
-            .create_account(
-                &iris_store::NewAccount::new("a@x.fr", "i", "s"),
-                maintenant,
-            )
+            .create_account(&iris_store::NewAccount::new("a@x.fr", "i", "s"), maintenant)
             .unwrap();
         store
             .upsert_folder(compte, "INBOX", FolderRole::Inbox)

@@ -13,8 +13,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
-pub mod parse;
 pub mod cid;
+pub mod parse;
 pub mod sanitize;
 pub mod unsubscribe;
 

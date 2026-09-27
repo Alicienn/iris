@@ -35,8 +35,8 @@ fn les_manifestes_livres_se_lisent() {
         let source = std::fs::read_to_string(&chemin)
             .unwrap_or_else(|e| panic!("{}: {e}", chemin.display()));
 
-        let manifeste = Manifest::from_toml(&source)
-            .unwrap_or_else(|e| panic!("{}: {e}", chemin.display()));
+        let manifeste =
+            Manifest::from_toml(&source).unwrap_or_else(|e| panic!("{}: {e}", chemin.display()));
 
         assert!(!manifeste.id.is_empty(), "{caisse}: no id");
         assert!(!manifeste.name.is_empty(), "{caisse}: no name");

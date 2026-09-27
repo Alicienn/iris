@@ -953,7 +953,10 @@ mod tests {
         anonyme.from_name = String::new();
         f.store.insert_message(&anonyme).unwrap();
 
-        assert_eq!(f.store.contacts_like("marie", 10).unwrap()[0].display, "Marie");
+        assert_eq!(
+            f.store.contacts_like("marie", 10).unwrap()[0].display,
+            "Marie"
+        );
     }
 
     #[test]
@@ -995,7 +998,9 @@ mod tests {
 
         let dans_la_corbeille = f
             .store
-            .list_threads(&crate::model::ListQuery::new(WorkflowState::Todo, 10).in_role(FolderRole::Trash))
+            .list_threads(
+                &crate::model::ListQuery::new(WorkflowState::Todo, 10).in_role(FolderRole::Trash),
+            )
             .unwrap();
         assert_eq!(
             dans_la_corbeille.len(),

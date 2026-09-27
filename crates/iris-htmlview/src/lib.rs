@@ -75,8 +75,7 @@ pub struct VecSink(pub Vec<u8>);
 
 impl PixelSink for VecSink {
     fn rgba(&mut self, width: u32, height: u32) -> &mut [u8] {
-        self.0
-            .resize((width as usize) * (height as usize) * 4, 0);
+        self.0.resize((width as usize) * (height as usize) * 4, 0);
         &mut self.0
     }
 }
@@ -91,8 +90,12 @@ pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
     ///
     /// `pixels` n'est sollicité que par un moteur qui compose une image, et seulement
     /// une fois la hauteur connue. Un moteur qui rend des blocs n'y touche jamais.
-    fn render(&self, sanitized_html: &str, width: f32, pixels: &mut dyn PixelSink)
-        -> Result<Rendered>;
+    fn render(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        pixels: &mut dyn PixelSink,
+    ) -> Result<Rendered>;
 
     /// Le même rendu, en autorisant les ressources distantes.
     ///
@@ -270,12 +273,7 @@ mod tests {
     }
 
     impl HtmlRenderer for MoteurComplet {
-        fn render(
-            &self,
-            _html: &str,
-            _width: f32,
-            pixels: &mut dyn PixelSink,
-        ) -> Result<Rendered> {
+        fn render(&self, _html: &str, _width: f32, pixels: &mut dyn PixelSink) -> Result<Rendered> {
             if self.echoue {
                 return Err(iris_types::Error::other("moteur en panne"));
             }
@@ -306,7 +304,8 @@ mod tests {
         let r = adaptatif(false);
         let html = "<p>Bonjour,</p><p>Voici le devis demandé.</p>";
         assert!(!r.needs_full_engine(html));
-        assert!(r.render(html, 800.0, &mut VecSink::default())
+        assert!(r
+            .render(html, 800.0, &mut VecSink::default())
             .unwrap()
             .as_blocks()
             .is_some());
@@ -335,7 +334,8 @@ mod tests {
         // Un panneau vide serait pire qu'un rendu approximatif.
         let r = adaptatif(true);
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
-        assert!(r.render(html, 800.0, &mut VecSink::default())
+        assert!(r
+            .render(html, 800.0, &mut VecSink::default())
             .unwrap()
             .as_blocks()
             .is_some());
@@ -345,7 +345,8 @@ mod tests {
     fn sans_moteur_complet_tout_passe_par_le_texte_riche() {
         let r = AdaptiveRenderer::new(Box::new(RichTextRenderer));
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
-        assert!(r.render(html, 800.0, &mut VecSink::default())
+        assert!(r
+            .render(html, 800.0, &mut VecSink::default())
             .unwrap()
             .as_blocks()
             .is_some());

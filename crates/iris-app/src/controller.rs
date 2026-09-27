@@ -354,7 +354,10 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             // Le fil ouvert peut ne figurer dans aucune liste — ouvert depuis une
             // recherche, par exemple. Le diff ne change alors aucune ligne, et sans
             // cette clause le corps arrivé entre-temps ne serait jamais dessiné.
-            let lu = vm.selection().thread().is_some_and(|t| diff.threads.contains(&t));
+            let lu = vm
+                .selection()
+                .thread()
+                .is_some_and(|t| diff.threads.contains(&t));
             Ok(!vm.apply_diff(&diff)?.is_empty() || lu)
         }
         Request::Tick(now) => {

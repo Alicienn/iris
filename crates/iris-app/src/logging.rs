@@ -227,7 +227,9 @@ mod tests {
             rotate(dossier, &actuel);
         }
 
-        assert!(dossier.join(format!("iris.{SESSIONS_GARDEES}.log")).exists());
+        assert!(dossier
+            .join(format!("iris.{SESSIONS_GARDEES}.log"))
+            .exists());
         assert!(!dossier
             .join(format!("iris.{}.log", SESSIONS_GARDEES + 1))
             .exists());

@@ -66,8 +66,7 @@ pub fn inline_images(html: &str, parts: &[InlinePart]) -> String {
 /// appelant, ne voit que des octets que nous venons de lire nous-mêmes, et n'a aucun
 /// cas d'erreur — il n'y a rien à se tromper dans un encodage sans entrée invalide.
 fn encode(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
 

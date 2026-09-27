@@ -326,7 +326,7 @@ fn action_depuis_json(brut: &str) -> Option<Demande> {
         "snooze" | "reporter" => {
             let heures = valeur.get("hours").and_then(|h| h.as_u64()).unwrap_or(24);
             Some(Demande::Etat(Action::SnoozeHours(
-                heures.clamp(1, 24 * 365) as u32
+                heures.clamp(1, 24 * 365) as u32,
             )))
         }
         "move" | "ranger" => {

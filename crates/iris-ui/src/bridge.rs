@@ -688,14 +688,13 @@ mod tests {
             preview: String::new(),
             body_blob: None,
         };
-        let vue =
-            message_view_rendered(
-                &message,
-                &Rendered::Blocks(RichText::default()),
-                ImageSink::default(),
-                &[],
-                now(),
-            );
+        let vue = message_view_rendered(
+            &message,
+            &Rendered::Blocks(RichText::default()),
+            ImageSink::default(),
+            &[],
+            now(),
+        );
         assert!(!vue.body_is_image);
     }
 

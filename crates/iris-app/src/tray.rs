@@ -45,7 +45,9 @@ mod plateforme {
 
     impl std::fmt::Debug for Tray {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("Tray").field("unread", &self.dernier).finish()
+            f.debug_struct("Tray")
+                .field("unread", &self.dernier)
+                .finish()
         }
     }
 

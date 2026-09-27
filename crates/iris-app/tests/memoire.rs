@@ -208,9 +208,8 @@ fn une_image_de_message_n_existe_qu_une_fois() {
     let mut vec_sink = iris_htmlview::VecSink::default();
     let socle_avant = memory::reset_peak();
     let _ = moteur.render_with(&message(60), 2400.0, false, &mut vec_sink);
-    let copie = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-        &vec_sink.0, width, height,
-    );
+    let copie =
+        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&vec_sink.0, width, height);
     let pic_ancien = memory::heap().peak.saturating_sub(socle_avant);
     println!(
         "   pour mémoire, l'ancien chemin : pic {:.1} Mo ({:.2} image)",

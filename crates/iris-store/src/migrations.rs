@@ -576,8 +576,14 @@ mod tests {
             )
             .unwrap();
 
-        assert!(charge.contains(r#""target":"INBOX.Archive""#), "obtenu : {charge}");
-        assert!(!charge.contains(r#""to":"#), "l'ancien nom doit disparaître");
+        assert!(
+            charge.contains(r#""target":"INBOX.Archive""#),
+            "obtenu : {charge}"
+        );
+        assert!(
+            !charge.contains(r#""to":"#),
+            "l'ancien nom doit disparaître"
+        );
         assert_eq!(fini, 0, "l'opération doit être rejouée");
         assert_eq!(essais, 0, "et repartir d'un compteur neuf");
     }
@@ -611,7 +617,10 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(reveilles, 0, "aucune ligne saine ne doit être remise en file");
+        assert_eq!(
+            reveilles, 0,
+            "aucune ligne saine ne doit être remise en file"
+        );
     }
 
     #[test]
@@ -650,12 +659,18 @@ mod tests {
         conn.execute_batch(SCHEMA_V4).unwrap();
 
         let etat = |id: i64| -> i64 {
-            conn.query_row("SELECT state FROM threads WHERE id = ?1", [id], |r| r.get(0))
-                .unwrap()
+            conn.query_row("SELECT state FROM threads WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
         };
 
         assert_eq!(etat(1), 2, "un fil entièrement jeté sort de la file");
-        assert_eq!(etat(2), 0, "un fil de la boîte de réception reste à traiter");
+        assert_eq!(
+            etat(2),
+            0,
+            "un fil de la boîte de réception reste à traiter"
+        );
         assert_eq!(
             etat(3),
             0,

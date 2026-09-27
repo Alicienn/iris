@@ -375,7 +375,10 @@ mod tests {
             name: "iris-setup-0.3.0.exe".into(),
             url: String::new(),
             size: 3,
-            sha256: Some(hex::encode(ring::digest::digest(&ring::digest::SHA256, b"abc"))),
+            sha256: Some(hex::encode(ring::digest::digest(
+                &ring::digest::SHA256,
+                b"abc",
+            ))),
         };
         let bon = ring::digest::digest(&ring::digest::SHA256, b"abc");
         let mauvais = ring::digest::digest(&ring::digest::SHA256, b"abd");

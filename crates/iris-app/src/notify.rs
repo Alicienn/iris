@@ -43,10 +43,7 @@ impl Arrival {
     /// seul cache qu'il y en a dix-neuf autres.
     pub fn message(&self) -> (String, String) {
         match self.count {
-            0 | 1 => (
-                self.sender.clone(),
-                truncate(&self.subject, 120),
-            ),
+            0 | 1 => (self.sender.clone(), truncate(&self.subject, 120)),
             n => (
                 format!("{n} new messages"),
                 format!("Latest from {}", self.sender),

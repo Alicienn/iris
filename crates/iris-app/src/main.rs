@@ -466,7 +466,10 @@ fn cmd_doctor() -> Result<()> {
         None => println!("\nDisk            free space unknown"),
     }
 
-    println!("Log             {}", iris_app::logging::current(&chemins).display());
+    println!(
+        "Log             {}",
+        iris_app::logging::current(&chemins).display()
+    );
 
     // Un thème invalide ne bloque pas le démarrage, mais l'utilisateur doit pouvoir
     // savoir pourquoi son thème n'a pas l'air de fonctionner.
@@ -573,10 +576,7 @@ impl iris_sync::SendContext for SendTracker {
 
 // --- Interface ---
 
-fn run_gui(
-    mailto: Option<iris_app::platform::MailtoRequest>,
-    demarre_reduit: bool,
-) -> Result<()> {
+fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bool) -> Result<()> {
     // La décomposition mémoire se règle avant tout le reste : ce qui est alloué avant
     // qu'elle soit allumée est compté, mais sans provenance.
     let rapport_memoire = iris_app::memory::requested_interval();
@@ -815,10 +815,9 @@ fn run_gui(
                 // Relu à chaque tour plutôt que capturé une fois : couper les
                 // notifications dans les réglages doit les couper maintenant, pas au
                 // prochain démarrage.
-                let notifications_actives = iris_app::settings::Settings::load(
-                    services_sync.paths.settings(),
-                )
-                .notifications;
+                let notifications_actives =
+                    iris_app::settings::Settings::load(services_sync.paths.settings())
+                        .notifications;
 
                 // Le travail que fait le temps précède celui du réseau : un report
                 // échu doit réapparaître même quand le serveur est injoignable.
@@ -854,12 +853,7 @@ fn run_gui(
                 // le moteur compte, il ne met pas en forme, et une seule lecture par
                 // tour de synchronisation ne se mesure pas.
                 if rapport.messages_added > 0 && notifications_actives {
-                    if let Some(dernier) = services_sync
-                        .store
-                        .latest_unread(now())
-                        .ok()
-                        .flatten()
-                    {
+                    if let Some(dernier) = services_sync.store.latest_unread(now()).ok().flatten() {
                         let arrivee = iris_app::notify::Arrival {
                             count: rapport.messages_added,
                             sender: dernier.0,

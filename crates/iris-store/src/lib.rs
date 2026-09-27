@@ -23,13 +23,13 @@ mod rules;
 mod threads;
 
 pub use accounts::{AccountServers, UnifiedFolder};
-pub use ops::OpPayload;
 pub use attachments::StoredAttachment;
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Contact, Filters, Folder, FolderRole, ListCursor, ListQuery, NewAccount,
     NewMessage, OpKind, PendingOp, Scope, StoredMessage, ThreadRow,
 };
+pub use ops::OpPayload;
 pub use rules::StoredRule;
 
 use iris_types::{Error, Result};

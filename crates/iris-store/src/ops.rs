@@ -68,9 +68,9 @@ impl OpPayload {
             Self::SetFlags { .. } => crate::OpKind::SetFlags,
             Self::Move { .. } => crate::OpKind::MoveMessage,
             Self::Delete { .. } => crate::OpKind::DeleteMessage,
-            Self::CreateFolder { .. }
-            | Self::RenameFolder { .. }
-            | Self::DeleteFolder { .. } => crate::OpKind::CreateFolder,
+            Self::CreateFolder { .. } | Self::RenameFolder { .. } | Self::DeleteFolder { .. } => {
+                crate::OpKind::CreateFolder
+            }
         }
     }
 
@@ -237,10 +237,7 @@ mod tests {
 
     #[test]
     fn creer_un_dossier_ne_le_selectionne_pas() {
-        assert!(!OpPayload::CreateFolder {
-            folder: "X".into()
-        }
-        .needs_selection());
+        assert!(!OpPayload::CreateFolder { folder: "X".into() }.needs_selection());
         assert!(deplacement().needs_selection());
     }
 

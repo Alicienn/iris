@@ -507,7 +507,10 @@ mod tests {
         f.server.drop_uid_validity("INBOX");
         let r = f.sync(FolderSyncOptions::default()).await;
 
-        assert!(!r.uid_validity_changed, "rien n'a changé, rien n'est effacé");
+        assert!(
+            !r.uid_validity_changed,
+            "rien n'a changé, rien n'est effacé"
+        );
         assert_eq!(f.store.message_count().unwrap(), 1);
 
         // Et la valeur connue survit : sans cela la passe suivante se croirait à sa
@@ -519,7 +522,10 @@ mod tests {
             .into_iter()
             .find(|d| d.path == "INBOX")
             .unwrap();
-        assert_ne!(dossier.uid_validity, 0, "la valeur connue n'est pas écrasée");
+        assert_ne!(
+            dossier.uid_validity, 0,
+            "la valeur connue n'est pas écrasée"
+        );
     }
 
     #[tokio::test]

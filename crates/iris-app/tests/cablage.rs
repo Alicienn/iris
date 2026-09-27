@@ -52,16 +52,19 @@ fn rappels_de_la_fenetre(source: &str) -> BTreeSet<String> {
 #[test]
 fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
     let racine = racine();
-    let slint = std::fs::read_to_string(racine.join("crates/iris-ui/ui/app.slint"))
-        .expect("app.slint");
+    let slint =
+        std::fs::read_to_string(racine.join("crates/iris-ui/ui/app.slint")).expect("app.slint");
 
     // Tout le Rust qui branche la fenêtre. Les gestionnaires sont répartis entre le
     // module d'interface et le démarrage, et un rappel branché dans l'un ou l'autre
     // est branché.
-    let rust: String = ["crates/iris-app/src/shell.rs", "crates/iris-app/src/main.rs"]
-        .iter()
-        .map(|p| std::fs::read_to_string(racine.join(p)).unwrap_or_else(|e| panic!("{p}: {e}")))
-        .collect();
+    let rust: String = [
+        "crates/iris-app/src/shell.rs",
+        "crates/iris-app/src/main.rs",
+    ]
+    .iter()
+    .map(|p| std::fs::read_to_string(racine.join(p)).unwrap_or_else(|e| panic!("{p}: {e}")))
+    .collect();
 
     let mut orphelins: Vec<String> = Vec::new();
 

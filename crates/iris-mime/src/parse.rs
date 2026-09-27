@@ -150,7 +150,11 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
     let inline_parts: Vec<InlinePart> = message
         .attachments()
         .filter_map(|part| {
-            let content_id = part.content_id()?.trim().trim_matches(['<', '>']).to_string();
+            let content_id = part
+                .content_id()?
+                .trim()
+                .trim_matches(['<', '>'])
+                .to_string();
             if content_id.is_empty() {
                 return None;
             }

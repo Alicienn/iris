@@ -524,7 +524,10 @@ pub fn wire_callbacks(
     {
         let c = Arc::clone(&controller);
         fenetre.on_menu_toggle_star(move |id| {
-            c.send(Request::ApplyTo(fil(id), iris_viewmodel::Action::ToggleFlag))
+            c.send(Request::ApplyTo(
+                fil(id),
+                iris_viewmodel::Action::ToggleFlag,
+            ))
         });
     }
     {
@@ -708,10 +711,8 @@ pub fn apply_snapshot(
     // couleur pour cent boîtes. La pastille n'était pas discrète, elle était fausse,
     // et un repère qui affirme la même chose partout est pire qu'aucun repère.
     let comptes = services.store.accounts().unwrap_or_default();
-    let adresses: std::collections::HashMap<iris_types::AccountId, String> = comptes
-        .iter()
-        .map(|c| (c.id, c.email.clone()))
-        .collect();
+    let adresses: std::collections::HashMap<iris_types::AccountId, String> =
+        comptes.iter().map(|c| (c.id, c.email.clone())).collect();
     let adresse_par_defaut = comptes.first().map(|c| c.email.clone()).unwrap_or_default();
 
     let lignes: Vec<_> = snapshot
@@ -835,9 +836,9 @@ pub fn remplir_conversation(
 ) {
     let Some(dernier) = messages.last() else {
         conversation_rendue().clear();
-        fenetre.set_messages(ModelRc::new(VecModel::from(Vec::<
-            iris_ui::MessageData,
-        >::new())));
+        fenetre.set_messages(ModelRc::new(VecModel::from(
+            Vec::<iris_ui::MessageData>::new(),
+        )));
         return;
     };
 
@@ -1166,9 +1167,7 @@ fn corps_du_message(
         // Une signature d'entreprise est un logo joint au message et référencé par
         // `cid:` : rien ne peut aller le chercher, il est déjà là, et sans cela toutes
         // les signatures HTML s'affichaient sans leur image.
-        (Some(sanitized), _) => {
-            iris_mime::inline_images(&sanitized.html, &analyse.inline_parts)
-        }
+        (Some(sanitized), _) => iris_mime::inline_images(&sanitized.html, &analyse.inline_parts),
         (None, Some(texte)) => plain_text_to_html(texte),
         // A message with neither part is not broken — a bare attachment carrier looks
         // exactly like this — so the preview stands in rather than an error.
@@ -1348,12 +1347,7 @@ fn heures_de_report(quand: &str, maintenant: iris_types::Timestamp) -> u32 {
 /// Chercher sur la chaîne entière ne proposerait jamais rien dès le second
 /// destinataire.
 fn dernier_destinataire(champ: &str) -> String {
-    champ
-        .rsplit(',')
-        .next()
-        .unwrap_or(champ)
-        .trim()
-        .to_string()
+    champ.rsplit(',').next().unwrap_or(champ).trim().to_string()
 }
 
 /// Remplace le dernier destinataire par celui qu'on vient de choisir.
@@ -1817,7 +1811,8 @@ pub fn wire_updates(
                     f.set_update_checking(false);
                     match resultat {
                         Ok(Some(dispo)) => {
-                            let nouvelle = f.get_update_version().as_str() != dispo.version.to_string();
+                            let nouvelle =
+                                f.get_update_version().as_str() != dispo.version.to_string();
                             f.set_update_version(dispo.version.to_string().into());
                             f.set_update_notes(ModelRc::new(VecModel::from(changelog_rows(
                                 &dispo.notes,
@@ -1828,8 +1823,11 @@ pub fn wire_updates(
                             );
                             if nouvelle {
                                 f.set_status(
-                                    format!("Iris {} is available: Update now, in the status bar.", dispo.version)
-                                        .into(),
+                                    format!(
+                                        "Iris {} is available: Update now, in the status bar.",
+                                        dispo.version
+                                    )
+                                    .into(),
                                 );
                             }
                             *offre.lock().expect("offre empoisonnée") = Some(dispo);
@@ -2930,7 +2928,8 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
     // sans quoi la colonne se redessinerait — et perdrait son défilement — à chaque
     // tour, pour afficher la même chose.
     let actuelles = fenetre.get_folders();
-    if actuelles.row_count() != lignes.len() || actuelles.iter().zip(&lignes).any(|(a, b)| a != *b) {
+    if actuelles.row_count() != lignes.len() || actuelles.iter().zip(&lignes).any(|(a, b)| a != *b)
+    {
         fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
     }
     fenetre.set_account_count(services.store.accounts().map(|c| c.len()).unwrap_or(0) as i32);
@@ -3194,8 +3193,11 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                         ..Default::default()
                     })));
                     fenetre.set_status(
-                        format!("{} marked as read.", iris_ui::format::plural(n as u64, "message"))
-                            .into(),
+                        format!(
+                            "{} marked as read.",
+                            iris_ui::format::plural(n as u64, "message")
+                        )
+                        .into(),
                     );
                     refresh_folders(&fenetre, &services);
                 }
@@ -3284,12 +3286,8 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                 fenetre.set_new_folder_error(Default::default());
             };
 
-            match crate::folders::create_everywhere(
-                &services.store,
-                parent.as_deref(),
-                &nom,
-                now(),
-            ) {
+            match crate::folders::create_everywhere(&services.store, parent.as_deref(), &nom, now())
+            {
                 // Zéro compte à prévenir veut dire qu'il existe déjà partout : le but
                 // est atteint. Garder la fenêtre ouverte sur une erreur punirait
                 // l'utilisateur d'avoir demandé quelque chose qui était déjà fait.
@@ -3299,8 +3297,7 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                 }
                 Ok(n) => {
                     ferme(&fenetre);
-                    fenetre
-                        .set_status(format!("Creating the folder on {n} mailbox(es)…").into());
+                    fenetre.set_status(format!("Creating the folder on {n} mailbox(es)…").into());
                     refresh_folders(&fenetre, &services);
                 }
                 // Seul un nom refusé garde la fenêtre : c'est le seul cas où il reste
@@ -3450,8 +3447,7 @@ pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
                     // WebAssembly dans un hôte qui tourne est un problème en forme de
                     // redémarrage, et le dire vaut mieux que de faire semblant.
                     fenetre.set_status(
-                        format!("{} installed — restart Iris to load it.", manifeste.name)
-                            .into(),
+                        format!("{} installed — restart Iris to load it.", manifeste.name).into(),
                     );
                 }
                 Err(e) => fenetre.set_browser_error(e.to_string().into()),
@@ -3481,8 +3477,7 @@ pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
             // qui existe, et il n'en existe aucun. Le dire vaut mieux qu'un bouton
             // qui tourne indéfiniment sur une adresse que personne ne sert.
             fenetre.set_browser_error(
-                "No catalogue is reachable yet. Install from a folder in the meantime."
-                    .into(),
+                "No catalogue is reachable yet. Install from a folder in the meantime.".into(),
             );
         });
     }
@@ -3491,9 +3486,7 @@ pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
         let faible = fenetre.as_weak();
         fenetre.on_browser_install(move |_id| {
             if let Some(fenetre) = faible.upgrade() {
-                fenetre.set_browser_error(
-                    "Installing from a catalogue needs a catalogue.".into(),
-                );
+                fenetre.set_browser_error("Installing from a catalogue needs a catalogue.".into());
             }
         });
     }
@@ -3775,7 +3768,10 @@ pub fn wire_account_menu(
             let Some(details) = courant() else {
                 return;
             };
-            match services.store.set_account_pinned(details.id, !details.pinned) {
+            match services
+                .store
+                .set_account_pinned(details.id, !details.pinned)
+            {
                 Ok(()) => refresh_accounts(&fenetre, &services, &[]),
                 Err(e) => fenetre.set_status(format!("Could not pin it: {e}").into()),
             }
@@ -4192,9 +4188,9 @@ pub fn wire_compose(
                 "bcc" => fenetre.set_compose_bcc(complete.into()),
                 _ => fenetre.set_compose_to(complete.into()),
             }
-            fenetre.set_compose_suggestions(ModelRc::new(VecModel::from(Vec::<
-                slint::SharedString,
-            >::new())));
+            fenetre.set_compose_suggestions(ModelRc::new(VecModel::from(
+                Vec::<slint::SharedString>::new(),
+            )));
         });
     }
 
@@ -4742,15 +4738,27 @@ mod tests {
         // veut pas de courrier.
         //
         // Jour 4 = lundi (le 1er janvier 1970 était un jeudi).
-        assert_eq!(heures_de_report("tomorrow", instant(4, 23)), 9, "23 h → 8 h");
+        assert_eq!(
+            heures_de_report("tomorrow", instant(4, 23)),
+            9,
+            "23 h → 8 h"
+        );
         assert_eq!(heures_de_report("tomorrow", instant(4, 10)), 22);
     }
 
     #[test]
     fn ce_soir_bascule_a_demain_une_fois_le_soir_passe() {
         // Proposer une échéance déjà passée ferait revenir le message aussitôt.
-        assert_eq!(heures_de_report("evening", instant(4, 10)), 8, "10 h → 18 h");
-        assert_eq!(heures_de_report("evening", instant(4, 20)), 12, "20 h → 8 h");
+        assert_eq!(
+            heures_de_report("evening", instant(4, 10)),
+            8,
+            "10 h → 18 h"
+        );
+        assert_eq!(
+            heures_de_report("evening", instant(4, 20)),
+            12,
+            "20 h → 8 h"
+        );
     }
 
     #[test]

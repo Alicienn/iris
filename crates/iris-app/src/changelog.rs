@@ -156,12 +156,21 @@ mod tests {
             let v = crate::update::Version::parse(&release.version)
                 .unwrap_or_else(|| panic!("« {} » is not a version", release.version));
             if let Some(p) = precedente {
-                assert!(v < p, "{} must come after {}: newest first", release.version, p);
+                assert!(
+                    v < p,
+                    "{} must come after {}: newest first",
+                    release.version,
+                    p
+                );
             }
             precedente = Some(v);
 
             assert!(!release.date.is_empty(), "{} has no date", release.version);
-            assert!(!release.sections.is_empty(), "{} lists nothing", release.version);
+            assert!(
+                !release.sections.is_empty(),
+                "{} lists nothing",
+                release.version
+            );
             for section in &release.sections {
                 assert!(
                     CATEGORIES.contains(&section.title.as_str()),
@@ -169,7 +178,12 @@ mod tests {
                     release.version,
                     section.title
                 );
-                assert!(!section.items.is_empty(), "{}: empty « {} »", release.version, section.title);
+                assert!(
+                    !section.items.is_empty(),
+                    "{}: empty « {} »",
+                    release.version,
+                    section.title
+                );
             }
         }
     }

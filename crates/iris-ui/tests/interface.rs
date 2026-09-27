@@ -410,7 +410,11 @@ fn une_piece_jointe_s_enregistre_par_son_nom() {
         Some("Image, 180 ko".into())
     );
     pastille.invoke_accessible_default_action();
-    assert_eq!(*ouverts.borrow(), [1], "le rang doit désigner le bon fichier");
+    assert_eq!(
+        *ouverts.borrow(),
+        [1],
+        "le rang doit désigner le bon fichier"
+    );
 
     // Et l'enregistrement garde son bouton, atteignable sans souris : il n'apparaît
     // qu'au survol, mais il est **toujours** dans l'arbre — le cacher par un `if` le
@@ -1187,18 +1191,24 @@ fn le_compte_choisi_est_celui_qui_est_allume() {
 
     f.set_selected_account(0);
     assert_eq!(
-        par_libelle(&f, "All accounts").unwrap().accessible_item_selected(),
+        par_libelle(&f, "All accounts")
+            .unwrap()
+            .accessible_item_selected(),
         Some(true)
     );
 
     f.set_selected_account(4);
     assert_eq!(
-        par_libelle(&f, "All accounts").unwrap().accessible_item_selected(),
+        par_libelle(&f, "All accounts")
+            .unwrap()
+            .accessible_item_selected(),
         Some(false),
         "la vue unifiée s'éteint"
     );
     assert_eq!(
-        par_libelle(&f, "moi@exemple.fr").unwrap().accessible_item_selected(),
+        par_libelle(&f, "moi@exemple.fr")
+            .unwrap()
+            .accessible_item_selected(),
         Some(true),
         "et le compte choisi s'allume"
     );
@@ -1332,7 +1342,10 @@ fn beaucoup_de_pieces_jointes_sont_comptees_pas_empilees() {
         ..Default::default()
     });
 
-    assert!(par_libelle(&f, "Open f0.pdf").is_some(), "les premières sont là");
+    assert!(
+        par_libelle(&f, "Open f0.pdf").is_some(),
+        "les premières sont là"
+    );
     assert!(
         par_libelle(&f, "Open f11.pdf").is_none(),
         "les dernières sont comptées, pas dessinées"
@@ -1438,7 +1451,10 @@ fn le_bouton_de_mise_a_jour_n_existe_que_s_il_y_a_une_mise_a_jour() {
     f.set_update_version("0.3.0".into());
     let bouton = par_libelle(&f, "Iris 0.3.0 is available").expect("le bouton Update now");
     bouton.invoke_accessible_default_action();
-    assert!(f.get_update_open(), "le clic ouvre la confirmation, il n'installe rien");
+    assert!(
+        f.get_update_open(),
+        "le clic ouvre la confirmation, il n'installe rien"
+    );
 }
 
 fn la_confirmation_de_mise_a_jour_propose_d_installer_ou_d_attendre() {

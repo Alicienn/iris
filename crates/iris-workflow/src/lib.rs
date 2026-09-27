@@ -714,7 +714,6 @@ impl Workflow {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1335,7 +1334,10 @@ mod tests {
         f.workflow.set_read(thread, true, t(2)).unwrap();
 
         let en_attente = f.store.pending_ops(t(3), 20).unwrap();
-        assert!(!en_attente.is_empty(), "il doit y avoir quelque chose à rejouer");
+        assert!(
+            !en_attente.is_empty(),
+            "il doit y avoir quelque chose à rejouer"
+        );
 
         for op in en_attente {
             iris_store::OpPayload::parse(&op.payload).unwrap_or_else(|e| {

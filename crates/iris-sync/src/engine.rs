@@ -136,7 +136,11 @@ impl AccountFailure {
                 "The server's security certificate is not issued for {}, so Iris refuses \
                  the connection. Edit the account and use the server name the certificate \
                  covers",
-                if mismatch.host.is_empty() { "this server name" } else { &mismatch.host }
+                if mismatch.host.is_empty() {
+                    "this server name"
+                } else {
+                    &mismatch.host
+                }
             );
             match mismatch.suggestion() {
                 Some(nom) => conseil.push_str(&format!(": {nom}.")),
@@ -649,7 +653,10 @@ impl SyncEngine {
         // ignorer, restait donc dans la copie locale pour toujours — et revenait dans
         // la colonne après chaque suppression. La garde : une liste sans boîte de
         // réception n'est pas une réponse à laquelle on confie un effacement.
-        if distants.iter().any(|d| d.path.eq_ignore_ascii_case("INBOX")) {
+        if distants
+            .iter()
+            .any(|d| d.path.eq_ignore_ascii_case("INBOX"))
+        {
             let listes: std::collections::HashSet<&str> =
                 distants.iter().map(|d| d.path.as_str()).collect();
             for local in self.store.folders(account)? {
@@ -1018,7 +1025,10 @@ mod tests {
         assert_eq!(ecart.valid_for.len(), 4);
         assert_eq!(ecart.suggestion(), Some("host7.example.net"));
         assert!(panne.advice().contains("host7.example.net"));
-        assert_eq!(panne.summary(), "certificate does not match the server name");
+        assert_eq!(
+            panne.summary(),
+            "certificate does not match the server name"
+        );
 
         let reseau = AccountFailure {
             message: "network: connection refused".into(),

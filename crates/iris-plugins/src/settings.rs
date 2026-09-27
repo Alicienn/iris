@@ -223,7 +223,14 @@ mod tests {
     fn un_fichier_corrompu_ne_casse_pas_le_plugin() {
         // Perdre la fonction pour la préférence serait le mauvais échange.
         let dossier = tempfile::tempdir().unwrap();
-        std::fs::write(dossier.path().join("settings.toml"), "ceci n'est pas du toml [[[").unwrap();
-        assert_eq!(SettingValues::load(dossier.path()), SettingValues::default());
+        std::fs::write(
+            dossier.path().join("settings.toml"),
+            "ceci n'est pas du toml [[[",
+        )
+        .unwrap();
+        assert_eq!(
+            SettingValues::load(dossier.path()),
+            SettingValues::default()
+        );
     }
 }
