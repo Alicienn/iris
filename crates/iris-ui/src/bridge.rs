@@ -40,6 +40,11 @@ pub fn thread_row(
         marked,
         message_count: row.message_count as i32,
         account_tint: Color::from_rgb_u8(r, g, b),
+        initials: crate::format::initials(&row.from_display).into(),
+        sender_tint: {
+            let (r, g, b) = account_tint(&row.from_display);
+            Color::from_rgb_u8(r, g, b)
+        },
     }
 }
 
@@ -460,7 +465,12 @@ mod tests {
         // L'interface ne doit jamais formater : elle referait ce travail à chaque
         // frame de défilement.
         let d = thread_row(&ligne(), "a@x.fr", now(), false);
-        assert_eq!(d.date.as_str(), "22:13");
+        // L'heure du jour, dans le fuseau de la machine qui lance le test.
+        let date = d.date.as_str();
+        assert!(
+            date.len() == 5 && date.as_bytes()[2] == b':',
+            "attendu HH:MM, obtenu {date}"
+        );
     }
 
     #[test]

@@ -34,7 +34,11 @@ iris-workflow = { workspace = true }
 iris-rules = { workspace = true }
 iris-ui = { workspace = true }
 iris-plugins = { workspace = true }
-slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }
+iris-calendar = { workspace = true }
+# L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+iana-time-zone = "0.1"
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std"] }
 tokio = { workspace = true }
 async-trait = "0.1"
 serde = { workspace = true }
@@ -78,8 +82,15 @@ winresource = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
+# Les captures de l'exemple « mesure ». Déjà dans l'arbre par le moteur HTML.
+image = { version = "0.25", default-features = false, features = ["png"] }
 wat = "1"
 iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }
 iris-rules = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# La mesure affiche une infolettre : elle n'a de sens qu'avec le moteur complet.
+[[example]]
+name = "mesure"
+required-features = ["blitz"]

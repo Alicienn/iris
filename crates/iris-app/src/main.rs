@@ -394,6 +394,27 @@ fn cmd_memory() -> Result<()> {
     iris_app::memory::track_sites(true);
     iris_app::memory::mark("processus démarré");
 
+    // L'interface est dessinée par le processeur.
+    //
+    // Mesuré avec l'exemple « mesure », même fenêtre, même infolettre : 209,7 Mo avec
+    // le rendu OpenGL (femtovg), 38,5 Mo en logiciel, pour une image que l'œil ne
+    // distingue pas. La différence est ce que le pilote graphique réserve pour un
+    // contexte GL, et elle n'apparaît dans aucun compteur de l'application. Un client
+    // de courrier redessine peu — un clic, un défilement — et le rendu logiciel ne
+    // repeint que ce qui a changé.
+    //
+    // `SLINT_BACKEND` garde la main, pour comparer ou contourner un souci d'affichage :
+    // `SLINT_BACKEND=winit-femtovg` rétablit l'ancien rendu.
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        if let Err(e) = slint::BackendSelector::new()
+            .backend_name("winit".into())
+            .renderer_name("software".into())
+            .select()
+        {
+            tracing::warn!(error = %e, "software renderer unavailable, using the default");
+        }
+    }
+
     let services = open_services()?;
     iris_app::memory::mark("base, index, coffre");
 
@@ -682,6 +703,7 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
         services.paths.settings(),
     );
     shell::wire_updates(&fenetre, Arc::clone(&controller), runtime.handle().clone());
+    iris_app::calendar::wire_calendar(&fenetre, &services, runtime.handle().clone());
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui

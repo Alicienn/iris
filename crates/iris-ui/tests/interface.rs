@@ -43,6 +43,8 @@ fn ligne(id: i32, de: &str, sujet: &str, non_lu: bool) -> ThreadRowData {
         marked: false,
         message_count: 1,
         account_tint: slint::Color::from_rgb_u8(0, 0, 0),
+        initials: "M".into(),
+        sender_tint: slint::Color::from_rgb_u8(0, 0, 0),
     }
 }
 
@@ -204,11 +206,20 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
 
 // --- Les onglets ---
 
+/// Les onglets des files, sans ceux de la barre de titre (Mail, Calendar), qui ont
+/// le même rôle et désignent autre chose.
+fn onglets_des_files(f: &AppWindow) -> Vec<String> {
+    libelles(f, testing::AccessibleRole::Tab)
+        .into_iter()
+        .filter(|l| l != "Mail" && l != "Calendar")
+        .collect()
+}
+
 fn les_trois_files_sont_annoncees_avec_leur_compte() {
     let f = fenetre();
     f.set_counts(modele(vec![12, 3, 40]));
 
-    let onglets = libelles(&f, testing::AccessibleRole::Tab);
+    let onglets = onglets_des_files(&f);
     assert_eq!(onglets, ["To do", "Waiting", "Done"]);
 
     let a_traiter = par_libelle(&f, "To do").unwrap();
@@ -250,11 +261,11 @@ fn les_onglets_disparaissent_pendant_une_recherche() {
     // Les résultats ne sont pas rangés par file : un onglet allumé au-dessus d'eux
     // désignerait la mauvaise liste.
     let f = fenetre();
-    assert_eq!(libelles(&f, testing::AccessibleRole::Tab).len(), 3);
+    assert_eq!(onglets_des_files(&f).len(), 3);
 
     f.set_searching(true);
     assert!(
-        libelles(&f, testing::AccessibleRole::Tab).is_empty(),
+        onglets_des_files(&f).is_empty(),
         "aucun onglet ne doit subsister pendant une recherche"
     );
 }

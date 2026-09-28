@@ -133,6 +133,22 @@ pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
         self.render(sanitized_html, width)
     }
 
+    /// Rendu pour une place précise : `display_width` points à l'écran, `device_scale`
+    /// pixels par point.
+    ///
+    /// Un moteur qui peint des pixels les veut à la taille où ils seront montrés : peints
+    /// à une taille et réduits à une autre, les caractères deviennent flous ou crénelés.
+    /// Le défaut ignore l'échelle — c'est le cas de tout ce qui ne peint pas.
+    fn render_for(
+        &self,
+        sanitized_html: &str,
+        allow_remote: bool,
+        display_width: f32,
+        _device_scale: f32,
+    ) -> Result<Rendered> {
+        self.render_with(sanitized_html, display_width, allow_remote)
+    }
+
     /// Nom du moteur, pour le diagnostic et les réglages.
     fn name(&self) -> &'static str;
 
@@ -222,6 +238,27 @@ impl HtmlRenderer for AdaptiveRenderer {
                 }
             }
             _ => self.simple.render(sanitized_html, width),
+        }
+    }
+
+    fn render_for(
+        &self,
+        sanitized_html: &str,
+        allow_remote: bool,
+        display_width: f32,
+        device_scale: f32,
+    ) -> Result<Rendered> {
+        match &self.complete {
+            Some(moteur) if allow_remote || self.needs_full_engine(sanitized_html) => {
+                match moteur.render_for(sanitized_html, allow_remote, display_width, device_scale) {
+                    Ok(r) => Ok(r),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "moteur complet en échec, repli sur le texte riche");
+                        self.simple.render(sanitized_html, display_width)
+                    }
+                }
+            }
+            _ => self.simple.render(sanitized_html, display_width),
         }
     }
 

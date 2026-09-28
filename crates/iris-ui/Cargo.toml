@@ -16,8 +16,10 @@ serde_json = { workspace = true }
 # qui n'a pas de carte graphique.
 iris-htmlview = { workspace = true }
 iris-viewmodel = { workspace = true }
-slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std"] }
 tracing = "0.1"
+# Les dates de la liste, dans le fuseau de la machine.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [build-dependencies]
 slint-build = "1.17"

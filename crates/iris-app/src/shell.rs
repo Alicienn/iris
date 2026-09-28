@@ -883,7 +883,8 @@ pub fn remplir_conversation(
 
             let montrer = images_shown().contains(&message.id.get());
             let pieces = pieces_jointes(services, message.id);
-            let mut vue = match corps_du_message(services, renderer, message, montrer) {
+            let place = (largeur_de_lecture(), fenetre.window().scale_factor());
+            let mut vue = match corps_du_message(services, renderer, message, montrer, place) {
                 // Un document : ses tuiles sont posées vides, et peintes quand elles
                 // approchent de l'écran (`wire_body_tiles`).
                 iris_htmlview::Rendered::Document(document) => {
@@ -1102,6 +1103,24 @@ fn signature_conversation(
         .collect()
 }
 
+thread_local! {
+    /// La largeur à laquelle la colonne de lecture montre les corps, en points. Zéro :
+    /// pas encore connue, avant le premier message affiché.
+    static LARGEUR_LECTURE: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+    /// Le redessin qui suit un redimensionnement, attendu un quart de seconde.
+    static APRES_REDIMENSION: slint::Timer = slint::Timer::default();
+}
+
+/// La largeur de lecture connue, ou 800 points avant la première mesure.
+fn largeur_de_lecture() -> f32 {
+    let l = LARGEUR_LECTURE.with(|c| c.get());
+    if l > 0.0 {
+        l
+    } else {
+        800.0
+    }
+}
+
 /// Ce que la colonne de lecture montre déjà, décrit assez pour savoir si c'est à
 /// refaire.
 ///
@@ -1143,6 +1162,58 @@ pub fn wire_remote_images(
     services: Services,
     renderer: Arc<dyn iris_htmlview::HtmlRenderer>,
 ) {
+    // La colonne de lecture a changé de largeur — ou vient d'annoncer la sienne.
+    //
+    // Un corps peint par le moteur complet l'est à la largeur exacte où il s'affiche :
+    // réduit après coup, son texte devenait crénelé. Quand la largeur change, il est
+    // donc remis en page, une fois le redimensionnement terminé plutôt qu'à chaque
+    // pixel du glisser.
+    {
+        let services_largeur = services.clone();
+        let renderer_largeur = Arc::clone(&renderer);
+        let faible = fenetre.as_weak();
+        fenetre.on_reader_width(move |largeur| {
+            let avant = LARGEUR_LECTURE.with(|c| c.replace(largeur));
+            if (avant - largeur).abs() < 1.0 {
+                return;
+            }
+            // Rien à refaire si aucun corps n'est peint : le texte riche suit tout seul.
+            if CORPS.with(|c| c.borrow().is_empty()) {
+                return;
+            }
+            let services = services_largeur.clone();
+            let renderer = Arc::clone(&renderer_largeur);
+            let faible = faible.clone();
+            APRES_REDIMENSION.with(|t| {
+                t.start(
+                    slint::TimerMode::SingleShot,
+                    std::time::Duration::from_millis(250),
+                    move || {
+                        let Some(fenetre) = faible.upgrade() else {
+                            return;
+                        };
+                        let fil = fenetre.get_selected_thread();
+                        if fil < 0 {
+                            return;
+                        }
+                        let messages = services
+                            .store
+                            .thread_messages(iris_types::ThreadId(fil as i64))
+                            .unwrap_or_default();
+                        conversation_rendue().clear();
+                        remplir_conversation(
+                            &fenetre,
+                            &services,
+                            renderer.as_ref(),
+                            &messages,
+                            now(),
+                        );
+                    },
+                );
+            });
+        });
+    }
+
     // Déplier ou replier un message du fil.
     //
     // Le redessin passe par le même chemin que l'affichage initial : rien du fil n'a
@@ -1243,6 +1314,8 @@ fn corps_du_message(
     renderer: &dyn iris_htmlview::HtmlRenderer,
     message: &iris_store::StoredMessage,
     allow_remote: bool,
+    // La largeur du corps à l'écran, en points, et les pixels par point.
+    (largeur, echelle): (f32, f32),
 ) -> iris_htmlview::Rendered {
     let apercu = || {
         iris_htmlview::Rendered::Blocks(iris_htmlview::RichText {
@@ -1290,7 +1363,7 @@ fn corps_du_message(
     };
 
     renderer
-        .render_with(&html, 800.0, allow_remote)
+        .render_for(&html, allow_remote, largeur, echelle)
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "rendering the body failed");
             apercu()

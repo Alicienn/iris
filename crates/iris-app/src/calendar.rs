@@ -1,0 +1,1529 @@
+//! L'agenda dans l'application : la vue, l'éditeur, les abonnements, les rappels.
+//!
+//! Le domaine — lire un fichier iCalendar, dérouler une règle, disposer une semaine —
+//! est dans `iris-calendar` et s'y teste. Ce module fait le lien : il lit la base,
+//! convertit pour l'interface, et va chercher les abonnements sur le réseau.
+
+use crate::services::{now, Services};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone};
+use iris_calendar::{layout, Event, Occurrence};
+use iris_store::{NewEvent, StoredCalendar, StoredEvent};
+use iris_types::{Error, Result, Timestamp};
+use iris_ui::{
+    AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData, TimedEventData,
+    WeekDayData,
+};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+
+/// Combien d'événements une case du mois montre avant « +N ».
+const PAR_CASE: usize = 4;
+
+/// La fréquence à laquelle un abonnement est relu.
+const RELECTURE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Au-delà, un fichier d'agenda n'en est plus un.
+const MAX_ICS: usize = 20 * 1024 * 1024;
+
+/// Les couleurs proposées aux nouveaux calendriers, à tour de rôle.
+const COULEURS: [&str; 8] = [
+    "#5b8def", "#e0795b", "#4fb286", "#b67be6", "#e3b341", "#e0608c", "#3fb1c9", "#8a9a5b",
+];
+
+/// Les rappels proposés, et leur valeur en minutes.
+const RAPPELS: [(&str, Option<i32>); 7] = [
+    ("None", None),
+    ("At start", Some(0)),
+    ("5 minutes before", Some(5)),
+    ("15 minutes before", Some(15)),
+    ("30 minutes before", Some(30)),
+    ("1 hour before", Some(60)),
+    ("1 day before", Some(1440)),
+];
+
+/// Les répétitions proposées, et leur règle.
+const REPETITIONS: [(&str, Option<&str>); 6] = [
+    ("Does not repeat", None),
+    ("Every day", Some("FREQ=DAILY")),
+    ("Every weekday", Some("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR")),
+    ("Every week", Some("FREQ=WEEKLY")),
+    ("Every month", Some("FREQ=MONTHLY")),
+    ("Every year", Some("FREQ=YEARLY")),
+];
+
+/// Ce que l'agenda montre en ce moment. Sur le fil de l'interface.
+struct Etat {
+    /// 0 mois, 1 semaine, 2 jour.
+    mode: i32,
+    /// Le jour autour duquel la période est construite.
+    jour: NaiveDate,
+    /// Le mois du petit calendrier de gauche (son premier jour).
+    mini: NaiveDate,
+    /// Les événements chargés pour la période, et leurs occurrences.
+    evenements: Vec<(StoredEvent, Event)>,
+    /// L'événement en cours d'édition ; `None` pour un nouvel événement.
+    edite: Option<i64>,
+    /// Les calendriers locaux proposés dans l'éditeur, dans l'ordre de la liste.
+    locaux: Vec<i64>,
+    /// Les rappels déjà donnés, pour ne pas les répéter.
+    rappeles: HashSet<String>,
+}
+
+fn aujourd_hui() -> NaiveDate {
+    Local::now().date_naive()
+}
+
+fn premier_du_mois(d: NaiveDate) -> NaiveDate {
+    d.with_day(1).unwrap_or(d)
+}
+
+fn ajouter_mois(d: NaiveDate, n: i32) -> NaiveDate {
+    let total = d.year() * 12 + d.month0() as i32 + n;
+    let (annee, mois) = (total.div_euclid(12), total.rem_euclid(12) as u32 + 1);
+    let jour = d.day().min(jours_du_mois(annee, mois));
+    NaiveDate::from_ymd_opt(annee, mois, jour).unwrap_or(d)
+}
+
+fn jours_du_mois(annee: i32, mois: u32) -> u32 {
+    let suivant = if mois == 12 {
+        NaiveDate::from_ymd_opt(annee + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(annee, mois + 1, 1)
+    };
+    suivant
+        .and_then(|s| s.pred_opt())
+        .map(|d| d.day())
+        .unwrap_or(28)
+}
+
+/// `#rrggbb` en couleur, gris si illisible.
+pub fn couleur(hex: &str) -> slint::Color {
+    let h = hex.trim_start_matches('#');
+    let v = u32::from_str_radix(h, 16).unwrap_or(0x888888);
+    if h.len() == 6 {
+        slint::Color::from_rgb_u8((v >> 16) as u8, (v >> 8) as u8, v as u8)
+    } else {
+        slint::Color::from_rgb_u8(0x88, 0x88, 0x88)
+    }
+}
+
+fn vers_domaine(e: &NewEvent) -> Event {
+    Event {
+        uid: e.uid.clone(),
+        summary: e.summary.clone(),
+        description: e.description.clone(),
+        location: e.location.clone(),
+        start: e.start_ms,
+        end: e.end_ms,
+        all_day: e.all_day,
+        tzid: e.tzid.clone(),
+        rrule: e.rrule.clone(),
+        exdates: e.exdates.clone(),
+        recurrence_id: e.recurrence_id,
+        cancelled: e.cancelled,
+        reminder_minutes: e.reminder_minutes,
+    }
+}
+
+fn depuis_domaine(e: &Event) -> NewEvent {
+    NewEvent {
+        uid: e.uid.clone(),
+        summary: e.summary.clone(),
+        description: e.description.clone(),
+        location: e.location.clone(),
+        start_ms: e.start,
+        end_ms: e.end,
+        all_day: e.all_day,
+        tzid: e.tzid.clone(),
+        rrule: e.rrule.clone(),
+        exdates: e.exdates.clone(),
+        recurrence_id: e.recurrence_id,
+        cancelled: e.cancelled,
+        reminder_minutes: e.reminder_minutes,
+    }
+}
+
+// --- Mise en forme -----------------------------------------------------------------
+
+fn heure(ms: i64) -> String {
+    Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|t| t.format("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
+fn titre(e: &Event) -> String {
+    if e.summary.trim().is_empty() {
+        "(No title)".into()
+    } else {
+        e.summary.clone()
+    }
+}
+
+fn periode(etat: &Etat) -> (NaiveDate, usize) {
+    match etat.mode {
+        0 => (
+            layout::month_days(etat.jour.year(), etat.jour.month())[0],
+            42,
+        ),
+        1 => (layout::week_start(etat.jour), 7),
+        _ => (etat.jour, 1),
+    }
+}
+
+fn titre_periode(etat: &Etat) -> String {
+    match etat.mode {
+        0 => etat.jour.format("%B %Y").to_string(),
+        1 => {
+            let debut = layout::week_start(etat.jour);
+            let fin = debut + Duration::days(6);
+            if debut.month() == fin.month() {
+                format!("{} – {}", debut.format("%B %-d"), fin.format("%-d, %Y"))
+            } else if debut.year() == fin.year() {
+                format!("{} – {}", debut.format("%b %-d"), fin.format("%b %-d, %Y"))
+            } else {
+                format!(
+                    "{} – {}",
+                    debut.format("%b %-d, %Y"),
+                    fin.format("%b %-d, %Y")
+                )
+            }
+        }
+        _ => etat.jour.format("%A, %B %-d, %Y").to_string(),
+    }
+}
+
+/// Quand un événement a lieu, en toutes lettres.
+fn quand(o: &Occurrence) -> String {
+    if o.all_day {
+        let debut = layout::local_date(o.start, &chrono::Utc);
+        let fin = layout::local_date((o.end - 1).max(o.start), &chrono::Utc);
+        if debut == fin {
+            debut.format("%A, %B %-d, %Y").to_string()
+        } else {
+            format!(
+                "{} – {}",
+                debut.format("%A, %B %-d"),
+                fin.format("%A, %B %-d, %Y")
+            )
+        }
+    } else {
+        let debut = Local.timestamp_millis_opt(o.start).single();
+        let fin = Local.timestamp_millis_opt(o.end).single();
+        match (debut, fin) {
+            (Some(d), Some(f)) if d.date_naive() == f.date_naive() => format!(
+                "{} · {} – {}",
+                d.format("%A, %B %-d, %Y"),
+                d.format("%H:%M"),
+                f.format("%H:%M")
+            ),
+            (Some(d), Some(f)) => format!(
+                "{} {} – {} {}",
+                d.format("%a %b %-d"),
+                d.format("%H:%M"),
+                f.format("%a %b %-d, %Y"),
+                f.format("%H:%M")
+            ),
+            _ => String::new(),
+        }
+    }
+}
+
+fn repetition(regle: Option<&str>) -> String {
+    let Some(r) = regle else {
+        return String::new();
+    };
+    if let Some((nom, _)) = REPETITIONS
+        .iter()
+        .find(|(_, x)| x.is_some_and(|x| x.eq_ignore_ascii_case(r)))
+    {
+        return format!("Repeats {}", nom.to_lowercase());
+    }
+    let frequence = r
+        .split(';')
+        .find_map(|p| p.strip_prefix("FREQ="))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match frequence.as_str() {
+        "daily" => "Repeats daily".into(),
+        "weekly" => "Repeats weekly".into(),
+        "monthly" => "Repeats monthly".into(),
+        "yearly" => "Repeats yearly".into(),
+        _ => "Repeats".into(),
+    }
+}
+
+fn rappel(minutes: Option<i32>) -> String {
+    match minutes {
+        None => String::new(),
+        Some(0) => "At start".into(),
+        Some(m) if m % 1440 == 0 => format!("{} day(s) before", m / 1440),
+        Some(m) if m % 60 == 0 => format!("{} hour(s) before", m / 60),
+        Some(m) => format!("{m} minutes before"),
+    }
+}
+
+fn statut(c: &StoredCalendar, maintenant: Timestamp) -> (String, bool) {
+    if !c.is_subscription() {
+        return (String::new(), false);
+    }
+    if let Some(e) = &c.last_error {
+        return (format!("Could not update: {e}"), true);
+    }
+    match c.last_sync {
+        None => ("Not read yet".into(), false),
+        Some(t) => (
+            format!("Updated {}", crate::vitals::ago(t, maintenant)),
+            false,
+        ),
+    }
+}
+
+// --- La vue ------------------------------------------------------------------------
+
+fn charger(services: &Services, etat: &mut Etat) -> Vec<Occurrence> {
+    let (debut, jours) = periode(etat);
+    let de = layout::local_midnight(debut, &Local);
+    let a = layout::local_midnight(debut + Duration::days(jours as i64), &Local);
+    // Un jour de marge de chaque côté : un jour entier est posé à minuit UTC, et un
+    // fuseau éloigné le ferait tomber juste hors de la période.
+    let stockes = services
+        .store
+        .events_for_range(de - 86_400_000, a + 86_400_000)
+        .unwrap_or_default();
+    etat.evenements = stockes
+        .into_iter()
+        .map(|s| {
+            let e = vers_domaine(&s.event);
+            (s, e)
+        })
+        .collect();
+    let domaine: Vec<Event> = etat.evenements.iter().map(|(_, e)| e.clone()).collect();
+    iris_calendar::recur::occurrences(&domaine, de, a)
+}
+
+fn cle(etat: &Etat, o: &Occurrence) -> String {
+    format!("{}:{}", etat.evenements[o.event].0.id, o.start)
+}
+
+fn puce(etat: &Etat, o: &Occurrence, couleurs: &HashMap<i64, String>) -> CalendarChipData {
+    let (stocke, e) = &etat.evenements[o.event];
+    CalendarChipData {
+        key: cle(etat, o).into(),
+        title: titre(e).into(),
+        time: if o.all_day {
+            SharedString::default()
+        } else {
+            heure(o.start).into()
+        },
+        color: couleur(
+            couleurs
+                .get(&stocke.calendar_id)
+                .map(String::as_str)
+                .unwrap_or(""),
+        ),
+        all_day: o.all_day,
+    }
+}
+
+fn cellules(
+    etat: &Etat,
+    choisi: NaiveDate,
+    mois: NaiveDate,
+    occ: &[Occurrence],
+    couleurs: &HashMap<i64, String>,
+    avec_evenements: bool,
+) -> Vec<MonthCellData> {
+    let grille = layout::month_grid(mois.year(), mois.month(), occ, &Local);
+    let today = aujourd_hui();
+    grille
+        .into_iter()
+        .map(|c| {
+            let puces: Vec<CalendarChipData> = if avec_evenements {
+                c.items
+                    .iter()
+                    .take(PAR_CASE)
+                    .map(|i| puce(etat, &occ[*i], couleurs))
+                    .collect()
+            } else {
+                // Le petit mois ne dit que « il y a quelque chose » : une puce suffit.
+                c.items
+                    .iter()
+                    .take(1)
+                    .map(|i| puce(etat, &occ[*i], couleurs))
+                    .collect()
+            };
+            MonthCellData {
+                day: c.date.day().to_string().into(),
+                date: c.date.format("%Y-%m-%d").to_string().into(),
+                in_month: c.in_month,
+                today: c.date == today,
+                selected: c.date == choisi,
+                more: c.items.len().saturating_sub(PAR_CASE) as i32 * avec_evenements as i32,
+                events: ModelRc::new(VecModel::from(puces)),
+            }
+        })
+        .collect()
+}
+
+/// Recalcule tout ce que l'agenda affiche.
+fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
+    let maintenant = now();
+    let calendriers = services.store.calendars().unwrap_or_default();
+    let couleurs: HashMap<i64, String> = calendriers
+        .iter()
+        .map(|c| (c.id, c.color.clone()))
+        .collect();
+
+    fenetre.set_calendars(ModelRc::new(VecModel::from(
+        calendriers
+            .iter()
+            .map(|c| {
+                let (texte, echec) = statut(c, maintenant);
+                CalendarData {
+                    id: c.id as i32,
+                    name: c.name.as_str().into(),
+                    color: couleur(&c.color),
+                    visible: c.visible,
+                    subscribed: c.is_subscription(),
+                    status: texte.into(),
+                    failed: echec,
+                }
+            })
+            .collect::<Vec<_>>(),
+    )));
+    etat.locaux = calendriers
+        .iter()
+        .filter(|c| !c.is_subscription())
+        .map(|c| c.id)
+        .collect();
+
+    let occ = charger(services, etat);
+    fenetre.set_calendar_title(titre_periode(etat).into());
+    fenetre.set_calendar_mode(etat.mode);
+
+    match etat.mode {
+        0 => {
+            let cases = cellules(etat, etat.jour, etat.jour, &occ, &couleurs, true);
+            fenetre.set_calendar_month_cells(ModelRc::new(VecModel::from(cases)));
+        }
+        _ => {
+            let (debut, n) = periode(etat);
+            let jours: Vec<NaiveDate> = (0..n as i64).map(|i| debut + Duration::days(i)).collect();
+            let (entiers, blocs) = layout::week_layout(&jours, &occ, &Local);
+            let today = aujourd_hui();
+            fenetre.set_calendar_week_days(ModelRc::new(VecModel::from(
+                jours
+                    .iter()
+                    .enumerate()
+                    .map(|(i, d)| WeekDayData {
+                        name: d.format("%a").to_string().into(),
+                        day: d.day().to_string().into(),
+                        date: d.format("%Y-%m-%d").to_string().into(),
+                        today: *d == today,
+                        all_day: ModelRc::new(VecModel::from(
+                            entiers[i]
+                                .iter()
+                                .map(|k| puce(etat, &occ[*k], &couleurs))
+                                .collect::<Vec<_>>(),
+                        )),
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+            fenetre.set_calendar_week_events(ModelRc::new(VecModel::from(
+                blocs
+                    .iter()
+                    .map(|b| {
+                        let o = &occ[b.occurrence];
+                        let p = puce(etat, o, &couleurs);
+                        TimedEventData {
+                            key: p.key,
+                            title: p.title,
+                            time: format!("{} – {}", heure(o.start), heure(o.end)).into(),
+                            color: p.color,
+                            day: b.day as i32,
+                            lane: b.lane as i32,
+                            lanes: b.lanes as i32,
+                            top: b.start_min as f32 / 1440.0,
+                            height: (b.end_min - b.start_min) as f32 / 1440.0,
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+            match jours.iter().position(|d| *d == today) {
+                Some(i) => {
+                    fenetre.set_calendar_now_day(i as i32);
+                    fenetre.set_calendar_now_fraction(
+                        layout::local_minutes(maintenant.millis(), &Local) as f32 / 1440.0,
+                    );
+                }
+                None => {
+                    fenetre.set_calendar_now_day(-1);
+                    fenetre.set_calendar_now_fraction(-1.0);
+                }
+            }
+        }
+    }
+
+    // Le petit mois, avec ses propres occurrences quand il ne montre pas le même mois.
+    fenetre.set_calendar_mini_title(etat.mini.format("%B %Y").to_string().into());
+    let occ_mini = if etat.mode == 0 && premier_du_mois(etat.jour) == etat.mini {
+        occ
+    } else {
+        let mut copie = Etat {
+            mode: 0,
+            jour: etat.mini,
+            mini: etat.mini,
+            evenements: Vec::new(),
+            edite: None,
+            locaux: Vec::new(),
+            rappeles: HashSet::new(),
+        };
+        let o = charger(services, &mut copie);
+        let cases = cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false);
+        fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
+        return;
+    };
+    let cases = cellules(etat, etat.jour, etat.mini, &occ_mini, &couleurs, false);
+    fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
+}
+
+// --- L'éditeur ---------------------------------------------------------------------
+
+/// Lit une date : `2026-09-28`, `28/09/2026` ou `28.09.2026`.
+fn lire_date(texte: &str) -> Option<NaiveDate> {
+    let t = texte.trim();
+    NaiveDate::parse_from_str(t, "%Y-%m-%d")
+        .or_else(|_| NaiveDate::parse_from_str(t, "%d/%m/%Y"))
+        .or_else(|_| NaiveDate::parse_from_str(t, "%d.%m.%Y"))
+        .ok()
+}
+
+/// Lit une heure : `9:30`, `09:30`, `9h30`, `9h`, `9`.
+fn lire_heure(texte: &str) -> Option<NaiveTime> {
+    let t = texte.trim().to_ascii_lowercase().replace('h', ":");
+    let (h, m) = match t.split_once(':') {
+        Some((h, m)) => (h.trim(), if m.trim().is_empty() { "0" } else { m.trim() }),
+        None => (t.as_str(), "0"),
+    };
+    NaiveTime::from_hms_opt(h.parse().ok()?, m.parse().ok()?, 0)
+}
+
+/// Le fuseau de la machine, par son nom : c'est lui qui garde une réunion récurrente à
+/// la même heure de part et d'autre d'un changement d'heure.
+fn fuseau_local() -> Option<String> {
+    iana_time_zone::get_timezone().ok()
+}
+
+/// Ce que l'éditeur a saisi, en événement — ou ce qui ne va pas.
+fn lire_editeur(f: &AppWindow) -> std::result::Result<NewEvent, String> {
+    let debut_jour = lire_date(&f.get_editor_start_date())
+        .ok_or("The start date should look like 2026-09-28.")?;
+    let fin_jour = if f.get_editor_end_date().trim().is_empty() {
+        debut_jour
+    } else {
+        lire_date(&f.get_editor_end_date()).ok_or("The end date should look like 2026-09-28.")?
+    };
+    let tout_le_jour = f.get_editor_all_day();
+
+    let (debut, fin) = if tout_le_jour {
+        if fin_jour < debut_jour {
+            return Err("The event ends before it starts.".into());
+        }
+        let minuit = |d: NaiveDate| layout::local_midnight(d, &chrono::Utc);
+        // Une fin de jour entier est exclusive : le lendemain du dernier jour.
+        (minuit(debut_jour), minuit(fin_jour + Duration::days(1)))
+    } else {
+        let h1 = lire_heure(&f.get_editor_start_time())
+            .ok_or("The start time should look like 09:30.")?;
+        let h2 = if f.get_editor_end_time().trim().is_empty() {
+            h1 + Duration::hours(1)
+        } else {
+            lire_heure(&f.get_editor_end_time()).ok_or("The end time should look like 10:30.")?
+        };
+        let a = iris_calendar::time::zoned_millis(debut_jour.and_time(h1), &Local);
+        let b = iris_calendar::time::zoned_millis(fin_jour.and_time(h2), &Local);
+        if b < a {
+            return Err("The event ends before it starts.".into());
+        }
+        (a, b)
+    };
+
+    let repetition = REPETITIONS
+        .get(f.get_editor_repeat_index().max(0) as usize)
+        .and_then(|(_, r)| *r)
+        .map(str::to_string);
+
+    Ok(NewEvent {
+        uid: String::new(),
+        summary: f.get_editor_title().trim().to_string(),
+        description: f.get_editor_notes().trim().to_string(),
+        location: f.get_editor_location().trim().to_string(),
+        start_ms: debut,
+        end_ms: fin,
+        all_day: tout_le_jour,
+        tzid: if tout_le_jour { None } else { fuseau_local() },
+        rrule: repetition,
+        exdates: Vec::new(),
+        recurrence_id: None,
+        cancelled: false,
+        reminder_minutes: RAPPELS
+            .get(f.get_editor_reminder_index().max(0) as usize)
+            .and_then(|(_, m)| *m),
+    })
+}
+
+fn ouvrir_editeur(
+    f: &AppWindow,
+    etat: &mut Etat,
+    services: &Services,
+    existant: Option<&StoredEvent>,
+    jour: NaiveDate,
+    minute: i32,
+) {
+    let calendriers = services.store.calendars().unwrap_or_default();
+    let locaux: Vec<&StoredCalendar> = calendriers
+        .iter()
+        .filter(|c| !c.is_subscription())
+        .collect();
+    etat.locaux = locaux.iter().map(|c| c.id).collect();
+    f.set_editor_calendars(ModelRc::new(VecModel::from(
+        locaux
+            .iter()
+            .map(|c| SharedString::from(c.name.as_str()))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_editor_error(SharedString::default());
+
+    match existant {
+        Some(s) => {
+            let e = &s.event;
+            etat.edite = Some(s.id);
+            f.set_editor_is_new(false);
+            f.set_editor_title(e.summary.as_str().into());
+            f.set_editor_all_day(e.all_day);
+            let (d1, d2, h1, h2) = if e.all_day {
+                let a = layout::local_date(e.start_ms, &chrono::Utc);
+                let b = layout::local_date((e.end_ms - 1).max(e.start_ms), &chrono::Utc);
+                (a, b, String::new(), String::new())
+            } else {
+                let a = Local
+                    .timestamp_millis_opt(e.start_ms)
+                    .single()
+                    .unwrap_or_default();
+                let b = Local
+                    .timestamp_millis_opt(e.end_ms)
+                    .single()
+                    .unwrap_or_default();
+                (
+                    a.date_naive(),
+                    b.date_naive(),
+                    heure(e.start_ms),
+                    heure(e.end_ms),
+                )
+            };
+            f.set_editor_start_date(d1.format("%Y-%m-%d").to_string().into());
+            f.set_editor_end_date(d2.format("%Y-%m-%d").to_string().into());
+            f.set_editor_start_time(h1.into());
+            f.set_editor_end_time(h2.into());
+            f.set_editor_location(e.location.as_str().into());
+            f.set_editor_notes(e.description.as_str().into());
+            f.set_editor_calendar_index(
+                etat.locaux
+                    .iter()
+                    .position(|id| *id == s.calendar_id)
+                    .unwrap_or(0) as i32,
+            );
+            f.set_editor_reminder_index(
+                RAPPELS
+                    .iter()
+                    .position(|(_, m)| *m == e.reminder_minutes)
+                    .unwrap_or(0) as i32,
+            );
+            f.set_editor_repeat_index(
+                REPETITIONS
+                    .iter()
+                    .position(|(_, r)| r.map(str::to_string) == e.rrule)
+                    .unwrap_or(0) as i32,
+            );
+        }
+        None => {
+            etat.edite = None;
+            f.set_editor_is_new(true);
+            f.set_editor_title(SharedString::default());
+            f.set_editor_all_day(false);
+            // L'heure proposée : celle cliquée, sinon la prochaine heure pleine
+            // aujourd'hui, sinon neuf heures.
+            let minute = if minute >= 0 {
+                minute
+            } else if jour == aujourd_hui() {
+                ((layout::local_minutes(now().millis(), &Local) / 60 + 1) * 60).min(23 * 60)
+            } else {
+                9 * 60
+            };
+            let debut = NaiveTime::from_hms_opt((minute / 60) as u32, (minute % 60) as u32, 0)
+                .unwrap_or_default();
+            let fin = debut + Duration::hours(1);
+            f.set_editor_start_date(jour.format("%Y-%m-%d").to_string().into());
+            f.set_editor_end_date(jour.format("%Y-%m-%d").to_string().into());
+            f.set_editor_start_time(debut.format("%H:%M").to_string().into());
+            f.set_editor_end_time(fin.format("%H:%M").to_string().into());
+            f.set_editor_location(SharedString::default());
+            f.set_editor_notes(SharedString::default());
+            f.set_editor_calendar_index(0);
+            f.set_editor_reminder_index(3);
+            f.set_editor_repeat_index(0);
+        }
+    }
+    f.set_event_detail_open(false);
+    f.set_event_editor_open(true);
+}
+
+// --- Les abonnements -----------------------------------------------------------------
+
+/// Ce qu'une relecture a rapporté.
+enum Lecture {
+    /// Rien n'a changé depuis la dernière fois (le serveur l'a dit).
+    Inchange,
+    Nouveau {
+        texte: String,
+        etag: Option<String>,
+        modifie: Option<String>,
+    },
+}
+
+async fn lire_abonnement(url: &str, etag: Option<&str>, modifie: Option<&str>) -> Result<Lecture> {
+    let client = reqwest::Client::builder()
+        .user_agent(format!("Iris/{}", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| Error::other(format!("client : {e}")))?;
+    let mut requete = client.get(url).header("Accept", "text/calendar, */*;q=0.5");
+    if let Some(e) = etag {
+        requete = requete.header("If-None-Match", e);
+    }
+    if let Some(m) = modifie {
+        requete = requete.header("If-Modified-Since", m);
+    }
+    let reponse = requete
+        .send()
+        .await
+        .map_err(|e| Error::other(format!("could not reach the calendar ({e})")))?;
+    if reponse.status() == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(Lecture::Inchange);
+    }
+    if !reponse.status().is_success() {
+        return Err(Error::other(format!(
+            "the server answered {}",
+            reponse.status()
+        )));
+    }
+    let entete = |nom: &str| {
+        reponse
+            .headers()
+            .get(nom)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let (etag, modifie) = (entete("etag"), entete("last-modified"));
+    if reponse
+        .content_length()
+        .is_some_and(|n| n as usize > MAX_ICS)
+    {
+        return Err(Error::other("the calendar file is too large"));
+    }
+    let octets = reponse
+        .bytes()
+        .await
+        .map_err(|e| Error::other(format!("download interrupted ({e})")))?;
+    if octets.len() > MAX_ICS {
+        return Err(Error::other("the calendar file is too large"));
+    }
+    Ok(Lecture::Nouveau {
+        texte: String::from_utf8_lossy(&octets).into_owned(),
+        etag,
+        modifie,
+    })
+}
+
+/// Relit un abonnement et remplace ses événements.
+pub async fn refresh_subscription(services: &Services, id: i64) -> Result<usize> {
+    let cal = services
+        .store
+        .calendar(id)?
+        .ok_or_else(|| Error::other("calendar not found"))?;
+    let Some(url) = cal.source_url.clone() else {
+        return Ok(0);
+    };
+    type Lu = (
+        Option<iris_calendar::ics::Parsed>,
+        Option<String>,
+        Option<String>,
+    );
+    let resultat: Result<Lu> = async {
+        match lire_abonnement(&url, cal.etag.as_deref(), cal.last_modified.as_deref()).await? {
+            Lecture::Inchange => Ok((None, None, None)),
+            Lecture::Nouveau {
+                texte,
+                etag,
+                modifie,
+            } => {
+                let lu = iris_calendar::ics::parse(&texte).map_err(Error::other)?;
+                Ok((Some(lu), etag, modifie))
+            }
+        }
+    }
+    .await;
+    match resultat {
+        Ok((lu, etag, modifie)) => {
+            let n = match lu {
+                Some(lu) => {
+                    let nouveaux: Vec<NewEvent> = lu.events.iter().map(depuis_domaine).collect();
+                    services
+                        .store
+                        .replace_calendar_events(id, &nouveaux, now())?
+                }
+                None => services.store.calendar_event_count(id)? as usize,
+            };
+            services.store.set_calendar_sync(
+                id,
+                etag.as_deref(),
+                modifie.as_deref(),
+                now(),
+                None,
+            )?;
+            Ok(n)
+        }
+        Err(e) => {
+            let message = e.to_string();
+            let _ = services
+                .store
+                .set_calendar_sync(id, None, None, now(), Some(&message));
+            Err(e)
+        }
+    }
+}
+
+/// S'abonne à un agenda publié : le lit d'abord, et ne crée le calendrier que s'il se
+/// lit. Un lien qui ne mène pas à un agenda ne laisse rien derrière lui.
+pub async fn subscribe(services: &Services, lien: &str, nom: &str) -> Result<(i64, usize)> {
+    let url = iris_calendar::link::normalize(lien).map_err(Error::other)?;
+    if services
+        .store
+        .calendars()?
+        .iter()
+        .any(|c| c.source_url.as_deref() == Some(url.as_str()))
+    {
+        return Err(Error::other("You are already subscribed to this calendar."));
+    }
+    let Lecture::Nouveau {
+        texte,
+        etag,
+        modifie,
+    } = lire_abonnement(&url, None, None).await?
+    else {
+        return Err(Error::other("the server sent nothing"));
+    };
+    let lu = iris_calendar::ics::parse(&texte)
+        .map_err(|_| Error::other("That link does not lead to a calendar (.ics)."))?;
+
+    let nom = if !nom.trim().is_empty() {
+        nom.trim().to_string()
+    } else {
+        lu.name
+            .clone()
+            .unwrap_or_else(|| iris_calendar::link::default_name(&url))
+    };
+    let deja = services.store.calendars()?.len();
+    let couleur = COULEURS[deja % COULEURS.len()];
+    let id = services
+        .store
+        .create_calendar(&nom, couleur, Some(&url), now())?;
+    let nouveaux: Vec<NewEvent> = lu.events.iter().map(depuis_domaine).collect();
+    let n = services
+        .store
+        .replace_calendar_events(id, &nouveaux, now())?;
+    services
+        .store
+        .set_calendar_sync(id, etag.as_deref(), modifie.as_deref(), now(), None)?;
+    Ok((id, n))
+}
+
+// --- Le câblage --------------------------------------------------------------------
+
+fn ms_depuis_cle(cle: &str) -> Option<(i64, i64)> {
+    let (id, debut) = cle.split_once(':')?;
+    Some((id.parse().ok()?, debut.parse().ok()?))
+}
+
+/// Branche l'agenda sur la fenêtre, et lance ses tâches de fond.
+pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::runtime::Handle) {
+    let today = aujourd_hui();
+    let etat = Rc::new(RefCell::new(Etat {
+        mode: 0,
+        jour: today,
+        mini: premier_du_mois(today),
+        evenements: Vec::new(),
+        edite: None,
+        locaux: Vec::new(),
+        rappeles: HashSet::new(),
+    }));
+
+    fenetre.set_editor_reminders(ModelRc::new(VecModel::from(
+        RAPPELS
+            .iter()
+            .map(|(n, _)| SharedString::from(*n))
+            .collect::<Vec<_>>(),
+    )));
+    fenetre.set_editor_repeats(ModelRc::new(VecModel::from(
+        REPETITIONS
+            .iter()
+            .map(|(n, _)| SharedString::from(*n))
+            .collect::<Vec<_>>(),
+    )));
+
+    // Une fermeture qui recalcule la vue, partagée par tous les gestes.
+    let redessiner = {
+        let (faible, services, etat) = (fenetre.as_weak(), services.clone(), Rc::clone(&etat));
+        Rc::new(move || {
+            if let Some(f) = faible.upgrade() {
+                rafraichir(&f, &services, &mut etat.borrow_mut());
+            }
+        })
+    };
+
+    {
+        let redessiner = Rc::clone(&redessiner);
+        fenetre.on_workspace_changed(move |w| {
+            if w == 1 {
+                redessiner();
+            }
+        });
+    }
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_navigate(move |n| {
+            {
+                let mut e = etat.borrow_mut();
+                e.jour = match e.mode {
+                    0 => ajouter_mois(e.jour, n),
+                    1 => e.jour + Duration::days(7 * n as i64),
+                    _ => e.jour + Duration::days(n as i64),
+                };
+                e.mini = premier_du_mois(e.jour);
+            }
+            redessiner();
+        });
+    }
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_today(move || {
+            {
+                let mut e = etat.borrow_mut();
+                e.jour = aujourd_hui();
+                e.mini = premier_du_mois(e.jour);
+            }
+            redessiner();
+        });
+    }
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_mode_chosen(move |m| {
+            etat.borrow_mut().mode = m.clamp(0, 2);
+            redessiner();
+        });
+    }
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_day_chosen(move |d| {
+            if let Some(jour) = lire_date(&d) {
+                let mut e = etat.borrow_mut();
+                e.jour = jour;
+                e.mini = premier_du_mois(jour);
+            }
+            redessiner();
+        });
+    }
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_day_opened(move |d| {
+            if let Some(jour) = lire_date(&d) {
+                let mut e = etat.borrow_mut();
+                e.jour = jour;
+                e.mode = 2;
+                e.mini = premier_du_mois(jour);
+            }
+            redessiner();
+        });
+    }
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_mini_navigate(move |n| {
+            {
+                let mut e = etat.borrow_mut();
+                e.mini = premier_du_mois(ajouter_mois(e.mini, n));
+            }
+            redessiner();
+        });
+    }
+    {
+        let (services, redessiner) = (services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_toggled(move |id| {
+            if let Ok(Some(c)) = services.store.calendar(id as i64) {
+                let _ = services
+                    .store
+                    .update_calendar(c.id, &c.name, &c.color, !c.visible);
+            }
+            redessiner();
+        });
+    }
+
+    // --- Un événement ---
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_calendar_event_opened(move |k| {
+            let Some(f) = faible.upgrade() else { return };
+            let Some((id, debut)) = ms_depuis_cle(&k) else {
+                return;
+            };
+            let Ok(Some(s)) = services.store.event(id) else {
+                return;
+            };
+            let cal = services.store.calendar(s.calendar_id).ok().flatten();
+            let duree = s.event.end_ms - s.event.start_ms;
+            let o = Occurrence {
+                event: 0,
+                start: debut,
+                end: debut + duree,
+                all_day: s.event.all_day,
+            };
+            etat.borrow_mut().edite = Some(id);
+            f.set_event_detail(EventDetailData {
+                key: k,
+                title: titre(&vers_domaine(&s.event)).into(),
+                when: quand(&o).into(),
+                calendar: cal
+                    .as_ref()
+                    .map(|c| c.name.clone())
+                    .unwrap_or_default()
+                    .into(),
+                color: couleur(cal.as_ref().map(|c| c.color.as_str()).unwrap_or("")),
+                location: s.event.location.as_str().into(),
+                description: s.event.description.as_str().into(),
+                reminder: rappel(s.event.reminder_minutes).into(),
+                repeats: repetition(s.event.rrule.as_deref()).into(),
+                editable: cal.is_some_and(|c| !c.is_subscription()),
+            });
+            f.set_event_detail_open(true);
+        });
+    }
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_calendar_new_event(move |d, minute| {
+            let Some(f) = faible.upgrade() else { return };
+            let mut e = etat.borrow_mut();
+            let jour = lire_date(&d).unwrap_or(e.jour);
+            ouvrir_editeur(&f, &mut e, &services, None, jour, minute);
+        });
+    }
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_event_edit(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let mut e = etat.borrow_mut();
+            let Some(id) = e.edite else { return };
+            if let Ok(Some(s)) = services.store.event(id) {
+                let jour = e.jour;
+                ouvrir_editeur(&f, &mut e, &services, Some(&s), jour, -1);
+            }
+        });
+    }
+    {
+        let (services, etat, faible, redessiner) = (
+            services.clone(),
+            Rc::clone(&etat),
+            fenetre.as_weak(),
+            Rc::clone(&redessiner),
+        );
+        fenetre.on_event_delete(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let id = etat.borrow().edite;
+            if let Some(id) = id {
+                match services.store.delete_event(id) {
+                    Ok(()) => f.set_status("Event deleted.".into()),
+                    Err(e) => f.set_status(format!("Could not delete the event: {e}").into()),
+                }
+            }
+            f.set_event_detail_open(false);
+            redessiner();
+        });
+    }
+    {
+        let (services, etat, faible, redessiner) = (
+            services.clone(),
+            Rc::clone(&etat),
+            fenetre.as_weak(),
+            Rc::clone(&redessiner),
+        );
+        fenetre.on_event_save(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let mut nouveau = match lire_editeur(&f) {
+                Ok(e) => e,
+                Err(message) => {
+                    f.set_editor_error(message.into());
+                    return;
+                }
+            };
+            let (edite, calendrier) = {
+                let e = etat.borrow();
+                let index = f.get_editor_calendar_index().max(0) as usize;
+                (
+                    e.edite,
+                    e.locaux
+                        .get(index)
+                        .copied()
+                        .or_else(|| e.locaux.first().copied()),
+                )
+            };
+            let Some(calendrier) = calendrier else {
+                f.set_editor_error("There is no calendar to put it in.".into());
+                return;
+            };
+            let resultat = match edite {
+                Some(id) => services.store.update_event(id, calendrier, &nouveau, now()),
+                None => {
+                    nouveau.uid = format!("{}-{}@iris", now().millis(), std::process::id());
+                    services
+                        .store
+                        .insert_event(calendrier, &nouveau, now())
+                        .map(|_| ())
+                }
+            };
+            match resultat {
+                Ok(()) => {
+                    f.set_event_editor_open(false);
+                    // La période montrée suit l'événement, pour qu'on le voie.
+                    if let Some(jour) = lire_date(&f.get_editor_start_date()) {
+                        let mut e = etat.borrow_mut();
+                        e.jour = jour;
+                        e.mini = premier_du_mois(jour);
+                    }
+                    redessiner();
+                }
+                Err(e) => f.set_editor_error(format!("Could not save: {e}").into()),
+            }
+        });
+    }
+
+    // --- Les abonnements ---
+    {
+        let (services, faible, runtime) = (services.clone(), fenetre.as_weak(), runtime.clone());
+        fenetre.on_subscribe_confirmed(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let (lien, nom) = (
+                f.get_subscribe_url().to_string(),
+                f.get_subscribe_name().to_string(),
+            );
+            if let Err(e) = iris_calendar::link::normalize(&lien) {
+                f.set_subscribe_error(e.into());
+                return;
+            }
+            f.set_subscribe_error(SharedString::default());
+            f.set_subscribe_busy(true);
+            let (services, faible) = (services.clone(), faible.clone());
+            runtime.spawn(async move {
+                let resultat = subscribe(&services, &lien, &nom).await;
+                let _ = faible.upgrade_in_event_loop(move |f| {
+                    f.set_subscribe_busy(false);
+                    match resultat {
+                        Ok((_, n)) => {
+                            f.set_subscribe_open(false);
+                            f.set_toast(
+                                format!("Subscribed: {n} event(s) added to your calendar.").into(),
+                            );
+                            f.invoke_workspace_changed(1);
+                        }
+                        Err(e) => f.set_subscribe_error(e.to_string().into()),
+                    }
+                });
+            });
+        });
+    }
+    {
+        let (services, faible, runtime) = (services.clone(), fenetre.as_weak(), runtime.clone());
+        fenetre.on_calendar_refresh(move |id| {
+            let Some(f) = faible.upgrade() else { return };
+            f.set_status("Updating the calendar…".into());
+            let (services, faible) = (services.clone(), faible.clone());
+            runtime.spawn(async move {
+                let resultat = refresh_subscription(&services, id as i64).await;
+                let _ = faible.upgrade_in_event_loop(move |f| {
+                    f.set_status(
+                        match resultat {
+                            Ok(n) => format!("Calendar up to date: {n} event(s)."),
+                            Err(e) => format!("Could not update the calendar: {e}"),
+                        }
+                        .into(),
+                    );
+                    if f.get_workspace() == 1 {
+                        f.invoke_workspace_changed(1);
+                    }
+                });
+            });
+        });
+    }
+    {
+        let (services, redessiner, faible) =
+            (services.clone(), Rc::clone(&redessiner), fenetre.as_weak());
+        fenetre.on_calendar_remove(move |id| {
+            let nom = services
+                .store
+                .calendar(id as i64)
+                .ok()
+                .flatten()
+                .map(|c| c.name)
+                .unwrap_or_default();
+            let _ = services.store.delete_calendar(id as i64);
+            if let Some(f) = faible.upgrade() {
+                f.set_status(format!("Unsubscribed from {nom}.").into());
+            }
+            redessiner();
+        });
+    }
+
+    // Les abonnements se relisent d'eux-mêmes, toutes les demi-heures, et une première
+    // fois peu après le démarrage.
+    {
+        let (services, faible) = (services.clone(), fenetre.as_weak());
+        runtime.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            loop {
+                let abonnements: Vec<StoredCalendar> = services
+                    .store
+                    .calendars()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|c| c.is_subscription())
+                    .collect();
+                let mut change = false;
+                for c in abonnements {
+                    let du = c.last_sync.is_none_or(|t| {
+                        now().millis() - t.millis() >= RELECTURE.as_millis() as i64 - 60_000
+                    });
+                    if du {
+                        if let Err(e) = refresh_subscription(&services, c.id).await {
+                            tracing::info!(calendar = %c.name, error = %e, "calendar subscription");
+                        }
+                        change = true;
+                    }
+                }
+                if change {
+                    let _ = faible.upgrade_in_event_loop(|f| {
+                        if f.get_workspace() == 1 {
+                            f.invoke_workspace_changed(1);
+                        }
+                    });
+                }
+                tokio::time::sleep(RELECTURE).await;
+            }
+        });
+    }
+
+    // Les rappels, et la ligne de l'heure qui avance.
+    let minuterie = slint::Timer::default();
+    {
+        let (services, etat, faible, redessiner) = (
+            services.clone(),
+            Rc::clone(&etat),
+            fenetre.as_weak(),
+            Rc::clone(&redessiner),
+        );
+        minuterie.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(30),
+            move || {
+                rappels(&services, &mut etat.borrow_mut());
+                if let Some(f) = faible.upgrade() {
+                    if f.get_workspace() == 1 && f.window().is_visible() && etat.borrow().mode != 0
+                    {
+                        redessiner();
+                    }
+                }
+            },
+        );
+    }
+    // La minuterie vit aussi longtemps que la fenêtre.
+    MINUTERIE.with(|m| *m.borrow_mut() = Some(minuterie));
+}
+
+thread_local! {
+    static MINUTERIE: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
+}
+
+/// Donne les rappels arrivés à échéance.
+///
+/// Relu toutes les trente secondes sur la journée qui vient : un rappel « un jour
+/// avant » d'une réunion de demain matin tombe aujourd'hui. Un rappel déjà passé de
+/// plus de deux minutes — l'ordinateur était en veille — n'est pas donné en retard.
+fn rappels(services: &Services, etat: &mut Etat) {
+    let maintenant = now().millis();
+    let stockes = services
+        .store
+        .events_for_range(maintenant, maintenant + 2 * 86_400_000)
+        .unwrap_or_default();
+    let evenements: Vec<Event> = stockes.iter().map(|s| vers_domaine(&s.event)).collect();
+    for o in iris_calendar::recur::occurrences(&evenements, maintenant, maintenant + 2 * 86_400_000)
+    {
+        let e = &evenements[o.event];
+        let Some(minutes) = e.reminder_minutes else {
+            continue;
+        };
+        let echeance = o.start - minutes as i64 * 60_000;
+        let cle = format!("{}:{}", stockes[o.event].id, o.start);
+        if maintenant >= echeance && maintenant - echeance < 120_000 && etat.rappeles.insert(cle) {
+            let corps = if o.all_day {
+                "Today".to_string()
+            } else if minutes == 0 {
+                format!("Now · {}", heure(o.start))
+            } else {
+                format!(
+                    "At {} · {}",
+                    heure(o.start),
+                    rappel(Some(minutes)).to_lowercase()
+                )
+            };
+            let corps = if e.location.is_empty() {
+                corps
+            } else {
+                format!("{corps} · {}", e.location)
+            };
+            crate::notify::show_text(&titre(e), &corps);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn les_dates_et_heures_se_saisissent_de_plusieurs_facons() {
+        let d = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+        assert_eq!(lire_date("2026-09-28"), Some(d));
+        assert_eq!(lire_date("28/09/2026"), Some(d));
+        assert_eq!(lire_date("28.09.2026"), Some(d));
+        assert_eq!(lire_date("demain"), None);
+        let h = |h, m| NaiveTime::from_hms_opt(h, m, 0);
+        assert_eq!(lire_heure("9:30"), h(9, 30));
+        assert_eq!(lire_heure("09:30"), h(9, 30));
+        assert_eq!(lire_heure("9h30"), h(9, 30));
+        assert_eq!(lire_heure("9h"), h(9, 0));
+        assert_eq!(lire_heure("14"), h(14, 0));
+        assert_eq!(lire_heure("25:00"), None);
+    }
+
+    #[test]
+    fn un_mois_de_plus_ne_deborde_pas() {
+        let d = NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
+        assert_eq!(
+            ajouter_mois(d, 1),
+            NaiveDate::from_ymd_opt(2026, 2, 28).unwrap()
+        );
+        assert_eq!(
+            ajouter_mois(d, -1),
+            NaiveDate::from_ymd_opt(2025, 12, 31).unwrap()
+        );
+        assert_eq!(
+            ajouter_mois(d, 12),
+            NaiveDate::from_ymd_opt(2027, 1, 31).unwrap()
+        );
+    }
+
+    #[test]
+    fn une_couleur_se_lit() {
+        assert_eq!(
+            couleur("#5b8def"),
+            slint::Color::from_rgb_u8(0x5b, 0x8d, 0xef)
+        );
+        assert_eq!(
+            couleur("n'importe"),
+            slint::Color::from_rgb_u8(0x88, 0x88, 0x88)
+        );
+    }
+
+    #[test]
+    fn la_repetition_se_decrit() {
+        assert_eq!(repetition(Some("FREQ=WEEKLY")), "Repeats every week");
+        assert_eq!(
+            repetition(Some("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR")),
+            "Repeats every weekday"
+        );
+        assert_eq!(
+            repetition(Some("FREQ=MONTHLY;BYMONTHDAY=3")),
+            "Repeats monthly"
+        );
+        assert_eq!(repetition(None), "");
+    }
+
+    #[test]
+    fn un_rappel_se_decrit() {
+        assert_eq!(rappel(Some(15)), "15 minutes before");
+        assert_eq!(rappel(Some(60)), "1 hour(s) before");
+        assert_eq!(rappel(Some(1440)), "1 day(s) before");
+        assert_eq!(rappel(Some(0)), "At start");
+    }
+
+    #[test]
+    fn un_evenement_passe_du_domaine_a_la_base_sans_perte() {
+        let e = Event {
+            uid: "u".into(),
+            summary: "s".into(),
+            start: 1,
+            end: 2,
+            rrule: Some("FREQ=DAILY".into()),
+            exdates: vec![3],
+            reminder_minutes: Some(5),
+            ..Default::default()
+        };
+        assert_eq!(vers_domaine(&depuis_domaine(&e)), e);
+    }
+
+    #[test]
+    fn une_cle_d_occurrence_se_relit() {
+        assert_eq!(
+            ms_depuis_cle("12:1790586000000"),
+            Some((12, 1_790_586_000_000))
+        );
+        assert_eq!(ms_depuis_cle("n'importe"), None);
+    }
+
+    /// Un serveur HTTP d'une ligne, sur la boucle locale : il sert `corps` avec un
+    /// ETag, répond 304 quand on le lui rend, et compte les requêtes reçues.
+    fn serveur(
+        versions: Vec<&'static str>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        let ecoute = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let adresse = format!("http://{}/agenda.ics", ecoute.local_addr().unwrap());
+        let compte = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let c = std::sync::Arc::clone(&compte);
+        std::thread::spawn(move || {
+            for flux in ecoute.incoming().flatten() {
+                let mut flux = flux;
+                let mut tampon = [0u8; 4096];
+                let n = flux.read(&mut tampon).unwrap_or(0);
+                let requete = String::from_utf8_lossy(&tampon[..n]).to_ascii_lowercase();
+                let i = c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let version = versions[i.min(versions.len() - 1)];
+                let etag = format!("\"v{}\"", version.len());
+                let reponse = if requete.contains(&format!("if-none-match: {etag}")) {
+                    "HTTP/1.1 304 Not Modified
+Content-Length: 0
+
+"
+                    .to_string()
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK
+Content-Type: text/calendar
+ETag: {etag}
+Content-Length: {}
+
+{version}",
+                        version.len()
+                    )
+                };
+                let _ = flux.write_all(reponse.as_bytes());
+            }
+        });
+        (adresse, compte)
+    }
+
+    const UN: &str = "BEGIN:VCALENDAR
+X-WR-CALNAME:Club
+BEGIN:VEVENT
+UID:a
+DTSTART:20260928T090000Z
+DTEND:20260928T100000Z
+SUMMARY:Entraînement
+END:VEVENT
+END:VCALENDAR
+";
+    const DEUX: &str = "BEGIN:VCALENDAR
+X-WR-CALNAME:Club
+BEGIN:VEVENT
+UID:a
+DTSTART:20260928T090000Z
+DTEND:20260928T100000Z
+SUMMARY:Entraînement
+END:VEVENT
+BEGIN:VEVENT
+UID:b
+DTSTART:20261005T090000Z
+DTEND:20261005T100000Z
+SUMMARY:Match
+END:VEVENT
+END:VCALENDAR
+";
+
+    fn services_de_test() -> (Services, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Services::open(
+            crate::paths::Paths::under(dir.path()),
+            Some(iris_secrets::Secret::new("maitre")),
+        )
+        .unwrap();
+        (s, dir)
+    }
+
+    #[tokio::test]
+    async fn un_abonnement_se_lit_se_nomme_et_se_met_a_jour() {
+        let (s, _dir) = services_de_test();
+        // 1re lecture : UN ; 2e : même ETag, donc 304 ; 3e : DEUX, nouvel ETag.
+        let (url, compte) = serveur(vec![UN, UN, DEUX]);
+
+        let (id, n) = subscribe(&s, &url, "").await.unwrap();
+        assert_eq!(n, 1);
+        let cal = s.store.calendar(id).unwrap().unwrap();
+        assert_eq!(cal.name, "Club", "le nom vient du calendrier");
+        assert!(cal.etag.is_some());
+
+        // Rien n'a changé : le serveur répond 304 et les événements restent.
+        assert_eq!(refresh_subscription(&s, id).await.unwrap(), 1);
+        // Le calendrier a grandi.
+        assert_eq!(refresh_subscription(&s, id).await.unwrap(), 2);
+        assert_eq!(s.store.calendar_event_count(id).unwrap(), 2);
+        assert_eq!(compte.load(std::sync::atomic::Ordering::SeqCst), 3);
+
+        // Deux fois le même lien : refusé.
+        assert!(subscribe(&s, &url, "").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn une_page_qui_n_est_pas_un_agenda_ne_cree_rien() {
+        let (s, _dir) = services_de_test();
+        let (url, _) = serveur(vec!["<html>Not a calendar</html>"]);
+        assert!(subscribe(&s, &url, "").await.is_err());
+        assert_eq!(s.store.calendars().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn un_lien_qui_n_est_pas_un_lien_est_refuse_sans_rien_creer() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Services::open(
+            crate::paths::Paths::under(dir.path()),
+            Some(iris_secrets::Secret::new("maitre")),
+        )
+        .unwrap();
+        assert!(subscribe(&s, "file:///C:/x.ics", "").await.is_err());
+        assert_eq!(
+            s.store.calendars().unwrap().len(),
+            1,
+            "seul Personal existe"
+        );
+    }
+}

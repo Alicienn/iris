@@ -224,6 +224,7 @@ component BodyTile inherits Rectangle {
 
     callback wanted();
     callback released();
+    callback resized(length);
 
     // Only once laid out. Before the first layout every tile is zero pixels wide,
     // hence zero high, and they all sit at the top: every one of them looked near,
@@ -245,9 +246,15 @@ component BodyTile inherits Rectangle {
         running: !root.armed;
         triggered => {
             root.armed = true;
+            root.resized(root.width);
             if (root.near) {
                 root.wanted();
             }
+        }
+    }
+    changed width => {
+        if (root.armed) {
+            root.resized(root.width);
         }
     }
     changed near => {
@@ -303,9 +310,30 @@ export component ConversationView inherits VerticalLayout {
     /// away from it: (message id, tile index).
     callback body-tile-wanted(int, int);
     callback body-tile-released(int, int);
+    /// The width message bodies are shown at, reported by the first tile when it first
+    /// shows and whenever it changes: bodies painted by the full engine are painted at
+    /// exactly that width, never scaled afterwards.
+    callback body-width-changed(length);
     /// No tile asks for pixels while this is set: the window is hidden, and what was
     /// painted has been given back.
     in property <bool> bodies-suspended;
+
+    // The entrance of a newly opened thread: 0 on the change, 1 one frame later, and
+    // the animations on `fil` travel between the two.
+    property <float> entree: 1;
+    property <int> courant: root.message.id;
+    changed courant => {
+        root.entree = 0;
+        arrivee.running = true;
+    }
+    arrivee := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.entree = 1;
+        }
+    }
 
     /// Toutes les pièces jointes sont-elles montrées ?
     ///
@@ -442,6 +470,12 @@ export component ConversationView inherits VerticalLayout {
 
             fil := VerticalLayout {
                 spacing: Tokens.space-2;
+                // A new thread arrives rather than appears: ten pixels and a fade,
+                // over a fifth of a second. Enough to say "this changed", too short
+                // to wait for.
+                y: (1 - root.entree) * 10px;
+                opacity: 0.4 + 0.6 * root.entree;
+                animate y, opacity { duration: 200ms; easing: ease-out; }
 
                 for message[i] in root.messages: VerticalLayout {
                     spacing: Tokens.space-2;
@@ -549,6 +583,11 @@ export component ConversationView inherits VerticalLayout {
                             suspended: root.bodies-suspended;
                             wanted => { root.body-tile-wanted(message.id, t); }
                             released => { root.body-tile-released(message.id, t); }
+                            resized(w) => {
+                                if (t == 0) {
+                                    root.body-width-changed(w);
+                                }
+                            }
                         }
                     }
 

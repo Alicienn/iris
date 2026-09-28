@@ -61,6 +61,7 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
     let rust: String = [
         "crates/iris-app/src/shell.rs",
         "crates/iris-app/src/main.rs",
+        "crates/iris-app/src/calendar.rs",
     ]
     .iter()
     .map(|p| std::fs::read_to_string(racine.join(p)).unwrap_or_else(|e| panic!("{p}: {e}")))

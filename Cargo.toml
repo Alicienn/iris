@@ -32,6 +32,7 @@ iris-oauth = { path = "crates/iris-oauth" }
 iris-htmlview = { path = "crates/iris-htmlview", default-features = false }
 iris-ui = { path = "crates/iris-ui" }
 iris-plugins = { path = "crates/iris-plugins" }
+iris-calendar = { path = "crates/iris-calendar" }
 
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

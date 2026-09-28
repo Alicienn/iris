@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 
 pub mod accounts;
+pub mod calendar;
 pub mod catalogue;
 pub mod changelog;
 pub mod controller;

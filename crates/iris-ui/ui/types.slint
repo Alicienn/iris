@@ -23,6 +23,10 @@ export struct ThreadRowData {
     message-count: int,
     // Couleur d'identité du compte, pour distinguer cent boîtes d'un coup d'œil.
     account-tint: color,
+    // The sender's initials and a colour of their own, for the round mark on the
+    // left: a list read by faces before names.
+    initials: string,
+    sender-tint: color,
 }
 
 export struct AccountRowData {
@@ -188,4 +192,84 @@ export struct ChangelogRowData {
     text: string,
     detail: string,
     tag: string,
+}
+
+// --- The calendar ---
+
+// A calendar in the list on the left.
+export struct CalendarData {
+    id: int,
+    name: string,
+    color: color,
+    visible: bool,
+    // Subscribed by link: read-only, refreshed from its address.
+    subscribed: bool,
+    // "Updated 5 min ago", or what went wrong. Empty for a local calendar.
+    status: string,
+    failed: bool,
+}
+
+// An event as a line in a month cell or an all-day strip.
+export struct CalendarChipData {
+    // The occurrence: "event id:start ms".
+    key: string,
+    title: string,
+    // "09:30", empty for an all-day event.
+    time: string,
+    color: color,
+    all-day: bool,
+}
+
+// A day of the month grid (and of the small month on the left).
+export struct MonthCellData {
+    day: string,
+    // YYYY-MM-DD, what a click reports.
+    date: string,
+    in-month: bool,
+    today: bool,
+    selected: bool,
+    events: [CalendarChipData],
+    // Events that did not fit, shown as "+N more".
+    more: int,
+}
+
+// A column of the week or day view.
+export struct WeekDayData {
+    // "Mon", "28".
+    name: string,
+    day: string,
+    date: string,
+    today: bool,
+    all-day: [CalendarChipData],
+}
+
+// An event placed in the week or day grid. Positions are fractions, so the grid can
+// be any size without Rust knowing it.
+export struct TimedEventData {
+    key: string,
+    title: string,
+    time: string,
+    color: color,
+    // Column, and the share of it: lane of lanes.
+    day: int,
+    lane: int,
+    lanes: int,
+    // Top and height as fractions of the day.
+    top: float,
+    height: float,
+}
+
+// What the event panel shows.
+export struct EventDetailData {
+    key: string,
+    title: string,
+    when: string,
+    calendar: string,
+    color: color,
+    location: string,
+    description: string,
+    reminder: string,
+    repeats: string,
+    // In a local calendar: it can be edited and deleted.
+    editable: bool,
 }

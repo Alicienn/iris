@@ -1,0 +1,435 @@
+import { Tokens } from "tokens.slint";
+import { Floating } from "glass.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import { TextField, TextArea } from "field.slint";
+import { EventDetailData } from "types.slint";
+import { CalButton } from "calendar.slint";
+import { CheckBox, ComboBox } from "std-widgets.slint";
+
+// The frame every calendar panel shares: a veil, a floating card, a title row.
+component PanelFrame inherits Rectangle {
+    in property <string> title;
+    in property <length> card-width: 460px;
+    in property <length> card-height: 420px;
+    callback dismissed();
+
+    background: Tokens.scrim;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    Floating {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(root.card-width, parent.width - 60px);
+        height: min(root.card-height, parent.height - 60px);
+
+        // Clicks inside the card stay inside it.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: Tokens.space-4;
+            spacing: Tokens.space-3;
+
+            HorizontalLayout {
+                height: 28px;
+                vertical-stretch: 0;
+                Text {
+                    text: root.title;
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.window-close;
+                    label: "Close";
+                    shortcut: "Esc";
+                    button-size: 24px;
+                    icon-size: 13px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            @children
+        }
+    }
+}
+
+// A label above a field.
+component Labelled inherits VerticalLayout {
+    in property <string> label;
+    spacing: 3px;
+    vertical-stretch: 0;
+    Text {
+        text: root.label;
+        font-size: 10px;
+        color: Tokens.text-muted;
+    }
+    @children
+}
+
+// What an event is, when, where.
+export component EventDetailPanel inherits Rectangle {
+    in property <EventDetailData> detail;
+    callback edit();
+    callback delete();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: root.detail.title == "" ? "(No title)" : root.detail.title;
+        card-height: 380px;
+        dismissed => { root.dismissed(); }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            height: 20px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 10px;
+                height: 10px;
+                border-radius: 5px;
+                background: root.detail.color;
+            }
+            Text {
+                text: root.detail.calendar;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            Icon {
+                data: Icons.clock;
+                size: 14px;
+                tint: Tokens.text-muted;
+            }
+            VerticalLayout {
+                Text {
+                    text: root.detail.when;
+                    font-size: Tokens.size-body;
+                    color: Tokens.text;
+                    wrap: word-wrap;
+                }
+                if root.detail.repeats != "": Text {
+                    text: root.detail.repeats;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                }
+            }
+        }
+
+        if root.detail.location != "": HorizontalLayout {
+            spacing: Tokens.space-2;
+            Icon {
+                data: Icons.map-pin;
+                size: 14px;
+                tint: Tokens.text-muted;
+            }
+            Text {
+                text: root.detail.location;
+                font-size: Tokens.size-body;
+                color: Tokens.text;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+
+        if root.detail.reminder != "": HorizontalLayout {
+            spacing: Tokens.space-2;
+            Icon {
+                data: Icons.bell;
+                size: 14px;
+                tint: Tokens.text-muted;
+            }
+            Text {
+                text: root.detail.reminder;
+                font-size: Tokens.size-body;
+                color: Tokens.text-secondary;
+            }
+        }
+
+        if root.detail.description != "": TextArea {
+            vertical-stretch: 1;
+            read-only: true;
+            text: root.detail.description;
+            accessible-label: "Description";
+        }
+        if root.detail.description == "": Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            if !root.detail.editable: Text {
+                text: "From a subscribed calendar: read only.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            Rectangle {}
+            if root.detail.editable: CalButton {
+                text: "Delete";
+                icon: Icons.trash;
+                clicked => { root.delete(); }
+            }
+            if root.detail.editable: CalButton {
+                text: "Edit";
+                icon: Icons.pencil;
+                primary: true;
+                clicked => { root.edit(); }
+            }
+        }
+    }
+}
+
+// Creating or changing an event in a local calendar.
+export component EventEditorPanel inherits Rectangle {
+    in property <bool> is-new;
+    in-out property <string> title;
+    in-out property <bool> all-day;
+    in-out property <string> start-date;
+    in-out property <string> start-time;
+    in-out property <string> end-date;
+    in-out property <string> end-time;
+    in-out property <string> location;
+    in-out property <string> notes;
+    in property <[string]> calendars;
+    in-out property <int> calendar-index;
+    in property <[string]> reminders;
+    in-out property <int> reminder-index;
+    in property <[string]> repeats;
+    in-out property <int> repeat-index;
+    in property <string> error;
+
+    callback save();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: root.is-new ? "New event" : "Edit event";
+        card-width: 520px;
+        card-height: 600px;
+        dismissed => { root.dismissed(); }
+
+        Labelled {
+            label: "Title";
+            TextField {
+                accessible-label: "Title";
+                placeholder-text: "What is it?";
+                text <=> root.title;
+                // Opened to write: the first key goes to the title.
+                init => { self.focus(); }
+                accepted => { root.save(); }
+            }
+        }
+
+        CheckBox {
+            text: "All day";
+            checked <=> root.all-day;
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Labelled {
+                label: "Starts";
+                TextField {
+                    accessible-label: "Start date";
+                    placeholder-text: "YYYY-MM-DD";
+                    text <=> root.start-date;
+                }
+            }
+            if !root.all-day: Labelled {
+                label: " ";
+                width: 90px;
+                TextField {
+                    accessible-label: "Start time";
+                    placeholder-text: "HH:MM";
+                    text <=> root.start-time;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Labelled {
+                label: "Ends";
+                TextField {
+                    accessible-label: "End date";
+                    placeholder-text: "YYYY-MM-DD";
+                    text <=> root.end-date;
+                }
+            }
+            if !root.all-day: Labelled {
+                label: " ";
+                width: 90px;
+                TextField {
+                    accessible-label: "End time";
+                    placeholder-text: "HH:MM";
+                    text <=> root.end-time;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Labelled {
+                label: "Calendar";
+                ComboBox {
+                    model: root.calendars;
+                    current-index <=> root.calendar-index;
+                }
+            }
+            Labelled {
+                label: "Repeats";
+                ComboBox {
+                    model: root.repeats;
+                    current-index <=> root.repeat-index;
+                }
+            }
+            Labelled {
+                label: "Reminder";
+                ComboBox {
+                    model: root.reminders;
+                    current-index <=> root.reminder-index;
+                }
+            }
+        }
+
+        Labelled {
+            label: "Location";
+            TextField {
+                accessible-label: "Location";
+                placeholder-text: "Where";
+                text <=> root.location;
+            }
+        }
+
+        Labelled {
+            label: "Notes";
+            vertical-stretch: 1;
+            TextArea {
+                accessible-label: "Notes";
+                vertical-stretch: 1;
+                text <=> root.notes;
+            }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-small;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: "Save";
+                primary: true;
+                clicked => { root.save(); }
+            }
+        }
+    }
+}
+
+// Following a calendar published as a link.
+export component SubscribePanel inherits Rectangle {
+    in-out property <string> url;
+    in-out property <string> name;
+    in property <bool> busy;
+    in property <string> error;
+
+    callback subscribe();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: "Subscribe to a calendar";
+        card-height: 340px;
+        dismissed => { if (!root.busy) { root.dismissed(); } }
+
+        Text {
+            text: "Paste the calendar's public or secret link — the iCal / .ics address that "
+                + "Google Calendar, Outlook, iCloud, a school or a club publishes. "
+                + "Iris reads it now and every half hour after; it stays read-only here.";
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Labelled {
+            label: "Link";
+            TextField {
+                accessible-label: "Calendar link";
+                placeholder-text: "webcal://… or https://….ics";
+                text <=> root.url;
+                init => { self.focus(); }
+                accepted => { root.subscribe(); }
+            }
+        }
+
+        Labelled {
+            label: "Name (optional)";
+            TextField {
+                accessible-label: "Calendar name";
+                placeholder-text: "Taken from the calendar when empty";
+                text <=> root.name;
+                accepted => { root.subscribe(); }
+            }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-small;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+        if root.busy: Text {
+            text: "Reading the calendar…";
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+        }
+
+        Rectangle {}
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                enabled: !root.busy;
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: "Subscribe";
+                primary: true;
+                enabled: !root.busy;
+                clicked => { root.subscribe(); }
+            }
+        }
+    }
+}

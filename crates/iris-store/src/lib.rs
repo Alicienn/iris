@@ -14,6 +14,7 @@
 
 mod accounts;
 mod attachments;
+mod calendar;
 mod journal;
 mod messages;
 mod migrations;
@@ -24,6 +25,7 @@ mod threads;
 
 pub use accounts::{AccountServers, UnifiedFolder};
 pub use attachments::StoredAttachment;
+pub use calendar::{NewEvent, StoredCalendar, StoredEvent};
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Contact, Filters, Folder, FolderRole, ListCursor, ListQuery, NewAccount,

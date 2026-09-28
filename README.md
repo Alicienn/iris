@@ -27,6 +27,7 @@
 | <img src="docs/assets/icons/shield.svg" width="20" alt=""> | **Private.** Remote images and tracking pixels are blocked by default. No telemetry. |
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Rules and plugins add features, each one isolated from the rest of the app. |
 | <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Themes.** Several looks included, dark and light. |
+| <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
 
 ## Install
 
@@ -46,6 +47,20 @@
 3. Your mail arrives, inbox first.
 
 Passwords are stored in the Windows credential store.
+
+## Calendar
+
+Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` and
+`Ctrl`+`2`.
+
+- **New event** creates one in your own calendar; it can repeat and remind you before
+  it starts.
+- **Subscribe to a calendar…** follows a calendar published as a link: the `webcal://`
+  or `.ics` address that Google Calendar, Outlook, iCloud, a school or a club gives out.
+  Iris reads it every half hour; subscribed calendars are read-only.
+
+In the calendar: `T` today, `N` new event, `M` / `W` / `D` month, week, day, and the
+arrow keys move to the previous or next period.
 
 ## Updates
 
@@ -67,6 +82,7 @@ installs it and reopens. You can also check by hand in *Settings › Updates*.
 | `Shift`+`3` | Delete |
 | `C` | New message |
 | `Ctrl`+`K` | Command palette |
+| `Ctrl`+`1` / `Ctrl`+`2` | Mail / Calendar |
 | `F5` | Sync all accounts |
 | `Ctrl`+`,` | Settings |
 
@@ -81,8 +97,9 @@ Hover over any button to see its shortcut.
 
 ## Privacy
 
-Iris talks to your mail servers, and to GitHub to ask for the latest version. That
-request carries no information about your mail or your accounts.
+Iris talks to your mail servers, to the addresses of the calendars you subscribe to,
+and to GitHub to ask for the latest version. That last request carries no information
+about your mail or your accounts.
 
 ## Reporting a problem
 

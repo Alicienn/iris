@@ -51,9 +51,62 @@ component WindowButton inherits Rectangle {
 // What it must not do is behave differently from the frame it replaces. Double-click
 // maximises, dragging moves, the three buttons sit where they always sit, and the
 // close button turns red.
+// A workspace switch in the title bar.
+component WorkspaceTab inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> shortcut;
+    in property <bool> selected;
+
+    callback clicked();
+
+    height: 24px;
+    width: rang.preferred-width + 16px;
+    border-radius: Tokens.radius-small;
+    background: root.selected
+        ? Tokens.surface-active
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: tab;
+    accessible-label: root.text;
+    accessible-item-selected: root.selected;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 8px;
+        spacing: 6px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 13px;
+            tint: root.selected ? Tokens.text : Tokens.text-muted;
+        }
+        Text {
+            text: root.text;
+            font-size: Tokens.size-small;
+            font-weight: root.selected ? Tokens.weight-bold : Tokens.weight-body;
+            color: root.selected ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    Tooltip {
+        text: @markdown("\{root.text}  \{root.shortcut}");
+    }
+}
+
 export component TitleBar inherits Rectangle {
     in property <string> title;
     in property <bool> maximised;
+    /// Which workspace is showing: 0 mail, 1 calendar.
+    in-out property <int> workspace;
+    callback workspace-chosen(int);
 
     callback minimise();
     callback toggle-maximise();
@@ -83,6 +136,27 @@ export component TitleBar inherits Rectangle {
             font-size: Tokens.size-small;
             color: Tokens.text-muted;
             vertical-alignment: center;
+        }
+
+        Rectangle { width: Tokens.space-4; }
+
+        // Mail and calendar, one click apart. In the title bar because they are two
+        // places, not two panels: the whole window below changes.
+        WorkspaceTab {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.inbox;
+            text: "Mail";
+            shortcut: "Ctrl+1";
+            selected: root.workspace == 0;
+            clicked => { root.workspace-chosen(0); }
+        }
+        WorkspaceTab {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.calendar;
+            text: "Calendar";
+            shortcut: "Ctrl+2";
+            selected: root.workspace == 1;
+            clicked => { root.workspace-chosen(1); }
         }
 
         // The draggable region is everything the buttons do not claim.

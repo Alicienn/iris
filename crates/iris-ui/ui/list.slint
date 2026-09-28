@@ -220,6 +220,28 @@ component ThreadRow inherits Rectangle {
             }
         }
 
+        // The sender's mark: initials on a circle of their own colour. A list is read
+        // by faces before names, and the same sender keeps the same mark everywhere.
+        // Left out when the row is too short to hold it (compact density).
+        if root.height >= 44px && root.data.initials != "": Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 28px;
+            height: 28px;
+            border-radius: 14px;
+            background: root.data.sender-tint.transparentize(0.78);
+            border-width: 1px;
+            border-color: root.data.sender-tint.transparentize(0.6);
+
+            Text {
+                text: root.data.initials;
+                font-size: 10px;
+                font-weight: Tokens.weight-bold;
+                color: root.data.sender-tint;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
         VerticalLayout {
             padding-top: Tokens.space-2;
             padding-bottom: Tokens.space-2;
@@ -236,6 +258,16 @@ component ThreadRow inherits Rectangle {
                     font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
                     color: Tokens.text;
                     overflow: elide;
+                }
+
+                // Unread, said by a dot right after the name as well as by the weight:
+                // bold alone is easy to miss on a dense list.
+                if root.data.unread: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
+                    background: Tokens.accent;
                 }
 
                 // Compteur de messages du fil. Absent quand il n'y en a qu'un :

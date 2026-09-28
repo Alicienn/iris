@@ -38,6 +38,9 @@ pub const TILE_HEIGHT: u32 = 512;
 
 /// Largeurs minimale et maximale de mise en page, en points.
 const MIN_WIDTH: u32 = 320;
+
+/// La largeur sous laquelle un message n'est plus mis en page, mais réduit.
+pub const MIN_READING_WIDTH: u32 = 640;
 const MAX_WIDTH: u32 = 2_400;
 
 /// Au-delà, le message n'entre pas dans le moteur.
@@ -125,15 +128,54 @@ impl HtmlRenderer for BlitzRenderer {
         width: f32,
         allow_remote: bool,
     ) -> Result<Rendered> {
+        self.lay_out(sanitized_html, width, self.scale, allow_remote)
+    }
+
+    /// Mis en page sur la largeur du panneau, mais jamais sous [`MIN_READING_WIDTH`]
+    /// points : une infolettre est dessinée pour six cents pixels de large, et la
+    /// serrer davantage casserait ses tableaux. Plus étroit que cela, le document est
+    /// mis en page à cette largeur puis **peint en plus petit**, directement à la taille
+    /// affichée : les pixels ne sont jamais redimensionnés après coup.
+    fn render_for(
+        &self,
+        sanitized_html: &str,
+        allow_remote: bool,
+        display_width: f32,
+        device_scale: f32,
+    ) -> Result<Rendered> {
+        let affichee = display_width.max(1.0);
+        let mise_en_page = affichee.max(MIN_READING_WIDTH as f32);
+        let echelle = (device_scale * affichee / mise_en_page).clamp(0.25, 4.0);
+        self.lay_out(sanitized_html, mise_en_page, echelle, allow_remote)
+    }
+
+    fn name(&self) -> &'static str {
+        "Blitz"
+    }
+
+    fn is_full_fidelity(&self) -> bool {
+        true
+    }
+}
+
+impl BlitzRenderer {
+    /// Met en page `width` points, peints à `scale` pixels par point.
+    fn lay_out(
+        &self,
+        sanitized_html: &str,
+        width: f32,
+        scale: f32,
+        allow_remote: bool,
+    ) -> Result<Rendered> {
         admissible(sanitized_html).map_err(|e| {
             Error::other(format!("message trop lourd pour le moteur complet ({e})"))
         })?;
 
         let largeur = (width.round() as u32).clamp(MIN_WIDTH, MAX_WIDTH);
-        let largeur_px = (largeur as f32 * self.scale).round() as u32;
-        let tuile_px = (TILE_HEIGHT as f32 * self.scale).round() as u32;
+        let largeur_px = (largeur as f32 * scale).round() as u32;
+        let tuile_px = (TILE_HEIGHT as f32 * scale).round() as u32;
 
-        let viewport = Viewport::new(largeur_px, tuile_px, self.scale, ColorScheme::Light);
+        let viewport = Viewport::new(largeur_px, tuile_px, scale, ColorScheme::Light);
         let mut document = HtmlDocument::from_html(
             sanitized_html,
             DocumentConfig {
@@ -162,24 +204,16 @@ impl HtmlRenderer for BlitzRenderer {
                 "document de {hauteur} points : rendu en texte riche"
             )));
         }
-        let hauteur_px = ((hauteur * self.scale).ceil() as u32).max(1);
+        let hauteur_px = ((hauteur * scale).ceil() as u32).max(1);
 
         Ok(Rendered::Document(Box::new(BlitzDocument {
             document,
-            scale: self.scale,
+            scale,
             width: largeur_px,
             height: hauteur_px,
             tile: tuile_px,
             painter: None,
         })))
-    }
-
-    fn name(&self) -> &'static str {
-        "Blitz"
-    }
-
-    fn is_full_fidelity(&self) -> bool {
-        true
     }
 }
 
@@ -415,6 +449,25 @@ mod tests {
         assert_eq!(&p[0..4], &[255, 255, 255, 255], "transparent → blanc");
         assert_eq!(&p[4..8], &[100, 0, 0, 255], "opaque inchangé");
         assert_eq!(&p[8..12], &[177, 177, 177, 255]);
+    }
+
+    #[test]
+    fn un_panneau_large_met_en_page_a_sa_largeur_et_a_l_echelle_de_l_ecran() {
+        let Rendered::Document(d) = moteur().render_for("<p>x</p>", false, 900.0, 1.5).unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(d.size().0, 1350, "900 points à 1,5 pixel par point");
+    }
+
+    #[test]
+    fn un_panneau_etroit_est_peint_en_plus_petit_sans_casser_la_mise_en_page() {
+        // 500 points de large : mise en page à 640, peinte sur 500 × 2 pixels.
+        let Rendered::Document(d) = moteur().render_for("<p>x</p>", false, 500.0, 2.0).unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(d.size().0, 1000);
     }
 
     #[test]

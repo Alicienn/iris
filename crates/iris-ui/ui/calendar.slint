@@ -1,0 +1,710 @@
+import { Tokens } from "tokens.slint";
+import { Glass } from "glass.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import {
+    CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData
+} from "types.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// A button with words on it, for the calendar's toolbar and panels.
+export component CalButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    height: 28px;
+    width: rang.preferred-width + 20px;
+    border-radius: Tokens.radius-small;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Tokens.border;
+    background: root.primary
+        ? (touch.pressed ? Tokens.accent.darker(0.15) : Tokens.accent)
+        : root.selected
+            ? Tokens.surface-active
+            : (touch.pressed ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover : transparent);
+    opacity: root.enabled ? 1.0 : 0.5;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 10px;
+        spacing: 6px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 13px;
+            tint: root.primary ? Tokens.accent-text : Tokens.text-secondary;
+        }
+        Text {
+            text: root.text;
+            font-size: Tokens.size-small;
+            font-weight: root.primary || root.selected ? Tokens.weight-bold : Tokens.weight-body;
+            color: root.primary ? Tokens.accent-text : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One event as a line: a bar of its calendar's colour, the time, the title.
+component Chip inherits Rectangle {
+    in property <CalendarChipData> chip;
+    callback opened(string);
+
+    height: 18px;
+    border-radius: 3px;
+    background: root.chip.all-day
+        ? root.chip.color.transparentize(touch.has-hover ? 0.55 : 0.7)
+        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    clip: true;
+
+    accessible-role: button;
+    accessible-label: root.chip.time == "" ? root.chip.title : root.chip.time + " " + root.chip.title;
+    accessible-action-default => { root.opened(root.chip.key); }
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 4px;
+        if !root.chip.all-day: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: root.chip.color;
+        }
+        if root.chip.time != "": Text {
+            text: root.chip.time;
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.chip.title;
+            font-size: 11px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.chip.key); }
+    }
+}
+
+// The small month on the left: a way to jump, not a way to read.
+component MiniMonth inherits VerticalLayout {
+    in property <string> title;
+    in property <[MonthCellData]> cells;
+
+    callback day-chosen(string);
+    callback navigate(int);
+
+    spacing: 2px;
+
+    HorizontalLayout {
+        height: 24px;
+        Text {
+            text: root.title;
+            font-size: Tokens.size-small;
+            font-weight: Tokens.weight-bold;
+            color: Tokens.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        IconButton {
+            icon: Icons.chevron-left;
+            label: "Previous month";
+            button-size: 22px;
+            icon-size: 12px;
+            clicked => { root.navigate(-1); }
+        }
+        IconButton {
+            icon: Icons.chevron-right;
+            label: "Next month";
+            button-size: 22px;
+            icon-size: 12px;
+            clicked => { root.navigate(1); }
+        }
+    }
+
+    HorizontalLayout {
+        height: 18px;
+        for initiale in ["M", "T", "W", "T", "F", "S", "S"]: Text {
+            text: initiale;
+            font-size: 9px;
+            color: Tokens.text-muted;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+
+    for semaine in 6: HorizontalLayout {
+        height: 24px;
+        for colonne in 7: Rectangle {
+            property <MonthCellData> cell: root.cells[semaine * 7 + colonne];
+            horizontal-stretch: 1;
+
+            accessible-role: button;
+            accessible-label: self.cell.date;
+            accessible-action-default => { root.day-chosen(self.cell.date); }
+
+            Rectangle {
+                width: 22px;
+                height: 22px;
+                border-radius: 11px;
+                background: cell.today
+                    ? Tokens.accent
+                    : cell.selected
+                        ? Tokens.surface-active
+                        : (toucher.has-hover ? Tokens.surface-hover : transparent);
+            }
+            Text {
+                text: cell.day;
+                font-size: 10px;
+                font-weight: cell.today ? Tokens.weight-bold : Tokens.weight-body;
+                color: cell.today
+                    ? Tokens.accent-text
+                    : (cell.in-month ? Tokens.text-secondary : Tokens.text-muted.transparentize(0.4));
+            }
+            // A dot under a day that has something in it.
+            if cell.events.length > 0 && !cell.today: Rectangle {
+                y: parent.height - 4px;
+                width: 3px;
+                height: 3px;
+                border-radius: 1.5px;
+                background: Tokens.text-muted;
+            }
+            toucher := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.day-chosen(cell.date); }
+            }
+        }
+    }
+}
+
+// A calendar in the list: its colour, its name, whether it shows, and for a
+// subscription how fresh it is.
+component CalendarRow inherits Rectangle {
+    in property <CalendarData> cal;
+    callback toggled(int);
+    callback refresh(int);
+    callback remove(int);
+
+    height: root.cal.status != "" ? 40px : 28px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: checkbox;
+    accessible-label: root.cal.name;
+    accessible-checked: root.cal.visible;
+    accessible-action-default => { root.toggled(root.cal.id); }
+
+    touch := TouchArea {
+        clicked => { root.toggled(root.cal.id); }
+    }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-1;
+        padding-right: 2px;
+        spacing: Tokens.space-2;
+
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            border-width: 2px;
+            border-color: root.cal.color;
+            background: root.cal.visible ? root.cal.color : transparent;
+            if root.cal.visible: Icon {
+                data: Icons.check;
+                size: 10px;
+                weight: 3.0;
+                tint: white;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.cal.name;
+                font-size: Tokens.size-small;
+                color: root.cal.visible ? Tokens.text : Tokens.text-muted;
+                overflow: elide;
+            }
+            if root.cal.status != "": Text {
+                text: root.cal.status;
+                font-size: 9px;
+                color: root.cal.failed ? Tokens.error : Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+
+        if root.cal.subscribed && touch.has-hover: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.refresh;
+            label: "Refresh " + root.cal.name;
+            button-size: 22px;
+            icon-size: 12px;
+            clicked => { root.refresh(root.cal.id); }
+        }
+        if root.cal.subscribed && touch.has-hover: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.trash;
+            label: "Unsubscribe from " + root.cal.name;
+            button-size: 22px;
+            icon-size: 12px;
+            danger: true;
+            clicked => { root.remove(root.cal.id); }
+        }
+    }
+}
+
+// The month: six weeks of seven days.
+component MonthGrid inherits VerticalLayout {
+    in property <[MonthCellData]> cells;
+    callback day-opened(string);
+    callback day-double-clicked(string);
+    callback event-opened(string);
+
+    HorizontalLayout {
+        height: 26px;
+        for nom in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text {
+            text: nom;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+    Rectangle { height: 1px; background: Tokens.border; }
+
+    // Every row and every column the same size, whatever is in them: a grid whose
+    // lines move with its content is not a grid. A zero preferred size lets the
+    // stretch alone decide.
+    for semaine in 6: HorizontalLayout {
+        vertical-stretch: 1;
+        preferred-height: 0;
+        min-height: 0;
+        for colonne in 7: Rectangle {
+            property <MonthCellData> cell: root.cells[semaine * 7 + colonne];
+            horizontal-stretch: 1;
+            preferred-width: 0;
+            min-width: 0;
+            clip: true;
+            background: self.cell.selected ? Tokens.surface-hover : transparent;
+
+            // Grid lines: right and bottom of every cell.
+            Rectangle { x: parent.width - 1px; width: 1px; background: Tokens.border.transparentize(0.4); }
+            Rectangle { y: parent.height - 1px; height: 1px; background: Tokens.border.transparentize(0.4); }
+
+            // Clicks on the cell itself, beneath its events.
+            TouchArea {
+                clicked => { root.day-opened(cell.date); }
+                double-clicked => { root.day-double-clicked(cell.date); }
+            }
+
+            VerticalLayout {
+                padding: 4px;
+                spacing: 1px;
+                alignment: start;
+
+                HorizontalLayout {
+                    height: 20px;
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 10px;
+                        background: cell.today ? Tokens.accent : transparent;
+                        Text {
+                            text: cell.day;
+                            font-size: Tokens.size-small;
+                            font-weight: cell.today ? Tokens.weight-bold : Tokens.weight-body;
+                            color: cell.today
+                                ? Tokens.accent-text
+                                : (cell.in-month ? Tokens.text-secondary : Tokens.text-muted.transparentize(0.4));
+                        }
+                    }
+                    Rectangle {}
+                }
+
+                for chip in cell.events: Chip {
+                    chip: chip;
+                    opened(k) => { root.event-opened(k); }
+                }
+                if cell.more > 0: Text {
+                    text: "+" + cell.more + " more";
+                    font-size: 10px;
+                    color: Tokens.text-muted;
+                    height: 16px;
+                }
+            }
+        }
+    }
+}
+
+// The week or the day: a column per day, an hour grid, events placed by time.
+component WeekGrid inherits VerticalLayout {
+    in property <[WeekDayData]> days;
+    in property <[TimedEventData]> events;
+    /// Where "now" is, as a fraction of the day, and in which column. -1: not shown.
+    in property <float> now-fraction: -1;
+    in property <int> now-day: -1;
+
+    callback event-opened(string);
+    callback slot-double-clicked(string, int);
+    callback day-opened(string);
+
+    property <length> hour: 48px;
+    property <length> gutter: 48px;
+
+    // Day headers.
+    HorizontalLayout {
+        height: 44px;
+        Rectangle { width: root.gutter; }
+        for d in root.days: Rectangle {
+            horizontal-stretch: 1;
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.day-opened(d.date); }
+            }
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: d.name;
+                    font-size: 10px;
+                    color: d.today ? Tokens.accent : Tokens.text-muted;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 26px;
+                        height: 26px;
+                        border-radius: 13px;
+                        background: d.today ? Tokens.accent : transparent;
+                        Text {
+                            text: d.day;
+                            font-size: Tokens.size-body;
+                            font-weight: Tokens.weight-bold;
+                            color: d.today ? Tokens.accent-text : Tokens.text;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // All-day events, each day its own short column.
+    HorizontalLayout {
+        min-height: 22px;
+        Text {
+            width: root.gutter;
+            text: "all day";
+            font-size: 9px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+        for d in root.days: VerticalLayout {
+            horizontal-stretch: 1;
+            padding: 1px;
+            spacing: 1px;
+            for chip in d.all-day: Chip {
+                chip: chip;
+                opened(k) => { root.event-opened(k); }
+            }
+        }
+    }
+    Rectangle { height: 1px; background: Tokens.border; }
+
+    defil := ScrollView {
+        vertical-stretch: 1;
+        viewport-height: root.hour * 24;
+        // Opens on the working day rather than on midnight.
+        init => { self.viewport-y = -root.hour * 7.5; }
+
+        grille := Rectangle {
+            width: defil.visible-width;
+            height: root.hour * 24;
+
+            property <length> colonne: (self.width - root.gutter) / max(1, root.days.length);
+
+            // Hours: a label and a line every hour.
+            for h in 24: Rectangle {
+                y: h * root.hour;
+                height: root.hour;
+                Text {
+                    x: 0;
+                    y: -6px;
+                    width: root.gutter - 6px;
+                    text: h == 0 ? "" : (h < 10 ? "0" : "") + h + ":00";
+                    font-size: 9px;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: right;
+                }
+                Rectangle {
+                    x: root.gutter;
+                    y: 0;
+                    width: parent.width - root.gutter;
+                    height: 1px;
+                    background: Tokens.border.transparentize(0.4);
+                }
+            }
+
+            // Day separators, and the double-click that creates an event at that hour.
+            for d[i] in root.days: Rectangle {
+                x: root.gutter + i * grille.colonne;
+                width: grille.colonne;
+                height: grille.height;
+                Rectangle { x: 0; width: 1px; background: Tokens.border.transparentize(0.4); }
+                TouchArea {
+                    double-clicked => {
+                        root.slot-double-clicked(d.date, floor(self.mouse-y / root.hour) * 60);
+                    }
+                }
+            }
+
+            for e in root.events: Rectangle {
+                x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 2px;
+                y: e.top * grille.height + 1px;
+                width: grille.colonne / max(1, e.lanes) - 4px;
+                height: max(18px, e.height * grille.height - 2px);
+                border-radius: 4px;
+                background: e.color.transparentize(bloc.has-hover ? 0.55 : 0.72);
+                border-width: 1px;
+                border-color: e.color.transparentize(0.4);
+                clip: true;
+
+                accessible-role: button;
+                accessible-label: e.time + " " + e.title;
+                accessible-action-default => { root.event-opened(e.key); }
+
+                Rectangle { x: 0; width: 3px; background: e.color; }
+                VerticalLayout {
+                    padding-left: 7px;
+                    padding-top: 2px;
+                    padding-right: 3px;
+                    alignment: start;
+                    Text {
+                        text: e.title;
+                        font-size: 11px;
+                        font-weight: Tokens.weight-bold;
+                        color: Tokens.text;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: e.time;
+                        font-size: 10px;
+                        color: Tokens.text-secondary;
+                        overflow: elide;
+                    }
+                }
+                bloc := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.event-opened(e.key); }
+                }
+            }
+
+            // Now: a line across today's column.
+            if root.now-day >= 0 && root.now-fraction >= 0: Rectangle {
+                x: root.gutter + root.now-day * grille.colonne - 4px;
+                y: root.now-fraction * grille.height - 4px;
+                width: grille.colonne + 4px;
+                height: 8px;
+                Rectangle {
+                    x: 0;
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: Tokens.error;
+                }
+                Rectangle {
+                    x: 4px;
+                    y: 3px;
+                    height: 2px;
+                    background: Tokens.error;
+                }
+            }
+        }
+    }
+}
+
+// The calendar workspace.
+export component CalendarView inherits Rectangle {
+    in property <string> title;
+    /// 0 month, 1 week, 2 day.
+    in property <int> mode;
+    in property <[CalendarData]> calendars;
+    in property <string> mini-title;
+    in property <[MonthCellData]> mini-cells;
+    in property <[MonthCellData]> month-cells;
+    in property <[WeekDayData]> week-days;
+    in property <[TimedEventData]> week-events;
+    in property <float> now-fraction: -1;
+    in property <int> now-day: -1;
+
+    callback navigate(int);
+    callback today();
+    callback mode-chosen(int);
+    callback day-chosen(string);
+    callback day-opened(string);
+    callback mini-navigate(int);
+    callback event-opened(string);
+    callback new-event(string, int);
+    callback calendar-toggled(int);
+    callback calendar-refresh(int);
+    callback calendar-remove(int);
+    callback subscribe-requested();
+
+    background: Tokens.background;
+
+    HorizontalLayout {
+        // --- Left: create, jump, choose what shows ---
+        Glass {
+            width: 230px;
+            VerticalLayout {
+                padding: Tokens.space-3;
+                spacing: Tokens.space-3;
+
+                CalButton {
+                    width: parent.width - 2 * Tokens.space-3;
+                    text: "New event";
+                    icon: Icons.plus;
+                    primary: true;
+                    clicked => { root.new-event("", -1); }
+                }
+
+                MiniMonth {
+                    title: root.mini-title;
+                    cells: root.mini-cells;
+                    day-chosen(d) => { root.day-chosen(d); }
+                    navigate(n) => { root.mini-navigate(n); }
+                }
+
+                Text {
+                    text: "CALENDARS";
+                    font-size: 9px;
+                    letter-spacing: 1px;
+                    color: Tokens.text-muted;
+                }
+                VerticalLayout {
+                    spacing: 1px;
+                    for cal in root.calendars: CalendarRow {
+                        cal: cal;
+                        toggled(id) => { root.calendar-toggled(id); }
+                        refresh(id) => { root.calendar-refresh(id); }
+                        remove(id) => { root.calendar-remove(id); }
+                    }
+                }
+
+                CalButton {
+                    text: "Subscribe to a calendar…";
+                    icon: Icons.link;
+                    clicked => { root.subscribe-requested(); }
+                }
+
+                Rectangle {}
+            }
+        }
+
+        Rectangle { width: 1px; background: Tokens.border; }
+
+        // --- Right: the period ---
+        VerticalLayout {
+            padding: Tokens.space-3;
+            spacing: Tokens.space-2;
+
+            HorizontalLayout {
+                height: 32px;
+                spacing: Tokens.space-2;
+
+                CalButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "Today";
+                    clicked => { root.today(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.chevron-left;
+                    label: "Previous";
+                    button-size: 28px;
+                    clicked => { root.navigate(-1); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.chevron-right;
+                    label: "Next";
+                    button-size: 28px;
+                    clicked => { root.navigate(1); }
+                }
+                Text {
+                    text: root.title;
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                CalButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "Month";
+                    selected: root.mode == 0;
+                    clicked => { root.mode-chosen(0); }
+                }
+                CalButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "Week";
+                    selected: root.mode == 1;
+                    clicked => { root.mode-chosen(1); }
+                }
+                CalButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "Day";
+                    selected: root.mode == 2;
+                    clicked => { root.mode-chosen(2); }
+                }
+            }
+
+            if root.mode == 0: MonthGrid {
+                vertical-stretch: 1;
+                cells: root.month-cells;
+                day-opened(d) => { root.day-chosen(d); }
+                day-double-clicked(d) => { root.new-event(d, 9 * 60); }
+                event-opened(k) => { root.event-opened(k); }
+            }
+
+            if root.mode != 0: WeekGrid {
+                vertical-stretch: 1;
+                days: root.week-days;
+                events: root.week-events;
+                now-fraction: root.now-fraction;
+                now-day: root.now-day;
+                event-opened(k) => { root.event-opened(k); }
+                slot-double-clicked(d, m) => { root.new-event(d, m); }
+                day-opened(d) => { root.day-opened(d); }
+            }
+        }
+    }
+}

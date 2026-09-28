@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 8;
+pub const CURRENT_VERSION: i64 = 9;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -58,7 +58,63 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "each mailbox gets a signature",
         sql: SCHEMA_V8,
     },
+    Migration {
+        version: 9,
+        name: "calendars",
+        sql: SCHEMA_V9,
+    },
 ];
+
+/// L'agenda.
+///
+/// Deux tables. Un calendrier est **local** — ses événements se créent et se modifient
+/// ici — ou **abonné** : il a une adresse, ses événements sont remplacés en bloc à
+/// chaque relecture, et on ne les modifie pas. Un événement récurrent est une ligne
+/// portant sa règle : ses occurrences se déroulent à l'affichage.
+///
+/// Les exclusions d'une règle sont une liste d'instants séparés par des virgules : elles
+/// ne s'interrogent jamais, elles se relisent avec l'événement.
+///
+/// Un calendrier « Personal » existe d'emblée, pour que « New event » ait toujours où
+/// aller.
+const SCHEMA_V9: &str = "
+CREATE TABLE calendars (
+    id            INTEGER PRIMARY KEY,
+    name          TEXT NOT NULL,
+    color         TEXT NOT NULL,
+    source_url    TEXT,
+    visible       INTEGER NOT NULL DEFAULT 1,
+    etag          TEXT,
+    last_modified TEXT,
+    last_sync     INTEGER,
+    last_error    TEXT,
+    created_at    INTEGER NOT NULL
+);
+
+CREATE TABLE calendar_events (
+    id               INTEGER PRIMARY KEY,
+    calendar_id      INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    uid              TEXT NOT NULL,
+    summary          TEXT NOT NULL DEFAULT '',
+    description      TEXT NOT NULL DEFAULT '',
+    location         TEXT NOT NULL DEFAULT '',
+    start_ms         INTEGER NOT NULL,
+    end_ms           INTEGER NOT NULL,
+    all_day          INTEGER NOT NULL DEFAULT 0,
+    tzid             TEXT,
+    rrule            TEXT,
+    exdates          TEXT NOT NULL DEFAULT '',
+    recurrence_id    INTEGER,
+    cancelled        INTEGER NOT NULL DEFAULT 0,
+    reminder_minutes INTEGER,
+    updated_at       INTEGER NOT NULL
+);
+
+CREATE INDEX calendar_events_by_time ON calendar_events(start_ms, end_ms);
+CREATE INDEX calendar_events_by_calendar ON calendar_events(calendar_id);
+
+INSERT INTO calendars (name, color, created_at) VALUES ('Personal', '#5b8def', 0);
+";
 
 /// Une signature par compte.
 ///

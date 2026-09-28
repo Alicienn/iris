@@ -1,0 +1,18 @@
+[package]
+name = "iris-calendar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# L'agenda, sans entrée-sortie : lire un fichier iCalendar, dérouler les récurrences,
+# disposer les vues. Tout se teste sans réseau, sans base et sans fenêtre.
+
+[dependencies]
+iris-types = { workspace = true }
+# Le format lui-même : la lecture seule, sans ses types de haut niveau.
+icalendar = { version = "0.17", default-features = false, features = ["parser"] }
+# Les règles de récurrence (RRULE), et les fuseaux nommés qu'elles exigent.
+rrule = "0.14"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"

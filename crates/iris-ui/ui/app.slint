@@ -23,6 +23,11 @@ import { SourcePanel } from "source.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { Toast } from "toast.slint";
+import { CalendarView } from "calendar.slint";
+import { EventDetailPanel, EventEditorPanel, SubscribePanel } from "calendar-panels.slint";
+import {
+    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData
+} from "types.slint";
 import { ChangelogPanel, UpdatePanel } from "changelog.slint";
 import { ChangelogRowData } from "types.slint";
 import { ListView } from "std-widgets.slint";
@@ -617,6 +622,65 @@ export component AppWindow inherits Window {
     /// A tile of a message body, (message id, tile index), came near the screen or left it.
     callback body-tile-wanted(int, int);
     callback body-tile-released(int, int);
+    /// The width message bodies are shown at, as the reader reports it.
+    callback reader-width(length);
+
+    // --- The calendar ---
+    /// Which workspace fills the window: 0 mail, 1 calendar.
+    in-out property <int> workspace;
+    callback workspace-changed(int);
+    in property <string> calendar-title;
+    in property <int> calendar-mode;
+    in property <[CalendarData]> calendars;
+    in property <string> calendar-mini-title;
+    in property <[MonthCellData]> calendar-mini-cells;
+    in property <[MonthCellData]> calendar-month-cells;
+    in property <[WeekDayData]> calendar-week-days;
+    in property <[TimedEventData]> calendar-week-events;
+    in property <float> calendar-now-fraction: -1;
+    in property <int> calendar-now-day: -1;
+    callback calendar-navigate(int);
+    callback calendar-today();
+    callback calendar-mode-chosen(int);
+    callback calendar-day-chosen(string);
+    callback calendar-day-opened(string);
+    callback calendar-mini-navigate(int);
+    callback calendar-event-opened(string);
+    callback calendar-new-event(string, int);
+    callback calendar-toggled(int);
+    callback calendar-refresh(int);
+    callback calendar-remove(int);
+
+    in-out property <bool> event-detail-open;
+    in property <EventDetailData> event-detail;
+    callback event-edit();
+    callback event-delete();
+
+    in-out property <bool> event-editor-open;
+    in property <bool> editor-is-new;
+    in-out property <string> editor-title;
+    in-out property <bool> editor-all-day;
+    in-out property <string> editor-start-date;
+    in-out property <string> editor-start-time;
+    in-out property <string> editor-end-date;
+    in-out property <string> editor-end-time;
+    in-out property <string> editor-location;
+    in-out property <string> editor-notes;
+    in property <[string]> editor-calendars;
+    in-out property <int> editor-calendar-index;
+    in property <[string]> editor-reminders;
+    in-out property <int> editor-reminder-index;
+    in property <[string]> editor-repeats;
+    in-out property <int> editor-repeat-index;
+    in property <string> editor-error;
+    callback event-save();
+
+    in-out property <bool> subscribe-open;
+    in-out property <string> subscribe-url;
+    in-out property <string> subscribe-name;
+    in property <bool> subscribe-busy;
+    in property <string> subscribe-error;
+    callback subscribe-confirmed();
     /// Hidden in the tray: no body tile asks for pixels.
     in property <bool> bodies-suspended;
     /// Le message tel qu'il est arrivé, en-têtes compris.
@@ -670,7 +734,8 @@ export component AppWindow inherits Window {
         || root.problem-open || root.source-open || root.signature-open
         || root.changelog-open || root.update-open || root.browser-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
-        || root.context-menu-open || root.folder-menu-open || root.account-menu-open;
+        || root.context-menu-open || root.folder-menu-open || root.account-menu-open
+        || root.event-detail-open || root.event-editor-open || root.subscribe-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -694,6 +759,13 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         key-pressed(event) => {
+            // Mail and calendar, from anywhere but an open window.
+            if (event.modifiers.control && !root.modal-open
+                && (event.text == "1" || event.text == "2")) {
+                root.workspace = event.text == "1" ? 0 : 1;
+                root.workspace-changed(root.workspace);
+                return accept;
+            }
             if (event.text == "k" && event.modifiers.control
                 && (!root.modal-open || root.palette-open)) {
                 root.palette-open = !root.palette-open;
@@ -716,6 +788,18 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.compose-open) {
                 root.compose-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.event-editor-open) {
+                root.event-editor-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.event-detail-open) {
+                root.event-detail-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.subscribe-open && !root.subscribe-busy) {
+                root.subscribe-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.changelog-open) {
@@ -751,6 +835,18 @@ export component AppWindow inherits Window {
             // Nothing below this line reaches past an open window: Escape, handled
             // above, is the only key that concerns it.
             if (root.modal-open) {
+                return accept;
+            }
+            // The calendar has its own keys, and none of the mail's: "e" in the
+            // calendar must not mark as done a thread nobody can see.
+            if (root.workspace == 1) {
+                if (event.text == "t") { root.calendar-today(); }
+                if (event.text == "n") { root.calendar-new-event("", -1); }
+                if (event.text == "m") { root.calendar-mode-chosen(0); }
+                if (event.text == "w") { root.calendar-mode-chosen(1); }
+                if (event.text == "d") { root.calendar-mode-chosen(2); }
+                if (event.text == Key.LeftArrow) { root.calendar-navigate(-1); }
+                if (event.text == Key.RightArrow) { root.calendar-navigate(1); }
                 return accept;
             }
             if (event.text == "f" && event.modifiers.control) {
@@ -825,6 +921,12 @@ export component AppWindow inherits Window {
             TitleBar {
                 title: "Iris";
                 maximised: root.window-maximised;
+                workspace: root.workspace;
+                workspace-chosen(i) => {
+                    root.workspace = i;
+                    root.workspace-changed(i);
+                    shortcuts.focus();
+                }
                 minimise => { root.window-minimise(); }
                 toggle-maximise => { root.window-toggle-maximise(); }
                 close => { root.window-close(); }
@@ -1026,6 +1128,7 @@ export component AppWindow inherits Window {
 
                 // Colonne 3 : la conversation.
                 ConversationView {
+                    body-width-changed(w) => { root.reader-width(w); }
                     message: root.message;
                     messages: root.messages;
                     toggle-message(id) => { root.toggle-message(id); }
@@ -1068,6 +1171,85 @@ export component AppWindow inherits Window {
                 open-update => { root.update-open = true; }
             }
         }
+    }
+
+    // The calendar covers everything between the title bar and the status bar. Over
+    // the mail rather than instead of it: coming back to the mail finds it exactly as
+    // it was left - same list, same scroll, same open thread.
+    if root.workspace == 1: CalendarView {
+        x: 1px;
+        y: 32px;
+        width: parent.width - 2px;
+        height: parent.height - 32px - 23px;
+        title: root.calendar-title;
+        mode: root.calendar-mode;
+        calendars: root.calendars;
+        mini-title: root.calendar-mini-title;
+        mini-cells: root.calendar-mini-cells;
+        month-cells: root.calendar-month-cells;
+        week-days: root.calendar-week-days;
+        week-events: root.calendar-week-events;
+        now-fraction: root.calendar-now-fraction;
+        now-day: root.calendar-now-day;
+        navigate(n) => { root.calendar-navigate(n); }
+        today => { root.calendar-today(); }
+        mode-chosen(m) => { root.calendar-mode-chosen(m); }
+        day-chosen(d) => { root.calendar-day-chosen(d); }
+        day-opened(d) => { root.calendar-day-opened(d); }
+        mini-navigate(n) => { root.calendar-mini-navigate(n); }
+        event-opened(k) => { root.calendar-event-opened(k); }
+        new-event(d, m) => { root.calendar-new-event(d, m); }
+        calendar-toggled(id) => { root.calendar-toggled(id); }
+        calendar-refresh(id) => { root.calendar-refresh(id); }
+        calendar-remove(id) => { root.calendar-remove(id); }
+        subscribe-requested => {
+            root.subscribe-url = "";
+            root.subscribe-name = "";
+            root.subscribe-open = true;
+        }
+    }
+
+    if root.event-detail-open: EventDetailPanel {
+        width: 100%;
+        height: 100%;
+        detail: root.event-detail;
+        edit => { root.event-edit(); }
+        delete => { root.event-delete(); }
+        dismissed => { root.event-detail-open = false; }
+    }
+
+    if root.event-editor-open: EventEditorPanel {
+        width: 100%;
+        height: 100%;
+        is-new: root.editor-is-new;
+        title <=> root.editor-title;
+        all-day <=> root.editor-all-day;
+        start-date <=> root.editor-start-date;
+        start-time <=> root.editor-start-time;
+        end-date <=> root.editor-end-date;
+        end-time <=> root.editor-end-time;
+        location <=> root.editor-location;
+        notes <=> root.editor-notes;
+        calendars: root.editor-calendars;
+        calendar-index <=> root.editor-calendar-index;
+        reminders: root.editor-reminders;
+        reminder-index <=> root.editor-reminder-index;
+        repeats: root.editor-repeats;
+        repeat-index <=> root.editor-repeat-index;
+        error: root.editor-error;
+        save => { root.event-save(); }
+        dismissed => { root.event-editor-open = false; }
+    }
+
+    if root.subscribe-open: SubscribePanel {
+        width: 100%;
+        height: 100%;
+        url <=> root.subscribe-url;
+        name <=> root.subscribe-name;
+        busy: root.subscribe-busy;
+        error: root.subscribe-error;
+        subscribe => { root.subscribe-confirmed(); }
+        dismissed => { root.subscribe-open = false; }
     }
 
     if root.problem-open: AccountProblemPanel {

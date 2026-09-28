@@ -52,7 +52,7 @@ impl Arrival {
     }
 }
 
-pub use plateforme::show;
+pub use plateforme::{show, show_text};
 
 /// Coupe proprement, sur une frontière de caractère.
 fn truncate(texte: &str, max: usize) -> String {
@@ -91,6 +91,18 @@ mod plateforme {
             .show()
             .is_ok()
     }
+
+    /// Une bulle quelconque : un titre, une ligne. Les rappels d'agenda passent par là.
+    pub fn show_text(titre: &str, corps: &str) -> bool {
+        use tauri_winrt_notification::{Duration, Sound, Toast};
+        Toast::new(crate::platform::APP_ID)
+            .title(titre)
+            .text1(corps)
+            .sound(Some(Sound::Default))
+            .duration(Duration::Long)
+            .show()
+            .is_ok()
+    }
 }
 
 #[cfg(not(windows))]
@@ -98,6 +110,10 @@ mod plateforme {
     use super::Arrival;
 
     pub fn show(_arrivee: &Arrival) -> bool {
+        false
+    }
+
+    pub fn show_text(_titre: &str, _corps: &str) -> bool {
         false
     }
 }

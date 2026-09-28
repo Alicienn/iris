@@ -258,6 +258,63 @@ fn defiler_demande_les_suivantes_et_rend_les_precedentes() {
     );
 }
 
+// --- L'agenda ---
+
+fn ctrl(f: &AppWindow, touche: &str) {
+    let ctrl = SharedString::from(slint::platform::Key::Control);
+    f.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: ctrl.clone() });
+    taper(f, touche);
+    f.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: ctrl });
+}
+
+fn ctrl_2_ouvre_l_agenda_et_ses_touches_ne_touchent_pas_le_courrier() {
+    let f = fenetre();
+    let touches = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let touches = Rc::clone(&touches);
+        f.on_key_pressed(move |t| touches.borrow_mut().push(t.to_string()));
+    }
+    let aujourd_hui = Rc::new(RefCell::new(0));
+    {
+        let a = Rc::clone(&aujourd_hui);
+        f.on_calendar_today(move || *a.borrow_mut() += 1);
+    }
+
+    ctrl(&f, "2");
+    assert_eq!(f.get_workspace(), 1, "Ctrl+2 ouvre l'agenda");
+    // La touche Ctrl elle-même est passée avant la bascule ; on ne compte que la suite.
+    touches.borrow_mut().clear();
+
+    taper(&f, "et");
+    assert!(
+        touches.borrow().is_empty(),
+        "aucune touche n'atteint le courrier : {:?}",
+        touches.borrow()
+    );
+    assert_eq!(*aujourd_hui.borrow(), 1, "« t » ramène à aujourd'hui");
+
+    ctrl(&f, "1");
+    assert_eq!(f.get_workspace(), 0);
+}
+
+fn l_editeur_d_evenement_s_ouvre_dans_le_titre() {
+    let f = fenetre();
+    f.set_workspace(1);
+    f.set_event_editor_open(true);
+    taper(&f, "Dentiste");
+    assert_eq!(f.get_editor_title().as_str(), "Dentiste");
+}
+
+fn l_abonnement_s_ouvre_dans_le_lien() {
+    let f = fenetre();
+    f.set_workspace(1);
+    f.set_subscribe_open(true);
+    taper(&f, "webcal://example.com/a.ics");
+    assert_eq!(f.get_subscribe_url().as_str(), "webcal://example.com/a.ics");
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -285,6 +342,18 @@ fn main() {
         (
             "un_clic_d_un_champ_a_l_autre_sans_suggestions",
             un_clic_d_un_champ_a_l_autre_sans_suggestions,
+        ),
+        (
+            "ctrl_2_ouvre_l_agenda_et_ses_touches_ne_touchent_pas_le_courrier",
+            ctrl_2_ouvre_l_agenda_et_ses_touches_ne_touchent_pas_le_courrier,
+        ),
+        (
+            "l_editeur_d_evenement_s_ouvre_dans_le_titre",
+            l_editeur_d_evenement_s_ouvre_dans_le_titre,
+        ),
+        (
+            "l_abonnement_s_ouvre_dans_le_lien",
+            l_abonnement_s_ouvre_dans_le_lien,
         ),
         (
             "seules_les_tuiles_proches_de_l_ecran_sont_demandees",

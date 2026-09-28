@@ -12,6 +12,26 @@ use iris_types::Timestamp;
 /// semaine écoulée, la date pour le reste. C'est la convention que tout le monde
 /// connaît, et elle tient dans la largeur disponible.
 pub fn relative_date(date: Timestamp, now: Timestamp) -> String {
+    // Dans le fuseau de la machine. Les jours et les heures étaient comptés en UTC :
+    // un message reçu à 17 h 21 à Paris s'affichait « 15:21 », et un message de 1 h du
+    // matin tombait la veille.
+    let local = |t: Timestamp| Timestamp::from_millis(t.millis() + local_offset_ms(t));
+    relative_date_utc(local(date), local(now))
+}
+
+/// L'écart du fuseau de la machine avec UTC, à un instant donné (l'heure d'été
+/// compte : il dépend de la date).
+fn local_offset_ms(t: Timestamp) -> i64 {
+    use chrono::{Offset, TimeZone};
+    chrono::Local
+        .timestamp_millis_opt(t.millis())
+        .single()
+        .map(|d| d.offset().fix().local_minus_utc() as i64 * 1000)
+        .unwrap_or(0)
+}
+
+/// Le même calcul, sur des instants déjà décalés dans le fuseau voulu.
+fn relative_date_utc(date: Timestamp, now: Timestamp) -> String {
     let ecart = now.seconds() - date.seconds();
 
     if ecart < 0 {
@@ -94,6 +114,21 @@ pub fn account_tint(email: &str) -> (u8, u8, u8) {
     hsl_to_rgb(teinte, 0.58, 0.66)
 }
 
+/// Les initiales d'un expéditeur, pour sa pastille dans la liste.
+///
+/// Deux lettres au plus : celles des deux premiers mots d'un nom, ou la première d'une
+/// adresse quand il n'y a pas de nom. Ce qui n'est pas une lettre ou un chiffre est
+/// sauté — « "Marie" <m@x> » donne « M », pas un guillemet.
+pub fn initials(sender: &str) -> String {
+    let nom = sender.split('<').next().unwrap_or(sender);
+    let nom = nom.split('@').next().unwrap_or(nom);
+    nom.split(|c: char| c.is_whitespace() || c == '.' || c == '_' || c == '-')
+        .filter_map(|mot| mot.chars().find(|c| c.is_alphanumeric()))
+        .take(2)
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let hp = h / 60.0;
@@ -145,6 +180,17 @@ pub fn human_size(bytes: u64) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn les_initiales_viennent_du_nom_ou_de_l_adresse() {
+        assert_eq!(initials("Marie Durand"), "MD");
+        assert_eq!(initials("marie.durand@example.com"), "MD");
+        assert_eq!(initials("contact@example.com"), "C");
+        assert_eq!(initials("\"Huile Direct\" <news@example.com>"), "HD");
+        assert_eq!(initials("Jean Paul Sartre"), "JP");
+        assert_eq!(initials("élodie"), "É");
+        assert_eq!(initials(""), "");
+    }
+
     /// 14 novembre 2023, 22 h 13 UTC — un mardi.
     fn now() -> Timestamp {
         Timestamp::from_millis(1_700_000_000_000)
@@ -175,24 +221,24 @@ mod tests {
 
     #[test]
     fn aujourd_hui_affiche_l_heure() {
-        let d = relative_date(il_y_a(3600), now());
+        let d = relative_date_utc(il_y_a(3600), now());
         assert_eq!(d, "21:13");
     }
 
     #[test]
     fn hier_est_nomme() {
-        assert_eq!(relative_date(il_y_a(86_400), now()), "Yesterday");
+        assert_eq!(relative_date_utc(il_y_a(86_400), now()), "Yesterday");
     }
 
     #[test]
     fn la_semaine_ecoulee_affiche_le_jour() {
-        let d = relative_date(il_y_a(3 * 86_400), now());
+        let d = relative_date_utc(il_y_a(3 * 86_400), now());
         assert_eq!(d, "Saturday");
     }
 
     #[test]
     fn au_dela_la_date_est_absolue() {
-        let d = relative_date(il_y_a(30 * 86_400), now());
+        let d = relative_date_utc(il_y_a(30 * 86_400), now());
         assert_eq!(d, "Oct 15, 2023");
     }
 
@@ -201,7 +247,7 @@ mod tests {
         // Un expéditeur qui date son message en 2099 pour rester en tête de liste ne
         // doit pas obtenir un affichage privilégié.
         let futur = Timestamp::from_millis(now().millis() + 365 * 86_400_000);
-        let d = relative_date(futur, now());
+        let d = relative_date_utc(futur, now());
         assert!(d.contains("2024"), "obtenu « {d} »");
     }
 
