@@ -62,6 +62,8 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
         "crates/iris-app/src/shell.rs",
         "crates/iris-app/src/main.rs",
         "crates/iris-app/src/calendar.rs",
+        "crates/iris-app/src/tasks.rs",
+        "crates/iris-app/src/workspace.rs",
     ]
     .iter()
     .map(|p| std::fs::read_to_string(racine.join(p)).unwrap_or_else(|e| panic!("{p}: {e}")))
@@ -71,8 +73,9 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
 
     for rappel in rappels_de_la_fenetre(&slint) {
         // Slint transforme les tirets en soulignés pour l'API Rust.
-        let generateur = format!("on_{}(", rappel.replace('-', "_"));
-        if rust.contains(&generateur) {
+        let generateur = format!("on_{}", rappel.replace('-', "_"));
+        // Posé directement — `on_x(` — ou par une macro qui reçoit le nom — `on_x,`.
+        if rust.contains(&format!("{generateur}(")) || rust.contains(&format!("{generateur},")) {
             continue;
         }
         // Un rappel peut aussi être traité entièrement dans le `.slint` — ouvrir un

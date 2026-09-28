@@ -378,6 +378,64 @@ fn cellules(
         .collect()
 }
 
+/// The small month used to pick a date elsewhere (the tasks): `mois` shown, `choisi`
+/// marked, no events.
+pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellData> {
+    let vide = Etat {
+        mode: 0,
+        jour: choisi,
+        mini: mois,
+        evenements: Vec::new(),
+        edite: None,
+        locaux: Vec::new(),
+        rappeles: HashSet::new(),
+        selecteur: None,
+    };
+    cellules(
+        &vide,
+        choisi,
+        premier_du_mois(mois),
+        &[],
+        &HashMap::new(),
+        false,
+    )
+}
+
+/// What the calendar holds on `day`, for the tasks' Today: start, title, colour —
+/// hidden calendars left out, in order.
+pub(crate) fn events_on(
+    services: &Services,
+    day: NaiveDate,
+) -> Vec<(i64, bool, String, slint::Color)> {
+    let calendriers = services.store.calendars().unwrap_or_default();
+    let visibles: HashMap<i64, String> = calendriers
+        .iter()
+        .filter(|c| c.visible)
+        .map(|c| (c.id, c.color.clone()))
+        .collect();
+    let mut etat = Etat {
+        mode: 2,
+        jour: day,
+        mini: premier_du_mois(day),
+        evenements: Vec::new(),
+        edite: None,
+        locaux: Vec::new(),
+        rappeles: HashSet::new(),
+        selecteur: None,
+    };
+    let occ = charger(services, &mut etat);
+    let mut sortie: Vec<(i64, bool, String, slint::Color)> = occ
+        .iter()
+        .filter_map(|o| {
+            let (stocke, e) = &etat.evenements[o.event];
+            let couleur_hex = visibles.get(&stocke.calendar_id)?;
+            Some((o.start, o.all_day, titre(e), couleur(couleur_hex)))
+        })
+        .collect();
+    sortie.sort_by_key(|(debut, entier, _, _)| (!*entier, *debut));
+    sortie
+}
+
 /// Recalcule tout ce que l'agenda affiche.
 fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     let maintenant = now();
@@ -1048,7 +1106,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
 
     {
         let redessiner = Rc::clone(&redessiner);
-        fenetre.on_workspace_changed(move |w| {
+        crate::workspace::follow(fenetre, move |w| {
             if w == 1 {
                 redessiner();
             }

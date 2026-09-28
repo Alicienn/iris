@@ -25,6 +25,8 @@ pub enum CommandKind {
     Modules,
     /// Write a new message.
     Compose,
+    /// The selected conversation becomes a task.
+    TaskFromThread,
     /// Fournie par un plugin. La charge est renvoyée telle quelle au plugin qui
     /// l'a déclarée : l'hôte n'a pas à comprendre ce qu'elle veut dire.
     Plugin {
@@ -110,6 +112,14 @@ pub fn builtin_commands() -> Vec<Command> {
             "E",
             "Conversation",
             CommandKind::Thread(Action::Done),
+            true,
+        ),
+        Command::new(
+            "thread.task",
+            "Add to tasks",
+            "T",
+            "Conversation",
+            CommandKind::TaskFromThread,
             true,
         ),
         Command::new(

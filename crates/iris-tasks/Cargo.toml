@@ -1,0 +1,12 @@
+[package]
+name = "iris-tasks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Les tâches, sans entrée-sortie : lire une saisie rapide, dire quand une tâche est
+# due, ranger une liste en sections. Tout se teste sans base et sans fenêtre.
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

@@ -21,6 +21,7 @@ mod migrations;
 mod model;
 mod ops;
 mod rules;
+mod tasks;
 mod threads;
 
 pub use accounts::{AccountServers, UnifiedFolder};
@@ -33,6 +34,7 @@ pub use model::{
 };
 pub use ops::OpPayload;
 pub use rules::StoredRule;
+pub use tasks::{NewTask, StoredTask, TaskList};
 
 use iris_types::{Error, Result};
 use rusqlite::Connection;

@@ -24,12 +24,14 @@ import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { Toast } from "toast.slint";
 import { CalendarView } from "calendar.slint";
+import { TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel } from "tasks.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu,
     CalendarRenamePanel, CalendarDeletePanel
 } from "calendar-panels.slint";
 import {
-    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData
+    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
+    TaskPlaceData, TaskRowData, TaskDetailData
 } from "types.slint";
 import { ChangelogPanel, UpdatePanel } from "changelog.slint";
 import { ChangelogRowData } from "types.slint";
@@ -629,7 +631,7 @@ export component AppWindow inherits Window {
     callback reader-width(length);
 
     // --- The calendar ---
-    /// Which workspace fills the window: 0 mail, 1 calendar.
+    /// Which workspace fills the window: 0 mail, 1 calendar, 2 tasks.
     in-out property <int> workspace;
     callback workspace-changed(int);
     in property <string> calendar-title;
@@ -698,6 +700,61 @@ export component AppWindow inherits Window {
     callback editor-picker-chosen(string);
     callback event-save();
 
+    // --- Tasks ---
+    in property <string> tasks-title;
+    in property <[TaskPlaceData]> task-places;
+    in property <[TaskRowData]> task-rows;
+    in-out property <string> task-add-text;
+    in property <string> task-add-hint;
+    in-out property <int> task-focus-add;
+    in property <bool> task-has-detail;
+    in property <TaskDetailData> task-detail;
+    in-out property <string> task-detail-title;
+    in-out property <string> task-detail-notes;
+    in-out property <string> task-detail-time;
+    in property <[string]> task-lists;
+    in property <[string]> task-reminders;
+    in-out property <bool> task-picker-open;
+    in property <string> task-picker-title;
+    in property <[MonthCellData]> task-picker-cells;
+    callback task-place-chosen(string);
+    callback task-add(string);
+    callback task-row-selected(TaskRowData);
+    callback task-toggled(int);
+    callback task-title-edited(string);
+    callback task-notes-edited(string);
+    callback task-time-edited(string);
+    callback task-picker-toggled();
+    callback task-picker-navigate(int);
+    callback task-picker-chosen(string);
+    callback task-due-cleared();
+    callback task-reminder-chosen(int);
+    callback task-priority-chosen(int);
+    callback task-list-chosen(int);
+    callback task-step-added(string);
+    callback task-step-toggled(int);
+    callback task-step-removed(int);
+    callback task-open-mail();
+    callback task-delete();
+    callback task-detail-closed();
+    /// Up or down the column, from the keyboard.
+    callback task-move(int);
+    callback task-toggle-selected();
+    // A list: right click, new, rename, delete.
+    in-out property <bool> task-list-menu-open;
+    in-out property <TaskPlaceData> task-list-menu-place;
+    in-out property <length> task-list-menu-x;
+    in-out property <length> task-list-menu-y;
+    in-out property <bool> task-list-name-open;
+    in-out property <bool> task-list-name-new;
+    in-out property <string> task-list-name;
+    in property <string> task-list-name-error;
+    callback task-list-name-confirmed(bool, int, string);
+    in-out property <bool> task-list-delete-open;
+    callback task-list-delete-confirmed(int);
+    /// The selected conversation, or the one right-clicked, becomes a task.
+    callback thread-to-task(int);
+
     in-out property <bool> subscribe-open;
     in-out property <string> subscribe-url;
     in-out property <string> subscribe-name;
@@ -759,7 +816,8 @@ export component AppWindow inherits Window {
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
-        || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open;
+        || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
+        || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -783,10 +841,10 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         key-pressed(event) => {
-            // Mail and calendar, from anywhere but an open window.
+            // Mail, calendar and tasks, from anywhere but an open window.
             if (event.modifiers.control && !root.modal-open
-                && (event.text == "1" || event.text == "2")) {
-                root.workspace = event.text == "1" ? 0 : 1;
+                && (event.text == "1" || event.text == "2" || event.text == "3")) {
+                root.workspace = event.text == "1" ? 0 : event.text == "2" ? 1 : 2;
                 root.workspace-changed(root.workspace);
                 return accept;
             }
@@ -821,6 +879,18 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.event-editor-open) {
                 root.event-editor-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.task-list-menu-open) {
+                root.task-list-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.task-list-name-open) {
+                root.task-list-name-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.task-list-delete-open) {
+                root.task-list-delete-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.calendar-menu-open) {
@@ -888,6 +958,28 @@ export component AppWindow inherits Window {
                 if (event.text == "d") { root.calendar-mode-chosen(2); }
                 if (event.text == Key.LeftArrow) { root.calendar-navigate(-1); }
                 if (event.text == Key.RightArrow) { root.calendar-navigate(1); }
+                return accept;
+            }
+            // The tasks have their own keys too.
+            if (root.workspace == 2) {
+                if (event.text == "n") { root.task-focus-add += 1; }
+                if (event.text == Key.DownArrow || event.text == "j") { root.task-move(1); }
+                if (event.text == Key.UpArrow || event.text == "k") { root.task-move(-1); }
+                if (event.text == " ") { root.task-toggle-selected(); }
+                if (event.text == Key.Delete && root.task-has-detail) { root.task-delete(); }
+                if (event.text == "d" && root.task-has-detail) { root.task-picker-toggled(); }
+                if (event.text == Key.Escape) {
+                    if (root.task-picker-open) {
+                        root.task-picker-open = false;
+                    } else if (root.task-has-detail) {
+                        root.task-detail-closed();
+                    }
+                }
+                return accept;
+            }
+            // "t": the selected conversation goes to the tasks.
+            if (event.text == "t" && !event.modifiers.control && root.selected-thread >= 0) {
+                root.thread-to-task(root.selected-thread);
                 return accept;
             }
             if (event.text == "f" && event.modifiers.control) {
@@ -1260,6 +1352,117 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.workspace == 2: TasksView {
+        x: 1px;
+        y: 32px;
+        width: parent.width - 2px;
+        height: parent.height - 32px - 23px;
+        title: root.tasks-title;
+        places: root.task-places;
+        rows: root.task-rows;
+        add-text <=> root.task-add-text;
+        add-hint: root.task-add-hint;
+        focus-add-request: root.task-focus-add;
+        has-detail: root.task-has-detail;
+        detail: root.task-detail;
+        detail-title <=> root.task-detail-title;
+        detail-notes <=> root.task-detail-notes;
+        detail-time <=> root.task-detail-time;
+        lists: root.task-lists;
+        reminders: root.task-reminders;
+        picker-open: root.task-picker-open;
+        picker-title: root.task-picker-title;
+        picker-cells: root.task-picker-cells;
+        // Picking a place or a task with the mouse hands the keyboard back to the
+        // shortcuts: the arrows and the space bar then act on the column.
+        place-chosen(k) => {
+            root.task-place-chosen(k);
+            shortcuts.focus();
+        }
+        place-menu(p, x, y) => {
+            root.task-list-menu-place = p;
+            root.task-list-menu-x = x;
+            root.task-list-menu-y = y;
+            root.task-list-menu-open = true;
+        }
+        list-new => {
+            root.task-list-name-new = true;
+            root.task-list-name = "";
+            root.task-list-name-open = true;
+        }
+        add(t) => { root.task-add(t); }
+        row-selected(r) => {
+            root.task-row-selected(r);
+            shortcuts.focus();
+        }
+        toggled(id) => { root.task-toggled(id); }
+        title-edited(t) => { root.task-title-edited(t); }
+        notes-edited(t) => { root.task-notes-edited(t); }
+        time-edited(t) => { root.task-time-edited(t); }
+        picker-toggled => { root.task-picker-toggled(); }
+        picker-navigate(n) => { root.task-picker-navigate(n); }
+        picker-chosen(d) => { root.task-picker-chosen(d); }
+        due-cleared => { root.task-due-cleared(); }
+        reminder-chosen(i) => { root.task-reminder-chosen(i); }
+        priority-chosen(p) => { root.task-priority-chosen(p); }
+        list-chosen(i) => { root.task-list-chosen(i); }
+        step-added(t) => { root.task-step-added(t); }
+        step-toggled(id) => { root.task-step-toggled(id); }
+        step-removed(id) => { root.task-step-removed(id); }
+        open-mail => { root.task-open-mail(); }
+        delete => { root.task-delete(); }
+        detail-closed => {
+            root.task-detail-closed();
+            shortcuts.focus();
+        }
+    }
+
+    if root.task-list-menu-open: TaskListMenu {
+        width: 100%;
+        height: 100%;
+        place: root.task-list-menu-place;
+        // The last list stays: a task always has somewhere to go.
+        can-delete: root.task-places.length > 5;
+        menu-x: root.task-list-menu-x;
+        menu-y: root.task-list-menu-y;
+        rename => {
+            root.task-list-menu-open = false;
+            root.task-list-name-new = false;
+            root.task-list-name = root.task-list-menu-place.name;
+            root.task-list-name-open = true;
+        }
+        remove => {
+            root.task-list-menu-open = false;
+            root.task-list-delete-open = true;
+        }
+        dismissed => { root.task-list-menu-open = false; }
+    }
+
+    if root.task-list-name-open: TaskListNamePanel {
+        width: 100%;
+        height: 100%;
+        is-new: root.task-list-name-new;
+        name <=> root.task-list-name;
+        error: root.task-list-name-error;
+        confirmed => {
+            root.task-list-name-confirmed(root.task-list-name-new,
+                root.task-list-menu-place.list-id, root.task-list-name);
+        }
+        dismissed => { root.task-list-name-open = false; }
+    }
+
+    if root.task-list-delete-open: TaskListDeletePanel {
+        width: 100%;
+        height: 100%;
+        name: root.task-list-menu-place.name;
+        count: root.task-list-menu-place.count;
+        confirmed => {
+            root.task-list-delete-open = false;
+            root.task-list-delete-confirmed(root.task-list-menu-place.list-id);
+        }
+        dismissed => { root.task-list-delete-open = false; }
+    }
+
     if root.event-detail-open: EventDetailPanel {
         width: 100%;
         height: 100%;
@@ -1451,6 +1654,7 @@ export component AppWindow inherits Window {
             root.context-menu-open = false;
             root.thread-selected(root.context-menu-thread);
         }
+        add-task => { root.thread-to-task(root.context-menu-thread); }
         mark-done => { root.menu-done(root.context-menu-thread); }
         archive => { root.menu-archive(root.context-menu-thread); }
         snooze(quand) => { root.menu-snooze(root.context-menu-thread, quand); }

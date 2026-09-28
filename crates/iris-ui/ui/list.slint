@@ -362,6 +362,7 @@ export component ThreadContextMenu inherits Rectangle {
     in property <length> menu-y;
 
     callback open-thread();
+    callback add-task();
     callback mark-done();
     callback archive();
     callback snooze(string);
@@ -416,6 +417,12 @@ export component ThreadContextMenu inherits Rectangle {
                 label: "Mark as done";
                 shortcut: "E";
                 activated => { root.mark-done(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.task;
+                label: "Add to tasks";
+                shortcut: "T";
+                activated => { root.add-task(); root.dismissed(); }
             }
             MenuEntry {
                 icon: Icons.archive;

@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 0.5.0 — 2026-09-28
+
+### New
+- Tasks, next to your mail and calendar (Ctrl+3): lists, steps, notes, due dates and reminders.
+- Type a task in one line: "tomorrow 9am Call Marie #Work !!" sets the date, time, list and priority.
+- Today gathers what is due or late, today's events and the conversations still to do.
+- Press T, or right-click a conversation, to turn it into a task that opens the message again.
+- Upcoming, Anytime and From mail views, and lists you can create, rename and delete.
+
 ## 0.4.0 — 2026-09-28
 
 ### New

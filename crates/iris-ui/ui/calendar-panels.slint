@@ -8,7 +8,7 @@ import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
 
 // The frame every calendar panel shares: a veil, a floating card, a title row.
-component PanelFrame inherits Rectangle {
+export component PanelFrame inherits Rectangle {
     in property <string> title;
     /// The whole title on as many lines as it takes, instead of cut short.
     in property <bool> wrap-title;
@@ -84,7 +84,7 @@ component PanelFrame inherits Rectangle {
 }
 
 // A label above a field.
-component Labelled inherits VerticalLayout {
+export component Labelled inherits VerticalLayout {
     in property <string> label;
     spacing: 3px;
     vertical-stretch: 0;
@@ -218,7 +218,7 @@ export component EventDetailPanel inherits Rectangle {
 }
 
 // A date shown as words, that opens the small month when clicked.
-component DateButton inherits Rectangle {
+export component DateButton inherits Rectangle {
     in property <string> text;
     in property <bool> open;
     callback clicked();
@@ -269,7 +269,7 @@ component DateButton inherits Rectangle {
 }
 
 // The small month under a date: month by month, one click on the day.
-component DatePicker inherits Rectangle {
+export component DatePicker inherits Rectangle {
     in property <string> title;
     in property <[MonthCellData]> cells;
     callback navigate(int);

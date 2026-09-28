@@ -478,6 +478,227 @@ fn la_date_d_un_evenement_se_choisit_dans_un_petit_mois() {
     assert!(f.get_event_editor_open(), "et laisse l'événement ouvert");
 }
 
+// --- Les tâches ---
+
+fn des_lieux(f: &AppWindow) {
+    let mut lieux: Vec<iris_ui::TaskPlaceData> = ["today", "upcoming", "anytime", "mail"]
+        .iter()
+        .map(|k| iris_ui::TaskPlaceData {
+            key: (*k).into(),
+            name: (*k).into(),
+            ..Default::default()
+        })
+        .collect();
+    for (id, nom) in [(1, "My tasks"), (2, "Courses")] {
+        lieux.push(iris_ui::TaskPlaceData {
+            key: format!("list:{id}").into(),
+            name: nom.into(),
+            is_list: true,
+            list_id: id,
+            count: 2,
+            ..Default::default()
+        });
+    }
+    f.set_task_places(ModelRc::new(VecModel::from(lieux)));
+}
+
+fn une_tache(f: &AppWindow) {
+    f.set_task_rows(ModelRc::new(VecModel::from(vec![iris_ui::TaskRowData {
+        kind: 0,
+        id: 5,
+        title: "Payer le loyer".into(),
+        ..Default::default()
+    }])));
+}
+
+fn par_role(f: &AppWindow, role: testing::AccessibleRole, libelle: &str) -> testing::ElementHandle {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(role)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().as_deref() == Some(libelle))
+        .unwrap_or_else(|| panic!("rien de « {libelle} »"))
+}
+
+fn ctrl_3_ouvre_les_taches_et_n_ecrit_une_tache() {
+    let f = fenetre();
+    let touches = Rc::new(RefCell::new(Vec::<String>::new()));
+    let ajouts = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |k| t.borrow_mut().push(k.to_string()));
+        let a = Rc::clone(&ajouts);
+        f.on_task_add(move |texte| a.borrow_mut().push(texte.to_string()));
+    }
+
+    ctrl(&f, "3");
+    assert_eq!(f.get_workspace(), 2, "Ctrl+3 ouvre les tâches");
+    touches.borrow_mut().clear();
+
+    taper(&f, "e");
+    assert!(
+        touches.borrow().is_empty(),
+        "« e » ne touche pas le courrier caché"
+    );
+
+    taper(&f, "n");
+    taper(&f, "Pain demain\n");
+    assert_eq!(
+        *ajouts.borrow(),
+        ["Pain demain"],
+        "« n » met le curseur dans la saisie"
+    );
+}
+
+fn une_tache_se_choisit_et_se_coche_au_clavier() {
+    let f = fenetre();
+    f.set_workspace(2);
+    une_tache(&f);
+    let choisies = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let cochees = Rc::new(RefCell::new(0));
+    let mouvements = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let c = Rc::clone(&choisies);
+        f.on_task_row_selected(move |r| c.borrow_mut().push(r.id));
+        let c = Rc::clone(&cochees);
+        f.on_task_toggle_selected(move || *c.borrow_mut() += 1);
+        let m = Rc::clone(&mouvements);
+        f.on_task_move(move |n| m.borrow_mut().push(n));
+    }
+
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::ListItem,
+        "Payer le loyer",
+    ));
+    assert_eq!(*choisies.borrow(), [5]);
+
+    // Le clic a rendu le clavier aux raccourcis de l'onglet.
+    taper(&f, " ");
+    assert_eq!(*cochees.borrow(), 1, "espace coche la tâche choisie");
+    taper(&f, "j");
+    assert_eq!(*mouvements.borrow(), [1], "j descend");
+}
+
+fn la_case_d_une_tache_la_coche_sans_la_choisir() {
+    let f = fenetre();
+    f.set_workspace(2);
+    une_tache(&f);
+    let cochees = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let choisies = Rc::new(RefCell::new(0));
+    {
+        let c = Rc::clone(&cochees);
+        f.on_task_toggled(move |id| c.borrow_mut().push(id));
+        let c = Rc::clone(&choisies);
+        f.on_task_row_selected(move |_| *c.borrow_mut() += 1);
+    }
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::Checkbox,
+        "Payer le loyer",
+    ));
+    assert_eq!(*cochees.borrow(), [5]);
+    assert_eq!(*choisies.borrow(), 0, "cocher n'ouvre pas la tâche");
+}
+
+fn t_fait_d_une_conversation_une_tache() {
+    let f = fenetre();
+    f.set_selected_thread(42);
+    let fils = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let t = Rc::clone(&fils);
+        f.on_thread_to_task(move |id| t.borrow_mut().push(id));
+    }
+    taper(&f, "t");
+    assert_eq!(*fils.borrow(), [42]);
+
+    // Pas depuis une fenêtre ouverte.
+    composer(&f);
+    taper(&f, "t");
+    assert_eq!(
+        *fils.borrow(),
+        [42],
+        "la touche va au champ, pas au courrier"
+    );
+}
+
+fn une_liste_se_renomme_et_se_supprime_apres_confirmation() {
+    let f = fenetre();
+    f.set_workspace(2);
+    des_lieux(&f);
+    let renommees = Rc::new(RefCell::new(Vec::<(bool, i32, String)>::new()));
+    let supprimees = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let r = Rc::clone(&renommees);
+        f.on_task_list_name_confirmed(move |n, id, nom| {
+            r.borrow_mut().push((n, id, nom.to_string()))
+        });
+        let s = Rc::clone(&supprimees);
+        f.on_task_list_delete_confirmed(move |id| s.borrow_mut().push(id));
+    }
+
+    par_role(&f, testing::AccessibleRole::Button, "Courses")
+        .mock_single_click(PointerEventButton::Right);
+    assert!(
+        f.get_task_list_menu_open(),
+        "clic droit sur une liste : son menu"
+    );
+    clic(&bouton(&f, "Rename…"));
+    taper(&f, "Marché\n");
+    assert_eq!(
+        *renommees.borrow(),
+        [(false, 2, "Marché".to_string())],
+        "le nom est remplacé"
+    );
+
+    f.set_task_list_name_open(false);
+    par_role(&f, testing::AccessibleRole::Button, "Courses")
+        .mock_single_click(PointerEventButton::Right);
+    clic(&bouton(&f, "Delete list…"));
+    assert!(f.get_task_list_delete_open());
+    assert!(supprimees.borrow().is_empty());
+    clic(&bouton(&f, "Delete"));
+    assert_eq!(*supprimees.borrow(), [2]);
+}
+
+fn une_nouvelle_liste_s_ouvre_dans_son_nom() {
+    let f = fenetre();
+    f.set_workspace(2);
+    des_lieux(&f);
+    let creees = Rc::new(RefCell::new(Vec::<(bool, String)>::new()));
+    {
+        let c = Rc::clone(&creees);
+        f.on_task_list_name_confirmed(move |n, _, nom| c.borrow_mut().push((n, nom.to_string())));
+    }
+    clic(&bouton(&f, "New list"));
+    taper(&f, "Vacances\n");
+    assert_eq!(*creees.borrow(), [(true, "Vacances".to_string())]);
+}
+
+fn le_titre_d_une_tache_prend_le_premier_clic() {
+    let f = fenetre();
+    f.set_workspace(2);
+    f.set_task_has_detail(true);
+    f.set_task_detail_title("Loyer".into());
+    let titres = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let t = Rc::clone(&titres);
+        f.on_task_title_edited(move |x| t.borrow_mut().push(x.to_string()));
+    }
+    clic(&champ(&f, "Add a task"));
+    taper(&f, "x");
+    clic(&champ(&f, "Task title"));
+    taper(&f, "!");
+    assert_eq!(f.get_task_add_text().as_str(), "x");
+    assert!(
+        f.get_task_detail_title().ends_with('!'),
+        "{}",
+        f.get_task_detail_title()
+    );
+    assert!(!titres.borrow().is_empty(), "chaque frappe est enregistrée");
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -541,6 +762,34 @@ fn main() {
         (
             "la_date_d_un_evenement_se_choisit_dans_un_petit_mois",
             la_date_d_un_evenement_se_choisit_dans_un_petit_mois,
+        ),
+        (
+            "ctrl_3_ouvre_les_taches_et_n_ecrit_une_tache",
+            ctrl_3_ouvre_les_taches_et_n_ecrit_une_tache,
+        ),
+        (
+            "une_tache_se_choisit_et_se_coche_au_clavier",
+            une_tache_se_choisit_et_se_coche_au_clavier,
+        ),
+        (
+            "la_case_d_une_tache_la_coche_sans_la_choisir",
+            la_case_d_une_tache_la_coche_sans_la_choisir,
+        ),
+        (
+            "t_fait_d_une_conversation_une_tache",
+            t_fait_d_une_conversation_une_tache,
+        ),
+        (
+            "une_liste_se_renomme_et_se_supprime_apres_confirmation",
+            une_liste_se_renomme_et_se_supprime_apres_confirmation,
+        ),
+        (
+            "une_nouvelle_liste_s_ouvre_dans_son_nom",
+            une_nouvelle_liste_s_ouvre_dans_son_nom,
+        ),
+        (
+            "le_titre_d_une_tache_prend_le_premier_clic",
+            le_titre_d_une_tache_prend_le_premier_clic,
         ),
     ];
 

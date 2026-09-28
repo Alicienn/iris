@@ -677,6 +677,14 @@ fn dispatch(
                 fenetre.set_compose_open(true);
             }
         }
+        CommandKind::TaskFromThread => {
+            if let Some(fenetre) = fenetre.upgrade() {
+                let fil = fenetre.get_selected_thread();
+                if fil >= 0 {
+                    fenetre.invoke_thread_to_task(fil);
+                }
+            }
+        }
         CommandKind::Modules => {
             if let Some(fenetre) = fenetre.upgrade() {
                 fenetre.set_modules_open(true);
@@ -5152,6 +5160,7 @@ mod tests {
                 | CommandKind::AddAccount
                 | CommandKind::Modules
                 | CommandKind::Compose
+                | CommandKind::TaskFromThread
                 | CommandKind::Plugin { .. }
                 | CommandKind::Quit => {}
                 CommandKind::Settings | CommandKind::Reload => {}

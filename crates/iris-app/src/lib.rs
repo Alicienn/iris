@@ -24,9 +24,11 @@ pub mod services;
 pub mod settings;
 pub mod shell;
 pub mod single;
+pub mod tasks;
 pub mod tray;
 pub mod update;
 pub mod vitals;
+pub mod workspace;
 
 pub use controller::{Controller, Request, Snapshot};
 pub use paths::Paths;

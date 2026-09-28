@@ -28,6 +28,7 @@
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Rules and plugins add features, each one isolated from the rest of the app. |
 | <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Themes.** Several looks included, dark and light. |
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
+| <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, steps and reminders, typed in one line, with the conversations they came from one click away. |
 
 ## Install
 
@@ -62,6 +63,22 @@ Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` an
 In the calendar: `T` today, `N` new event, `M` / `W` / `D` month, week, day, and the
 arrow keys move to the previous or next period.
 
+## Tasks
+
+Open **Tasks** in the title bar, or with `Ctrl`+`3`.
+
+- Type a task in one line and press `Enter`. Iris reads the date, the time, the list
+  and the priority out of it: `tomorrow 9am Call Marie #Work !!`, `vendredi 14h30
+  Dentiste`, `in 2 weeks Renew the passport`. `!`, `!!`, `!!!` go from low to high
+  priority; a `#List` that does not exist yet is created.
+- **Today** shows what is due or late, today's events and the conversations still to
+  do. **Upcoming**, **Anytime** and **From mail** show the rest.
+- In the mail, `T` — or *Add to tasks* in a conversation's right-click menu — turns the
+  conversation into a task. *Open message* in the task brings it back.
+
+In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
+`Delete` delete.
+
 ## Updates
 
 Iris checks for a new version at launch and every few hours. When one is out, an
@@ -82,7 +99,8 @@ installs it and reopens. You can also check by hand in *Settings › Updates*.
 | `Shift`+`3` | Delete |
 | `C` | New message |
 | `Ctrl`+`K` | Command palette |
-| `Ctrl`+`1` / `Ctrl`+`2` | Mail / Calendar |
+| `T` | Add the conversation to tasks |
+| `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` | Mail / Calendar / Tasks |
 | `F5` | Sync all accounts |
 | `Ctrl`+`,` | Settings |
 

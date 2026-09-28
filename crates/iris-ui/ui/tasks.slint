@@ -1,0 +1,822 @@
+import { Tokens } from "tokens.slint";
+import { Glass } from "glass.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import { TextField, TextArea } from "field.slint";
+import { TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData } from "types.slint";
+import { CalButton } from "calendar.slint";
+import { PanelFrame, DateButton, DatePicker, Labelled } from "calendar-panels.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
+import { ComboBox, ScrollView } from "std-widgets.slint";
+
+// The colour of a priority, on the ring of a task.
+global Priority {
+    public pure function tint(p: int) -> color {
+        return p == 3 ? Tokens.error : p == 2 ? Tokens.warning : p == 1 ? #5b8def : Tokens.text-muted;
+    }
+}
+
+// The round box of a task: empty, or ticked.
+component TaskCheck inherits Rectangle {
+    in property <bool> done;
+    in property <int> priority;
+    in property <string> label;
+    callback toggled();
+
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    border-width: 1.5px;
+    border-color: root.done ? Tokens.text-muted : Priority.tint(root.priority);
+    background: root.done ? Tokens.text-muted
+        : touch.has-hover ? Priority.tint(root.priority).transparentize(0.8) : transparent;
+
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-checked: root.done;
+    accessible-action-default => { root.toggled(); }
+
+    if root.done || touch.has-hover: Icon {
+        data: Icons.check;
+        size: 11px;
+        weight: 3.0;
+        tint: root.done ? Tokens.background : Priority.tint(root.priority);
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// A view or a list in the rail.
+component PlaceRow inherits Rectangle {
+    in property <TaskPlaceData> place;
+    callback chosen(string);
+    callback menu(TaskPlaceData, length, length);
+
+    height: 30px;
+    border-radius: Tokens.radius-small;
+    background: root.place.selected ? Tokens.surface-active
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.place.name;
+    accessible-action-default => { root.chosen(root.place.key); }
+
+    touch := TouchArea {
+        clicked => { root.chosen(root.place.key); }
+        pointer-event(event) => {
+            if (root.place.is-list && event.button == PointerEventButton.right
+                && event.kind == PointerEventKind.up) {
+                root.menu(root.place,
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        if root.place.is-list: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background: root.place.color;
+        }
+        if !root.place.is-list: Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.place.icon;
+            size: 14px;
+            tint: root.place.selected ? Tokens.text : Tokens.text-secondary;
+        }
+        Text {
+            text: root.place.name;
+            font-size: Tokens.size-small;
+            font-weight: root.place.selected ? Tokens.weight-bold : Tokens.weight-body;
+            color: root.place.selected ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if root.place.count > 0: Text {
+            text: root.place.count;
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// One line of the column: a task, a section title, an event or a conversation.
+component TaskRow inherits Rectangle {
+    in property <TaskRowData> item;
+    callback selected(TaskRowData);
+    callback toggled(int);
+
+    height: root.item.kind == 1 ? 34px
+        : (root.item.meta != "" || root.item.list != "" || root.item.from-mail || root.item.progress != "") ? 46px : 34px;
+    border-radius: Tokens.radius-small;
+    background: root.item.kind == 1 ? transparent
+        : root.item.selected ? Tokens.surface-active
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: list-item;
+    accessible-label: root.item.title;
+    accessible-item-selectable: root.item.kind != 1;
+    accessible-item-selected: root.item.selected;
+    accessible-action-default => { root.selected(root.item); }
+
+    touch := TouchArea {
+        enabled: root.item.kind != 1;
+        clicked => { root.selected(root.item); }
+    }
+
+    // A section title.
+    if root.item.kind == 1: HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-top: 10px;
+        spacing: Tokens.space-2;
+        Text {
+            text: root.item.title;
+            font-size: 10px;
+            letter-spacing: 0.8px;
+            font-weight: Tokens.weight-bold;
+            color: root.item.overdue ? Tokens.error : Tokens.text-muted;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.item.meta;
+            font-size: 10px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+
+    if root.item.kind != 1: HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+
+        if root.item.kind == 0: TaskCheck {
+            y: (parent.height - self.height) / 2;
+            done: root.item.done;
+            priority: root.item.priority;
+            label: root.item.title;
+            toggled => { root.toggled(root.item.id); }
+        }
+        // An event: its calendar's colour.
+        if root.item.kind == 2: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 4px;
+            height: 22px;
+            border-radius: 2px;
+            background: root.item.color;
+        }
+        if root.item.kind == 3: Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.envelope-closed;
+            size: 15px;
+            tint: Tokens.text-secondary;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.item.title;
+                font-size: Tokens.size-body;
+                color: root.item.done ? Tokens.text-muted : Tokens.text;
+                overflow: elide;
+            }
+            if root.item.meta != "" || root.item.list != "" || root.item.from-mail || root.item.progress != "": HorizontalLayout {
+                spacing: Tokens.space-2;
+                if root.item.meta != "": Text {
+                    text: root.item.meta;
+                    font-size: 10px;
+                    color: root.item.overdue ? Tokens.error : Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                if root.item.progress != "": Text {
+                    text: root.item.progress;
+                    font-size: 10px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                if root.item.from-mail: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.envelope-closed;
+                    size: 10px;
+                    tint: Tokens.text-muted;
+                }
+                if root.item.has-notes: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.notes;
+                    size: 10px;
+                    tint: Tokens.text-muted;
+                }
+                if root.item.list != "": HorizontalLayout {
+                    spacing: 4px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: root.item.color;
+                    }
+                    Text {
+                        text: root.item.list;
+                        font-size: 10px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle {}
+            }
+        }
+    }
+}
+
+// A step of the selected task.
+component SubtaskRow inherits Rectangle {
+    in property <SubtaskData> step;
+    callback toggled(int);
+    callback removed(int);
+
+    height: 28px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+
+    touch := TouchArea {}
+
+    HorizontalLayout {
+        padding-left: 2px;
+        spacing: Tokens.space-2;
+        TaskCheck {
+            y: (parent.height - self.height) / 2;
+            done: root.step.done;
+            label: root.step.title;
+            toggled => { root.toggled(root.step.id); }
+        }
+        Text {
+            text: root.step.title;
+            font-size: Tokens.size-small;
+            color: root.step.done ? Tokens.text-muted : Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if touch.has-hover: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.window-close;
+            label: "Remove step " + root.step.title;
+            button-size: 22px;
+            icon-size: 10px;
+            clicked => { root.removed(root.step.id); }
+        }
+    }
+}
+
+// The selected task, to change.
+component TaskDetail inherits Rectangle {
+    in property <TaskDetailData> detail;
+    in-out property <string> title;
+    in-out property <string> notes;
+    in-out property <string> time;
+    in property <[string]> lists;
+    in property <[string]> reminders;
+    in property <bool> picker-open;
+    in property <string> picker-title;
+    in property <[MonthCellData]> picker-cells;
+
+    callback toggled(int);
+    callback title-edited(string);
+    callback notes-edited(string);
+    callback time-edited(string);
+    callback picker-toggled();
+    callback picker-navigate(int);
+    callback picker-chosen(string);
+    callback due-cleared();
+    callback reminder-chosen(int);
+    callback priority-chosen(int);
+    callback list-chosen(int);
+    callback step-added(string);
+    callback step-toggled(int);
+    callback step-removed(int);
+    callback open-mail();
+    callback delete();
+    callback closed();
+
+    property <string> new-step;
+    // Two columns of exactly half: a combo box asks for the width of its longest
+    // entry, and would push the panel wider than the window gives it.
+    property <length> demi: (root.width - 2 * Tokens.space-3 - Tokens.space-2) / 2;
+
+    VerticalLayout {
+        padding: Tokens.space-3;
+        spacing: Tokens.space-3;
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            TaskCheck {
+                y: (parent.height - self.height) / 2;
+                done: root.detail.done;
+                priority: root.detail.priority;
+                label: "Done";
+                toggled => { root.toggled(root.detail.id); }
+            }
+            TextField {
+                accessible-label: "Task title";
+                font-size: Tokens.size-title;
+                text <=> root.title;
+                edited(t) => { root.title-edited(t); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.window-close;
+                label: "Close";
+                shortcut: "Esc";
+                button-size: 24px;
+                icon-size: 12px;
+                clicked => { root.closed(); }
+            }
+        }
+
+        Labelled {
+            label: "Due";
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                DateButton {
+                    accessible-label: "Due date";
+                    text: root.detail.has-due ? root.detail.due-label : "No date";
+                    open: root.picker-open;
+                    clicked => { root.picker-toggled(); }
+                }
+                if root.detail.has-due: TextField {
+                    width: 70px;
+                    accessible-label: "Due time";
+                    placeholder-text: "Time";
+                    text <=> root.time;
+                    edited(t) => { root.time-edited(t); }
+                }
+                if root.detail.has-due: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.window-close;
+                    label: "Remove the date";
+                    button-size: 26px;
+                    icon-size: 11px;
+                    clicked => { root.due-cleared(); }
+                }
+            }
+        }
+
+        if root.picker-open: DatePicker {
+            title: root.picker-title;
+            cells: root.picker-cells;
+            navigate(n) => { root.picker-navigate(n); }
+            chosen(d) => { root.picker-chosen(d); }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Labelled {
+                width: root.demi;
+                label: "Reminder";
+                ComboBox {
+                    enabled: root.detail.has-due;
+                    model: root.reminders;
+                    current-index: root.detail.reminder-index;
+                    selected => { root.reminder-chosen(self.current-index); }
+                }
+            }
+            Labelled {
+                width: root.demi;
+                label: "List";
+                ComboBox {
+                    model: root.lists;
+                    current-index: root.detail.list-index;
+                    selected => { root.list-chosen(self.current-index); }
+                }
+            }
+        }
+
+        Labelled {
+            label: "Priority";
+            HorizontalLayout {
+                spacing: 4px;
+                for nom[i] in ["None", "Low", "Medium", "High"]: CalButton {
+                    text: nom;
+                    selected: root.detail.priority == i;
+                    clicked => { root.priority-chosen(i); }
+                }
+                Rectangle {}
+            }
+        }
+
+        if root.detail.source != "": HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.envelope-closed;
+                size: 13px;
+                tint: Tokens.text-muted;
+            }
+            Text {
+                text: root.detail.source;
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            CalButton {
+                text: "Open message";
+                clicked => { root.open-mail(); }
+            }
+        }
+
+        Labelled {
+            label: "Steps";
+            VerticalLayout {
+                spacing: 1px;
+                for step in root.detail.subtasks: SubtaskRow {
+                    step: step;
+                    toggled(id) => { root.step-toggled(id); }
+                    removed(id) => { root.step-removed(id); }
+                }
+                TextField {
+                    accessible-label: "Add a step";
+                    placeholder-text: "Add a step";
+                    text <=> root.new-step;
+                    accepted(t) => {
+                        if (t != "") {
+                            root.step-added(t);
+                            root.new-step = "";
+                        }
+                    }
+                }
+            }
+        }
+
+        Labelled {
+            label: "Notes";
+            vertical-stretch: 1;
+            TextArea {
+                accessible-label: "Notes";
+                vertical-stretch: 1;
+                min-height: 60px;
+                placeholder-text: "Anything worth keeping with it";
+                text <=> root.notes;
+                edited(t) => { root.notes-edited(t); }
+            }
+        }
+
+        HorizontalLayout {
+            height: 28px;
+            vertical-stretch: 0;
+            CalButton {
+                text: "Delete task";
+                icon: Icons.trash;
+                clicked => { root.delete(); }
+            }
+            Rectangle {}
+        }
+    }
+}
+
+// The tasks workspace: where things are to do, what there is to do, and the one
+// being looked at.
+export component TasksView inherits Rectangle {
+    in property <string> title;
+    in property <[TaskPlaceData]> places;
+    in property <[TaskRowData]> rows;
+    in-out property <string> add-text;
+    in property <string> add-hint;
+    /// Raised to put the cursor in the quick-add line.
+    in property <int> focus-add-request;
+
+    in property <bool> has-detail;
+    in property <TaskDetailData> detail;
+    in-out property <string> detail-title;
+    in-out property <string> detail-notes;
+    in-out property <string> detail-time;
+    in property <[string]> lists;
+    in property <[string]> reminders;
+    in property <bool> picker-open;
+    in property <string> picker-title;
+    in property <[MonthCellData]> picker-cells;
+
+    callback place-chosen(string);
+    callback place-menu(TaskPlaceData, length, length);
+    callback list-new();
+    callback add(string);
+    callback row-selected(TaskRowData);
+    callback toggled(int);
+
+    callback title-edited(string);
+    callback notes-edited(string);
+    callback time-edited(string);
+    callback picker-toggled();
+    callback picker-navigate(int);
+    callback picker-chosen(string);
+    callback due-cleared();
+    callback reminder-chosen(int);
+    callback priority-chosen(int);
+    callback list-chosen(int);
+    callback step-added(string);
+    callback step-toggled(int);
+    callback step-removed(int);
+    callback open-mail();
+    callback delete();
+    callback detail-closed();
+
+    background: Tokens.background;
+
+    changed focus-add-request => { ajout.focus(); }
+
+    HorizontalLayout {
+        // --- Left: the views and the lists ---
+        Glass {
+            width: 230px;
+            VerticalLayout {
+                padding: Tokens.space-3;
+                spacing: 2px;
+
+                for place in root.places: VerticalLayout {
+                    // A title above the first list.
+                    if place.is-list && place.key == root.places[4].key: Text {
+                        height: 30px;
+                        text: "LISTS";
+                        font-size: 9px;
+                        letter-spacing: 1px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: bottom;
+                    }
+                    PlaceRow {
+                        place: place;
+                        chosen(k) => { root.place-chosen(k); }
+                        menu(p, x, y) => { root.place-menu(p, x, y); }
+                    }
+                }
+
+                Rectangle { height: Tokens.space-2; }
+                CalButton {
+                    text: "New list";
+                    icon: Icons.plus;
+                    clicked => { root.list-new(); }
+                }
+                Rectangle {}
+            }
+        }
+
+        Rectangle { width: 1px; background: Tokens.border; }
+
+        // --- Middle: what there is to do ---
+        VerticalLayout {
+            padding: Tokens.space-3;
+            spacing: Tokens.space-2;
+            horizontal-stretch: 1;
+
+            Text {
+                height: 32px;
+                text: root.title;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-title;
+                font-weight: Tokens.weight-bold;
+                color: Tokens.text;
+                vertical-alignment: center;
+            }
+
+            ajout := TextField {
+                height: 34px;
+                vertical-stretch: 0;
+                accessible-label: "Add a task";
+                placeholder-text: root.add-hint;
+                text <=> root.add-text;
+                accepted(t) => {
+                    if (t != "") {
+                        root.add(t);
+                    }
+                }
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 1px;
+                    for ligne in root.rows: TaskRow {
+                        item: ligne;
+                        selected(r) => { root.row-selected(r); }
+                        toggled(id) => { root.toggled(id); }
+                    }
+                    if root.rows.length == 0: Text {
+                        height: 80px;
+                        text: "Nothing here. Type above to add a task.";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // --- Right: the selected task ---
+        if root.has-detail: Rectangle { width: 1px; background: Tokens.border; }
+        if root.has-detail: Glass {
+            width: 340px;
+            TaskDetail {
+                detail: root.detail;
+                title <=> root.detail-title;
+                notes <=> root.detail-notes;
+                time <=> root.detail-time;
+                lists: root.lists;
+                reminders: root.reminders;
+                picker-open: root.picker-open;
+                picker-title: root.picker-title;
+                picker-cells: root.picker-cells;
+                toggled(id) => { root.toggled(id); }
+                title-edited(t) => { root.title-edited(t); }
+                notes-edited(t) => { root.notes-edited(t); }
+                time-edited(t) => { root.time-edited(t); }
+                picker-toggled => { root.picker-toggled(); }
+                picker-navigate(n) => { root.picker-navigate(n); }
+                picker-chosen(d) => { root.picker-chosen(d); }
+                due-cleared => { root.due-cleared(); }
+                reminder-chosen(i) => { root.reminder-chosen(i); }
+                priority-chosen(p) => { root.priority-chosen(p); }
+                list-chosen(i) => { root.list-chosen(i); }
+                step-added(t) => { root.step-added(t); }
+                step-toggled(id) => { root.step-toggled(id); }
+                step-removed(id) => { root.step-removed(id); }
+                open-mail => { root.open-mail(); }
+                delete => { root.delete(); }
+                closed => { root.detail-closed(); }
+            }
+        }
+    }
+}
+
+// Right click on a list.
+export component TaskListMenu inherits Rectangle {
+    in property <TaskPlaceData> place;
+    in property <bool> can-delete;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    callback rename();
+    callback remove();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 200px;
+        menu-height: entries.preferred-height + 8px;
+
+        entries := VerticalLayout {
+            padding: 4px;
+            HorizontalLayout {
+                padding-left: Tokens.space-2;
+                padding-right: Tokens.space-2;
+                height: 22px;
+                Text {
+                    text: root.place.name;
+                    font-size: 9px;
+                    letter-spacing: 0.5px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.pencil;
+                label: "Rename…";
+                activated => { root.rename(); }
+            }
+            if root.can-delete: MenuSeparator {}
+            if root.can-delete: MenuEntry {
+                icon: Icons.trash;
+                label: "Delete list…";
+                danger: true;
+                activated => { root.remove(); }
+            }
+        }
+    }
+}
+
+// A name for a list, new or renamed.
+export component TaskListNamePanel inherits Rectangle {
+    in property <bool> is-new;
+    in-out property <string> name;
+    in property <string> error;
+    callback confirmed();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: root.is-new ? "New list" : "Rename list";
+        card-height: 200px;
+        dismissed => { root.dismissed(); }
+
+        TextField {
+            accessible-label: "List name";
+            placeholder-text: "Groceries, Work, Holidays…";
+            text <=> root.name;
+            // Opened to type: the name is selected, the first key replaces it.
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            accepted => { root.confirmed(); }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-small;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        Rectangle {}
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: root.is-new ? "Create" : "Rename";
+                primary: true;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
+// Deleting a list asks first: its tasks go with it.
+export component TaskListDeletePanel inherits Rectangle {
+    in property <string> name;
+    in property <int> count;
+    callback confirmed();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: "Delete this list?";
+        card-height: 200px;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: root.count == 0
+                ? "“" + root.name + "” is empty. It will be removed."
+                : "“" + root.name + "” and its " + root.count + " task(s) to do are deleted. "
+                    + "This cannot be undone.";
+            font-size: Tokens.size-body;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Rectangle {}
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: "Delete";
+                primary: true;
+                danger: true;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}

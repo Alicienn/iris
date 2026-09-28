@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 9;
+pub const CURRENT_VERSION: i64 = 10;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -63,7 +63,61 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "calendars",
         sql: SCHEMA_V9,
     },
+    Migration {
+        version: 10,
+        name: "tasks",
+        sql: SCHEMA_V10,
+    },
 ];
+
+/// Les tâches.
+///
+/// Des listes, et des tâches dans les listes. Une sous-tâche est une tâche qui a un
+/// parent ; elle part avec lui. L'échéance est un jour (`YYYY-MM-DD`, lu tel quel,
+/// sans fuseau : « demain » est demain où que l'on soit) et, si elle en a une, une
+/// heure en minutes depuis minuit. Le rappel est l'instant où le donner, calculé à
+/// l'écriture.
+///
+/// Une tâche venue du courrier garde le fil d'où elle vient, et de quoi le nommer
+/// sans aller le relire : le fil peut disparaître, la tâche reste.
+///
+/// Une liste « My tasks » existe d'emblée, pour que la première tâche ait où aller.
+const SCHEMA_V10: &str = "
+CREATE TABLE task_lists (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    color      TEXT NOT NULL,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE tasks (
+    id            INTEGER PRIMARY KEY,
+    list_id       INTEGER NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+    parent_id     INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+    title         TEXT NOT NULL,
+    notes         TEXT NOT NULL DEFAULT '',
+    due_day       TEXT,
+    due_minute    INTEGER,
+    remind_before INTEGER,
+    remind_at     INTEGER,
+    reminded      INTEGER NOT NULL DEFAULT 0,
+    priority      INTEGER NOT NULL DEFAULT 0,
+    done_at       INTEGER,
+    thread_id     INTEGER,
+    source        TEXT NOT NULL DEFAULT '',
+    position      INTEGER NOT NULL DEFAULT 0,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
+
+CREATE INDEX tasks_by_list ON tasks(list_id, done_at);
+CREATE INDEX tasks_by_parent ON tasks(parent_id);
+CREATE INDEX tasks_by_reminder ON tasks(remind_at) WHERE reminded = 0 AND done_at IS NULL;
+CREATE INDEX tasks_by_thread ON tasks(thread_id) WHERE thread_id IS NOT NULL;
+
+INSERT INTO task_lists (name, color, created_at) VALUES ('My tasks', '#5b8def', 0);
+";
 
 /// L'agenda.
 ///

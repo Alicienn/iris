@@ -211,7 +211,7 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
 fn onglets_des_files(f: &AppWindow) -> Vec<String> {
     libelles(f, testing::AccessibleRole::Tab)
         .into_iter()
-        .filter(|l| l != "Mail" && l != "Calendar")
+        .filter(|l| l != "Mail" && l != "Calendar" && l != "Tasks")
         .collect()
 }
 

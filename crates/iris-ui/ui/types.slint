@@ -273,3 +273,66 @@ export struct EventDetailData {
     // In a local calendar: it can be edited and deleted.
     editable: bool,
 }
+
+// --- Tasks ---
+
+// A place in the tasks rail: a smart view ("today", "upcoming", "anytime", "mail")
+// or a list ("list:<id>").
+export struct TaskPlaceData {
+    key: string,
+    name: string,
+    icon: string,
+    color: color,
+    count: int,
+    selected: bool,
+    // A list, which can be renamed and deleted; a smart view cannot.
+    is-list: bool,
+    list-id: int,
+}
+
+// A line of the tasks column.
+export struct TaskRowData {
+    // 0 a task, 1 a section title, 2 a calendar event, 3 a conversation to do.
+    kind: int,
+    // The task, the conversation, or for an event the day it is on ("YYYY-MM-DD").
+    id: int,
+    key: string,
+    title: string,
+    // When: "Today 09:30", "Tomorrow", "10:00 – 11:00"; for a section, its count.
+    meta: string,
+    overdue: bool,
+    done: bool,
+    // 0 none … 3 high.
+    priority: int,
+    // Its list, shown outside that list.
+    list: string,
+    color: color,
+    from-mail: bool,
+    has-notes: bool,
+    // Steps done out of steps: "1/3". Empty without steps.
+    progress: string,
+    selected: bool,
+}
+
+// A step of a task.
+export struct SubtaskData {
+    id: int,
+    title: string,
+    done: bool,
+}
+
+// What the detail panel shows of the selected task. The title, the notes and the
+// time are fields of their own, bound both ways.
+export struct TaskDetailData {
+    id: int,
+    done: bool,
+    has-due: bool,
+    due-label: string,
+    overdue: bool,
+    list-index: int,
+    reminder-index: int,
+    priority: int,
+    // Where it came from: "Marie — Devis refonte". Empty for a task written here.
+    source: string,
+    subtasks: [SubtaskData],
+}
