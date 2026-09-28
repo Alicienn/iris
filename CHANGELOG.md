@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 0.3.1 — 2026-09-28
+
+### Fixed
+- Replies no longer show their text printed over the message they quote.
+- Signatures and newsletters no longer show black boxes around their text.
+- Text in a signature is no longer covered by the picture that follows it.
+
 ## 0.3.0 — 2026-09-28
 
 ### New

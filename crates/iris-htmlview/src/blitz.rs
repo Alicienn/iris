@@ -53,6 +53,15 @@ const MAX_TAGS: usize = 20_000;
 /// Hauteur maximale d'un document mis en page, en points : six cents écrans.
 const MAX_LAYOUT_HEIGHT: f32 = 400_000.0;
 
+/// What the engine gets wrong about mail, set right at the lowest priority.
+///
+/// A table in `border-collapse: collapse` whose borders are `none` still computes
+/// their default *medium* width, and the engine paints it and lays it out as a gap:
+/// every layout table of a signature or a newsletter came out as a black grid. A
+/// border nobody asked for gets no width here; anything the message sets itself —
+/// a `border` attribute, a style — outranks a user-agent rule and keeps its border.
+const MAIL_UA_CSS: &str = "table, thead, tbody, tfoot, tr, td, th { border-width: 0; }";
+
 /// Le cache des images converties pour le peintre.
 ///
 /// Le défaut de vello_cpu est de 64 Mo, calibré pour un navigateur. Un message affiche
@@ -182,12 +191,18 @@ impl BlitzRenderer {
                 viewport: Some(viewport),
                 net_provider: Some(Arc::new(crate::fetch::MailNetProvider::new(allow_remote))),
                 font_ctx: Some(self.fonts()),
+                ua_stylesheets: Some(vec![
+                    blitz_dom::DEFAULT_CSS.to_owned(),
+                    MAIL_UA_CSS.to_owned(),
+                ]),
                 // Pas de réserve de fils pour mettre en forme un message : elle se
                 // créerait au premier et ne rendrait jamais sa mémoire.
                 style_threading: StyleThreading::Sequential,
                 ..Default::default()
             },
         );
+
+        tables_grow_with_their_content(&mut document);
 
         // Les ressources déjà arrivées — les images du message sont servies sans
         // réseau, pendant l'analyse — sont remises au document. Une feuille de style
@@ -215,6 +230,89 @@ impl BlitzRenderer {
             painter: None,
         })))
     }
+}
+
+/// Makes every table height a minimum, as browsers do.
+///
+/// Signature tools and newsletter builders write on each table, row and cell the
+/// height they measured in their own editor. A browser treats it as a minimum and
+/// lets the row grow when the text needs more room (other fonts, a narrower
+/// column). The engine takes it literally: the text spilled out of its cell and
+/// the next block — a banner, the quoted message — was laid over it.
+///
+/// So `height` becomes `min-height`, whether it comes from a style or an attribute,
+/// and `max-height`, which browsers ignore on tables, goes.
+fn tables_grow_with_their_content(document: &mut blitz_dom::BaseDocument) {
+    use blitz_dom::{local_name, ns, QualName};
+
+    let mut changes = Vec::new();
+    for (id, node) in document.tree().iter() {
+        let Some(element) = node.element_data() else {
+            continue;
+        };
+        if !matches!(
+            element.name.local.as_ref(),
+            "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th"
+        ) {
+            continue;
+        }
+        let style = element.attr(local_name!("style"));
+        let attribute = element.attr(local_name!("height")).and_then(pixels);
+        let converted = style.and_then(minimum_heights);
+        if converted.is_none() && attribute.is_none() {
+            continue;
+        }
+        let mut nouveau = converted.unwrap_or_else(|| style.unwrap_or_default().to_owned());
+        if let Some(px) = attribute {
+            // First, so that a height the style gives wins, as it would have.
+            nouveau = format!("min-height:{px}px;{nouveau}");
+        }
+        changes.push((id, nouveau, attribute.is_some()));
+    }
+
+    let mut mutation = document.mutate();
+    for (id, style, sans_attribut) in changes {
+        mutation.set_attribute(id, QualName::new(None, ns!(), local_name!("style")), &style);
+        if sans_attribut {
+            mutation.clear_attribute(id, QualName::new(None, ns!(), local_name!("height")));
+        }
+    }
+}
+
+/// A declaration list with `height` turned into `min-height` and `max-height`
+/// removed; `None` when it has neither.
+fn minimum_heights(style: &str) -> Option<String> {
+    let mut change = false;
+    let declarations: Vec<String> = style
+        .split(';')
+        .filter_map(|declaration| {
+            let Some((propriete, valeur)) = declaration.split_once(':') else {
+                return Some(declaration.to_owned());
+            };
+            match propriete.trim().to_ascii_lowercase().as_str() {
+                "height" => {
+                    change = true;
+                    Some(format!("min-height:{valeur}"))
+                }
+                "max-height" => {
+                    change = true;
+                    None
+                }
+                _ => Some(declaration.to_owned()),
+            }
+        })
+        .collect();
+    change.then(|| declarations.join(";"))
+}
+
+/// The pixels of a `height` attribute; `None` for a percentage or anything else.
+fn pixels(valeur: &str) -> Option<f32> {
+    let valeur = valeur.trim();
+    let nombre = valeur.strip_suffix("px").unwrap_or(valeur).trim();
+    nombre
+        .parse::<f32>()
+        .ok()
+        .filter(|n| n.is_finite() && *n >= 0.0)
 }
 
 /// Un message mis en page, prêt à être peint.
@@ -264,6 +362,10 @@ impl TiledDocument for BlitzDocument {
             peintre.resize(self.width, hauteur);
             *taille = hauteur;
         }
+        // `render` adds to what the painter already holds: without this, every tile
+        // also carried the drawing of the tiles painted before it, and a reply showed
+        // printed over the message it quotes.
+        peintre.reset();
 
         // Le document défile jusqu'à la tuile ; le peintre écarte de lui-même ce qui
         // sort du cadre, si bien qu'une tuile ne coûte que ce qu'elle montre.
@@ -361,6 +463,128 @@ mod tests {
         d.paint_tile(derniere, &mut pixels).unwrap();
         d.paint_tile(1, &mut pixels).unwrap();
         assert!(d.paint_tile(d.tile_count(), &mut pixels).is_err());
+    }
+
+    #[test]
+    fn une_tuile_ne_garde_rien_de_la_precedente() {
+        // A black band at the very top, then nothing but white for several tiles.
+        // Tile 1 is painted after tile 0 with the same painter: if the painter kept
+        // tile 0's drawing, the band shows again at the top of tile 1 — the text of
+        // a reply printed over the message it quotes.
+        let mut d = document(
+            "<body style='margin:0'><div style='height:100px;background:#000'></div>             <div style='height:2000px'></div></body>",
+        );
+        assert!(d.tile_count() >= 3);
+        let mut pixels = crate::VecSink::default();
+        d.paint_tile(0, &mut pixels).unwrap();
+        assert!(
+            pixels.0.chunks_exact(4).any(|p| p[0] < 16),
+            "the band is in tile 0"
+        );
+        for tuile in [1, 2] {
+            d.paint_tile(tuile, &mut pixels).unwrap();
+            assert!(
+                pixels.0.chunks_exact(4).all(|p| p[0] > 240),
+                "tile {tuile} must be blank"
+            );
+        }
+    }
+
+    /// A plain red square, 8 × 8.
+    const ROUGE: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP8z4AdMOEQH6QSAM1BAQ/oQeJvAAAAAElFTkSuQmCC";
+
+    /// The rows of tile 0 holding red pixels, and those holding dark ones.
+    fn rangees(html: &str) -> (Vec<u32>, Vec<u32>) {
+        let mut d = document(html);
+        let mut pixels = crate::VecSink::default();
+        d.paint_tile(0, &mut pixels).unwrap();
+        let largeur = d.size().0 as usize;
+        let (mut rouges, mut sombres) = (Vec::new(), Vec::new());
+        for (y, ligne) in pixels.0.chunks_exact(largeur * 4).enumerate() {
+            let px = || ligne.chunks_exact(4);
+            if px().any(|p| p[0] > 200 && p[1] < 60 && p[2] < 60) {
+                rouges.push(y as u32);
+            }
+            if px().any(|p| p[0] < 90 && p[1] < 90 && p[2] < 90) {
+                sombres.push(y as u32);
+            }
+        }
+        (rouges, sombres)
+    }
+
+    #[test]
+    fn une_image_dans_une_ligne_de_hauteur_nulle_ne_monte_pas_sur_le_texte() {
+        // What signature tools write around every picture: a block with
+        // `line-height:0`. The picture must still push what follows down and stay
+        // below what precedes it, as in every mail client.
+        let (rouges, sombres) = rangees(&format!(
+            "<body style='margin:0;font:16px sans-serif;color:#000'>             <div>Above</div>             <div style='line-height:0px'><img src='{ROUGE}' width='100' height='60'></div>             <div>Below</div></body>"
+        ));
+        let (haut, bas) = (rouges[0], *rouges.last().unwrap());
+        assert!(
+            bas - haut >= 55,
+            "the picture is drawn whole: {haut}..{bas}"
+        );
+        assert!(
+            sombres.iter().all(|y| *y < haut || *y > bas),
+            "no text inside the picture's rows {haut}..{bas}: {sombres:?}"
+        );
+        assert!(sombres.iter().any(|y| *y < haut) && sombres.iter().any(|y| *y > bas));
+    }
+
+    #[test]
+    fn les_hauteurs_de_tableau_deviennent_des_minimums() {
+        assert_eq!(
+            minimum_heights("width:150px; height:139.88px; max-height:120px").as_deref(),
+            Some("width:150px;min-height:139.88px")
+        );
+        assert_eq!(minimum_heights("line-height:16px; min-height:3px"), None);
+        assert_eq!(
+            minimum_heights("background:url(data:image/png;base64,AAAA);Height:2px").as_deref(),
+            Some("background:url(data:image/png;base64,AAAA);min-height:2px")
+        );
+        assert_eq!(pixels(" 40 "), Some(40.0));
+        assert_eq!(pixels("12px"), Some(12.0));
+        assert_eq!(pixels("100%"), None);
+    }
+
+    #[test]
+    fn un_tableau_trop_petit_pour_son_texte_grandit() {
+        // Signature tools give their tables the height they measured in their own
+        // editor. In a browser a table height is a minimum; if the text needs more,
+        // the table grows and what follows moves down instead of covering it.
+        let (rouges, sombres) = rangees(&format!(
+            "<body style='margin:0;font:16px sans-serif;color:#000'>             <table cellspacing='0' cellpadding='0' style='height:20px'><tr>             <td style='height:20px'>One<br>Two<br>Three<br>Four</td></tr></table>             <table height='10'><tr><td height='10'>Five<br>Six</td></tr></table>             <div><img src='{ROUGE}' width='100' height='40'></div></body>"
+        ));
+        let haut = rouges[0];
+        assert!(
+            sombres.iter().all(|y| *y < haut),
+            "the text ends above the picture at {haut}: {sombres:?}"
+        );
+        assert!(
+            sombres.iter().filter(|y| **y > 60).count() > 0,
+            "all six lines are laid out"
+        );
+    }
+
+    #[test]
+    fn un_tableau_sans_bordure_n_est_pas_encadre() {
+        // `border-collapse: collapse` with no border set: nothing is drawn.
+        let (_, sombres) = rangees(
+            "<body style='margin:0'><table style='border-collapse:collapse'>             <tr><td style='width:300px;height:40px'></td></tr></table></body>",
+        );
+        assert!(sombres.is_empty(), "rows with a border: {sombres:?}");
+    }
+
+    #[test]
+    fn une_vraie_bordure_reste_dessinee() {
+        let (_, sombres) = rangees(
+            "<body style='margin:0'><table border='1' style='border-collapse:collapse'>             <tr><td style='width:300px;height:40px'></td></tr></table>             <table style='margin-top:20px'><tr>             <td style='border:2px solid #000;width:300px;height:40px'></td></tr></table></body>",
+        );
+        assert!(
+            sombres.len() >= 4,
+            "both tables keep their border: {sombres:?}"
+        );
     }
 
     #[test]

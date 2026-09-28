@@ -96,3 +96,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 [[example]]
 name = "mesure"
 required-features = ["blitz"]
+
+[[example]]
+name = "corps"
+required-features = ["blitz"]
