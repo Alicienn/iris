@@ -221,6 +221,23 @@ pub fn now() -> Timestamp {
     )
 }
 
+/// L'exécuteur asynchrone de l'application.
+///
+/// Deux fils de travail, quatre pour les tâches bloquantes. Le défaut de Tokio en
+/// crée un par cœur logique — seize sur une machine de bureau récente — pour un
+/// travail qui passe l'essentiel de son temps à attendre le réseau. Chaque fil a sa
+/// pile et ses réserves d'allocation, et ce qu'ils attendent ensemble, deux fils
+/// l'attendent aussi bien.
+pub fn runtime() -> iris_types::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(4)
+        .thread_name("iris-async")
+        .enable_all()
+        .build()
+        .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

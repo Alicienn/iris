@@ -174,14 +174,7 @@ impl RichText {
 pub struct RichTextRenderer;
 
 impl HtmlRenderer for RichTextRenderer {
-    fn render(
-        &self,
-        sanitized_html: &str,
-        _width: f32,
-        // Le texte riche n'a pas d'image à déposer : il rend des blocs, que
-        // l'interface dessine elle-même. Le tampon reste intact.
-        _pixels: &mut dyn crate::PixelSink,
-    ) -> Result<Rendered> {
+    fn render(&self, sanitized_html: &str, _width: f32) -> Result<Rendered> {
         Ok(Rendered::Blocks(parse(sanitized_html)))
     }
 
@@ -804,7 +797,7 @@ mod tests {
             "<table><tr><td>",
         ];
         for h in horreurs {
-            let r = RichTextRenderer.render(h, 800.0, &mut crate::VecSink::default());
+            let r = RichTextRenderer.render(h, 800.0);
             assert!(r.is_ok(), "échec sur « {h} »");
         }
     }

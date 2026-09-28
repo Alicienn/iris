@@ -226,8 +226,7 @@ fn cmd_add_account(args: &[String]) -> Result<()> {
     let services = open_services()?;
     let motdepasse = prompt_secret(&format!("Mot de passe pour {adresse} : "))?;
 
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
+    let runtime = iris_app::services::runtime()?;
 
     let ajoute = runtime.block_on(accounts::add_account(
         &services.store,
@@ -280,8 +279,7 @@ fn cmd_import(args: &[String]) -> Result<()> {
 
     println!("{} account(s) to add…", entrees.len());
     let services = open_services()?;
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
+    let runtime = iris_app::services::runtime()?;
 
     let rapport = runtime.block_on(accounts::add_bulk(
         Arc::clone(&services.store),
@@ -322,8 +320,7 @@ fn cmd_list_accounts() -> Result<()> {
 
 fn cmd_sync() -> Result<()> {
     let services = open_services()?;
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
+    let runtime = iris_app::services::runtime()?;
 
     runtime.block_on(async {
         let inscrits = services.engine.load_accounts(now()).await?;
@@ -588,8 +585,7 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
 
     // L'exécuteur asynchrone tourne dans ses propres fils : la synchronisation ne
     // partage rien avec l'affichage.
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|e| iris_types::Error::other(format!("exécuteur : {e}")))?;
+    let runtime = iris_app::services::runtime()?;
     iris_app::memory::mark("exécuteur asynchrone");
 
     // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
@@ -664,6 +660,7 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
     )));
 
     shell::wire_window_controls(&fenetre);
+    shell::wire_body_tiles(&fenetre);
     shell::wire_sync(
         &fenetre,
         &services,
@@ -994,6 +991,7 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
                             // ce qui la ramène sous les yeux.
                             fenetre.window().set_minimized(false);
                             let _ = fenetre.show();
+                            shell::came_back(&fenetre);
                             fenetre.window().set_fullscreen(false);
                         }
                     }

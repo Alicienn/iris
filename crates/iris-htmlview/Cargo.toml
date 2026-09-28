@@ -9,7 +9,7 @@ license.workspace = true
 # Le moteur HTML complet. Optionnel : il tire une pile graphique entière, et
 # l'application reste pleinement fonctionnelle sans lui.
 default = ["blitz", "remote-images"]
-blitz = ["dep:blitz-dom", "dep:blitz-html", "dep:blitz-paint", "dep:blitz-traits", "dep:anyrender", "dep:anyrender_vello"]
+blitz = ["dep:blitz-dom", "dep:blitz-html", "dep:blitz-paint", "dep:blitz-traits", "dep:anyrender", "dep:anyrender_vello_cpu"]
 # Aller chercher les images distantes quand le lecteur le demande. Séparé de
 # « blitz » parce que c'est la seule chose de tout le programme de rendu qui
 # touche au réseau, et qu'une compilation qui ne peut pas en sortir se
@@ -34,14 +34,22 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
     "bmp",
 ] }
-blitz-dom = { version = "0.2", optional = true }
-blitz-html = { version = "0.2", optional = true }
-blitz-paint = { version = "0.2", optional = true }
-blitz-traits = { version = "0.2", optional = true }
-# Versions alignees a dessein : « blitz-paint » 0.2 s'appuie sur « anyrender » 0.6,
-# et seul « anyrender_vello » 0.6 parle cette version du trait de peinture. Les
-# versions plus recentes des deux cotes ne sont pas encore synchronisees entre
-# elles ; les melanger produit deux traits « PaintScene » incompatibles.
-anyrender = { version = "0.6", optional = true }
-anyrender_vello = { version = "0.6", optional = true }
+# Blitz 0.3, peint **sur le processeur**.
+#
+# La 0.2 peignait par Vello sur la carte graphique, dans un device wgpu à elle : une
+# deuxième pile graphique complète, à côté de celle de l'interface, pour dessiner un
+# message quand on l'ouvre. Ce que ce device engage n'apparaît dans aucun compteur de
+# tas — c'est le pilote qui le réserve — et c'était la plus grosse part de la mémoire
+# de l'application ouverte. vello_cpu fait le même dessin dans un tampon ordinaire.
+#
+# Versions épinglées ensemble : blitz-paint 0.3.0-beta.2 parle anyrender 0.13, et
+# anyrender_vello_cpu 0.17 est la version de ce trait-là. Sans l'accessibilité ni les
+# widgets de Blitz, qu'un corps de message n'emploie pas ; avec les flottants, que les
+# infolettres emploient beaucoup.
+blitz-dom = { version = "=0.3.0-beta.2", optional = true, default-features = false, features = ["system-fonts", "woff", "floats", "tracing"] }
+blitz-html = { version = "=0.3.0-beta.2", optional = true }
+blitz-paint = { version = "=0.3.0-beta.2", optional = true, default-features = false }
+blitz-traits = { version = "=0.3.0-beta.2", optional = true }
+anyrender = { version = "0.13", optional = true }
+anyrender_vello_cpu = { version = "0.17", optional = true, default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"], optional = true }

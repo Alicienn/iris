@@ -614,6 +614,11 @@ export component AppWindow inherits Window {
     callback redo();
     callback save-attachment(int);
     callback open-attachment(int);
+    /// A tile of a message body, (message id, tile index), came near the screen or left it.
+    callback body-tile-wanted(int, int);
+    callback body-tile-released(int, int);
+    /// Hidden in the tray: no body tile asks for pixels.
+    in property <bool> bodies-suspended;
     /// Le message tel qu'il est arrivé, en-têtes compris.
     in-out property <bool> source-open;
     in property <string> source-subject;
@@ -1043,6 +1048,9 @@ export component AppWindow inherits Window {
                     load-images => { root.load-images(); }
                     save-attachment(i) => { root.save-attachment(i); }
                     open-attachment(i) => { root.open-attachment(i); }
+                    body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
+                    body-tile-released(m, t) => { root.body-tile-released(m, t); }
+                    bodies-suspended: root.bodies-suspended;
                 }
             }
 

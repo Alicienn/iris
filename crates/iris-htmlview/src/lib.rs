@@ -31,34 +31,65 @@ pub use richtext::{Block, Inline, RichText, RichTextRenderer};
 use iris_types::Result;
 
 /// Ce qu'un moteur de rendu produit.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum Rendered {
     /// Une suite de blocs, dessinés par l'interface elle-même.
     Blocks(RichText),
-    /// Une image déjà composée, à afficher telle quelle.
+    /// Un document mis en page une fois, et peint **par tuiles, à la demande**.
     ///
-    /// Les pixels ne sont pas ici : ils sont dans le tampon que l'appelant a fourni
-    /// (voir [`PixelSink`]). Ce qui reste est ce qu'il faut pour les lire.
-    Texture { width: u32, height: u32 },
+    /// C'était une seule image, de la hauteur du message : une infolettre de vingt
+    /// mille pixels en coûtait quatre-vingts mégaoctets, même lue en haut. Une tuile
+    /// n'existe désormais que près de ce qu'on regarde.
+    Document(Box<dyn TiledDocument>),
 }
 
 impl Rendered {
     pub fn as_blocks(&self) -> Option<&RichText> {
         match self {
             Self::Blocks(b) => Some(b),
-            Self::Texture { .. } => None,
+            Self::Document(_) => None,
         }
     }
+}
+
+/// Un document prêt à être peint, morceau par morceau.
+///
+/// La mise en page a eu lieu ; peindre une tuile ne la refait pas. Les dimensions sont
+/// en pixels physiques, à l'échelle de l'écran.
+pub trait TiledDocument: std::fmt::Debug {
+    /// Largeur et hauteur du document entier.
+    fn size(&self) -> (u32, u32);
+
+    /// Hauteur d'une tuile. La dernière peut être plus courte.
+    fn tile_height(&self) -> u32;
+
+    /// Nombre de tuiles.
+    fn tile_count(&self) -> usize {
+        let (_, hauteur) = self.size();
+        let tuile = self.tile_height().max(1);
+        hauteur.div_ceil(tuile).max(1) as usize
+    }
+
+    /// Hauteur de la tuile `index`.
+    fn tile_extent(&self, index: usize) -> u32 {
+        let (_, hauteur) = self.size();
+        let debut = index as u32 * self.tile_height();
+        hauteur.saturating_sub(debut).min(self.tile_height())
+    }
+
+    /// Peint une tuile dans le tampon de l'appelant, opaque, prêt à afficher.
+    fn paint_tile(&mut self, index: usize, pixels: &mut dyn PixelSink) -> Result<()>;
+
+    /// Rend ce qui ne sert qu'à peindre — le peintre et ses caches — en gardant la
+    /// mise en page. La prochaine tuile demandée les reconstruit.
+    fn release(&mut self);
 }
 
 /// Où un moteur dépose ses pixels.
 ///
 /// Le moteur écrivait dans un `Vec` à lui, que l'interface recopiait ensuite dans le
-/// sien : une image de message existait donc deux fois en mémoire, et pour un long
-/// message affiché large cela faisait cinquante-huit mégaoctets payés deux fois. La
-/// mise en page décide de la hauteur, donc l'appelant ne peut pas réserver le tampon
-/// d'avance ; il prête celui-ci **quand la taille est connue**, et le moteur peint
-/// dedans. Rien n'est recopié.
+/// sien : une image existait donc deux fois en mémoire. L'appelant prête le sien, et
+/// le moteur peint dedans. Rien n'est recopié.
 pub trait PixelSink {
     /// Réserve un tampon RGBA de `width × height` pixels et le prête à remplir.
     ///
@@ -82,47 +113,32 @@ impl PixelSink for VecSink {
 
 /// Un moteur de rendu de corps de message.
 pub trait HtmlRenderer: std::fmt::Debug + Send + Sync {
-    /// Rend un corps **déjà assaini**.
+    /// Rend un corps **déjà assaini**, mis en page sur `width` points.
     ///
     /// L'assainissement n'est pas la responsabilité du moteur : il a lieu une fois, à
     /// l'analyse, et un moteur qui recevrait du HTML brut pourrait exécuter ce que
     /// l'assainissement aurait retiré.
-    ///
-    /// `pixels` n'est sollicité que par un moteur qui compose une image, et seulement
-    /// une fois la hauteur connue. Un moteur qui rend des blocs n'y touche jamais.
-    fn render(
-        &self,
-        sanitized_html: &str,
-        width: f32,
-        pixels: &mut dyn PixelSink,
-    ) -> Result<Rendered>;
+    fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered>;
 
     /// Le même rendu, en autorisant les ressources distantes.
     ///
-    /// Un paramètre plutôt qu'un moteur séparé, et une méthode par défaut plutôt
-    /// qu'une signature modifiée partout : la quasi-totalité des moteurs n'ont pas de
-    /// ressources à aller chercher, et leur imposer un argument qu'ils ignorent
-    /// n'apprend rien à personne. Le défaut est le blocage, comme il se doit.
+    /// Le défaut est le blocage, comme il se doit : la quasi-totalité des moteurs n'ont
+    /// pas de ressources à aller chercher.
     fn render_with(
         &self,
         sanitized_html: &str,
         width: f32,
         _allow_remote: bool,
-        pixels: &mut dyn PixelSink,
     ) -> Result<Rendered> {
-        self.render(sanitized_html, width, pixels)
+        self.render(sanitized_html, width)
     }
 
     /// Nom du moteur, pour le diagnostic et les réglages.
     fn name(&self) -> &'static str;
 
     /// Le moteur restitue-t-il fidèlement une mise en page complexe ?
-    ///
-    /// L'interface s'en sert pour proposer une solution de repli quand un message
-    /// s'affiche mal.
     fn is_full_fidelity(&self) -> bool;
 }
-
 /// Choisit un moteur selon la complexité du message.
 ///
 /// Un message écrit par un humain n'a pas besoin d'un moteur de rendu complet ; une
@@ -179,13 +195,8 @@ impl AdaptiveRenderer {
 }
 
 impl HtmlRenderer for AdaptiveRenderer {
-    fn render(
-        &self,
-        sanitized_html: &str,
-        width: f32,
-        pixels: &mut dyn PixelSink,
-    ) -> Result<Rendered> {
-        self.render_with(sanitized_html, width, false, pixels)
+    fn render(&self, sanitized_html: &str, width: f32) -> Result<Rendered> {
+        self.render_with(sanitized_html, width, false)
     }
 
     fn render_with(
@@ -193,7 +204,6 @@ impl HtmlRenderer for AdaptiveRenderer {
         sanitized_html: &str,
         width: f32,
         allow_remote: bool,
-        pixels: &mut dyn PixelSink,
     ) -> Result<Rendered> {
         match &self.complete {
             // A message whose images the reader has asked to see goes to the full
@@ -203,15 +213,15 @@ impl HtmlRenderer for AdaptiveRenderer {
             Some(moteur) if allow_remote || self.needs_full_engine(sanitized_html) => {
                 // Un moteur complet peut échouer sur du HTML tordu ; le repli sur le
                 // texte riche vaut toujours mieux qu'un panneau vide.
-                match moteur.render_with(sanitized_html, width, allow_remote, pixels) {
+                match moteur.render_with(sanitized_html, width, allow_remote) {
                     Ok(r) => Ok(r),
                     Err(e) => {
                         tracing::warn!(error = %e, "moteur complet en échec, repli sur le texte riche");
-                        self.simple.render(sanitized_html, width, pixels)
+                        self.simple.render(sanitized_html, width)
                     }
                 }
             }
-            _ => self.simple.render(sanitized_html, width, pixels),
+            _ => self.simple.render(sanitized_html, width),
         }
     }
 
@@ -272,18 +282,31 @@ mod tests {
         echoue: bool,
     }
 
+    /// Un document de 8 × 20 pixels, en tuiles de 8.
+    #[derive(Debug)]
+    struct FauxDocument;
+
+    impl TiledDocument for FauxDocument {
+        fn size(&self) -> (u32, u32) {
+            (8, 20)
+        }
+        fn tile_height(&self) -> u32 {
+            8
+        }
+        fn paint_tile(&mut self, index: usize, pixels: &mut dyn PixelSink) -> Result<()> {
+            let hauteur = self.tile_extent(index);
+            pixels.rgba(8, hauteur).fill(255);
+            Ok(())
+        }
+        fn release(&mut self) {}
+    }
+
     impl HtmlRenderer for MoteurComplet {
-        fn render(&self, _html: &str, _width: f32, pixels: &mut dyn PixelSink) -> Result<Rendered> {
+        fn render(&self, _html: &str, _width: f32) -> Result<Rendered> {
             if self.echoue {
                 return Err(iris_types::Error::other("moteur en panne"));
             }
-            // Comme le vrai : la taille est décidée ici, et le tampon réclamé à ce
-            // moment-là seulement.
-            pixels.rgba(8, 4);
-            Ok(Rendered::Texture {
-                width: 8,
-                height: 4,
-            })
+            Ok(Rendered::Document(Box::new(FauxDocument)))
         }
         fn name(&self) -> &'static str {
             "complet"
@@ -304,11 +327,7 @@ mod tests {
         let r = adaptatif(false);
         let html = "<p>Bonjour,</p><p>Voici le devis demandé.</p>";
         assert!(!r.needs_full_engine(html));
-        assert!(r
-            .render(html, 800.0, &mut VecSink::default())
-            .unwrap()
-            .as_blocks()
-            .is_some());
+        assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
     }
 
     #[test]
@@ -317,8 +336,8 @@ mod tests {
         let html = "<table><tr><td><table><tr><td>Contenu</td></tr></table></td></tr></table>";
         assert!(r.needs_full_engine(html));
         assert!(matches!(
-            r.render(html, 800.0, &mut VecSink::default()).unwrap(),
-            Rendered::Texture { .. }
+            r.render(html, 800.0).unwrap(),
+            Rendered::Document(_)
         ));
     }
 
@@ -334,22 +353,14 @@ mod tests {
         // Un panneau vide serait pire qu'un rendu approximatif.
         let r = adaptatif(true);
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
-        assert!(r
-            .render(html, 800.0, &mut VecSink::default())
-            .unwrap()
-            .as_blocks()
-            .is_some());
+        assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
     }
 
     #[test]
     fn sans_moteur_complet_tout_passe_par_le_texte_riche() {
         let r = AdaptiveRenderer::new(Box::new(RichTextRenderer));
         let html = "<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>";
-        assert!(r
-            .render(html, 800.0, &mut VecSink::default())
-            .unwrap()
-            .as_blocks()
-            .is_some());
+        assert!(r.render(html, 800.0).unwrap().as_blocks().is_some());
         assert!(!r.is_full_fidelity());
     }
 
@@ -377,6 +388,15 @@ mod tests {
             .map(|i| format!("<div style=\"color:#{i:03}\">x</div>"))
             .collect();
         assert!(r.needs_full_engine(&html));
+    }
+
+    #[test]
+    fn un_document_se_decoupe_en_tuiles_dont_la_derniere_est_plus_courte() {
+        let d = FauxDocument;
+        assert_eq!(d.tile_count(), 3);
+        assert_eq!(d.tile_extent(0), 8);
+        assert_eq!(d.tile_extent(2), 4);
+        assert_eq!(d.tile_extent(3), 0);
     }
 
     #[test]

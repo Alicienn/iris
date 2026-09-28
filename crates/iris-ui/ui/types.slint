@@ -68,11 +68,22 @@ export struct AttachmentData {
     icon: string,
 }
 
+// One slice of a message body painted by the full HTML engine.
+//
+// Every tile has its place from the start — `aspect` gives its height for any width —
+// but its pixels only while it is near the screen. A long newsletter scrolls at its
+// full height and costs a screen or two of pixels.
+export struct BodyTileData {
+    image: image,
+    ready: bool,
+    // Height divided by width.
+    aspect: float,
+}
+
 export struct MessageData {
-    // Corps rendu par le moteur HTML complet, quand la mise en page l'exige. Les
-    // blocs restent renseignes : ils servent de repli et d'ancrage a
-    // l'accessibilite, qu'une image ne peut pas porter.
-    body-image: image,
+    // Corps rendu par le moteur HTML complet, quand la mise en page l'exige : une
+    // colonne de tuiles, peintes seulement près de l'écran.
+    body-tiles: [BodyTileData],
     body-is-image: bool,
     from: string,
     from-address: string,

@@ -13,6 +13,8 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 ### Improved
 - A certificate error names the server to use instead.
 - Changing a password or an account now says whether it works.
+- Newsletters open using a fraction of the memory, and very long ones show in full.
+- Much less memory used while Iris waits in the notification area.
 - New message opens with the cursor in the To field.
 - Text fields keep the same background whether or not you are typing in them.
 

@@ -136,6 +136,17 @@ mod platform {
         fn GetProcessMemoryInfo(process: isize, counters: *mut MemoryCounters, cb: u32) -> i32;
     }
 
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetProcessWorkingSetSize(process: isize, minimum: usize, maximum: usize) -> i32;
+    }
+
+    pub fn trim_working_set() -> bool {
+        // SAFETY: no pointer at all. `usize::MAX` for both bounds is the documented
+        // request to empty the working set, on the current process's pseudo-handle.
+        unsafe { SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX) != 0 }
+    }
+
     fn to_duration(t: &FileTime) -> Duration {
         // FILETIME counts hundred-nanosecond intervals.
         let ticks = ((t.high as u64) << 32) | t.low as u64;
@@ -192,6 +203,10 @@ mod platform {
 mod platform {
     use std::time::Duration;
 
+    pub fn trim_working_set() -> bool {
+        false
+    }
+
     pub fn cpu_time() -> Option<Duration> {
         let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
         // The comm field can contain spaces and parentheses, so fields are counted
@@ -215,12 +230,26 @@ mod platform {
 mod platform {
     use std::time::Duration;
 
+    pub fn trim_working_set() -> bool {
+        false
+    }
+
     pub fn cpu_time() -> Option<Duration> {
         None
     }
     pub fn resident_bytes() -> Option<u64> {
         None
     }
+}
+
+/// Hands the pages the process is not using back to the system.
+///
+/// Called once the window has gone to the notification area and what it drew has been
+/// released. Iris can spend days there; without this, the working set stays at its
+/// last peak, which is what Task Manager shows and what the system weighs when memory
+/// runs short. Nothing is lost: a page still needed comes back on first touch.
+pub fn give_back_memory() -> bool {
+    platform::trim_working_set()
 }
 
 fn process_cpu_time() -> Option<Duration> {

@@ -17,6 +17,7 @@ use iris_ui::commands::{self, CommandKind};
 use iris_ui::keymap::{KeyOutcome, Keymap};
 use iris_ui::{AppWindow, AttachmentData, FolderNodeData, PluginSettingData, Tokens};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -868,6 +869,10 @@ pub fn remplir_conversation(
         *derniere = signature;
     }
 
+    // Les documents peints par tuiles, gardés pour ceux qui restent affichés. Ceux des
+    // messages qui disparaissent de la colonne partent avec leur mise en page.
+    let mut documents: HashMap<i64, CorpsOuvert> = HashMap::new();
+
     let vues: Vec<iris_ui::MessageData> = messages
         .iter()
         .map(|message| {
@@ -877,15 +882,26 @@ pub fn remplir_conversation(
             }
 
             let montrer = images_shown().contains(&message.id.get());
-            let mut pixels = bridge::ImageSink::default();
-            let corps = corps_du_message(services, renderer, message, montrer, &mut pixels);
-            let mut vue = bridge::message_view_rendered(
-                message,
-                &corps,
-                pixels,
-                &pieces_jointes(services, message.id),
-                maintenant,
-            );
+            let pieces = pieces_jointes(services, message.id);
+            let mut vue = match corps_du_message(services, renderer, message, montrer) {
+                // Un document : ses tuiles sont posées vides, et peintes quand elles
+                // approchent de l'écran (`wire_body_tiles`).
+                iris_htmlview::Rendered::Document(document) => {
+                    let tuiles =
+                        Rc::new(VecModel::from(bridge::tile_placeholders(document.as_ref())));
+                    let mut vue = bridge::message_view(
+                        message,
+                        &iris_htmlview::RichText::default(),
+                        &pieces,
+                        maintenant,
+                    );
+                    vue.body_tiles = ModelRc::from(Rc::clone(&tuiles));
+                    vue.body_is_image = true;
+                    documents.insert(message.id.get(), CorpsOuvert { document, tuiles });
+                    vue
+                }
+                autre => bridge::message_view_rendered(message, &autre, &pieces, maintenant),
+            };
             // Le corps n'est pas encore descendu du serveur. L'écran doit le dire :
             // un panneau vide ne distingue pas « ça arrive » de « il n'y a rien ».
             vue.body_loading = message.body_blob.is_none();
@@ -899,7 +915,109 @@ pub fn remplir_conversation(
     if let Some(vue) = vues.last() {
         fenetre.set_message(vue.clone());
     }
+    CORPS.with(|c| *c.borrow_mut() = documents);
     fenetre.set_messages(ModelRc::new(VecModel::from(vues)));
+}
+
+/// Un corps mis en page par le moteur complet, et le modèle de ses tuiles.
+struct CorpsOuvert {
+    document: Box<dyn iris_htmlview::TiledDocument>,
+    tuiles: Rc<VecModel<iris_ui::BodyTileData>>,
+}
+
+thread_local! {
+    /// Les corps affichés, par identifiant de message.
+    ///
+    /// Sur le fil de l'interface, parce que c'est là que les tuiles sont demandées et
+    /// que le document n'est pas fait pour changer de fil.
+    static CORPS: std::cell::RefCell<HashMap<i64, CorpsOuvert>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Peint les tuiles qui approchent de l'écran, et rend celles qui s'en éloignent.
+pub fn wire_body_tiles(fenetre: &AppWindow) {
+    fenetre.on_body_tile_wanted(|message, index| {
+        CORPS.with(|c| {
+            let mut corps = c.borrow_mut();
+            let Some(ouvert) = corps.get_mut(&(message as i64)) else {
+                return;
+            };
+            let index = index.max(0) as usize;
+            let Some(mut tuile) = ouvert.tuiles.row_data(index) else {
+                return;
+            };
+            if tuile.ready {
+                return;
+            }
+            let (largeur, _) = ouvert.document.size();
+            let hauteur = ouvert.document.tile_extent(index);
+            let mut pixels = bridge::ImageSink::default();
+            match ouvert.document.paint_tile(index, &mut pixels) {
+                Ok(()) => {
+                    if let Some(image) = pixels.image(largeur, hauteur) {
+                        tuile.image = image;
+                        tuile.ready = true;
+                        ouvert.tuiles.set_row_data(index, tuile);
+                    }
+                }
+                Err(e) => tracing::warn!(error = %e, index, "painting a body tile"),
+            }
+        });
+    });
+
+    fenetre.on_body_tile_released(|message, index| {
+        CORPS.with(|c| {
+            let corps = c.borrow();
+            let Some(ouvert) = corps.get(&(message as i64)) else {
+                return;
+            };
+            let index = index.max(0) as usize;
+            if let Some(mut tuile) = ouvert.tuiles.row_data(index) {
+                if tuile.ready {
+                    tuile.image = slint::Image::default();
+                    tuile.ready = false;
+                    ouvert.tuiles.set_row_data(index, tuile);
+                }
+            }
+        });
+    });
+}
+
+/// Rend tout ce que la lecture a peint : tuiles et peintres. Les mises en page
+/// restent, pour que revenir ne coûte que les tuiles qu'on regarde.
+pub fn release_bodies() {
+    CORPS.with(|c| {
+        for ouvert in c.borrow_mut().values_mut() {
+            for i in 0..ouvert.tuiles.row_count() {
+                if let Some(mut tuile) = ouvert.tuiles.row_data(i) {
+                    if tuile.ready {
+                        tuile.image = slint::Image::default();
+                        tuile.ready = false;
+                        ouvert.tuiles.set_row_data(i, tuile);
+                    }
+                }
+            }
+            ouvert.document.release();
+        }
+    });
+}
+
+/// La fenêtre part dans la zone de notification : rendre ce qu'elle occupait.
+///
+/// Les tuiles cessent d'être demandées, celles qui existent sont rendues, puis les
+/// pages libérées retournent au système un quart de seconde plus tard — le temps que
+/// la fenêtre ait fini de disparaître et que rien ne les retouche aussitôt.
+pub fn went_to_tray(fenetre: &AppWindow) {
+    fenetre.set_bodies_suspended(true);
+    release_bodies();
+    slint::Timer::single_shot(std::time::Duration::from_millis(250), || {
+        crate::vitals::give_back_memory();
+    });
+}
+
+/// La fenêtre revient : les tuiles proches de l'écran se redemandent d'elles-mêmes.
+pub fn came_back(fenetre: &AppWindow) {
+    fenetre.set_bodies_suspended(false);
 }
 
 /// Les pièces jointes d'un message, prêtes pour le bandeau.
@@ -1125,9 +1243,6 @@ fn corps_du_message(
     renderer: &dyn iris_htmlview::HtmlRenderer,
     message: &iris_store::StoredMessage,
     allow_remote: bool,
-    // Le tampon de l'interface, prêté au moteur : s'il compose une image, elle est
-    // peinte là où elle sera affichée, et non recopiée depuis un tampon à lui.
-    pixels: &mut bridge::ImageSink,
 ) -> iris_htmlview::Rendered {
     let apercu = || {
         iris_htmlview::Rendered::Blocks(iris_htmlview::RichText {
@@ -1175,7 +1290,7 @@ fn corps_du_message(
     };
 
     renderer
-        .render_with(&html, 800.0, allow_remote, pixels)
+        .render_with(&html, 800.0, allow_remote)
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "rendering the body failed");
             apercu()
@@ -2833,6 +2948,8 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
             let _ = fenetre.window().hide();
             if !fenetre.get_tray_available() || !fenetre.get_keep_running() {
                 let _ = slint::quit_event_loop();
+            } else {
+                went_to_tray(&fenetre);
             }
         });
     }

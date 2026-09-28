@@ -75,14 +75,21 @@ impl Store {
     /// - `foreign_keys = ON` : les suppressions en cascade doivent réellement avoir
     ///   lieu, sinon supprimer un compte laisserait ses messages orphelins.
     /// - `busy_timeout` : plutôt attendre que retourner « base occupée » à l'interface.
+    /// - `cache_size` à 8 Mo, et les tris temporaires **sur disque**. Le cache valait
+    ///   32 Mo et les temporaires restaient en mémoire : après un grand parcours — une
+    ///   recherche, une resynchronisation — SQLite gardait ces pages pour toujours, et
+    ///   une application qui passe ses journées dans la zone de notification les payait
+    ///   toute la journée. Les requêtes de la liste lisent une page de soixante lignes
+    ///   par un index ; huit mégaoctets les servent entièrement, et le système de
+    ///   fichiers garde de toute façon le reste en cache pour nous.
     fn configure(conn: &Connection) -> Result<()> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;
-             PRAGMA temp_store = MEMORY;
-             PRAGMA cache_size = -32000;",
+             PRAGMA temp_store = FILE;
+             PRAGMA cache_size = -8192;",
         )
         .map_err(|e| Error::store(format!("configuration : {e}")))
     }

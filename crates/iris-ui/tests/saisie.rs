@@ -160,6 +160,104 @@ fn un_clic_d_un_champ_a_l_autre_sans_suggestions() {
     assert_eq!(f.get_compose_to().as_str(), "b");
 }
 
+// --- Les corps peints par tuiles ---
+
+fn corps_en_tuiles(f: &AppWindow, tuiles: usize) {
+    use iris_ui::{BodyTileData, MessageData};
+    let tuiles: Vec<BodyTileData> = (0..tuiles)
+        .map(|_| BodyTileData {
+            image: slint::Image::default(),
+            ready: false,
+            aspect: 1.0,
+        })
+        .collect();
+    let message = MessageData {
+        id: 7,
+        from: "Boutique".into(),
+        subject: "Infolettre".into(),
+        expanded: true,
+        body_is_image: true,
+        body_tiles: ModelRc::new(VecModel::from(tuiles)),
+        ..Default::default()
+    };
+    f.set_conversation_empty(false);
+    f.set_message(message.clone());
+    f.set_messages(ModelRc::new(VecModel::from(vec![message])));
+    // Un tour de la boucle d'interface : la mise en page se fait, et les rappels
+    // « changed » partent, comme ils partent dans l'application après chaque image.
+    let position = slint::LogicalPosition::new(1000.0, 400.0);
+    f.window()
+        .dispatch_event(WindowEvent::PointerMoved { position });
+    slint::platform::update_timers_and_animations();
+}
+
+fn journal_des_tuiles(f: &AppWindow) -> Rc<RefCell<Vec<(i32, i32, bool)>>> {
+    let journal = Rc::new(RefCell::new(Vec::new()));
+    {
+        let j = Rc::clone(&journal);
+        f.on_body_tile_wanted(move |m, t| j.borrow_mut().push((m, t, true)));
+    }
+    {
+        let j = Rc::clone(&journal);
+        f.on_body_tile_released(move |m, t| j.borrow_mut().push((m, t, false)));
+    }
+    journal
+}
+
+fn seules_les_tuiles_proches_de_l_ecran_sont_demandees() {
+    // Quarante tuiles, chacune aussi haute que large : un message de vingt mille
+    // pixels. Seules celles d'un écran autour de ce qu'on voit doivent être peintes.
+    let f = fenetre();
+    let journal = journal_des_tuiles(&f);
+    corps_en_tuiles(&f, 40);
+
+    let demandees: Vec<i32> = journal
+        .borrow()
+        .iter()
+        .filter(|e| e.2)
+        .map(|e| e.1)
+        .collect();
+    assert!(
+        demandees.contains(&0),
+        "la première est demandée : {demandees:?}"
+    );
+    assert!(
+        demandees.len() < 8,
+        "{} tuiles demandées sur 40 : {demandees:?}",
+        demandees.len()
+    );
+    assert!(!demandees.contains(&39));
+}
+
+fn defiler_demande_les_suivantes_et_rend_les_precedentes() {
+    let f = fenetre();
+    let journal = journal_des_tuiles(&f);
+    corps_en_tuiles(&f, 40);
+    journal.borrow_mut().clear();
+
+    // La molette au-dessus de la colonne de lecture, plusieurs crans.
+    let position = slint::LogicalPosition::new(1000.0, 400.0);
+    f.window()
+        .dispatch_event(WindowEvent::PointerMoved { position });
+    for _ in 0..40 {
+        f.window().dispatch_event(WindowEvent::PointerScrolled {
+            position,
+            delta_x: 0.0,
+            delta_y: -300.0,
+        });
+    }
+
+    let j = journal.borrow();
+    assert!(
+        j.iter().any(|e| e.2 && e.1 > 5),
+        "des tuiles plus bas sont demandées : {j:?}"
+    );
+    assert!(
+        j.iter().any(|e| !e.2 && e.1 == 0),
+        "la première est rendue : {j:?}"
+    );
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -187,6 +285,14 @@ fn main() {
         (
             "un_clic_d_un_champ_a_l_autre_sans_suggestions",
             un_clic_d_un_champ_a_l_autre_sans_suggestions,
+        ),
+        (
+            "seules_les_tuiles_proches_de_l_ecran_sont_demandees",
+            seules_les_tuiles_proches_de_l_ecran_sont_demandees,
+        ),
+        (
+            "defiler_demande_les_suivantes_et_rend_les_precedentes",
+            defiler_demande_les_suivantes_et_rend_les_precedentes,
         ),
     ];
 

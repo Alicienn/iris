@@ -1,7 +1,7 @@
 import { Tokens } from "tokens.slint";
 import { TextArea } from "field.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
-import { MessageData, MessageBlockData } from "types.slint";
+import { MessageData, MessageBlockData, BodyTileData } from "types.slint";
 import { Glass } from "glass.slint";
 import { LoadingLine } from "spinner.slint";
 import { ScrollView, Button } from "std-widgets.slint";
@@ -211,6 +211,64 @@ component RemoteContentBanner inherits Rectangle {
     }
 }
 
+// One tile of a body painted by the full engine.
+//
+// It asks for its pixels when it comes within a screen of the visible part, and gives
+// them back when it goes further. The margin is what makes scrolling look instant: the
+// next tile is painted before it shows.
+component BodyTile inherits Rectangle {
+    in property <BodyTileData> tile;
+    in property <length> top;
+    in property <length> visible-height;
+    in property <bool> suspended;
+
+    callback wanted();
+    callback released();
+
+    // Only once laid out. Before the first layout every tile is zero pixels wide,
+    // hence zero high, and they all sit at the top: every one of them looked near,
+    // and opening a newsletter painted all of it.
+    property <bool> near: !root.suspended
+        && root.width > 0 && root.visible-height > 0
+        && root.top < root.visible-height * 2
+        && root.top + root.height > -root.visible-height;
+
+    height: root.width * root.tile.aspect;
+    background: white;
+
+    // The first look is taken one turn of the event loop after creation, once the
+    // column has been laid out. Taken in `init`, it saw every tile at the top of a
+    // column not yet measured, and asked for all of them.
+    property <bool> armed;
+    Timer {
+        interval: 0ms;
+        running: !root.armed;
+        triggered => {
+            root.armed = true;
+            if (root.near) {
+                root.wanted();
+            }
+        }
+    }
+    changed near => {
+        if (!root.armed) {
+            return;
+        }
+        if (root.near) {
+            root.wanted();
+        } else {
+            root.released();
+        }
+    }
+
+    if root.tile.ready: Image {
+        width: 100%;
+        height: 100%;
+        source: root.tile.image;
+        image-fit: fill;
+    }
+}
+
 // La colonne de lecture, avec la réponse intégrée au bas du fil.
 export component ConversationView inherits VerticalLayout {
     /// Le message le plus récent : c'est lui que l'en-tête et la barre d'actions
@@ -240,6 +298,14 @@ export component ConversationView inherits VerticalLayout {
     callback forward-thread();
     callback mark-done();
     callback toggle-message(int);
+
+    /// A tile of a body painted by the full engine has come near the screen, or gone
+    /// away from it: (message id, tile index).
+    callback body-tile-wanted(int, int);
+    callback body-tile-released(int, int);
+    /// No tile asks for pixels while this is set: the window is hidden, and what was
+    /// painted has been given back.
+    in property <bool> bodies-suspended;
 
     /// Toutes les pièces jointes sont-elles montrées ?
     ///
@@ -370,7 +436,7 @@ export component ConversationView inherits VerticalLayout {
         // seulement une question de place, c'est ce qui rend la chose tenable — un
         // corps rendu coûte une rasterisation, et en faire douze pour en lire un
         // paierait onze fois pour rien. Le corps arrive au dépliage.
-        ScrollView {
+        defil := ScrollView {
             vertical-stretch: 1;
             viewport-height: fil.preferred-height;
 
@@ -471,13 +537,19 @@ export component ConversationView inherits VerticalLayout {
                         label: "Loading the message…";
                     }
 
-                    if message.expanded && !message.body-loading && message.body-is-image: Image {
-                        source: message.body-image;
-                        // Rendered at the width of the panel: it takes its natural
-                        // height rather than being stretched.
-                        image-fit: contain;
-                        width: 100%;
-                        height: self.source.height * 1px;
+                    // The body as a column of tiles. Each has its full height from
+                    // the start, so the scroll bar is right; its pixels exist only
+                    // while it is within a screen of the visible part.
+                    if message.expanded && !message.body-loading && message.body-is-image: VerticalLayout {
+                        for tuile[t] in message.body-tiles: BodyTile {
+                            tile: tuile;
+                            // Where the tile is, relative to the visible part.
+                            top: self.absolute-position.y - defil.absolute-position.y;
+                            visible-height: defil.height;
+                            suspended: root.bodies-suspended;
+                            wanted => { root.body-tile-wanted(message.id, t); }
+                            released => { root.body-tile-released(message.id, t); }
+                        }
                     }
 
                     if message.expanded && !message.body-loading && !message.body-is-image: VerticalLayout {

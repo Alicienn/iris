@@ -7,7 +7,8 @@
 
 use crate::format::{account_tint, display_subject, grouped_count, relative_date, short_count};
 use crate::{
-    AccountRowData, AttachmentData, CommandData, MessageBlockData, MessageData, ThreadRowData,
+    AccountRowData, AttachmentData, BodyTileData, CommandData, MessageBlockData, MessageData,
+    ThreadRowData,
 };
 use iris_htmlview::Rendered;
 use iris_htmlview::{Block, RichText};
@@ -256,26 +257,36 @@ impl iris_htmlview::PixelSink for ImageSink {
 
 /// Compose la vue d'un message a partir d'un rendu, quelle qu'en soit la forme.
 ///
-/// `pixels` est le tampon prete au moteur : s'il a compose une image, elle est
-/// dedans, et personne ne la recopie pour la lui prendre.
+/// Un document peint par tuiles n'apporte ici que sa forme : les tuiles, toutes a
+/// leur place et sans pixels. C'est l'appelant, qui garde le document, qui les
+/// peindra quand elles approcheront de l'ecran.
 pub fn message_view_rendered(
     message: &StoredMessage,
     rendered: &Rendered,
-    pixels: ImageSink,
     attachments: &[AttachmentData],
     now: Timestamp,
 ) -> MessageData {
     match rendered {
         Rendered::Blocks(blocs) => message_view(message, blocs, attachments, now),
-        Rendered::Texture { width, height } => {
+        Rendered::Document(document) => {
             let mut vue = message_view(message, &RichText::default(), attachments, now);
-            if let Some(image) = pixels.image(*width, *height) {
-                vue.body_image = image;
-                vue.body_is_image = true;
-            }
+            vue.body_tiles = ModelRc::new(VecModel::from(tile_placeholders(document.as_ref())));
+            vue.body_is_image = true;
             vue
         }
     }
+}
+
+/// Les tuiles d'un document, a leur place et sans pixels.
+pub fn tile_placeholders(document: &dyn iris_htmlview::TiledDocument) -> Vec<BodyTileData> {
+    let (largeur, _) = document.size();
+    (0..document.tile_count())
+        .map(|i| BodyTileData {
+            image: Image::default(),
+            ready: false,
+            aspect: document.tile_extent(i) as f32 / largeur.max(1) as f32,
+        })
+        .collect()
 }
 
 /// Compose la vue d'un message.
@@ -287,7 +298,7 @@ pub fn message_view(
 ) -> MessageData {
     MessageData {
         // Sans rendu par image, ces deux champs restent inertes.
-        body_image: Image::default(),
+        body_tiles: ModelRc::default(),
         body_is_image: false,
         body_loading: false,
         from: if message.from_name.trim().is_empty() {
@@ -320,7 +331,7 @@ pub fn message_view(
 /// arrive quand on le déplie.
 pub fn message_header(message: &StoredMessage, now: Timestamp) -> MessageData {
     MessageData {
-        body_image: Image::default(),
+        body_tiles: ModelRc::default(),
         body_is_image: false,
         body_loading: false,
         from: if message.from_name.trim().is_empty() {
@@ -637,19 +648,35 @@ mod tests {
             preview: String::new(),
             body_blob: None,
         };
-        let rendu = Rendered::Texture {
-            width: 4,
-            height: 2,
-        };
-        let mut pixels = ImageSink::default();
-        {
-            use iris_htmlview::PixelSink;
-            pixels.rgba(4, 2);
+        #[derive(Debug)]
+        struct Doc;
+        impl iris_htmlview::TiledDocument for Doc {
+            fn size(&self) -> (u32, u32) {
+                (400, 1000)
+            }
+            fn tile_height(&self) -> u32 {
+                512
+            }
+            fn paint_tile(
+                &mut self,
+                _i: usize,
+                _p: &mut dyn iris_htmlview::PixelSink,
+            ) -> iris_types::Result<()> {
+                Ok(())
+            }
+            fn release(&mut self) {}
         }
-        let vue = message_view_rendered(&message, &rendu, pixels, &[], now());
+        use slint::Model;
+        let rendu = Rendered::Document(Box::new(Doc));
+        let vue = message_view_rendered(&message, &rendu, &[], now());
 
         assert!(vue.body_is_image);
-        assert_eq!(vue.body_image.size().width, 4);
+        assert_eq!(vue.body_tiles.row_count(), 2);
+        let premiere = vue.body_tiles.row_data(0).unwrap();
+        assert!(!premiere.ready, "aucun pixel avant d'être demandé");
+        assert!((premiere.aspect - 512.0 / 400.0).abs() < 1e-6);
+        let derniere = vue.body_tiles.row_data(1).unwrap();
+        assert!((derniere.aspect - 488.0 / 400.0).abs() < 1e-6);
     }
 
     #[test]
@@ -688,13 +715,8 @@ mod tests {
             preview: String::new(),
             body_blob: None,
         };
-        let vue = message_view_rendered(
-            &message,
-            &Rendered::Blocks(RichText::default()),
-            ImageSink::default(),
-            &[],
-            now(),
-        );
+        let vue =
+            message_view_rendered(&message, &Rendered::Blocks(RichText::default()), &[], now());
         assert!(!vue.body_is_image);
     }
 

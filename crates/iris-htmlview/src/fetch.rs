@@ -17,15 +17,15 @@
 //! - tout le reste — refusé sans bruit. Un moteur de rendu n'a rien à faire dans le
 //!   système de fichiers.
 //!
-//! Les ressources ne sont pas remises au document depuis le fournisseur : celui-ci
-//! ne le voit pas, et le document est en train d'être construit quand il appelle.
-//! Elles sont **mises en attente**, et [`Pending::drain`] les remet une fois la
-//! construction finie. C'est le même schéma que la boucle d'événements de Blitz,
-//! réduit à un seul tour parce que nous rendons une image et nous arrêtons là.
+//! Les octets sont remis au gestionnaire que Blitz fournit avec chaque requête, qui
+//! les décode et les dépose dans la file du document ; `resolve` les y reprend.
+//!
+//! Une image démesurée est réduite **avant** d'arriver au moteur. Décodée telle quelle,
+//! une photo de 6000 × 4000 envoyée en pièce incrustée coûte 96 Mo de pixels pour être
+//! affichée sur 800 de large. Elle est ramenée ici à [`MAX_DIMENSION`] de côté, et le
+//! moteur ne voit jamais l'original.
 
-use blitz_dom::net::Resource;
-use blitz_traits::net::{BoxedHandler, NetProvider, Request, SharedCallback};
-use std::sync::{Arc, Mutex};
+use blitz_traits::net::{Bytes, NetHandler, NetProvider, Request};
 
 /// Au-delà, ce n'est plus un logo de signature.
 ///
@@ -34,32 +34,29 @@ use std::sync::{Arc, Mutex};
 /// télécharge.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Le plus grand côté d'une image remise au moteur, en pixels.
+///
+/// Le corps est mis en page sur 800 points de large, 1600 pixels sur un écran à 200 %.
+/// Rien de plus grand ne peut s'afficher à sa taille.
+pub const MAX_DIMENSION: u32 = 1600;
+
 /// Un message doit s'afficher, même quand le serveur d'en face ne répond pas.
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
-
-/// Les ressources chargées, en attente d'être remises au document.
-pub type Pending = Arc<Mutex<Vec<Resource>>>;
 
 /// Le fournisseur de ressources.
 #[derive(Debug)]
 pub struct MailNetProvider {
     allow_remote: bool,
-    pending: Pending,
 }
 
 impl MailNetProvider {
-    pub fn new(allow_remote: bool) -> (Arc<Self>, Pending) {
-        let pending: Pending = Arc::new(Mutex::new(Vec::new()));
-        let provider = Arc::new(Self {
-            allow_remote,
-            pending: Arc::clone(&pending),
-        });
-        (provider, pending)
+    pub fn new(allow_remote: bool) -> Self {
+        Self { allow_remote }
     }
 }
 
-impl NetProvider<Resource> for MailNetProvider {
-    fn fetch(&self, doc_id: usize, request: Request, handler: BoxedHandler<Resource>) {
+impl NetProvider for MailNetProvider {
+    fn fetch(&self, _doc_id: usize, request: Request, handler: Box<dyn NetHandler>) {
         let url = request.url;
 
         let octets = match url.scheme() {
@@ -73,23 +70,42 @@ impl NetProvider<Resource> for MailNetProvider {
         };
 
         // Le décodage appartient au gestionnaire — c'est lui qui sait si ces octets
-        // sont une image, une police ou une feuille de style. Nous n'en récoltons que
-        // le résultat.
-        let file = Arc::clone(&self.pending);
-        handler.bytes(
-            doc_id,
-            octets.into(),
-            Arc::new(move |_, resultat: Result<Resource, Option<String>>| {
-                if let Ok(ressource) = resultat {
-                    file.lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .push(ressource);
-                }
-            }) as SharedCallback<Resource>,
-        );
+        // sont une image, une police ou une feuille de style. Seules les images trop
+        // grandes sont retouchées avant.
+        handler.bytes(url.to_string(), Bytes::from(reduce_if_huge(octets)));
     }
 }
 
+/// Réduit une image dont un côté dépasse [`MAX_DIMENSION`].
+///
+/// Les dimensions se lisent dans l'en-tête, sans décoder : une image normale ne coûte
+/// ici que cette lecture. Ce qui n'est pas une image lisible — une feuille de style, une
+/// police — repart tel quel.
+fn reduce_if_huge(octets: Vec<u8>) -> Vec<u8> {
+    let Ok(lecteur) = image::ImageReader::new(std::io::Cursor::new(&octets)).with_guessed_format()
+    else {
+        return octets;
+    };
+    if lecteur.format().is_none() {
+        return octets;
+    }
+    let Ok((l, h)) = lecteur.into_dimensions() else {
+        return octets;
+    };
+    if l.max(h) <= MAX_DIMENSION {
+        return octets;
+    }
+
+    let Ok(image) = image::load_from_memory(&octets) else {
+        return octets;
+    };
+    let reduite = image.thumbnail(MAX_DIMENSION, MAX_DIMENSION);
+    let mut sortie = std::io::Cursor::new(Vec::new());
+    match reduite.write_to(&mut sortie, image::ImageFormat::Png) {
+        Ok(()) => sortie.into_inner(),
+        Err(_) => octets,
+    }
+}
 /// Décode une URL `data:`.
 ///
 /// Base64 seulement, et déclaré comme tel : les autres formes existent et n'arrivent
@@ -211,8 +227,37 @@ mod tests {
     fn le_distant_est_refuse_sans_autorisation() {
         // C'est la propriété que le bandeau de contenu bloqué promet : tant que le
         // lecteur n'a rien demandé, rien ne part sur le réseau.
-        let (provider, attente) = MailNetProvider::new(false);
-        assert!(!provider.allow_remote);
-        assert!(attente.lock().unwrap().is_empty());
+        assert!(!MailNetProvider::new(false).allow_remote);
+    }
+
+    fn png(l: u32, h: u32) -> Vec<u8> {
+        let mut sortie = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(l, h)
+            .write_to(&mut sortie, image::ImageFormat::Png)
+            .unwrap();
+        sortie.into_inner()
+    }
+
+    #[test]
+    fn une_image_demesuree_est_reduite_avant_le_moteur() {
+        let reduite = reduce_if_huge(png(4000, 1000));
+        let (l, h) = image::load_from_memory(&reduite)
+            .unwrap()
+            .to_rgb8()
+            .dimensions();
+        assert_eq!(l, MAX_DIMENSION);
+        assert_eq!(h, 400, "les proportions sont gardées");
+    }
+
+    #[test]
+    fn une_image_raisonnable_passe_intacte() {
+        let octets = png(600, 200);
+        assert_eq!(reduce_if_huge(octets.clone()), octets);
+    }
+
+    #[test]
+    fn ce_qui_n_est_pas_une_image_passe_intact() {
+        let css = b"body { color: red }".to_vec();
+        assert_eq!(reduce_if_huge(css.clone()), css);
     }
 }

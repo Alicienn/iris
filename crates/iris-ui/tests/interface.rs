@@ -1062,7 +1062,7 @@ fn message(id: i32, de: &str, deplie: bool) -> MessageData {
         blocked_images: 0,
         has_tracker: false,
         body_is_image: false,
-        body_image: slint::Image::default(),
+        body_tiles: Default::default(),
         body_loading: false,
     }
 }
