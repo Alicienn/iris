@@ -336,6 +336,38 @@ impl Store {
         })
     }
 
+    /// L'événement d'un calendrier qui porte cet identifiant — et cette occurrence
+    /// remplacée, le cas échéant. C'est ce qui fait qu'une invitation mise à jour
+    /// remplace la précédente au lieu de s'y ajouter.
+    pub fn find_event(
+        &self,
+        calendar: i64,
+        uid: &str,
+        recurrence_id: Option<i64>,
+    ) -> Result<Option<i64>> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT id FROM calendar_events WHERE calendar_id = ?1 AND uid = ?2                  AND recurrence_id IS ?3",
+                params![calendar, uid, recurrence_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(err("recherche d'un événement"))
+        })
+    }
+
+    /// Marque un événement annulé, ou le rétablit.
+    pub fn set_event_cancelled(&self, id: i64, cancelled: bool) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE calendar_events SET cancelled = ?2 WHERE id = ?1",
+                params![id, cancelled as i64],
+            )
+            .map(|_| ())
+            .map_err(err("annulation d'un événement"))
+        })
+    }
+
     /// Combien d'événements porte un calendrier.
     pub fn calendar_event_count(&self, calendar: i64) -> Result<u32> {
         self.with_conn(|c| {

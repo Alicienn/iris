@@ -2855,6 +2855,31 @@ pub fn wire_attachment_open(
             return;
         };
 
+        // Une invitation ou un fichier d'agenda s'ouvre dans l'agenda d'Iris, pas dans
+        // une autre application : c'est ici qu'est le calendrier, et l'ouvrir ailleurs
+        // ferait vivre le même rendez-vous à deux endroits.
+        if let Ok((nom, type_mime, octets)) = octets_de_piece(&services, thread, rang as usize) {
+            let calendrier = type_mime.eq_ignore_ascii_case("text/calendar")
+                || type_mime.eq_ignore_ascii_case("application/ics")
+                || nom.to_ascii_lowercase().ends_with(".ics");
+            if calendrier {
+                match crate::calendar::import_ics(&services, &String::from_utf8_lossy(&octets)) {
+                    Ok(bilan) => {
+                        fenetre.set_toast(bilan.message().into());
+                        if let Some(jour) = bilan.first_day {
+                            fenetre.invoke_calendar_day_chosen(jour.into());
+                        }
+                        fenetre.set_workspace(1);
+                        fenetre.invoke_workspace_changed(1);
+                    }
+                    Err(e) => {
+                        fenetre.set_status(format!("Could not read the invitation: {e}").into())
+                    }
+                }
+                return;
+            }
+        }
+
         let resultat = enregistrer_piece(&services, thread, rang as usize)
             .and_then(|chemin| crate::platform::open_path(&chemin).map(|()| chemin));
 
@@ -2880,6 +2905,21 @@ fn enregistrer_piece(
     thread: ThreadIdent,
     rang: usize,
 ) -> iris_types::Result<std::path::PathBuf> {
+    let (nom, _, octets) = octets_de_piece(services, thread, rang)?;
+    let destination = chemin_libre(&dossier_telechargements(), &nom);
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&destination, octets)?;
+    Ok(destination)
+}
+
+/// Le nom, le type et les octets d'une pièce jointe du dernier message du fil.
+fn octets_de_piece(
+    services: &Services,
+    thread: ThreadIdent,
+    rang: usize,
+) -> iris_types::Result<(String, String, Vec<u8>)> {
     let messages = services.store.thread_messages(thread)?;
     let message = messages
         .last()
@@ -2905,13 +2945,11 @@ fn enregistrer_piece(
 
     let octets = iris_mime::attachment_bytes(&brut, piece.index)
         .ok_or_else(|| iris_types::Error::other("pièce jointe absente du message"))?;
-
-    let destination = chemin_libre(&dossier_telechargements(), &piece.meta.filename);
-    if let Some(parent) = destination.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&destination, octets)?;
-    Ok(destination)
+    Ok((
+        piece.meta.filename.clone(),
+        piece.meta.mime_type.clone(),
+        octets,
+    ))
 }
 
 /// Le dossier de téléchargements de l'utilisateur, ou son dossier personnel.

@@ -853,6 +853,93 @@ pub async fn subscribe(services: &Services, lien: &str, nom: &str) -> Result<(i6
     Ok((id, n))
 }
 
+// --- Les invitations ---------------------------------------------------------------
+
+/// Ce qu'un fichier d'agenda importé a changé.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ImportReport {
+    pub added: usize,
+    pub updated: usize,
+    pub cancelled: usize,
+    /// Le jour du premier événement, `YYYY-MM-DD`, pour y conduire.
+    pub first_day: Option<String>,
+    pub first_title: Option<String>,
+}
+
+impl ImportReport {
+    pub fn message(&self) -> String {
+        let titre = self.first_title.as_deref().unwrap_or("the event");
+        match (self.added, self.updated, self.cancelled) {
+            (0, 0, 0) => "The invitation holds no event.".into(),
+            (_, _, c) if c > 0 && self.added == 0 && self.updated == 0 => {
+                format!("Cancelled in your calendar: {titre}.")
+            }
+            (1, 0, _) => format!("Added to your calendar: {titre}."),
+            (0, 1, _) => format!("Updated in your calendar: {titre}."),
+            (a, u, _) => format!("{a} added, {u} updated in your calendar."),
+        }
+    }
+}
+
+/// Importe un fichier iCalendar — une invitation reçue, un événement partagé — dans le
+/// premier calendrier local.
+///
+/// Un événement déjà importé (même `UID`, même occurrence) est **mis à jour** plutôt
+/// que dupliqué : l'organisateur qui déplace sa réunion renvoie la même invitation
+/// modifiée. Une annulation efface l'événement de l'agenda.
+pub fn import_ics(services: &Services, texte: &str) -> Result<ImportReport> {
+    let lu = iris_calendar::ics::parse(texte).map_err(Error::other)?;
+    let calendrier = services
+        .store
+        .calendars()?
+        .into_iter()
+        .find(|c| !c.is_subscription())
+        .ok_or_else(|| Error::other("there is no local calendar"))?;
+
+    let mut bilan = ImportReport::default();
+    for e in &lu.events {
+        let mut nouveau = depuis_domaine(e);
+        if nouveau.uid.is_empty() {
+            nouveau.uid = format!("{}-{}@iris", now().millis(), bilan.added);
+        }
+        match services
+            .store
+            .find_event(calendrier.id, &nouveau.uid, nouveau.recurrence_id)?
+        {
+            Some(id) if e.cancelled => {
+                services.store.set_event_cancelled(id, true)?;
+                bilan.cancelled += 1;
+            }
+            Some(id) => {
+                services
+                    .store
+                    .update_event(id, calendrier.id, &nouveau, now())?;
+                services.store.set_event_cancelled(id, false)?;
+                bilan.updated += 1;
+            }
+            None if e.cancelled => bilan.cancelled += 1,
+            None => {
+                services
+                    .store
+                    .insert_event(calendrier.id, &nouveau, now())?;
+                bilan.added += 1;
+            }
+        }
+        if bilan.first_day.is_none() && !e.cancelled {
+            let jour = if e.all_day {
+                layout::local_date(e.start, &chrono::Utc)
+            } else {
+                layout::local_date(e.start, &Local)
+            };
+            bilan.first_day = Some(jour.format("%Y-%m-%d").to_string());
+        }
+        if bilan.first_title.is_none() {
+            bilan.first_title = Some(titre(e));
+        }
+    }
+    Ok(bilan)
+}
+
 // --- Le câblage --------------------------------------------------------------------
 
 fn ms_depuis_cle(cle: &str) -> Option<(i64, i64)> {
@@ -1421,21 +1508,17 @@ mod tests {
                 let version = versions[i.min(versions.len() - 1)];
                 let etag = format!("\"v{}\"", version.len());
                 let reponse = if requete.contains(&format!("if-none-match: {etag}")) {
-                    "HTTP/1.1 304 Not Modified
-Content-Length: 0
-
-"
-                    .to_string()
+                    ["HTTP/1.1 304 Not Modified", "Content-Length: 0", "", ""].join("\r\n")
                 } else {
-                    format!(
-                        "HTTP/1.1 200 OK
-Content-Type: text/calendar
-ETag: {etag}
-Content-Length: {}
-
-{version}",
-                        version.len()
-                    )
+                    [
+                        "HTTP/1.1 200 OK",
+                        "Content-Type: text/calendar",
+                        &format!("ETag: {etag}"),
+                        &format!("Content-Length: {}", version.len()),
+                        "",
+                        version,
+                    ]
+                    .join("\r\n")
                 };
                 let _ = flux.write_all(reponse.as_bytes());
             }
@@ -1501,6 +1584,48 @@ END:VCALENDAR
 
         // Deux fois le même lien : refusé.
         assert!(subscribe(&s, &url, "").await.is_err());
+    }
+
+    #[test]
+    fn une_invitation_s_ajoute_puis_se_met_a_jour_puis_s_annule() {
+        let (s, _dir) = services_de_test();
+        let invitation = |debut: &str, statut: &str| {
+            [
+                "BEGIN:VCALENDAR",
+                "METHOD:REQUEST",
+                "BEGIN:VEVENT",
+                "UID:reunion-42@example.com",
+                &format!("DTSTART:{debut}"),
+                "DTEND:20261006T100000Z",
+                "SUMMARY:Revue budgétaire",
+                &format!("STATUS:{statut}"),
+                "END:VEVENT",
+                "END:VCALENDAR",
+                "",
+            ]
+            .join("\r\n")
+        };
+        let perso = s.store.calendars().unwrap()[0].id;
+
+        let b = import_ics(&s, &invitation("20261006T090000Z", "CONFIRMED")).unwrap();
+        assert_eq!((b.added, b.updated), (1, 0));
+        assert_eq!(b.message(), "Added to your calendar: Revue budgétaire.");
+        assert_eq!(b.first_day.as_deref(), Some("2026-10-06"));
+
+        // L'organisateur la déplace : la même, pas une seconde.
+        let b = import_ics(&s, &invitation("20261006T083000Z", "CONFIRMED")).unwrap();
+        assert_eq!((b.added, b.updated), (0, 1));
+        assert_eq!(s.store.calendar_event_count(perso).unwrap(), 1);
+
+        // Puis l'annule : elle disparaît de l'agenda.
+        let b = import_ics(&s, &invitation("20261006T083000Z", "CANCELLED")).unwrap();
+        assert_eq!(b.cancelled, 1);
+        assert!(s
+            .store
+            .events_for_range(0, i64::MAX / 2)
+            .unwrap()
+            .iter()
+            .all(|e| e.event.cancelled));
     }
 
     #[tokio::test]

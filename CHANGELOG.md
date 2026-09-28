@@ -9,6 +9,7 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Calendar, next to your mail: month, week and day views (Ctrl+2).
 - Create events, repeat them and get a reminder before they start.
 - Subscribe to a calendar by its link (webcal or .ics from Google, Outlook, iCloud…).
+- Opening an invitation received by mail adds it to your calendar, and keeps it up to date.
 - Changelog button in the status bar: see what changed in each version.
 - Iris checks for updates at launch and installs them in one click.
 - Check for updates by hand from Settings.
