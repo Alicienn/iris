@@ -166,8 +166,6 @@ component FormatBar inherits HorizontalLayout {
 export component ComposePanel inherits Rectangle {
     in property <[string]> senders;
     in property <int> sender-index;
-    in property <bool> sending;
-    in property <int> undo-seconds;
     in property <string> error;
     in property <[string]> attachments;
     in-out property <bool> minimised;
@@ -179,7 +177,6 @@ export component ComposePanel inherits Rectangle {
     in-out property <string> body;
 
     callback send();
-    callback cancel-send();
     callback dismissed();
     callback sender-chosen(int);
     callback attach();
@@ -441,54 +438,42 @@ export component ComposePanel inherits Rectangle {
 
                 Rectangle {}
 
-                // During the delay the send button becomes the undo button, in the
-                // same place: the correction is one click where the mistake was.
+                // Send closes the window. For a few seconds after, a notice at the
+                // bottom of the application can still take the message back — and
+                // brings this window back with it, as it was.
                 Rectangle {
-                    width: 170px;
+                    width: 120px;
                     border-radius: Tokens.radius-small;
-                    background: root.sending ? Tokens.surface : Tokens.accent;
+                    background: Tokens.accent;
 
                     accessible-role: button;
-                    accessible-label: root.sending ? "Undo send" : "Send";
-                    accessible-enabled: root.sending || root.to != "";
-                    accessible-action-default => {
-                        root.sending ? root.cancel-send() : root.send();
-                    }
+                    accessible-label: "Send";
+                    accessible-enabled: root.to != "";
+                    accessible-action-default => { root.send(); }
 
                     HorizontalLayout {
                         alignment: center;
                         spacing: Tokens.space-1;
 
-                        if !root.sending: Icon {
+                        Icon {
                             y: (parent.height - self.height) / 2;
                             data: Icons.send;
                             size: 14px;
                             tint: Tokens.accent-text;
                         }
                         Text {
-                            text: root.sending
-                                ? "Undo send (" + root.undo-seconds + "s)"
-                                : "Send";
+                            text: "Send";
                             font-size: Tokens.size-small;
                             font-weight: Tokens.weight-bold;
-                            color: root.sending ? Tokens.text-secondary : Tokens.accent-text;
+                            color: Tokens.accent-text;
                             vertical-alignment: center;
                         }
                     }
 
                     TouchArea {
-                        clicked => {
-                            root.sending ? root.cancel-send() : root.send();
-                        }
+                        clicked => { root.send(); }
                     }
                 }
-            }
-
-            // Tucked away, the one thing worth showing is whether it is still going.
-            if root.minimised && root.sending: Text {
-                text: "Sending — " + root.undo-seconds + "s to undo";
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
             }
         }
     }

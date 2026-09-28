@@ -267,8 +267,9 @@ impl ThreadList {
             };
             match store.thread_row(*thread)? {
                 Some(ligne) => {
-                    // Un fil qui a changé d'état n'appartient plus à cette liste.
-                    if ligne.state != self.state {
+                    // Un fil qui a changé d'état, ou qu'on vient de mettre à la
+                    // corbeille, n'appartient plus à cette liste.
+                    if ligne.state != self.state || ligne.put_aside {
                         self.reload(store)?;
                         update.reordered = true;
                         return Ok(update);

@@ -100,3 +100,76 @@ export component Toast inherits Rectangle {
         }
     }
 }
+
+// A message on its way, and the one gesture that still takes it back.
+//
+// Send closes the window at once: the message is written, looking at it again is
+// not what anyone wants. What they may want, in the next few seconds, is to stop it
+// — so the notice says it is leaving, counts down, and offers Undo. Nothing here
+// blocks the window: the rest of the mail stays in reach while it counts.
+export component SendNotice inherits Rectangle {
+    in property <string> message;
+    in property <int> seconds;
+
+    callback undone();
+
+    bulle := Floating {
+        radius: Tokens.radius-medium;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - Tokens.space-6;
+        width: min(rang.preferred-width + 2 * Tokens.space-3, parent.width - Tokens.space-6);
+        height: 40px;
+
+        accessible-role: text;
+        accessible-label: root.message;
+
+        rang := HorizontalLayout {
+            x: Tokens.space-3;
+            width: parent.width - 2 * Tokens.space-3;
+            spacing: Tokens.space-3;
+
+            Text {
+                text: root.message;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-body;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            Text {
+                text: root.seconds + " s";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: annuler.preferred-width + 2 * Tokens.space-3;
+                height: 26px;
+                border-radius: Tokens.radius-small;
+                background: touche.pressed ? Tokens.accent.darker(0.15) : Tokens.accent;
+
+                accessible-role: button;
+                accessible-label: "Undo send";
+                accessible-action-default => { root.undone(); }
+
+                annuler := Text {
+                    text: "Undo";
+                    font-size: Tokens.size-small;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.accent-text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                touche := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.undone(); }
+                }
+            }
+        }
+    }
+}

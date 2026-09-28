@@ -807,7 +807,9 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
         .prepare_cached(
             "UPDATE threads SET message_count = ?1, unread_count = ?2, last_activity_at = ?3,
                                 flags_union = ?4, last_from_name = ?5, last_from_addr = ?6,
-                                last_subject = ?7, last_preview = ?8, last_account_id = ?9
+                                last_subject = ?7, last_preview = ?8, last_account_id = ?9,
+                                put_aside_at = CASE WHEN put_aside_at IS NOT NULL
+                                    AND ?3 > put_aside_at THEN NULL ELSE put_aside_at END
              WHERE id = ?10",
         )
         .map_err(|e| sql_err("preparation", e))?;

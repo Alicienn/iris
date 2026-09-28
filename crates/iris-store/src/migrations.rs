@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 10;
+pub const CURRENT_VERSION: i64 = 11;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -68,7 +68,39 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "tasks",
         sql: SCHEMA_V10,
     },
+    Migration {
+        version: 11,
+        name: "put aside, event notes",
+        sql: SCHEMA_V11,
+    },
 ];
+
+/// Deux ajouts.
+///
+/// **Un fil mis à la corbeille le quitte tout de suite.** Supprimer déplace les
+/// messages par le journal, que le serveur rejoue plus tard ; jusque-là ils sont
+/// toujours, localement, dans leur dossier. Un fil déjà « fait » ne changeait donc pas
+/// d'état et restait affiché : dans l'onglet Done, supprimer semblait ne rien faire.
+/// `put_aside_at` retire le fil des files à l'instant, et s'efface si un message plus
+/// récent arrive.
+///
+/// **Les notes d'un événement.** Les siennes, pas celles de l'événement : un calendrier
+/// abonné est remplacé en bloc à chaque relecture, et ses événements ne se modifient
+/// pas. Rangées à part, par calendrier, identifiant et début d'occurrence — une note
+/// sur la réunion de lundi n'est pas celle du lundi suivant. Elles partent avec le
+/// calendrier ; masquer puis réafficher le calendrier les retrouve.
+const SCHEMA_V11: &str = "
+ALTER TABLE threads ADD COLUMN put_aside_at INTEGER;
+
+CREATE TABLE event_notes (
+    calendar_id      INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    uid              TEXT NOT NULL,
+    occurrence_start INTEGER NOT NULL,
+    notes            TEXT NOT NULL,
+    updated_at       INTEGER NOT NULL,
+    PRIMARY KEY (calendar_id, uid, occurrence_start)
+);
+";
 
 /// Les tâches.
 ///

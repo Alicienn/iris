@@ -250,6 +250,11 @@ impl SendService {
         self.outbox.cancel(handle)
     }
 
+    /// Le délai d'annulation des prochains messages.
+    pub fn set_delay(&self, delay: std::time::Duration) {
+        self.outbox.set_delay(delay);
+    }
+
     /// Traite ce qui suit un envoi réussi : dépôt dans les messages envoyés et
     /// passage du fil en attente.
     pub async fn on_sent(

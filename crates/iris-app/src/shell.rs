@@ -1557,6 +1557,117 @@ fn remplace_dernier_destinataire(champ: &str, choix: &str) -> String {
     }
 }
 
+/// A message waiting to leave, and how to put it back where it was written.
+struct EnvoiEnAttente {
+    handle: iris_smtp::SendHandle,
+    remettre: Box<dyn FnOnce(&AppWindow)>,
+}
+
+/// The notice at the bottom of the window while a message waits to leave.
+///
+/// Send closes what the message was written in — the new-message window, or empties
+/// the reply field — and hands the message to the outbox with the delay chosen in the
+/// settings. For that long the notice counts down and offers Undo, which stops the
+/// message and puts it back exactly as it was. One notice at a time: a second send
+/// takes the place of the first, which then simply leaves.
+pub struct AvisEnvoi {
+    send: Arc<SendService>,
+    en_attente: std::cell::RefCell<Option<EnvoiEnAttente>>,
+    minuterie: slint::Timer,
+}
+
+impl AvisEnvoi {
+    /// Puts a message in the outbox, with the delay from the settings, and shows the
+    /// notice. `remettre` puts it back if it is undone.
+    pub fn envoyer(
+        self: &Rc<Self>,
+        fenetre: &AppWindow,
+        message: iris_smtp::Outgoing,
+        libelle: String,
+        remettre: impl FnOnce(&AppWindow) + 'static,
+    ) -> iris_types::Result<()> {
+        let bornes = crate::settings::UNDO_SEND_RANGE;
+        let secondes =
+            (fenetre.get_undo_send_seconds().max(0) as u32).clamp(*bornes.start(), *bornes.end());
+        self.send
+            .set_delay(std::time::Duration::from_secs(secondes as u64));
+        let handle = self.send.queue(message)?;
+
+        if secondes == 0 {
+            // Nothing to take back: it is already leaving.
+            self.fermer(fenetre);
+            fenetre.set_status(format!("{libelle}…").into());
+            return Ok(());
+        }
+
+        *self.en_attente.borrow_mut() = Some(EnvoiEnAttente {
+            handle,
+            remettre: Box::new(remettre),
+        });
+        fenetre.set_send_notice_text(libelle.into());
+        fenetre.set_send_notice_seconds(secondes as i32);
+        fenetre.set_send_notice_open(true);
+
+        let (faible, avis) = (fenetre.as_weak(), Rc::downgrade(self));
+        self.minuterie.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(1),
+            move || {
+                let (Some(fenetre), Some(avis)) = (faible.upgrade(), avis.upgrade()) else {
+                    return;
+                };
+                let reste = fenetre.get_send_notice_seconds() - 1;
+                if reste <= 0 {
+                    // Gone: there is nothing left to undo.
+                    avis.fermer(&fenetre);
+                    fenetre.set_status("Message sent.".into());
+                } else {
+                    fenetre.set_send_notice_seconds(reste);
+                }
+            },
+        );
+        Ok(())
+    }
+
+    fn fermer(&self, fenetre: &AppWindow) {
+        self.minuterie.stop();
+        self.en_attente.borrow_mut().take();
+        fenetre.set_send_notice_open(false);
+    }
+
+    /// Undo: stops the message if it has not left, and puts it back.
+    fn annuler(&self, fenetre: &AppWindow) {
+        let pris = self.en_attente.borrow_mut().take();
+        self.fermer(fenetre);
+        let Some(envoi) = pris else {
+            return;
+        };
+        if self.send.cancel(envoi.handle) {
+            (envoi.remettre)(fenetre);
+            fenetre.set_status("Send cancelled — your message is back.".into());
+        } else {
+            // Already gone: say so plainly rather than pretend.
+            fenetre.set_status("Too late — the message has gone.".into());
+        }
+    }
+}
+
+/// Installs the notice and its Undo, shared by new messages and replies.
+pub fn wire_send_notice(fenetre: &AppWindow, send: Arc<SendService>) -> Rc<AvisEnvoi> {
+    let avis = Rc::new(AvisEnvoi {
+        send,
+        en_attente: std::cell::RefCell::new(None),
+        minuterie: slint::Timer::default(),
+    });
+    let (faible, a) = (fenetre.as_weak(), Rc::clone(&avis));
+    fenetre.on_send_undone(move || {
+        if let Some(fenetre) = faible.upgrade() {
+            a.annuler(&fenetre);
+        }
+    });
+    avis
+}
+
 /// Compose et met en file une réponse, à l'expéditeur ou à tous.
 ///
 /// Les deux boutons font le même travail à un mot près, et ce mot est la seule chose
@@ -1565,7 +1676,7 @@ fn remplace_dernier_destinataire(champ: &str, choix: &str) -> String {
 fn envoyer_reponse(
     fenetre: &AppWindow,
     send: &iris_sync::SendService,
-    en_cours: &std::sync::Mutex<Option<iris_smtp::SendHandle>>,
+    avis: &Rc<AvisEnvoi>,
     selection: &std::sync::Mutex<Option<iris_types::ThreadId>>,
     portee: iris_smtp::ReplyScope,
 ) {
@@ -1586,15 +1697,11 @@ fn envoyer_reponse(
         }
     };
 
-    match send.queue(message) {
-        Ok(handle) => {
-            *en_cours.lock().expect("envoi") = Some(handle);
-            // Le bouton devient un bouton d'annulation, au même endroit :
-            // le geste de rattrapage est immédiat.
-            fenetre.set_sending(true);
-            fenetre.set_undo_seconds(send.status().delay_secs as i32);
-            fenetre.set_reply_text(Default::default());
-        }
+    // Le champ se vide ; « Undo » remet le texte, pour le fil qui est alors ouvert.
+    let retour = texte.clone();
+    let remettre = move |fenetre: &AppWindow| fenetre.set_reply_text(retour.into());
+    match avis.envoyer(fenetre, message, "Sending your reply".into(), remettre) {
+        Ok(()) => fenetre.set_reply_text(Default::default()),
         Err(e) => fenetre.set_status(format!("Send refused: {e}").into()),
     }
 }
@@ -1603,14 +1710,12 @@ fn envoyer_reponse(
 pub fn wire_reply(
     fenetre: &AppWindow,
     send: Arc<SendService>,
+    avis: Rc<AvisEnvoi>,
     selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
 ) {
-    let en_cours: Arc<std::sync::Mutex<Option<iris_smtp::SendHandle>>> =
-        Arc::new(std::sync::Mutex::new(None));
-
     {
         let send = Arc::clone(&send);
-        let en_cours = Arc::clone(&en_cours);
+        let avis = Rc::clone(&avis);
         let selection = Arc::clone(&selection);
         let faible = fenetre.as_weak();
 
@@ -1621,7 +1726,7 @@ pub fn wire_reply(
             envoyer_reponse(
                 &fenetre,
                 &send,
-                &en_cours,
+                &avis,
                 &selection,
                 iris_smtp::ReplyScope::Sender,
             );
@@ -1674,7 +1779,7 @@ pub fn wire_reply(
     // que ce soit le dernier.
     {
         let send = Arc::clone(&send);
-        let en_cours = Arc::clone(&en_cours);
+        let avis = Rc::clone(&avis);
         let selection = Arc::clone(&selection);
         let faible = fenetre.as_weak();
 
@@ -1685,36 +1790,10 @@ pub fn wire_reply(
             envoyer_reponse(
                 &fenetre,
                 &send,
-                &en_cours,
+                &avis,
                 &selection,
                 iris_smtp::ReplyScope::All,
             );
-        });
-    }
-
-    {
-        let send = Arc::clone(&send);
-        let en_cours = Arc::clone(&en_cours);
-        let faible = fenetre.as_weak();
-
-        fenetre.on_cancel_send(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let handle = en_cours.lock().expect("envoi").take();
-
-            match handle.map(|h| send.cancel(h)) {
-                Some(true) => {
-                    fenetre.set_sending(false);
-                    fenetre.set_status("Send cancelled.".into());
-                }
-                // Déjà parti : le dire franchement plutôt que faire semblant.
-                Some(false) => {
-                    fenetre.set_sending(false);
-                    fenetre.set_status("Too late — the message has gone.".into());
-                }
-                None => fenetre.set_sending(false),
-            }
         });
     }
 }
@@ -1753,6 +1832,7 @@ pub fn wire_settings(
         fenetre.set_follow_up_days(reglages.automation.follow_up_days as i32);
         fenetre.set_notifications(reglages.notifications);
         fenetre.set_keep_running(reglages.keep_running);
+        fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
 
         // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
         // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
@@ -1826,6 +1906,28 @@ pub fn wire_settings(
             reglages.density = densite;
             appliquer_apparence(&fenetre, &themes.active(), densite);
             fenetre.set_density(index);
+            enregistrer(&reglages);
+        });
+    }
+
+    // --- Le délai pour rattraper un envoi ---
+    //
+    // Lu au moment de chaque envoi (`get_undo_send_seconds`) : il n'y a rien d'autre à
+    // appliquer ici que l'enregistrer.
+    {
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_sending_changed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let bornes = crate::settings::UNDO_SEND_RANGE;
+            let secondes = (fenetre.get_undo_send_seconds().max(0) as u32)
+                .clamp(*bornes.start(), *bornes.end());
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.undo_send_seconds = secondes;
             enregistrer(&reglages);
         });
     }
@@ -4295,18 +4397,16 @@ pub fn wire_account_recovery(
 
 /// Wires the compose window.
 ///
-/// It shares the outbox with replies, so the ten-second window to change your mind
-/// behaves the same way here. Reimplementing the delay would give the application two
-/// answers to "can I still stop this?", and only one of them would be right.
+/// It shares the outbox and the undo notice with replies, so the time to change your
+/// mind behaves the same way here. Reimplementing the delay would give the application
+/// two answers to "can I still stop this?", and only one of them would be right.
 pub fn wire_compose(
     fenetre: &AppWindow,
     services: &Services,
     send: Arc<SendService>,
+    avis: Rc<AvisEnvoi>,
     accounts: Vec<(iris_types::AccountId, String)>,
 ) {
-    let pending: Arc<std::sync::Mutex<Option<iris_smtp::SendHandle>>> =
-        Arc::new(std::sync::Mutex::new(None));
-
     // Which mailboxes can send, in the order the sidebar lists them.
     let identites = Arc::new(accounts);
     fenetre.set_compose_senders(ModelRc::new(VecModel::from(
@@ -4481,7 +4581,7 @@ pub fn wire_compose(
     // --- Sending ---
     {
         let send = Arc::clone(&send);
-        let pending = Arc::clone(&pending);
+        let avis = Rc::clone(&avis);
         let pieces = Arc::clone(&pieces);
         let identites = Arc::clone(&identites);
         let chemin_envoi = chemin_brouillon.clone();
@@ -4516,52 +4616,61 @@ pub fn wire_compose(
                 }
             };
 
+            // What Undo puts back: the window exactly as it was when Send was pressed.
+            let sujet = brouillon.subject.clone();
+            let remettre = {
+                let pieces = Arc::clone(&pieces);
+                let ecrit = (
+                    brouillon.to.clone(),
+                    brouillon.cc.clone(),
+                    brouillon.bcc.clone(),
+                    brouillon.subject.clone(),
+                    brouillon.body.clone(),
+                    brouillon.attachments.clone(),
+                    fenetre.get_compose_show_cc(),
+                    index as i32,
+                );
+                move |fenetre: &AppWindow| {
+                    let (a, cc, cci, objet, corps, jointes, copies, expediteur) = ecrit;
+                    fenetre.set_compose_to(a.into());
+                    fenetre.set_compose_cc(cc.into());
+                    fenetre.set_compose_bcc(cci.into());
+                    fenetre.set_compose_subject(objet.into());
+                    fenetre.set_compose_body(corps.into());
+                    fenetre.set_compose_show_cc(copies);
+                    fenetre.set_compose_sender_index(expediteur);
+                    show_attachments(fenetre, &jointes);
+                    *pieces.lock().expect("poisoned attachments") = jointes;
+                    fenetre.set_compose_error(Default::default());
+                    fenetre.set_compose_minimised(false);
+                    fenetre.set_compose_open(true);
+                }
+            };
+
             // A message with no subject leaves anyway. Refusing it would be the
             // application deciding what matters in someone else's correspondence.
-            match send.queue(message) {
-                Ok(handle) => {
-                    *pending.lock().expect("poisoned send") = Some(handle);
-                    fenetre.set_compose_error(Default::default());
-                    fenetre.set_compose_sending(true);
-                    fenetre.set_compose_undo_seconds(send.status().delay_secs as i32);
-                    // Le message est parti — ou part dans dix secondes. Le garder en
-                    // brouillon le ferait revenir à la prochaine ouverture, à côté de
-                    // sa propre copie dans les messages envoyés.
+            let libelle = if sujet.trim().is_empty() {
+                "Sending your message".to_string()
+            } else {
+                format!("Sending “{}”", sujet.trim())
+            };
+            match avis.envoyer(&fenetre, message, libelle, remettre) {
+                Ok(()) => {
+                    // The window closes: the message is written. Undo, in the notice
+                    // at the bottom, brings it back as it was.
+                    pieces.lock().expect("poisoned attachments").clear();
+                    show_attachments(&fenetre, &[]);
+                    clear_compose(&fenetre);
+                    fenetre.set_compose_cc(Default::default());
+                    fenetre.set_compose_bcc(Default::default());
+                    fenetre.set_compose_open(false);
+                    // Gone, or about to be. Kept as a draft it would come back at the
+                    // next opening, beside its own copy in the sent mail.
                     if let Err(e) = crate::draft::Draft::clear(&chemin_envoi) {
                         tracing::warn!(error = %e, "clearing the draft");
                     }
                 }
                 Err(e) => fenetre.set_compose_error(format!("Send refused: {e}").into()),
-            }
-        });
-    }
-
-    {
-        let send = Arc::clone(&send);
-        let pending = Arc::clone(&pending);
-        let pieces = Arc::clone(&pieces);
-        let faible = fenetre.as_weak();
-
-        fenetre.on_compose_cancel(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let handle = pending.lock().expect("poisoned send").take();
-
-            match handle.map(|h| send.cancel(h)) {
-                Some(true) => {
-                    fenetre.set_compose_sending(false);
-                    fenetre.set_status("Send cancelled — your message is still here.".into());
-                }
-                // Already gone: say so plainly rather than pretend.
-                Some(false) => {
-                    fenetre.set_compose_sending(false);
-                    fenetre.set_compose_open(false);
-                    pieces.lock().expect("poisoned attachments").clear();
-                    clear_compose(&fenetre);
-                    fenetre.set_status("Too late — the message has gone.".into());
-                }
-                None => fenetre.set_compose_sending(false),
             }
         });
     }
@@ -4705,7 +4814,6 @@ pub fn clear_compose(fenetre: &AppWindow) {
     fenetre.set_compose_subject(Default::default());
     fenetre.set_compose_body(Default::default());
     fenetre.set_compose_error(Default::default());
-    fenetre.set_compose_sending(false);
 }
 
 /// Wires the modules screen: rules and plugins.

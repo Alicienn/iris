@@ -192,6 +192,8 @@ pub struct ThreadRow {
     /// doit se servir sans jointure. Il porte la pastille de couleur, qui est la seule
     /// chose disant de quelle boîte un message vient quand on les regarde toutes.
     pub account: AccountId,
+    /// Mis à la corbeille ici, et pas encore rangé par le serveur : hors des files.
+    pub put_aside: bool,
 }
 
 impl ThreadRow {
@@ -535,6 +537,7 @@ mod tests {
             flags_union: Flags::HAS_ATTACHMENT,
             snoozed_until: None,
             account: AccountId(1),
+            put_aside: false,
         };
         assert!(row.is_unread());
         assert!(row.has_attachment());

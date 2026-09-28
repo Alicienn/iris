@@ -733,7 +733,14 @@ fn run_gui(
     // doit arriver après un envoi arrive même si la fenêtre se ferme entre-temps.
     match build_send_service(&services, runtime.handle().clone()) {
         Ok((envoi, evenements)) => {
-            shell::wire_reply(&fenetre, Arc::clone(&envoi), Arc::clone(&selection));
+            // One notice to take a message back, whatever it was written in.
+            let avis = shell::wire_send_notice(&fenetre, Arc::clone(&envoi));
+            shell::wire_reply(
+                &fenetre,
+                Arc::clone(&envoi),
+                std::rc::Rc::clone(&avis),
+                Arc::clone(&selection),
+            );
             // Writing a new message uses the same outbox as a reply, so the delay to
             // change your mind behaves identically. Every enabled mailbox is offered
             // as a sender: with a hundred of them, sending from the wrong one is the
@@ -746,7 +753,7 @@ fn run_gui(
                 .filter(|c| c.enabled)
                 .map(|c| (c.id, c.email))
                 .collect();
-            shell::wire_compose(&fenetre, &services, Arc::clone(&envoi), identites);
+            shell::wire_compose(&fenetre, &services, Arc::clone(&envoi), avis, identites);
             let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
             runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
         }

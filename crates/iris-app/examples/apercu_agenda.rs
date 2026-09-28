@@ -201,6 +201,11 @@ fn main() {
                 }
                 7 => {
                     capture(&f, sortie.join("agenda-supprimer.png"));
+                    f.set_calendar_delete_open(false);
+                    f.set_settings_open(true);
+                }
+                8 => {
+                    capture(&f, sortie.join("reglages.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

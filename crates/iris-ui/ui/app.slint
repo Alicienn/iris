@@ -22,7 +22,7 @@ import { SignaturePanel } from "signature.slint";
 import { SourcePanel } from "source.slint";
 import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
-import { Toast } from "toast.slint";
+import { Toast, SendNotice } from "toast.slint";
 import { CalendarView } from "calendar.slint";
 import { TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel } from "tasks.slint";
 import {
@@ -400,9 +400,6 @@ export component AppWindow inherits Window {
     callback check-for-updates();
     callback update-confirmed();
 
-    in property <bool> sending;
-    in property <int> undo-seconds;
-
     in-out property <bool> problem-open;
     in property <string> problem-account;
     in property <string> problem-message;
@@ -429,8 +426,6 @@ export component AppWindow inherits Window {
     in property <[string]> compose-senders;
     in property <int> compose-sender-index;
     in property <[string]> compose-attachments;
-    in property <bool> compose-sending;
-    in property <int> compose-undo-seconds;
     in property <string> compose-error;
     in-out property <string> compose-to;
     in-out property <string> compose-cc;
@@ -473,6 +468,15 @@ export component AppWindow inherits Window {
     in-out property <bool> handle-mailto;
     in-out property <bool> keep-running: true;
     in property <string> system-note;
+    /// How long a sent message can be taken back, from the settings.
+    in-out property <int> undo-send-seconds: 5;
+    callback sending-changed();
+
+    // The notice at the bottom of the window while a message waits to leave.
+    in property <bool> send-notice-open;
+    in property <string> send-notice-text;
+    in property <int> send-notice-seconds;
+    callback send-undone();
 
     in-out property <bool> palette-open;
     in-out property <string> palette-query;
@@ -615,7 +619,6 @@ export component AppWindow inherits Window {
     callback command-invoked(string);
     callback key-pressed(string);
     callback send-reply();
-    callback cancel-send();
     callback reply-all();
     callback load-images();
     callback toggle-message(int);
@@ -657,6 +660,9 @@ export component AppWindow inherits Window {
 
     // Right click on a calendar: refresh, rename, delete — the last two in panels.
     in-out property <bool> calendar-menu-open;
+    /// The colours a calendar can take, offered in its menu.
+    in property <[color]> calendar-palette;
+    callback calendar-color-chosen(int, int);
     in-out property <CalendarData> calendar-menu-cal;
     in-out property <length> calendar-menu-x;
     in-out property <length> calendar-menu-y;
@@ -669,6 +675,8 @@ export component AppWindow inherits Window {
 
     in-out property <bool> event-detail-open;
     in property <EventDetailData> event-detail;
+    in-out property <string> event-notes;
+    callback event-notes-edited(string);
     callback event-edit();
     callback event-delete();
 
@@ -786,7 +794,6 @@ export component AppWindow inherits Window {
     callback rule-added();
     callback plugins-reloaded();
     callback compose-send();
-    callback compose-cancel();
     callback compose-sender-chosen(int);
     callback compose-attach();
     callback compose-attach-image();
@@ -1276,10 +1283,7 @@ export component AppWindow inherits Window {
                     forward-thread => { root.forward-thread(); }
                     mark-done => { root.thread-done(); }
                     reply-text <=> root.reply-text;
-                    sending: root.sending;
-                    undo-seconds: root.undo-seconds;
                     send => { root.send-reply(); }
-                    cancel-send => { root.cancel-send(); }
                     reply-all => { root.reply-all(); }
                     load-images => { root.load-images(); }
                     save-attachment(i) => { root.save-attachment(i); }
@@ -1467,6 +1471,8 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         detail: root.event-detail;
+        notes <=> root.event-notes;
+        notes-edited(t) => { root.event-notes-edited(t); }
         edit => { root.event-edit(); }
         delete => { root.event-delete(); }
         dismissed => { root.event-detail-open = false; }
@@ -1508,8 +1514,13 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         cal: root.calendar-menu-cal;
+        palette: root.calendar-palette;
         menu-x: root.calendar-menu-x;
         menu-y: root.calendar-menu-y;
+        color-chosen(i) => {
+            root.calendar-menu-open = false;
+            root.calendar-color-chosen(root.calendar-menu-cal.id, i);
+        }
         refresh => {
             root.calendar-menu-open = false;
             root.calendar-refresh(root.calendar-menu-cal.id);
@@ -1672,8 +1683,6 @@ export component AppWindow inherits Window {
         senders: root.compose-senders;
         sender-index: root.compose-sender-index;
         attachments: root.compose-attachments;
-        sending: root.compose-sending;
-        undo-seconds: root.compose-undo-seconds;
         error: root.compose-error;
         minimised <=> root.compose-minimised;
         show-cc <=> root.compose-show-cc;
@@ -1683,7 +1692,6 @@ export component AppWindow inherits Window {
         subject <=> root.compose-subject;
         body <=> root.compose-body;
         send => { root.compose-send(); }
-        cancel-send => { root.compose-cancel(); }
         sender-chosen(i) => { root.compose-sender-chosen(i); }
         attach => { root.compose-attach(); }
         attach-image => { root.compose-attach-image(); }
@@ -1780,6 +1788,8 @@ export component AppWindow inherits Window {
         start-at-login <=> root.start-at-login;
         handle-mailto <=> root.handle-mailto;
         keep-running <=> root.keep-running;
+        undo-send-seconds <=> root.undo-send-seconds;
+        sending-changed => { root.sending-changed(); }
         system-note: root.system-note;
         version: root.version;
         update-status: root.update-check-status;
@@ -1831,6 +1841,14 @@ export component AppWindow inherits Window {
 
     // En dernier : une confirmation recouverte par ce qu'elle confirme ne confirme
     // rien.
+    if root.send-notice-open: SendNotice {
+        width: 100%;
+        height: 100%;
+        message: root.send-notice-text;
+        seconds: root.send-notice-seconds;
+        undone => { root.send-undone(); }
+    }
+
     if root.toast != "": Toast {
         width: 100%;
         height: 100%;

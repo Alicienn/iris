@@ -7,6 +7,12 @@
 # exactly one place. The release workflow runs this same script: what CI publishes
 # is what a local build produces.
 
+param(
+    # Package target\release\iris.exe as it is, without building it: the release
+    # workflow hands over the binary CI built and tested for the same commit.
+    [switch]$UseBuiltBinary
+)
+
 $ErrorActionPreference = 'Stop'
 
 $racine = Split-Path -Parent $PSScriptRoot
@@ -16,8 +22,14 @@ $version = [regex]::Match($manifeste, '(?ms)^\[workspace\.package\].*?^version\s
 if (-not $version) { throw "No version under [workspace.package] in Cargo.toml" }
 Write-Host "Iris $version"
 
-& cargo build --release -p iris-app
-if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
+if ($UseBuiltBinary) {
+    $binaire = Join-Path $racine 'target\release\iris.exe'
+    if (-not (Test-Path $binaire)) { throw "No binary at $binaire" }
+    Write-Host "Using the binary already built: $binaire"
+} else {
+    & cargo build --release -p iris-app
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
+}
 
 & (Join-Path $PSScriptRoot 'build-plugins.ps1')
 

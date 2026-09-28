@@ -105,12 +105,25 @@ pub struct Settings {
     /// promettrait un programme qui tourne encore.
     #[serde(default = "vrai")]
     pub keep_running: bool,
+    /// Combien de secondes un message envoyé peut encore être rattrapé.
+    #[serde(default = "cinq")]
+    pub undo_send_seconds: u32,
 }
 
 /// La valeur par défaut d'un réglage qui doit être allumé.
 fn vrai() -> bool {
     true
 }
+
+/// Le délai d'annulation par défaut : assez pour voir l'erreur, pas assez pour
+/// attendre.
+fn cinq() -> u32 {
+    5
+}
+
+/// Les bornes du délai d'annulation. Au-delà d'une demi-minute, un message « envoyé »
+/// ne l'est pas encore quand on referme l'ordinateur.
+pub const UNDO_SEND_RANGE: std::ops::RangeInclusive<u32> = 0..=30;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -123,6 +136,7 @@ impl Default for Settings {
             start_at_login: false,
             handle_mailto: false,
             keep_running: true,
+            undo_send_seconds: cinq(),
         }
     }
 }
@@ -163,6 +177,9 @@ impl Settings {
     /// déguisée, qui a déjà son interrupteur.
     fn sanitize(mut self) -> Self {
         self.automation.follow_up_days = self.automation.follow_up_days.clamp(1, 365);
+        self.undo_send_seconds = self
+            .undo_send_seconds
+            .clamp(*UNDO_SEND_RANGE.start(), *UNDO_SEND_RANGE.end());
         if self.theme.trim().is_empty() {
             self.theme = Self::default().theme;
         }
@@ -201,10 +218,22 @@ mod tests {
             start_at_login: true,
             handle_mailto: true,
             keep_running: false,
+            undo_send_seconds: 12,
         };
 
         reglages.save(&chemin).unwrap();
         assert_eq!(Settings::load(&chemin), reglages);
+    }
+
+    #[test]
+    fn le_delai_d_annulation_reste_dans_ses_bornes() {
+        let (_d, chemin) = fichier();
+        std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+        std::fs::write(&chemin, "theme = \"mono\"\nundo_send_seconds = 900\n").unwrap();
+        assert_eq!(Settings::load(&chemin).undo_send_seconds, 30);
+        // Absent of an older file: the default.
+        std::fs::write(&chemin, "theme = \"mono\"\n").unwrap();
+        assert_eq!(Settings::load(&chemin).undo_send_seconds, 5);
     }
 
     #[test]

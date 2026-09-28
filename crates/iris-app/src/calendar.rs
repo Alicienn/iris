@@ -72,6 +72,9 @@ struct Etat {
     /// The small month open under a date of the editor: which date (0 start, 1 end)
     /// and the month it shows.
     selecteur: Option<(i32, NaiveDate)>,
+    /// Where the notes of the open event go: calendar, identifier, occurrence (0 for
+    /// an event that does not repeat, so that moving it keeps them).
+    note: Option<(i64, String, i64)>,
 }
 
 fn aujourd_hui() -> NaiveDate {
@@ -390,6 +393,7 @@ pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellDat
         locaux: Vec::new(),
         rappeles: HashSet::new(),
         selecteur: None,
+        note: None,
     };
     cellules(
         &vide,
@@ -422,6 +426,7 @@ pub(crate) fn events_on(
         locaux: Vec::new(),
         rappeles: HashSet::new(),
         selecteur: None,
+        note: None,
     };
     let occ = charger(services, &mut etat);
     let mut sortie: Vec<(i64, bool, String, slint::Color)> = occ
@@ -549,6 +554,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             locaux: Vec::new(),
             rappeles: HashSet::new(),
             selecteur: None,
+            note: None,
         };
         let o = charger(services, &mut copie);
         let cases = cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false);
@@ -1079,7 +1085,12 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         locaux: Vec::new(),
         rappeles: HashSet::new(),
         selecteur: None,
+        note: None,
     }));
+
+    fenetre.set_calendar_palette(ModelRc::new(VecModel::from(
+        COULEURS.iter().map(|c| couleur(c)).collect::<Vec<_>>(),
+    )));
 
     fenetre.set_editor_reminders(ModelRc::new(VecModel::from(
         RAPPELS
@@ -1103,6 +1114,23 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             }
         })
     };
+
+    // A new colour for a calendar, from its menu.
+    {
+        let (services, redessiner) = (services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_color_chosen(move |id, i| {
+            let (Ok(Some(c)), Some(hex)) = (
+                services.store.calendar(id as i64),
+                COULEURS.get(i.max(0) as usize),
+            ) else {
+                return;
+            };
+            let _ = services
+                .store
+                .update_calendar(c.id, &c.name, hex, c.visible);
+            redessiner();
+        });
+    }
 
     {
         let redessiner = Rc::clone(&redessiner);
@@ -1209,7 +1237,19 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 end: debut + duree,
                 all_day: s.event.all_day,
             };
-            etat.borrow_mut().edite = Some(id);
+            let occurrence = if s.event.rrule.is_some() { debut } else { 0 };
+            {
+                let mut e = etat.borrow_mut();
+                e.edite = Some(id);
+                e.note = Some((s.calendar_id, s.event.uid.clone(), occurrence));
+            }
+            f.set_event_notes(
+                services
+                    .store
+                    .event_note(s.calendar_id, &s.event.uid, occurrence)
+                    .unwrap_or_default()
+                    .into(),
+            );
             f.set_event_detail(EventDetailData {
                 key: k,
                 title: titre(&vers_domaine(&s.event)).into(),
@@ -1250,6 +1290,17 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             }
         });
     }
+    // What the user writes about an event, saved as it is typed.
+    {
+        let (services, etat) = (services.clone(), Rc::clone(&etat));
+        fenetre.on_event_notes_edited(move |texte| {
+            if let Some((cal, uid, occurrence)) = etat.borrow().note.clone() {
+                let _ = services
+                    .store
+                    .set_event_note(cal, &uid, occurrence, &texte, now());
+            }
+        });
+    }
     {
         let (services, etat, faible, redessiner) = (
             services.clone(),
@@ -1261,6 +1312,12 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             let Some(f) = faible.upgrade() else { return };
             let id = etat.borrow().edite;
             if let Some(id) = id {
+                // Its notes go with it.
+                if let Ok(Some(ev)) = services.store.event(id) {
+                    let _ = services
+                        .store
+                        .move_event_notes(ev.calendar_id, &ev.event.uid, None);
+                }
                 match services.store.delete_event(id) {
                     Ok(()) => f.set_status("Event deleted.".into()),
                     Err(e) => f.set_status(format!("Could not delete the event: {e}").into()),
@@ -1302,7 +1359,19 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 return;
             };
             let resultat = match edite {
-                Some(id) => services.store.update_event(id, calendrier, &nouveau, now()),
+                Some(id) => {
+                    // Moved to another calendar, its notes follow it.
+                    if let Ok(Some(ancien)) = services.store.event(id) {
+                        if ancien.calendar_id != calendrier {
+                            let _ = services.store.move_event_notes(
+                                ancien.calendar_id,
+                                &ancien.event.uid,
+                                Some(calendrier),
+                            );
+                        }
+                    }
+                    services.store.update_event(id, calendrier, &nouveau, now())
+                }
                 None => {
                     nouveau.uid = format!("{}-{}@iris", now().millis(), std::process::id());
                     services

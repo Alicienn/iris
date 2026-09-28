@@ -444,6 +444,7 @@ mod tests {
             flags_union: Flags::HAS_ATTACHMENT | Flags::FLAGGED,
             snoozed_until: None,
             account: iris_types::AccountId(1),
+            put_aside: false,
         }
     }
 

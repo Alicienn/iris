@@ -26,13 +26,19 @@ component ChipRow inherits Rectangle {
     // The same plate the To do / Waiting / Done tabs sit on, and the same corner
     // radius on the chips. They were 99-pixel lozenges floating on nothing, which is
     // a different control answering the same kind of question two panels apart.
+    //
+    // Every width is set, from the words: the plate wraps the row, each chip wraps
+    // its label. Left to the layout, the chips took sizes of their own and spilled
+    // past the plate drawn under them.
     Rectangle {
-        width: rang.preferred-width + 6px;
+        x: 0;
+        width: rang.preferred-width;
         height: 30px;
         border-radius: Tokens.radius-medium;
         background: Tokens.surface-low;
         border-width: 1px;
         border-color: Tokens.border;
+        clip: true;
 
         Rectangle {
             y: 1px;
@@ -44,43 +50,39 @@ component ChipRow inherits Rectangle {
                 Tokens.edge-light.transparentize(0.82) 0%,
                 Tokens.edge-light.transparentize(1.0) 100%);
         }
-    }
 
-    rang := HorizontalLayout {
-        x: 3px;
-        y: 3px;
-        height: 24px;
-        spacing: 2px;
+        rang := HorizontalLayout {
+            padding: 3px;
+            spacing: 2px;
+            alignment: start;
 
-        for label[i] in root.options: Rectangle {
-            height: 24px;
-            border-radius: Tokens.radius-small;
+            for label[i] in root.options: Rectangle {
+                width: libelle.preferred-width + 2 * Tokens.space-3;
+                height: 24px;
+                border-radius: Tokens.radius-small;
 
-            accessible-role: tab;
-            accessible-label: label;
-            accessible-item-selected: root.selected == i;
-            accessible-action-default => { root.chosen(i); }
+                accessible-role: tab;
+                accessible-label: label;
+                accessible-item-selected: root.selected == i;
+                accessible-action-default => { root.chosen(i); }
 
-            background: root.selected == i
-                ? Tokens.accent
-                : (touch.has-hover ? Tokens.surface-hover : Tokens.surface);
-            animate background { duration: Tokens.instant; }
+                background: root.selected == i
+                    ? Tokens.accent
+                    : (touch.has-hover ? Tokens.surface-hover : transparent);
+                animate background { duration: Tokens.instant; }
 
-            HorizontalLayout {
-                padding-left: Tokens.space-3;
-                padding-right: Tokens.space-3;
-
-                Text {
+                libelle := Text {
                     text: label;
                     font-size: Tokens.size-small;
                     font-weight: root.selected == i ? Tokens.weight-bold : Tokens.weight-body;
                     color: root.selected == i ? Tokens.accent-text : Tokens.text-secondary;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
                 }
-            }
 
-            touch := TouchArea {
-                clicked => { root.chosen(i); }
+                touch := TouchArea {
+                    clicked => { root.chosen(i); }
+                }
             }
         }
     }
@@ -230,6 +232,8 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
     in-out property <bool> keep-running;
+    /// How long a sent message can still be taken back, in seconds.
+    in-out property <int> undo-send-seconds;
     /// Ce que le système ne permet pas ici, et pourquoi.
     in property <string> system-note;
     /// "Iris 0.2.0", and what the last update check found.
@@ -245,6 +249,7 @@ export component SettingsPanel inherits Rectangle {
     callback density-chosen(int);
     callback automation-changed();
     callback system-changed();
+    callback sending-changed();
     callback dismissed();
 
     background: Tokens.scrim;
@@ -306,6 +311,7 @@ export component SettingsPanel inherits Rectangle {
                 sections := VerticalLayout {
                     spacing: Tokens.space-3;
                     padding-right: Tokens.space-2;
+                    padding-bottom: Tokens.space-3;
 
                     GroupLabel { text: "THEME"; }
 
@@ -380,6 +386,41 @@ export component SettingsPanel inherits Rectangle {
                         Rectangle {}
                     }
 
+                    GroupLabel { text: "SENDING"; }
+
+                    // The window closes on Send; for this long a notice at the bottom
+                    // of the window can still take the message back.
+                    HorizontalLayout {
+                        spacing: Tokens.space-2;
+                        vertical-stretch: 0;
+                        height: 30px;
+
+                        Text {
+                            text: "Time to undo a send";
+                            font-size: Tokens.size-body;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {}
+
+                        SpinBox {
+                            width: 92px;
+                            height: 30px;
+                            minimum: 0;
+                            maximum: 30;
+                            value <=> root.undo-send-seconds;
+                            edited => { root.sending-changed(); }
+                        }
+
+                        Text {
+                            text: "seconds";
+                            font-size: Tokens.size-body;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
                     GroupLabel { text: "SYSTEM"; }
 
                     // Le premier des trois, parce que c'est celui qui décide de ce que fait le
@@ -423,13 +464,16 @@ export component SettingsPanel inherits Rectangle {
 
                 // Checked at every launch and every few hours after; this is for
                 // whoever wants to know now.
+                // Two lines of text: a fixed height of one button cut the second off
+                // below the end of the scroll area, out of reach.
                 HorizontalLayout {
                     spacing: Tokens.space-2;
                     vertical-stretch: 0;
-                    height: 28px;
+                    min-height: 28px;
 
                     VerticalLayout {
                         alignment: center;
+                        horizontal-stretch: 1;
                         Text {
                             text: root.version;
                             font-size: Tokens.size-body;
@@ -442,8 +486,6 @@ export component SettingsPanel inherits Rectangle {
                             overflow: elide;
                         }
                     }
-
-                    Rectangle {}
 
                     if root.update-version != "": SettingsButton {
                         y: (parent.height - self.height) / 2;

@@ -919,20 +919,23 @@ fn envoyer_declenche_l_envoi() {
     assert_eq!(*envois.borrow(), 1);
 }
 
-fn pendant_le_delai_le_bouton_devient_une_annulation() {
-    // The correction is one click where the mistake was.
+fn pendant_le_delai_un_avis_propose_d_annuler() {
+    // Send closes the window; the notice at the bottom holds the one way back.
     let f = fenetre();
-    f.set_compose_open(true);
-    f.set_compose_sending(true);
-    f.set_compose_undo_seconds(7);
+    assert!(
+        par_libelle(&f, "Undo send").is_none(),
+        "no notice before a send"
+    );
 
-    assert!(par_libelle(&f, "Send").is_none());
-    let undo = par_libelle(&f, "Undo send").expect("the undo button must take its place");
+    f.set_send_notice_text("Sending “Devis”".into());
+    f.set_send_notice_seconds(5);
+    f.set_send_notice_open(true);
+    let undo = par_libelle(&f, "Undo send").expect("the notice offers Undo");
 
     let annulations = Rc::new(RefCell::new(0));
     {
         let annulations = Rc::clone(&annulations);
-        f.on_compose_cancel(move || *annulations.borrow_mut() += 1);
+        f.on_send_undone(move || *annulations.borrow_mut() += 1);
     }
 
     undo.invoke_accessible_default_action();
@@ -1719,8 +1722,8 @@ fn main() {
             envoyer_declenche_l_envoi as fn(),
         ),
         (
-            "pendant_le_delai_le_bouton_devient_une_annulation",
-            pendant_le_delai_le_bouton_devient_une_annulation as fn(),
+            "pendant_le_delai_un_avis_propose_d_annuler",
+            pendant_le_delai_un_avis_propose_d_annuler as fn(),
         ),
         ("l_expediteur_se_choisit", l_expediteur_se_choisit as fn()),
         (

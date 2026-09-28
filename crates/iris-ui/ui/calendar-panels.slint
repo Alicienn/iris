@@ -99,6 +99,9 @@ export component Labelled inherits VerticalLayout {
 // What an event is, when, where.
 export component EventDetailPanel inherits Rectangle {
     in property <EventDetailData> detail;
+    /// What the user wrote about this event — theirs, even on a subscribed calendar.
+    in-out property <string> notes;
+    callback notes-edited(string);
     callback edit();
     callback delete();
     callback dismissed();
@@ -110,7 +113,7 @@ export component EventDetailPanel inherits Rectangle {
         // A long title is read whole: it is often the only thing that says what the
         // event is.
         wrap-title: true;
-        card-height: 420px;
+        card-height: 540px;
         dismissed => { root.dismissed(); }
 
         HorizontalLayout {
@@ -185,11 +188,24 @@ export component EventDetailPanel inherits Rectangle {
 
         if root.detail.description != "": TextArea {
             vertical-stretch: 1;
+            min-height: 60px;
             read-only: true;
             text: root.detail.description;
             accessible-label: "Description";
         }
-        if root.detail.description == "": Rectangle { vertical-stretch: 1; }
+
+        Labelled {
+            label: "My notes";
+            vertical-stretch: 1;
+            TextArea {
+                vertical-stretch: 1;
+                min-height: 70px;
+                accessible-label: "My notes";
+                placeholder-text: "Anything to remember about it — kept on this computer";
+                text <=> root.notes;
+                edited(t) => { root.notes-edited(t); }
+            }
+        }
 
         HorizontalLayout {
             height: 28px;
@@ -575,9 +591,11 @@ export component SubscribePanel inherits Rectangle {
 // Right click on a calendar in the list.
 export component CalendarContextMenu inherits Rectangle {
     in property <CalendarData> cal;
+    in property <[color]> palette;
     in property <length> menu-x;
     in property <length> menu-y;
 
+    callback color-chosen(int);
     callback refresh();
     callback rename();
     callback remove();
@@ -625,6 +643,41 @@ export component CalendarContextMenu inherits Rectangle {
                 icon: Icons.pencil;
                 label: "Rename…";
                 activated => { root.rename(); }
+            }
+
+            // The colour: one click on a swatch, no dialog.
+            HorizontalLayout {
+                padding-left: Tokens.space-2;
+                padding-right: Tokens.space-2;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 5px;
+                height: 30px;
+                for couleur[i] in root.palette: Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 10px;
+                    background: couleur;
+                    border-width: root.cal.color == couleur ? 2px : (pastille.has-hover ? 2px : 0px);
+                    border-color: root.cal.color == couleur ? Tokens.text : Tokens.border-strong;
+
+                    accessible-role: button;
+                    accessible-label: "Colour " + (i + 1);
+                    accessible-action-default => { root.color-chosen(i); }
+
+                    if root.cal.color == couleur: Icon {
+                        data: Icons.check;
+                        size: 11px;
+                        weight: 3.0;
+                        tint: white;
+                    }
+                    pastille := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.color-chosen(i); }
+                    }
+                }
+                Rectangle {}
             }
 
             MenuSeparator {}

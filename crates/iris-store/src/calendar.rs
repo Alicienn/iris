@@ -369,6 +369,66 @@ impl Store {
     }
 
     /// Combien d'événements porte un calendrier.
+    /// Ce qu'on a noté sur un événement. `occurrence` : le début de l'occurrence pour
+    /// une série, 0 pour un événement unique.
+    pub fn event_note(&self, calendar: i64, uid: &str, occurrence: i64) -> Result<String> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT notes FROM event_notes                  WHERE calendar_id = ?1 AND uid = ?2 AND occurrence_start = ?3",
+                params![calendar, uid, occurrence],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .map(Option::unwrap_or_default)
+            .map_err(err("lecture d'une note"))
+        })
+    }
+
+    /// Écrit la note d'un événement ; vide, elle disparaît.
+    pub fn set_event_note(
+        &self,
+        calendar: i64,
+        uid: &str,
+        occurrence: i64,
+        notes: &str,
+        now: Timestamp,
+    ) -> Result<()> {
+        self.with_conn(|c| {
+            if notes.trim().is_empty() {
+                c.execute(
+                    "DELETE FROM event_notes                      WHERE calendar_id = ?1 AND uid = ?2 AND occurrence_start = ?3",
+                    params![calendar, uid, occurrence],
+                )
+            } else {
+                c.execute(
+                    "INSERT INTO event_notes (calendar_id, uid, occurrence_start, notes, updated_at)                      VALUES (?1, ?2, ?3, ?4, ?5)                      ON CONFLICT (calendar_id, uid, occurrence_start)                      DO UPDATE SET notes = excluded.notes, updated_at = excluded.updated_at",
+                    params![calendar, uid, occurrence, notes, now.millis()],
+                )
+            }
+            .map(|_| ())
+            .map_err(err("écriture d'une note"))
+        })
+    }
+
+    /// Les notes d'un événement suivent l'événement d'un calendrier à l'autre, ou
+    /// partent avec lui (`to` vaut `None`).
+    pub fn move_event_notes(&self, calendar: i64, uid: &str, to: Option<i64>) -> Result<()> {
+        self.with_conn(|c| {
+            match to {
+                Some(autre) => c.execute(
+                    "UPDATE OR REPLACE event_notes SET calendar_id = ?3                      WHERE calendar_id = ?1 AND uid = ?2",
+                    params![calendar, uid, autre],
+                ),
+                None => c.execute(
+                    "DELETE FROM event_notes WHERE calendar_id = ?1 AND uid = ?2",
+                    params![calendar, uid],
+                ),
+            }
+            .map(|_| ())
+            .map_err(err("notes d'un événement"))
+        })
+    }
+
     pub fn calendar_event_count(&self, calendar: i64) -> Result<u32> {
         self.with_conn(|c| {
             c.query_row(
@@ -385,6 +445,48 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notes_survive_a_refresh_and_leave_with_the_calendar() {
+        let s = Store::in_memory().unwrap();
+        let t = Timestamp::from_millis(1);
+        let cal = s
+            .create_calendar("Club", "#4fb286", Some("https://example.com/c.ics"), t)
+            .unwrap();
+        s.set_event_note(cal, "regate@example.com", 0, "Bring the lifejackets", t)
+            .unwrap();
+        // A refresh replaces every event of the calendar: the note stays.
+        s.replace_calendar_events(cal, &[], t).unwrap();
+        assert_eq!(
+            s.event_note(cal, "regate@example.com", 0).unwrap(),
+            "Bring the lifejackets"
+        );
+        // Hidden, it is still there.
+        s.update_calendar(cal, "Club", "#4fb286", false).unwrap();
+        assert_eq!(
+            s.event_note(cal, "regate@example.com", 0).unwrap(),
+            "Bring the lifejackets"
+        );
+        // Unsubscribed, it goes.
+        s.delete_calendar(cal).unwrap();
+        assert_eq!(s.event_note(cal, "regate@example.com", 0).unwrap(), "");
+    }
+
+    #[test]
+    fn an_empty_note_is_no_note() {
+        let s = Store::in_memory().unwrap();
+        let t = Timestamp::from_millis(1);
+        let cal = s.calendars().unwrap()[0].id;
+        s.set_event_note(cal, "a", 5, "x", t).unwrap();
+        s.set_event_note(cal, "a", 5, "  ", t).unwrap();
+        assert_eq!(s.event_note(cal, "a", 5).unwrap(), "");
+        s.set_event_note(cal, "a", 5, "y", t).unwrap();
+        let autre = s.create_calendar("Work", "#000000", None, t).unwrap();
+        s.move_event_notes(cal, "a", Some(autre)).unwrap();
+        assert_eq!(s.event_note(autre, "a", 5).unwrap(), "y");
+        s.move_event_notes(autre, "a", None).unwrap();
+        assert_eq!(s.event_note(autre, "a", 5).unwrap(), "");
+    }
 
     fn ev(uid: &str, start: i64, end: i64) -> NewEvent {
         NewEvent {

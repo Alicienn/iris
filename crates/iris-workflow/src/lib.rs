@@ -391,7 +391,15 @@ impl Workflow {
         // Delete button did nothing at all, over and over, with no way to tell why.
         // The thread still has to leave the queue: that is what the user asked for,
         // and the server has nothing left to be told.
-        if moved == 0 && before.state == WorkflowState::Done {
+        // Deleting also puts the thread aside at once. Its messages stay in their
+        // folder until the journal replays; a thread already done kept its state, so
+        // it stayed in the Done tab and Delete looked like it did nothing.
+        let mis_de_cote = matches!(
+            destination,
+            Destination::Role(iris_store::FolderRole::Trash)
+        ) && self.store.set_thread_put_aside(thread, Some(now))?;
+
+        if moved == 0 && before.state == WorkflowState::Done && !mis_de_cote {
             return Ok(false);
         }
 
@@ -493,6 +501,9 @@ impl Workflow {
         // rejouera. Le prendre après restaurerait ce qu'on vient d'installer.
         let inverse = self.snapshot(entry.thread, now, !entry.flags.is_empty())?;
         self.push(if vers_redo { &self.redo } else { &self.undo }, inverse);
+
+        // Undoing a deletion brings the thread back into its queue.
+        self.store.set_thread_put_aside(entry.thread, None)?;
 
         if current.state != entry.state {
             self.store.set_thread_state(entry.thread, entry.state)?;
@@ -1240,6 +1251,43 @@ mod tests {
 
         assert!(f.workflow.delete(thread, t(1)).unwrap());
         assert!(!f.workflow.delete(thread, t(2)).unwrap());
+    }
+
+    #[test]
+    fn deleting_a_done_thread_takes_it_out_of_the_done_tab() {
+        // The fault users hit: in Done, Delete did nothing visible. The state was
+        // already Done and the message stays in its folder until the server replays
+        // the move, so the thread stayed on screen.
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+        let thread = f.thread();
+        f.store
+            .set_thread_state(thread, WorkflowState::Done)
+            .unwrap();
+        let fait = |f: &Fixture| {
+            f.store
+                .list_threads(&iris_store::ListQuery {
+                    state: WorkflowState::Done,
+                    accounts: Vec::new(),
+                    hide_snoozed_until: None,
+                    limit: 50,
+                    after: None,
+                    scope: iris_store::Scope::Queue,
+                    filters: iris_store::Filters::default(),
+                })
+                .unwrap()
+                .iter()
+                .any(|r| r.id == thread)
+        };
+        assert!(fait(&f));
+
+        assert!(f.workflow.delete(thread, t(1)).unwrap(), "it is a change");
+        assert!(!fait(&f), "gone from Done at once");
+
+        f.workflow.undo(t(2)).unwrap();
+        assert!(fait(&f), "undo brings it back");
     }
 
     #[test]

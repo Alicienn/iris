@@ -3,6 +3,21 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 0.6.0 — 2026-09-28
+
+### New
+- Write your own notes on any calendar event, subscribed calendars included.
+- Change a calendar's colour from its right-click menu.
+- Choose how long you can undo a send, in Settings (5 seconds by default).
+
+### Improved
+- Sending closes the message window at once; a notice at the bottom lets you undo and brings the message back as it was.
+
+### Fixed
+- Conversations in Done can be deleted.
+- The list density choices in Settings no longer spill out of their frame.
+- The Updates section of Settings scrolls into view entirely.
+
 ## 0.5.0 — 2026-09-28
 
 ### New

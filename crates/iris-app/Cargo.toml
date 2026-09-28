@@ -92,6 +92,8 @@ iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }
 iris-rules = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# Une fenêtre sans écran, pour tester ce que l'envoi fait à l'interface.
+i-slint-backend-testing = "1.17"
 
 # La mesure affiche une infolettre : elle n'a de sens qu'avec le moteur complet.
 [[example]]

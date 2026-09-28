@@ -285,14 +285,11 @@ export component ConversationView inherits VerticalLayout {
     in property <[MessageData]> messages;
     in property <bool> empty: true;
     in-out property <string> reply-text;
-    in property <bool> sending;
-    in property <int> undo-seconds;
 
     in property <bool> unread;
     in property <bool> starred;
 
     callback send();
-    callback cancel-send();
     callback load-images();
     callback reply-all();
     callback save-attachment(int);
@@ -807,14 +804,9 @@ export component ConversationView inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: Tokens.space-2;
 
-                    // Pendant le délai d'annulation, le bouton d'envoi devient un
-                    // bouton d'annulation : c'est le même endroit à l'écran, donc le
-                    // geste de rattrapage est immédiat.
-                    if root.sending: Button {
-                        text: "Undo send (" + root.undo-seconds + " s)";
-                        clicked => { root.cancel-send(); }
-                    }
-                    if !root.sending: Button {
+                    // Sent, the reply leaves the field; the notice at the bottom of
+                    // the window can take it back for a few seconds, text included.
+                    Button {
                         text: "Send";
                         primary: true;
                         enabled: root.reply-text != "";
@@ -823,7 +815,7 @@ export component ConversationView inherits VerticalLayout {
 
                     Button {
                         text: "Reply all";
-                        enabled: !root.sending;
+                        enabled: root.reply-text != "";
                         clicked => { root.reply-all(); }
                     }
 

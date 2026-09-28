@@ -2,8 +2,8 @@
 //!
 //! Envoyer immédiatement est une erreur d'ergonomie : la faute de frappe, la pièce
 //! jointe oubliée et le mauvais destinataire se remarquent dans les secondes qui
-//! suivent le clic, jamais avant. Un message part donc après un délai — dix secondes
-//! par défaut — pendant lequel un seul geste le retient.
+//! suivent le clic, jamais avant. Un message part donc après un délai — cinq secondes
+//! par défaut, réglable — pendant lequel un seul geste le retient.
 //!
 //! Le délai est **avant l'envoi, pas après** : rappeler un message déjà parti est
 //! impossible, et prétendre le contraire serait mentir à l'utilisateur.
@@ -18,7 +18,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 /// Délai d'annulation par défaut.
-pub const DEFAULT_DELAY: Duration = Duration::from_secs(10);
+pub const DEFAULT_DELAY: Duration = Duration::from_secs(5);
 
 /// Référence à un message en attente d'envoi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -59,7 +59,9 @@ impl OutboxEvent {
 #[derive(Debug)]
 pub struct Outbox {
     mailer: Arc<dyn Mailer>,
-    delay: Duration,
+    /// En millisecondes. Réglable en marche : le délai se choisit dans les réglages,
+    /// et chaque message part avec celui qui valait quand on l'a envoyé.
+    delay: AtomicU64,
     pending: Arc<Mutex<HashMap<SendHandle, oneshot::Sender<()>>>>,
     next: AtomicU64,
     events: mpsc::UnboundedSender<OutboxEvent>,
@@ -85,7 +87,7 @@ impl Outbox {
         (
             Self {
                 mailer,
-                delay,
+                delay: AtomicU64::new(delay.as_millis() as u64),
                 pending: Arc::new(Mutex::new(HashMap::new())),
                 next: AtomicU64::new(1),
                 events: tx,
@@ -96,7 +98,13 @@ impl Outbox {
     }
 
     pub fn delay(&self) -> Duration {
+        Duration::from_millis(self.delay.load(Ordering::Relaxed))
+    }
+
+    /// Change le délai des prochains messages ; ceux déjà en file gardent le leur.
+    pub fn set_delay(&self, delay: Duration) {
         self.delay
+            .store(delay.as_millis() as u64, Ordering::Relaxed);
     }
 
     /// Met un message en file. Il partira après le délai, sauf annulation.
@@ -116,7 +124,7 @@ impl Outbox {
         let mailer = Arc::clone(&self.mailer);
         let pending = Arc::clone(&self.pending);
         let events = self.events.clone();
-        let delay = self.delay;
+        let delay = self.delay();
 
         self.runtime.spawn(async move {
             // Course entre l'échéance et l'annulation. Le premier qui arrive gagne.

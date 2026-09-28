@@ -16,7 +16,7 @@ const SPAM_BIT: u32 = 1 << 9;
 
 const THREAD_COLUMNS: &str = "id, state, last_activity_at, last_from_name, last_from_addr, \
      last_subject, last_preview, message_count, unread_count, flags_union, snooze_until, \
-     last_account_id";
+     last_account_id, put_aside_at IS NOT NULL";
 
 /// Ajoute à la requête ce que la portée demandée impose.
 ///
@@ -58,6 +58,8 @@ fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
             // sur cette boîte portent le verdict sans être dans le dossier : le
             // verdict voyage avec le message, pas avec l'endroit.
             sql.push_str(&format!(" AND (flags_union & {SPAM_BIT}) = 0"));
+            // Et ce qu'on vient de mettre à la corbeille, sans attendre le serveur.
+            sql.push_str(" AND threads.put_aside_at IS NULL");
 
             if !q.accounts.is_empty() {
                 let places = std::iter::repeat_n("?", q.accounts.len())
@@ -156,6 +158,7 @@ fn row_from_sql(r: &Row<'_>) -> rusqlite::Result<ThreadRow> {
         flags_union: Flags(r.get::<_, i64>(9)? as u32),
         snoozed_until: r.get::<_, Option<i64>>(10)?.map(Timestamp::from_millis),
         account: AccountId(r.get(11)?),
+        put_aside: r.get(12)?,
     })
 }
 
@@ -315,6 +318,7 @@ impl Store {
                        AND t.unread_count > 0
                        AND (t.snooze_until IS NULL OR t.snooze_until <= ?2)
                        AND (t.flags_union & {SPAM_BIT}) = 0
+                       AND t.put_aside_at IS NULL
                        AND EXISTS (SELECT 1 FROM messages m
                                    JOIN folders f ON f.id = m.folder_id
                                    WHERE m.thread_id = t.id
@@ -518,6 +522,19 @@ impl Store {
     }
 
     /// Reporte un fil. L'état est conservé et restauré à l'échéance.
+    /// Marque un fil comme mis à la corbeille, ou lève la marque. Vrai si quelque
+    /// chose a changé : marquer un fil déjà marqué ne change rien.
+    pub fn set_thread_put_aside(&self, thread: ThreadId, at: Option<Timestamp>) -> Result<bool> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE threads SET put_aside_at = ?1 WHERE id = ?2                  AND put_aside_at IS NOT ?1 AND (?1 IS NULL OR put_aside_at IS NULL)",
+                params![at.map(|t| t.millis()), thread.get()],
+            )
+            .map(|n| n > 0)
+            .map_err(|e| sql_err("mise de côté d'un fil", e))
+        })
+    }
+
     pub fn snooze_thread(&self, thread: ThreadId, snooze: Snooze) -> Result<bool> {
         self.with_conn(|c| {
             let n = c
