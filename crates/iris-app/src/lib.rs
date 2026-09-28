@@ -7,7 +7,6 @@
 
 pub mod accounts;
 pub mod calendar;
-pub mod catalogue;
 pub mod changelog;
 pub mod controller;
 pub mod draft;
@@ -24,6 +23,7 @@ pub mod services;
 pub mod settings;
 pub mod shell;
 pub mod single;
+pub mod tags;
 pub mod tasks;
 pub mod tray;
 pub mod update;

@@ -108,6 +108,9 @@ pub struct Settings {
     /// Combien de secondes un message envoyé peut encore être rattrapé.
     #[serde(default = "cinq")]
     pub undo_send_seconds: u32,
+    /// Les comptes de la colonne de gauche sont rangés sous leurs tags.
+    #[serde(default)]
+    pub group_accounts_by_tag: bool,
 }
 
 /// La valeur par défaut d'un réglage qui doit être allumé.
@@ -137,6 +140,7 @@ impl Default for Settings {
             handle_mailto: false,
             keep_running: true,
             undo_send_seconds: cinq(),
+            group_accounts_by_tag: false,
         }
     }
 }
@@ -219,6 +223,7 @@ mod tests {
             handle_mailto: true,
             keep_running: false,
             undo_send_seconds: 12,
+            group_accounts_by_tag: true,
         };
 
         reglages.save(&chemin).unwrap();

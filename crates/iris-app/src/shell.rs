@@ -15,7 +15,9 @@ use iris_types::{ThreadId, WorkflowState};
 use iris_ui::bridge;
 use iris_ui::commands::{self, CommandKind};
 use iris_ui::keymap::{KeyOutcome, Keymap};
-use iris_ui::{AppWindow, AttachmentData, FolderNodeData, PluginSettingData, Tokens};
+use iris_ui::{
+    AccountRowData, AppWindow, AttachmentData, FolderNodeData, PluginSettingData, Tokens,
+};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -85,28 +87,60 @@ pub fn refresh_accounts(
 
     let (epingles, autres): (Vec<_>, Vec<_>) = retenus.into_iter().partition(|c| c.pinned);
 
-    let vers_modele = |liste: Vec<&iris_store::Account>| {
-        ModelRc::new(VecModel::from(
-            liste
-                .into_iter()
-                .map(|c| {
-                    let panne = pannes.get(&c.id);
-                    let mut ligne = bridge::account_row(
-                        c,
-                        a_traiter.get(&c.id).copied().unwrap_or(0),
-                        suspendus.contains(&c.id) || panne.is_some(),
-                    );
-                    if let Some(panne) = panne {
-                        ligne.problem = panne.summary().into();
-                    }
-                    ligne
-                })
-                .collect::<Vec<_>>(),
-        ))
+    let ligne = |c: &iris_store::Account| {
+        let panne = pannes.get(&c.id);
+        let mut ligne = bridge::account_row(
+            c,
+            a_traiter.get(&c.id).copied().unwrap_or(0),
+            suspendus.contains(&c.id) || panne.is_some(),
+        );
+        if let Some(panne) = panne {
+            ligne.problem = panne.summary().into();
+        }
+        ligne
     };
 
-    fenetre.set_pinned_accounts(vers_modele(epingles));
-    fenetre.set_other_accounts(vers_modele(autres));
+    fenetre.set_pinned_accounts(ModelRc::new(VecModel::from(
+        epingles.iter().map(|c| ligne(c)).collect::<Vec<_>>(),
+    )));
+
+    // Under their tags, when asked: a title per tag, its accounts beneath — an account
+    // with two tags shows under both — then those without one. Empty groups (none of
+    // their accounts matches the filter) are left out.
+    let lignes: Vec<AccountRowData> = if fenetre.get_group_by_tags() {
+        let tags = services.store.account_tags().unwrap_or_default();
+        let liens = services.store.account_tag_links().unwrap_or_default();
+        let mut lignes = Vec::new();
+        for tag in &tags {
+            let dedans: Vec<&&iris_store::Account> = autres
+                .iter()
+                .filter(|c| liens.get(&c.id).is_some_and(|t| t.contains(&tag.id)))
+                .collect();
+            if dedans.is_empty() {
+                continue;
+            }
+            lignes.push(bridge::account_group_header(
+                &tag.name,
+                crate::calendar::couleur(&tag.color),
+            ));
+            lignes.extend(dedans.into_iter().map(|c| ligne(c)));
+        }
+        let sans: Vec<&&iris_store::Account> = autres
+            .iter()
+            .filter(|c| liens.get(&c.id).is_none_or(|t| t.is_empty()))
+            .collect();
+        if !sans.is_empty() {
+            lignes.push(bridge::account_group_header(
+                "No tag",
+                slint::Color::from_argb_u8(0, 0, 0, 0),
+            ));
+            lignes.extend(sans.into_iter().map(|c| ligne(c)));
+        }
+        lignes
+    } else {
+        autres.iter().map(|c| ligne(c)).collect()
+    };
+    fenetre.set_other_accounts(ModelRc::new(VecModel::from(lignes)));
     let total: u32 = a_traiter.values().sum();
     fenetre.set_unified_count(total as i32);
     fenetre.set_unified_label(iris_ui::format::short_count(total as u64).into());
@@ -1833,6 +1867,7 @@ pub fn wire_settings(
         fenetre.set_notifications(reglages.notifications);
         fenetre.set_keep_running(reglages.keep_running);
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
+        fenetre.set_group_by_tags(reglages.group_accounts_by_tag);
 
         // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
         // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
@@ -1907,6 +1942,25 @@ pub fn wire_settings(
             appliquer_apparence(&fenetre, &themes.active(), densite);
             fenetre.set_density(index);
             enregistrer(&reglages);
+        });
+    }
+
+    // --- Les comptes rangés sous leurs tags ---
+    {
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_group_by_tags_changed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.group_accounts_by_tag = fenetre.get_group_by_tags();
+            enregistrer(&reglages);
+            drop(reglages);
+            refresh_accounts(&fenetre, &services, &[]);
         });
     }
 
@@ -3726,108 +3780,12 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
     }
 }
 
-/// Wires the module browser and the per-module settings.
+/// Wires the per-module settings.
 ///
-/// Deux écrans, un seul répertoire : celui des plugins. Installer y écrit, régler y
-/// écrit, désinstaller l'efface. Rien n'est réparti ailleurs, ce qui veut dire qu'un
-/// module retiré ne laisse rien derrière lui — pas d'entrée orpheline dans la base,
-/// pas de réglage qui ressusciterait si on le réinstalle.
-pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
+/// Un seul répertoire, celui des plugins : les réglages d'un module vivent dans le
+/// sien, si bien qu'un module retiré ne laisse rien derrière lui.
+pub fn wire_plugin_settings(fenetre: &AppWindow, services: &Services) {
     let repertoire = crate::plugins::ensure_dir(services.paths.plugins());
-
-    // --- Ouvrir et fermer ---
-    {
-        let faible = fenetre.as_weak();
-        let dossier = repertoire.clone();
-        fenetre.on_browser_requested(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            fenetre.set_browser_error(Default::default());
-            fenetre.set_browser_note(
-                format!(
-                    "Modules live in {}. A folder with a plugin.toml and its .wasm \
-                     installs without a catalogue and without a network.",
-                    dossier.display()
-                )
-                .into(),
-            );
-            fenetre.set_browser_open(true);
-        });
-    }
-    {
-        let faible = fenetre.as_weak();
-        fenetre.on_browser_dismissed(move || {
-            if let Some(fenetre) = faible.upgrade() {
-                fenetre.set_browser_open(false);
-            }
-        });
-    }
-
-    // --- Installer depuis un répertoire ---
-    {
-        let dossier = repertoire.clone();
-        let faible = fenetre.as_weak();
-
-        fenetre.on_browser_install_folder(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let Some(source) = rfd::FileDialog::new().pick_folder() else {
-                return;
-            };
-
-            match crate::catalogue::install_from_dir(&source, &dossier) {
-                Ok(manifeste) => {
-                    fenetre.set_browser_error(Default::default());
-                    fenetre.set_browser_open(false);
-                    // Chargé au démarrage, comme les autres : mettre du
-                    // WebAssembly dans un hôte qui tourne est un problème en forme de
-                    // redémarrage, et le dire vaut mieux que de faire semblant.
-                    fenetre.set_status(
-                        format!("{} installed — restart Iris to load it.", manifeste.name).into(),
-                    );
-                }
-                Err(e) => fenetre.set_browser_error(e.to_string().into()),
-            }
-        });
-    }
-
-    // --- Le catalogue distant ---
-    //
-    // Aucune adresse par défaut, à dessein : en livrer une ferait d'Iris l'arbitre de
-    // ce qui est installable, et de nous les responsables du code que d'autres y
-    // publieraient.
-    {
-        let faible = fenetre.as_weak();
-        fenetre.on_browser_refresh(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let adresse = fenetre.get_catalogue_url().to_string();
-
-            if let Err(message) = crate::catalogue::validate_url(&adresse) {
-                fenetre.set_browser_error(message.into());
-                return;
-            }
-
-            // Le téléchargement lui-même n'est pas branché : il demande un catalogue
-            // qui existe, et il n'en existe aucun. Le dire vaut mieux qu'un bouton
-            // qui tourne indéfiniment sur une adresse que personne ne sert.
-            fenetre.set_browser_error(
-                "No catalogue is reachable yet. Install from a folder in the meantime.".into(),
-            );
-        });
-    }
-
-    {
-        let faible = fenetre.as_weak();
-        fenetre.on_browser_install(move |_id| {
-            if let Some(fenetre) = faible.upgrade() {
-                fenetre.set_browser_error("Installing from a catalogue needs a catalogue.".into());
-            }
-        });
-    }
 
     // --- Les réglages d'un module ---
     {
@@ -3839,7 +3797,7 @@ pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
                 return;
             };
             let id = id.to_string();
-            if crate::catalogue::validate_id(&id).is_err() {
+            if crate::plugins::validate_id(&id).is_err() {
                 return;
             }
 
@@ -3881,7 +3839,7 @@ pub fn wire_plugin_browser(fenetre: &AppWindow, services: &Services) {
                 return;
             };
             let id = fenetre.get_plugin_settings_id().to_string();
-            if crate::catalogue::validate_id(&id).is_err() {
+            if crate::plugins::validate_id(&id).is_err() {
                 return;
             }
 
@@ -3968,9 +3926,18 @@ pub fn wire_account_menu(
             fenetre.set_account_menu_label(details.email.as_str().into());
             fenetre.set_account_menu_pinned(details.pinned);
             fenetre.set_account_menu_enabled(details.enabled);
+            // Its tags, the submenu folded and its search emptied: a menu opened on
+            // another account must not carry the last one's state.
+            fenetre.set_account_tags_open(false);
+            fenetre.set_account_tag_search(Default::default());
+            fenetre.set_account_menu_tags(ModelRc::new(VecModel::from(crate::tags::menu_tags(
+                &services, compte, "",
+            ))));
             fenetre.set_account_menu_open(true);
         });
     }
+
+    crate::tags::wire_tags(fenetre, services, Arc::clone(&sujet));
 
     {
         let faible = fenetre.as_weak();

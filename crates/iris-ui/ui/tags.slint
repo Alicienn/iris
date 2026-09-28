@@ -1,0 +1,220 @@
+import { Tokens } from "tokens.slint";
+import { Icon, Icons, IconButton } from "icons.slint";
+import { TextField } from "field.slint";
+import { AccountTagData } from "types.slint";
+import { CalButton } from "calendar.slint";
+import { PanelFrame } from "calendar-panels.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// A tag in the manager: its colour, its name to edit in place, how many mailboxes
+// carry it, and its removal — asked on the row itself, not in a second window.
+component TagRow inherits Rectangle {
+    in property <AccountTagData> tag;
+    in property <[color]> palette;
+
+    callback renamed(int, string);
+    callback color-chosen(int, int);
+    callback deleted(int);
+
+    property <bool> colours;
+    property <bool> confirming;
+    property <string> nom: root.tag.name;
+
+    height: ligne.preferred-height;
+
+    ligne := VerticalLayout {
+        spacing: 4px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+
+        HorizontalLayout {
+            height: 32px;
+            spacing: Tokens.space-2;
+
+            // The colour: a click opens the swatches beneath.
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 18px;
+                height: 18px;
+                border-radius: 9px;
+                background: root.tag.color;
+                border-width: pastille.has-hover || root.colours ? 2px : 0px;
+                border-color: Tokens.border-strong;
+
+                accessible-role: button;
+                accessible-label: "Colour of " + root.tag.name;
+                accessible-action-default => { root.colours = !root.colours; }
+
+                pastille := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.colours = !root.colours; }
+                }
+            }
+
+            TextField {
+                accessible-label: "Tag name";
+                text <=> root.nom;
+                edited(t) => { root.renamed(root.tag.id, t); }
+            }
+
+            Text {
+                width: 74px;
+                text: root.tag.count == 1 ? "1 account" : root.tag.count + " accounts";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.trash;
+                label: "Delete tag " + root.tag.name;
+                button-size: 26px;
+                icon-size: 13px;
+                danger: true;
+                clicked => { root.confirming = true; }
+            }
+        }
+
+        if root.colours: HorizontalLayout {
+            padding-left: 26px;
+            spacing: 6px;
+            height: 24px;
+            for couleur[i] in root.palette: Rectangle {
+                width: 20px;
+                height: 20px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 10px;
+                background: couleur;
+                border-width: root.tag.color == couleur ? 2px : 0px;
+                border-color: Tokens.text;
+
+                accessible-role: button;
+                accessible-label: "Colour " + (i + 1);
+                accessible-action-default => {
+                    root.color-chosen(root.tag.id, i);
+                    root.colours = false;
+                }
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.color-chosen(root.tag.id, i);
+                        root.colours = false;
+                    }
+                }
+            }
+            Rectangle {}
+        }
+
+        if root.confirming: HorizontalLayout {
+            padding-left: 26px;
+            spacing: Tokens.space-2;
+            height: 28px;
+            Text {
+                text: root.tag.count == 0
+                    ? "Delete this tag?"
+                    : "Delete it? The " + root.tag.count + " account(s) stay, without it.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            CalButton {
+                text: "Cancel";
+                clicked => { root.confirming = false; }
+            }
+            CalButton {
+                text: "Delete";
+                primary: true;
+                danger: true;
+                clicked => { root.deleted(root.tag.id); }
+            }
+        }
+    }
+}
+
+// Tags for one's own mailboxes: made, renamed, recoloured and removed here; put on
+// an account from its right-click menu.
+export component TagsPanel inherits Rectangle {
+    in property <[AccountTagData]> tags;
+    in property <[color]> palette;
+    in property <string> error;
+    in-out property <string> new-name;
+
+    callback created(string);
+    callback renamed(int, string);
+    callback color-chosen(int, int);
+    callback deleted(int);
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: "Tags";
+        card-width: 480px;
+        card-height: 520px;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: "Tags sort your own mailboxes — Clients, Personal, Club… Put them on an "
+                + "account from its right-click menu, and group the accounts by tag from "
+                + "the switch above their list.";
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            TextField {
+                accessible-label: "New tag";
+                placeholder-text: "New tag name";
+                text <=> root.new-name;
+                // Opened to make one: the first key names it.
+                init => { self.focus(); }
+                accepted(t) => { root.created(t); }
+            }
+            CalButton {
+                y: (parent.height - self.height) / 2;
+                text: "Add";
+                icon: Icons.plus;
+                primary: true;
+                clicked => { root.created(root.new-name); }
+            }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-small;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start;
+                spacing: 2px;
+                for tag in root.tags: TagRow {
+                    tag: tag;
+                    palette: root.palette;
+                    renamed(id, nom) => { root.renamed(id, nom); }
+                    color-chosen(id, i) => { root.color-chosen(id, i); }
+                    deleted(id) => { root.deleted(id); }
+                }
+                if root.tags.length == 0: Text {
+                    height: 60px;
+                    text: "No tags yet.";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

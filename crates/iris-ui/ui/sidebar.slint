@@ -1,10 +1,10 @@
 import { Tokens } from "tokens.slint";
 import { TextField } from "field.slint";
-import { AccountRowData } from "types.slint";
+import { AccountRowData, AccountTagData } from "types.slint";
 import { Glass } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
-import { ListView } from "std-widgets.slint";
+import { ListView, ScrollView } from "std-widgets.slint";
 
 component SectionLabel inherits Text {
     font-size: 9px;
@@ -21,6 +21,23 @@ component AccountRow inherits Rectangle {
     callback resume();
     callback sync();
     callback context-menu(length, length);
+
+    /// A right click that landed on an open menu's veil, and where. The row under
+    /// that point opens its own menu: without this, a second right click on another
+    /// account closed nothing and opened nothing.
+    in property <int> probe;
+    in property <length> probe-x;
+    in property <length> probe-y;
+
+    changed probe => {
+        if (!root.account.header
+            && root.probe-x >= self.absolute-position.x
+            && root.probe-x < self.absolute-position.x + self.width
+            && root.probe-y >= self.absolute-position.y
+            && root.probe-y < self.absolute-position.y + self.height) {
+            root.context-menu(root.probe-x, root.probe-y);
+        }
+    }
 
     // Vrai pendant la seconde qui suit un clic sur la synchronisation.
     //
@@ -43,10 +60,34 @@ component AccountRow inherits Rectangle {
 
     height: 26px;
     border-radius: Tokens.radius-small;
-    background: root.selected
+    background: root.account.header ? transparent
+        : root.selected
         ? Tokens.surface-active
         : (touch.has-hover ? Tokens.surface-hover : transparent);
     animate background { duration: Tokens.instant; }
+
+    // A tag's title, when the accounts are grouped by tag: its colour and its name,
+    // in the voice of the section labels.
+    if root.account.header: HorizontalLayout {
+        padding-left: Tokens.space-1;
+        spacing: 6px;
+        alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.start;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 7px;
+            height: 7px;
+            border-radius: 3.5px;
+            background: root.account.tint;
+        }
+        if !root.compact: Text {
+            text: root.account.label;
+            font-size: 9px;
+            letter-spacing: 1px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
 
     accessible-role: list-item;
     accessible-label: root.account.label;
@@ -70,7 +111,7 @@ component AccountRow inherits Rectangle {
         animate width { duration: Tokens.instant; }
     }
 
-    HorizontalLayout {
+    if !root.account.header: HorizontalLayout {
         padding-left: Tokens.space-2;
         padding-right: Tokens.space-1;
         spacing: Tokens.space-2;
@@ -172,6 +213,7 @@ component AccountRow inherits Rectangle {
     }
 
     touch := TouchArea {
+        enabled: !root.account.header;
         // Right-click reaches the account's own actions, the same way it reaches a
         // thread's. A mailbox whose password has changed is the case that matters:
         // the settings screen is three clicks and a scroll away from the row that is
@@ -211,8 +253,15 @@ export component Sidebar inherits Glass {
     in property <string> sync-progress;
     in-out property <string> filter;
     in-out property <bool> collapsed;
+    /// The accounts are listed under their tags.
+    in property <bool> grouped;
+    in property <int> probe;
+    in property <length> probe-x;
+    in property <length> probe-y;
 
     callback account-selected(int);
+    callback group-toggled();
+    callback open-tags();
     callback unified-selected();
     callback resume-account(int);
     callback add-account();
@@ -221,7 +270,6 @@ export component Sidebar inherits Glass {
     callback sync-all();
     callback open-settings();
     callback open-modules();
-    callback open-plugin-browser();
     callback account-menu(int, length, length);
 
     radius: 0px;
@@ -302,13 +350,37 @@ export component Sidebar inherits Glass {
             account: account;
             compact: root.collapsed;
             selected: account.id == root.selected-id;
+            probe: root.probe;
+            probe-x: root.probe-x;
+            probe-y: root.probe-y;
             clicked => { root.account-selected(account.id); }
             resume => { root.resume-account(account.id); }
             sync => { root.sync-account(account.id); }
             context-menu(mx, my) => { root.account-menu(account.id, mx, my); }
         }
 
-        if !root.collapsed && root.others.length > 0: SectionLabel { text: "ACCOUNTS"; }
+        // The title of the list, and beside it the switch that groups it by tag: the
+        // choice sits where its effect shows.
+        if !root.collapsed: HorizontalLayout {
+            height: 18px;
+            vertical-stretch: 0;
+            SectionLabel {
+                text: root.grouped ? "ACCOUNTS BY TAG" : "ACCOUNTS";
+                vertical-alignment: center;
+            }
+            Rectangle {}
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.tag;
+                label: root.grouped ? "Show accounts in one list" : "Group accounts by tag";
+                button-size: 18px;
+                icon-size: 11px;
+                active: root.grouped;
+                tinted: root.grouped;
+                tint: Tokens.accent;
+                clicked => { root.group-toggled(); }
+            }
+        }
 
         // La liste des autres comptes est virtualisée : cent lignes ne doivent pas
         // coûter cent éléments vivants.
@@ -317,7 +389,10 @@ export component Sidebar inherits Glass {
             for account in root.others: AccountRow {
                 account: account;
                 compact: root.collapsed;
-                selected: account.id == root.selected-id;
+                selected: !account.header && account.id == root.selected-id;
+                probe: root.probe;
+                probe-x: root.probe-x;
+                probe-y: root.probe-y;
                 clicked => { root.account-selected(account.id); }
                 resume => { root.resume-account(account.id); }
                 sync => { root.sync-account(account.id); }
@@ -359,16 +434,16 @@ export component Sidebar inherits Glass {
                     clicked => { root.sync-all(); }
                 }
                 IconButton {
-                    icon: Icons.puzzle;
+                    icon: Icons.blocks;
                     label: "Modules — rules and plugins";
                     button-size: 24px;
                     clicked => { root.open-modules(); }
                 }
                 IconButton {
-                    icon: Icons.store;
-                    label: "Add modules";
+                    icon: Icons.tag;
+                    label: "Manage tags";
                     button-size: 24px;
-                    clicked => { root.open-plugin-browser(); }
+                    clicked => { root.open-tags(); }
                 }
                 IconButton {
                     icon: Icons.gear;
@@ -404,25 +479,19 @@ export component Sidebar inherits Glass {
 
             Rectangle {}
 
-            // Les modules et leur catalogue, à côté des réglages.
-            //
-            // Le navigateur de modules n'était atteignable que depuis l'écran des
-            // modules, lui-même atteignable par la palette de commandes — c'est-à-dire
-            // par un raccourci qu'il faut connaître pour découvrir une fonction faite
-            // pour la découverte. Deux boutons de plus valent mieux qu'une porte
-            // cachée derrière une autre porte.
+            // Les modules, puis les tags des adresses, à côté des réglages.
             IconButton {
-                icon: Icons.puzzle;
+                icon: Icons.blocks;
                 label: "Modules — rules and plugins";
                 button-size: 24px;
                 clicked => { root.open-modules(); }
             }
 
             IconButton {
-                icon: Icons.store;
-                label: "Add modules";
+                icon: Icons.tag;
+                label: "Manage tags";
                 button-size: 24px;
-                clicked => { root.open-plugin-browser(); }
+                clicked => { root.open-tags(); }
             }
 
             IconButton {
@@ -449,6 +518,11 @@ export component AccountContextMenu inherits Rectangle {
     in property <bool> pinned;
     in property <length> menu-x;
     in property <length> menu-y;
+    /// The tags, each ticked if this account carries it — already filtered by the
+    /// search, in Rust.
+    in property <[AccountTagData]> tags;
+    in-out property <bool> tags-open;
+    in-out property <string> tag-search;
 
     callback sync-now();
     callback edit-account();
@@ -458,11 +532,144 @@ export component AccountContextMenu inherits Rectangle {
     callback toggle-enabled();
     callback remove-account();
     callback dismissed();
+    callback tag-toggled(int);
+    callback tag-search-changed(string);
+    callback tag-created(string);
+    callback manage-tags();
+    /// A right click outside the menu: it closes, and whatever was under the pointer
+    /// may open its own.
+    callback reopen-at(length, length);
+
+    // Escape from the search field folds the tags first, then closes the menu.
+    FocusScope {
+        enabled: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (root.tags-open) {
+                    root.tags-open = false;
+                } else {
+                    root.dismissed();
+                }
+                return accept;
+            }
+            return reject;
+        }
 
     TouchArea {
         width: 100%;
         height: 100%;
         clicked => { root.dismissed(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                // Passed on first, while this menu still exists; closed after.
+                root.reopen-at(self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+                root.dismissed();
+            }
+        }
+    }
+
+    if root.tags-open: MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x + 232px;
+        menu-y: root.menu-y + 96px;
+        menu-width: 220px;
+        menu-height: choix.preferred-height + 8px;
+
+        choix := VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            TextField {
+                accessible-label: "Search tags";
+                placeholder-text: "Search or create a tag";
+                font-size: Tokens.size-small;
+                text <=> root.tag-search;
+                // Opened to find a tag: the first key searches.
+                init => { self.focus(); }
+                edited(t) => { root.tag-search-changed(t); }
+                accepted(t) => {
+                    if (root.tags.length == 0 && t != "") {
+                        root.tag-created(t);
+                    } else if (root.tags.length == 1) {
+                        root.tag-toggled(root.tags[0].id);
+                    }
+                }
+            }
+
+            // Scrolls past eight tags: a hundred of them must not make the menu
+            // taller than the window.
+            ScrollView {
+                height: min(root.tags.length * 28px, 224px);
+                visible: root.tags.length > 0;
+                VerticalLayout {
+                    for tag in root.tags: Rectangle {
+                        height: 28px;
+                        border-radius: Tokens.radius-small;
+                        background: choix-touch.has-hover ? Tokens.surface-hover : transparent;
+
+                        accessible-role: checkbox;
+                        accessible-label: tag.name;
+                        accessible-checked: tag.checked;
+                        accessible-action-default => { root.tag-toggled(tag.id); }
+
+                        HorizontalLayout {
+                            padding-left: Tokens.space-2;
+                            padding-right: Tokens.space-2;
+                            spacing: Tokens.space-2;
+                            Rectangle {
+                                y: (parent.height - self.height) / 2;
+                                width: 14px;
+                                height: 14px;
+                                border-radius: 4px;
+                                border-width: 1.5px;
+                                border-color: tag.color;
+                                background: tag.checked ? tag.color : transparent;
+                                if tag.checked: Icon {
+                                    data: Icons.check;
+                                    size: 10px;
+                                    weight: 3.0;
+                                    tint: white;
+                                }
+                            }
+                            Text {
+                                text: tag.name;
+                                font-size: Tokens.size-small;
+                                color: Tokens.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                        choix-touch := TouchArea {
+                            clicked => { root.tag-toggled(tag.id); }
+                        }
+                    }
+                }
+            }
+
+            if root.tags.length == 0 && root.tag-search != "": MenuEntry {
+                icon: Icons.plus;
+                label: "Create “" + root.tag-search + "”";
+                activated => { root.tag-created(root.tag-search); }
+            }
+            if root.tags.length == 0 && root.tag-search == "": Text {
+                height: 26px;
+                text: "No tags yet.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.pencil;
+                label: "Manage tags…";
+                activated => { root.manage-tags(); root.dismissed(); }
+            }
+        }
     }
 
     MenuSurface {
@@ -518,6 +725,15 @@ export component AccountContextMenu inherits Rectangle {
                 activated => { root.edit-signature(); root.dismissed(); }
             }
 
+            // Opens beside the menu rather than replacing it: the account stays named
+            // at the top while its tags are chosen.
+            MenuEntry {
+                icon: Icons.tag;
+                label: "Tags";
+                shortcut: root.tags-open ? "‹" : "›";
+                activated => { root.tags-open = !root.tags-open; }
+            }
+
             MenuSeparator {}
 
             MenuEntry {
@@ -540,5 +756,6 @@ export component AccountContextMenu inherits Rectangle {
                 activated => { root.remove-account(); root.dismissed(); }
             }
         }
+    }
     }
 }

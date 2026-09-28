@@ -598,6 +598,7 @@ export component CalendarView inherits Rectangle {
     callback calendar-refresh(int);
     callback calendar-remove(CalendarData);
     callback calendar-menu(CalendarData, length, length);
+    callback calendar-new();
     callback subscribe-requested();
 
     background: Tokens.background;
@@ -642,10 +643,18 @@ export component CalendarView inherits Rectangle {
                     }
                 }
 
-                CalButton {
-                    text: "Subscribe to a calendar…";
-                    icon: Icons.link;
-                    clicked => { root.subscribe-requested(); }
+                VerticalLayout {
+                    spacing: Tokens.space-1;
+                    CalButton {
+                        text: "New calendar";
+                        icon: Icons.plus;
+                        clicked => { root.calendar-new(); }
+                    }
+                    CalButton {
+                        text: "Subscribe to a calendar…";
+                        icon: Icons.link;
+                        clicked => { root.subscribe-requested(); }
+                    }
                 }
 
                 Rectangle {}

@@ -323,6 +323,7 @@ fn un_calendrier(f: &AppWindow, abonne: bool) {
         color: slint::Color::from_rgb_u8(0x4f, 0x8c, 0xff),
         visible: true,
         subscribed: abonne,
+        deletable: true,
         ..Default::default()
     }])));
 }
@@ -699,6 +700,209 @@ fn le_titre_d_une_tache_prend_le_premier_clic() {
     assert!(!titres.borrow().is_empty(), "chaque frappe est enregistrée");
 }
 
+// --- Les comptes et leurs tags ---
+
+fn deux_comptes(f: &AppWindow) {
+    let compte = |id: i32, nom: &str| iris_ui::AccountRowData {
+        id,
+        label: nom.into(),
+        ..Default::default()
+    };
+    f.set_other_accounts(ModelRc::new(VecModel::from(vec![
+        compte(3, "a@example.com"),
+        compte(4, "b@example.com"),
+    ])));
+}
+
+fn ligne_de_compte(f: &AppWindow, nom: &str) -> testing::ElementHandle {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().as_deref() == Some(nom))
+        .unwrap_or_else(|| panic!("aucun compte nommé « {nom} »"))
+}
+
+fn un_second_clic_droit_ouvre_le_menu_de_l_autre_compte() {
+    let f = fenetre();
+    deux_comptes(&f);
+    let demandes = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let d = Rc::clone(&demandes);
+        let fw = f.as_weak();
+        f.on_account_menu_requested(move |id| {
+            d.borrow_mut().push(id);
+            fw.upgrade().unwrap().set_account_menu_open(true);
+        });
+        let fw = f.as_weak();
+        f.on_account_menu_dismissed(move || fw.upgrade().unwrap().set_account_menu_open(false));
+    }
+
+    ligne_de_compte(&f, "a@example.com").mock_single_click(PointerEventButton::Right);
+    assert_eq!(*demandes.borrow(), [3]);
+    assert!(f.get_account_menu_open());
+
+    // The menu's veil covers the second row; a right click on its visible part — its
+    // left edge, clear of the menu opened at the first row's centre — still reaches it.
+    let b = ligne_de_compte(&f, "b@example.com");
+    let (pos, taille) = (b.absolute_position(), b.size());
+    let point = slint::LogicalPosition::new(pos.x + 6.0, pos.y + taille.height / 2.0);
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position: point,
+        button: PointerEventButton::Right,
+    });
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position: point,
+        button: PointerEventButton::Right,
+    });
+    slint::platform::update_timers_and_animations();
+    assert_eq!(
+        *demandes.borrow(),
+        [3, 4],
+        "le second clic droit ouvre le menu de l'autre"
+    );
+    assert!(f.get_account_menu_open());
+}
+
+fn les_tags_d_un_compte_se_cherchent_dans_son_menu() {
+    let f = fenetre();
+    f.set_account_menu_label("a@example.com".into());
+    f.set_account_menu_tags(ModelRc::new(VecModel::from(vec![
+        iris_ui::AccountTagData {
+            id: 1,
+            name: "Clients".into(),
+            ..Default::default()
+        },
+        iris_ui::AccountTagData {
+            id: 2,
+            name: "Perso".into(),
+            checked: true,
+            ..Default::default()
+        },
+    ])));
+    f.set_account_menu_open(true);
+    let cherches = Rc::new(RefCell::new(Vec::<String>::new()));
+    let coches = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let c = Rc::clone(&cherches);
+        f.on_account_tag_search_changed(move |t| c.borrow_mut().push(t.to_string()));
+        let c = Rc::clone(&coches);
+        f.on_account_tag_toggled(move |id| c.borrow_mut().push(id));
+    }
+
+    clic(&bouton(&f, "Tags"));
+    assert!(f.get_account_tags_open(), "l'entrée ouvre le sous-menu");
+    taper(&f, "cli");
+    assert_eq!(
+        f.get_account_tag_search().as_str(),
+        "cli",
+        "la recherche prend la frappe"
+    );
+    assert_eq!(cherches.borrow().last().map(String::as_str), Some("cli"));
+
+    clic(&par_role(&f, testing::AccessibleRole::Checkbox, "Clients"));
+    assert_eq!(*coches.borrow(), [1]);
+    assert!(f.get_account_menu_open(), "cocher laisse le menu ouvert");
+
+    echap(&f);
+    assert!(
+        !f.get_account_tags_open(),
+        "Échap replie d'abord le sous-menu"
+    );
+    assert!(f.get_account_menu_open());
+}
+
+fn les_tags_se_gerent_depuis_le_bas_de_la_colonne() {
+    let f = fenetre();
+    let demandes = Rc::new(RefCell::new(0));
+    let crees = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let d = Rc::clone(&demandes);
+        let fw = f.as_weak();
+        f.on_tags_requested(move || {
+            *d.borrow_mut() += 1;
+            fw.upgrade().unwrap().set_tags_open(true);
+        });
+        let c = Rc::clone(&crees);
+        f.on_tag_created(move |t| c.borrow_mut().push(t.to_string()));
+    }
+    clic(&bouton(&f, "Manage tags"));
+    assert_eq!(*demandes.borrow(), 1);
+    taper(&f, "Clients\n");
+    assert_eq!(
+        *crees.borrow(),
+        ["Clients"],
+        "la fenêtre s'ouvre dans le nom du tag"
+    );
+
+    let touches = Rc::new(RefCell::new(0));
+    {
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |_| *t.borrow_mut() += 1);
+    }
+    f.set_tags_new_name("".into());
+    echap(&f);
+    assert!(!f.get_tags_open(), "Échap ferme la fenêtre des tags");
+}
+
+fn le_regroupement_par_tag_s_allume_au_dessus_de_la_liste() {
+    let f = fenetre();
+    deux_comptes(&f);
+    let changes = Rc::new(RefCell::new(0));
+    {
+        let c = Rc::clone(&changes);
+        f.on_group_by_tags_changed(move || *c.borrow_mut() += 1);
+    }
+    clic(&bouton(&f, "Group accounts by tag"));
+    assert!(f.get_group_by_tags());
+    assert_eq!(*changes.borrow(), 1);
+    clic(&bouton(&f, "Show accounts in one list"));
+    assert!(!f.get_group_by_tags());
+}
+
+fn un_nouveau_calendrier_s_ouvre_dans_son_nom() {
+    let f = fenetre();
+    un_calendrier(&f, false);
+    let crees = Rc::new(RefCell::new(Vec::<(i32, String)>::new()));
+    {
+        let c = Rc::clone(&crees);
+        f.on_calendar_rename_confirmed(move |id, nom| c.borrow_mut().push((id, nom.to_string())));
+    }
+    clic(&bouton(&f, "New calendar"));
+    assert!(f.get_calendar_rename_open());
+    taper(&f, "Sport\n");
+    assert_eq!(
+        *crees.borrow(),
+        [(-1, "Sport".to_string())],
+        "-1 : un calendrier à créer"
+    );
+}
+
+fn le_dernier_calendrier_perso_ne_se_supprime_pas() {
+    let f = fenetre();
+    f.set_workspace(1);
+    f.set_calendars(ModelRc::new(VecModel::from(vec![iris_ui::CalendarData {
+        id: 1,
+        name: "Personal".into(),
+        visible: true,
+        deletable: false,
+        ..Default::default()
+    }])));
+    ligne_de_calendrier(&f, "Personal").mock_single_click(PointerEventButton::Right);
+    assert!(f.get_calendar_menu_open());
+    let supprimer = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .any(|b| b.accessible_label().as_deref() == Some("Delete calendar…"));
+    assert!(
+        !supprimer,
+        "pas de suppression pour le seul calendrier à soi"
+    );
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -790,6 +994,30 @@ fn main() {
         (
             "le_titre_d_une_tache_prend_le_premier_clic",
             le_titre_d_une_tache_prend_le_premier_clic,
+        ),
+        (
+            "un_second_clic_droit_ouvre_le_menu_de_l_autre_compte",
+            un_second_clic_droit_ouvre_le_menu_de_l_autre_compte,
+        ),
+        (
+            "les_tags_d_un_compte_se_cherchent_dans_son_menu",
+            les_tags_d_un_compte_se_cherchent_dans_son_menu,
+        ),
+        (
+            "les_tags_se_gerent_depuis_le_bas_de_la_colonne",
+            les_tags_se_gerent_depuis_le_bas_de_la_colonne,
+        ),
+        (
+            "le_regroupement_par_tag_s_allume_au_dessus_de_la_liste",
+            le_regroupement_par_tag_s_allume_au_dessus_de_la_liste,
+        ),
+        (
+            "un_nouveau_calendrier_s_ouvre_dans_son_nom",
+            un_nouveau_calendrier_s_ouvre_dans_son_nom,
+        ),
+        (
+            "le_dernier_calendrier_perso_ne_se_supprime_pas",
+            le_dernier_calendrier_perso_ne_se_supprime_pas,
         ),
     ];
 

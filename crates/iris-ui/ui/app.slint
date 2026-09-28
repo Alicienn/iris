@@ -3,8 +3,9 @@ import { TextField } from "field.slint";
 import { Glass, Backdrop, Floating } from "glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
-    ThemeSwatchData
+    ThemeSwatchData, AccountTagData
 } from "types.slint";
+import { TagsPanel } from "tags.slint";
 import { ThreadListView, ThreadContextMenu } from "list.slint";
 import { Sidebar, AccountContextMenu } from "sidebar.slint";
 import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel }
@@ -14,8 +15,7 @@ import { ConversationView } from "conversation.slint";
 import { SettingsPanel } from "settings.slint";
 import { AccountSetupPanel } from "account.slint";
 import { ModulesPanel } from "modules.slint";
-import { PluginBrowser, CatalogueRowData, PluginSettingData }
-    from "plugins.slint";
+import { PluginSettingData } from "plugins.slint";
 import { ComposePanel } from "compose.slint";
 import { Icon, Icons } from "icons.slint";
 import { SignaturePanel } from "signature.slint";
@@ -362,6 +362,33 @@ export component AppWindow inherits Window {
     in property <bool> account-menu-enabled: true;
     in-out property <length> account-menu-x;
     in-out property <length> account-menu-y;
+    // The account menu's tags: ticked for that account, filtered by the search.
+    in property <[AccountTagData]> account-menu-tags;
+    in-out property <bool> account-tags-open;
+    in-out property <string> account-tag-search;
+    callback account-tag-toggled(int);
+    callback account-tag-search-changed(string);
+    callback account-tag-created(string);
+    // A right click on a menu's veil, passed to the account row under it.
+    in-out property <int> account-probe;
+    in-out property <length> account-probe-x;
+    in-out property <length> account-probe-y;
+
+    // --- Tags of the mailboxes ---
+    in-out property <bool> tags-open;
+    in property <[AccountTagData]> account-tags;
+    in property <[color]> tag-palette;
+    in property <string> tags-error;
+    in-out property <string> tags-new-name;
+    callback tags-requested();
+    callback tag-created(string);
+    callback tag-renamed(int, string);
+    callback tag-color-chosen(int, int);
+    callback tag-deleted(int);
+    /// The accounts listed under their tags, from the switch above the list.
+    in-out property <bool> group-by-tags;
+    callback group-by-tags-changed();
+
     in property <bool> syncing-all;
     in property <string> sync-progress;
     in-out property <bool> sidebar-collapsed;
@@ -538,12 +565,6 @@ export component AppWindow inherits Window {
     // Y a-t-il une icône dans la zone de notification pour faire revenir la fenêtre ?
     // Elle décide de ce que veut dire « fermer ».
     in property <bool> tray-available;
-    in property <bool> browser-open;
-    in property <bool> browser-loading;
-    in property <string> browser-error;
-    in property <string> browser-note;
-    in property <[CatalogueRowData]> catalogue;
-    in-out property <string> catalogue-url;
     in property <bool> plugin-settings-open;
     in property <string> plugin-settings-name;
     in-out property <string> plugin-settings-id;
@@ -563,11 +584,6 @@ export component AppWindow inherits Window {
     in-out property <string> new-folder-name;
     callback folder-selected(string);
     callback folder-cleared();
-    callback browser-requested();
-    callback browser-refresh();
-    callback browser-install(string);
-    callback browser-install-folder();
-    callback browser-dismissed();
     callback plugin-settings-requested(string);
     callback plugin-setting-changed(string, string);
     callback plugin-settings-dismissed();
@@ -667,6 +683,7 @@ export component AppWindow inherits Window {
     in-out property <length> calendar-menu-x;
     in-out property <length> calendar-menu-y;
     in-out property <bool> calendar-rename-open;
+    in-out property <bool> calendar-rename-new;
     in-out property <string> calendar-rename-name;
     in property <string> calendar-rename-error;
     callback calendar-rename-confirmed(int, string);
@@ -819,7 +836,7 @@ export component AppWindow inherits Window {
     property <bool> modal-open: (root.compose-open && !root.compose-minimised)
         || root.settings-open || root.modules-open || root.add-account-open
         || root.problem-open || root.source-open || root.signature-open
-        || root.changelog-open || root.update-open || root.browser-open
+        || root.changelog-open || root.update-open || root.tags-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -918,6 +935,14 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.subscribe-open && !root.subscribe-busy) {
                 root.subscribe-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.tags-open) {
+                root.tags-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.account-menu-open) {
+                root.account-menu-dismissed();
                 return accept;
             }
             if (event.text == Key.Escape && root.changelog-open) {
@@ -1098,7 +1123,15 @@ export component AppWindow inherits Window {
                     sync-all => { root.sync-all(); }
                     open-settings => { root.settings-open = true; }
                     open-modules => { root.modules-open = true; }
-                    open-plugin-browser => { root.browser-requested(); }
+                    open-tags => { root.tags-requested(); }
+                    grouped: root.group-by-tags;
+                    group-toggled => {
+                        root.group-by-tags = !root.group-by-tags;
+                        root.group-by-tags-changed();
+                    }
+                    probe: root.account-probe;
+                    probe-x: root.account-probe-x;
+                    probe-y: root.account-probe-y;
                     account-menu(id, mx, my) => {
                         root.account-menu-x = mx;
                         root.account-menu-y = my;
@@ -1349,6 +1382,11 @@ export component AppWindow inherits Window {
             root.calendar-menu-y = y;
             root.calendar-menu-open = true;
         }
+        calendar-new => {
+            root.calendar-rename-new = true;
+            root.calendar-rename-name = "";
+            root.calendar-rename-open = true;
+        }
         subscribe-requested => {
             root.subscribe-url = "";
             root.subscribe-name = "";
@@ -1527,6 +1565,7 @@ export component AppWindow inherits Window {
         }
         rename => {
             root.calendar-menu-open = false;
+            root.calendar-rename-new = false;
             root.calendar-rename-name = root.calendar-menu-cal.name;
             root.calendar-rename-open = true;
         }
@@ -1537,12 +1576,18 @@ export component AppWindow inherits Window {
         dismissed => { root.calendar-menu-open = false; }
     }
 
+    // Naming a calendar: a new one (-1), or the one the menu was opened on.
     if root.calendar-rename-open: CalendarRenamePanel {
         width: 100%;
         height: 100%;
+        is-new: root.calendar-rename-new;
         name <=> root.calendar-rename-name;
         error: root.calendar-rename-error;
-        rename => { root.calendar-rename-confirmed(root.calendar-menu-cal.id, root.calendar-rename-name); }
+        rename => {
+            root.calendar-rename-confirmed(
+                root.calendar-rename-new ? -1 : root.calendar-menu-cal.id,
+                root.calendar-rename-name);
+        }
         dismissed => { root.calendar-rename-open = false; }
     }
 
@@ -1582,20 +1627,6 @@ export component AppWindow inherits Window {
         save-password => { root.problem-save-password(); }
         disable-account => { root.problem-disable(); }
         dismissed => { root.problem-open = false; }
-    }
-
-    if root.browser-open: PluginBrowser {
-        width: 100%;
-        height: 100%;
-        entries: root.catalogue;
-        loading: root.browser-loading;
-        error: root.browser-error;
-        note: root.browser-note;
-        catalogue-url <=> root.catalogue-url;
-        refresh => { root.browser-refresh(); }
-        install(id) => { root.browser-install(id); }
-        install-from-folder => { root.browser-install-folder(); }
-        dismissed => { root.browser-dismissed(); }
     }
 
     if root.folder-menu-open: FolderContextMenu {
@@ -1650,6 +1681,33 @@ export component AppWindow inherits Window {
         toggle-enabled => { root.account-menu-enable(); }
         remove-account => { root.account-menu-remove(); }
         dismissed => { root.account-menu-dismissed(); }
+        tags: root.account-menu-tags;
+        tags-open <=> root.account-tags-open;
+        tag-search <=> root.account-tag-search;
+        tag-toggled(id) => { root.account-tag-toggled(id); }
+        tag-search-changed(t) => { root.account-tag-search-changed(t); }
+        tag-created(t) => { root.account-tag-created(t); }
+        manage-tags => { root.tags-requested(); }
+        // The row under the pointer, if it is an account, opens its own menu.
+        reopen-at(px, py) => {
+            root.account-probe-x = px;
+            root.account-probe-y = py;
+            root.account-probe += 1;
+        }
+    }
+
+    if root.tags-open: TagsPanel {
+        width: 100%;
+        height: 100%;
+        tags: root.account-tags;
+        palette: root.tag-palette;
+        error: root.tags-error;
+        new-name <=> root.tags-new-name;
+        created(t) => { root.tag-created(t); }
+        renamed(id, nom) => { root.tag-renamed(id, nom); }
+        color-chosen(id, i) => { root.tag-color-chosen(id, i); }
+        deleted(id) => { root.tag-deleted(id); }
+        dismissed => { root.tags-open = false; }
     }
 
     if root.context-menu-open: ThreadContextMenu {
@@ -1735,7 +1793,6 @@ export component AppWindow inherits Window {
         rule-removed(id) => { root.rule-removed(id); }
         rule-added => { root.rule-added(); }
         plugins-reloaded => { root.plugins-reloaded(); }
-        browse-plugins => { root.browser-requested(); }
         configure-plugin(id) => { root.plugin-settings-requested(id); }
 
         // Les réglages du module, dans cette fenêtre-ci et non dans une seconde

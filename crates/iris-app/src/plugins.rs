@@ -512,9 +512,45 @@ pub fn ensure_dir(dir: PathBuf) -> PathBuf {
     dir
 }
 
+/// Un identifiant de module est-il utilisable comme nom de répertoire ?
+///
+/// C'est la question qui compte : l'identifiant devient un chemin sous le répertoire
+/// des plugins, et un `../..` dedans écrirait ailleurs. Refusé plutôt que nettoyé.
+pub fn validate_id(id: &str) -> std::result::Result<(), String> {
+    if id.is_empty() || id.len() > 64 {
+        return Err("The plugin identifier has an impossible length.".into());
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err("A plugin identifier may only hold letters, digits, - _ and .".into());
+    }
+    // `.` et `..` passent le test précédent et désignent le répertoire parent.
+    if id.chars().all(|c| c == '.') {
+        return Err("That identifier is not a name.".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn un_identifiant_qui_remonte_les_repertoires_est_refuse() {
+        // L'identifiant devient un chemin sous le répertoire des plugins.
+        assert!(validate_id("..").is_err());
+        assert!(validate_id("../../windows").is_err());
+        assert!(validate_id("a/b").is_err());
+        assert!(validate_id("mon-module_2.1").is_ok());
+    }
+
+    #[test]
+    fn un_identifiant_vide_ou_interminable_est_refuse() {
+        assert!(validate_id("").is_err());
+        assert!(validate_id(&"a".repeat(65)).is_err());
+    }
     use iris_plugins::CallTrace;
     use iris_store::{FolderRole, NewAccount, NewMessage};
     use iris_types::Timestamp;

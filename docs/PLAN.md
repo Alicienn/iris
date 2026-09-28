@@ -1,206 +1,203 @@
-# Iris — Plan d'implémentation
+# Iris — Implementation plan
 
-Référence : [spécification de conception](superpowers/specs/2026-09-13-iris-design.md).
+Reference: [design specification](superpowers/specs/2026-09-13-iris-design.md).
 
-Ordre imposé par les dépendances : le contrat, puis le noyau, puis les données, puis
-le domaine, puis le réseau, puis la présentation. Chaque story est terminée quand
-elle compile, que ses tests passent, et qu'elle est commitée.
+Order imposed by the dependencies: the contract, then the kernel, then the data, then
+the domain, then the network, then the presentation. A story is done when it compiles,
+its tests pass, and it is committed.
 
-**Convention de test** : chaque crate porte ses tests unitaires dans `src/`, ses tests
-d'intégration dans `tests/`. Aucun test ne dépend du réseau ; les protocoles sont
-testés contre des serveurs simulés en mémoire.
+**Test convention**: each crate keeps its unit tests in `src/` and its integration
+tests in `tests/`. No test depends on the network; protocols are tested against
+in-memory simulated servers.
 
 ---
 
-## E0 — Fondations
+## E0 — Foundations
 
-- [x] **S0.1** Dépôt git, `.gitignore`, spécification, plan.
-- [x] **S0.2** Workspace Cargo, profils de compilation, lints partagés.
-- [x] **S0.3** Vérification de l'accès au registre de paquets et des dépendances lourdes.
+- [x] **S0.1** Git repository, `.gitignore`, specification, plan.
+- [x] **S0.2** Cargo workspace, build profiles, shared lints.
+- [x] **S0.3** Check access to the package registry and to the heavy dependencies.
 
-## E1 — `iris-types` : le contrat partagé
+## E1 — `iris-types`: the shared contract
 
-- [x] **S1.1** Identifiants typés (`AccountId`, `MessageId`, `ThreadId`, `FolderId`, `BlobId`).
-- [x] **S1.2** Adresse, en-têtes, enveloppe de message, drapeaux.
-- [x] **S1.3** États de workflow et transitions légales.
-- [x] **S1.4** Type d'erreur commun et conversions.
+- [x] **S1.1** Typed identifiers (`AccountId`, `MessageId`, `ThreadId`, `FolderId`, `BlobId`).
+- [x] **S1.2** Address, headers, message envelope, flags.
+- [x] **S1.3** Workflow states and legal transitions.
+- [x] **S1.4** Common error type and conversions.
 
-## E2 — `iris-kernel` : noyau modulaire
+## E2 — `iris-kernel`: modular kernel
 
-- [x] **S2.1** Bus d'événements typé, multi-abonnés, asynchrone.
-- [x] **S2.2** Coalescence temporelle des diffs (fenêtre de 16 ms).
-- [x] **S2.3** Registre de modules et cycle de vie (`init` / `start` / `stop`).
-- [x] **S2.4** Capacités : déclaration, octroi, refus.
-- [x] **S2.5** Configuration typée, rechargeable.
+- [x] **S2.1** Typed, multi-subscriber, asynchronous event bus.
+- [x] **S2.2** Time-based coalescing of diffs (16 ms window).
+- [x] **S2.3** Module registry and lifecycle (`init` / `start` / `stop`).
+- [x] **S2.4** Capabilities: declaration, grant, refusal.
+- [x] **S2.5** Typed, reloadable configuration.
 
-## E3 — `iris-store` : métadonnées
+## E3 — `iris-store`: metadata
 
-- [x] **S3.1** Ouverture SQLite en WAL, réglages de performance, migrations versionnées.
-- [x] **S3.2** Schéma : comptes, dossiers, messages, fils, états, correspondants connus.
-- [x] **S3.3** Pagination par curseur (`keyset`) sur la liste principale.
-- [x] **S3.4** Journal d'opérations idempotent : écriture, lecture, acquittement.
-- [x] **S3.5** Jeu de données synthétique et mesure sur 1 M de messages.
+- [x] **S3.1** SQLite opened in WAL mode, performance settings, versioned migrations.
+- [x] **S3.2** Schema: accounts, folders, messages, threads, states, known correspondents.
+- [x] **S3.3** Cursor (keyset) pagination on the main list.
+- [x] **S3.4** Idempotent operation journal: write, read, acknowledge.
+- [x] **S3.5** Synthetic data set and measurement on 1 M messages.
 
-## E4 — `iris-blobs` : corps et pièces jointes
+## E4 — `iris-blobs`: bodies and attachments
 
-- [x] **S4.1** Écriture et lecture compressées zstd, adressage par identifiant.
-- [x] **S4.2** Cache LRU borné en taille, éviction, statistiques.
+- [x] **S4.1** zstd-compressed write and read, addressed by identifier.
+- [x] **S4.2** Size-bounded LRU cache, eviction, statistics.
 
-## E5 — `iris-index` : recherche plein texte
+## E5 — `iris-index`: full-text search
 
-- [x] **S5.1** Schéma Tantivy, écrivain incrémental, validation.
-- [x] **S5.2** Requêtes, pagination, surlignage des correspondances.
+- [x] **S5.1** Tantivy schema, incremental writer, commit.
+- [x] **S5.2** Queries, pagination, match highlighting.
 
-## E6 — `iris-mime` : analyse des messages
+## E6 — `iris-mime`: message parsing
 
-- [x] **S6.1** Parsing MIME : enveloppe, parties, pièces jointes, encodages.
-- [x] **S6.2** Sanitisation HTML : suppression des scripts, formulaires, ressources externes.
-- [x] **S6.3** Détection des pixels espions et des traqueurs connus.
-- [x] **S6.4** Extraction du désabonnement (RFC 2369 et RFC 8058).
+- [x] **S6.1** MIME parsing: envelope, parts, attachments, encodings.
+- [x] **S6.2** HTML sanitising: scripts, forms and external resources removed.
+- [x] **S6.3** Detection of tracking pixels and known trackers.
+- [x] **S6.4** Unsubscribe extraction (RFC 2369 and RFC 8058).
 
-## E7 — `iris-thread` : regroupement en fils
+## E7 — `iris-thread`: grouping into threads
 
-- [x] **S7.1** Algorithme JWZ sur `Message-ID`, `In-Reply-To`, `References`.
-- [x] **S7.2** Repli par sujet normalisé et fenêtre temporelle.
-- [x] **S7.3** Recollage inter-comptes, activable.
+- [x] **S7.1** JWZ algorithm on `Message-ID`, `In-Reply-To`, `References`.
+- [x] **S7.2** Fallback on normalised subject within a time window.
+- [x] **S7.3** Cross-account joining, opt-in.
 
-## E8 — `iris-workflow` : machine à états
+## E8 — `iris-workflow`: state machine
 
-- [x] **S8.1** Transitions manuelles avec pile d'annulation.
-- [x] **S8.2** Transitions automatiques, chacune désactivable.
-- [x] **S8.3** Report (snooze) et relance à échéance.
+- [x] **S8.1** Manual transitions with an undo stack.
+- [x] **S8.2** Automatic transitions, each one switchable.
+- [x] **S8.3** Snooze and follow-up when due.
 
-## E9 — `iris-rules` : moteur de règles
+## E9 — `iris-rules`: rules engine
 
-- [x] **S9.1** Modèle de règle : conditions, actions, ordre, arrêt.
-- [x] **S9.2** Évaluation sur un message.
-- [x] **S9.3** Simulation à blanc sur l'historique, avec échantillon.
+- [x] **S9.1** Rule model: conditions, actions, order, stop.
+- [x] **S9.2** Evaluation against a message.
+- [x] **S9.3** Dry run over the history, with a sample.
 
-## E10 — `iris-search` : langage de requête
+## E10 — `iris-search`: query language
 
-- [x] **S10.1** Analyse lexicale et syntaxique (`from:`, `has:`, `older_than:`, `state:`, texte libre).
-- [x] **S10.2** Planification : ce qui va au store, ce qui va à l'index.
-- [x] **S10.3** Recherches épinglées comme vues persistantes.
+- [x] **S10.1** Lexing and parsing (`from:`, `has:`, `older_than:`, `state:`, free text).
+- [x] **S10.2** Planning: what goes to the store, what goes to the index.
+- [x] **S10.3** Pinned searches as persistent views.
 
-## E11 — `iris-discover` : configuration automatique
+## E11 — `iris-discover`: automatic configuration
 
-- [x] **S11.1** Base ISPDB de Mozilla et autoconfig du domaine.
-- [x] **S11.2** Enregistrements SRV, puis MX, puis sondage des ports usuels.
-- [x] **S11.3** Repli manuel guidé et validation de la configuration.
+- [x] **S11.1** Mozilla ISPDB and the domain's autoconfig.
+- [x] **S11.2** SRV records, then MX, then probing of the usual ports.
+- [x] **S11.3** Guided manual fallback and validation of the configuration.
 
 ## E12 — `iris-secrets`
 
-- [x] **S12.1** Trousseau de l'OS.
-- [x] **S12.2** Repli chiffré (Argon2 + AEAD).
+- [x] **S12.1** OS keychain.
+- [x] **S12.2** Encrypted fallback (Argon2 + AEAD).
 
-## E13 — Protocoles
+## E13 — Protocols
 
-- [x] **S13.1** Client IMAP : connexion, capacités, sélection, récupération d'en-têtes.
-- [x] **S13.2** IDLE, CONDSTORE, QRESYNC avec repli sur `UIDVALIDITY`.
-- [x] **S13.3** Pool de connexions borné, quotas par serveur.
-- [x] **S13.4** SMTP : envoi, authentification, gestion des erreurs.
-- [x] **S13.5** OAuth2 Google et Microsoft, rafraîchissement des jetons.
+- [x] **S13.1** IMAP client: connection, capabilities, select, header fetch.
+- [x] **S13.2** IDLE, CONDSTORE, QRESYNC with a `UIDVALIDITY` fallback.
+- [x] **S13.3** Bounded connection pool, per-server quotas.
+- [x] **S13.4** SMTP: sending, authentication, error handling.
+- [x] **S13.5** Google and Microsoft OAuth2, token refresh.
 
-## E14 — `iris-sync` : orchestration
+## E14 — `iris-sync`: orchestration
 
-- [x] **S14.1** Ordonnanceur par priorité de compte.
-- [x] **S14.2** Attribution de l'IDLE et polling adaptatif.
-- [x] **S14.3** Réconciliation incrémentale et détection des divergences.
-- [x] **S14.4** Rejeu du journal d'opérations et résolution de conflits.
+- [x] **S14.1** Scheduler by account priority.
+- [x] **S14.2** IDLE assignment and adaptive polling.
+- [x] **S14.3** Incremental reconciliation and divergence detection.
+- [x] **S14.4** Operation journal replay and conflict resolution.
 
 ## E15 — `iris-viewmodel`
 
-- [x] **S15.1** Fenêtre de lignes, préchargement, invalidation ciblée.
-- [x] **S15.2** Sélecteurs d'état et diffs pour l'interface.
-- [x] **S15.3** Actions utilisateur : application locale immédiate, journalisation.
+- [x] **S15.1** Row window, prefetch, targeted invalidation.
+- [x] **S15.2** State selectors and diffs for the interface.
+- [x] **S15.3** User actions: immediate local application, journalling.
 
 ## E16 — `iris-theme`
 
-- [x] **S16.1** Schéma des tokens et chargement TOML.
-- [x] **S16.2** Les trois thèmes livrés : `mono`, `ice`, `sand`.
-- [x] **S16.3** Rechargement à chaud par surveillance de fichiers.
+- [x] **S16.1** Token schema and TOML loading.
+- [x] **S16.2** The three shipped themes: `mono`, `ice`, `sand`.
+- [x] **S16.3** Hot reload by watching files.
 
 ## E17 — Plugins
 
-- [x] **S17.1** Contrat WIT versionné.
-- [x] **S17.2** Hôte wasmtime, permissions, quotas CPU et mémoire.
-- [x] **S17.3** Plugin d'exemple et tests de bout en bout.
+- [x] **S17.1** Versioned WIT contract.
+- [x] **S17.2** wasmtime host, permissions, CPU and memory quotas.
+- [x] **S17.3** Example plugin and end-to-end tests.
 
-## E18 — `iris-ui` : interface Slint
+## E18 — `iris-ui`: Slint interface
 
-- [x] **S18.1** Shell à trois colonnes, ancrage des tokens de thème.
-- [x] **S18.2** Barre latérale : unifié, épinglés, groupes, recherche de compte.
-- [x] **S18.3** Liste virtualisée alimentée par la fenêtre de lignes.
-- [x] **S18.4** Vue de conversation et fils repliés.
-- [x] **S18.5** Palette de commandes.
-- [x] **S18.6** Réponse inline et envoi avec annulation de 10 s.
-- [x] **S18.7** Matériau verre : flou, arêtes, grain.
+- [x] **S18.1** Three-column shell, theme tokens anchored.
+- [x] **S18.2** Sidebar: unified, pinned, groups, account search.
+- [x] **S18.3** Virtualised list fed by the row window.
+- [x] **S18.4** Conversation view and collapsed threads.
+- [x] **S18.5** Command palette.
+- [x] **S18.6** Inline reply and sending with a 10 s undo.
+- [x] **S18.7** Glass material: blur, edges, grain.
 
-## E19 — `iris-htmlview` : rendu du corps
+## E19 — `iris-htmlview`: body rendering
 
-- [x] **S19.1** Trait `HtmlRenderer` et implémentation de repli en texte riche.
-- [x] **S19.2** Moteur Blitz, rendu hors écran vers une image.
+- [x] **S19.1** `HtmlRenderer` trait and a rich-text fallback implementation.
+- [x] **S19.2** Blitz engine, off-screen rendering into an image.
 
 ## E20 — `iris-app`
 
-- [x] **S20.1** Assemblage des modules, configuration, points d'entrée.
-- [x] **S20.2** Ajout de compte de bout en bout.
-- [x] **S20.3** Mesures de performance face aux budgets de la spécification.
+- [x] **S20.1** Module assembly, configuration, entry points.
+- [x] **S20.2** Adding an account end to end.
+- [x] **S20.3** Performance measurements against the specification's budgets.
 
 ---
 
-## E21 — Boucler les promesses de la spécification
+## E21 — Keeping the specification's promises
 
-Le socle est complet, mais trois chaînes s'arrêtent avant leur dernier maillon : les
-corps ne sont jamais téléchargés, rien n'est indexé, et répondre n'envoie rien. Tant
-qu'elles ne sont pas fermées, la lecture, la recherche et le workflow ne fonctionnent
-qu'en théorie.
+The foundation is complete, but three chains stop before their last link: bodies are
+never downloaded, nothing is indexed, and replying sends nothing. Until they are
+closed, reading, search and the workflow only work in theory.
 
-- [x] **S21.1** Indexation à la synchronisation, puis réindexation à l'arrivée du corps.
-- [x] **S21.2** Téléchargement du corps à l'ouverture, mise en cache et rattachement.
-- [x] **S21.3** Envoi d'une réponse : composition, file d'envoi, passage en attente.
-- [x] **S21.4** Réveil des reports échus et relances, dans la boucle de fond.
-- [x] **S21.5** Recherche depuis l'interface, branchée sur le planificateur.
+- [x] **S21.1** Indexing during sync, then re-indexing when the body arrives.
+- [x] **S21.2** Body downloaded on open, cached and attached.
+- [x] **S21.3** Sending a reply: composition, send queue, move to Waiting.
+- [x] **S21.4** Waking due snoozes and follow-ups, in the background loop.
+- [x] **S21.5** Search from the interface, wired to the planner.
 
-## E22 — Les écrans manquants
+## E22 — The missing screens
 
-- [x] **S22.1** Configuration manuelle d'un compte, quand la découverte échoue.
-- [x] **S22.2** Réglages : thème, densité, automatismes du workflow.
-- [x] **S22.3** Comptes suspendus : signalement et reprise.
+- [x] **S22.1** Manual account configuration, when discovery fails.
+- [x] **S22.2** Settings: theme, density, workflow automations.
+- [x] **S22.3** Suspended accounts: reported and resumed.
 
-## E23 — Ce qui est construit mais que personne n'atteint
+## E23 — What is built but nobody reaches
 
-Un audit de la couche application révèle quatre chaînes complètes, testées, et
-jamais appelées depuis l'interface. Ce ne sont pas des manques de conception : le
-code existe et fonctionne, mais rien ne l'invoque. Une fonctionnalité inatteignable
-coûte le même prix qu'une fonctionnalité absente, et ment en plus sur ce que
-l'application sait faire.
+An audit of the application layer reveals four complete, tested chains that are never
+called from the interface. These are not design gaps: the code exists and works, but
+nothing invokes it. An unreachable feature costs the same as a missing one, and lies
+about what the application can do on top.
 
-Deux d'entre elles touchent des exigences posées dès le départ : le support de
-Google, et « tout est un module ».
+Two of them touch requirements set from the start: Google support, and "everything is a
+module".
 
-- [x] **S23.1** Les plugins tournent : chargés au démarrage, abonnés au bus, leurs
-      commandes dans la palette.
-- [x] **S23.2** OAuth Google et Microsoft depuis l'écran d'ajout de compte.
-- [x] **S23.3** Pièces jointes : recensées au téléchargement, listées, enregistrables.
-- [x] **S23.4** Compteurs par compte dans la barre latérale.
-- [x] **S23.5** L'état de la synchronisation, visible pendant qu'elle a lieu.
-- [x] **S23.6** Les commentaires devenus faux depuis que les écrans existent.
+- [x] **S23.1** Plugins run: loaded at startup, subscribed to the bus, their commands in
+      the palette.
+- [x] **S23.2** Google and Microsoft OAuth from the add-account screen.
+- [x] **S23.3** Attachments: recorded on download, listed, savable.
+- [x] **S23.4** Per-account counters in the sidebar.
+- [x] **S23.5** Sync status, visible while it happens.
+- [x] **S23.6** The comments that became wrong once the screens existed.
 
-## E24 — Un logiciel, pas un prototype
+## E24 — Software, not a prototype
 
-Deux réserves posées à la fin d'E23 tiennent toujours, et l'une d'elles est
-embarrassante : Slint a été choisi contre Makepad **notamment pour son
-accessibilité**, et aucun élément de l'interface ne déclare de rôle. L'argument était
-juste ; ne pas en tirer parti le rend creux.
+Two reservations raised at the end of E23 still hold, and one of them is embarrassing:
+Slint was chosen over Makepad **partly for its accessibility**, and no element of the
+interface declares a role. The argument was right; not using it makes it hollow.
 
-Les deux se tiennent : le harnais de test sans écran de Slint retrouve les éléments
-par leur libellé d'accessibilité. Écrire les tests d'interface oblige donc à rendre
-l'interface accessible, et l'accessibilité cesse d'être une intention.
+The two go together: Slint's headless test harness finds elements by their
+accessibility label. Writing interface tests therefore forces the interface to be
+accessible, and accessibility stops being an intention.
 
-- [x] **S24.1** Rôles et libellés d'accessibilité sur tout ce qui se clique.
-- [x] **S24.2** Tests d'interface sans écran, pilotant la vraie fenêtre.
-- [x] **S24.3** Intégration continue : compilation, tests, format et lint.
+- [x] **S24.1** Accessibility roles and labels on everything clickable.
+- [x] **S24.2** Headless interface tests, driving the real window.
+- [x] **S24.3** Continuous integration: build, tests, format and lint.
 
 ## E25 — Foundations: the engines nobody was calling
 
@@ -322,3 +319,50 @@ describe symptoms, and the symptoms are further apart than the fault.
 - [x] **S29.9** The build directory had reached 188 GB and filled the disk, which is
       what took the application down. Line tables only in dev, no debug info for
       dependencies, and free space in `iris doctor`.
+
+## E30 — Releases that reach people (0.2.0)
+
+- [x] **S30.1** A changelog written for users, compiled into the binary, shown from the
+      status bar. A test ties its first section to the `Cargo.toml` version.
+- [x] **S30.2** Updates from GitHub releases: checked at launch and every six hours,
+      verified by size and SHA-256, installed silently in one click.
+- [x] **S30.3** Publishing is a push: a green CI on `main` with a new version builds the
+      installer, tags it and releases it with its changelog section.
+
+## E31 — A window five times lighter (0.3.0)
+
+- [x] **S31.1** Slint's software renderer instead of OpenGL: 38.5 MB against 209.7 MB
+      for the same window.
+- [x] **S31.2** Message bodies laid out once by Blitz and painted on the CPU in tiles, at
+      the width shown. No GPU device of our own, never one image the height of the
+      message.
+- [x] **S31.3** Memory given back while Iris waits in the tray.
+- [x] **S31.4** One Iris per session: a second launch hands over to the first.
+- [x] **S31.5** One click reaches its field, and no shortcut reaches the mail behind an
+      open window — each rule with a scenario in `saisie.rs`.
+
+## E32 — A calendar beside the mail (0.3.0, 0.4.0)
+
+- [x] **S32.1** `iris-calendar`: iCalendar reading, recurrence in the event's own zone,
+      month and week layout, subscription links.
+- [x] **S32.2** Local calendar, events that repeat and remind (schema 9).
+- [x] **S32.3** Subscriptions by link, re-read every half hour.
+- [x] **S32.4** An invitation opened from a message goes into the calendar, and its
+      updates and cancellations modify the same event.
+- [x] **S32.5** A right-click menu on calendars; dates picked in a small month.
+
+## E33 — Tasks (0.5.0)
+
+- [x] **S33.1** `iris-tasks`: one-line entry in English or French, due dates in words.
+- [x] **S33.2** Lists, steps, notes, due dates and reminders (schema 10).
+- [x] **S33.3** Today: tasks due or late, today's events, conversations still to do.
+- [x] **S33.4** A conversation becomes a task that opens the message again.
+
+## E34 — Undo a send, and notes on events (0.6.0)
+
+- [x] **S34.1** Sending closes the window at once; a notice offers the undo and brings the
+      message back as it was. The delay is a setting, 5 s by default.
+- [x] **S34.2** Personal notes on any event, subscribed calendars included, kept apart
+      from the event so a refresh cannot erase them (schema 11).
+- [x] **S34.3** A colour per calendar.
+- [x] **S34.4** Conversations in Done can be deleted.

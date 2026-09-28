@@ -59,6 +59,7 @@ fn compte(id: i32, nom: &str, a_traiter: i32, en_panne: bool) -> AccountRowData 
         needs_attention: en_panne,
         problem: Default::default(),
         tint: slint::Color::from_rgb_u8(0, 0, 0),
+        header: false,
     }
 }
 

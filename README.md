@@ -49,6 +49,13 @@
 
 Passwords are stored in the Windows credential store.
 
+### Tags for your mailboxes
+
+With many mailboxes, tag them — *Clients*, *Personal*, *Club*. **Manage tags**, at the
+bottom of the accounts column, creates, renames, recolours and deletes them; right-click
+an account and open **Tags** to tick its own, or type to find or create one. The tag
+switch above the list groups the accounts under their tags.
+
 ## Calendar
 
 Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` and
@@ -56,9 +63,16 @@ Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` an
 
 - **New event** creates one in your own calendar; it can repeat and remind you before
   it starts.
+- **New calendar** adds a calendar of your own besides *Personal*; each event is put in
+  the one you choose. Right-click a calendar to rename it, change its colour or delete
+  it.
 - **Subscribe to a calendar…** follows a calendar published as a link: the `webcal://`
   or `.ics` address that Google Calendar, Outlook, iCloud, a school or a club gives out.
   Iris reads it every half hour; subscribed calendars are read-only.
+
+Right-click a calendar to refresh, rename, recolour or delete it. Open an event to add
+your own notes to it, even in a subscribed calendar. Opening an invitation received by
+mail adds it to your calendar.
 
 In the calendar: `T` today, `N` new event, `M` / `W` / `D` month, week, day, and the
 arrow keys move to the previous or next period.
@@ -78,6 +92,12 @@ Open **Tasks** in the title bar, or with `Ctrl`+`3`.
 
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
 `Delete` delete.
+
+## Sending
+
+Sending closes the message window at once. For a few seconds, a notice at the bottom
+offers **Undo**, which brings the message back exactly as it was. Choose how long in
+*Settings* (5 seconds by default, 0 to turn it off).
 
 ## Updates
 
@@ -127,5 +147,5 @@ and what happened. Never include a password or the content of a private message.
 ---
 
 <sub>To contribute or to see how Iris is built, read
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (in French). Licensed under MIT or
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Licensed under MIT or
 Apache-2.0, at your option.</sub>

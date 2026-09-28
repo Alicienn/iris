@@ -450,6 +450,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         .map(|c| (c.id, c.color.clone()))
         .collect();
 
+    let nb_locaux = calendriers.iter().filter(|c| !c.is_subscription()).count();
     fenetre.set_calendars(ModelRc::new(VecModel::from(
         calendriers
             .iter()
@@ -463,6 +464,8 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
                     subscribed: c.is_subscription(),
                     status: texte.into(),
                     failed: echec,
+                    // The last calendar of one's own stays: a new event needs one.
+                    deletable: c.is_subscription() || nb_locaux > 1,
                 }
             })
             .collect::<Vec<_>>(),
@@ -1458,6 +1461,17 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             (services.clone(), Rc::clone(&redessiner), fenetre.as_weak());
         fenetre.on_calendar_delete_confirmed(move |id| {
             let calendrier = services.store.calendar(id as i64).ok().flatten();
+            // The menu does not offer it; refused here too, whatever asks.
+            let locaux = services
+                .store
+                .calendars()
+                .unwrap_or_default()
+                .iter()
+                .filter(|c| !c.is_subscription())
+                .count();
+            if calendrier.as_ref().is_some_and(|c| !c.is_subscription()) && locaux <= 1 {
+                return;
+            }
             let message = match (&calendrier, services.store.delete_calendar(id as i64)) {
                 (Some(c), Ok(_)) if c.is_subscription() => format!("Unsubscribed from {}.", c.name),
                 (Some(c), Ok(_)) => format!("Calendar {} deleted.", c.name),
@@ -1478,6 +1492,33 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             let nom = nom.trim();
             if nom.is_empty() {
                 f.set_calendar_rename_error("A calendar needs a name.".into());
+                return;
+            }
+            // A new calendar of one's own, in the first colour nobody has yet.
+            if id < 0 {
+                let prises: Vec<String> = services
+                    .store
+                    .calendars()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|c| c.color)
+                    .collect();
+                let teinte = COULEURS
+                    .iter()
+                    .find(|c| !prises.iter().any(|p| p.eq_ignore_ascii_case(c)))
+                    .copied()
+                    .unwrap_or(COULEURS[prises.len() % COULEURS.len()]);
+                match services.store.create_calendar(nom, teinte, None, now()) {
+                    Ok(_) => {
+                        f.set_calendar_rename_error(SharedString::default());
+                        f.set_calendar_rename_open(false);
+                        f.set_status(format!("Calendar {nom} created.").into());
+                        redessiner();
+                    }
+                    Err(e) => {
+                        f.set_calendar_rename_error(format!("Could not create it: {e}").into())
+                    }
+                }
                 return;
             }
             let Ok(Some(c)) = services.store.calendar(id as i64) else {

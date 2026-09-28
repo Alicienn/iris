@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 11;
+pub const CURRENT_VERSION: i64 = 12;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -73,7 +73,35 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "put aside, event notes",
         sql: SCHEMA_V11,
     },
+    Migration {
+        version: 12,
+        name: "account tags",
+        sql: SCHEMA_V12,
+    },
 ];
+
+/// Les tags des adresses.
+///
+/// Des étiquettes qu'on pose sur ses propres boîtes — « Clients », « Perso »,
+/// « Association » — pour les retrouver et les regrouper dans la colonne des comptes.
+/// Une boîte en porte autant qu'on veut. Le nom est unique sans égard à la casse :
+/// « Clients » et « clients » seraient deux groupes que personne ne distingue.
+const SCHEMA_V12: &str = "
+CREATE TABLE account_tags (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    color      TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE account_tag_links (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    tag_id     INTEGER NOT NULL REFERENCES account_tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (account_id, tag_id)
+);
+
+CREATE INDEX account_tag_links_by_tag ON account_tag_links(tag_id);
+";
 
 /// Deux ajouts.
 ///

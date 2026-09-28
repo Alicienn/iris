@@ -8,8 +8,18 @@ powershell -File packaging\build-installer.ps1
 
 The result is `packaging\output\iris-setup-<version>.exe`, around 16 MB. The script runs
 the three steps below in order and passes the version from `Cargo.toml` to Inno Setup,
-so it is written in one place. The release workflow runs the same script when a
-`vX.Y.Z` tag is pushed.
+so it is written in one place.
+
+## Releasing
+
+Publishing is a push to `main`. `.github/workflows/release.yml` runs after every green
+CI there: if the `Cargo.toml` version has no GitHub release yet, it takes the release
+binary CI already built rather than compiling again, runs `build-installer.ps1`, tags
+`vX.Y.Z` and publishes `iris-setup-X.Y.Z.exe` with that version's `CHANGELOG.md` section
+as notes. The same version twice publishes nothing, and a pushed tag must match
+`Cargo.toml`. Installed copies see the release within six hours and offer it in one
+click; the download is checked against the size and SHA-256 GitHub publishes, and the
+installer runs with `/SILENT /UPDATE`, which reopens Iris afterwards.
 
 ```
 cargo build --release

@@ -14,12 +14,18 @@ the first afternoon, and never forgive".
 | Folders | Created, renamed and deleted on every mailbox at once |
 | Search | `from:`, `is:unread`, free text, over a local index |
 | Automation | Rules, plus WebAssembly modules in a sandbox with no network |
-| Composing | To / Cc / Bcc, attachments, formatting, ten seconds to change your mind |
+| Composing | To / Cc / Bcc, attachments, formatting, signatures, an undo whose delay you choose |
 | Offline | Every action journalled and replayed; nothing waits for the network |
 | Privacy | Remote images blocked by default, trackers named |
+| Calendar | Month, week and day, subscriptions by link, invitations from mail, reminders, your own notes on any event |
+| Tasks | One-line entry, lists, steps, reminders, and tasks made from conversations |
 
 The queue is the point of the product, and none of the four has it. What follows is
-about the ordinary things they all have and Iris does not.
+about the ordinary things they all have and Iris did not, when this was written.
+
+> **Status (0.6.0):** items 1 to 5 are built, and so is most of item 7 — a calendar,
+> and invitations opened from a message go into it. What remains of 7 is answering an
+> invitation (Accept / Decline). Items 6, 8 and 9 are still missing.
 
 ## Missing, ordered by how soon it hurts
 
@@ -78,9 +84,9 @@ Sieve means speaking another protocol. A vacation reply means sending mail witho
 being asked, which the module sandbox refuses on purpose — it belongs in the
 application or nowhere, and probably nowhere.
 
-## What is being built now
+## What was built next
 
-Five, chosen because each is missed early, none needs a new subsystem, and together
+Five — all shipped since — chosen because each is missed early, none needs a new subsystem, and together
 they close the gap between "an interesting way to triage mail" and "a mail client you
 can actually live in":
 

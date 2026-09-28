@@ -228,7 +228,6 @@ export component ModulesPanel inherits Rectangle {
     callback rule-removed(string);
     callback rule-added();
     callback plugins-reloaded();
-    callback browse-plugins();
     callback configure-plugin(string);
     callback dismissed();
 
@@ -349,13 +348,6 @@ export component ModulesPanel inherits Rectangle {
                 spacing: Tokens.space-1;
                 GroupLabel { text: "PLUGINS"; }
                 Rectangle {}
-                // « Ajouter » avant « Recharger » : découvrir ce qui existe est ce
-                // qu'on vient chercher ici la première fois, recharger ce qu'on fait
-                // ensuite en développant le sien.
-                SmallButton {
-                    label: "Add…";
-                    clicked => { root.browse-plugins(); }
-                }
                 SmallButton {
                     label: "Reload";
                     clicked => { root.plugins-reloaded(); }

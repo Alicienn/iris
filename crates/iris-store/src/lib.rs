@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
+mod account_tags;
 mod accounts;
 mod attachments;
 mod calendar;
@@ -24,6 +25,7 @@ mod rules;
 mod tasks;
 mod threads;
 
+pub use account_tags::AccountTag;
 pub use accounts::{AccountServers, UnifiedFolder};
 pub use attachments::StoredAttachment;
 pub use calendar::{NewEvent, StoredCalendar, StoredEvent};

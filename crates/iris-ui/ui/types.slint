@@ -44,6 +44,20 @@ export struct AccountRowData {
     // account is merely paused.
     problem: string,
     tint: color,
+    // A group title in the list rather than an account: a tag, when accounts are
+    // grouped by tag. `label` is its name and `tint` its colour.
+    header: bool,
+}
+
+// A tag put on one's own mailboxes.
+export struct AccountTagData {
+    id: int,
+    name: string,
+    color: color,
+    // How many mailboxes carry it.
+    count: int,
+    // In an account's menu: whether that account carries it.
+    checked: bool,
 }
 
 export struct MessageBlockData {
@@ -207,6 +221,8 @@ export struct CalendarData {
     // "Updated 5 min ago", or what went wrong. Empty for a local calendar.
     status: string,
     failed: bool,
+    // False for the last calendar of one's own: events need somewhere to go.
+    deletable: bool,
 }
 
 // An event as a line in a month cell or an all-day strip.

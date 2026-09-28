@@ -68,6 +68,19 @@ pub fn account_row(account: &Account, unread: u32, suspended: bool) -> AccountRo
         needs_attention: suspended,
         problem: Default::default(),
         tint: Color::from_rgb_u8(r, g, b),
+        header: false,
+    }
+}
+
+/// Le titre d'un groupe de comptes : un tag, ou ceux qui n'en ont pas.
+pub fn account_group_header(label: &str, tint: Color) -> AccountRowData {
+    AccountRowData {
+        // Négatif : jamais l'identifiant d'un compte, donc jamais « sélectionné ».
+        id: -1,
+        label: label.to_uppercase().into(),
+        tint,
+        header: true,
+        ..Default::default()
     }
 }
 

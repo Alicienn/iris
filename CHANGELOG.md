@@ -3,6 +3,23 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 0.7.0 — 2026-09-29
+
+### New
+- Tag your mailboxes — Clients, Personal, Club… — from a Tags button at the bottom of the accounts column.
+- Right-click an account to tick its tags, with a search that can also create one.
+- Group the accounts by tag with the switch above their list.
+- Create calendars of your own besides Personal, and pick one for each event.
+
+### Improved
+- A cleaner icon for Modules.
+
+### Fixed
+- Right-clicking another account while a menu is open now opens that account's menu.
+
+### Removed
+- The Add modules window: modules are still installed by placing them in their folder.
+
 ## 0.6.0 — 2026-09-28
 
 ### New
