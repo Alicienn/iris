@@ -1,50 +1,89 @@
-# Publishing a version.
+# Publishing a version, continuously.
 #
-# Pushing a tag `vX.Y.Z` builds the installer on Windows and publishes it as a GitHub
-# release, with that version's section of CHANGELOG.md as its notes. Every running
-# copy of Iris finds it at its next check — at launch, or within six hours.
+# Every push to main that passes CI is looked at here. If the version in Cargo.toml
+# has no GitHub release yet, the installer is built on Windows and published as the
+# release `vX.Y.Z` — tag included — with that version's section of CHANGELOG.md as its
+# notes. Every running copy of Iris finds it at its next check: at launch, or within
+# six hours. A push that keeps the same version publishes nothing.
 #
-# The tag must match the version in Cargo.toml: a release called 0.3.0 that installs
-# a binary saying 0.2.0 would be offered again forever.
+# Pushing a tag `vX.Y.Z` by hand, or running the workflow from the Actions tab, does
+# the same for the commit it points at. The tag must match Cargo.toml: a release
+# called 0.3.0 that installs a binary saying 0.2.0 would be offered again forever.
 
 name: Release
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   installer:
     name: Installer
     runs-on: windows-latest
+    # After CI: only a green run of a push to main.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Tag matches Cargo.toml
+      - name: Version, and whether it is already out
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $manifeste = Get-Content Cargo.toml -Raw
           $version = [regex]::Match($manifeste, '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"').Groups[1].Value
-          if ("v$version" -ne "${{ github.ref_name }}") {
+          if (-not $version) { throw "No version in Cargo.toml" }
+          $tag = "v$version"
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.event_name }}" -eq "push" -and "${{ github.ref_name }}" -ne $tag) {
             throw "Tag ${{ github.ref_name }} does not match Cargo.toml ($version)"
           }
           "VERSION=$version" >> $env:GITHUB_ENV
+          "TAG=$tag" >> $env:GITHUB_ENV
+          "TARGET=$(git rev-parse HEAD)" >> $env:GITHUB_ENV
+          gh release view $tag --json tagName 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "$tag is already published: nothing to do."
+            "PUBLISH=false" >> $env:GITHUB_ENV
+          } else {
+            Write-Host "$tag has no release yet: building it."
+            "PUBLISH=true" >> $env:GITHUB_ENV
+          }
+          exit 0
 
       - uses: dtolnay/rust-toolchain@stable
+        if: env.PUBLISH == 'true'
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        if: env.PUBLISH == 'true'
 
-      - name: Tests
-        run: cargo test -p iris-app --lib --no-default-features
+      - name: Changelog matches the version
+        if: env.PUBLISH == 'true'
+        run: cargo test -p iris-app --lib --no-default-features changelog
 
       - name: Inno Setup
+        if: env.PUBLISH == 'true'
         shell: pwsh
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
@@ -52,10 +91,12 @@ jobs:
           }
 
       - name: Build the installer
+        if: env.PUBLISH == 'true'
         shell: pwsh
         run: ./packaging/build-installer.ps1
 
       - name: Release notes
+        if: env.PUBLISH == 'true'
         shell: pwsh
         run: |
           # This version's section of the changelog, without its heading: the
@@ -66,12 +107,15 @@ jobs:
           Set-Content -Path notes.md -Value $section -Encoding utf8
 
       - name: Publish
+        if: env.PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create "${{ github.ref_name }}" `
+          # Creates the tag on the commit that was built, unless it already exists.
+          gh release create $env:TAG `
             "packaging/output/iris-setup-$env:VERSION.exe" `
+            --target $env:TARGET `
             --title "Iris $env:VERSION" `
             --notes-file notes.md `
             --latest

@@ -3,20 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
-## 0.2.0 — 2026-09-28
+## 0.3.0 — 2026-09-28
 
 ### New
 - Calendar, next to your mail: month, week and day views (Ctrl+2).
 - Create events, repeat them and get a reminder before they start.
 - Subscribe to a calendar by its link (webcal or .ics from Google, Outlook, iCloud…).
 - Opening an invitation received by mail adds it to your calendar, and keeps it up to date.
-- Changelog button in the status bar: see what changed in each version.
-- Iris checks for updates at launch and installs them in one click.
-- Check for updates by hand from Settings.
 
 ### Improved
-- A certificate error names the server to use instead.
-- Changing a password or an account now says whether it works.
 - Newsletters open using a fraction of the memory, and very long ones show in full.
 - Much less memory used while Iris waits in the notification area.
 - The window itself uses about five times less memory.
@@ -26,10 +21,24 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Text fields keep the same background whether or not you are typing in them.
 
 ### Fixed
+- Opening Iris while it waits in the notification area brings its window back.
 - Times in the message list are shown in your time zone.
 - Clicking another field moves into it on the first click.
 - Clicking a suggested address fills it in.
 - Shortcuts no longer act on the mail behind an open window.
+
+## 0.2.0 — 2026-09-27
+
+### New
+- Changelog button in the status bar: see what changed in each version.
+- Iris checks for updates at launch and installs them in one click.
+- Check for updates by hand from Settings.
+
+### Improved
+- A certificate error names the server to use instead.
+- Changing a password or an account now says whether it works.
+
+### Fixed
 - An account that fails to sync shows a red ! with the reason.
 - A message opened for the first time no longer shows an empty page.
 - Sync, modules and settings buttons fit when the account list is collapsed.

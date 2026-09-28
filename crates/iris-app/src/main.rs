@@ -69,13 +69,31 @@ fn run() -> Result<()> {
     // The log goes to a file from the very first line. A release build has no console
     // and aborts on panic: without this, a crash leaves nothing behind but an event
     // viewer entry saying `0xc0000409` at an offset in a stripped binary.
-    match Paths::system() {
-        Ok(chemins) => iris_app::logging::install(&chemins),
+    let chemins = Paths::system();
+    match &chemins {
+        Ok(chemins) => iris_app::logging::install(chemins),
         Err(_) => init_tracing(),
     }
 
+    // Iris already waiting in the notification area: launching it again shows that
+    // window (and composes the address, if one came with this launch) instead of a
+    // second copy that would find the database taken.
+    let instance = match (commande, &chemins) {
+        ("run", Ok(chemins)) => {
+            let adresse = mailto.as_ref().and(args.first().map(String::as_str));
+            match iris_app::single::claim(&chemins.cache, adresse, !demarre_reduit) {
+                iris_app::single::Claim::First(garde) => Some(garde),
+                iris_app::single::Claim::AlreadyRunning => {
+                    tracing::info!("Iris is already running: its window was asked for");
+                    return Ok(());
+                }
+            }
+        }
+        _ => None,
+    };
+
     match commande {
-        "run" => run_gui(mailto, demarre_reduit),
+        "run" => run_gui(mailto, demarre_reduit, instance),
         "add-account" => cmd_add_account(&args[1..]),
         "import" => cmd_import(&args[1..]),
         "accounts" => cmd_list_accounts(),
@@ -594,7 +612,11 @@ impl iris_sync::SendContext for SendTracker {
 
 // --- Interface ---
 
-fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bool) -> Result<()> {
+fn run_gui(
+    mailto: Option<iris_app::platform::MailtoRequest>,
+    demarre_reduit: bool,
+    instance: Option<iris_app::single::Primary>,
+) -> Result<()> {
     // La décomposition mémoire se règle avant tout le reste : ce qui est alloué avant
     // qu'elle soit allumée est compté, mais sans provenance.
     let rapport_memoire = iris_app::memory::requested_interval();
@@ -1008,13 +1030,7 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
                 match zone.poll() {
                     Some(iris_app::tray::TrayCommand::Open) => {
                         if let Some(fenetre) = faible.upgrade() {
-                            // `show` seul ne suffit pas sur une fenêtre réduite : elle
-                            // reste dans la barre des tâches. La restaurer d'abord est
-                            // ce qui la ramène sous les yeux.
-                            fenetre.window().set_minimized(false);
-                            let _ = fenetre.show();
-                            shell::came_back(&fenetre);
-                            fenetre.window().set_fullscreen(false);
+                            montre_la_fenetre(&fenetre);
                         }
                     }
                     Some(iris_app::tray::TrayCommand::Quit) => {
@@ -1044,15 +1060,24 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
     // de composition, et remplir les champs avant qu'ils existent les remplirait pour
     // rien.
     if let Some(demande) = mailto {
-        fenetre.set_compose_to(demande.to.as_str().into());
-        fenetre.set_compose_cc(demande.cc.as_str().into());
-        fenetre.set_compose_bcc(demande.bcc.as_str().into());
-        fenetre.set_compose_subject(demande.subject.as_str().into());
-        fenetre.set_compose_body(demande.body.as_str().into());
-        // Les copies sont dépliées seulement si elles portent quelque chose : un
-        // « mailto: » nu ne doit pas ouvrir deux champs vides de plus.
-        fenetre.set_compose_show_cc(!demande.cc.is_empty() || !demande.bcc.is_empty());
-        fenetre.set_compose_open(true);
+        ouvre_le_brouillon(&fenetre, &demande);
+    }
+
+    // A later launch of Iris shows this window, with the address it came with.
+    if let Some(instance) = &instance {
+        let faible = fenetre.as_weak();
+        let cache = services.paths.cache.clone();
+        instance.listen(move || {
+            let cache = cache.clone();
+            let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                montre_la_fenetre(&fenetre);
+                if let Some(demande) = iris_app::single::take_pending_mailto(&cache)
+                    .and_then(|a| iris_app::platform::MailtoRequest::parse(&a))
+                {
+                    ouvre_le_brouillon(&fenetre, &demande);
+                }
+            });
+        });
     }
 
     iris_app::memory::mark("câblage terminé");
@@ -1104,4 +1129,28 @@ fn run_gui(mailto: Option<iris_app::platform::MailtoRequest>, demarre_reduit: bo
 
     controller.shutdown();
     Ok(())
+}
+
+/// Brings the window back from the notification area, or from the taskbar, in front.
+fn montre_la_fenetre(fenetre: &iris_ui::AppWindow) {
+    // `show` seul ne suffit pas sur une fenêtre réduite : elle reste dans la barre des
+    // tâches. La restaurer d'abord est ce qui la ramène sous les yeux.
+    fenetre.window().set_minimized(false);
+    let _ = fenetre.show();
+    shell::came_back(fenetre);
+    fenetre.window().set_fullscreen(false);
+    iris_app::single::bring_to_front();
+}
+
+/// Opens a draft filled from a `mailto:` address.
+fn ouvre_le_brouillon(fenetre: &iris_ui::AppWindow, demande: &iris_app::platform::MailtoRequest) {
+    fenetre.set_compose_to(demande.to.as_str().into());
+    fenetre.set_compose_cc(demande.cc.as_str().into());
+    fenetre.set_compose_bcc(demande.bcc.as_str().into());
+    fenetre.set_compose_subject(demande.subject.as_str().into());
+    fenetre.set_compose_body(demande.body.as_str().into());
+    // Les copies sont dépliées seulement si elles portent quelque chose : un
+    // « mailto: » nu ne doit pas ouvrir deux champs vides de plus.
+    fenetre.set_compose_show_cc(!demande.cc.is_empty() || !demande.bcc.is_empty());
+    fenetre.set_compose_open(true);
 }

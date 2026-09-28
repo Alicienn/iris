@@ -23,6 +23,7 @@ pub mod plugins;
 pub mod services;
 pub mod settings;
 pub mod shell;
+pub mod single;
 pub mod tray;
 pub mod update;
 pub mod vitals;
