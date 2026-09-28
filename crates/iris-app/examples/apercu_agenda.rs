@@ -10,6 +10,7 @@ use chrono::{Datelike, Duration, Local, NaiveDate};
 use iris_app::services::Services;
 use iris_store::NewEvent;
 use slint::ComponentHandle;
+use slint::Model as _;
 
 fn capture(f: &iris_ui::AppWindow, chemin: std::path::PathBuf) {
     match f.window().take_snapshot() {
@@ -135,6 +136,20 @@ fn main() {
         )
         .unwrap();
 
+    let long_debut = a(lundi + Duration::days(4), 16, 0);
+    let long_titre = services
+        .store
+        .insert_event(
+            perso,
+            &ev(
+                "Comité de pilotage trimestriel avec la direction financière et les responsables des trois agences régionales",
+                long_debut,
+                long_debut + 3_600_000,
+            ),
+            t,
+        )
+        .unwrap();
+
     let f = iris_ui::AppWindow::new().unwrap();
     f.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
     iris_app::calendar::wire_calendar(&f, &services, runtime.handle().clone());
@@ -162,6 +177,30 @@ fn main() {
                 }
                 3 => {
                     capture(&f, sortie.join("agenda-editeur.png"));
+                    f.invoke_editor_picker_requested(0);
+                }
+                4 => {
+                    capture(&f, sortie.join("agenda-editeur-date.png"));
+                    f.set_event_editor_open(false);
+                    f.invoke_calendar_event_opened(format!("{long_titre}:{long_debut}").into());
+                }
+                5 => {
+                    capture(&f, sortie.join("agenda-detail.png"));
+                    f.set_event_detail_open(false);
+                    f.invoke_calendar_mode_chosen(0);
+                    let club = f.get_calendars().row_data(1).unwrap();
+                    f.set_calendar_menu_cal(club);
+                    f.set_calendar_menu_x(120.0);
+                    f.set_calendar_menu_y(420.0);
+                    f.set_calendar_menu_open(true);
+                }
+                6 => {
+                    capture(&f, sortie.join("agenda-menu.png"));
+                    f.set_calendar_menu_open(false);
+                    f.set_calendar_delete_open(true);
+                }
+                7 => {
+                    capture(&f, sortie.join("agenda-supprimer.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

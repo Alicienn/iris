@@ -143,9 +143,14 @@ mod tests {
 
         // La surveillance de fichiers dépend du système : on laisse largement le
         // temps à l'événement d'arriver plutôt que de supposer un délai.
+        // L'annonce part *après* le rechargement, depuis le fil de surveillance : on
+        // attend les deux, sans quoi le test lit le registre à jour et le bus encore
+        // vide dans l'intervalle — ce qui arrivait sur une machine chargée.
         let echeance = Instant::now() + Duration::from_secs(10);
+        let mut annonces = 0;
         while Instant::now() < echeance {
-            if registry.get("nuit").unwrap().density.row_height == 30.0 {
+            annonces += abonne.drain().len();
+            if registry.get("nuit").unwrap().density.row_height == 30.0 && annonces > 0 {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -156,10 +161,7 @@ mod tests {
             30.0,
             "la modification doit être prise en compte"
         );
-        assert!(
-            !abonne.drain().is_empty(),
-            "un rechargement doit être annoncé sur le bus"
-        );
+        assert!(annonces > 0, "un rechargement doit être annoncé sur le bus");
     }
 
     #[test]

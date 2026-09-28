@@ -13,6 +13,8 @@ export component CalButton inherits Rectangle {
     in property <bool> primary;
     in property <bool> selected;
     in property <bool> enabled: true;
+    /// With `primary`: a button that destroys something, in red.
+    in property <bool> danger;
 
     callback clicked();
 
@@ -21,7 +23,9 @@ export component CalButton inherits Rectangle {
     border-radius: Tokens.radius-small;
     border-width: root.primary ? 0px : 1px;
     border-color: Tokens.border;
-    background: root.primary
+    background: root.primary && root.danger
+        ? (touch.pressed ? Tokens.error.darker(0.2) : Tokens.error)
+        : root.primary
         ? (touch.pressed ? Tokens.accent.darker(0.15) : Tokens.accent)
         : root.selected
             ? Tokens.surface-active
@@ -41,13 +45,15 @@ export component CalButton inherits Rectangle {
             y: (parent.height - self.height) / 2;
             data: root.icon;
             size: 13px;
-            tint: root.primary ? Tokens.accent-text : Tokens.text-secondary;
+            tint: root.primary && root.danger ? white
+                : root.primary ? Tokens.accent-text : Tokens.text-secondary;
         }
         Text {
             text: root.text;
             font-size: Tokens.size-small;
             font-weight: root.primary || root.selected ? Tokens.weight-bold : Tokens.weight-body;
-            color: root.primary ? Tokens.accent-text : Tokens.text-secondary;
+            color: root.primary && root.danger ? white
+                : root.primary ? Tokens.accent-text : Tokens.text-secondary;
             vertical-alignment: center;
         }
     }
@@ -108,7 +114,7 @@ component Chip inherits Rectangle {
 }
 
 // The small month on the left: a way to jump, not a way to read.
-component MiniMonth inherits VerticalLayout {
+export component MiniMonth inherits VerticalLayout {
     in property <string> title;
     in property <[MonthCellData]> cells;
 
@@ -205,7 +211,9 @@ component CalendarRow inherits Rectangle {
     in property <CalendarData> cal;
     callback toggled(int);
     callback refresh(int);
-    callback remove(int);
+    callback remove(CalendarData);
+    /// A right click, where it happened in the window.
+    callback menu(CalendarData, length, length);
 
     height: root.cal.status != "" ? 40px : 28px;
     border-radius: Tokens.radius-small;
@@ -218,6 +226,13 @@ component CalendarRow inherits Rectangle {
 
     touch := TouchArea {
         clicked => { root.toggled(root.cal.id); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.menu(root.cal,
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
     }
 
     HorizontalLayout {
@@ -273,7 +288,7 @@ component CalendarRow inherits Rectangle {
             button-size: 22px;
             icon-size: 12px;
             danger: true;
-            clicked => { root.remove(root.cal.id); }
+            clicked => { root.remove(root.cal); }
         }
     }
 }
@@ -311,7 +326,13 @@ component MonthGrid inherits VerticalLayout {
             preferred-width: 0;
             min-width: 0;
             clip: true;
-            background: self.cell.selected ? Tokens.surface-hover : transparent;
+            // The days of the months before and after sit in the shade, so the month
+            // reads as one block.
+            background: self.cell.selected ? Tokens.surface-hover
+                : self.cell.in-month ? transparent
+                // The theme's text colour, faintly: a shade in a dark theme and in a
+                // light one alike.
+                : Tokens.text.transparentize(0.955);
 
             // Grid lines: right and bottom of every cell.
             Rectangle { x: parent.width - 1px; width: 1px; background: Tokens.border.transparentize(0.4); }
@@ -331,11 +352,12 @@ component MonthGrid inherits VerticalLayout {
                 HorizontalLayout {
                     height: 20px;
                     Rectangle {
-                        width: 20px;
+                        // "1 Oct" on the first of a month is wider than a number.
+                        width: max(20px, numero.preferred-width + 10px);
                         height: 20px;
                         border-radius: 10px;
                         background: cell.today ? Tokens.accent : transparent;
-                        Text {
+                        numero := Text {
                             text: cell.day;
                             font-size: Tokens.size-small;
                             font-weight: cell.today ? Tokens.weight-bold : Tokens.weight-body;
@@ -349,6 +371,7 @@ component MonthGrid inherits VerticalLayout {
 
                 for chip in cell.events: Chip {
                     chip: chip;
+                    opacity: cell.in-month ? 1.0 : 0.55;
                     opened(k) => { root.event-opened(k); }
                 }
                 if cell.more > 0: Text {
@@ -573,7 +596,8 @@ export component CalendarView inherits Rectangle {
     callback new-event(string, int);
     callback calendar-toggled(int);
     callback calendar-refresh(int);
-    callback calendar-remove(int);
+    callback calendar-remove(CalendarData);
+    callback calendar-menu(CalendarData, length, length);
     callback subscribe-requested();
 
     background: Tokens.background;
@@ -613,7 +637,8 @@ export component CalendarView inherits Rectangle {
                         cal: cal;
                         toggled(id) => { root.calendar-toggled(id); }
                         refresh(id) => { root.calendar-refresh(id); }
-                        remove(id) => { root.calendar-remove(id); }
+                        remove(c) => { root.calendar-remove(c); }
+                        menu(c, x, y) => { root.calendar-menu(c, x, y); }
                     }
                 }
 

@@ -3,7 +3,17 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
-## 0.3.1 — 2026-09-28
+## 0.4.0 — 2026-09-28
+
+### New
+- Right-click a calendar to refresh, rename or delete it.
+- Pick an event's dates in a small month instead of typing them.
+
+### Improved
+- The month view shades the days of the months before and after, and names each first of the month.
+- An event opened from the calendar shows its whole title.
+- Deleting or unsubscribing from a calendar asks first.
+- Escape closes a calendar window even while you are typing in it.
 
 ### Fixed
 - Replies no longer show their text printed over the message they quote.

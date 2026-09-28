@@ -9,7 +9,7 @@
 use i_slint_backend_testing as testing;
 use iris_ui::AppWindow;
 use slint::platform::{PointerEventButton, WindowEvent};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -315,6 +315,169 @@ fn l_abonnement_s_ouvre_dans_le_lien() {
     assert_eq!(f.get_subscribe_url().as_str(), "webcal://example.com/a.ics");
 }
 
+fn un_calendrier(f: &AppWindow, abonne: bool) {
+    f.set_workspace(1);
+    f.set_calendars(ModelRc::new(VecModel::from(vec![iris_ui::CalendarData {
+        id: 7,
+        name: "Club".into(),
+        color: slint::Color::from_rgb_u8(0x4f, 0x8c, 0xff),
+        visible: true,
+        subscribed: abonne,
+        ..Default::default()
+    }])));
+}
+
+fn ligne_de_calendrier(f: &AppWindow, nom: &str) -> testing::ElementHandle {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Checkbox)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().as_deref() == Some(nom))
+        .unwrap_or_else(|| panic!("aucun calendrier nommé « {nom} »"))
+}
+
+fn echap(f: &AppWindow) {
+    let t = SharedString::from(slint::platform::Key::Escape);
+    f.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: t.clone() });
+    f.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: t });
+}
+
+fn un_clic_droit_sur_un_calendrier_ouvre_son_menu_qui_garde_le_clavier() {
+    let f = fenetre();
+    un_calendrier(&f, true);
+    let aujourd_hui = Rc::new(RefCell::new(0));
+    {
+        let a = Rc::clone(&aujourd_hui);
+        f.on_calendar_today(move || *a.borrow_mut() += 1);
+    }
+
+    ligne_de_calendrier(&f, "Club").mock_single_click(PointerEventButton::Right);
+    assert!(f.get_calendar_menu_open(), "le clic droit ouvre le menu");
+    assert_eq!(f.get_calendar_menu_cal().name.as_str(), "Club");
+    assert!(
+        f.get_calendars().row_data(0).is_some_and(|c| c.visible),
+        "le clic droit ne masque pas le calendrier"
+    );
+
+    taper(&f, "t");
+    assert_eq!(*aujourd_hui.borrow(), 0, "le menu ouvert garde le clavier");
+    echap(&f);
+    assert!(!f.get_calendar_menu_open(), "Échap ferme le menu");
+}
+
+fn supprimer_un_calendrier_demande_confirmation() {
+    let f = fenetre();
+    un_calendrier(&f, false);
+    let supprimes = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let s = Rc::clone(&supprimes);
+        f.on_calendar_delete_confirmed(move |id| s.borrow_mut().push(id));
+    }
+
+    ligne_de_calendrier(&f, "Club").mock_single_click(PointerEventButton::Right);
+    clic(&bouton(&f, "Delete calendar…"));
+    assert!(
+        f.get_calendar_delete_open(),
+        "la suppression passe par une confirmation"
+    );
+    assert!(
+        supprimes.borrow().is_empty(),
+        "rien n'est supprimé avant la réponse"
+    );
+
+    clic(&bouton(&f, "Delete"));
+    assert_eq!(*supprimes.borrow(), [7]);
+    assert!(!f.get_calendar_delete_open());
+}
+
+fn renommer_un_calendrier_s_ouvre_dans_le_nom() {
+    let f = fenetre();
+    un_calendrier(&f, false);
+    let renommes = Rc::new(RefCell::new(Vec::<(i32, String)>::new()));
+    {
+        let r = Rc::clone(&renommes);
+        f.on_calendar_rename_confirmed(move |id, nom| r.borrow_mut().push((id, nom.to_string())));
+    }
+
+    ligne_de_calendrier(&f, "Club").mock_single_click(PointerEventButton::Right);
+    clic(&bouton(&f, "Rename…"));
+    assert!(f.get_calendar_rename_open());
+    assert_eq!(
+        f.get_calendar_rename_name().as_str(),
+        "Club",
+        "le nom actuel est proposé"
+    );
+
+    taper(&f, "Club de voile\n");
+    assert_eq!(
+        *renommes.borrow(),
+        [(7, "Club de voile".to_string())],
+        "le nom proposé est sélectionné : la frappe le remplace"
+    );
+}
+
+fn la_date_d_un_evenement_se_choisit_dans_un_petit_mois() {
+    let f = fenetre();
+    f.set_workspace(1);
+    f.set_event_editor_open(true);
+    f.set_editor_start_label("Mon 28 Sep 2026".into());
+    let demandes = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let choisis = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let d = Rc::clone(&demandes);
+        let fw = f.as_weak();
+        f.on_editor_picker_requested(move |w| {
+            d.borrow_mut().push(w);
+            // What the application does: open it, with a month of days.
+            let f = fw.upgrade().unwrap();
+            f.set_editor_picker_cells(ModelRc::new(VecModel::from(
+                (0..42)
+                    .map(|i| iris_ui::MonthCellData {
+                        day: ((i % 30) + 1).to_string().into(),
+                        date: format!("2026-10-{:02}", (i % 30) + 1).into(),
+                        in_month: true,
+                        ..Default::default()
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+            f.set_editor_picker(w);
+        });
+        let c = Rc::clone(&choisis);
+        f.on_editor_picker_chosen(move |d| c.borrow_mut().push(d.to_string()));
+    }
+
+    clic(&bouton(&f, "Start date"));
+    assert_eq!(
+        *demandes.borrow(),
+        [0],
+        "cliquer la date demande le petit mois"
+    );
+    assert_eq!(f.get_editor_picker(), 0);
+
+    clic(&bouton(&f, "2026-10-05"));
+    assert_eq!(
+        *choisis.borrow(),
+        ["2026-10-05"],
+        "un clic sur le jour le choisit"
+    );
+
+    // Open, it covers nothing: the title takes the first click and the keys.
+    clic(&champ(&f, "Title"));
+    taper(&f, "Dentiste");
+    assert_eq!(f.get_editor_title().as_str(), "Dentiste");
+
+    echap(&f);
+    assert_eq!(
+        f.get_editor_picker(),
+        -1,
+        "Échap replie le petit mois d'abord"
+    );
+    assert!(f.get_event_editor_open(), "et laisse l'événement ouvert");
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -362,6 +525,22 @@ fn main() {
         (
             "defiler_demande_les_suivantes_et_rend_les_precedentes",
             defiler_demande_les_suivantes_et_rend_les_precedentes,
+        ),
+        (
+            "un_clic_droit_sur_un_calendrier_ouvre_son_menu_qui_garde_le_clavier",
+            un_clic_droit_sur_un_calendrier_ouvre_son_menu_qui_garde_le_clavier,
+        ),
+        (
+            "supprimer_un_calendrier_demande_confirmation",
+            supprimer_un_calendrier_demande_confirmation,
+        ),
+        (
+            "renommer_un_calendrier_s_ouvre_dans_le_nom",
+            renommer_un_calendrier_s_ouvre_dans_le_nom,
+        ),
+        (
+            "la_date_d_un_evenement_se_choisit_dans_un_petit_mois",
+            la_date_d_un_evenement_se_choisit_dans_un_petit_mois,
         ),
     ];
 

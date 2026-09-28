@@ -2,18 +2,37 @@ import { Tokens } from "tokens.slint";
 import { Floating } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { TextField, TextArea } from "field.slint";
-import { EventDetailData } from "types.slint";
-import { CalButton } from "calendar.slint";
+import { EventDetailData, CalendarData, MonthCellData } from "types.slint";
+import { CalButton, MiniMonth } from "calendar.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
 
 // The frame every calendar panel shares: a veil, a floating card, a title row.
 component PanelFrame inherits Rectangle {
     in property <string> title;
+    /// The whole title on as many lines as it takes, instead of cut short.
+    in property <bool> wrap-title;
     in property <length> card-width: 460px;
     in property <length> card-height: 420px;
     callback dismissed();
+    /// Escape, from anywhere in the card — a field included. Closes by default.
+    callback escaped();
+    escaped => { root.dismissed(); }
 
     background: Tokens.scrim;
+
+    // Escape reaches the panel even while a field has the cursor: the field does
+    // not want the key and hands it up to here. Never focused itself, so it takes
+    // no click away from what is under it.
+    FocusScope {
+        enabled: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.escaped();
+                return accept;
+            }
+            return reject;
+        }
 
     TouchArea {
         clicked => { root.dismissed(); }
@@ -33,20 +52,22 @@ component PanelFrame inherits Rectangle {
             spacing: Tokens.space-3;
 
             HorizontalLayout {
-                height: 28px;
+                min-height: 28px;
                 vertical-stretch: 0;
+                spacing: Tokens.space-2;
                 Text {
                     text: root.title;
                     font-family: Tokens.font-family;
                     font-size: Tokens.size-title;
                     font-weight: Tokens.weight-bold;
                     color: Tokens.text;
-                    vertical-alignment: center;
-                    overflow: elide;
+                    vertical-alignment: root.wrap-title ? top : center;
+                    wrap: root.wrap-title ? word-wrap : no-wrap;
+                    overflow: root.wrap-title ? clip : elide;
                     horizontal-stretch: 1;
                 }
                 IconButton {
-                    y: (parent.height - self.height) / 2;
+                    y: root.wrap-title ? 2px : (parent.height - self.height) / 2;
                     icon: Icons.window-close;
                     label: "Close";
                     shortcut: "Esc";
@@ -58,6 +79,7 @@ component PanelFrame inherits Rectangle {
 
             @children
         }
+    }
     }
 }
 
@@ -85,7 +107,10 @@ export component EventDetailPanel inherits Rectangle {
         width: 100%;
         height: 100%;
         title: root.detail.title == "" ? "(No title)" : root.detail.title;
-        card-height: 380px;
+        // A long title is read whole: it is often the only thing that says what the
+        // event is.
+        wrap-title: true;
+        card-height: 420px;
         dismissed => { root.dismissed(); }
 
         HorizontalLayout {
@@ -192,6 +217,82 @@ export component EventDetailPanel inherits Rectangle {
     }
 }
 
+// A date shown as words, that opens the small month when clicked.
+component DateButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> open;
+    callback clicked();
+
+    height: 30px;
+    border-radius: Tokens.radius-small;
+    border-width: 1px;
+    // Like a text field: the border says where the attention is, the background
+    // never changes.
+    border-color: root.open ? Tokens.accent : touch.has-hover ? Tokens.border-strong : Tokens.border;
+    background: Tokens.surface;
+
+    accessible-role: button;
+    accessible-value: root.text;
+    accessible-expanded: root.open;
+    accessible-action-default => { root.clicked(); }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.calendar;
+            size: 13px;
+            tint: Tokens.text-muted;
+        }
+        Text {
+            text: root.text;
+            font-size: Tokens.size-body;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.open ? Icons.chevron-up : Icons.chevron-down;
+            size: 11px;
+            tint: Tokens.text-muted;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The small month under a date: month by month, one click on the day.
+component DatePicker inherits Rectangle {
+    in property <string> title;
+    in property <[MonthCellData]> cells;
+    callback navigate(int);
+    callback chosen(string);
+
+    height: 204px;
+    vertical-stretch: 0;
+    border-radius: Tokens.radius-medium;
+    border-width: 1px;
+    border-color: Tokens.border;
+    background: Tokens.surface-low;
+
+    MiniMonth {
+        width: min(280px, parent.width - 2 * Tokens.space-2);
+        x: (parent.width - self.width) / 2;
+        y: Tokens.space-1;
+        title: root.title;
+        cells: root.cells;
+        day-chosen(d) => { root.chosen(d); }
+        navigate(n) => { root.navigate(n); }
+    }
+}
+
 // Creating or changing an event in a local calendar.
 export component EventEditorPanel inherits Rectangle {
     in property <bool> is-new;
@@ -210,17 +311,38 @@ export component EventEditorPanel inherits Rectangle {
     in property <[string]> repeats;
     in-out property <int> repeat-index;
     in property <string> error;
+    /// The dates as read: "Mon 28 Sep 2026".
+    in property <string> start-label;
+    in property <string> end-label;
+    /// Which date the small month is open for: 0 start, 1 end, -1 none.
+    in property <int> picker: -1;
+    in property <string> picker-title;
+    in property <[MonthCellData]> picker-cells;
 
     callback save();
     callback dismissed();
+    callback picker-requested(int);
+    callback picker-navigate(int);
+    callback picker-chosen(string);
+    callback picker-closed();
 
     PanelFrame {
         width: 100%;
         height: 100%;
         title: root.is-new ? "New event" : "Edit event";
         card-width: 520px;
-        card-height: 600px;
+        // The small month opens inside the card, which grows to hold it: nothing
+        // floats over the other fields, so a click on any of them still lands.
+        card-height: root.picker >= 0 ? 810px : 600px;
         dismissed => { root.dismissed(); }
+        // The small month first: Escape folds it and leaves the event open.
+        escaped => {
+            if (root.picker >= 0) {
+                root.picker-closed();
+            } else {
+                root.dismissed();
+            }
+        }
 
         Labelled {
             label: "Title";
@@ -244,10 +366,11 @@ export component EventEditorPanel inherits Rectangle {
             vertical-stretch: 0;
             Labelled {
                 label: "Starts";
-                TextField {
+                DateButton {
                     accessible-label: "Start date";
-                    placeholder-text: "YYYY-MM-DD";
-                    text <=> root.start-date;
+                    text: root.start-label;
+                    open: root.picker == 0;
+                    clicked => { root.picker-requested(0); }
                 }
             }
             if !root.all-day: Labelled {
@@ -261,15 +384,23 @@ export component EventEditorPanel inherits Rectangle {
             }
         }
 
+        if root.picker == 0: DatePicker {
+            title: root.picker-title;
+            cells: root.picker-cells;
+            navigate(n) => { root.picker-navigate(n); }
+            chosen(d) => { root.picker-chosen(d); }
+        }
+
         HorizontalLayout {
             spacing: Tokens.space-2;
             vertical-stretch: 0;
             Labelled {
                 label: "Ends";
-                TextField {
+                DateButton {
                     accessible-label: "End date";
-                    placeholder-text: "YYYY-MM-DD";
-                    text <=> root.end-date;
+                    text: root.end-label;
+                    open: root.picker == 1;
+                    clicked => { root.picker-requested(1); }
                 }
             }
             if !root.all-day: Labelled {
@@ -281,6 +412,13 @@ export component EventEditorPanel inherits Rectangle {
                     text <=> root.end-time;
                 }
             }
+        }
+
+        if root.picker == 1: DatePicker {
+            title: root.picker-title;
+            cells: root.picker-cells;
+            navigate(n) => { root.picker-navigate(n); }
+            chosen(d) => { root.picker-chosen(d); }
         }
 
         HorizontalLayout {
@@ -429,6 +567,170 @@ export component SubscribePanel inherits Rectangle {
                 primary: true;
                 enabled: !root.busy;
                 clicked => { root.subscribe(); }
+            }
+        }
+    }
+}
+
+// Right click on a calendar in the list.
+export component CalendarContextMenu inherits Rectangle {
+    in property <CalendarData> cal;
+    in property <length> menu-x;
+    in property <length> menu-y;
+
+    callback refresh();
+    callback rename();
+    callback remove();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 220px;
+        menu-height: entries.preferred-height + 8px;
+
+        entries := VerticalLayout {
+            padding: 4px;
+
+            HorizontalLayout {
+                padding-left: Tokens.space-2;
+                padding-right: Tokens.space-2;
+                height: 22px;
+                Text {
+                    text: root.cal.name;
+                    font-size: 9px;
+                    letter-spacing: 0.5px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            MenuSeparator {}
+
+            if root.cal.subscribed: MenuEntry {
+                icon: Icons.refresh;
+                label: "Refresh now";
+                activated => { root.refresh(); }
+            }
+            MenuEntry {
+                icon: Icons.pencil;
+                label: "Rename…";
+                activated => { root.rename(); }
+            }
+
+            MenuSeparator {}
+
+            MenuEntry {
+                icon: Icons.trash;
+                label: root.cal.subscribed ? "Unsubscribe…" : "Delete calendar…";
+                danger: true;
+                activated => { root.remove(); }
+            }
+        }
+    }
+}
+
+// A new name for a calendar.
+export component CalendarRenamePanel inherits Rectangle {
+    in-out property <string> name;
+    in property <string> error;
+    callback rename();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: "Rename calendar";
+        card-height: 200px;
+        dismissed => { root.dismissed(); }
+
+        TextField {
+            accessible-label: "Calendar name";
+            text <=> root.name;
+            // Opened to type: the name is selected, the first key replaces it.
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            accepted => { root.rename(); }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-small;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        Rectangle {}
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: "Rename";
+                primary: true;
+                clicked => { root.rename(); }
+            }
+        }
+    }
+}
+
+// Removing a calendar asks first: its events go with it.
+export component CalendarDeletePanel inherits Rectangle {
+    in property <CalendarData> cal;
+    callback confirmed();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: root.cal.subscribed ? "Unsubscribe from this calendar?" : "Delete this calendar?";
+        card-height: 210px;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: root.cal.subscribed
+                ? "“" + root.cal.name + "” and its events leave Iris. The calendar itself is not "
+                    + "touched: you can subscribe again with its link."
+                : "“" + root.cal.name + "” and every event in it are deleted from this computer. "
+                    + "This cannot be undone.";
+            font-size: Tokens.size-body;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Rectangle {}
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: root.cal.subscribed ? "Unsubscribe" : "Delete";
+                primary: true;
+                danger: true;
+                clicked => { root.confirmed(); }
             }
         }
     }

@@ -69,6 +69,9 @@ struct Etat {
     locaux: Vec<i64>,
     /// Les rappels déjà donnés, pour ne pas les répéter.
     rappeles: HashSet<String>,
+    /// The small month open under a date of the editor: which date (0 start, 1 end)
+    /// and the month it shows.
+    selecteur: Option<(i32, NaiveDate)>,
 }
 
 fn aujourd_hui() -> NaiveDate {
@@ -357,7 +360,13 @@ fn cellules(
                     .collect()
             };
             MonthCellData {
-                day: c.date.day().to_string().into(),
+                // In the big grid, the first of a month names it: where one month
+                // ends and the next begins is read, not guessed.
+                day: if avec_evenements && c.date.day() == 1 {
+                    c.date.format("%-d %b").to_string().into()
+                } else {
+                    c.date.day().to_string().into()
+                },
                 date: c.date.format("%Y-%m-%d").to_string().into(),
                 in_month: c.in_month,
                 today: c.date == today,
@@ -481,6 +490,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             edite: None,
             locaux: Vec::new(),
             rappeles: HashSet::new(),
+            selecteur: None,
         };
         let o = charger(services, &mut copie);
         let cases = cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false);
@@ -516,6 +526,58 @@ fn lire_heure(texte: &str) -> Option<NaiveTime> {
 /// la même heure de part et d'autre d'un changement d'heure.
 fn fuseau_local() -> Option<String> {
     iana_time_zone::get_timezone().ok()
+}
+
+/// A date as the editor shows it: "Mon 28 Sep 2026".
+fn date_lisible(d: NaiveDate) -> String {
+    d.format("%a %-d %b %Y").to_string()
+}
+
+/// Sets both dates of the editor, as data and as words.
+fn poser_dates(f: &AppWindow, debut: NaiveDate, fin: NaiveDate) {
+    f.set_editor_start_date(debut.format("%Y-%m-%d").to_string().into());
+    f.set_editor_end_date(fin.format("%Y-%m-%d").to_string().into());
+    f.set_editor_start_label(date_lisible(debut).into());
+    f.set_editor_end_label(date_lisible(fin).into());
+}
+
+/// Fills the small month under a date of the editor.
+fn remplir_selecteur(f: &AppWindow, etat: &Etat) {
+    let Some((lequel, mois)) = etat.selecteur else {
+        f.set_editor_picker(-1);
+        return;
+    };
+    let champ = if lequel == 0 {
+        f.get_editor_start_date()
+    } else {
+        f.get_editor_end_date()
+    };
+    let choisi = lire_date(&champ).unwrap_or_else(aujourd_hui);
+    f.set_editor_picker_title(mois.format("%B %Y").to_string().into());
+    f.set_editor_picker_cells(ModelRc::new(VecModel::from(cellules(
+        etat,
+        choisi,
+        mois,
+        &[],
+        &HashMap::new(),
+        false,
+    ))));
+    f.set_editor_picker(lequel);
+}
+
+/// A day picked in the small month. Moving the start moves the end with it, so the
+/// event keeps its length; an end picked before the start pulls the start back.
+fn dates_apres_choix(
+    lequel: i32,
+    jour: NaiveDate,
+    debut: NaiveDate,
+    fin: NaiveDate,
+) -> (NaiveDate, NaiveDate) {
+    if lequel == 0 {
+        (jour, fin + (jour - debut))
+    } else {
+        (debut.min(jour), jour)
+    }
 }
 
 /// Ce que l'éditeur a saisi, en événement — ou ce qui ne va pas.
@@ -625,8 +687,7 @@ fn ouvrir_editeur(
                     heure(e.end_ms),
                 )
             };
-            f.set_editor_start_date(d1.format("%Y-%m-%d").to_string().into());
-            f.set_editor_end_date(d2.format("%Y-%m-%d").to_string().into());
+            poser_dates(f, d1, d2);
             f.set_editor_start_time(h1.into());
             f.set_editor_end_time(h2.into());
             f.set_editor_location(e.location.as_str().into());
@@ -667,8 +728,7 @@ fn ouvrir_editeur(
             let debut = NaiveTime::from_hms_opt((minute / 60) as u32, (minute % 60) as u32, 0)
                 .unwrap_or_default();
             let fin = debut + Duration::hours(1);
-            f.set_editor_start_date(jour.format("%Y-%m-%d").to_string().into());
-            f.set_editor_end_date(jour.format("%Y-%m-%d").to_string().into());
+            poser_dates(f, jour, jour);
             f.set_editor_start_time(debut.format("%H:%M").to_string().into());
             f.set_editor_end_time(fin.format("%H:%M").to_string().into());
             f.set_editor_location(SharedString::default());
@@ -678,6 +738,8 @@ fn ouvrir_editeur(
             f.set_editor_repeat_index(0);
         }
     }
+    etat.selecteur = None;
+    f.set_editor_picker(-1);
     f.set_event_detail_open(false);
     f.set_event_editor_open(true);
 }
@@ -958,6 +1020,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         edite: None,
         locaux: Vec::new(),
         rappeles: HashSet::new(),
+        selecteur: None,
     }));
 
     fenetre.set_editor_reminders(ModelRc::new(VecModel::from(
@@ -1266,19 +1329,95 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
     {
         let (services, redessiner, faible) =
             (services.clone(), Rc::clone(&redessiner), fenetre.as_weak());
-        fenetre.on_calendar_remove(move |id| {
-            let nom = services
-                .store
-                .calendar(id as i64)
-                .ok()
-                .flatten()
-                .map(|c| c.name)
-                .unwrap_or_default();
-            let _ = services.store.delete_calendar(id as i64);
+        fenetre.on_calendar_delete_confirmed(move |id| {
+            let calendrier = services.store.calendar(id as i64).ok().flatten();
+            let message = match (&calendrier, services.store.delete_calendar(id as i64)) {
+                (Some(c), Ok(_)) if c.is_subscription() => format!("Unsubscribed from {}.", c.name),
+                (Some(c), Ok(_)) => format!("Calendar {} deleted.", c.name),
+                (_, Err(e)) => format!("Could not remove the calendar: {e}"),
+                (None, Ok(_)) => return,
+            };
             if let Some(f) = faible.upgrade() {
-                f.set_status(format!("Unsubscribed from {nom}.").into());
+                f.set_status(message.into());
             }
             redessiner();
+        });
+    }
+    {
+        let (services, redessiner, faible) =
+            (services.clone(), Rc::clone(&redessiner), fenetre.as_weak());
+        fenetre.on_calendar_rename_confirmed(move |id, nom| {
+            let Some(f) = faible.upgrade() else { return };
+            let nom = nom.trim();
+            if nom.is_empty() {
+                f.set_calendar_rename_error("A calendar needs a name.".into());
+                return;
+            }
+            let Ok(Some(c)) = services.store.calendar(id as i64) else {
+                f.set_calendar_rename_open(false);
+                return;
+            };
+            match services
+                .store
+                .update_calendar(c.id, nom, &c.color, c.visible)
+            {
+                Ok(_) => {
+                    f.set_calendar_rename_error(SharedString::default());
+                    f.set_calendar_rename_open(false);
+                    redessiner();
+                }
+                Err(e) => f.set_calendar_rename_error(format!("Could not rename it: {e}").into()),
+            }
+        });
+    }
+
+    // --- The small month under the editor's dates ---
+    {
+        let (etat, faible) = (Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_editor_picker_requested(move |lequel| {
+            let Some(f) = faible.upgrade() else { return };
+            let mut e = etat.borrow_mut();
+            // A second click on the same date folds it. The window says what is
+            // open: Escape folds it there without asking us.
+            if f.get_editor_picker() == lequel {
+                e.selecteur = None;
+            } else {
+                let champ = if lequel == 0 {
+                    f.get_editor_start_date()
+                } else {
+                    f.get_editor_end_date()
+                };
+                let jour = lire_date(&champ).unwrap_or_else(aujourd_hui);
+                e.selecteur = Some((lequel, premier_du_mois(jour)));
+            }
+            remplir_selecteur(&f, &e);
+        });
+    }
+    {
+        let (etat, faible) = (Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_editor_picker_navigate(move |n| {
+            let Some(f) = faible.upgrade() else { return };
+            let mut e = etat.borrow_mut();
+            if let Some((lequel, mois)) = e.selecteur {
+                e.selecteur = Some((lequel, premier_du_mois(ajouter_mois(mois, n))));
+            }
+            remplir_selecteur(&f, &e);
+        });
+    }
+    {
+        let (etat, faible) = (Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_editor_picker_chosen(move |d| {
+            let Some(f) = faible.upgrade() else { return };
+            let mut e = etat.borrow_mut();
+            let (Some((lequel, _)), Some(jour)) = (e.selecteur, lire_date(&d)) else {
+                return;
+            };
+            let debut = lire_date(&f.get_editor_start_date()).unwrap_or(jour);
+            let fin = lire_date(&f.get_editor_end_date()).unwrap_or(debut);
+            let (debut, fin) = dates_apres_choix(lequel, jour, debut, fin);
+            poser_dates(&f, debut, fin);
+            e.selecteur = None;
+            remplir_selecteur(&f, &e);
         });
     }
 
@@ -1396,6 +1535,35 @@ fn rappels(services: &Services, etat: &mut Etat) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn d(t: &str) -> NaiveDate {
+        lire_date(t).unwrap()
+    }
+
+    #[test]
+    fn moving_the_start_moves_the_end_with_it() {
+        assert_eq!(
+            dates_apres_choix(0, d("2026-10-05"), d("2026-09-28"), d("2026-09-30")),
+            (d("2026-10-05"), d("2026-10-07"))
+        );
+    }
+
+    #[test]
+    fn an_end_before_the_start_pulls_the_start_back() {
+        assert_eq!(
+            dates_apres_choix(1, d("2026-09-20"), d("2026-09-28"), d("2026-09-28")),
+            (d("2026-09-20"), d("2026-09-20"))
+        );
+        assert_eq!(
+            dates_apres_choix(1, d("2026-10-02"), d("2026-09-28"), d("2026-09-28")),
+            (d("2026-09-28"), d("2026-10-02"))
+        );
+    }
+
+    #[test]
+    fn a_date_reads_as_words() {
+        assert_eq!(date_lisible(d("2026-09-28")), "Mon 28 Sep 2026");
+    }
 
     #[test]
     fn les_dates_et_heures_se_saisissent_de_plusieurs_facons() {

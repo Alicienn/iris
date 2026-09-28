@@ -24,7 +24,10 @@ import { TitleBar } from "titlebar.slint";
 import { AccountProblemPanel } from "account-problem.slint";
 import { Toast } from "toast.slint";
 import { CalendarView } from "calendar.slint";
-import { EventDetailPanel, EventEditorPanel, SubscribePanel } from "calendar-panels.slint";
+import {
+    EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu,
+    CalendarRenamePanel, CalendarDeletePanel
+} from "calendar-panels.slint";
 import {
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData
 } from "types.slint";
@@ -649,7 +652,18 @@ export component AppWindow inherits Window {
     callback calendar-new-event(string, int);
     callback calendar-toggled(int);
     callback calendar-refresh(int);
-    callback calendar-remove(int);
+
+    // Right click on a calendar: refresh, rename, delete — the last two in panels.
+    in-out property <bool> calendar-menu-open;
+    in-out property <CalendarData> calendar-menu-cal;
+    in-out property <length> calendar-menu-x;
+    in-out property <length> calendar-menu-y;
+    in-out property <bool> calendar-rename-open;
+    in-out property <string> calendar-rename-name;
+    in property <string> calendar-rename-error;
+    callback calendar-rename-confirmed(int, string);
+    in-out property <bool> calendar-delete-open;
+    callback calendar-delete-confirmed(int);
 
     in-out property <bool> event-detail-open;
     in property <EventDetailData> event-detail;
@@ -673,6 +687,15 @@ export component AppWindow inherits Window {
     in property <[string]> editor-repeats;
     in-out property <int> editor-repeat-index;
     in property <string> editor-error;
+    in property <string> editor-start-label;
+    in property <string> editor-end-label;
+    /// The small month under a date: 0 start, 1 end, -1 closed.
+    in-out property <int> editor-picker: -1;
+    in property <string> editor-picker-title;
+    in property <[MonthCellData]> editor-picker-cells;
+    callback editor-picker-requested(int);
+    callback editor-picker-navigate(int);
+    callback editor-picker-chosen(string);
     callback event-save();
 
     in-out property <bool> subscribe-open;
@@ -735,7 +758,8 @@ export component AppWindow inherits Window {
         || root.changelog-open || root.update-open || root.browser-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
-        || root.event-detail-open || root.event-editor-open || root.subscribe-open;
+        || root.event-detail-open || root.event-editor-open || root.subscribe-open
+        || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -790,8 +814,25 @@ export component AppWindow inherits Window {
                 root.compose-open = false;
                 return accept;
             }
+            // The small month first: Escape folds it and leaves the event open.
+            if (event.text == Key.Escape && root.event-editor-open && root.editor-picker >= 0) {
+                root.editor-picker = -1;
+                return accept;
+            }
             if (event.text == Key.Escape && root.event-editor-open) {
                 root.event-editor-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.calendar-menu-open) {
+                root.calendar-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.calendar-rename-open) {
+                root.calendar-rename-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.calendar-delete-open) {
+                root.calendar-delete-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.event-detail-open) {
@@ -1201,7 +1242,17 @@ export component AppWindow inherits Window {
         new-event(d, m) => { root.calendar-new-event(d, m); }
         calendar-toggled(id) => { root.calendar-toggled(id); }
         calendar-refresh(id) => { root.calendar-refresh(id); }
-        calendar-remove(id) => { root.calendar-remove(id); }
+        // The bin on a row asks first, like the menu.
+        calendar-remove(c) => {
+            root.calendar-menu-cal = c;
+            root.calendar-delete-open = true;
+        }
+        calendar-menu(c, x, y) => {
+            root.calendar-menu-cal = c;
+            root.calendar-menu-x = x;
+            root.calendar-menu-y = y;
+            root.calendar-menu-open = true;
+        }
         subscribe-requested => {
             root.subscribe-url = "";
             root.subscribe-name = "";
@@ -1237,8 +1288,59 @@ export component AppWindow inherits Window {
         repeats: root.editor-repeats;
         repeat-index <=> root.editor-repeat-index;
         error: root.editor-error;
+        start-label: root.editor-start-label;
+        end-label: root.editor-end-label;
+        picker: root.editor-picker;
+        picker-title: root.editor-picker-title;
+        picker-cells: root.editor-picker-cells;
+        picker-requested(w) => { root.editor-picker-requested(w); }
+        picker-navigate(n) => { root.editor-picker-navigate(n); }
+        picker-chosen(d) => { root.editor-picker-chosen(d); }
+        picker-closed => { root.editor-picker = -1; }
         save => { root.event-save(); }
         dismissed => { root.event-editor-open = false; }
+    }
+
+    if root.calendar-menu-open: CalendarContextMenu {
+        width: 100%;
+        height: 100%;
+        cal: root.calendar-menu-cal;
+        menu-x: root.calendar-menu-x;
+        menu-y: root.calendar-menu-y;
+        refresh => {
+            root.calendar-menu-open = false;
+            root.calendar-refresh(root.calendar-menu-cal.id);
+        }
+        rename => {
+            root.calendar-menu-open = false;
+            root.calendar-rename-name = root.calendar-menu-cal.name;
+            root.calendar-rename-open = true;
+        }
+        remove => {
+            root.calendar-menu-open = false;
+            root.calendar-delete-open = true;
+        }
+        dismissed => { root.calendar-menu-open = false; }
+    }
+
+    if root.calendar-rename-open: CalendarRenamePanel {
+        width: 100%;
+        height: 100%;
+        name <=> root.calendar-rename-name;
+        error: root.calendar-rename-error;
+        rename => { root.calendar-rename-confirmed(root.calendar-menu-cal.id, root.calendar-rename-name); }
+        dismissed => { root.calendar-rename-open = false; }
+    }
+
+    if root.calendar-delete-open: CalendarDeletePanel {
+        width: 100%;
+        height: 100%;
+        cal: root.calendar-menu-cal;
+        confirmed => {
+            root.calendar-delete-open = false;
+            root.calendar-delete-confirmed(root.calendar-menu-cal.id);
+        }
+        dismissed => { root.calendar-delete-open = false; }
     }
 
     if root.subscribe-open: SubscribePanel {
