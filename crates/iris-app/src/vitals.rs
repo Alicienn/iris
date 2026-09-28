@@ -262,6 +262,9 @@ mod tests {
     use iris_types::Timestamp;
 
     #[test]
+    // Only where a reading is implemented; elsewhere it reports nothing on purpose,
+    // and the status bar leaves the figure out.
+    #[cfg(any(windows, target_os = "linux"))]
     fn a_reading_reports_some_memory() {
         // The process is running, so it is using memory. Zero would mean the platform
         // call failed silently.

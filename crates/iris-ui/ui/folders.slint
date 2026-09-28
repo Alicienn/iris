@@ -1,9 +1,10 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { FolderNodeData } from "types.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
-import { ListView, LineEdit } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 
 // Une ligne de l'arborescence.
 //
@@ -286,7 +287,7 @@ export component NewFolderPanel inherits Rectangle {
                 }
             }
 
-            LineEdit {
+            TextField {
                 accessible-label: "Folder name";
                 placeholder-text: "Quotes";
                 font-size: Tokens.size-body;
@@ -500,7 +501,7 @@ export component RenameFolderPanel inherits Rectangle {
                 }
             }
 
-            LineEdit {
+            TextField {
                 accessible-label: "New folder name";
                 font-size: Tokens.size-body;
                 text <=> root.name;

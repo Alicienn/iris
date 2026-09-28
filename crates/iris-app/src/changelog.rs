@@ -185,6 +185,18 @@ mod tests {
                     section.title
                 );
             }
+            // Each category once, in the fixed order: two "Improved" headings in one
+            // version read as two lists of the same thing.
+            let rangs: Vec<usize> = release
+                .sections
+                .iter()
+                .filter_map(|s| CATEGORIES.iter().position(|c| *c == s.title))
+                .collect();
+            assert!(
+                rangs.windows(2).all(|w| w[0] < w[1]),
+                "{}: categories repeated or out of order, expected {CATEGORIES:?}",
+                release.version
+            );
         }
     }
 }

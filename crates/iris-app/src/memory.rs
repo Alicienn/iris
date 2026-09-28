@@ -730,6 +730,10 @@ mod tests {
     }
 
     #[test]
+    // Windows seulement : ailleurs, la lecture n'est pas écrite et rend zéro, ce
+    // que le module dit lui-même. Le tester sur macOS vérifiait une promesse que
+    // personne n'a faite.
+    #[cfg(windows)]
     fn l_espace_d_adressage_se_lit() {
         let r = regions();
         // Le binaire lui-même est chargé : un total nul voudrait dire que la lecture a

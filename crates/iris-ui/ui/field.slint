@@ -1,0 +1,197 @@
+import { Tokens } from "tokens.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// Iris's own text fields.
+//
+// The style's LineEdit and TextEdit change their background when they take focus: a
+// field turned into a different surface the moment it was clicked, and back when it
+// was left. These keep one background and say "focused" with their border alone.
+// Owning them also means owning their size, colours and selection, in the theme's
+// tokens rather than the style's.
+
+// The frame both fields share.
+component FieldFrame inherits Rectangle {
+    in property <bool> focused;
+    in property <bool> enabled: true;
+
+    background: Tokens.surface-low;
+    border-radius: Tokens.radius-small;
+    border-width: 1px;
+    border-color: root.focused ? Tokens.accent : Tokens.border;
+    opacity: root.enabled ? 1.0 : 0.6;
+    animate border-color { duration: Tokens.instant; }
+}
+
+// One line of text.
+export component TextField inherits FieldFrame {
+    in-out property <string> text;
+    in property <string> placeholder-text;
+    in property <length> font-size: Tokens.size-body;
+    in property <InputType> input-type: InputType.text;
+    in property <bool> read-only;
+    out property <bool> has-focus: input.has-focus;
+
+    callback accepted(string);
+    callback edited(string);
+
+    public function select-all() {
+        input.select-all();
+    }
+
+    // How far the text has scrolled left to keep the cursor in view.
+    property <length> offset: 0px;
+    property <length> pad: Tokens.space-2;
+    property <length> utile: root.width - 2 * root.pad;
+
+    // focus() on the field reaches the text inside it.
+    forward-focus: input;
+    focused: input.has-focus;
+    min-height: 26px;
+    preferred-height: 30px;
+    min-width: 40px;
+    preferred-width: 160px;
+    clip: true;
+
+    accessible-role: text-input;
+    accessible-value: root.text;
+    accessible-placeholder-text: root.placeholder-text;
+    accessible-read-only: root.read-only;
+    accessible-action-set-value(v) => {
+        root.text = v;
+        root.edited(v);
+    }
+
+    // The whole frame takes the click, not only the glyphs: a field is a box.
+    TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { input.focus(); }
+    }
+
+    if root.text == "": Text {
+        x: root.pad;
+        width: root.utile;
+        height: 100%;
+        text: root.placeholder-text;
+        font-size: root.font-size;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    input := TextInput {
+        x: root.pad + root.offset;
+        width: max(root.utile, self.preferred-width);
+        height: 100%;
+        text <=> root.text;
+        font-size: root.font-size;
+        input-type: root.input-type;
+        read-only: root.read-only;
+        single-line: true;
+        vertical-alignment: center;
+        color: Tokens.text;
+        selection-background-color: Tokens.accent.transparentize(0.55);
+        selection-foreground-color: Tokens.text;
+        accessible-role: none;
+
+        accepted => { root.accepted(self.text); }
+        edited => { root.edited(self.text); }
+
+        // Keep the cursor visible in a text longer than the field.
+        cursor-position-changed(pos) => {
+            if (pos.x + root.offset < 0px) {
+                root.offset = -pos.x;
+            } else if (pos.x + root.offset > root.utile - 2px) {
+                root.offset = root.utile - 2px - pos.x;
+            }
+        }
+    }
+}
+
+// Several lines, scrolling.
+export component TextArea inherits FieldFrame {
+    in-out property <string> text;
+    in property <string> placeholder-text;
+    in property <length> font-size: Tokens.size-body;
+    in property <bool> read-only;
+    in property <TextWrap> wrap: TextWrap.word-wrap;
+    out property <bool> has-focus: input.has-focus;
+
+    callback edited(string);
+
+    forward-focus: input;
+    focused: input.has-focus;
+    min-height: 60px;
+    preferred-height: 120px;
+
+    accessible-role: text-input;
+    accessible-value: root.text;
+    accessible-placeholder-text: root.placeholder-text;
+    accessible-read-only: root.read-only;
+    accessible-action-set-value(v) => {
+        root.text = v;
+        root.edited(v);
+    }
+
+    defilement := ScrollView {
+        x: 1px;
+        y: 1px;
+        width: root.width - 2px;
+        height: root.height - 2px;
+        viewport-width: root.wrap == TextWrap.no-wrap
+            ? max(self.visible-width, input.preferred-width + 2 * Tokens.space-2)
+            : self.visible-width;
+        viewport-height: max(self.visible-height, input.preferred-height + 2 * Tokens.space-2);
+
+        // Below the text: a click in the empty part of the box still lands in it.
+        TouchArea {
+            mouse-cursor: MouseCursor.text;
+            clicked => { input.focus(); }
+        }
+
+        if root.text == "": Text {
+            x: Tokens.space-2;
+            y: Tokens.space-2;
+            width: defilement.visible-width - 2 * Tokens.space-2;
+            text: root.placeholder-text;
+            font-size: root.font-size;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+
+        input := TextInput {
+            x: Tokens.space-2;
+            y: Tokens.space-2;
+            width: parent.width - 2 * Tokens.space-2;
+            height: max(defilement.visible-height - 2 * Tokens.space-2, self.preferred-height);
+            text <=> root.text;
+            font-size: root.font-size;
+            read-only: root.read-only;
+            single-line: false;
+            wrap: root.wrap;
+            color: Tokens.text;
+            selection-background-color: Tokens.accent.transparentize(0.55);
+            selection-foreground-color: Tokens.text;
+            accessible-role: none;
+
+            edited => { root.edited(self.text); }
+
+            // Follow the cursor, the way any editor does: typing below the bottom
+            // edge must not happen out of sight.
+            cursor-position-changed(pos) => {
+                let ligne = root.font-size * 1.6;
+                let haut = pos.y + Tokens.space-2;
+                if (haut + defilement.viewport-y < 0px) {
+                    defilement.viewport-y = -haut;
+                } else if (haut + ligne + defilement.viewport-y > defilement.visible-height) {
+                    defilement.viewport-y = defilement.visible-height - haut - ligne;
+                }
+                let gauche = pos.x + Tokens.space-2;
+                if (gauche + defilement.viewport-x < 0px) {
+                    defilement.viewport-x = -gauche;
+                } else if (gauche + 2px + defilement.viewport-x > defilement.visible-width) {
+                    defilement.viewport-x = defilement.visible-width - gauche - 2px;
+                }
+            }
+        }
+    }
+}

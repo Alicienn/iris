@@ -1,7 +1,8 @@
 import { Tokens } from "tokens.slint";
+import { TextArea } from "field.slint";
 import { Floating } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
-import { TextEdit } from "std-widgets.slint";
+
 
 // La signature d'un compte.
 //
@@ -67,7 +68,7 @@ export component SignaturePanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Tokens.border; }
 
-            TextEdit {
+            TextArea {
                 vertical-stretch: 1;
                 accessible-label: "Signature";
                 placeholder-text: "Marie Durand\nScierie mobile — 01 23 45 67 89";

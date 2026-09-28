@@ -1,9 +1,10 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { AccountRowData } from "types.slint";
 import { Glass } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
-import { ListView, LineEdit } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 
 component SectionLabel inherits Text {
     font-size: 9px;
@@ -242,7 +243,7 @@ export component Sidebar inherits Glass {
             // Alone in the collapsed rail, the chevron sat against the left edge.
             alignment: root.collapsed ? LayoutAlignment.center : LayoutAlignment.stretch;
 
-            if !root.collapsed: LineEdit {
+            if !root.collapsed: TextField {
                 accessible-label: "Filter accounts";
                 placeholder-text: "Filter…";
                 font-size: Tokens.size-small;

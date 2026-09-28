@@ -60,7 +60,8 @@ jobs:
         run: cargo build --workspace --no-default-features
 
       - name: Tests
-        run: cargo test --workspace --no-default-features
+        # Every failing binary reported in one run, not only the first.
+        run: cargo test --workspace --no-default-features --no-fail-fast
 
   # Le binaire complet, avec le moteur de rendu, sur la plateforme prioritaire.
   # Il ne s'exécute pas ici : sans écran, il n'y a rien à ouvrir. On vérifie qu'il

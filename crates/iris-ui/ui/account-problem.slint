@@ -1,7 +1,8 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { Floating } from "glass.slint";
 import { Icon, Icons } from "icons.slint";
-import { LineEdit } from "std-widgets.slint";
+
 
 // What an account in trouble looks like when you click on it.
 //
@@ -111,7 +112,7 @@ export component AccountProblemPanel inherits Rectangle {
                     font-size: Tokens.size-small;
                     color: Tokens.text-muted;
                 }
-                LineEdit {
+                TextField {
                     accessible-label: "New password";
                     input-type: InputType.password;
                     font-size: Tokens.size-body;

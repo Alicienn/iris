@@ -1,9 +1,10 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
 import { RuleRowData, PluginRowData } from "types.slint";
 import { PluginSettingsBody, PluginSettingData } from "plugins.slint";
-import { ListView, LineEdit, CheckBox } from "std-widgets.slint";
+import { ListView, CheckBox } from "std-widgets.slint";
 
 // A section heading.
 component GroupLabel inherits Text {
@@ -300,13 +301,13 @@ export component ModulesPanel inherits Rectangle {
             HorizontalLayout {
                 spacing: Tokens.space-2;
 
-                LineEdit {
+                TextField {
                     accessible-label: "Rule name";
                     placeholder-text: "Rule name";
                     font-size: Tokens.size-small;
                     text <=> root.new-rule-name;
                 }
-                LineEdit {
+                TextField {
                     accessible-label: "From sender or domain";
                     placeholder-text: "from sender or domain";
                     font-size: Tokens.size-small;

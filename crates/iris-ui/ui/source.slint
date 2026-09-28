@@ -1,7 +1,8 @@
 import { Tokens } from "tokens.slint";
+import { TextArea } from "field.slint";
 import { Floating } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
-import { TextEdit } from "std-widgets.slint";
+
 
 // Le message tel qu'il est arrivé.
 //
@@ -83,7 +84,7 @@ export component SourcePanel inherits Rectangle {
             // Un champ de saisie plutôt qu'un texte : c'est ce qui permet de
             // sélectionner et de copier une ligne d'en-tête, qui est tout ce qu'on vient
             // faire ici. En lecture seule, parce qu'un message reçu ne se modifie pas.
-            if !root.unavailable: TextEdit {
+            if !root.unavailable: TextArea {
                 vertical-stretch: 1;
                 accessible-label: "Message source";
                 read-only: true;

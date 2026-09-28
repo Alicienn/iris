@@ -1,4 +1,5 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { Glass, Backdrop, Floating } from "glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
@@ -24,7 +25,7 @@ import { AccountProblemPanel } from "account-problem.slint";
 import { Toast } from "toast.slint";
 import { ChangelogPanel, UpdatePanel } from "changelog.slint";
 import { ChangelogRowData } from "types.slint";
-import { ListView, LineEdit } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 
 export { Tokens }
 
@@ -57,7 +58,7 @@ component CommandPalette inherits Rectangle {
             padding: Tokens.space-3;
             spacing: Tokens.space-2;
 
-            input := LineEdit {
+            input := TextField {
                 accessible-label: "Command";
                 placeholder-text: "Command, account, search…";
                 font-size: Tokens.size-title;
@@ -655,6 +656,151 @@ export component AppWindow inherits Window {
 
     forward-focus: shortcuts;
 
+    /// A window is open over the rest: the mail behind it is out of reach.
+    ///
+    /// The shortcuts used to go straight through. With the new-message window open
+    /// and no field clicked yet, "e" marked as done the thread displayed behind it.
+    property <bool> modal-open: (root.compose-open && !root.compose-minimised)
+        || root.settings-open || root.modules-open || root.add-account-open
+        || root.problem-open || root.source-open || root.signature-open
+        || root.changelog-open || root.update-open || root.browser-open
+        || root.rename-folder-open || root.new-folder-open || root.palette-open
+        || root.context-menu-open || root.folder-menu-open || root.account-menu-open;
+
+    // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
+    // with a field that no longer exists, and the next key goes nowhere.
+    changed modal-open => {
+        if (!root.modal-open) {
+            shortcuts.focus();
+        }
+    }
+
+    // Toutes les touches passent par Rust : les raccourcis sont des données, pas du
+    // code d'interface, et restent donc reconfigurables.
+    //
+    // **Under** everything else, and that placement is the fix for a whole family of
+    // faults. A FocusScope that does not have the focus takes the click that would
+    // give it the focus, and keeps it. This one covered the window from above: with a
+    // field focused, a click on another field — or on a suggested address — only
+    // brought the focus back here, and never reached what it was aimed at. Below,
+    // it only receives the clicks nothing else wanted: a click on empty space still
+    // returns the keyboard to the shortcuts.
+    shortcuts := FocusScope {
+        width: 100%;
+        height: 100%;
+        key-pressed(event) => {
+            if (event.text == "k" && event.modifiers.control
+                && (!root.modal-open || root.palette-open)) {
+                root.palette-open = !root.palette-open;
+                return accept;
+            }
+            // "c" writes a new message, the convention every mail client shares.
+            if (event.text == "c" && !root.modal-open) {
+                root.compose-open = true;
+                return accept;
+            }
+            // Escape does not throw away a draft: leaving the window open is
+            // recoverable, losing what someone wrote is not.
+            if (event.text == Key.Escape && root.problem-open) {
+                root.problem-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.context-menu-open) {
+                root.context-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.compose-open) {
+                root.compose-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.changelog-open) {
+                root.changelog-open = false;
+                return accept;
+            }
+            // Not while installing: the choice is made, and the panel is the only
+            // thing saying what is happening.
+            if (event.text == Key.Escape && root.update-open && !root.update-busy) {
+                root.update-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.source-open) {
+                root.source-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.modules-open) {
+                root.modules-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.add-account-open) {
+                root.add-account-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.settings-open) {
+                root.settings-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.palette-open) {
+                root.palette-open = false;
+                return accept;
+            }
+            // Nothing below this line reaches past an open window: Escape, handled
+            // above, is the only key that concerns it.
+            if (root.modal-open) {
+                return accept;
+            }
+            if (event.text == "f" && event.modifiers.control) {
+                root.focus-search();
+                return accept;
+            }
+            // Échap quitte la recherche avant tout le reste : c'est le geste de
+            // sortie universel, et il doit marcher sans viser un bouton.
+            if (event.text == Key.Escape && root.searching) {
+                root.search-query = "";
+                root.search-cleared();
+                return accept;
+            }
+
+            // Échap vide la sélection avant tout le reste des files : c'est le geste
+            // de sortie d'un mode, et un lot coché est un mode.
+            if (event.text == Key.Escape && root.marked-count > 0) {
+                root.bulk-clear();
+                return accept;
+            }
+
+            // Suppr supprime. C'était « # », choisi parce qu'une lettre nue est trop
+            // facile à heurter — mais Suppr n'est pas une lettre, personne ne
+            // l'atteint par accident, et c'est la touche que tout le monde essaie en
+            // premier. « # » reste, pour qui l'a appris.
+            if (event.text == Key.Delete) {
+                root.bulk-delete();
+                return accept;
+            }
+
+            // Annuler et rétablir, aux touches de partout. Le clavier les envoie avant
+            // que la table de raccourcis ne les voie, parce que ce sont des
+            // combinaisons et que la table ne connaît que des touches nues.
+            if (event.text == "z" && event.modifiers.control && event.modifiers.shift) {
+                root.redo();
+                return accept;
+            }
+            if (event.text == "Z" && event.modifiers.control) {
+                root.redo();
+                return accept;
+            }
+            if (event.text == "z" && event.modifiers.control) {
+                root.undo();
+                return accept;
+            }
+            if (event.text == "y" && event.modifiers.control) {
+                root.redo();
+                return accept;
+            }
+
+            root.key-pressed(event.text);
+            return accept;
+        }
+    }
+
     Backdrop {
         width: 100%;
         height: 100%;
@@ -696,8 +842,8 @@ export component AppWindow inherits Window {
                     syncing: root.syncing-all;
                     sync-progress: root.sync-progress;
                     collapsed <=> root.sidebar-collapsed;
-                    account-selected(id) => { root.account-selected(id); }
-                    unified-selected => { root.unified-selected(); }
+                    account-selected(id) => { root.account-selected(id); shortcuts.focus(); }
+                    unified-selected => { root.unified-selected(); shortcuts.focus(); }
                     resume-account(id) => { root.resume-account(id); }
                     add-account => { root.add-account-open = true; }
                     filter-changed(t) => { root.account-filter-changed(t); }
@@ -788,7 +934,7 @@ export component AppWindow inherits Window {
                             folders: root.folders;
                             selected-path: root.selected-folder;
                             accounts-total: root.account-count;
-                            folder-selected(p) => { root.folder-selected(p); }
+                            folder-selected(p) => { root.folder-selected(p); shortcuts.focus(); }
                             all-selected => { root.folder-cleared(); }
                             new-folder => { root.new-folder-requested(); }
                             folder-dropped(p) => { root.folder-dropped(p); }
@@ -863,8 +1009,10 @@ export component AppWindow inherits Window {
                         bulk-select-all => { root.bulk-select-all(); }
                         bulk-clear => { root.bulk-clear(); }
                         loading: root.loading;
-                        row-clicked(id) => { root.thread-selected(id); }
-                        tab-selected(i) => { root.tab-selected(i); }
+                        // Picking a thread with the mouse hands the keyboard to the
+                        // shortcuts, so « e » acts on it even after a search field had it.
+                        row-clicked(id) => { root.thread-selected(id); shortcuts.focus(); }
+                        tab-selected(i) => { root.tab-selected(i); shortcuts.focus(); }
                         scrolled-near-end => { root.scrolled-near-end(); }
                     }
                 }
@@ -1192,115 +1340,5 @@ export component AppWindow inherits Window {
         height: 100%;
         message: root.toast;
         dismissed => { root.toast = ""; }
-    }
-
-    // Toutes les touches passent par Rust : les raccourcis sont des données, pas du
-    // code d'interface, et restent donc reconfigurables.
-    shortcuts := FocusScope {
-        key-pressed(event) => {
-            if (event.text == "k" && event.modifiers.control) {
-                root.palette-open = !root.palette-open;
-                return accept;
-            }
-            // "c" writes a new message, the convention every mail client shares.
-            if (event.text == "c" && !root.compose-open && !root.palette-open) {
-                root.compose-open = true;
-                return accept;
-            }
-            // Escape does not throw away a draft: leaving the window open is
-            // recoverable, losing what someone wrote is not.
-            if (event.text == Key.Escape && root.problem-open) {
-                root.problem-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.context-menu-open) {
-                root.context-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.compose-open) {
-                root.compose-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.changelog-open) {
-                root.changelog-open = false;
-                return accept;
-            }
-            // Not while installing: the choice is made, and the panel is the only
-            // thing saying what is happening.
-            if (event.text == Key.Escape && root.update-open && !root.update-busy) {
-                root.update-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.source-open) {
-                root.source-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.modules-open) {
-                root.modules-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.add-account-open) {
-                root.add-account-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.settings-open) {
-                root.settings-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.palette-open) {
-                root.palette-open = false;
-                return accept;
-            }
-            if (event.text == "f" && event.modifiers.control) {
-                root.focus-search();
-                return accept;
-            }
-            // Échap quitte la recherche avant tout le reste : c'est le geste de
-            // sortie universel, et il doit marcher sans viser un bouton.
-            if (event.text == Key.Escape && root.searching) {
-                root.search-query = "";
-                root.search-cleared();
-                return accept;
-            }
-
-            // Échap vide la sélection avant tout le reste des files : c'est le geste
-            // de sortie d'un mode, et un lot coché est un mode.
-            if (event.text == Key.Escape && root.marked-count > 0) {
-                root.bulk-clear();
-                return accept;
-            }
-
-            // Suppr supprime. C'était « # », choisi parce qu'une lettre nue est trop
-            // facile à heurter — mais Suppr n'est pas une lettre, personne ne
-            // l'atteint par accident, et c'est la touche que tout le monde essaie en
-            // premier. « # » reste, pour qui l'a appris.
-            if (event.text == Key.Delete) {
-                root.bulk-delete();
-                return accept;
-            }
-
-            // Annuler et rétablir, aux touches de partout. Le clavier les envoie avant
-            // que la table de raccourcis ne les voie, parce que ce sont des
-            // combinaisons et que la table ne connaît que des touches nues.
-            if (event.text == "z" && event.modifiers.control && event.modifiers.shift) {
-                root.redo();
-                return accept;
-            }
-            if (event.text == "Z" && event.modifiers.control) {
-                root.redo();
-                return accept;
-            }
-            if (event.text == "z" && event.modifiers.control) {
-                root.undo();
-                return accept;
-            }
-            if (event.text == "y" && event.modifiers.control) {
-                root.redo();
-                return accept;
-            }
-
-            root.key-pressed(event.text);
-            return accept;
-        }
     }
 }

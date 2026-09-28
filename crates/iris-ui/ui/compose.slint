@@ -1,7 +1,8 @@
 import { Tokens } from "tokens.slint";
+import { TextField, TextArea } from "field.slint";
 import { Floating } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
-import { LineEdit, TextEdit, ComboBox, ListView } from "std-widgets.slint";
+import { ComboBox, ListView } from "std-widgets.slint";
 
 // One labelled field of the header block.
 component Field inherits VerticalLayout {
@@ -10,6 +11,8 @@ component Field inherits VerticalLayout {
     in-out property <string> value;
     /// Les correspondants qui ressemblent à ce qu'on tape. Vide : rien ne s'affiche.
     in property <[string]> suggestions;
+    /// Take the keyboard as soon as the field appears.
+    in property <bool> autofocus;
 
     callback accepted();
     callback edited(string);
@@ -29,7 +32,10 @@ component Field inherits VerticalLayout {
             vertical-alignment: center;
         }
 
-        champ := LineEdit {
+        champ := TextField {
+            // Ouvrir pour écrire, c'est vouloir écrire : sans cela, la première touche
+            // partait vers la liste derrière la fenêtre.
+            init => { if (root.autofocus) { self.focus(); } }
             accessible-label: root.label;
             placeholder-text: root.placeholder;
             font-size: Tokens.size-body;
@@ -286,6 +292,7 @@ export component ComposePanel inherits Rectangle {
 
                 Field {
                     label: "To";
+                    autofocus: root.to == "";
                     placeholder: "Separate addresses with commas";
                     value <=> root.to;
                     suggestions: root.suggestions;
@@ -348,7 +355,10 @@ export component ComposePanel inherits Rectangle {
                 apply(what) => { root.format(what); }
             }
 
-            if !root.minimised: TextEdit {
+            if !root.minimised: TextArea {
+                // A reply or a mailto: link arrives with its recipient: the writing is
+                // what is left to do.
+                init => { if (root.to != "") { self.focus(); } }
                 accessible-label: "Message";
                 placeholder-text: "Write your message…";
                 font-size: Tokens.size-body;

@@ -1,6 +1,7 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { Floating } from "glass.slint";
-import { LineEdit, CheckBox } from "std-widgets.slint";
+import { CheckBox } from "std-widgets.slint";
 
 // Un champ avec son intitulé.
 component Field inherits VerticalLayout {
@@ -19,7 +20,7 @@ component Field inherits VerticalLayout {
         color: Tokens.text-muted;
     }
 
-    LineEdit {
+    TextField {
         accessible-label: root.label;
         placeholder-text: root.placeholder;
         font-size: Tokens.size-body;

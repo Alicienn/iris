@@ -1,9 +1,10 @@
 import { Tokens } from "tokens.slint";
+import { TextArea } from "field.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { MessageData, MessageBlockData } from "types.slint";
 import { Glass } from "glass.slint";
 import { LoadingLine } from "spinner.slint";
-import { ScrollView, TextEdit, Button } from "std-widgets.slint";
+import { ScrollView, Button } from "std-widgets.slint";
 
 // Un bloc du corps du message.
 //
@@ -685,7 +686,7 @@ export component ConversationView inherits VerticalLayout {
                 padding: Tokens.space-2;
                 spacing: Tokens.space-2;
 
-                TextEdit {
+                TextArea {
                     accessible-label: "Your reply";
                     text <=> root.reply-text;
                     placeholder-text: "Reply…";

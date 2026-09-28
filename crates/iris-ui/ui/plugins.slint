@@ -1,7 +1,8 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
-import { ListView, LineEdit, CheckBox } from "std-widgets.slint";
+import { ListView, CheckBox } from "std-widgets.slint";
 
 // Un module proposé par un catalogue.
 export struct CatalogueRowData {
@@ -222,7 +223,7 @@ export component PluginBrowser inherits Rectangle {
                 height: 28px;
                 spacing: Tokens.space-2;
 
-                LineEdit {
+                TextField {
                     accessible-label: "Catalogue address";
                     placeholder-text: "https://…/catalogue.json";
                     font-size: Tokens.size-small;
@@ -337,7 +338,7 @@ export component PluginSettingsBody inherits VerticalLayout {
                         color: Tokens.text-secondary;
                     }
 
-                    if reglage.kind != "toggle": LineEdit {
+                    if reglage.kind != "toggle": TextField {
                         accessible-label: reglage.label;
                         input-type: reglage.kind == "number"
                             ? InputType.number

@@ -10,7 +10,11 @@ iris-types = { workspace = true }
 iris-store = { workspace = true }
 iris-theme = { workspace = true }
 serde_json = { workspace = true }
-iris-htmlview = { path = "../iris-htmlview" }
+# Sans ses fonctions par défaut : le moteur Blitz est choisi par l'application
+# (sa fonction « blitz »), pas imposé par l'interface. Imposé ici, il se compilait
+# et se testait même avec --no-default-features, et plantait l'intégration continue,
+# qui n'a pas de carte graphique.
+iris-htmlview = { workspace = true }
 iris-viewmodel = { workspace = true }
 slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "std"] }
 tracing = "0.1"
@@ -25,4 +29,8 @@ i-slint-backend-testing = "1.17"
 # un par test. Ce test fournit donc son propre `main`.
 [[test]]
 name = "interface"
+harness = false
+
+[[test]]
+name = "saisie"
 harness = false

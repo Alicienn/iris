@@ -1,6 +1,7 @@
 import { Tokens } from "tokens.slint";
+import { TextField } from "field.slint";
 import { ThreadRowData } from "types.slint";
-import { ListView, LineEdit } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 
@@ -756,7 +757,7 @@ export component SearchBar inherits VerticalLayout {
         vertical-stretch: 0;
         height: 30px;
 
-        field := LineEdit {
+        field := TextField {
             accessible-label: "Search";
             placeholder-text: "Search — from:marie is:unread…";
             font-size: Tokens.size-small;
