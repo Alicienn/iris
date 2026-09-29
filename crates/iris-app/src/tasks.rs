@@ -8,11 +8,14 @@
 
 use crate::controller::{Controller, Request};
 use crate::services::{now, Services};
-use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use iris_store::{NewTask, StoredTask, TaskList};
 use iris_tasks::{due_label, is_overdue, remind_at, section, Section, REMINDERS};
 use iris_types::ThreadId;
-use iris_ui::{AppWindow, SubtaskData, TaskDetailData, TaskPlaceData, TaskRowData};
+use iris_ui::{
+    AppWindow, HomeItemData, SubtaskData, TaskDetailData, TaskOverviewData, TaskPlaceData,
+    TaskRowData, TaskTokenData,
+};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -213,7 +216,7 @@ fn terminees(services: &Services, vue: Vue, today: NaiveDate) -> Vec<StoredTask>
 fn section_ligne(titre: &str, compte: usize, rouge: bool) -> TaskRowData {
     TaskRowData {
         kind: 1,
-        title: titre.to_uppercase().into(),
+        title: titre.into(),
         meta: if compte > 0 {
             compte.to_string().into()
         } else {
@@ -222,6 +225,152 @@ fn section_ligne(titre: &str, compte: usize, rouge: bool) -> TaskRowData {
         overdue: rouge,
         ..Default::default()
     }
+}
+
+/// "30 min", "1 h", "1 h 30".
+fn duree(ms: i64) -> String {
+    let minutes = (ms / 60_000).max(1);
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m:02}"),
+    }
+}
+
+/// Around the tasks of a view: how far it has got and, on Today, the day itself and
+/// the week behind it.
+fn apercu(
+    services: &Services,
+    vue: Vue,
+    total: usize,
+    faites: usize,
+    maintenant: NaiveDateTime,
+) -> TaskOverviewData {
+    let today = maintenant.date();
+    let instant = vers_ms(maintenant);
+
+    // What the calendars hold today, the next one in bold.
+    let mut suivant = false;
+    let agenda: Vec<HomeItemData> = if vue == Vue::Today {
+        crate::calendar::upcoming(services, today, 1)
+            .into_iter()
+            .filter(|u| u.day == today)
+            .take(5)
+            .map(|u| {
+                let a_venir = !u.all_day && u.start > instant;
+                let premier = a_venir && !suivant;
+                suivant |= a_venir;
+                let mut detail = if premier {
+                    crate::home::in_how_long(u.start - instant)
+                } else if u.all_day {
+                    String::new()
+                } else {
+                    duree(u.end - u.start)
+                };
+                if !u.location.trim().is_empty() {
+                    if !detail.is_empty() {
+                        detail.push_str(", ");
+                    }
+                    detail.push_str(u.location.trim());
+                }
+                HomeItemData {
+                    key: u.key.as_str().into(),
+                    title: u.title.as_str().into(),
+                    meta: if u.all_day {
+                        "All day".into()
+                    } else {
+                        u.time.as_str().into()
+                    },
+                    hint: detail.into(),
+                    color: crate::calendar::couleur(&u.color),
+                    past: u.past,
+                    now: premier,
+                    ..Default::default()
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Done this week, Monday to Sunday.
+    let lundi = today - Duration::days(today.weekday().num_days_from_monday() as i64);
+    let mut jours = [0usize; 7];
+    for t in services.store.done_tasks(None, 500).unwrap_or_default() {
+        let Some(fait) = t.done_at else { continue };
+        let Some(j) = Local
+            .timestamp_millis_opt(fait.0)
+            .single()
+            .map(|d| d.date_naive())
+        else {
+            continue;
+        };
+        let ecart = (j - lundi).num_days();
+        if (0..7).contains(&ecart) {
+            jours[ecart as usize] += 1;
+        }
+    }
+    let plus = jours.iter().copied().max().unwrap_or(0).max(1) as f32;
+
+    TaskOverviewData {
+        progress: if total > 0 {
+            format!("{faites} of {total} done").into()
+        } else {
+            SharedString::default()
+        },
+        fraction: if total > 0 {
+            faites as f32 / total as f32
+        } else {
+            0.0
+        },
+        show_day: vue == Vue::Today,
+        weekday: today.format("%a").to_string().into(),
+        day: today.format("%-d").to_string().into(),
+        month: today.format("%B").to_string().into(),
+        agenda: ModelRc::new(VecModel::from(agenda)),
+        week_done: jours.iter().sum::<usize>() as i32,
+        week_bars: ModelRc::new(VecModel::from(
+            jours.iter().map(|&n| n as f32 / plus).collect::<Vec<_>>(),
+        )),
+        week_today: today.weekday().num_days_from_monday() as i32,
+    }
+}
+
+/// What the add line understood so far: a date, a list, a priority.
+fn jetons(texte: &str, listes: &[TaskList], maintenant: NaiveDateTime) -> Vec<TaskTokenData> {
+    if texte.trim().is_empty() {
+        return Vec::new();
+    }
+    let q = iris_tasks::parse(texte, maintenant);
+    let mut jetons = Vec::new();
+    if let Some(d) = q.due {
+        jetons.push(TaskTokenData {
+            kind: 0,
+            text: due_label(d.day, d.minute, maintenant.date()).into(),
+            ..Default::default()
+        });
+    }
+    if let Some(nom) = &q.list {
+        let liste = listes.iter().find(|l| l.name.eq_ignore_ascii_case(nom));
+        jetons.push(TaskTokenData {
+            kind: 1,
+            text: liste.map_or(nom.as_str(), |l| l.name.as_str()).into(),
+            color: crate::calendar::couleur(liste.map_or(COULEURS[listes.len() % COULEURS.len()], |l| {
+                l.color.as_str()
+            })),
+            ..Default::default()
+        });
+    }
+    if q.priority > 0 {
+        let p = q.priority.min(3);
+        jetons.push(TaskTokenData {
+            kind: 2,
+            text: ["", "Low", "Medium", "High"][p as usize].into(),
+            level: p as i32,
+            ..Default::default()
+        });
+    }
+    jetons
 }
 
 /// Une tâche en ligne de colonne.
@@ -263,7 +412,7 @@ fn ligne_tache(
         from_mail: t.task.thread_id.is_some(),
         has_notes: !t.task.notes.trim().is_empty(),
         progress: if total > 0 {
-            format!("{faites}/{total}").into()
+            format!("{faites} of {total}").into()
         } else {
             SharedString::default()
         },
@@ -374,6 +523,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         .copied()
         .filter(|t| dans_la_vue(etat.vue, t, today))
         .collect();
+    let a_faire = de_la_vue.len();
     match etat.vue {
         Vue::Upcoming => {
             // Un titre par jour sur la semaine qui vient, puis le reste.
@@ -415,7 +565,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
     if !faites.is_empty() {
         lignes.push(TaskRowData {
             kind: 4,
-            ..section_ligne("Completed", faites.len(), false)
+            ..section_ligne("Done", faites.len(), false)
         });
         for t in &faites {
             lignes.push(ligne_tache(
@@ -428,11 +578,30 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         }
     }
 
+    // On Today, "Today" goes without saying: the hour, or when it fits.
+    if etat.vue == Vue::Today {
+        for l in lignes.iter_mut().filter(|l| l.kind == 0 && !l.done) {
+            if let Some(reste) = l.meta.strip_prefix("Today") {
+                l.meta = match reste.trim() {
+                    "" => "Anytime".into(),
+                    heure => heure.into(),
+                };
+            }
+        }
+    }
+
     etat.ordre = lignes
         .iter()
         .filter(|l| l.kind == 0)
         .map(|l| l.id as i64)
         .collect();
+    f.set_task_overview(apercu(
+        services,
+        etat.vue,
+        a_faire + faites.len(),
+        faites.len(),
+        maintenant,
+    ));
     f.set_tasks_title(titre_vue(etat.vue, &etat.listes).into());
     f.set_tasks_subtitle(match etat.vue {
         Vue::Today => today.format("%A %-d %B").to_string().into(),
@@ -466,9 +635,10 @@ fn remplir_detail(f: &AppWindow, services: &Services, etat: &mut Etat, maintenan
     }
 
     let etapes = services.store.subtasks(t.id).unwrap_or_default();
+    // The day alone: its hour has a field of its own beside it.
     let (libelle, retard) = match jour(&t.task) {
         Some(j) => (
-            due_label(j, minute(&t.task), maintenant.date()),
+            due_label(j, None, maintenant.date()),
             !t.is_done() && is_overdue(j, minute(&t.task), maintenant),
         ),
         None => (String::new(), false),
@@ -492,6 +662,7 @@ fn remplir_detail(f: &AppWindow, services: &Services, etat: &mut Etat, maintenan
         source: t.task.source.as_str().into(),
         from_mail: t.task.thread_id.is_some(),
         from_event: t.task.event_uid.is_some(),
+        steps_done: etapes.iter().filter(|e| e.is_done()).count() as i32,
         subtasks: ModelRc::new(VecModel::from(
             etapes
                 .iter()
@@ -720,8 +891,6 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
 
     // Chaque geste reçoit ses propres copies de ce qu'il touche. Les noms viennent de
     // l'appel : ceux qu'une macro inventerait resteraient invisibles au corps.
-    // Chaque geste reçoit ses propres copies de ce qu'il touche. Les noms viennent de
-    // l'appel : ceux qu'une macro inventerait resteraient invisibles au corps.
     macro_rules! geste {
         ($installer:ident, [$s:ident, $e:ident, $r:ident, $f:ident, $c:ident], || $corps:expr) => {
             geste!($installer, [$s, $e, $r, $f, $c], | | $corps)
@@ -758,9 +927,19 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
             let resultat = ajouter(services, &mut etat.borrow_mut(), &texte);
             if let Some((_, message)) = resultat {
                 f.set_task_add_text(SharedString::default());
+                f.set_task_add_tokens(ModelRc::default());
                 f.set_status(message.into());
             }
             redessiner();
+        }
+    );
+
+    geste!(
+        on_task_add_edited,
+        [services, etat, redessiner, f, controller],
+        |texte| {
+            let lus = jetons(&texte, &etat.borrow().listes, maintenant_local());
+            f.set_task_add_tokens(ModelRc::new(VecModel::from(lus)));
         }
     );
 

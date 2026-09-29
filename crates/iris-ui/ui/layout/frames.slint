@@ -285,18 +285,6 @@ export component Popover inherits Rectangle {
         drop-shadow-color: #000000c0;
         drop-shadow-offset-y: 14px;
 
-        // The tail, toward the anchor.
-        Rectangle {
-            x: root.a-gauche ? parent.width - 7px : -7px;
-            y: max(14px, min(root.anchor-top + 10px - carte.y, parent.height - 26px));
-            width: 12px;
-            height: 12px;
-            background: Tokens.panel;
-            border-width: 1px;
-            border-color: Tokens.border-strong;
-            transform-rotation: 45deg;
-        }
-
         TouchArea {}
 
         contenu := VerticalLayout {

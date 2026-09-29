@@ -350,9 +350,37 @@ export struct TaskRowData {
     color: color,
     from-mail: bool,
     has-notes: bool,
-    // Steps done out of steps: "1/3". Empty without steps.
+    // Steps done out of steps: "1 of 3". Empty without steps.
     progress: string,
     selected: bool,
+}
+
+// What the line to add a task understood, shown before Enter: a date (kind 0), a
+// list (1, with its colour), a priority (2, 1 low … 3 high in `level`).
+export struct TaskTokenData {
+    kind: int,
+    text: string,
+    color: color,
+    level: int,
+}
+
+// Around the tasks of a view: how far it has got, and on Today the day itself.
+export struct TaskOverviewData {
+    // "2 of 5 done", and that as a fraction. Empty when there is nothing to count.
+    progress: string,
+    fraction: float,
+    // Today: the date as a block, and what the calendars hold that day.
+    show-day: bool,
+    weekday: string,
+    day: string,
+    month: string,
+    // An hour (`meta`), a title, a detail (`hint`), its calendar's colour; `past` and,
+    // for the next one, `now`.
+    agenda: [HomeItemData],
+    // Done this week, Monday to Sunday, and each day as a share of the busiest.
+    week-done: int,
+    week-bars: [float],
+    week-today: int,
 }
 
 // A step of a task.
@@ -379,4 +407,6 @@ export struct TaskDetailData {
     from-mail: bool,
     from-event: bool,
     subtasks: [SubtaskData],
+    // How many of them are done.
+    steps-done: int,
 }

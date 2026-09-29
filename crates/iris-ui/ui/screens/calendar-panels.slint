@@ -6,7 +6,9 @@ import { EventDetailData, CalendarData, MonthCellData, SubtaskData } from "@iris
 import { CalButton, MiniMonth } from "@iris/screens/calendar.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
-import { Modal } from "@iris/layout/frames.slint";
+import { Modal, Popover } from "@iris/layout/frames.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Check } from "@iris/controls/choice.slint";
 
 // The frame of the calendar's, the tasks' and the tags' windows: the shared modal.
 export component PanelFrame inherits Modal {}
@@ -43,34 +45,16 @@ component EventTaskRow inherits Rectangle {
         padding-left: 4px;
         padding-right: 4px;
         spacing: Tokens.space-2;
-        Rectangle {
+        Check {
             y: (parent.height - self.height) / 2;
-            width: 16px;
-            height: 16px;
-            border-radius: 8px;
-            border-width: 1.5px;
-            border-color: root.task.done ? Tokens.success : case.has-hover ? Tokens.text-secondary : Tokens.text-muted;
-            background: root.task.done ? Tokens.success : transparent;
-
-            accessible-role: checkbox;
-            accessible-label: root.task.title;
-            accessible-checked: root.task.done;
-            accessible-action-default => { root.toggled(root.task.id); }
-
-            if root.task.done: Icon {
-                data: Icons.check;
-                size: 10px;
-                weight: 3.0;
-                tint: white;
-            }
-            case := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.toggled(root.task.id); }
-            }
+            size: 16px;
+            done: root.task.done;
+            label: root.task.title;
+            toggled => { root.toggled(root.task.id); }
         }
         Text {
             text: root.task.title;
-            font-size: Tokens.size-body;
+            font-size: 13px;
             color: root.task.done ? Tokens.text-muted : Tokens.text;
             vertical-alignment: center;
             overflow: elide;
@@ -85,12 +69,36 @@ component EventTaskRow inherits Rectangle {
     }
 }
 
-// What an event is, when, where.
-export component EventDetailPanel inherits Rectangle {
+// A line of the event's card: an icon, the words, a quieter note after them.
+component FactRow inherits HorizontalLayout {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> note;
+    spacing: 10px;
+    Icon {
+        y: 2px;
+        data: root.icon;
+        size: 14px;
+        tint: Tokens.text-muted;
+    }
+    Text {
+        text: root.text;
+        font-size: 13px;
+        color: Tokens.text;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+    if root.note != "": Text {
+        text: root.note;
+        font-size: 12px;
+        color: Tokens.text-muted;
+    }
+}
+
+// What the card says of an event, beside it or in the middle of the window.
+component EventBody inherits VerticalLayout {
     in property <EventDetailData> detail;
-    /// What the user wrote about this event — theirs, even on a subscribed calendar.
     in-out property <string> notes;
-    /// The tasks added from this event, done or not.
     in property <[SubtaskData]> tasks;
     in-out property <string> new-task;
     callback notes-edited(string);
@@ -101,152 +109,232 @@ export component EventDetailPanel inherits Rectangle {
     callback delete();
     callback dismissed();
 
-    PanelFrame {
-        width: 100%;
-        height: 100%;
-        title: root.detail.title == "" ? "(No title)" : root.detail.title;
-        // A long title is read whole: it is often the only thing that says what the
-        // event is.
-        wrap-title: true;
-        card-height: 640px;
-        dismissed => { root.dismissed(); }
+    spacing: 12px;
 
+    // Its colour, its title whole (it is often all that says what it is), the way out.
+    HorizontalLayout {
+        spacing: 10px;
+        Rectangle {
+            width: 4px;
+            border-radius: 2px;
+            background: root.detail.color;
+        }
+        Text {
+            text: root.detail.title == "" ? "(No title)" : root.detail.title;
+            font-family: Tokens.font-display;
+            font-size: 18px;
+            font-weight: 600;
+            color: Tokens.text;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+        }
+        IconButton {
+            icon: Icons.window-close;
+            label: "Close";
+            shortcut: "Esc";
+            button-size: 26px;
+            icon-size: 12px;
+            clicked => { root.dismissed(); }
+        }
+    }
+
+    FactRow {
+        icon: Icons.clock;
+        text: root.detail.when;
+        note: root.detail.repeats;
+    }
+    if root.detail.location != "": FactRow {
+        icon: Icons.map-pin;
+        text: root.detail.location;
+    }
+    FactRow {
+        icon: root.detail.reminder != "" ? Icons.bell : Icons.calendar;
+        text: root.detail.reminder != "" ? root.detail.reminder : root.detail.calendar;
+        note: root.detail.reminder != "" ? root.detail.calendar : "";
+    }
+
+    if root.detail.description != "": Rectangle {
+        border-radius: Tokens.radius-medium;
+        border-width: 1px;
+        border-color: Tokens.border;
+        background: Tokens.surface-low;
+        height: description.preferred-height + 20px;
+        description := Text {
+            x: 12px;
+            width: parent.width - 24px;
+            text: root.detail.description;
+            font-size: 12px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+    }
+
+    TextArea {
+        height: 64px;
+        vertical-stretch: 0;
+        accessible-label: "My notes";
+        placeholder-text: "My notes, kept on this computer";
+        text <=> root.notes;
+        edited(t) => { root.notes-edited(t); }
+    }
+
+    // What there is to do for it. Each one is a task in Tasks, due when the event
+    // starts, and stays there if the calendar goes.
+    VerticalLayout {
+        spacing: 1px;
         HorizontalLayout {
-            spacing: Tokens.space-2;
-            height: 20px;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: 10px;
-                height: 10px;
-                border-radius: 5px;
-                background: root.detail.color;
-            }
+            height: 22px;
+            spacing: 8px;
             Text {
-                text: root.detail.calendar;
-                font-size: Tokens.size-small;
+                text: "Tasks";
+                font-size: 12px;
+                font-weight: 600;
                 color: Tokens.text-secondary;
                 vertical-alignment: center;
             }
-        }
-
-        HorizontalLayout {
-            spacing: Tokens.space-2;
-            Icon {
-                data: Icons.clock;
-                size: 14px;
-                tint: Tokens.text-muted;
-            }
-            VerticalLayout {
-                Text {
-                    text: root.detail.when;
-                    font-size: Tokens.size-body;
-                    color: Tokens.text;
-                    wrap: word-wrap;
-                }
-                if root.detail.repeats != "": Text {
-                    text: root.detail.repeats;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                }
-            }
-        }
-
-        if root.detail.location != "": HorizontalLayout {
-            spacing: Tokens.space-2;
-            Icon {
-                data: Icons.map-pin;
-                size: 14px;
-                tint: Tokens.text-muted;
-            }
             Text {
-                text: root.detail.location;
-                font-size: Tokens.size-body;
-                color: Tokens.text;
-                wrap: word-wrap;
+                text: root.tasks.length > 0 ? root.tasks.length : "";
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
                 horizontal-stretch: 1;
             }
         }
-
-        if root.detail.reminder != "": HorizontalLayout {
-            spacing: Tokens.space-2;
-            Icon {
-                data: Icons.bell;
-                size: 14px;
-                tint: Tokens.text-muted;
-            }
-            Text {
-                text: root.detail.reminder;
-                font-size: Tokens.size-body;
-                color: Tokens.text-secondary;
-            }
+        for t in root.tasks: EventTaskRow {
+            task: t;
+            toggled(id) => { root.task-toggled(id); }
+            opened(id) => { root.task-opened(id); }
         }
-
-        if root.detail.description != "": TextArea {
-            vertical-stretch: 1;
-            min-height: 60px;
-            read-only: true;
-            text: root.detail.description;
-            accessible-label: "Description";
-        }
-
-        Labelled {
-            label: "My notes";
-            vertical-stretch: 1;
-            TextArea {
-                vertical-stretch: 1;
-                min-height: 70px;
-                accessible-label: "My notes";
-                placeholder-text: "Anything to remember about it, kept on this computer";
-                text <=> root.notes;
-                edited(t) => { root.notes-edited(t); }
-            }
-        }
-
-        // What there is to do for it. Each one is a task in Tasks, due when the
-        // event starts, and stays there if the calendar goes.
-        Labelled {
-            label: root.tasks.length == 0 ? "Tasks" : "Tasks (" + root.tasks.length + ")";
-            VerticalLayout {
-                spacing: 1px;
-                for t in root.tasks: EventTaskRow {
-                    task: t;
-                    toggled(id) => { root.task-toggled(id); }
-                    opened(id) => { root.task-opened(id); }
-                }
-            }
-            TextField {
-                accessible-label: "Add a task for this event";
-                placeholder-text: "Add a task for this event, due when it starts";
-                text <=> root.new-task;
-                accepted(t) => {
-                    if (t != "") {
-                        root.task-added(t);
-                    }
+        TextField {
+            icon: Icons.plus;
+            bare: true;
+            accessible-label: "Add a task for this event";
+            placeholder-text: "Add a task";
+            text <=> root.new-task;
+            accepted(t) => {
+                if (t != "") {
+                    root.task-added(t);
                 }
             }
         }
+    }
 
-        HorizontalLayout {
-            height: 28px;
-            spacing: Tokens.space-2;
-            vertical-stretch: 0;
-            if !root.detail.editable: Text {
-                text: "From a subscribed calendar: read only.";
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
-                vertical-alignment: center;
+    HorizontalLayout {
+        height: 30px;
+        spacing: 8px;
+        if !root.detail.editable: Text {
+            text: "From a subscribed calendar: read only.";
+            font-size: 12px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+        if root.detail.editable: Button {
+            text: "Delete";
+            icon: Icons.trash;
+            size: ButtonSize.sm;
+            clicked => { root.delete(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if root.detail.editable: Button {
+            text: "Edit";
+            icon: Icons.pencil;
+            kind: ButtonKind.primary;
+            size: ButtonSize.sm;
+            clicked => { root.edit(); }
+        }
+    }
+}
+
+// What an event is, when, where: a card beside it in the grid, or in the middle of
+// the window when it was opened from elsewhere (Home, a task).
+export component EventDetailPanel inherits Rectangle {
+    in property <EventDetailData> detail;
+    /// What the user wrote about this event — theirs, even on a subscribed calendar.
+    in-out property <string> notes;
+    /// The tasks added from this event, done or not.
+    in property <[SubtaskData]> tasks;
+    in-out property <string> new-task;
+    /// Where the event is in the window, when it was clicked there.
+    in property <bool> anchored;
+    in property <length> anchor-left;
+    in property <length> anchor-right;
+    in property <length> anchor-top;
+    callback notes-edited(string);
+    callback task-added(string);
+    callback task-toggled(int);
+    callback task-opened(int);
+    callback edit();
+    callback delete();
+    callback dismissed();
+
+    if root.anchored: Popover {
+        width: 100%;
+        height: 100%;
+        anchor-left: root.anchor-left;
+        anchor-right: root.anchor-right;
+        anchor-top: root.anchor-top;
+        card-width: 340px;
+        dismissed => { root.dismissed(); }
+        EventBody {
+            detail: root.detail;
+            notes <=> root.notes;
+            tasks: root.tasks;
+            new-task <=> root.new-task;
+            notes-edited(t) => { root.notes-edited(t); }
+            task-added(t) => { root.task-added(t); }
+            task-toggled(id) => { root.task-toggled(id); }
+            task-opened(id) => { root.task-opened(id); }
+            edit => { root.edit(); }
+            delete => { root.delete(); }
+            dismissed => { root.dismissed(); }
+        }
+    }
+
+    // Escape reaches the card even from a field, which hands the key up.
+    if !root.anchored: FocusScope {
+        enabled: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismissed();
+                return accept;
             }
-            Rectangle {}
-            if root.detail.editable: CalButton {
-                text: "Delete";
-                icon: Icons.trash;
-                clicked => { root.delete(); }
-            }
-            if root.detail.editable: CalButton {
-                text: "Edit";
-                icon: Icons.pencil;
-                primary: true;
-                clicked => { root.edit(); }
+            return reject;
+        }
+        Rectangle {
+            background: Tokens.scrim;
+        }
+        TouchArea {
+            clicked => { root.dismissed(); }
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 380px;
+            height: min(corps.preferred-height + 32px, parent.height - 60px);
+            border-radius: Tokens.radius-large;
+            background: Tokens.panel;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            drop-shadow-blur: 40px;
+            drop-shadow-color: #000000b0;
+            drop-shadow-offset-y: 14px;
+            TouchArea {}
+            corps := EventBody {
+                x: 16px;
+                y: 16px;
+                width: parent.width - 32px;
+                height: parent.height - 32px;
+                detail: root.detail;
+                notes <=> root.notes;
+                tasks: root.tasks;
+                new-task <=> root.new-task;
+                notes-edited(t) => { root.notes-edited(t); }
+                task-added(t) => { root.task-added(t); }
+                task-toggled(id) => { root.task-toggled(id); }
+                task-opened(id) => { root.task-opened(id); }
+                edit => { root.edit(); }
+                delete => { root.delete(); }
+                dismissed => { root.dismissed(); }
             }
         }
     }

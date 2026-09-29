@@ -1,48 +1,22 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Glass } from "@iris/base/glass.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
-import { TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData } from "@iris/types.slint";
-import { CalButton } from "@iris/screens/calendar.slint";
-import { PanelFrame, DateButton, DatePicker, Labelled } from "@iris/screens/calendar-panels.slint";
-import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
-import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
+import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
 import { Nav, SectionTitle, SelectionMark } from "@iris/lists/nav.slint";
-import { PriorityTag } from "@iris/controls/kit.slint";
+import { PropertyRow } from "@iris/lists/rows.slint";
+import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { DateButton, DatePicker } from "@iris/screens/calendar-panels.slint";
+import {
+    TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData, TaskTokenData,
+    TaskOverviewData
+} from "@iris/types.slint";
+import { ComboBox, ScrollView } from "std-widgets.slint";
 
-// The round box of a task: empty, or ticked. The same for every task: the priority
-// has its own tag.
-component TaskCheck inherits Rectangle {
-    in property <bool> done;
-    in property <string> label;
-    in property <length> size: 20px;
-    callback toggled();
-
-    width: root.size;
-    height: root.size;
-    border-radius: root.size / 2;
-    border-width: 1.5px;
-    border-color: root.done ? Tokens.success : touch.has-hover ? Tokens.text-secondary : Tokens.text-muted;
-    background: root.done ? Tokens.success
-        : touch.has-hover ? Tokens.surface-hover : transparent;
-
-    accessible-role: checkbox;
-    accessible-label: root.label;
-    accessible-checked: root.done;
-    accessible-action-default => { root.toggled(); }
-
-    if root.done || touch.has-hover: Icon {
-        data: Icons.check;
-        size: root.size * 0.6;
-        weight: 3.0;
-        tint: root.done ? white : Tokens.text-secondary;
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.toggled(); }
-    }
-}
+// The tasks workspace: where things are to do (the rail), what there is to do (a plate
+// of rows, under the day when it is Today), the line to add more, and the task chosen.
 
 // A view or a list in the rail. While a task is carried, the ones that can take it
 // light up under the pointer.
@@ -106,15 +80,13 @@ component PlaceRow inherits Rectangle {
 
     HorizontalLayout {
         padding-left: 10px;
-        padding-right: Tokens.space-2;
-        spacing: Tokens.space-2;
+        padding-right: 8px;
+        spacing: 10px;
 
-        if root.place.is-list: Rectangle {
+        if root.place.is-list: Dot {
             y: (parent.height - self.height) / 2;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background: root.place.color;
+            tint: root.place.color;
+            size: 9px;
         }
         if !root.place.is-list: Icon {
             y: (parent.height - self.height) / 2;
@@ -125,32 +97,191 @@ component PlaceRow inherits Rectangle {
         Text {
             text: root.place.name;
             font-size: Nav.label-size;
-            font-weight: root.place.selected ? Tokens.weight-bold : Tokens.weight-body;
+            font-weight: root.place.selected ? 600 : 400;
             color: root.place.selected || root.targeted ? Tokens.text : Tokens.text-secondary;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
         }
-        if root.place.count > 0: Rectangle {
-            y: (parent.height - self.height) / 2;
-            width: max(20px, compte.preferred-width + 10px);
-            height: 18px;
-            border-radius: 9px;
-            background: Tokens.surface-high;
-            compte := Text {
-                text: root.place.count;
-                font-size: 10px;
+        if root.place.count > 0: Text {
+            text: root.place.count;
+            font-size: 11px;
+            color: root.place.selected ? Tokens.text-secondary : Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// What was done this week: the rail's one piece of news, with a bar a day.
+component WeekCard inherits Rectangle {
+    in property <int> done;
+    in property <[float]> bars;
+    in property <int> today;
+
+    height: 112px;
+    border-radius: Tokens.radius-medium;
+    border-width: 1px;
+    border-color: Tokens.border;
+    background: Tokens.surface-low;
+
+    accessible-role: text;
+    accessible-label: root.done + " done this week";
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 0px;
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Text {
+                text: root.done;
+                font-family: Tokens.font-display;
+                font-size: 24px;
+                font-weight: 300;
+                color: Tokens.text;
+                vertical-alignment: bottom;
+            }
+            Text {
+                text: "done this week";
+                font-size: 13px;
+                color: Tokens.text-secondary;
+                vertical-alignment: bottom;
+                y: -3px;
+            }
+        }
+        Rectangle { height: 10px; }
+        HorizontalLayout {
+            height: 30px;
+            spacing: 5px;
+            for part[i] in root.bars: Rectangle {
+                Rectangle {
+                    y: parent.height - self.height;
+                    height: max(2px, parent.height * part);
+                    border-radius: 2px;
+                    background: i == root.today ? Tokens.text : Tokens.text.transparentize(0.89);
+                }
+            }
+        }
+        Rectangle { height: 4px; }
+        Text {
+            text: "Mon to Sun";
+            font-size: 12px;
+            color: Tokens.text-muted;
+        }
+    }
+}
+
+// The day, on Today: its date as a block, and beside it what the calendars hold.
+component DayCard inherits Rectangle {
+    in property <TaskOverviewData> day;
+    callback open-calendar();
+
+    height: max(date.preferred-height, agenda.preferred-height) + 28px;
+    border-radius: Tokens.radius-large;
+    border-width: 1px;
+    border-color: Tokens.border;
+    background: Tokens.surface-low;
+
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 14px;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 22px;
+
+        date := VerticalLayout {
+            width: 84px;
+            alignment: center;
+            Text {
+                text: root.day.weekday;
+                font-size: 12px;
+                font-weight: 600;
+                color: Tokens.error;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: root.day.day;
+                font-family: Tokens.font-display;
+                font-size: 44px;
+                font-weight: 600;
+                color: Tokens.text;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: root.day.month;
+                font-size: 12px;
                 color: Tokens.text-secondary;
                 horizontal-alignment: center;
-                vertical-alignment: center;
+            }
+        }
+
+        VHairline {}
+
+        agenda := VerticalLayout {
+            alignment: center;
+            spacing: 6px;
+            horizontal-stretch: 1;
+            if root.day.agenda.length == 0: Text {
+                text: "Nothing in the calendar today.";
+                font-size: 13px;
+                color: Tokens.text-muted;
+            }
+            for e in root.day.agenda: HorizontalLayout {
+                height: 22px;
+                spacing: 10px;
+                Text {
+                    width: 40px;
+                    text: e.meta;
+                    font-size: 12px;
+                    color: e.past ? Tokens.text-muted : Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 3px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        height: 16px;
+                        border-radius: 1.5px;
+                        background: e.color;
+                        opacity: e.past ? 0.5 : 1.0;
+                    }
+                }
+                Text {
+                    text: e.title;
+                    font-size: 13px;
+                    font-weight: e.now ? 600 : 400;
+                    color: e.past ? Tokens.text-muted : Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Text {
+                    text: e.hint;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: start;
+            Link {
+                text: "Calendar";
+                label: "Open Calendar";
+                chevron: true;
+                clicked => { root.open-calendar(); }
             }
         }
     }
 }
 
-// A line of the column: a task as a card, or a section title.
+// A line of the plate: a task, or the title of a section.
 component TaskRow inherits Rectangle {
     in property <TaskRowData> item;
+    /// A hairline above: a task under another, neither of them chosen.
+    in property <bool> separated;
     callback selected(TaskRowData);
     callback toggled(int);
     callback clear-completed();
@@ -159,9 +290,9 @@ component TaskRow inherits Rectangle {
     callback carry-moved(length, length);
     callback carry-ended();
 
-    property <bool> has-meta: root.item.meta != "" || root.item.list != ""
-        || root.item.from-mail || root.item.progress != "" || root.item.priority > 0
-        || root.item.has-notes;
+    property <bool> tache: root.item.kind == 0;
+    property <bool> has-line: root.item.list != "" || root.item.from-mail
+        || root.item.progress != "" || root.item.has-notes;
     property <bool> pressed;
     property <bool> carrying;
     // A drag ends with a release, and a release makes a click: that one is not.
@@ -169,25 +300,29 @@ component TaskRow inherits Rectangle {
     property <length> press-x;
     property <length> press-y;
 
-    height: root.item.kind == 0 ? (root.has-meta ? 62px : 50px) : 40px;
+    height: root.tache ? (root.has-line ? 52px : 44px) : 34px;
     border-radius: Tokens.radius-medium;
-    border-width: root.item.kind == 0 ? 1px : 0px;
-    border-color: root.item.selected ? Tokens.accent.transparentize(0.5) : Tokens.border;
-    background: root.item.kind != 0 ? transparent
+    background: !root.tache ? transparent
         : root.item.selected ? Tokens.surface-active
-        : touch.has-hover ? Tokens.surface-high : Tokens.surface;
-    // Picked up, the card fades where it was: it is in the hand.
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+    // Picked up, the row fades where it was: it is in the hand.
     opacity: root.carrying ? 0.35 : 1.0;
     animate background, opacity { duration: Tokens.instant; }
 
     accessible-role: list-item;
     accessible-label: root.item.title;
-    accessible-item-selectable: root.item.kind == 0;
+    accessible-item-selectable: root.tache;
     accessible-item-selected: root.item.selected;
     accessible-action-default => { root.selected(root.item); }
 
+    if root.separated: Hairline {
+        x: 44px;
+        y: 0;
+        width: parent.width - 56px;
+    }
+
     touch := TouchArea {
-        enabled: root.item.kind == 0;
+        enabled: root.tache;
         mouse-cursor: root.carrying ? MouseCursor.grabbing : MouseCursor.default;
         pointer-event(event) => {
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -227,67 +362,52 @@ component TaskRow inherits Rectangle {
         }
     }
 
-    // A section title, with its count; the completed ones can be cleared from it.
-    if root.item.kind != 0: HorizontalLayout {
-        padding-left: 4px;
-        padding-top: 14px;
-        spacing: Tokens.space-2;
+    // A section's title, with its count; the completed ones can be cleared from it.
+    if !root.tache: HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 6px;
+        padding-top: 6px;
+        spacing: 8px;
         Text {
             text: root.item.title;
-            font-size: 11px;
-            letter-spacing: 0.8px;
-            font-weight: Tokens.weight-bold;
-            color: root.item.overdue ? Tokens.error : Tokens.text-muted;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.item.overdue ? Tokens.error : Tokens.text-secondary;
             vertical-alignment: center;
         }
         Text {
             text: root.item.meta;
-            font-size: 11px;
+            font-size: 12px;
             color: Tokens.text-muted;
             vertical-alignment: center;
             horizontal-stretch: 1;
         }
-        if root.item.kind == 4: Rectangle {
+        if root.item.kind == 4: Link {
             y: (parent.height - self.height) / 2;
-            width: vider.preferred-width + 16px;
-            height: 22px;
-            border-radius: Tokens.radius-small;
-            background: vider-touch.has-hover ? Tokens.error.transparentize(0.85) : transparent;
-
-            accessible-role: button;
-            accessible-label: "Delete completed tasks";
-            accessible-action-default => { root.clear-completed(); }
-
-            vider := Text {
-                text: "Delete completed";
-                font-size: 11px;
-                color: Tokens.error;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-            vider-touch := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.clear-completed(); }
-            }
+            text: "Clear";
+            label: "Delete completed tasks";
+            clicked => { root.clear-completed(); }
         }
     }
 
-    if root.item.kind == 0: HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
+    if root.tache: HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
         spacing: 12px;
 
-        TaskCheck {
+        Check {
             y: (parent.height - self.height) / 2;
             done: root.item.done;
+            late: root.item.overdue;
             label: root.item.title;
             toggled => { root.toggled(root.item.id); }
         }
 
         VerticalLayout {
             alignment: center;
-            spacing: 5px;
+            spacing: 3px;
             horizontal-stretch: 1;
+            min-width: 0;
 
             // The title, struck through once done.
             Rectangle {
@@ -308,73 +428,74 @@ component TaskRow inherits Rectangle {
                 }
             }
 
-            if root.has-meta: HorizontalLayout {
-                spacing: Tokens.space-2;
-                height: 16px;
-                if root.item.meta != "": Text {
-                    text: root.item.meta;
-                    font-size: 11px;
-                    color: root.item.overdue ? Tokens.error : Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-                if root.item.priority > 0: PriorityTag {
-                    priority: root.item.priority;
+            // Where it belongs and what it carries.
+            if root.has-line && !root.item.done: HorizontalLayout {
+                height: 15px;
+                spacing: 10px;
+                alignment: start;
+                if root.item.list != "": HorizontalLayout {
+                    spacing: 5px;
+                    Dot {
+                        y: (parent.height - self.height) / 2;
+                        tint: root.item.color;
+                        size: 7px;
+                    }
+                    Text {
+                        text: root.item.list;
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
                 }
                 if root.item.progress != "": HorizontalLayout {
-                    spacing: 3px;
-                    horizontal-stretch: 0;
+                    spacing: 4px;
                     Icon {
                         y: (parent.height - self.height) / 2;
-                        width: 11px;
+                        width: 12px;
                         data: Icons.task;
-                        size: 11px;
+                        size: 12px;
                         tint: Tokens.text-muted;
                     }
                     Text {
                         text: root.item.progress;
-                        font-size: 11px;
+                        font-size: 12px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }
                 }
                 if root.item.from-mail: Icon {
                     y: (parent.height - self.height) / 2;
-                    width: 11px;
+                    width: 12px;
                     data: Icons.envelope-closed;
-                    size: 11px;
+                    size: 12px;
                     tint: Tokens.text-muted;
                 }
                 if root.item.has-notes: Icon {
                     y: (parent.height - self.height) / 2;
-                    width: 11px;
+                    width: 12px;
                     data: Icons.notes;
-                    size: 11px;
+                    size: 12px;
                     tint: Tokens.text-muted;
                 }
-                if root.item.list != "": HorizontalLayout {
-                    spacing: 4px;
-                    horizontal-stretch: 0;
-                    Rectangle {
-                        y: (parent.height - self.height) / 2;
-                        width: 7px;
-                        height: 7px;
-                        border-radius: 3.5px;
-                        background: root.item.color;
-                    }
-                    Text {
-                        text: root.item.list;
-                        font-size: 11px;
-                        color: Tokens.text-muted;
-                        vertical-alignment: center;
-                    }
-                }
-                Rectangle { horizontal-stretch: 1; }
             }
+        }
+
+        if root.item.priority > 0 && !root.item.done: PriorityTag {
+            y: (parent.height - self.height) / 2;
+            priority: root.item.priority;
+        }
+        if root.item.meta != "": Text {
+            text: root.item.meta;
+            font-size: 12px;
+            color: root.item.overdue ? Tokens.error
+                : root.item.done ? Tokens.text-muted : Tokens.text-secondary;
+            vertical-alignment: center;
+            horizontal-alignment: right;
         }
     }
 }
 
-// A subtask of the selected task.
+// A step of the chosen task.
 component SubtaskRow inherits Rectangle {
     in property <SubtaskData> step;
     callback toggled(int);
@@ -387,22 +508,33 @@ component SubtaskRow inherits Rectangle {
     touch := TouchArea {}
 
     HorizontalLayout {
-        padding-left: 4px;
-        spacing: Tokens.space-2;
-        TaskCheck {
+        padding-left: 2px;
+        spacing: 10px;
+        Check {
             y: (parent.height - self.height) / 2;
-            size: 17px;
+            size: 16px;
             done: root.step.done;
             label: root.step.title;
             toggled => { root.toggled(root.step.id); }
         }
-        Text {
-            text: root.step.title;
-            font-size: Tokens.size-body;
-            color: root.step.done ? Tokens.text-muted : Tokens.text;
-            vertical-alignment: center;
-            overflow: elide;
+        Rectangle {
             horizontal-stretch: 1;
+            nom := Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.step.title;
+                font-size: 13px;
+                color: root.step.done ? Tokens.text-muted : Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.step.done: Rectangle {
+                x: 0;
+                y: parent.height / 2;
+                width: min(nom.preferred-width, parent.width);
+                height: 1px;
+                background: Tokens.text-muted;
+            }
         }
         if touch.has-hover: IconButton {
             y: (parent.height - self.height) / 2;
@@ -415,8 +547,8 @@ component SubtaskRow inherits Rectangle {
     }
 }
 
-// The selected task, to change.
-component TaskDetail inherits Rectangle {
+// The chosen task, to change.
+component TaskDetail inherits DetailPanel {
     in property <TaskDetailData> detail;
     in-out property <string> title;
     in-out property <string> notes;
@@ -446,52 +578,67 @@ component TaskDetail inherits Rectangle {
     callback closed();
 
     property <string> new-step;
-    // Two columns of exactly half: a combo box asks for the width of its longest
-    // entry, and would push the panel wider than the window gives it.
-    property <length> demi: (root.width - 2 * Tokens.space-4 - Tokens.space-2) / 2;
+
+    // Its list above it, and the way out.
+    HorizontalLayout {
+        height: 28px;
+        vertical-stretch: 0;
+        Text {
+            text: root.lists.length > root.detail.list-index ? root.lists[root.detail.list-index] : "";
+            font-size: 12px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.window-close;
+            label: "Close";
+            shortcut: "Esc";
+            button-size: 28px;
+            icon-size: 13px;
+            clicked => { root.closed(); }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 10px;
+        vertical-stretch: 0;
+        Check {
+            y: (parent.height - self.height) / 2;
+            size: 22px;
+            done: root.detail.done;
+            late: root.detail.overdue;
+            label: "Done";
+            toggled => { root.toggled(root.detail.id); }
+        }
+        TextField {
+            accessible-label: "Task title";
+            font-size: 18px;
+            text <=> root.title;
+            edited(t) => { root.title-edited(t); }
+        }
+    }
 
     VerticalLayout {
-        padding: Tokens.space-4;
-        spacing: Tokens.space-3;
-
-        HorizontalLayout {
-            spacing: Tokens.space-2;
-            vertical-stretch: 0;
-            TaskCheck {
-                y: (parent.height - self.height) / 2;
-                done: root.detail.done;
-                label: "Done";
-                toggled => { root.toggled(root.detail.id); }
-            }
-            TextField {
-                accessible-label: "Task title";
-                font-size: Tokens.size-title;
-                text <=> root.title;
-                edited(t) => { root.title-edited(t); }
-            }
-            IconButton {
-                y: (parent.height - self.height) / 2;
-                icon: Icons.window-close;
-                label: "Close";
-                shortcut: "Esc";
-                button-size: 24px;
-                icon-size: 12px;
-                clicked => { root.closed(); }
-            }
-        }
-
-        Labelled {
-            label: "Due";
+        vertical-stretch: 0;
+        Hairline {}
+        PropertyRow {
+            name: "Due";
+            icon: Icons.calendar;
             HorizontalLayout {
-                spacing: Tokens.space-2;
+                spacing: 6px;
                 DateButton {
+                    y: (parent.height - self.height) / 2;
                     accessible-label: "Due date";
                     text: root.detail.has-due ? root.detail.due-label : "No date";
                     open: root.picker-open;
                     clicked => { root.picker-toggled(); }
                 }
                 if root.detail.has-due: TextField {
-                    width: 70px;
+                    y: (parent.height - self.height) / 2;
+                    width: 64px;
+                    height: 28px;
                     accessible-label: "Due time";
                     placeholder-text: "Time";
                     text <=> root.time;
@@ -501,139 +648,259 @@ component TaskDetail inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.window-close;
                     label: "Remove the date";
-                    button-size: 26px;
-                    icon-size: 11px;
+                    button-size: 24px;
+                    icon-size: 10px;
                     clicked => { root.due-cleared(); }
                 }
             }
         }
-
         if root.picker-open: DatePicker {
             title: root.picker-title;
             cells: root.picker-cells;
             navigate(n) => { root.picker-navigate(n); }
             chosen(d) => { root.picker-chosen(d); }
         }
-
-        HorizontalLayout {
-            spacing: Tokens.space-2;
-            vertical-stretch: 0;
-            Labelled {
-                width: root.demi;
-                label: "Reminder";
-                ComboBox {
-                    enabled: root.detail.has-due;
-                    model: root.reminders;
-                    current-index: root.detail.reminder-index;
-                    selected => { root.reminder-chosen(self.current-index); }
-                }
-            }
-            Labelled {
-                width: root.demi;
-                label: "List";
-                ComboBox {
-                    model: root.lists;
-                    current-index: root.detail.list-index;
-                    selected => { root.list-chosen(self.current-index); }
-                }
-            }
-        }
-
-        Labelled {
-            label: "Priority";
-            HorizontalLayout {
-                spacing: 4px;
-                for nom[i] in ["None", "Low", "Medium", "High"]: CalButton {
-                    text: nom;
-                    selected: root.detail.priority == i;
-                    clicked => { root.priority-chosen(i); }
-                }
-                Rectangle {}
-            }
-        }
-
-        if root.detail.source != "": HorizontalLayout {
-            spacing: Tokens.space-2;
-            vertical-stretch: 0;
-            Icon {
+        PropertyRow {
+            name: "Reminder";
+            icon: Icons.bell;
+            ComboBox {
                 y: (parent.height - self.height) / 2;
-                data: root.detail.from-event ? Icons.calendar : Icons.envelope-closed;
-                size: 13px;
-                tint: Tokens.text-muted;
+                height: 30px;
+                enabled: root.detail.has-due;
+                model: root.reminders;
+                current-index: root.detail.reminder-index;
+                selected => { root.reminder-chosen(self.current-index); }
             }
-            Text {
-                text: root.detail.source;
-                font-size: Tokens.size-small;
-                color: Tokens.text-secondary;
-                vertical-alignment: center;
-                overflow: elide;
+        }
+        PropertyRow {
+            name: "List";
+            icon: Icons.list;
+            ComboBox {
+                y: (parent.height - self.height) / 2;
+                height: 30px;
+                model: root.lists;
+                current-index: root.detail.list-index;
+                selected => { root.list-chosen(self.current-index); }
+            }
+        }
+        PropertyRow {
+            name: "Priority";
+            icon: Icons.exclamation;
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["None", "Low", "Medium", "High"];
+                tints: [Tokens.text, Priority.tint(1), Priority.tint(2), Priority.tint(3)];
+                selected: root.detail.priority;
+                chosen(i) => { root.priority-chosen(i); }
+            }
+        }
+    }
+
+    // Where it came from: a conversation, or an event.
+    if root.detail.source != "": Rectangle {
+        height: 56px;
+        vertical-stretch: 0;
+        border-radius: Tokens.radius-medium;
+        border-width: 1px;
+        border-color: Tokens.border;
+        background: Tokens.surface-low;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 8px;
+            spacing: 12px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 32px;
+                height: 32px;
+                border-radius: 16px;
+                background: Tokens.text.transparentize(0.93);
+                Icon {
+                    data: root.detail.from-event ? Icons.calendar : Icons.envelope-closed;
+                    size: 14px;
+                    tint: Tokens.text-secondary;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 1px;
                 horizontal-stretch: 1;
+                Text {
+                    text: root.detail.from-event ? "From an event" : "From a message";
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                }
+                Text {
+                    text: root.detail.source;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
             }
-            if root.detail.from-mail: CalButton {
-                text: "Open message";
+            if root.detail.from-mail: Link {
+                y: (parent.height - self.height) / 2;
+                text: "Open";
+                label: "Open message";
+                chevron: true;
                 clicked => { root.open-mail(); }
             }
         }
+    }
 
-        Labelled {
-            label: "Subtasks";
-            VerticalLayout {
-                spacing: 1px;
-                for step in root.detail.subtasks: SubtaskRow {
-                    step: step;
-                    toggled(id) => { root.step-toggled(id); }
-                    removed(id) => { root.step-removed(id); }
+    VerticalLayout {
+        vertical-stretch: 0;
+        spacing: 0px;
+        HorizontalLayout {
+            height: 26px;
+            spacing: 8px;
+            Text {
+                text: "Subtasks";
+                font-size: 12px;
+                font-weight: 600;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.detail.subtasks.length > 0
+                    ? root.detail.steps-done + " of " + root.detail.subtasks.length : "";
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            if root.detail.subtasks.length > 0: Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 64px;
+                height: 4px;
+                border-radius: 2px;
+                background: Tokens.text.transparentize(0.92);
+                Rectangle {
+                    x: 0;
+                    width: parent.width * root.detail.steps-done / root.detail.subtasks.length;
+                    border-radius: 2px;
+                    background: Tokens.success;
                 }
-                TextField {
-                    accessible-label: "Add a subtask";
-                    placeholder-text: "Add a subtask";
-                    text <=> root.new-step;
-                    accepted(t) => {
-                        if (t != "") {
-                            root.step-added(t);
-                            root.new-step = "";
-                        }
+            }
+        }
+        for step in root.detail.subtasks: SubtaskRow {
+            step: step;
+            toggled(id) => { root.step-toggled(id); }
+            removed(id) => { root.step-removed(id); }
+        }
+        HorizontalLayout {
+            padding-top: 4px;
+            TextField {
+                icon: Icons.plus;
+                accessible-label: "Add a subtask";
+                placeholder-text: "Add a subtask";
+                text <=> root.new-step;
+                accepted(t) => {
+                    if (t != "") {
+                        root.step-added(t);
+                        root.new-step = "";
                     }
                 }
             }
         }
+    }
 
-        Labelled {
-            label: "Notes";
-            vertical-stretch: 1;
-            TextArea {
-                accessible-label: "Notes";
-                vertical-stretch: 1;
-                min-height: 60px;
-                placeholder-text: "Anything worth keeping with it";
-                text <=> root.notes;
-                edited(t) => { root.notes-edited(t); }
-            }
-        }
+    TextArea {
+        accessible-label: "Notes";
+        vertical-stretch: 1;
+        min-height: 60px;
+        placeholder-text: "Notes";
+        text <=> root.notes;
+        edited(t) => { root.notes-edited(t); }
+    }
 
-        HorizontalLayout {
-            height: 28px;
-            vertical-stretch: 0;
-            CalButton {
-                text: "Delete task";
-                icon: Icons.trash;
-                clicked => { root.delete(); }
-            }
-            Rectangle {}
+    HorizontalLayout {
+        height: 28px;
+        vertical-stretch: 0;
+        Rectangle { horizontal-stretch: 1; }
+        Button {
+            text: "Delete";
+            label: "Delete task";
+            icon: Icons.trash;
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => { root.delete(); }
         }
     }
 }
 
-// The tasks workspace: where things are to do, what there is to do, and the one
-// being looked at.
+// The line to add a task, and what it understood before Enter.
+component AddBar inherits Rectangle {
+    in-out property <string> text;
+    in property <string> hint;
+    in property <[TaskTokenData]> tokens;
+    callback edited(string);
+    callback add(string);
+
+    public function focus-field() { champ.focus(); }
+
+    height: 50px;
+    border-radius: Tokens.radius-large;
+    border-width: 1px;
+    border-color: champ.has-focus ? Tokens.border-strong.mix(Tokens.text, 0.6) : Tokens.border-strong;
+    background: Tokens.surface;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 8px;
+        spacing: 10px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.plus;
+            size: 15px;
+            tint: Tokens.text-muted;
+        }
+        champ := TextField {
+            y: (parent.height - self.height) / 2;
+            height: 36px;
+            bare: true;
+            font-size: 14px;
+            accessible-label: "Add a task";
+            placeholder-text: root.hint;
+            text <=> root.text;
+            edited(t) => { root.edited(t); }
+            accepted(t) => {
+                if (t != "") {
+                    root.add(t);
+                }
+            }
+        }
+        for jeton in root.tokens: Pill {
+            y: (parent.height - self.height) / 2;
+            kind: PillKind.token;
+            text: jeton.text;
+            icon: jeton.kind == 0 ? Icons.calendar : "";
+            has-dot: jeton.kind == 1;
+            dot: jeton.color;
+            tinted: jeton.kind == 2;
+            tint: Priority.tint(jeton.level);
+        }
+        if root.text != "": Button {
+            y: (parent.height - self.height) / 2;
+            text: "Add";
+            shortcut: "Enter";
+            label: "Add the task";
+            kind: ButtonKind.primary;
+            size: ButtonSize.sm;
+            clicked => { root.add(root.text); }
+        }
+    }
+}
+
 export component TasksView inherits Rectangle {
     in property <string> title;
-    /// Under the title: today's date, on Today.
+    /// Beside the title: today's date, on Today.
     in property <string> subtitle;
+    in property <TaskOverviewData> overview;
     in property <[TaskPlaceData]> places;
     in property <[TaskRowData]> rows;
     in-out property <string> add-text;
     in property <string> add-hint;
+    in property <[TaskTokenData]> add-tokens;
     /// Raised to put the cursor in the quick-add line.
     in property <int> focus-add-request;
 
@@ -651,10 +918,12 @@ export component TasksView inherits Rectangle {
     callback place-chosen(string);
     callback place-menu(TaskPlaceData, length, length);
     callback list-new();
+    callback add-edited(string);
     callback add(string);
     callback row-selected(TaskRowData);
     callback toggled(int);
     callback clear-completed();
+    callback open-calendar();
     /// A task let go on a list, or on Today.
     callback task-dropped(int, string);
 
@@ -688,190 +957,181 @@ export component TasksView inherits Rectangle {
 
     background: Tokens.background;
 
-    changed focus-add-request => { ajout.focus(); }
+    changed focus-add-request => { ajout.focus-field(); }
 
     HorizontalLayout {
-        // --- Left: the views and the lists ---
-        // Docked to the window's edge, as the mail's columns are: square, and
-        // separated by the hairline beside it rather than by a rounded border of its
-        // own, which drew a curve and a corner at each end.
-        Glass {
-            width: 240px;
-            radius: 0px;
-            border-width: 0px;
-            VerticalLayout {
-                padding: Tokens.space-3;
-                spacing: 2px;
+        // --- Left: the views, the lists, and the week ---
+        Rail {
+            rail-width: 232px;
 
-                for place in root.places: VerticalLayout {
-                    // A title above the first list.
-                    if place.is-list && place.key == root.places[4].key: SectionTitle {
-                        height: 34px;
-                        text: "LISTS";
-                        vertical-alignment: bottom;
+            for place[i] in root.places: VerticalLayout {
+                // A title above the first list, with the way to make another.
+                if place.is-list && (i == 0 || !root.places[i - 1].is-list): HorizontalLayout {
+                    height: 40px;
+                    padding-left: 10px;
+                    padding-top: 12px;
+                    SectionTitle {
+                        text: "Lists";
+                        horizontal-stretch: 1;
                     }
-                    PlaceRow {
-                        place: place;
-                        carrying: root.carried >= 0;
-                        carry-x: root.carry-x;
-                        carry-y: root.carry-y;
-                        drop: root.drop;
-                        drop-x: root.drop-x;
-                        drop-y: root.drop-y;
-                        chosen(k) => { root.place-chosen(k); }
-                        menu(p, x, y) => { root.place-menu(p, x, y); }
-                        dropped(k) => { root.task-dropped(root.dropped-id, k); }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.plus;
+                        label: "New list";
+                        button-size: 24px;
+                        icon-size: 12px;
+                        clicked => { root.list-new(); }
                     }
                 }
-
-                Rectangle { height: Tokens.space-2; }
-                CalButton {
-                    text: "New list";
-                    icon: Icons.plus;
-                    clicked => { root.list-new(); }
+                PlaceRow {
+                    place: place;
+                    carrying: root.carried >= 0;
+                    carry-x: root.carry-x;
+                    carry-y: root.carry-y;
+                    drop: root.drop;
+                    drop-x: root.drop-x;
+                    drop-y: root.drop-y;
+                    chosen(k) => { root.place-chosen(k); }
+                    menu(p, x, y) => { root.place-menu(p, x, y); }
+                    dropped(k) => { root.task-dropped(root.dropped-id, k); }
                 }
-                Rectangle {}
+            }
+
+            Rectangle { vertical-stretch: 1; }
+            WeekCard {
+                done: root.overview.week-done;
+                bars: root.overview.week-bars;
+                today: root.overview.week-today;
             }
         }
 
-        Rectangle { width: 1px; background: Tokens.border; }
-
-        // --- Middle: what there is to do, and the line to add more at the bottom ---
+        // --- Middle: the day, what there is to do, and the line to add more ---
         VerticalLayout {
-            padding-top: 20px;
-            padding-bottom: Tokens.space-4;
-            padding-left: Tokens.space-6;
-            padding-right: Tokens.space-6;
-            spacing: Tokens.space-3;
+            padding-top: 26px;
+            padding-bottom: 18px;
+            padding-left: 32px;
+            padding-right: 32px;
+            spacing: 20px;
             horizontal-stretch: 1;
 
-            VerticalLayout {
-                vertical-stretch: 0;
-                spacing: 2px;
-                Text {
-                    text: root.title;
-                    font-family: Tokens.font-family;
-                    font-size: 26px;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
-                }
-                if root.subtitle != "": Text {
-                    text: root.subtitle;
-                    font-size: Tokens.size-title;
-                    color: Tokens.text-muted;
-                }
-            }
-
-            ScrollView {
-                vertical-stretch: 1;
-                // The mouse carries tasks; the wheel scrolls.
-                mouse-drag-pan-enabled: false;
-                VerticalLayout {
-                    alignment: start;
-                    spacing: 6px;
-                    for ligne in root.rows: TaskRow {
-                        item: ligne;
-                        selected(r) => { root.row-selected(r); }
-                        toggled(id) => { root.toggled(id); }
-                        clear-completed => { root.clear-completed(); }
-                        carry-started(r, x, y) => {
-                            root.carried = r.id;
-                            root.carried-title = r.title;
-                            root.carry-x = x;
-                            root.carry-y = y;
-                        }
-                        carry-moved(x, y) => {
-                            root.carry-x = x;
-                            root.carry-y = y;
-                        }
-                        carry-ended => {
-                            root.dropped-id = root.carried;
-                            root.drop-x = root.carry-x;
-                            root.drop-y = root.carry-y;
-                            root.drop += 1;
-                            root.carried = -1;
-                        }
-                    }
-                    if root.rows.length == 0: Text {
-                        height: 120px;
-                        text: "Nothing here. Add a task below.";
-                        font-size: Tokens.size-body;
-                        color: Tokens.text-muted;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-
-            // The line to add a task, at the bottom where the eye ends.
-            Rectangle {
-                height: 48px;
-                vertical-stretch: 0;
-                border-radius: Tokens.radius-medium;
-                border-width: 1px;
-                border-color: ajout.has-focus ? Tokens.accent.transparentize(0.4) : Tokens.border;
-                background: Tokens.surface;
-
-                HorizontalLayout {
-                    padding-left: 14px;
-                    padding-right: 6px;
+            PageHeader {
+                title: root.title;
+                subtitle: root.subtitle;
+                if root.overview.progress != "": HorizontalLayout {
+                    horizontal-stretch: 0;
                     spacing: 10px;
-                    Icon {
-                        y: (parent.height - self.height) / 2;
-                        data: Icons.plus;
-                        size: 16px;
-                        tint: Tokens.text-muted;
+                    Text {
+                        text: root.overview.progress;
+                        font-size: 12px;
+                        color: Tokens.text-secondary;
+                        vertical-alignment: bottom;
+                        y: -1px;
                     }
-                    ajout := TextField {
-                        y: (parent.height - self.height) / 2;
-                        height: 36px;
-                        accessible-label: "Add a task";
-                        placeholder-text: root.add-hint;
-                        text <=> root.add-text;
-                        accepted(t) => {
-                            if (t != "") {
-                                root.add(t);
+                    Rectangle {
+                        width: 120px;
+                        Rectangle {
+                            y: parent.height - 7px;
+                            height: 4px;
+                            border-radius: 2px;
+                            background: Tokens.text.transparentize(0.92);
+                            Rectangle {
+                                x: 0;
+                                width: parent.width * root.overview.fraction;
+                                border-radius: 2px;
+                                background: Tokens.success;
                             }
                         }
                     }
                 }
             }
+
+            if root.overview.show-day: DayCard {
+                day: root.overview;
+                open-calendar => { root.open-calendar(); }
+            }
+
+            Plate {
+                vertical-stretch: 1;
+                ScrollView {
+                    // The mouse carries tasks; the wheel scrolls.
+                    mouse-drag-pan-enabled: false;
+                    VerticalLayout {
+                        alignment: start;
+                        for ligne[i] in root.rows: TaskRow {
+                            item: ligne;
+                            separated: ligne.kind == 0 && i > 0 && root.rows[i - 1].kind == 0
+                                && !ligne.selected && !root.rows[i - 1].selected;
+                            selected(r) => { root.row-selected(r); }
+                            toggled(id) => { root.toggled(id); }
+                            clear-completed => { root.clear-completed(); }
+                            carry-started(r, x, y) => {
+                                root.carried = r.id;
+                                root.carried-title = r.title;
+                                root.carry-x = x;
+                                root.carry-y = y;
+                            }
+                            carry-moved(x, y) => {
+                                root.carry-x = x;
+                                root.carry-y = y;
+                            }
+                            carry-ended => {
+                                root.dropped-id = root.carried;
+                                root.drop-x = root.carry-x;
+                                root.drop-y = root.carry-y;
+                                root.drop += 1;
+                                root.carried = -1;
+                            }
+                        }
+                        if root.rows.length == 0: Text {
+                            height: 120px;
+                            text: "Nothing here. Add a task below.";
+                            font-size: 13px;
+                            color: Tokens.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            ajout := AddBar {
+                vertical-stretch: 0;
+                text <=> root.add-text;
+                hint: root.add-hint;
+                tokens: root.add-tokens;
+                edited(t) => { root.add-edited(t); }
+                add(t) => { root.add(t); }
+            }
         }
 
-        // --- Right: the selected task ---
-        if root.has-detail: Rectangle { width: 1px; background: Tokens.border; }
-        if root.has-detail: Glass {
-            width: 360px;
-            radius: 0px;
-            border-width: 0px;
-            TaskDetail {
-                detail: root.detail;
-                title <=> root.detail-title;
-                notes <=> root.detail-notes;
-                time <=> root.detail-time;
-                lists: root.lists;
-                reminders: root.reminders;
-                picker-open: root.picker-open;
-                picker-title: root.picker-title;
-                picker-cells: root.picker-cells;
-                toggled(id) => { root.toggled(id); }
-                title-edited(t) => { root.title-edited(t); }
-                notes-edited(t) => { root.notes-edited(t); }
-                time-edited(t) => { root.time-edited(t); }
-                picker-toggled => { root.picker-toggled(); }
-                picker-navigate(n) => { root.picker-navigate(n); }
-                picker-chosen(d) => { root.picker-chosen(d); }
-                due-cleared => { root.due-cleared(); }
-                reminder-chosen(i) => { root.reminder-chosen(i); }
-                priority-chosen(p) => { root.priority-chosen(p); }
-                list-chosen(i) => { root.list-chosen(i); }
-                step-added(t) => { root.step-added(t); }
-                step-toggled(id) => { root.step-toggled(id); }
-                step-removed(id) => { root.step-removed(id); }
-                open-mail => { root.open-mail(); }
-                delete => { root.delete(); }
-                closed => { root.detail-closed(); }
-            }
+        // --- Right: the chosen task ---
+        if root.has-detail: TaskDetail {
+            detail: root.detail;
+            title <=> root.detail-title;
+            notes <=> root.detail-notes;
+            time <=> root.detail-time;
+            lists: root.lists;
+            reminders: root.reminders;
+            picker-open: root.picker-open;
+            picker-title: root.picker-title;
+            picker-cells: root.picker-cells;
+            toggled(id) => { root.toggled(id); }
+            title-edited(t) => { root.title-edited(t); }
+            notes-edited(t) => { root.notes-edited(t); }
+            time-edited(t) => { root.time-edited(t); }
+            picker-toggled => { root.picker-toggled(); }
+            picker-navigate(n) => { root.picker-navigate(n); }
+            picker-chosen(d) => { root.picker-chosen(d); }
+            due-cleared => { root.due-cleared(); }
+            reminder-chosen(i) => { root.reminder-chosen(i); }
+            priority-chosen(p) => { root.priority-chosen(p); }
+            list-chosen(i) => { root.list-chosen(i); }
+            step-added(t) => { root.step-added(t); }
+            step-toggled(id) => { root.step-toggled(id); }
+            step-removed(id) => { root.step-removed(id); }
+            open-mail => { root.open-mail(); }
+            delete => { root.delete(); }
+            closed => { root.detail-closed(); }
         }
     }
 
@@ -884,8 +1144,8 @@ export component TasksView inherits Rectangle {
         height: 44px;
         border-radius: Tokens.radius-medium;
         border-width: 1px;
-        border-color: Tokens.accent.transparentize(0.4);
-        background: Tokens.background.mix(Tokens.surface-high, 0.35);
+        border-color: Tokens.border-strong;
+        background: Tokens.panel;
         drop-shadow-blur: 18px;
         drop-shadow-offset-y: 8px;
         drop-shadow-color: #00000090;
@@ -894,13 +1154,10 @@ export component TasksView inherits Rectangle {
             padding-left: 12px;
             padding-right: 12px;
             spacing: 10px;
-            Rectangle {
+            Check {
                 y: (parent.height - self.height) / 2;
-                width: 18px;
-                height: 18px;
-                border-radius: 9px;
-                border-width: 1.5px;
-                border-color: Tokens.text-muted;
+                size: 18px;
+                interactive: false;
             }
             carte := Text {
                 text: root.carried-title;
@@ -940,13 +1197,13 @@ export component TaskListMenu inherits Rectangle {
         entries := VerticalLayout {
             padding: 4px;
             HorizontalLayout {
-                padding-left: Tokens.space-2;
-                padding-right: Tokens.space-2;
-                height: 22px;
+                padding-left: 8px;
+                padding-right: 8px;
+                height: 24px;
                 Text {
                     text: root.place.name;
-                    font-size: 9px;
-                    letter-spacing: 0.5px;
+                    font-size: 12px;
+                    font-weight: 600;
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                     overflow: elide;
@@ -977,11 +1234,12 @@ export component TaskListNamePanel inherits Rectangle {
     callback confirmed();
     callback dismissed();
 
-    PanelFrame {
+    Modal {
         width: 100%;
         height: 100%;
         title: root.is-new ? "New list" : "Rename list";
-        card-height: 200px;
+        close-label: "Cancel";
+        fit: true;
         dismissed => { root.dismissed(); }
 
         TextField {
@@ -998,25 +1256,15 @@ export component TaskListNamePanel inherits Rectangle {
 
         if root.error != "": Text {
             text: root.error;
-            font-size: Tokens.size-small;
+            font-size: 12px;
             color: Tokens.error;
             wrap: word-wrap;
         }
 
-        Rectangle {}
-
-        HorizontalLayout {
-            height: 28px;
-            spacing: Tokens.space-2;
-            vertical-stretch: 0;
-            Rectangle {}
-            CalButton {
-                text: "Cancel";
-                clicked => { root.dismissed(); }
-            }
-            CalButton {
+        ModalFooter {
+            Button {
                 text: root.is-new ? "Create" : "Rename";
-                primary: true;
+                kind: ButtonKind.primary;
                 clicked => { root.confirmed(); }
             }
         }
@@ -1030,11 +1278,12 @@ export component TaskListDeletePanel inherits Rectangle {
     callback confirmed();
     callback dismissed();
 
-    PanelFrame {
+    Modal {
         width: 100%;
         height: 100%;
         title: "Delete this list?";
-        card-height: 200px;
+        close-label: "Cancel";
+        fit: true;
         dismissed => { root.dismissed(); }
 
         Text {
@@ -1042,26 +1291,15 @@ export component TaskListDeletePanel inherits Rectangle {
                 ? "“" + root.name + "” is empty. It will be removed."
                 : "“" + root.name + "” and its " + root.count + " task(s) to do are deleted. "
                     + "This cannot be undone.";
-            font-size: Tokens.size-body;
+            font-size: 13px;
             color: Tokens.text-secondary;
             wrap: word-wrap;
         }
 
-        Rectangle {}
-
-        HorizontalLayout {
-            height: 28px;
-            spacing: Tokens.space-2;
-            vertical-stretch: 0;
-            Rectangle {}
-            CalButton {
-                text: "Cancel";
-                clicked => { root.dismissed(); }
-            }
-            CalButton {
+        ModalFooter {
+            Button {
                 text: "Delete";
-                primary: true;
-                danger: true;
+                kind: ButtonKind.danger;
                 clicked => { root.confirmed(); }
             }
         }

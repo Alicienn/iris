@@ -5,7 +5,8 @@ import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
     ThemeSwatchData, AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
-    TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData
+    TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
+    TaskTokenData, TaskOverviewData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -730,6 +731,17 @@ export component AppWindow inherits Window {
     callback calendar-delete-confirmed(int);
 
     in-out property <bool> event-detail-open;
+    /// The event was clicked in the grid, there: its card opens beside it. Forgotten
+    /// when the card closes, so an event opened from Home comes up in the middle.
+    in-out property <bool> event-anchored;
+    in-out property <length> event-anchor-left;
+    in-out property <length> event-anchor-right;
+    in-out property <length> event-anchor-top;
+    changed event-detail-open => {
+        if (!self.event-detail-open) {
+            self.event-anchored = false;
+        }
+    }
     in property <EventDetailData> event-detail;
     in-out property <string> event-notes;
     callback event-notes-edited(string);
@@ -779,6 +791,10 @@ export component AppWindow inherits Window {
     in property <[TaskRowData]> task-rows;
     in-out property <string> task-add-text;
     in property <string> task-add-hint;
+    /// What the add line understood so far, and each change to it.
+    in property <[TaskTokenData]> task-add-tokens;
+    callback task-add-edited(string);
+    in property <TaskOverviewData> task-overview;
     in-out property <int> task-focus-add;
     in property <bool> task-has-detail;
     in property <TaskDetailData> task-detail;
@@ -1499,6 +1515,12 @@ export component AppWindow inherits Window {
         day-chosen(d) => { root.calendar-day-chosen(d); }
         day-opened(d) => { root.calendar-day-opened(d); }
         mini-navigate(n) => { root.calendar-mini-navigate(n); }
+        event-anchored(l, r, t) => {
+            root.event-anchored = true;
+            root.event-anchor-left = l;
+            root.event-anchor-right = r;
+            root.event-anchor-top = t;
+        }
         event-opened(k) => { root.calendar-event-opened(k); }
         new-event(d, m) => { root.calendar-new-event(d, m); }
         calendar-toggled(id) => { root.calendar-toggled(id); }
@@ -1533,6 +1555,14 @@ export component AppWindow inherits Window {
         height: parent.height - 32px - 23px;
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
+        overview: root.task-overview;
+        add-tokens: root.task-add-tokens;
+        add-edited(t) => { root.task-add-edited(t); }
+        open-calendar => {
+            root.workspace = 1;
+            root.workspace-changed(1);
+            shortcuts.focus();
+        }
         clear-completed => { root.task-clear-completed(); }
         task-dropped(id, cle) => { root.task-dropped(id, cle); }
         places: root.task-places;
@@ -1672,6 +1702,10 @@ export component AppWindow inherits Window {
     if root.event-detail-open: EventDetailPanel {
         width: 100%;
         height: 100%;
+        anchored: root.event-anchored;
+        anchor-left: root.event-anchor-left;
+        anchor-right: root.event-anchor-right;
+        anchor-top: root.event-anchor-top;
         detail: root.event-detail;
         notes <=> root.event-notes;
         notes-edited(t) => { root.event-notes-edited(t); }

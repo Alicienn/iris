@@ -27,7 +27,7 @@ export component Segmented inherits Rectangle {
         for option[i] in root.options: Rectangle {
             property <bool> on: i == root.selected;
             property <color> teinte: root.tints.length > i ? root.tints[i] : Tokens.text;
-            width: mot.preferred-width + 24px;
+            width: mot.preferred-width + 18px;
             border-radius: 6px;
             background: self.on
                 ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.surface-active)

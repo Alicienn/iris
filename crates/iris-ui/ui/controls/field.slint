@@ -15,10 +15,13 @@ import { ScrollView } from "std-widgets.slint";
 component FieldFrame inherits Rectangle {
     in property <bool> focused;
     in property <bool> enabled: true;
+    /// No plate and no border: the field sits inside a frame that shows the focus
+    /// itself (the line to add a task).
+    in property <bool> bare;
 
-    background: Tokens.surface-low;
+    background: root.bare ? transparent : Tokens.surface-low;
     border-radius: Tokens.radius-small;
-    border-width: 1px;
+    border-width: root.bare ? 0px : 1px;
     border-color: root.focused ? Tokens.accent : Tokens.border;
     opacity: root.enabled ? 1.0 : 0.6;
     animate border-color { duration: Tokens.instant; }

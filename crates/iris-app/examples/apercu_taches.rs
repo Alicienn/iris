@@ -88,7 +88,34 @@ fn main() {
     );
     ajoute(perso, "Call the plumber", jour(0), None, 0);
     let poste = ajoute(perso, "Post the parcel", jour(0), None, 0);
-    services.store.set_task_done(poste, Some(t)).unwrap();
+    // Done at 08:40 today, and a few more earlier this week, for the week's bars.
+    let a = |j: i64, h: u32, m: u32| {
+        iris_types::Timestamp::from_millis(iris_calendar::time::zoned_millis(
+            (aujourdhui + Duration::days(j)).and_hms_opt(h, m, 0).unwrap(),
+            &Local,
+        ))
+    };
+    services.store.set_task_done(poste, Some(a(0, 8, 40))).unwrap();
+    let lundi = -(chrono::Datelike::weekday(&aujourdhui).num_days_from_monday() as i64);
+    for (k, (titre, j)) in [
+        ("Pay the rent", lundi),
+        ("Water the plants", lundi),
+        ("Book the dentist", lundi + 1),
+        ("Answer Paul", lundi + 1),
+        ("Order ink", lundi + 1),
+        ("Return the drill", lundi + 2),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if j <= 0 {
+            let id = ajoute(perso, titre, None, None, 0);
+            services
+                .store
+                .set_task_done(id, Some(a(j, 10, k as u32)))
+                .unwrap();
+        }
+    }
     ajoute(
         travail,
         "Prepare Thursday's review",
@@ -167,9 +194,21 @@ fn main() {
             let Some(f) = faible.upgrade() else { return };
             tour += 1;
             match tour {
-                1 => f.invoke_task_place_chosen("today".into()),
+                1 => {
+                    f.invoke_task_place_chosen("today".into());
+                    f.invoke_task_row_selected(iris_ui::TaskRowData {
+                        kind: 0,
+                        id: devis as i32,
+                        ..Default::default()
+                    });
+                    let ligne = "Call Marie about the logo tomorrow 9am #Work !!!";
+                    f.set_task_add_text(ligne.into());
+                    f.invoke_task_add_edited(ligne.into());
+                }
                 2 => {
                     capture(&f, sortie.join("taches-aujourdhui.png"));
+                    f.set_task_add_text("".into());
+                    f.invoke_task_add_edited("".into());
                     f.invoke_task_place_chosen(format!("list:{travail}").into());
                     f.invoke_task_row_selected(iris_ui::TaskRowData {
                         kind: 0,

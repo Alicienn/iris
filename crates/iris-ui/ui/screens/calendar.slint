@@ -6,6 +6,9 @@ import {
 } from "@iris/types.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
+import { Rail } from "@iris/layout/frames.slint";
 
 // A button with words on it, for the calendar's toolbar and panels.
 export component CalButton inherits Rectangle {
@@ -69,6 +72,8 @@ export component CalButton inherits Rectangle {
 component Chip inherits Rectangle {
     in property <CalendarChipData> chip;
     callback opened(string);
+    /// Where it is in the window, for the card that opens beside it.
+    callback anchored(length, length, length);
 
     height: 18px;
     border-radius: 3px;
@@ -110,7 +115,11 @@ component Chip inherits Rectangle {
 
     touch := TouchArea {
         mouse-cursor: pointer;
-        clicked => { root.opened(root.chip.key); }
+        clicked => {
+            root.anchored(root.absolute-position.x, root.absolute-position.x + root.width,
+                root.absolute-position.y);
+            root.opened(root.chip.key);
+        }
     }
 }
 
@@ -125,11 +134,12 @@ export component MiniMonth inherits VerticalLayout {
     spacing: 2px;
 
     HorizontalLayout {
-        height: 24px;
+        height: 26px;
+        padding-left: 4px;
         Text {
             text: root.title;
-            font-size: Tokens.size-small;
-            font-weight: Tokens.weight-bold;
+            font-size: 13px;
+            font-weight: 600;
             color: Tokens.text;
             vertical-alignment: center;
             horizontal-stretch: 1;
@@ -154,7 +164,7 @@ export component MiniMonth inherits VerticalLayout {
         height: 18px;
         for initiale in ["M", "T", "W", "T", "F", "S", "S"]: Text {
             text: initiale;
-            font-size: 9px;
+            font-size: 10px;
             color: Tokens.text-muted;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -172,22 +182,23 @@ export component MiniMonth inherits VerticalLayout {
             accessible-label: self.cell.date;
             accessible-action-default => { root.day-chosen(self.cell.date); }
 
+            // Today in a red disc, as a paper calendar circles it.
             Rectangle {
                 width: 22px;
                 height: 22px;
                 border-radius: 11px;
                 background: cell.today
-                    ? Tokens.accent
+                    ? Tokens.error
                     : cell.selected
                         ? Tokens.surface-active
                         : (toucher.has-hover ? Tokens.surface-hover : transparent);
             }
             Text {
                 text: cell.day;
-                font-size: 10px;
-                font-weight: cell.today ? Tokens.weight-bold : Tokens.weight-body;
+                font-size: 11px;
+                font-weight: cell.today ? 600 : 400;
                 color: cell.today
-                    ? Tokens.accent-text
+                    ? white
                     : (cell.in-month ? Tokens.text-secondary : Tokens.text-muted.transparentize(0.4));
             }
             // A dot under a day that has something in it.
@@ -239,22 +250,16 @@ component CalendarRow inherits Rectangle {
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 2px;
-        spacing: Tokens.space-2;
+        spacing: 10px;
 
-        Rectangle {
+        // The row answers the click; the check is its picture.
+        Check {
             y: (parent.height - self.height) / 2;
-            width: 14px;
-            height: 14px;
-            border-radius: 4px;
-            border-width: 2px;
-            border-color: root.cal.color;
-            background: root.cal.visible ? root.cal.color : transparent;
-            if root.cal.visible: Icon {
-                data: Icons.check;
-                size: 10px;
-                weight: 3.0;
-                tint: white;
-            }
+            shape: CheckShape.square;
+            size: 14px;
+            tint: root.cal.color;
+            done: root.cal.visible;
+            interactive: false;
         }
 
         VerticalLayout {
@@ -263,12 +268,12 @@ component CalendarRow inherits Rectangle {
             Text {
                 text: root.cal.name;
                 font-size: Nav.label-size;
-                color: root.cal.visible ? Tokens.text-secondary : Tokens.text-muted;
+                color: root.cal.visible ? Tokens.text : Tokens.text-muted;
                 overflow: elide;
             }
             if root.cal.status != "": Text {
                 text: root.cal.status;
-                font-size: 9px;
+                font-size: 11px;
                 color: root.cal.failed ? Tokens.error : Tokens.text-muted;
                 overflow: elide;
             }
@@ -300,13 +305,14 @@ component MonthGrid inherits VerticalLayout {
     callback day-opened(string);
     callback day-double-clicked(string);
     callback event-opened(string);
+    callback event-anchored(length, length, length);
 
     HorizontalLayout {
-        height: 26px;
-        for nom in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text {
+        height: 28px;
+        for nom[i] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text {
             text: nom;
-            font-size: Tokens.size-small;
-            color: Tokens.text-muted;
+            font-size: 12px;
+            color: i >= 5 ? Tokens.text-muted.transparentize(0.3) : Tokens.text-muted;
             horizontal-alignment: center;
             vertical-alignment: center;
             horizontal-stretch: 1;
@@ -357,13 +363,13 @@ component MonthGrid inherits VerticalLayout {
                         width: max(20px, numero.preferred-width + 10px);
                         height: 20px;
                         border-radius: 10px;
-                        background: cell.today ? Tokens.accent : transparent;
+                        background: cell.today ? Tokens.error : transparent;
                         numero := Text {
                             text: cell.day;
-                            font-size: Tokens.size-small;
-                            font-weight: cell.today ? Tokens.weight-bold : Tokens.weight-body;
+                            font-size: 12px;
+                            font-weight: cell.today ? 600 : 400;
                             color: cell.today
-                                ? Tokens.accent-text
+                                ? white
                                 : (cell.in-month ? Tokens.text-secondary : Tokens.text-muted.transparentize(0.4));
                         }
                     }
@@ -373,6 +379,7 @@ component MonthGrid inherits VerticalLayout {
                 for chip in cell.events: Chip {
                     chip: chip;
                     opacity: cell.in-month ? 1.0 : 0.55;
+                    anchored(l, r, t) => { root.event-anchored(l, r, t); }
                     opened(k) => { root.event-opened(k); }
                 }
                 if cell.more > 0: Text {
@@ -395,66 +402,77 @@ component WeekGrid inherits VerticalLayout {
     in property <int> now-day: -1;
 
     callback event-opened(string);
+    callback event-anchored(length, length, length);
     callback slot-double-clicked(string, int);
     callback day-opened(string);
 
-    property <length> hour: 48px;
-    property <length> gutter: 48px;
+    property <length> hour: 44px;
+    property <length> gutter: 52px;
+    // Now, as the clock says it: "16:20".
+    property <int> minutes: floor(root.now-fraction * 1440);
+    property <string> now-label: (floor(self.minutes / 60) < 10 ? "0" : "")
+        + floor(self.minutes / 60) + ":" + (mod(self.minutes, 60) < 10 ? "0" : "")
+        + mod(self.minutes, 60);
 
-    // Day headers.
+    // Day headers: the name small, the number large; today in a red disc, the
+    // weekend quieter.
     HorizontalLayout {
-        height: 44px;
+        height: 52px;
         Rectangle { width: root.gutter; }
-        for d in root.days: Rectangle {
+        for d in root.days: jour := Rectangle {
+            property <bool> repos: d.name == "Sat" || d.name == "Sun";
             horizontal-stretch: 1;
             TouchArea {
                 mouse-cursor: pointer;
                 clicked => { root.day-opened(d.date); }
             }
-            VerticalLayout {
+            HorizontalLayout {
                 alignment: center;
+                spacing: 8px;
                 Text {
                     text: d.name;
-                    font-size: 10px;
-                    color: d.today ? Tokens.accent : Tokens.text-muted;
-                    horizontal-alignment: center;
+                    font-size: 12px;
+                    font-weight: d.today ? 600 : 400;
+                    color: d.today ? Tokens.error : jour.repos ? Tokens.text-muted : Tokens.text-secondary;
+                    vertical-alignment: center;
                 }
-                HorizontalLayout {
-                    alignment: center;
-                    Rectangle {
-                        width: 26px;
-                        height: 26px;
-                        border-radius: 13px;
-                        background: d.today ? Tokens.accent : transparent;
-                        Text {
-                            text: d.day;
-                            font-size: Tokens.size-body;
-                            font-weight: Tokens.weight-bold;
-                            color: d.today ? Tokens.accent-text : Tokens.text;
-                        }
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: max(32px, numero.preferred-width + 12px);
+                    height: 32px;
+                    border-radius: 16px;
+                    background: d.today ? Tokens.error : transparent;
+                    numero := Text {
+                        text: d.day;
+                        font-family: Tokens.font-display;
+                        font-size: 20px;
+                        font-weight: d.today ? 600 : 400;
+                        color: d.today ? white : jour.repos ? Tokens.text-muted : Tokens.text;
                     }
                 }
             }
         }
     }
+    Rectangle { height: 1px; background: Tokens.border; }
 
     // All-day events, each day its own short column.
     HorizontalLayout {
-        min-height: 22px;
+        min-height: 26px;
         Text {
             width: root.gutter;
             text: "all day";
-            font-size: 9px;
+            font-size: 10px;
             color: Tokens.text-muted;
             vertical-alignment: center;
             horizontal-alignment: center;
         }
         for d in root.days: VerticalLayout {
             horizontal-stretch: 1;
-            padding: 1px;
-            spacing: 1px;
+            padding: 2px;
+            spacing: 2px;
             for chip in d.all-day: Chip {
                 chip: chip;
+                anchored(l, r, t) => { root.event-anchored(l, r, t); }
                 opened(k) => { root.event-opened(k); }
             }
         }
@@ -479,12 +497,15 @@ component WeekGrid inherits VerticalLayout {
                 height: root.hour;
                 Text {
                     x: 0;
-                    y: -6px;
-                    width: root.gutter - 6px;
+                    y: -7px;
+                    width: root.gutter - 10px;
                     text: h == 0 ? "" : (h < 10 ? "0" : "") + h + ":00";
-                    font-size: 9px;
+                    font-size: 11px;
                     color: Tokens.text-muted;
                     horizontal-alignment: right;
+                    // The hour of now takes the place of the one it is near.
+                    opacity: root.now-day >= 0 && root.now-fraction >= 0
+                        && abs(root.minutes - h * 60) < 15 ? 0 : 1;
                 }
                 Rectangle {
                     x: root.gutter;
@@ -508,48 +529,67 @@ component WeekGrid inherits VerticalLayout {
                 }
             }
 
-            for e in root.events: Rectangle {
-                x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 2px;
+            for e in root.events: evenement := Rectangle {
+                x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 3px;
                 y: e.top * grille.height + 1px;
-                width: grille.colonne / max(1, e.lanes) - 4px;
-                height: max(18px, e.height * grille.height - 2px);
-                border-radius: 4px;
-                background: e.color.transparentize(bloc.has-hover ? 0.55 : 0.72);
-                border-width: 1px;
-                border-color: e.color.transparentize(0.4);
+                width: grille.colonne / max(1, e.lanes) - 6px;
+                height: max(20px, e.height * grille.height - 2px);
+                border-radius: 5px;
+                background: e.color.transparentize(bloc.has-hover ? 0.72 : 0.82);
                 clip: true;
 
                 accessible-role: button;
                 accessible-label: e.time + " " + e.title;
                 accessible-action-default => { root.event-opened(e.key); }
 
-                Rectangle { x: 0; width: 3px; background: e.color; }
+                Rectangle {
+                    x: 0;
+                    width: 3px;
+                    border-radius: 1.5px;
+                    background: e.color;
+                }
                 VerticalLayout {
-                    padding-left: 7px;
-                    padding-top: 2px;
-                    padding-right: 3px;
+                    padding-left: 9px;
+                    padding-top: 4px;
+                    padding-right: 4px;
+                    spacing: 1px;
                     alignment: start;
                     Text {
                         text: e.title;
-                        font-size: 11px;
-                        font-weight: Tokens.weight-bold;
+                        font-size: 12px;
+                        font-weight: 600;
                         color: Tokens.text;
                         overflow: elide;
                     }
-                    Text {
+                    if evenement.height > 34px: Text {
                         text: e.time;
-                        font-size: 10px;
+                        font-size: 11px;
                         color: Tokens.text-secondary;
                         overflow: elide;
                     }
                 }
                 bloc := TouchArea {
                     mouse-cursor: pointer;
-                    clicked => { root.event-opened(e.key); }
+                    clicked => {
+                        root.event-anchored(evenement.absolute-position.x,
+                            evenement.absolute-position.x + evenement.width,
+                            evenement.absolute-position.y);
+                        root.event-opened(e.key);
+                    }
                 }
             }
 
-            // Now: a line across today's column.
+            // Now: its hour in the margin, and a line across today's column.
+            if root.now-day >= 0 && root.now-fraction >= 0: Text {
+                x: 0;
+                y: root.now-fraction * grille.height - 7px;
+                width: root.gutter - 10px;
+                text: root.now-label;
+                font-size: 11px;
+                font-weight: 600;
+                color: Tokens.error;
+                horizontal-alignment: right;
+            }
             if root.now-day >= 0 && root.now-fraction >= 0: Rectangle {
                 x: root.gutter + root.now-day * grille.colonne - 4px;
                 y: root.now-fraction * grille.height - 4px;
@@ -601,131 +641,127 @@ export component CalendarView inherits Rectangle {
     callback calendar-menu(CalendarData, length, length);
     callback calendar-new();
     callback subscribe-requested();
+    /// An event was clicked here: where it is in the window, just before `event-opened`.
+    callback event-anchored(length, length, length);
 
     background: Tokens.background;
 
     HorizontalLayout {
         // --- Left: create, jump, choose what shows ---
-        Glass {
-            width: 230px;
-            radius: 0px;
-            border-width: 0px;
-            VerticalLayout {
-                padding: Tokens.space-3;
-                spacing: Tokens.space-3;
+        Rail {
+            rail-width: 244px;
 
-                CalButton {
-                    width: parent.width - 2 * Tokens.space-3;
-                    text: "New event";
-                    icon: Icons.plus;
-                    primary: true;
-                    clicked => { root.new-event("", -1); }
-                }
-
-                MiniMonth {
-                    title: root.mini-title;
-                    cells: root.mini-cells;
-                    day-chosen(d) => { root.day-chosen(d); }
-                    navigate(n) => { root.mini-navigate(n); }
-                }
-
-                // The section's title, with the + that adds to it.
-                HorizontalLayout {
-                    height: 22px;
-                    padding-left: 10px;
-                    SectionTitle {
-                        text: "CALENDARS";
-                    }
-                    IconButton {
-                        y: (parent.height - self.height) / 2;
-                        icon: Icons.plus;
-                        label: "New calendar";
-                        button-size: 22px;
-                        icon-size: 12px;
-                        clicked => { root.calendar-new(); }
-                    }
-                }
-                VerticalLayout {
-                    spacing: 2px;
-                    for cal in root.calendars: CalendarRow {
-                        cal: cal;
-                        toggled(id) => { root.calendar-toggled(id); }
-                        refresh(id) => { root.calendar-refresh(id); }
-                        remove(c) => { root.calendar-remove(c); }
-                        menu(c, x, y) => { root.calendar-menu(c, x, y); }
-                    }
-                }
-
-                VerticalLayout {
-                    spacing: Tokens.space-1;
-                    CalButton {
-                        text: "Subscribe to a calendar…";
-                        icon: Icons.link;
-                        clicked => { root.subscribe-requested(); }
-                    }
-                }
-
-                Rectangle {}
+            Button {
+                // The rail's width, less its padding.
+                width: 220px;
+                text: "New event";
+                icon: Icons.plus;
+                shortcut: "N";
+                kind: ButtonKind.primary;
+                clicked => { root.new-event("", -1); }
             }
-        }
+            Rectangle { height: 14px; }
 
-        Rectangle { width: 1px; background: Tokens.border; }
+            MiniMonth {
+                title: root.mini-title;
+                cells: root.mini-cells;
+                day-chosen(d) => { root.day-chosen(d); }
+                navigate(n) => { root.mini-navigate(n); }
+            }
+            Rectangle { height: 10px; }
+
+            // The section's title, with the + that adds to it.
+            HorizontalLayout {
+                height: 32px;
+                padding-left: 10px;
+                SectionTitle {
+                    text: "Calendars";
+                    horizontal-stretch: 1;
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.plus;
+                    label: "New calendar";
+                    button-size: 24px;
+                    icon-size: 12px;
+                    clicked => { root.calendar-new(); }
+                }
+            }
+            for cal in root.calendars: CalendarRow {
+                cal: cal;
+                toggled(id) => { root.calendar-toggled(id); }
+                refresh(id) => { root.calendar-refresh(id); }
+                remove(c) => { root.calendar-remove(c); }
+                menu(c, x, y) => { root.calendar-menu(c, x, y); }
+            }
+            Rectangle { height: 6px; }
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: "Subscribe to a calendar";
+                    label: "Subscribe to a calendar…";
+                    icon: Icons.link;
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
+                    clicked => { root.subscribe-requested(); }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+        }
 
         // --- Right: the period ---
         VerticalLayout {
-            padding: Tokens.space-3;
-            spacing: Tokens.space-2;
+            padding-top: 22px;
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-bottom: 12px;
+            spacing: 12px;
 
             HorizontalLayout {
-                height: 32px;
-                spacing: Tokens.space-2;
+                height: 40px;
+                spacing: 6px;
 
-                CalButton {
+                Text {
+                    text: root.title;
+                    font-family: Tokens.font-display;
+                    font-size: 28px;
+                    font-weight: 300;
+                    letter-spacing: -0.4px;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Button {
                     y: (parent.height - self.height) / 2;
                     text: "Today";
+                    shortcut: "T";
+                    size: ButtonSize.sm;
                     clicked => { root.today(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.chevron-left;
                     label: "Previous";
-                    button-size: 28px;
+                    shortcut: "←";
+                    button-size: 30px;
                     clicked => { root.navigate(-1); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.chevron-right;
                     label: "Next";
-                    button-size: 28px;
+                    shortcut: "→";
+                    button-size: 30px;
                     clicked => { root.navigate(1); }
                 }
-                Text {
-                    text: root.title;
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                }
-                CalButton {
+                Rectangle { width: 8px; }
+                Segmented {
                     y: (parent.height - self.height) / 2;
-                    text: "Month";
-                    selected: root.mode == 0;
-                    clicked => { root.mode-chosen(0); }
-                }
-                CalButton {
-                    y: (parent.height - self.height) / 2;
-                    text: "Week";
-                    selected: root.mode == 1;
-                    clicked => { root.mode-chosen(1); }
-                }
-                CalButton {
-                    y: (parent.height - self.height) / 2;
-                    text: "Day";
-                    selected: root.mode == 2;
-                    clicked => { root.mode-chosen(2); }
+                    options: ["Month", "Week", "Day"];
+                    selected: root.mode;
+                    chosen(i) => { root.mode-chosen(i); }
                 }
             }
 
@@ -734,6 +770,7 @@ export component CalendarView inherits Rectangle {
                 cells: root.month-cells;
                 day-opened(d) => { root.day-chosen(d); }
                 day-double-clicked(d) => { root.new-event(d, 9 * 60); }
+                event-anchored(l, r, t) => { root.event-anchored(l, r, t); }
                 event-opened(k) => { root.event-opened(k); }
             }
 
@@ -743,6 +780,7 @@ export component CalendarView inherits Rectangle {
                 events: root.week-events;
                 now-fraction: root.now-fraction;
                 now-day: root.now-day;
+                event-anchored(l, r, t) => { root.event-anchored(l, r, t); }
                 event-opened(k) => { root.event-opened(k); }
                 slot-double-clicked(d, m) => { root.new-event(d, m); }
                 day-opened(d) => { root.day-opened(d); }

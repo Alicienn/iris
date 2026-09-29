@@ -60,8 +60,10 @@ export component Button inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
 
+    // Centred: the same as a fixed inset for a button sized to its words, and right
+    // for one given a width (the rail's New event).
     rang := HorizontalLayout {
-        x: root.size == ButtonSize.sm ? 10px : 14px;
+        x: (root.width - self.width) / 2;
         width: self.preferred-width;
         spacing: 8px;
         if root.icon != "": Icon {

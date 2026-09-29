@@ -185,7 +185,18 @@ fn main() {
                     f.invoke_calendar_event_opened(format!("{long_titre}:{long_debut}").into());
                 }
                 5 => {
+                    // Opened from elsewhere: in the middle. Then as a click in the
+                    // grid opens it: beside the event.
                     capture(&f, sortie.join("agenda-detail.png"));
+                    f.set_event_detail_open(false);
+                    f.set_event_anchored(true);
+                    f.set_event_anchor_left(860.0);
+                    f.set_event_anchor_right(990.0);
+                    f.set_event_anchor_top(420.0);
+                    f.invoke_calendar_event_opened(format!("{long_titre}:{long_debut}").into());
+                }
+                6 => {
+                    capture(&f, sortie.join("agenda-detail-carte.png"));
                     f.set_event_detail_open(false);
                     f.invoke_calendar_mode_chosen(0);
                     let club = f.get_calendars().row_data(1).unwrap();
@@ -194,17 +205,17 @@ fn main() {
                     f.set_calendar_menu_y(420.0);
                     f.set_calendar_menu_open(true);
                 }
-                6 => {
+                7 => {
                     capture(&f, sortie.join("agenda-menu.png"));
                     f.set_calendar_menu_open(false);
                     f.set_calendar_delete_open(true);
                 }
-                7 => {
+                8 => {
                     capture(&f, sortie.join("agenda-supprimer.png"));
                     f.set_calendar_delete_open(false);
                     f.set_settings_open(true);
                 }
-                8 => {
+                9 => {
                     capture(&f, sortie.join("reglages.png"));
                     let _ = slint::quit_event_loop();
                 }
