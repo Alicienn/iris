@@ -34,7 +34,7 @@ component FolderRow inherits Rectangle {
         : root.node.role == "archive" ? Icons.archive
         : Icons.folder;
 
-    height: 26px;
+    height: 30px;
     border-radius: Tokens.radius-small;
     // Le survol d'un glisser se marque plus fort qu'un survol de souris : c'est le
     // moment où l'utilisateur doit être certain de l'endroit où il lâche, et une
@@ -152,18 +152,19 @@ export component FolderTree inherits VerticalLayout {
 
     HorizontalLayout {
         vertical-stretch: 0;
-        height: 18px;
+        height: 32px;
+        padding-left: 10px;
 
         SectionTitle {
-            text: "FOLDERS";
+            text: "Folders";
+            horizontal-stretch: 1;
         }
 
-        Rectangle {}
-
         IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.plus;
             label: "New folder";
-            button-size: 18px;
+            button-size: 24px;
             icon-size: 12px;
             clicked => { root.new-folder(); }
         }
@@ -173,7 +174,7 @@ export component FolderTree inherits VerticalLayout {
     // dit comment revenir à la vue complète.
     Rectangle {
         vertical-stretch: 0;
-        height: 26px;
+        height: 30px;
         border-radius: Tokens.radius-small;
         background: Nav.background(root.selected-path == "", tout-touch.has-hover);
 

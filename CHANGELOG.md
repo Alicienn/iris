@@ -3,6 +3,30 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 2.0.0 — 2026-09-29
+
+### New
+- Tasks show your day above the list: the date, and what your calendars hold today.
+- See how far along you are: "2 of 5 done" at the top of Tasks.
+- What you have done this week, day by day, at the foot of the task lists.
+- As you type a task, Iris shows the date, list and priority it understood before you press Enter.
+- Click an event in the calendar and its details open beside it.
+- "To tasks" in the reading toolbar turns the conversation into a task.
+
+### Improved
+- A redesigned Iris: every screen drawn again, with the same buttons, lists and windows everywhere.
+- Home keeps to the essentials: your day in a sentence, the next three things, and a way into mail, tasks and calendar.
+- Folders sit under your accounts in one column, leaving more room for your mail.
+- The mail list is more compact: two lines per conversation, with the sender's mailbox as a dot.
+- The queues To do, Waiting and Done are the title of the list.
+- The reading toolbar names its actions and shows their keys.
+- The reply field stays one line until you write in it.
+- Calendar: the week reads at a glance, with today in red, the weekend quieter and the current time in the margin.
+- Tasks: rows on one plate, and the details of a task laid out as a list of properties.
+
+### Removed
+- The day dial and the daily quote on Home.
+
 ## 1.1.0 — 2026-09-29
 
 ### New

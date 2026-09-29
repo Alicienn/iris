@@ -65,7 +65,7 @@ line_height = 1.45
 [density]
 # Hauteur d'une ligne de la liste, en pixels. Trois densités sont proposées dans les
 # réglages ; celle-ci est la valeur par défaut.
-row_height    = 58.0
+row_height    = 48.0
 row_padding_x = 12.0
 
 [glass]

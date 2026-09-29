@@ -240,7 +240,7 @@ pub struct DensityTokens {
 impl Default for DensityTokens {
     fn default() -> Self {
         Self {
-            row_height: 58.0,
+            row_height: 48.0,
             row_padding_x: 12.0,
         }
     }

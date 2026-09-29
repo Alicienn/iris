@@ -36,9 +36,11 @@ impl Density {
 
     pub fn factor(self) -> f32 {
         match self {
-            Self::Compact => 0.72,
+            // 38 px: two lines, no faces. 48: two lines and faces. 62: the excerpt
+            // gets a line of its own.
+            Self::Compact => 0.8,
             Self::Normal => 1.0,
-            Self::Comfortable => 1.2,
+            Self::Comfortable => 1.3,
         }
     }
 

@@ -1213,7 +1213,7 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 // Colonne 1 : les comptes.
                 Sidebar {
-                    width: root.sidebar-collapsed ? 44px : 200px;
+                    width: root.sidebar-collapsed ? 48px : 232px;
                     animate width { duration: Tokens.quick; easing: ease-in-out; }
                     pinned: root.pinned-accounts;
                     others: root.other-accounts;
@@ -1263,119 +1263,44 @@ export component AppWindow inherits Window {
                         root.account-menu-y = my;
                         root.account-menu-requested(id);
                     }
-                }
+                    // Brought back full size, even if it was tucked into the corner:
+                    // New message is a request to write.
+                    compose => {
+                        root.compose-minimised = false;
+                        root.compose-open = true;
+                    }
 
-                Rectangle { width: 1px; background: Tokens.border; }
-
-                // Colonne 1 bis : les dossiers.
-                //
-                // Une colonne à eux plutôt qu'une section de plus dans la barre des
-                // comptes : les deux se croisent — « ce compte-là, dans ce
-                // dossier-là » — et une liste où l'on choisit tantôt l'un tantôt
-                // l'autre ne montre jamais les deux choix en même temps.
-                // La colonne des dossiers ne se replie pas avec celle des comptes.
-                // Le bouton dit « Collapse the accounts » : il repliait les deux, donc
-                // il faisait une chose de plus que ce qu'il annonçait, et la seule
-                // façon de garder les dossiers était de garder aussi les comptes.
-                Glass {
-                    width: 170px;
-                    radius: 0px;
-                    border-width: 0px;
-
-                    VerticalLayout {
-                        padding: Tokens.space-2;
-                        spacing: Tokens.space-2;
-
-                        // Écrire un message.
-                        //
-                        // L'éditeur existait en entier — destinataires, copie, copie
-                        // cachée, pièces jointes, mise en forme — et rien à l'écran n'y
-                        // menait : la touche « c » et la palette, c'est-à-dire deux
-                        // choses qu'il faut déjà savoir. Une fonction qu'on ne peut
-                        // atteindre qu'en connaissant son raccourci est une fonction
-                        // qui n'existe pas pour celui qui ouvre l'application.
-                        //
-                        // En haut de la colonne, au-dessus des dossiers, là où tout
-                        // client de courrier le met : c'est le seul bouton de cette
-                        // fenêtre qui crée quelque chose au lieu d'agir sur ce qui est
-                        // déjà là, et il mérite d'être le premier qu'on voie.
-                        Rectangle {
-                            height: 30px;
-                            border-radius: Tokens.radius-small;
-                            background: ecrire-touch.has-hover
-                                ? Tokens.accent
-                                : Tokens.accent.transparentize(0.12);
-                            animate background { duration: Tokens.instant; }
-
-                            accessible-role: button;
-                            accessible-label: "Write a new message";
-                            accessible-description: "C";
-                            accessible-action-default => {
-                                root.compose-minimised = false;
-                                root.compose-open = true;
-                            }
-
-                            HorizontalLayout {
-                                alignment: center;
-                                spacing: Tokens.space-1;
-
-                                Icon {
-                                    y: (parent.height - self.height) / 2;
-                                    data: Icons.pencil;
-                                    size: 13px;
-                                    tint: Tokens.accent-text;
-                                }
-                                Text {
-                                    text: "New message";
-                                    font-size: Tokens.size-small;
-                                    font-weight: Tokens.weight-bold;
-                                    color: Tokens.accent-text;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            // Brought back full size, even if it was tucked into the
-                            // corner: New message is a request to write.
-                            ecrire-touch := TouchArea {
-                                clicked => {
-                                    root.compose-minimised = false;
-                                    root.compose-open = true;
-                                }
-                            }
+                    // The folders, under the accounts: "this mailbox, in this folder"
+                    // read down one column. Folded with it.
+                    if !root.sidebar-collapsed: FolderTree {
+                        vertical-stretch: 1;
+                        folders: root.folders;
+                        selected-path: root.selected-folder;
+                        accounts-total: root.account-count;
+                        folder-selected(p) => {
+                            root.folder-selected(p);
+                            root.navigated("folder", p);
+                            shortcuts.focus();
                         }
-
-                        FolderTree {
-                            folders: root.folders;
-                            selected-path: root.selected-folder;
-                            accounts-total: root.account-count;
-                            folder-selected(p) => {
-                                root.folder-selected(p);
-                                root.navigated("folder", p);
-                                shortcuts.focus();
-                            }
-                            all-selected => {
-                                root.folder-cleared();
-                                root.navigated("folder", "");
-                            }
-                            new-folder => { root.new-folder-requested(); }
-                            folder-dropped(p) => { root.folder-dropped(p); }
-                            folder-menu(p, mx, my) => {
-                                root.folder-menu-x = mx;
-                                root.folder-menu-y = my;
-                                root.folder-menu-requested(p);
-                            }
+                        all-selected => {
+                            root.folder-cleared();
+                            root.navigated("folder", "");
+                        }
+                        new-folder => { root.new-folder-requested(); }
+                        folder-dropped(p) => { root.folder-dropped(p); }
+                        folder-menu(p, mx, my) => {
+                            root.folder-menu-x = mx;
+                            root.folder-menu-y = my;
+                            root.folder-menu-requested(p);
                         }
                     }
                 }
 
-                Rectangle {
-                    width: 1px;
-                    background: Tokens.border;
-                }
+                Rectangle { width: 1px; background: Tokens.border; }
 
                 // Colonne 2 : la file de travail.
                 Glass {
-                    width: 340px;
+                    width: 360px;
                     radius: 0px;
                     border-width: 0px;
 
@@ -1460,6 +1385,7 @@ export component AppWindow inherits Window {
                     snooze => { root.thread-snooze(); }
                     forward-thread => { root.forward-thread(); }
                     mark-done => { root.thread-done(); }
+                    to-task => { root.thread-to-task(root.selected-thread); }
                     reply-text <=> root.reply-text;
                     send => { root.send-reply(); }
                     reply-all => { root.reply-all(); }

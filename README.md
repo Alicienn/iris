@@ -21,7 +21,7 @@
 
 | | |
 |---|---|
-| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Home.** Your day at a glance: a dial of today's events, your latest mail, the tasks due, one click from each. |
+| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Home.** Your day in one sentence and the next three things to do, one click from your mail, tasks and calendar. |
 | <img src="docs/assets/icons/inbox.svg" width="20" alt=""> | **A work queue.** Every conversation is *to do*, *waiting* or *done*. One keystroke moves it along. |
 | <img src="docs/assets/icons/users.svg" width="20" alt=""> | **All your accounts in one place.** A unified inbox, or one account at a time, without slowing down. |
 | <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Instant.** Opening, archiving and searching never make you wait, even with hundreds of thousands of messages. |
@@ -63,15 +63,23 @@ above the list shows them all in one list instead.
 
 ## Home
 
-Iris opens on **Home**. On the left, a dial of your day: the 24 hours around the Iris
-mark, today's events as arcs in their calendar's colour, and a dot for the present.
-Beside it, a greeting, one sentence on what is waiting, and **Sync all**, which lights a
-crown around the dial while your mailboxes sync. Below, side by side: the latest mail of
-your queue, today's events on a line down the hours with later ones this week, and the
-tasks due. Every line opens where it lives; a task's circle ticks it off.
+Iris opens on **Home**: the date, a greeting, one sentence on what is waiting, and
+under **Next** the next three things of your day, events and tasks together in the order
+of their hours, late tasks first. Each opens where it lives; a task's circle ticks it
+off. Below, **Mail**, **Tasks** and **Calendar** lead to each with what waits there. The
+button in the top right corner syncs all your mailboxes.
 
 Click **Iris** at the top left, or press `Ctrl`+`0`, to come back to it. To open on your
 mail instead, switch off *Open Iris on Home* in *Settings*.
+
+## Mail
+
+One column on the left holds **New message**, your accounts (grouped by tag) and, under
+them, the folders. The list shows two lines per conversation, the queue (**To do**,
+**Waiting**, **Done**) as its title and the **Unread**, **Attachments** and **Starred**
+filters under it. The reading pane's toolbar names its actions with their keys: **Done**
+`E`, **Archive** `A`, **Snooze** `S`, **To tasks** `T`. Choose how tight the list is in
+*Settings › Density*.
 
 ## Back and forward
 
@@ -89,6 +97,8 @@ Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` an
 - **+** next to *Calendars* adds a calendar of your own besides *Personal*; each event
   is put in the one you choose. Right-click a calendar to rename it, change its colour
   or delete it.
+- Click an event and its details open beside it; opened from Home or a task, they open
+  in the middle of the window.
 - Open an event to add **tasks** for it. They appear in *Tasks*, due when the event
   starts, and stay there if the calendar is hidden or removed.
 - **Subscribe to a calendar…** follows a calendar published as a link: the `webcal://`
@@ -110,12 +120,14 @@ Open **Tasks** in the title bar, or with `Ctrl`+`3`.
   date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work
   !!`, `vendredi 14h30 Dentiste`, `in 2 weeks Renew the passport`. `!`, `!!`, `!!!` go
   from low to high priority, shown as a coloured tag; a `#List` that does not exist yet
-  is created.
-- **Today** shows what is due or late. **Upcoming**, **All tasks** and **From mail**
-  show the rest.
+  is created. What Iris understood shows beside the field before you press `Enter`.
+- **Today** shows what is due or late, under the date and what your calendars hold that
+  day, with how many of the day's tasks are done. **Upcoming**, **All tasks** and
+  **From mail** show the rest.
+- The foot of the column counts what you finished this week, a bar a day.
 - Drag a task onto a list or onto **Today** in the column on the left to move it there.
-- A checked task stays, struck through, in the view it was checked from; **Delete
-  completed** clears them.
+- A checked task stays, struck through, in the view it was checked from; **Clear**
+  beside *Done* removes them.
 - A task can hold subtasks, a note and a reminder.
 - In the mail, `T` (or *Add to tasks* in a conversation's right-click menu) turns the
   conversation into a task. *Open message* in the task brings it back.
@@ -151,6 +163,7 @@ installs it and reopens. You can also check by hand in *Settings › Updates*.
 | `F` | Star |
 | `Shift`+`3` | Delete |
 | `C` | New message |
+| `Ctrl`+`F` | Search the mail |
 | `Ctrl`+`K` | Command palette |
 | `T` | Add the conversation to tasks |
 | `Ctrl`+`0` | Home |

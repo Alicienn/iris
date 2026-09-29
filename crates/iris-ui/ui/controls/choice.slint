@@ -63,7 +63,8 @@ export component Segmented inherits Rectangle {
 export component QueueTabs inherits HorizontalLayout {
     in property <[string]> names;
     in property <[string]> counts;
-    in property <[string]> fulls;
+    /// What a screen reader says of each: "1250 conversations".
+    in property <[string]> descriptions;
     in property <int> selected;
     callback chosen(int);
 
@@ -76,7 +77,7 @@ export component QueueTabs inherits HorizontalLayout {
 
         accessible-role: tab;
         accessible-label: nom;
-        accessible-description: root.fulls.length > i ? root.fulls[i] : "";
+        accessible-description: root.descriptions.length > i ? root.descriptions[i] : "";
         accessible-item-selected: self.on;
         accessible-action-default => { root.chosen(i); }
 
@@ -90,7 +91,7 @@ export component QueueTabs inherits HorizontalLayout {
                 color: onglet.on ? Tokens.text : touch.has-hover ? Tokens.text-secondary : Tokens.text-muted;
                 vertical-alignment: bottom;
             }
-            if root.counts.length > i && root.counts[i] != "0": Text {
+            if root.counts.length > i && root.counts[i] != "0" && root.counts[i] != "": Text {
                 text: root.counts[i];
                 font-size: onglet.on ? 13px : 12px;
                 color: onglet.on ? Tokens.text-secondary : Tokens.text-muted;

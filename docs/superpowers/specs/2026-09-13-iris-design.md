@@ -334,3 +334,7 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 - **Iris opens on Home, not on the queue** (1.0.0): the day at a glance, mail, tasks and
   events together, one click from each. The queue stays the heart of the mail; the
   start page can be switched off.
+- **The interface is one set of shared components, in layers** (2.0.0), and every screen
+  is drawn first as a mockup restricted to what the software renderer can draw. The
+  folders share the accounts' column, and the queues are the list's title rather than
+  tabs above it.

@@ -10,62 +10,16 @@ import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
 import { Rail } from "@iris/layout/frames.slint";
 
-// A button with words on it, for the calendar's toolbar and panels.
-export component CalButton inherits Rectangle {
-    in property <string> text;
-    in property <string> icon;
+// The panels' buttons, in the words they were written with: the shared `Button`,
+// small, its kind read from `primary` and `danger`.
+export component CalButton inherits Button {
     in property <bool> primary;
-    in property <bool> selected;
-    in property <bool> enabled: true;
     /// With `primary`: a button that destroys something, in red.
     in property <bool> danger;
 
-    callback clicked();
-
-    height: 28px;
-    width: rang.preferred-width + 20px;
-    border-radius: Tokens.radius-small;
-    border-width: root.primary ? 0px : 1px;
-    border-color: Tokens.border;
-    background: root.primary && root.danger
-        ? (touch.pressed ? Tokens.error.darker(0.2) : Tokens.error)
-        : root.primary
-        ? (touch.pressed ? Tokens.accent.darker(0.15) : Tokens.accent)
-        : root.selected
-            ? Tokens.surface-active
-            : (touch.pressed ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover : transparent);
-    opacity: root.enabled ? 1.0 : 0.5;
-    animate background { duration: Tokens.instant; }
-
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-enabled: root.enabled;
-    accessible-action-default => { root.clicked(); }
-
-    rang := HorizontalLayout {
-        x: 10px;
-        spacing: 6px;
-        if root.icon != "": Icon {
-            y: (parent.height - self.height) / 2;
-            data: root.icon;
-            size: 13px;
-            tint: root.primary && root.danger ? white
-                : root.primary ? Tokens.accent-text : Tokens.text-secondary;
-        }
-        Text {
-            text: root.text;
-            font-size: Tokens.size-small;
-            font-weight: root.primary || root.selected ? Tokens.weight-bold : Tokens.weight-body;
-            color: root.primary && root.danger ? white
-                : root.primary ? Tokens.accent-text : Tokens.text-secondary;
-            vertical-alignment: center;
-        }
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
+    size: ButtonSize.sm;
+    kind: root.primary && root.danger ? ButtonKind.danger
+        : root.primary ? ButtonKind.primary : ButtonKind.secondary;
 }
 
 // One event as a line: a bar of its calendar's colour, the time, the title.

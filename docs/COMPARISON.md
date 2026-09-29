@@ -20,7 +20,7 @@ the first afternoon, and never forgive".
 | Calendar | Month, week and day, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event |
 | Tasks | One-line entry, lists, subtasks, reminders, tasks made from conversations and events, undo |
 | Drafts | Saved to the server's Drafts folder, asked for when a started message is closed |
-| Home | A start page for the day: mail, queue, tasks due, the week's events |
+| Home | A start page for the day: one sentence on what waits, the next three events and tasks |
 | Navigation | Back and forward across mailboxes, folders, views and workspaces, mouse buttons included |
 | Many mailboxes | Tags that group, fold, order and filter them |
 

@@ -4,7 +4,10 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MessageData, MessageBlockData, BodyTileData } from "@iris/types.slint";
 import { Glass } from "@iris/base/glass.slint";
 import { LoadingLine } from "@iris/base/spinner.slint";
-import { ScrollView, Button } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Toolbar } from "@iris/layout/frames.slint";
+import { Hairline } from "@iris/base/atoms.slint";
 
 // Un bloc du corps du message.
 //
@@ -301,6 +304,8 @@ export component ConversationView inherits VerticalLayout {
     callback snooze();
     callback forward-thread();
     callback mark-done();
+    /// The conversation becomes a task.
+    callback to-task();
     callback toggle-message(int);
 
     /// A tile of a body painted by the full engine has come near the screen, or gone
@@ -351,103 +356,130 @@ export component ConversationView inherits VerticalLayout {
         }
     }
 
-    if !root.empty: VerticalLayout {
-        padding: Tokens.space-4;
-        spacing: Tokens.space-3;
+    // The toolbar, across the top of the reader: what moves the conversation on, in
+    // words with their keys, then what marks it, as icons. Every one of these was
+    // once reachable only from the palette or a key nobody had been told about.
+    if !root.empty: Toolbar {
+        vertical-stretch: 0;
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "Done";
+            label: "Mark as done";
+            icon: Icons.check;
+            shortcut: "E";
+            kind: ButtonKind.primary;
+            size: ButtonSize.sm;
+            clicked => { root.mark-done(); }
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "Archive";
+            icon: Icons.archive;
+            shortcut: "A";
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => { root.archive(); }
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "Snooze";
+            label: "Snooze until tomorrow";
+            icon: Icons.clock;
+            shortcut: "S";
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => { root.snooze(); }
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "To tasks";
+            label: "Make it a task";
+            icon: Icons.task;
+            shortcut: "T";
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => { root.to-task(); }
+        }
 
-        // En-tête.
+        Rectangle { horizontal-stretch: 1; }
+
+        // Forward opens the ordinary editor, subject and quote filled in, the
+        // recipient left empty: the one thing a forward cannot guess.
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.forward;
+            label: "Forward";
+            clicked => { root.forward-thread(); }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: root.unread ? Icons.envelope-closed : Icons.envelope-open;
+            label: root.unread ? "Mark as read" : "Mark as unread";
+            shortcut: "R";
+            clicked => { root.toggle-unread(); }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.star;
+            label: root.starred ? "Remove star" : "Star";
+            shortcut: "F";
+            active: root.starred;
+            clicked => { root.toggle-star(); }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.trash;
+            label: "Delete";
+            shortcut: "Shift+3";
+            danger: true;
+            clicked => { root.delete-thread(); }
+        }
+    }
+
+    if !root.empty: VerticalLayout {
+        padding-left: 28px;
+        padding-right: 28px;
+        padding-top: 22px;
+        padding-bottom: 16px;
+        spacing: 14px;
+
+        // The subject, large; under it who, from where, and how many.
         VerticalLayout {
-            spacing: 2px;
+            spacing: 6px;
+            vertical-stretch: 0;
             Text {
                 text: root.message.subject;
-                font-size: Tokens.size-title;
-                font-weight: Tokens.weight-bold;
+                font-family: Tokens.font-display;
+                font-size: 24px;
+                font-weight: 600;
                 color: Tokens.text;
                 wrap: word-wrap;
             }
             HorizontalLayout {
-                spacing: Tokens.space-2;
+                spacing: 10px;
                 Text {
                     text: root.message.from;
-                    font-size: Tokens.size-small;
-                    font-weight: Tokens.weight-bold;
+                    font-size: 12px;
+                    font-weight: 600;
                     color: Tokens.text-secondary;
                 }
                 Text {
                     text: root.message.from-address;
-                    font-size: Tokens.size-small;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+                if root.messages.length > 1: Text {
+                    text: root.messages.length + " messages";
+                    font-size: 12px;
                     color: Tokens.text-muted;
                 }
-                Rectangle {}
+                Rectangle { horizontal-stretch: 1; }
                 Text {
                     text: root.message.date;
-                    font-size: Tokens.size-small;
+                    font-size: 12px;
                     color: Tokens.text-muted;
                 }
-            }
-        }
-
-        // The toolbar. Every one of these was previously reachable only from the
-        // palette or a key nobody had been told about.
-        HorizontalLayout {
-            spacing: 2px;
-            vertical-stretch: 0;
-
-            IconButton {
-                icon: Icons.check;
-                label: "Mark as done";
-                shortcut: "E";
-                clicked => { root.mark-done(); }
-            }
-            IconButton {
-                icon: Icons.archive;
-                label: "Archive";
-                shortcut: "A";
-                clicked => { root.archive(); }
-            }
-            IconButton {
-                icon: Icons.clock;
-                label: "Snooze until tomorrow";
-                shortcut: "S";
-                clicked => { root.snooze(); }
-            }
-
-            // Transférer, qui n'existait nulle part.
-            //
-            // On pouvait répondre et rien d'autre : faire suivre un message à quelqu'un
-            // demandait de le recopier à la main. Le bouton ouvre l'éditeur ordinaire,
-            // sujet et citation déjà remplis, destinataire vide — c'est la seule chose
-            // qu'un transfert ne peut pas deviner.
-            IconButton {
-                icon: Icons.forward;
-                label: "Forward";
-                clicked => { root.forward-thread(); }
-            }
-
-            Rectangle { width: Tokens.space-2; }
-
-            IconButton {
-                icon: root.unread ? Icons.envelope-closed : Icons.envelope-open;
-                label: root.unread ? "Mark as read" : "Mark as unread";
-                shortcut: "R";
-                clicked => { root.toggle-unread(); }
-            }
-            IconButton {
-                icon: Icons.star;
-                label: root.starred ? "Remove star" : "Star";
-                shortcut: "F";
-                active: root.starred;
-                clicked => { root.toggle-star(); }
-            }
-
-            Rectangle {}
-
-            IconButton {
-                icon: Icons.trash;
-                label: "Delete";
-                shortcut: "Shift+3";
-                danger: true;
-                clicked => { root.delete-thread(); }
             }
         }
 
@@ -474,15 +506,20 @@ export component ConversationView inherits VerticalLayout {
                 opacity: 0.4 + 0.6 * root.entree;
                 animate y, opacity { duration: 200ms; easing: ease-out; }
 
-                for message[i] in root.messages: VerticalLayout {
-                    spacing: Tokens.space-2;
+                // Each message on a card of its own: the folded ones a quiet line,
+                // the open one framed, so the change of author reads at a glance.
+                for message[i] in root.messages: Rectangle {
+                    height: carte.preferred-height;
+                    border-radius: Tokens.radius-large;
+                    border-width: 1px;
+                    border-color: message.expanded ? Tokens.border-strong : Tokens.border;
+                    background: message.expanded ? transparent : Tokens.surface-low;
 
-                    // Un séparateur avant chaque message sauf le premier : c'est ce
-                    // qui dit qu'on change d'auteur sans avoir à relire l'en-tête.
-                    if i > 0: Rectangle {
-                        height: 1px;
-                        background: Tokens.border;
-                    }
+                carte := VerticalLayout {
+                    padding: message.expanded ? 16px : 4px;
+                    // With a header line above it, the header's own height is the margin.
+                    padding-top: root.messages.length > 1 ? 4px : 16px;
+                    spacing: 10px;
 
                     // L'en-tête, et la poignée qui déplie et replie — sauf quand il n'y
                     // a qu'un message.
@@ -605,6 +642,7 @@ export component ConversationView inherits VerticalLayout {
                             color: Tokens.text-muted;
                         }
                     }
+                } // carte
                 }
             }
         }
@@ -785,41 +823,54 @@ export component ConversationView inherits VerticalLayout {
         // La réponse est intégrée au bas du fil, jamais dans une fenêtre à part :
         // répondre est le geste qui fait avancer le workflow, il ne doit rien
         // recouvrir.
-        Glass {
-            elevated: true;
-            radius: Tokens.radius-medium;
-            height: 140px;
+        // One line until it is written in; it grows with what is written, up to a
+        // few lines.
+        Rectangle {
+            vertical-stretch: 0;
+            height: root.reply-text == "" ? 54px : 120px;
+            border-radius: Tokens.radius-large;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            background: Tokens.surface;
 
-            VerticalLayout {
-                padding: Tokens.space-2;
-                spacing: Tokens.space-2;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 8px;
 
                 TextArea {
+                    bare: true;
                     accessible-label: "Your reply";
                     text <=> root.reply-text;
                     placeholder-text: "Reply…";
-                    font-size: Tokens.size-body;
+                    font-size: 13px;
                 }
 
-                HorizontalLayout {
-                    spacing: Tokens.space-2;
-
-                    // Sent, the reply leaves the field; the notice at the bottom of
-                    // the window can take it back for a few seconds, text included.
-                    Button {
-                        text: "Send";
-                        primary: true;
-                        enabled: root.reply-text != "";
-                        clicked => { root.send(); }
+                VerticalLayout {
+                    alignment: end;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Button {
+                            text: "Reply all";
+                            icon: Icons.reply-all;
+                            kind: ButtonKind.ghost;
+                            size: ButtonSize.sm;
+                            enabled: root.reply-text != "";
+                            clicked => { root.reply-all(); }
+                        }
+                        // Sent, the reply leaves the field; the notice at the bottom
+                        // of the window can take it back for a few seconds.
+                        Button {
+                            text: "Send";
+                            icon: Icons.send;
+                            kind: ButtonKind.primary;
+                            size: ButtonSize.sm;
+                            enabled: root.reply-text != "";
+                            clicked => { root.send(); }
+                        }
                     }
-
-                    Button {
-                        text: "Reply all";
-                        enabled: root.reply-text != "";
-                        clicked => { root.reply-all(); }
-                    }
-
-                    Rectangle {}
                 }
             }
         }

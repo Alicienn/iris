@@ -6,6 +6,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ListView, ScrollView } from "std-widgets.slint";
 import { Nav, SectionTitle, SelectionMark } from "@iris/lists/nav.slint";
+import { Button, ButtonKind } from "@iris/controls/button.slint";
 
 component SectionLabel inherits SectionTitle {}
 
@@ -61,7 +62,7 @@ component AccountRow inherits Rectangle {
         triggered => { root.just-synced = false; }
     }
 
-    height: 26px;
+    height: 30px;
     border-radius: Tokens.radius-small;
     background: Nav.background(root.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
@@ -311,6 +312,8 @@ export component Sidebar inherits Glass {
     callback open-settings();
     callback open-modules();
     callback account-menu(int, length, length);
+    /// New message, from the top of the column.
+    callback compose();
 
     radius: 0px;
     border-width: 0px;
@@ -320,10 +323,36 @@ export component Sidebar inherits Glass {
     // was broken instead: the filter field can now shrink.
 
     VerticalLayout {
-        padding: Tokens.space-2;
-        spacing: Tokens.space-1;
+        padding: 10px;
+        padding-top: 12px;
+        spacing: 2px;
 
-        // --- Top row: filter, add, collapse ---
+        // Writing a message: the one thing here that makes something new rather than
+        // acting on what is there, first in the column as every mail client has it.
+        // Folded, its pencil alone.
+        if !root.collapsed: Button {
+            // The column, less its padding.
+            width: root.width - 20px;
+            text: "New message";
+            label: "Write a new message";
+            icon: Icons.pencil;
+            shortcut: "C";
+            kind: ButtonKind.primary;
+            clicked => { root.compose(); }
+        }
+        if root.collapsed: HorizontalLayout {
+            alignment: center;
+            IconButton {
+                icon: Icons.pencil;
+                label: "Write a new message";
+                shortcut: "C";
+                button-size: 28px;
+                clicked => { root.compose(); }
+            }
+        }
+        Rectangle { height: 8px; }
+
+        // --- Filter, add, collapse ---
         HorizontalLayout {
             spacing: Tokens.space-1;
             vertical-stretch: 0;
@@ -365,8 +394,6 @@ export component Sidebar inherits Glass {
             }
         }
 
-        if !root.collapsed: SectionLabel { text: "UNIFIED"; }
-
         AccountRow {
             compact: root.collapsed;
             account: {
@@ -384,7 +411,11 @@ export component Sidebar inherits Glass {
             sync => { root.sync-all(); }
         }
 
-        if !root.collapsed && root.pinned.length > 0: SectionLabel { text: "PINNED"; }
+        if !root.collapsed && root.pinned.length > 0: HorizontalLayout {
+            height: 30px;
+            padding-left: 10px;
+            SectionLabel { text: "Pinned"; }
+        }
 
         for account in root.pinned: AccountRow {
             account: account;
@@ -402,10 +433,11 @@ export component Sidebar inherits Glass {
         // The title of the list, and beside it the switch that groups it by tag: the
         // choice sits where its effect shows.
         if !root.collapsed: HorizontalLayout {
-            height: 18px;
+            height: 30px;
+            padding-left: 10px;
             vertical-stretch: 0;
             SectionLabel {
-                text: root.grouped ? "ACCOUNTS BY TAG" : "ACCOUNTS";
+                text: root.grouped ? "Accounts by tag" : "Accounts";
                 vertical-alignment: center;
             }
             Rectangle {}
@@ -413,8 +445,8 @@ export component Sidebar inherits Glass {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.tag;
                 label: root.grouped ? "Show accounts in one list" : "Group accounts by tag";
-                button-size: 18px;
-                icon-size: 11px;
+                button-size: 24px;
+                icon-size: 12px;
                 active: root.grouped;
                 tinted: root.grouped;
                 tint: Tokens.accent;
@@ -458,6 +490,10 @@ export component Sidebar inherits Glass {
             font-size: Tokens.size-small;
             color: Tokens.text-muted;
         }
+
+        // The folders, under the accounts: one column, read top to bottom, "this
+        // mailbox, in this folder".
+        @children
 
         // --- Bottom row: sync everything, and the way into settings ---
         Rectangle { height: 1px; background: Tokens.border; }

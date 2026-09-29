@@ -355,9 +355,11 @@ fn jetons(texte: &str, listes: &[TaskList], maintenant: NaiveDateTime) -> Vec<Ta
         jetons.push(TaskTokenData {
             kind: 1,
             text: liste.map_or(nom.as_str(), |l| l.name.as_str()).into(),
-            color: crate::calendar::couleur(liste.map_or(COULEURS[listes.len() % COULEURS.len()], |l| {
-                l.color.as_str()
-            })),
+            color: crate::calendar::couleur(
+                liste.map_or(COULEURS[listes.len() % COULEURS.len()], |l| {
+                    l.color.as_str()
+                }),
+            ),
             ..Default::default()
         });
     }

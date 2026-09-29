@@ -122,6 +122,55 @@ fn main() {
             true,
         ),
     ])));
+    f.set_counts(ModelRc::new(VecModel::from(vec![18, 4, 0])));
+    f.set_count_labels(ModelRc::new(VecModel::from(vec![
+        slint::SharedString::from("18"),
+        "4".into(),
+        "0".into(),
+    ])));
+
+    // An open conversation: an earlier message folded, the last one read.
+    let paragraphe = |t: &str| iris_ui::MessageBlockData {
+        kind: "paragraph".into(),
+        text: t.into(),
+        ..Default::default()
+    };
+    let dernier = iris_ui::MessageData {
+        id: 11,
+        from: "Jérôme Gauthier".into(),
+        from_address: "jerome@facades.example.com".into(),
+        to: "me".into(),
+        date: "Today 14:32".into(),
+        subject: "Devis façade — ajustements".into(),
+        expanded: true,
+        blocks: ModelRc::new(VecModel::from(vec![
+            paragraphe("Bonjour,"),
+            paragraphe(
+                "Je joins la version corrigée avec les quantités d'enduit revues à la \
+                 baisse, et l'option avec échafaudage compris.",
+            ),
+            paragraphe("Bien à vous,\nJérôme"),
+        ])),
+        attachments: ModelRc::new(VecModel::from(vec![iris_ui::AttachmentData {
+            name: "devis-facade-v2.pdf".into(),
+            size: "240 KB".into(),
+            kind: "PDF".into(),
+            icon: "file-text".into(),
+        }])),
+        ..Default::default()
+    };
+    let premier = iris_ui::MessageData {
+        id: 10,
+        from: "Jérôme Gauthier".into(),
+        date: "Thu".into(),
+        preview: "Voici le devis pour la façade, en deux options comme convenu".into(),
+        expanded: false,
+        ..Default::default()
+    };
+    f.set_selected_thread(1);
+    f.set_message(dernier.clone());
+    f.set_messages(ModelRc::new(VecModel::from(vec![premier, dernier])));
+    f.set_conversation_empty(false);
     f.show().unwrap();
 
     let theme = services.themes.active();

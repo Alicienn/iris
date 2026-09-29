@@ -19,8 +19,8 @@ Three stances set it apart:
 
 ## Status
 
-The foundation is complete and exercised: the suite holds about **1,470 tests** (1,346
-tests and 128 interface scenarios, measured for 1.1.0),
+The foundation is complete and exercised: the suite holds about **1,475 tests** (1,347
+tests and 128 interface scenarios, measured for 2.0.0),
 including those that genuinely put synchronisation, the plugin sandbox and the rendering
 engine at fault, and two headless interface suites driven by real pointer and key events.
 
@@ -150,21 +150,51 @@ Four workspaces share one window, switched from the title bar or with `Ctrl`+`0`
 `workspace.rs` fans the change out to every Rust follower, because Slint keeps only one
 handler per callback.
 
-**Home** (`home.rs`, `ui/home.slint`, 1.0.0, redrawn in 1.1.0) is read from the base
-when it shows, after each sync and each minute while it stays. Its one bold element is
-a dial of the day, drawn in a 212-unit square: midnight at the top, today's timed
-occurrences as arcs (`dial_arc` builds the SVG path commands in Rust, Slint strokes
-them), the elapsed day and the present. Beside it a sentence built from the unread
-count, the tasks due and the events left; below, one plate with three columns: the five
-latest conversations of the queue (`list_threads`, To do), today's events on a line down
-the hours with a marker for the present, the tasks due then "Next". Every line leads to
-its place. It opens first unless `home_at_startup` is off. Motion is one opening (the
-dial scales and fades in, the words follow) and the crown that travels round the dial
-while every account syncs; nothing else loops.
+### Components in layers (2.0.0)
 
-Screens are built from `ui/kit.slint`: `Button` (primary, secondary, ghost),
-`OpenLink`, `ColumnHeader`, `CheckCircle`, `Avatar`, `PriorityTag`, `SubTitle`, each with
-its hover and pressed states drawn once. Icons are stroked with round caps and joins.
+The interface files sit in layer folders under `crates/iris-ui/ui/`, imported through the
+`@iris` library path (`build.rs` maps it to that folder), so a file's imports read the
+same wherever it lives. A layer only imports the ones above it in this list:
+
+| Folder | Holds |
+|---|---|
+| `theme/` | `Tokens` (colours, sizes, radii, fonts), `Type` (the named text styles and tones) |
+| `base/` | icons, glass, spinner, and the atoms: `Label`, `Dot`, `Kbd`, `Hairline`, `Avatar` |
+| `controls/` | `Button` (primary, secondary, ghost, danger; two sizes; its key), `Link`, `Segmented`, `QueueTabs`, `Pill`, `Check`, `Toggle`, `PriorityTag`, the text fields |
+| `lists/` | `NavItem`, `SectionTitle`, `SelectionMark` (the side columns), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
+| `layout/` | `Rail`, `PageHeader`, `Plate`, `DetailPanel`, `Toolbar`, `EmptyState`, `Modal` + `ModalFooter`, `Popover`, menus |
+| `shell/` | title bar, toast |
+| `screens/` | one file per screen, and its panels |
+
+`types.slint` (the data crossing from Rust) and `app.slint` (the window) stay at the root.
+`crates/iris-ui/tests/architecture.rs` holds the rules: a layer imports only the ones
+before it, screens write no colour of their own (black shadows aside), and no field is
+the style's `LineEdit` or `TextEdit`.
+Every window over the others is a `Modal`: one veil, one card, one close button, one
+`Escape`. A card beside what it is about (an event in the week) is a `Popover`. Each
+control draws its hover and pressed states once; screens do not. Icons are stroked with
+round caps and joins.
+
+The screens were redrawn in 2.0.0 from HTML mockups kept outside the repository, each
+port captured with its `apercu_*` example and compared with its mockup side by side.
+
+**Home** (`home.rs`, `screens/home.slint`, 1.0.0, redrawn in 1.1.0 and 2.0.0) is read
+from the base when it shows, after each sync and each minute while it stays. It holds
+the date, a greeting, a sentence built from the unread count, the tasks due and the
+events left, then **Next**: at most three things of the day, events and tasks merged in
+the order of their hours, late tasks first, untimed ones last (`home::day`). Three links
+lead to Mail, Tasks and Calendar with their counts. It opens first unless
+`home_at_startup` is off. Its one motion is the words coming up when it opens.
+
+**Tasks** puts above the list, on Today, a date block and the day's calendar
+(`calendar::upcoming`), and in the header the day's progress; all of it travels as one
+`TaskOverviewData`. The rail ends on the tasks done this week, a bar a day, counted from
+`done_at`. The add line parses what is typed at each keystroke (`iris_tasks::parse`) and
+shows what it understood as tokens before `Enter`.
+
+**Calendar** opens an event clicked in the grid in a `Popover` beside it: the grid
+reports where the event is (`event-anchored`) before it opens it. Opened from Home or a
+task, the same card comes up in the middle; the anchor is forgotten when the card closes.
 
 **Back and forward** (`nav.rs`, 1.0.0). A place is the workspace plus what each one last
 showed: the mailbox or tag, folder and tab of the mail, the tasks' view, the calendar's
@@ -173,15 +203,19 @@ is a step; Back and Forward replay a place through the window's own callbacks, w
 recording off. The mouse's buttons, two arrows beside the window buttons, `Alt`+`←` and
 `Alt`+`→`, 100 steps kept.
 
-Mail is three columns: accounts, work queue, conversation with a built-in reply. Each
-sender gets a round mark with their initials and a stable tint; unread mail a dot. The
-accounts group under their tags by default: a tag's title folds its accounts (the folded
-tags are a setting) and a click on it filters the queue to its mailboxes, through the
-same `FilterAccounts` request as one mailbox. Tags keep the order they are dragged into.
+Mail is three columns: accounts with the folders under them (one column since 2.0.0,
+with **New message** at its top), the work queue, and the conversation with its toolbar
+and a built-in reply. The queue's tabs are the list's title (`QueueTabs`); rows are two
+lines (48 px at normal density, 38 compact, 62 comfortable with the excerpt on a third
+line). Each sender gets a round mark with their initials and a stable tint, the mailbox a
+dot, unread mail a dot in the margin. The accounts group under their tags by default: a
+tag's title folds its accounts (the folded tags are a setting) and a click on it filters
+the queue to its mailboxes, through the same `FilterAccounts` request as one mailbox.
+Tags keep the order they are dragged into.
 
-The three side columns share `ui/nav.slint`: one selection mark (a short pill inside the
-row, clear of its rounded corners), one hover, one section title. Only the height
-differs: 26 px in the mail, which lists a hundred mailboxes, 32 px elsewhere. Panels
+The three side columns share `lists/nav.slint`: one selection mark (a short pill inside
+the row, clear of its rounded corners), one hover, one section title in sentence case.
+Rows are 30 px in the mail, which lists a hundred mailboxes, 32 px elsewhere. Panels
 docked to the window's edge are square, with a hairline between them; only floating
 cards are rounded.
 
@@ -200,8 +234,9 @@ These rules come from bugs users hit, and each has a scenario in
 - Home, calendar and tasks have their own keys (Home has none) and accept them, so a
   mail key like `E` never acts on a thread that is not on screen. `Ctrl`+`Z` in Tasks
   brings back the last task deleted, not a mail action.
-- Text fields are `TextField` / `TextArea` from `ui/field.slint`: focus shows on the
-  border, never the background, and AltGr characters are accepted.
+- Text fields are `TextField` / `TextArea` from `controls/field.slint`: focus shows on
+  the border, never the background, and AltGr characters are accepted. A field inside a
+  frame that shows the focus itself (the task add line, the reply) is `bare`.
 
 ### Rendering
 

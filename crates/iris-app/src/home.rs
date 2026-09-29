@@ -190,7 +190,11 @@ pub fn day(services: &Services, max: usize) -> Journee {
                 id: t.id as i32,
                 title: t.task.title.as_str().into(),
                 meta: heure.into(),
-                hint: if en_retard { "late".into() } else { Default::default() },
+                hint: if en_retard {
+                    "late".into()
+                } else {
+                    Default::default()
+                },
                 overdue: en_retard,
                 priority: t.task.priority,
                 ..Default::default()

@@ -4,6 +4,7 @@ import { ThreadRowData } from "@iris/types.slint";
 import { ListView } from "std-widgets.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { QueueTabs, Pill } from "@iris/controls/choice.slint";
 
 // Une ligne de la liste.
 //
@@ -33,19 +34,31 @@ component ThreadRow inherits Rectangle {
     /// le survol, ni l'ordre de déclaration, ni le clic lui-même. La bande couvre la
     /// case et sa gouttière, parce que viser quinze pixels demande de la précision et
     /// que rater vers la droite ouvrirait le message.
-    property <length> checkbox-zone: Tokens.row-padding-x + 15px + Tokens.space-2;
+    property <length> checkbox-zone: root.inset + Tokens.row-padding-x + root.lead + 6px;
     callback context-menu(length, length);
 
     height: Tokens.row-height;
-    /// Too short for three lines of text: two, and no initials.
-    property <bool> compact: root.height < 50px;
+    /// Short rows (compact density): no initials, the tick box alone leads.
+    property <bool> compact: root.height < 44px;
+    /// Tall rows (comfortable): the excerpt gets a line of its own.
+    property <bool> airy: root.height >= 60px;
+    property <length> lead: root.compact ? 15px : 28px;
+    /// The row is a card inside the list, clear of its edges.
+    property <length> inset: 8px;
     // Whatever happens inside, nothing is drawn over the next row.
     clip: true;
-    background: root.selected
-        ? Tokens.surface-active
-        : (row-touch.has-hover ? Tokens.surface-hover : transparent);
 
-    animate background { duration: Tokens.instant; }
+    fond := Rectangle {
+        x: root.inset;
+        y: 1px;
+        width: parent.width - 2 * root.inset;
+        height: parent.height - 2px;
+        border-radius: Tokens.radius-medium;
+        background: root.selected
+            ? Tokens.surface-active
+            : (row-touch.has-hover ? Tokens.surface-hover : transparent);
+        animate background { duration: Tokens.instant; }
+    }
 
     // Ce qu'un lecteur d'écran annonce. L'ordre suit celui de la lecture visuelle —
     // qui écrit, à quel sujet, quand — parce que c'est l'ordre dans lequel on décide
@@ -57,29 +70,14 @@ component ThreadRow inherits Rectangle {
     accessible-item-selectable: true;
     accessible-action-default => { root.clicked(); }
 
-    // Le marqueur de sélection : un trait vertical, pas un fond coloré. Sur une
-    // liste dense, un aplat de couleur écrase la lisibilité du texte.
-    Rectangle {
-        x: 0;
-        width: root.selected ? 2px : 0px;
-        height: 100%;
-        background: Tokens.accent;
-        animate width { duration: Tokens.instant; }
-    }
-
-    // Pastille d'identité du compte, à gauche. Indispensable en vue unifiée : sans
-    // elle, cent boîtes se ressemblent toutes.
-    //
-    // Pleine opacité et un pixel de plus. Elle faisait trois pixels à 80 %, sur une
-    // teinte déjà pâle : la somme des deux discrétions donnait une barre qu'on ne
-    // voyait pas, c'est-à-dire trois pixels de marge et aucune information.
-    Rectangle {
-        x: Tokens.space-1;
+    // Unread: a dot in the margin, outside the card, where the eye runs down the list.
+    if root.data.unread: Rectangle {
+        x: 2px;
         y: (parent.height - self.height) / 2;
-        width: 4px;
-        height: 28px;
-        border-radius: 2px;
-        background: root.data.account-tint;
+        width: 5px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Tokens.text;
     }
 
     // Le glisser vers un dossier.
@@ -175,74 +173,59 @@ component ThreadRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: Tokens.row-padding-x;
-        padding-right: Tokens.row-padding-x;
-        spacing: Tokens.space-2;
+        padding-left: root.inset + Tokens.row-padding-x - 2px;
+        padding-right: root.inset + Tokens.row-padding-x - 2px;
+        spacing: 10px;
 
-        // La case à cocher, **toujours** présente et rarement visible.
-        //
-        // Elle n'était dessinée qu'au survol, ce qui la faisait scintiller pour deux
-        // raisons qui s'additionnaient. Elle avait sa propre zone tactile : passer
-        // dessus retirait le survol à la ligne, la condition devenait fausse, la case
-        // disparaissait, la ligne récupérait le survol, la case revenait — une boucle,
-        // à la fréquence de l'affichage. Et comme elle entrait et sortait d'une mise en
-        // page, tout le contenu de la ligne se décalait de vingt-trois pixels à chaque
-        // aller-retour.
-        //
-        // Les deux disparaissent en réservant la place une fois pour toutes : la case
-        // occupe sa colonne en permanence, le survol ne change que son opacité, et rien
-        // ne bouge. C'est aussi ce que fait toute liste de courrier qui tient la route,
-        // pour la même raison.
+        // What leads the row: the sender's face, and in its place the tick box when
+        // the pointer is over the row or a batch is being made. One column, always
+        // there: nothing moves when the box appears (a box that entered the layout
+        // pushed the whole row sideways at every hover).
         Rectangle {
-            width: 15px;
-            height: 15px;
-            y: (parent.height - self.height) / 2;
-            border-radius: 4px;
-            border-width: 1px;
-            border-color: root.data.marked ? Tokens.accent : Tokens.border-strong;
-            background: root.data.marked ? Tokens.accent : transparent;
+            width: root.lead;
 
-            // Zéro quand personne ne regarde. Une case invisible occupe toujours sa
-            // colonne : ce qui apparaît est un dessin, pas un élément de mise en page.
-            opacity: root.data.marked || root.selection-mode || row-touch.has-hover
-                ? 1.0
-                : 0.0;
-            animate opacity { duration: Tokens.instant; }
+            // The sender's mark: initials on a circle of their own colour. A list is
+            // read by faces before names, and the same sender keeps the same mark.
+            if !root.compact && root.data.initials != "": Rectangle {
+                width: 28px;
+                height: 28px;
+                border-radius: 14px;
+                background: root.data.sender-tint.transparentize(0.84);
+                opacity: root.data.marked || root.selection-mode || row-touch.has-hover ? 0 : 1;
 
-            accessible-role: checkbox;
-            accessible-label: "Select this conversation";
-            accessible-checked: root.data.marked;
-            accessible-action-default => { root.mark-toggled(); }
-
-            if root.data.marked: Icon {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                data: Icons.check;
-                size: 11px;
-                weight: 3.0;
-                tint: Tokens.accent-text;
+                Text {
+                    text: root.data.initials;
+                    font-size: 10px;
+                    font-weight: 600;
+                    color: root.data.sender-tint;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
-        }
 
-        // The sender's mark: initials on a circle of their own colour. A list is read
-        // by faces before names, and the same sender keeps the same mark everywhere.
-        // Left out when the row is too short to hold it (compact density).
-        if !root.compact && root.data.initials != "": Rectangle {
-            y: (parent.height - self.height) / 2;
-            width: 28px;
-            height: 28px;
-            border-radius: 14px;
-            background: root.data.sender-tint.transparentize(0.78);
-            border-width: 1px;
-            border-color: root.data.sender-tint.transparentize(0.6);
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border-width: 1.5px;
+                border-color: root.data.marked ? Tokens.accent : Tokens.border-strong;
+                background: root.data.marked ? Tokens.accent : transparent;
+                opacity: root.data.marked || root.selection-mode || row-touch.has-hover
+                    ? 1.0
+                    : 0.0;
+                animate opacity { duration: Tokens.instant; }
 
-            Text {
-                text: root.data.initials;
-                font-size: 10px;
-                font-weight: Tokens.weight-bold;
-                color: root.data.sender-tint;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                accessible-role: checkbox;
+                accessible-label: "Select this conversation";
+                accessible-checked: root.data.marked;
+                accessible-action-default => { root.mark-toggled(); }
+
+                if root.data.marked: Icon {
+                    data: Icons.check;
+                    size: 11px;
+                    weight: 3.0;
+                    tint: Tokens.accent-text;
+                }
             }
         }
 
@@ -254,135 +237,130 @@ component ThreadRow inherits Rectangle {
             // Centred rather than padded: fixed padding plus the lines came to more
             // than the row, and what did not fit was the bottom of the excerpt, its
             // j, g and ç. The margin is whatever the row has left over.
-            spacing: root.compact ? 1px : 2px;
+            spacing: 1px;
             alignment: center;
+            horizontal-stretch: 1;
+            min-width: 0;
 
-            // Ligne du haut : expéditeur, marqueurs, date.
+            // First line: the mailbox's dot, the sender, how many messages, the date.
             HorizontalLayout {
-                spacing: Tokens.space-2;
+                spacing: 6px;
 
-                Text {
-                    text: root.data.from;
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-body;
-                    font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
-                    color: Tokens.text;
-                    overflow: elide;
-                }
-
-                // Unread, said by a dot right after the name as well as by the weight:
-                // bold alone is easy to miss on a dense list.
-                if root.data.unread: Rectangle {
+                // The mailbox, as the dot it has in the accounts column: in the
+                // unified view a hundred mailboxes would otherwise look alike.
+                Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 7px;
                     height: 7px;
                     border-radius: 3.5px;
-                    background: Tokens.accent;
-                }
-
-                // Compteur de messages du fil. Absent quand il n'y en a qu'un :
-                // afficher « 1 » partout n'apprend rien et encombre.
-                if root.data.message-count > 1: Text {
-                    text: root.data.message-count;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-
-                Rectangle {} // pousse la suite à droite
-
-                // Drawn, not typed. These four were "◆▣◉⏱" — characters that exist
-                // in Unicode and in almost no interface font, so what appeared next
-                // to the date was whatever the fallback had, and where it had
-                // nothing, an empty box. A starred thread showed a lozenge because
-                // the lozenge is the one of the four that Inter happens to carry.
-                if root.data.flagged: Icon {
-                    y: (parent.height - self.height) / 2;
-                    data: Icons.star;
-                    size: 13px;
-                    filled: true;
-                    tint: Tokens.warning;
-                }
-                if root.data.has-attachment: Icon {
-                    y: (parent.height - self.height) / 2;
-                    data: Icons.paperclip;
-                    size: 13px;
-                    tint: Tokens.text-muted;
-                }
-                // Le traqueur se signale par la forme, pas par la couleur : le thème
-                // par défaut n'en a pas.
-                if root.data.has-tracker: Icon {
-                    y: (parent.height - self.height) / 2;
-                    data: Icons.eye;
-                    size: 13px;
-                    tint: Tokens.text-muted;
-                }
-                if root.data.snoozed: Icon {
-                    y: (parent.height - self.height) / 2;
-                    data: Icons.clock;
-                    size: 13px;
-                    tint: Tokens.text-muted;
+                    background: root.data.account-tint;
                 }
 
                 Text {
-                    text: root.data.date;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-            }
-
-            if !root.compact: Text {
-                text: root.data.subject;
-                font-family: Tokens.font-family;
-                font-size: Tokens.size-body;
-                font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
-                color: root.data.unread ? Tokens.text : Tokens.text-secondary;
-                overflow: elide;
-            }
-
-            if !root.compact: Text {
-                text: root.data.preview;
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
-                overflow: elide;
-            }
-
-            // Compact: the subject, then as much of the excerpt as fits after it.
-            if root.compact: HorizontalLayout {
-                spacing: Tokens.space-2;
-                sujet := Text {
-                    text: root.data.subject;
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-body;
-                    font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
+                    text: root.data.from;
+                    font-size: 13px;
+                    font-weight: root.data.unread ? 600 : 400;
                     color: root.data.unread ? Tokens.text : Tokens.text-secondary;
                     overflow: elide;
                     horizontal-stretch: 0;
                     max-width: self.preferred-width;
                 }
+
+                // Messages in the thread, left out at one: "1" everywhere says nothing.
+                if root.data.message-count > 1: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: nombre.preferred-width + 10px;
+                    height: 15px;
+                    border-radius: 7.5px;
+                    border-width: 1px;
+                    border-color: Tokens.border-strong;
+                    nombre := Text {
+                        text: root.data.message-count;
+                        font-size: 10px;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
                 Text {
+                    text: root.data.date;
+                    font-size: 11px;
+                    font-weight: root.data.unread ? 600 : 400;
+                    color: root.data.unread ? Tokens.text : Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Second line: the subject, then as much of the excerpt as fits, then
+            // the marks. Tall rows give the excerpt a line of its own.
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.data.subject;
+                    font-size: 13px;
+                    font-weight: root.data.unread ? 600 : 400;
+                    color: root.data.unread ? Tokens.text : Tokens.text-secondary;
+                    overflow: elide;
+                    horizontal-stretch: root.airy ? 1 : 0;
+                    max-width: root.airy ? 10000px : self.preferred-width;
+                }
+                if !root.airy: Text {
                     text: root.data.preview;
-                    font-size: Tokens.size-small;
+                    font-size: 12px;
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
                     min-width: 0px;
                 }
+                // Drawn, not typed: symbol characters are missing from most
+                // interface fonts, and came out as empty boxes.
+                if root.data.has-attachment: Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    data: Icons.paperclip;
+                    size: 12px;
+                    tint: Tokens.text-muted;
+                }
+                // The tracker is told by its shape: the default theme has no colour
+                // for it.
+                if root.data.has-tracker: Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    data: Icons.eye;
+                    size: 12px;
+                    tint: Tokens.text-muted;
+                }
+                if root.data.snoozed: Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    data: Icons.clock;
+                    size: 12px;
+                    tint: Tokens.text-muted;
+                }
+                if root.data.flagged: Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    data: Icons.star;
+                    size: 12px;
+                    filled: true;
+                    tint: Tokens.warning;
+                }
+            }
+
+            if root.airy: Text {
+                text: root.data.preview;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                overflow: elide;
             }
         }
     }
 
     } // drag
-
-    Rectangle {
-        y: parent.height - 1px;
-        height: 1px;
-        background: Tokens.border;
-        opacity: 0.5;
-    }
-
 }
 
 // The menu a right-click opens.
@@ -664,138 +642,6 @@ export component BulkBar inherits Rectangle {
     }
 }
 
-// Les onglets d'état.
-// Une pastille de filtre : allumée ou éteinte, et elle le dit.
-//
-// La même forme que les onglets qu'elle accompagne, en plus petit — ce sont deux
-// réducteurs de la même liste, et leur donner deux apparences ferait croire à deux
-// mécanismes distincts.
-component FilterChip inherits Rectangle {
-    in property <string> label;
-    in property <string> icon;
-    in property <bool> active;
-
-    callback toggled();
-
-    width: contenu.preferred-width + 2 * Tokens.space-2;
-    border-radius: Tokens.radius-small;
-    background: root.active
-        ? Tokens.accent
-        : (touch.has-hover ? Tokens.surface-hover : transparent);
-    border-width: root.active ? 0px : 1px;
-    border-color: Tokens.border;
-    animate background { duration: Tokens.instant; }
-
-    accessible-role: checkbox;
-    accessible-label: root.label;
-    accessible-checked: root.active;
-    accessible-action-default => { root.toggled(); }
-
-    contenu := HorizontalLayout {
-        x: Tokens.space-2;
-        spacing: 4px;
-
-        Icon {
-            y: (parent.height - self.height) / 2;
-            data: root.icon;
-            size: 11px;
-            filled: root.active;
-            tint: root.active ? Tokens.accent-text : Tokens.text-muted;
-        }
-        Text {
-            text: root.label;
-            font-size: Tokens.size-small;
-            font-weight: root.active ? Tokens.weight-bold : Tokens.weight-body;
-            color: root.active ? Tokens.accent-text : Tokens.text-secondary;
-            vertical-alignment: center;
-        }
-    }
-
-    touch := TouchArea {
-        clicked => { root.toggled(); }
-    }
-}
-
-export component StateTabs inherits HorizontalLayout {
-    in property <int> active;
-    in property <[int]> counts;
-    // The same counts twice: short enough for the pill, and exact for the hover.
-    // "1.2k" is what a tab can hold; "1 250" is what someone checking actually wants,
-    // and making them choose between the two is what a tooltip is for.
-    in property <[string]> count-labels;
-    in property <[string]> count-fulls;
-
-    callback selected(int);
-
-    padding: 3px;
-    spacing: 2px;
-    vertical-stretch: 0;
-    height: 30px;
-
-    for label[i] in ["To do", "Waiting", "Done"]: Rectangle {
-        border-radius: Tokens.radius-small;
-
-        accessible-role: tab;
-        accessible-label: label;
-        accessible-description: root.counts[i] + " conversations";
-        accessible-item-selected: root.active == i;
-        accessible-action-default => { root.selected(i); }
-
-        background: root.active == i
-            ? Tokens.accent
-            : (tab-touch.has-hover ? Tokens.surface-hover : Tokens.surface);
-        animate background { duration: Tokens.instant; }
-
-        HorizontalLayout {
-            padding-left: Tokens.space-3;
-            padding-right: Tokens.space-3;
-            spacing: Tokens.space-2;
-
-            Text {
-                text: label;
-                font-size: Tokens.size-small;
-                font-weight: root.active == i
-                    ? Tokens.weight-bold
-                    : Tokens.weight-body;
-                color: root.active == i
-                    ? Tokens.accent-text
-                    : Tokens.text-secondary;
-                vertical-alignment: center;
-            }
-
-            // Le compteur n'apparaît que s'il y a quelque chose à compter. Un « 0 »
-            // permanent est un bruit visuel sans information.
-            if root.counts[i] > 0: Text {
-                text: root.count-labels[i];
-                font-size: Tokens.size-small;
-                color: root.active == i
-                    ? Tokens.accent-text
-                    : Tokens.text-muted;
-                vertical-alignment: center;
-            }
-        }
-
-        tab-touch := TouchArea {
-            clicked => { root.selected(i); }
-        }
-
-        // Only where the shortening actually hid something. A tooltip that repeats
-        // the label teaches the user that tooltips are not worth waiting for.
-        // L'élément natif, comme partout ailleurs : composé au-dessus de tout et
-        // replié dans la fenêtre. Le rectangle qu'il remplace passait sous la liste
-        // et pouvait sortir de l'écran.
-        if root.count-labels[i] != root.count-fulls[i]: Tooltip {
-            text: @markdown("\{root.count-fulls[i]}");
-        }
-    }
-
-    // Rien après les trois files. Les indésirables avaient un quatrième onglet ici,
-    // ce qui en faisait une quatrième étape du travail alors que c'est un endroit où
-    // le courrier est rangé — comme la corbeille, qui n'a jamais eu d'onglet. Ils sont
-    // dans l'arborescence maintenant, à leur place.
-    Rectangle {}
-}
-
 // La barre de recherche.
 //
 // Elle est au-dessus des onglets et non dans une fenêtre à part : chercher, c'est
@@ -815,10 +661,10 @@ export component SearchBar inherits VerticalLayout {
         field.select-all();
     }
 
-    padding-left: Tokens.space-2;
-    padding-right: Tokens.space-2;
-    padding-top: Tokens.space-2;
-    spacing: Tokens.space-1;
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-top: 12px;
+    spacing: 4px;
 
     // Take the height it needs and no more. Inside a vertical layout every child
     // stretches by default, so with an empty list the search field was inflating to
@@ -826,14 +672,16 @@ export component SearchBar inherits VerticalLayout {
     vertical-stretch: 0;
 
     HorizontalLayout {
-        spacing: Tokens.space-1;
+        spacing: 4px;
         vertical-stretch: 0;
-        height: 30px;
+        height: 34px;
 
         field := TextField {
             accessible-label: "Search";
-            placeholder-text: "Search, e.g. from:marie is:unread…";
-            font-size: Tokens.size-small;
+            placeholder-text: "Search, from:marie is:unread";
+            icon: Icons.search;
+            shortcut: "Ctrl F";
+            font-size: 13px;
             text <=> root.query;
             accepted(t) => { root.submitted(t); }
             // Vider le champ suffit à sortir : demander un second geste pour revenir
@@ -1048,48 +896,28 @@ export component ThreadListView inherits VerticalLayout {
         }
     }
 
-    if !root.searching && root.marked-count == 0 && root.folder-name == "": Rectangle {
+    // The three queues are the list's title: the one shown large, the others quiet
+    // beside it, each with what it holds.
+    if !root.searching && root.marked-count == 0 && root.folder-name == "": HorizontalLayout {
         vertical-stretch: 0;
-        height: 38px;
+        height: 46px;
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 8px;
+        padding-bottom: 4px;
 
-        Rectangle {
-            x: Tokens.space-2;
-            y: 4px;
-            width: parent.width - 2 * Tokens.space-2;
-            height: 30px;
-            border-radius: Tokens.radius-medium;
-            background: Tokens.surface-low;
-            border-width: 1px;
-            border-color: Tokens.border;
-
-            // The same short fall of light the glass panels get, so the strip belongs
-            // to the same material as everything around it.
-            // Inside the border by a pixel, with the curve a pixel tighter: drawn
-            // over it, its corners crossed the outer ones.
-            Rectangle {
-                x: 1px;
-                y: 1px;
-                height: 12px;
-                width: parent.width - 2px;
-                border-top-left-radius: Tokens.radius-medium - 1px;
-                border-top-right-radius: Tokens.radius-medium - 1px;
-                background: @linear-gradient(180deg,
-                    Tokens.edge-light.transparentize(0.82) 0%,
-                    Tokens.edge-light.transparentize(1.0) 100%);
-            }
+        QueueTabs {
+            names: ["To do", "Waiting", "Done"];
+            counts: root.count-labels;
+            descriptions: [
+                (root.counts.length > 0 ? root.counts[0] : 0) + " conversations",
+                (root.counts.length > 1 ? root.counts[1] : 0) + " conversations",
+                (root.counts.length > 2 ? root.counts[2] : 0) + " conversations",
+            ];
+            selected: root.active-tab;
+            chosen(i) => { root.tab-selected(i); }
         }
-
-        StateTabs {
-            x: Tokens.space-2;
-            y: 4px;
-            width: parent.width - 2 * Tokens.space-2;
-            height: 30px;
-            active: root.active-tab;
-            counts: root.counts;
-            count-labels: root.count-labels;
-            count-fulls: root.count-fulls;
-            selected(i) => { root.tab-selected(i); }
-        }
+        Rectangle { horizontal-stretch: 1; }
     }
 
     // Les filtres rapides.
@@ -1103,28 +931,28 @@ export component ThreadListView inherits VerticalLayout {
     // au-dessus rendrait indevinable ce qui est montré.
     if !root.searching && root.marked-count == 0: HorizontalLayout {
         vertical-stretch: 0;
-        height: 26px;
-        padding-left: Tokens.space-2;
-        padding-right: Tokens.space-2;
-        padding-bottom: 2px;
-        spacing: Tokens.space-1;
+        height: 34px;
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-bottom: 6px;
+        spacing: 6px;
 
-        FilterChip {
-            label: "Unread";
+        Pill {
+            text: "Unread";
             icon: Icons.envelope-closed;
-            active: root.filter-unread;
+            on: root.filter-unread;
             toggled => { root.filter-toggled("unread"); }
         }
-        FilterChip {
-            label: "Attachments";
+        Pill {
+            text: "Attachments";
             icon: Icons.paperclip;
-            active: root.filter-attachments;
+            on: root.filter-attachments;
             toggled => { root.filter-toggled("attachments"); }
         }
-        FilterChip {
-            label: "Starred";
+        Pill {
+            text: "Starred";
             icon: Icons.star;
-            active: root.filter-starred;
+            on: root.filter-starred;
             toggled => { root.filter-toggled("starred"); }
         }
 
@@ -1152,11 +980,6 @@ export component ThreadListView inherits VerticalLayout {
                 clicked => { root.filter-toggled("none"); }
             }
         }
-    }
-
-    Rectangle {
-        height: 1px;
-        background: Tokens.border;
     }
 
     // La liste et son message de vide partagent une même case, au lieu d'être deux

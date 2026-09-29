@@ -6,45 +6,8 @@ import { RuleRowData, PluginRowData } from "@iris/types.slint";
 import { PluginSettingsBody, PluginSettingData } from "@iris/screens/plugins.slint";
 import { Modal } from "@iris/layout/frames.slint";
 import { ListView, CheckBox } from "std-widgets.slint";
-
-// A section heading.
-component GroupLabel inherits Text {
-    font-size: 9px;
-    letter-spacing: 1px;
-    color: Tokens.text-muted;
-}
-
-// A small text button.
-component SmallButton inherits Rectangle {
-    in property <string> label;
-    in property <bool> danger;
-
-    callback clicked();
-
-    height: 24px;
-    border-radius: Tokens.radius-small;
-    background: touch.has-hover ? Tokens.surface-hover : Tokens.surface;
-    animate background { duration: Tokens.instant; }
-
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-action-default => { root.clicked(); }
-
-    HorizontalLayout {
-        padding-left: Tokens.space-2;
-        padding-right: Tokens.space-2;
-        Text {
-            text: root.label;
-            font-size: Tokens.size-small;
-            color: root.danger ? Tokens.error : Tokens.text-secondary;
-            vertical-alignment: center;
-        }
-    }
-
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { SectionTitle } from "@iris/lists/nav.slint";
 
 // One rule in the list.
 //
@@ -104,13 +67,17 @@ component RuleRow inherits Rectangle {
             }
         }
 
-        SmallButton {
-            label: "Try it";
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "Try it";
+            size: ButtonSize.sm;
             clicked => { root.simulate(); }
         }
-        SmallButton {
-            label: "Delete";
-            danger: true;
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "Delete";
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
             clicked => { root.removed(); }
         }
     }
@@ -243,8 +210,12 @@ export component ModulesPanel inherits Rectangle {
             // Le retour, et non une croix : on est descendu d'un cran dans la même
             // fenêtre, et ce qu'on veut est remonter, pas tout fermer.
             if root.settings-plugin != "": HorizontalLayout {
-                SmallButton {
+                Button {
+                    text: "Modules";
                     label: "‹ Modules";
+                    icon: Icons.chevron-left;
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
                     clicked => { root.settings-closed(); }
                 }
                 Rectangle {}
@@ -263,7 +234,7 @@ export component ModulesPanel inherits Rectangle {
             if root.settings-plugin == "": VerticalLayout {
             spacing: Tokens.space-3;
 
-            GroupLabel { text: "RULES"; }
+            SectionTitle { text: "Rules"; }
 
             // Creating a rule is deliberately one line: sender and a name. Anything
             // richer belongs in an editor, and an editor nobody opens is worse than a
@@ -284,8 +255,10 @@ export component ModulesPanel inherits Rectangle {
                     text <=> root.new-rule-sender;
                     accepted => { root.rule-added(); }
                 }
-                SmallButton {
-                    label: "Add rule";
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Add rule";
+                    size: ButtonSize.sm;
                     clicked => { root.rule-added(); }
                 }
             }
@@ -317,10 +290,13 @@ export component ModulesPanel inherits Rectangle {
 
             HorizontalLayout {
                 spacing: Tokens.space-1;
-                GroupLabel { text: "PLUGINS"; }
+                SectionTitle { text: "Plugins"; }
                 Rectangle {}
-                SmallButton {
-                    label: "Reload";
+                Button {
+                    text: "Reload";
+                    icon: Icons.refresh;
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
                     clicked => { root.plugins-reloaded(); }
                 }
             }

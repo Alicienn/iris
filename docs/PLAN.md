@@ -411,3 +411,23 @@ The mockups are a working tool and stay out of the repository.
 - [x] **S38.2** `ui/kit.slint`: buttons, links, column headers, checks, avatars and
       priority tags drawn once, with their states.
 - [x] **S38.3** Icons stroked with round caps and joins.
+
+## E39 — One set of parts for every screen (2.0.0)
+
+Ten kinds of buttons, five checks, five section titles, four side-column rows and seven
+window frames had grown screen by screen. They are now one set, in layers, and every
+screen is drawn again from an approved mockup with it.
+
+- [x] **S39.1** Interface files in layer folders (theme, base, controls, lists, layout,
+      shell, screens), imported through `@iris`.
+- [x] **S39.2** The shared parts: text styles, atoms, one `Button`, `Segmented`,
+      `QueueTabs`, `Pill`, `Check`, `NavItem`, list rows, frames, `Modal`, `Popover`.
+- [x] **S39.3** One `Modal` for every window (settings, modules, changelog, account,
+      folders, calendars, tasks, signature, source).
+- [x] **S39.4** Home v3: the day in a sentence, the next three things, three ways out.
+- [x] **S39.5** Tasks v2: the day and its calendar above the list, the day's progress,
+      the tokens understood while typing, a panel of properties, the week's work.
+- [x] **S39.6** Calendar v1: a range title, one view switch, today in red, the hour of
+      now, an event's card beside it.
+- [x] **S39.7** Mail v2: folders under the accounts, the queues as the list's title,
+      rows of two lines, a named toolbar, a one-line reply.

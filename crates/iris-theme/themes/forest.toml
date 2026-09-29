@@ -63,7 +63,7 @@ tracking    = -0.01
 line_height = 1.45
 
 [density]
-row_height    = 58.0
+row_height    = 48.0
 row_padding_x = 12.0
 
 [glass]

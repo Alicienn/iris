@@ -91,11 +91,16 @@ fn main() {
     // Done at 08:40 today, and a few more earlier this week, for the week's bars.
     let a = |j: i64, h: u32, m: u32| {
         iris_types::Timestamp::from_millis(iris_calendar::time::zoned_millis(
-            (aujourdhui + Duration::days(j)).and_hms_opt(h, m, 0).unwrap(),
+            (aujourdhui + Duration::days(j))
+                .and_hms_opt(h, m, 0)
+                .unwrap(),
             &Local,
         ))
     };
-    services.store.set_task_done(poste, Some(a(0, 8, 40))).unwrap();
+    services
+        .store
+        .set_task_done(poste, Some(a(0, 8, 40)))
+        .unwrap();
     let lundi = -(chrono::Datelike::weekday(&aujourdhui).num_days_from_monday() as i64);
     for (k, (titre, j)) in [
         ("Pay the rent", lundi),
