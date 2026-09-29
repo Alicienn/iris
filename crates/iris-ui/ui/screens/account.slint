@@ -1,6 +1,8 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Floating } from "@iris/base/glass.slint";
+import { Button, ButtonKind } from "@iris/controls/button.slint";
+import { Hairline } from "@iris/base/atoms.slint";
+import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { CheckBox } from "std-widgets.slint";
 
 // Un champ avec son intitulé.
@@ -12,11 +14,11 @@ component Field inherits VerticalLayout {
 
     callback accepted();
 
-    spacing: 2px;
+    spacing: 4px;
 
     Text {
         text: root.label;
-        font-size: Tokens.size-small;
+        font-size: 12px;
         color: Tokens.text-muted;
     }
 
@@ -59,202 +61,107 @@ export component AccountSetupPanel inherits Rectangle {
     callback switch-to-manual();
     callback dismissed();
 
-    background: Tokens.scrim;
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: root.editing ? "Edit account" : "Add an account";
+        card-width: 480px;
+        fit: true;
+        dismissed => { root.dismissed(); }
 
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
+        Field {
+            label: "Email address";
+            placeholder: "you@example.com";
+            value <=> root.email;
+            accepted => { root.discover(); }
+        }
 
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(480px, parent.width - 80px);
-        height: min(root.manual ? 560px : 300px, parent.height - 80px);
+        Field {
+            label: "Password";
+            password: true;
+            value <=> root.password;
+            accepted => { root.manual ? root.save-manual() : root.discover(); }
+        }
 
-        // Le panneau avale les clics : régler un champ ne doit pas fermer la
-        // fenêtre en touchant le voile derrière.
-        TouchArea {}
+        // Ce que la découverte a trouvé, ou ce qui lui a manqué. Un écran qui échoue
+        // sans dire pourquoi laisse l'utilisateur essayer au hasard.
+        if root.error != "": Text {
+            text: root.error;
+            font-size: 12px;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+        if root.error == "" && root.hint != "": Text {
+            text: root.hint;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
 
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
+        if root.manual: Hairline {}
 
-            Text {
-                text: root.editing ? "Edit account" : "Add an account";
-                font-family: Tokens.font-family;
-                font-size: Tokens.size-title;
-                font-weight: Tokens.weight-bold;
-                color: Tokens.text;
-            }
-
+        if root.manual: HorizontalLayout {
+            spacing: 8px;
             Field {
-                label: "Email address";
-                placeholder: "you@example.com";
-                value <=> root.email;
-                accepted => { root.discover(); }
+                label: "IMAP server";
+                placeholder: "imap.example.com";
+                value <=> root.imap-host;
             }
+            VerticalLayout {
+                width: 80px;
+                Field {
+                    label: "Port";
+                    value <=> root.imap-port;
+                }
+            }
+        }
 
+        if root.manual: CheckBox {
+            text: "IMAP over TLS";
+            checked <=> root.imap-tls;
+        }
+
+        if root.manual: HorizontalLayout {
+            spacing: 8px;
             Field {
-                label: "Password";
-                password: true;
-                value <=> root.password;
-                accepted => { root.manual ? root.save-manual() : root.discover(); }
+                label: "SMTP server";
+                placeholder: "smtp.example.com";
+                value <=> root.smtp-host;
             }
-
-            // Ce que la découverte a trouvé, ou ce qui lui a manqué. Un écran qui
-            // échoue sans dire pourquoi laisse l'utilisateur essayer au hasard.
-            if root.error != "": Text {
-                text: root.error;
-                font-size: Tokens.size-small;
-                color: Tokens.error;
-                wrap: word-wrap;
-            }
-            if root.error == "" && root.hint != "": Text {
-                text: root.hint;
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
-                wrap: word-wrap;
-            }
-
-            if root.manual: Rectangle { height: 1px; background: Tokens.border; }
-
-            if root.manual: HorizontalLayout {
-                spacing: Tokens.space-2;
-
+            VerticalLayout {
+                width: 80px;
                 Field {
-                    label: "IMAP server";
-                    placeholder: "imap.example.com";
-                    value <=> root.imap-host;
-                }
-                VerticalLayout {
-                    width: 80px;
-                    Field {
-                        label: "Port";
-                        value <=> root.imap-port;
-                    }
+                    label: "Port";
+                    value <=> root.smtp-port;
                 }
             }
+        }
 
-            if root.manual: CheckBox {
-                text: "IMAP over TLS";
-                checked <=> root.imap-tls;
+        if root.manual: CheckBox {
+            text: "SMTP over TLS";
+            checked <=> root.smtp-tls;
+        }
+
+        ModalFooter {
+            // La porte de secours reste visible avant même l'échec : quelqu'un qui sait
+            // déjà que son serveur est exotique n'a pas à attendre que la découverte se
+            // trompe pour le dire.
+            if !root.manual: Button {
+                text: "Configure manually";
+                kind: ButtonKind.ghost;
+                clicked => { root.switch-to-manual(); }
             }
-
-            if root.manual: HorizontalLayout {
-                spacing: Tokens.space-2;
-
-                Field {
-                    label: "SMTP server";
-                    placeholder: "smtp.example.com";
-                    value <=> root.smtp-host;
-                }
-                VerticalLayout {
-                    width: 80px;
-                    Field {
-                        label: "Port";
-                        value <=> root.smtp-port;
-                    }
-                }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "Cancel";
+                clicked => { root.dismissed(); }
             }
-
-            if root.manual: CheckBox {
-                text: "SMTP over TLS";
-                checked <=> root.smtp-tls;
-            }
-
-            Rectangle {}
-
-            HorizontalLayout {
-                spacing: Tokens.space-2;
-
-                // La porte de secours reste visible avant même l'échec : quelqu'un
-                // qui sait déjà que son serveur est exotique n'a pas à attendre que
-                // la découverte se trompe pour le dire.
-                if !root.manual: Rectangle {
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: manuel.has-hover ? Tokens.surface-hover : transparent;
-
-                    accessible-role: button;
-                    accessible-label: "Configure manually";
-                    accessible-action-default => { root.switch-to-manual(); }
-
-                    HorizontalLayout {
-                        padding-left: Tokens.space-2;
-                        padding-right: Tokens.space-2;
-                        Text {
-                            text: "Configure manually";
-                            font-size: Tokens.size-small;
-                            color: Tokens.text-secondary;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    manuel := TouchArea {
-                        clicked => { root.switch-to-manual(); }
-                    }
-                }
-
-                Rectangle {}
-
-                Rectangle {
-                    width: 90px;
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: annuler.has-hover ? Tokens.surface-hover : Tokens.surface;
-
-                    accessible-role: button;
-                    accessible-label: "Cancel";
-                    accessible-action-default => { root.dismissed(); }
-
-                    Text {
-                        text: "Cancel";
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-secondary;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    annuler := TouchArea {
-                        clicked => { root.dismissed(); }
-                    }
-                }
-
-                Rectangle {
-                    width: 110px;
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: Tokens.accent;
-                    opacity: root.busy ? 0.5 : 1.0;
-
-                    accessible-role: button;
-                    accessible-label: (root.manual || root.editing) ? "Save" : "Add";
-                    accessible-enabled: !root.busy;
-                    accessible-action-default => {
-                        if (!root.busy) {
-                            root.manual ? root.save-manual() : root.discover();
-                        }
-                    }
-
-                    Text {
-                        text: root.busy
-                            ? "Looking up…"
-                            : ((root.manual || root.editing) ? "Save" : "Add");
-                        font-size: Tokens.size-small;
-                        font-weight: Tokens.weight-bold;
-                        color: Tokens.accent-text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    TouchArea {
-                        clicked => {
-                            if (!root.busy) {
-                                root.manual ? root.save-manual() : root.discover();
-                            }
-                        }
-                    }
-                }
+            Button {
+                text: root.busy ? "Looking up…" : ((root.manual || root.editing) ? "Save" : "Add");
+                label: (root.manual || root.editing) ? "Save" : "Add";
+                kind: ButtonKind.primary;
+                enabled: !root.busy;
+                clicked => { root.manual ? root.save-manual() : root.discover(); }
             }
         }
     }

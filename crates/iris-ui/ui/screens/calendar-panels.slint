@@ -6,82 +6,10 @@ import { EventDetailData, CalendarData, MonthCellData, SubtaskData } from "@iris
 import { CalButton, MiniMonth } from "@iris/screens/calendar.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
+import { Modal } from "@iris/layout/frames.slint";
 
-// The frame every calendar panel shares: a veil, a floating card, a title row.
-export component PanelFrame inherits Rectangle {
-    in property <string> title;
-    /// The whole title on as many lines as it takes, instead of cut short.
-    in property <bool> wrap-title;
-    in property <length> card-width: 460px;
-    in property <length> card-height: 420px;
-    callback dismissed();
-    /// Escape, from anywhere in the card — a field included. Closes by default.
-    callback escaped();
-    escaped => { root.dismissed(); }
-
-    background: Tokens.scrim;
-
-    // Escape reaches the panel even while a field has the cursor: the field does
-    // not want the key and hands it up to here. Never focused itself, so it takes
-    // no click away from what is under it.
-    FocusScope {
-        enabled: false;
-        key-pressed(event) => {
-            if (event.text == Key.Escape) {
-                root.escaped();
-                return accept;
-            }
-            return reject;
-        }
-
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
-
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(root.card-width, parent.width - 60px);
-        height: min(root.card-height, parent.height - 60px);
-
-        // Clicks inside the card stay inside it.
-        TouchArea {}
-
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
-
-            HorizontalLayout {
-                min-height: 28px;
-                vertical-stretch: 0;
-                spacing: Tokens.space-2;
-                Text {
-                    text: root.title;
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
-                    vertical-alignment: root.wrap-title ? top : center;
-                    wrap: root.wrap-title ? word-wrap : no-wrap;
-                    overflow: root.wrap-title ? clip : elide;
-                    horizontal-stretch: 1;
-                }
-                IconButton {
-                    y: root.wrap-title ? 2px : (parent.height - self.height) / 2;
-                    icon: Icons.window-close;
-                    label: "Close";
-                    shortcut: "Esc";
-                    button-size: 24px;
-                    icon-size: 13px;
-                    clicked => { root.dismissed(); }
-                }
-            }
-
-            @children
-        }
-    }
-    }
-}
+// The frame of the calendar's, the tasks' and the tags' windows: the shared modal.
+export component PanelFrame inherits Modal {}
 
 // A label above a field.
 export component Labelled inherits VerticalLayout {

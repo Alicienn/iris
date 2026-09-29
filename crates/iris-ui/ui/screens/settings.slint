@@ -1,93 +1,10 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Floating } from "@iris/base/glass.slint";
 import { ThemeSwatchData } from "@iris/types.slint";
-import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Segmented } from "@iris/controls/choice.slint";
+import { SectionTitle } from "@iris/lists/nav.slint";
+import { Modal } from "@iris/layout/frames.slint";
 import { CheckBox, SpinBox, ScrollView } from "std-widgets.slint";
-
-// Un intitulé de section.
-component GroupLabel inherits Text {
-    font-size: 9px;
-    letter-spacing: 1px;
-    color: Tokens.text-muted;
-}
-
-// Un choix parmi quelques-uns, en pastilles.
-//
-// Une liste déroulante cacherait les options ; ici il y en a trois ou quatre, et
-// les montrer toutes coûte moins cher qu'un clic pour découvrir ce qui existe.
-component ChipRow inherits Rectangle {
-    in property <[string]> options;
-    in property <int> selected;
-
-    callback chosen(int);
-
-    height: 30px;
-
-    // The same plate the To do / Waiting / Done tabs sit on, and the same corner
-    // radius on the chips. They were 99-pixel lozenges floating on nothing, which is
-    // a different control answering the same kind of question two panels apart.
-    //
-    // Every width is set, from the words: the plate wraps the row, each chip wraps
-    // its label. Left to the layout, the chips took sizes of their own and spilled
-    // past the plate drawn under them.
-    Rectangle {
-        x: 0;
-        width: rang.preferred-width;
-        height: 30px;
-        border-radius: Tokens.radius-medium;
-        background: Tokens.surface-low;
-        border-width: 1px;
-        border-color: Tokens.border;
-        clip: true;
-
-        Rectangle {
-            x: 1px;
-            y: 1px;
-            height: 12px;
-            width: parent.width - 2px;
-            border-top-left-radius: Tokens.radius-medium - 1px;
-            border-top-right-radius: Tokens.radius-medium - 1px;
-            background: @linear-gradient(180deg,
-                Tokens.edge-light.transparentize(0.82) 0%,
-                Tokens.edge-light.transparentize(1.0) 100%);
-        }
-
-        rang := HorizontalLayout {
-            padding: 3px;
-            spacing: 2px;
-            alignment: start;
-
-            for label[i] in root.options: Rectangle {
-                width: libelle.preferred-width + 2 * Tokens.space-3;
-                height: 24px;
-                border-radius: Tokens.radius-small;
-
-                accessible-role: tab;
-                accessible-label: label;
-                accessible-item-selected: root.selected == i;
-                accessible-action-default => { root.chosen(i); }
-
-                background: root.selected == i
-                    ? Tokens.accent
-                    : (touch.has-hover ? Tokens.surface-hover : transparent);
-                animate background { duration: Tokens.instant; }
-
-                libelle := Text {
-                    text: label;
-                    font-size: Tokens.size-small;
-                    font-weight: root.selected == i ? Tokens.weight-bold : Tokens.weight-body;
-                    color: root.selected == i ? Tokens.accent-text : Tokens.text-secondary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                touch := TouchArea {
-                    clicked => { root.chosen(i); }
-                }
-            }
-        }
-    }
-}
 
 // The theme picker.
 //
@@ -100,7 +17,7 @@ component ThemePicker inherits HorizontalLayout {
 
     callback chosen(int);
 
-    spacing: Tokens.space-2;
+    spacing: 8px;
 
     for theme[i] in root.themes: Rectangle {
         width: 78px;
@@ -117,7 +34,7 @@ component ThemePicker inherits HorizontalLayout {
         accessible-action-default => { root.chosen(i); }
 
         VerticalLayout {
-            padding: Tokens.space-1;
+            padding: 4px;
             spacing: 3px;
 
             // A band of the surface colour, then one of the accent: the two things
@@ -144,7 +61,8 @@ component ThemePicker inherits HorizontalLayout {
             }
         }
 
-        touch := TouchArea {
+        TouchArea {
+            mouse-cursor: pointer;
             clicked => { root.chosen(i); }
         }
     }
@@ -173,54 +91,26 @@ component SettingToggle inherits VerticalLayout {
 
     Text {
         text: root.hint;
-        font-size: Tokens.size-small;
+        font-size: 12px;
         color: Tokens.text-muted;
         wrap: word-wrap;
     }
 }
 
-// A button with words on it.
-component SettingsButton inherits Rectangle {
-    in property <string> text;
-    in property <bool> primary;
-    in property <bool> enabled: true;
-
-    callback clicked();
-
-    height: 26px;
-    width: libelle.preferred-width + 24px;
-    border-radius: Tokens.radius-small;
-    border-width: root.primary ? 0px : 1px;
-    border-color: Tokens.border;
-    background: root.primary
-        ? Tokens.accent
-        : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
-    opacity: root.enabled ? 1.0 : 0.6;
-
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-enabled: root.enabled;
-    accessible-action-default => { root.clicked(); }
-
-    libelle := Text {
-        text: root.text;
-        font-size: Tokens.size-small;
-        font-weight: root.primary ? Tokens.weight-bold : Tokens.weight-body;
-        color: root.primary ? Tokens.accent-text : Tokens.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
+// A section's title, with the space above it that separates it from the last.
+component Section inherits VerticalLayout {
+    in property <string> title;
+    padding-top: 6px;
+    SectionTitle {
+        text: root.title;
+        height: 22px;
     }
 }
 
-// Les réglages.//
-// Trois sections, parce que ce sont les trois choses qui se règlent : l'apparence,
-// la densité, et ce que l'application fait toute seule. Tout le reste appartient au
-// thème, qui est un fichier.
+// Les réglages.
+//
+// Ce qui se règle : l'apparence, la densité, ce que l'application fait toute seule et
+// ce qu'elle demande au système. Tout le reste appartient au thème, qui est un fichier.
 export component SettingsPanel inherits Rectangle {
     in property <[ThemeSwatchData]> themes;
     in property <int> active-theme;
@@ -255,271 +145,210 @@ export component SettingsPanel inherits Rectangle {
     callback sending-changed();
     callback dismissed();
 
-    background: Tokens.scrim;
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Settings";
+        close-label: "Close settings";
+        card-width: 540px;
+        card-height: 720px;
+        dismissed => { root.dismissed(); }
 
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
+        // The sections scroll: there are more of them than a short window holds,
+        // and a panel that cuts its last setting off hides the one you came for.
+        ScrollView {
+            vertical-stretch: 1;
+            viewport-width: self.visible-width;
+            viewport-height: sections.preferred-height;
 
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(520px, parent.width - 80px);
-        height: min(720px, parent.height - 80px);
+            sections := VerticalLayout {
+                spacing: 10px;
+                padding-right: 8px;
+                padding-bottom: 12px;
 
-        // Le panneau avale les clics : sans cela, régler une case fermerait la
-        // fenêtre en touchant le voile derrière.
-        TouchArea {}
-
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
-
-            HorizontalLayout {
-                // Its own height, because a row in a vertical layout takes a share of
-                // whatever is going unless it says otherwise, and a title bar that
-                // grows is height stolen from the settings below it.
-                vertical-stretch: 0;
-                height: 28px;
-
-                Text {
-                    text: "Settings";
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
+                Section { title: "Theme"; }
+                ThemePicker {
+                    themes: root.themes;
+                    selected: root.active-theme;
+                    chosen(i) => { root.theme-chosen(i); }
                 }
 
-                Rectangle {}
-
-                IconButton {
-                    icon: Icons.window-close;
-                    label: "Close settings";
-                    shortcut: "Esc";
-                    button-size: 26px;
-                    icon-size: 14px;
-                    clicked => { root.dismissed(); }
-                }
-            }
-
-            Rectangle { height: 1px; background: Tokens.border; }
-
-            // The sections scroll: there are more of them than a short window holds,
-            // and a panel that cuts its last setting off hides the one you came for.
-            ScrollView {
-                vertical-stretch: 1;
-                viewport-width: self.visible-width;
-                viewport-height: sections.preferred-height;
-
-                sections := VerticalLayout {
-                    spacing: Tokens.space-3;
-                    padding-right: Tokens.space-2;
-                    padding-bottom: Tokens.space-3;
-
-                    GroupLabel { text: "THEME"; }
-
-                    ThemePicker {
-                        themes: root.themes;
-                        selected: root.active-theme;
-                        chosen(i) => { root.theme-chosen(i); }
-                    }
-
-                    GroupLabel { text: "LIST DENSITY"; }
-
-                    ChipRow {
+                Section { title: "List density"; }
+                HorizontalLayout {
+                    Segmented {
                         options: ["Compact", "Normal", "Comfortable"];
                         selected: root.density;
                         chosen(i) => { root.density-chosen(i); }
                     }
+                    Rectangle {}
+                }
 
-                    GroupLabel { text: "STARTUP"; }
+                Section { title: "Startup"; }
+                SettingToggle {
+                    label: "Open Iris on Home";
+                    hint: "Your day at a glance first. Off: Iris opens on your mail, and Home stays one click away on the name at the top left.";
+                    value <=> root.home-at-startup;
+                    toggled => { root.system-changed(); }
+                }
 
-                    SettingToggle {
-                        label: "Open Iris on Home";
-                        hint: "Your day at a glance first. Off: Iris opens on your mail, and Home stays one click away on the name at the top left.";
-                        value <=> root.home-at-startup;
-                        toggled => { root.system-changed(); }
+                Section { title: "Automations"; }
+                SettingToggle {
+                    label: "Replying marks the thread as waiting";
+                    hint: "The thread leaves your queue and waits for the other side.";
+                    value <=> root.reply-marks-waiting;
+                    toggled => { root.automation-changed(); }
+                }
+                SettingToggle {
+                    label: "A new message reopens the thread";
+                    hint: "A finished thread that gets a follow-up comes back to your queue.";
+                    value <=> root.new-message-reopens;
+                    toggled => { root.automation-changed(); }
+                }
+                SettingToggle {
+                    label: "Follow up on unanswered threads";
+                    hint: "A thread waiting too long comes back on its own.";
+                    value <=> root.follow-up-enabled;
+                    toggled => { root.automation-changed(); }
+                }
+
+                // A row, not a block. Inside a vertical layout every child stretches
+                // unless it is told not to, and a spin box given a hundred pixels of
+                // height is a box with a number lost in the middle of it.
+                if root.follow-up-enabled: HorizontalLayout {
+                    spacing: 8px;
+                    vertical-stretch: 0;
+                    height: 30px;
+                    Text {
+                        text: "After";
+                        font-size: 13px;
+                        color: Tokens.text-secondary;
+                        vertical-alignment: center;
                     }
-
-                    GroupLabel { text: "AUTOMATIONS"; }
-
-                    SettingToggle {
-                        label: "Replying marks the thread as waiting";
-                        hint: "The thread leaves your queue and waits for the other side.";
-                        value <=> root.reply-marks-waiting;
-                        toggled => { root.automation-changed(); }
-                    }
-
-                    SettingToggle {
-                        label: "A new message reopens the thread";
-                        hint: "A finished thread that gets a follow-up comes back to your queue.";
-                        value <=> root.new-message-reopens;
-                        toggled => { root.automation-changed(); }
-                    }
-
-                    SettingToggle {
-                        label: "Follow up on unanswered threads";
-                        hint: "A thread waiting too long comes back on its own.";
-                        value <=> root.follow-up-enabled;
-                        toggled => { root.automation-changed(); }
-                    }
-
-                    // A row, not a block. Inside a vertical layout every child stretches
-                    // unless it is told not to, and a spin box given a hundred pixels of
-                    // height is a box with a number lost in the middle of it.
-                    if root.follow-up-enabled: HorizontalLayout {
-                        spacing: Tokens.space-2;
-                        vertical-stretch: 0;
+                    SpinBox {
+                        width: 92px;
                         height: 30px;
-
-                        Text {
-                            text: "After";
-                            font-size: Tokens.size-body;
-                            color: Tokens.text-secondary;
-                            vertical-alignment: center;
-                        }
-
-                        SpinBox {
-                            width: 92px;
-                            height: 30px;
-                            minimum: 1;
-                            maximum: 365;
-                            value <=> root.follow-up-days;
-                            edited => { root.automation-changed(); }
-                        }
-
-                        Text {
-                            text: "days";
-                            font-size: Tokens.size-body;
-                            color: Tokens.text-secondary;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle {}
+                        minimum: 1;
+                        maximum: 365;
+                        value <=> root.follow-up-days;
+                        edited => { root.automation-changed(); }
                     }
-
-                    GroupLabel { text: "SENDING"; }
-
-                    // The window closes on Send; for this long a notice at the bottom
-                    // of the window can still take the message back.
-                    HorizontalLayout {
-                        spacing: Tokens.space-2;
-                        vertical-stretch: 0;
-                        height: 30px;
-
-                        Text {
-                            text: "Time to undo a send";
-                            font-size: Tokens.size-body;
-                            color: Tokens.text;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle {}
-
-                        SpinBox {
-                            width: 92px;
-                            height: 30px;
-                            minimum: 0;
-                            maximum: 30;
-                            value <=> root.undo-send-seconds;
-                            edited => { root.sending-changed(); }
-                        }
-
-                        Text {
-                            text: "seconds";
-                            font-size: Tokens.size-body;
-                            color: Tokens.text-secondary;
-                            vertical-alignment: center;
-                        }
+                    Text {
+                        text: "days";
+                        font-size: 13px;
+                        color: Tokens.text-secondary;
+                        vertical-alignment: center;
                     }
+                    Rectangle {}
+                }
 
-                    GroupLabel { text: "SYSTEM"; }
-
-                    // Le premier des trois, parce que c'est celui qui décide de ce que fait le
-                    // geste le plus courant : fermer la fenêtre.
-                    SettingToggle {
-                        label: "Keep running when I close the window";
-                        hint: "Iris stays in the notification area and keeps syncing. Off: closing quits, and the tray icon goes away.";
-                        value <=> root.keep-running;
-                        toggled => { root.system-changed(); }
-                    }
-
-                    SettingToggle {
-                        label: "Tell me when mail arrives";
-                        hint: "One notification per sync, not one per message.";
-                        value <=> root.notifications;
-                        toggled => { root.system-changed(); }
-                    }
-
-                    SettingToggle {
-                        label: "Start with Windows";
-                        hint: "Iris waits in the notification area rather than opening a window.";
-                        value <=> root.start-at-login;
-                        toggled => { root.system-changed(); }
-                    }
-
-                    SettingToggle {
-                        label: "Offer Iris for mailto: links";
-                        hint: "Windows still decides the default in its own settings.";
-                        value <=> root.handle-mailto;
-                        toggled => { root.system-changed(); }
-                    }
-
-                    if root.system-note != "": Text {
-                        text: root.system-note;
-                        font-size: Tokens.size-small;
-                        color: Tokens.warning;
-                        wrap: word-wrap;
-                    }
-
-                GroupLabel { text: "UPDATES"; }
-
-                // Checked at every launch and every few hours after; this is for
-                // whoever wants to know now.
-                // Two lines of text: a fixed height of one button cut the second off
-                // below the end of the scroll area, out of reach.
+                Section { title: "Sending"; }
+                // The window closes on Send; for this long a notice at the bottom of the
+                // window can still take the message back.
                 HorizontalLayout {
-                    spacing: Tokens.space-2;
+                    spacing: 8px;
+                    vertical-stretch: 0;
+                    height: 30px;
+                    Text {
+                        text: "Time to undo a send";
+                        font-size: 13px;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {}
+                    SpinBox {
+                        width: 92px;
+                        height: 30px;
+                        minimum: 0;
+                        maximum: 30;
+                        value <=> root.undo-send-seconds;
+                        edited => { root.sending-changed(); }
+                    }
+                    Text {
+                        text: "seconds";
+                        font-size: 13px;
+                        color: Tokens.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Section { title: "System"; }
+                // Le premier des trois, parce que c'est celui qui décide de ce que fait le
+                // geste le plus courant : fermer la fenêtre.
+                SettingToggle {
+                    label: "Keep running when I close the window";
+                    hint: "Iris stays in the notification area and keeps syncing. Off: closing quits, and the tray icon goes away.";
+                    value <=> root.keep-running;
+                    toggled => { root.system-changed(); }
+                }
+                SettingToggle {
+                    label: "Tell me when mail arrives";
+                    hint: "One notification per sync, not one per message.";
+                    value <=> root.notifications;
+                    toggled => { root.system-changed(); }
+                }
+                SettingToggle {
+                    label: "Start with Windows";
+                    hint: "Iris waits in the notification area rather than opening a window.";
+                    value <=> root.start-at-login;
+                    toggled => { root.system-changed(); }
+                }
+                SettingToggle {
+                    label: "Offer Iris for mailto: links";
+                    hint: "Windows still decides the default in its own settings.";
+                    value <=> root.handle-mailto;
+                    toggled => { root.system-changed(); }
+                }
+                if root.system-note != "": Text {
+                    text: root.system-note;
+                    font-size: 12px;
+                    color: Tokens.warning;
+                    wrap: word-wrap;
+                }
+
+                Section { title: "Updates"; }
+                // Checked at every launch and every few hours after; this is for whoever
+                // wants to know now. Two lines of text: a fixed height of one button cut
+                // the second off below the end of the scroll area, out of reach.
+                HorizontalLayout {
+                    spacing: 8px;
                     vertical-stretch: 0;
                     min-height: 28px;
-
                     VerticalLayout {
                         alignment: center;
                         horizontal-stretch: 1;
                         Text {
                             text: root.version;
-                            font-size: Tokens.size-body;
+                            font-size: 13px;
                             color: Tokens.text-secondary;
                         }
                         Text {
                             text: root.update-status;
-                            font-size: Tokens.size-small;
+                            font-size: 12px;
                             color: Tokens.text-muted;
                             overflow: elide;
                         }
                     }
-
-                    if root.update-version != "": SettingsButton {
+                    if root.update-version != "": Button {
                         y: (parent.height - self.height) / 2;
                         text: "Install " + root.update-version;
-                        primary: true;
+                        kind: ButtonKind.primary;
+                        size: ButtonSize.sm;
                         clicked => { root.install-update(); }
                     }
-
-                    SettingsButton {
+                    Button {
                         y: (parent.height - self.height) / 2;
                         text: root.update-checking ? "Checking…" : "Check for updates";
+                        size: ButtonSize.sm;
                         enabled: !root.update-checking;
                         clicked => { root.check-for-updates(); }
                     }
                 }
-                }
-            }
 
-            Text {
-                text: "Settings are saved as you change them.";
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
+                Text {
+                    text: "Settings are saved as you change them.";
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                }
             }
         }
     }

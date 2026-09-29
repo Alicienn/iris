@@ -1,0 +1,71 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+
+// The type scale, named.
+//
+// Every text in the interface is one of these styles in one of these tones. A screen
+// that wants 17 pixels in a colour of its own is asking for a style that does not
+// exist yet: it is added here, once, rather than written where it is needed.
+
+export enum TextStyle {
+    /// 56, thin: the greeting of Home.
+    display,
+    /// 34, thin: the name of a screen ("Today", a week, a folder).
+    title,
+    /// 22, semibold: a subject, a task's title, an event's title.
+    heading,
+    /// 13, semibold: the title of a group of rows.
+    section,
+    /// 15: the line that matters in a row (a task, an agenda item).
+    body-large,
+    /// 13: ordinary text.
+    body,
+    /// 12: what goes under or beside the body.
+    caption,
+    /// 11: counts, hours in a margin, hints.
+    micro,
+}
+
+export enum Tone {
+    primary,
+    secondary,
+    muted,
+    danger,
+    success,
+    /// On the accent (a filled button).
+    inverse,
+}
+
+export global Type {
+    public pure function size(s: TextStyle) -> length {
+        return s == TextStyle.display ? 56px
+            : s == TextStyle.title ? 34px
+            : s == TextStyle.heading ? 22px
+            : s == TextStyle.body-large ? 15px
+            : s == TextStyle.section || s == TextStyle.body ? 13px
+            : s == TextStyle.caption ? 12px
+            : 11px;
+    }
+    public pure function weight(s: TextStyle) -> int {
+        return s == TextStyle.display || s == TextStyle.title ? 300
+            : s == TextStyle.heading || s == TextStyle.section ? 600
+            : 400;
+    }
+    public pure function family(s: TextStyle) -> string {
+        return s == TextStyle.display || s == TextStyle.title || s == TextStyle.heading
+            ? Tokens.font-display : Tokens.font-family;
+    }
+    public pure function tracking(s: TextStyle) -> length {
+        return s == TextStyle.display ? -1.6px
+            : s == TextStyle.title ? -0.6px
+            : s == TextStyle.heading ? -0.2px
+            : 0px;
+    }
+    public pure function color(t: Tone) -> color {
+        return t == Tone.secondary ? Tokens.text-secondary
+            : t == Tone.muted ? Tokens.text-muted
+            : t == Tone.danger ? Tokens.error
+            : t == Tone.success ? Tokens.success
+            : t == Tone.inverse ? Tokens.accent-text
+            : Tokens.text;
+    }
+}

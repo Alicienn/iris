@@ -1,4 +1,6 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon } from "@iris/base/icons.slint";
+import { Kbd } from "@iris/base/atoms.slint";
 import { ScrollView } from "std-widgets.slint";
 
 // Iris's own text fields.
@@ -29,6 +31,10 @@ export component TextField inherits FieldFrame {
     in property <length> font-size: Tokens.size-body;
     in property <InputType> input-type: InputType.text;
     in property <bool> read-only;
+    /// An icon before the text (a search field's loupe).
+    in property <string> icon;
+    /// The key that brings the cursor here, shown at the end: "Ctrl F".
+    in property <string> shortcut;
     out property <bool> has-focus: input.has-focus;
 
     callback accepted(string);
@@ -41,7 +47,9 @@ export component TextField inherits FieldFrame {
     // How far the text has scrolled left to keep the cursor in view.
     property <length> offset: 0px;
     property <length> pad: Tokens.space-2;
-    property <length> utile: root.width - 2 * root.pad;
+    property <length> gauche: root.icon != "" ? 30px : root.pad;
+    property <length> droite: root.shortcut != "" ? touche.width + 12px : root.pad;
+    property <length> utile: root.width - root.gauche - root.droite;
 
     // focus() on the field reaches the text inside it.
     forward-focus: input;
@@ -71,8 +79,30 @@ export component TextField inherits FieldFrame {
         clicked => { input.focus(); }
     }
 
+    if root.icon != "": Icon {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        data: root.icon;
+        size: 14px;
+        tint: Tokens.text-muted;
+    }
+
+    touche := Kbd {
+        x: root.width - self.width - 8px;
+        y: (parent.height - self.height) / 2;
+        keys: root.shortcut;
+        visible: root.shortcut != "";
+    }
+
+    // The text runs in its own clipped strip, between the icon and the key.
+    zone := Rectangle {
+        x: root.gauche;
+        width: max(0px, root.utile);
+        height: 100%;
+        clip: true;
+
     if root.text == "": Text {
-        x: root.pad;
+        x: 0;
         width: root.utile;
         height: 100%;
         text: root.placeholder-text;
@@ -83,7 +113,7 @@ export component TextField inherits FieldFrame {
     }
 
     input := TextInput {
-        x: root.pad + root.offset;
+        x: root.offset;
         width: max(root.utile, self.preferred-width);
         height: 100%;
         text <=> root.text;
@@ -109,6 +139,7 @@ export component TextField inherits FieldFrame {
             }
         }
     }
+    } // zone
 }
 
 // Several lines, scrolling.

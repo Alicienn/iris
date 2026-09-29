@@ -1,0 +1,309 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Hairline, VHairline } from "@iris/base/atoms.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+
+// The frames screens are laid out in. A column docked to the window is square with a
+// hairline beside it; what floats is rounded, opaque and shadowed. Nothing straight
+// is drawn across a rounded corner.
+
+/// The column on the left of a workspace: its main action, its sections, its foot.
+export component Rail inherits Rectangle {
+    in property <length> rail-width: 240px;
+
+    width: root.rail-width;
+    background: Tokens.surface-low;
+
+    VerticalLayout {
+        padding: 12px;
+        padding-top: 14px;
+        padding-bottom: 10px;
+        spacing: 2px;
+        @children
+    }
+    VHairline {
+        x: parent.width - 1px;
+    }
+}
+
+/// The top of a screen: its name, large and thin, a quieter line beside it, and on
+/// the right what acts on the whole screen (a progress, a view switch).
+export component PageHeader inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+
+    spacing: 14px;
+    height: 44px;
+
+    Text {
+        text: root.title;
+        font-family: Tokens.font-display;
+        font-size: 34px;
+        font-weight: 300;
+        letter-spacing: -0.6px;
+        color: Tokens.text;
+        vertical-alignment: bottom;
+    }
+    if root.subtitle != "": Text {
+        text: root.subtitle;
+        font-size: 14px;
+        color: Tokens.text-secondary;
+        vertical-alignment: bottom;
+        y: -3px;
+    }
+    Rectangle { horizontal-stretch: 1; }
+    @children
+}
+
+/// A group on a plate of its own: a border, a faint ground, rounded.
+export component Plate inherits Rectangle {
+    in property <length> inset: 6px;
+
+    border-radius: Tokens.radius-large;
+    border-width: 1px;
+    border-color: Tokens.border;
+    background: Tokens.surface-low;
+    clip: true;
+
+    VerticalLayout {
+        padding: root.inset;
+        spacing: 0px;
+        @children
+    }
+}
+
+/// The panel on the right that shows the thing chosen: docked, square, a hairline on
+/// its left.
+export component DetailPanel inherits Rectangle {
+    in property <length> panel-width: 372px;
+
+    width: root.panel-width;
+    background: Tokens.surface-low;
+
+    VHairline { x: 0; }
+    VerticalLayout {
+        padding-left: 20px;
+        padding-right: 20px;
+        padding-top: 16px;
+        padding-bottom: 14px;
+        spacing: 16px;
+        @children
+    }
+}
+
+/// A row of actions over what they act on.
+export component Toolbar inherits Rectangle {
+    height: 52px;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 12px;
+        spacing: 4px;
+        alignment: stretch;
+        @children
+    }
+    Hairline { y: parent.height - 1px; }
+}
+
+/// Nothing to show: a sentence, and the way to change that.
+export component EmptyState inherits VerticalLayout {
+    in property <string> text;
+    in property <string> action;
+    callback act();
+
+    alignment: center;
+    spacing: 12px;
+    padding: 24px;
+
+    Text {
+        text: root.text;
+        font-size: 13px;
+        color: Tokens.text-muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.action != "": HorizontalLayout {
+        alignment: center;
+        Button {
+            text: root.action;
+            size: ButtonSize.sm;
+            clicked => { root.act(); }
+        }
+    }
+}
+
+/// A window over the others: a veil, a card in the middle, its title, its close
+/// button, and Escape. One place for all of that, so every window behaves alike.
+///
+/// Escape reaches the card even from a field: a field does not want the key and hands
+/// it up. The scope is never focused itself, so it takes no click away from anything.
+export component Modal inherits Rectangle {
+    in property <string> title;
+    /// The whole title on as many lines as it takes.
+    in property <bool> wrap-title;
+    in property <length> card-width: 460px;
+    in property <length> card-height: 420px;
+    /// Grow with the content rather than take `card-height`.
+    in property <bool> fit;
+    /// What the close button says to a screen reader: "Close settings".
+    in property <string> close-label: "Close";
+    callback dismissed();
+    /// Escape, from anywhere in the card. Closes by default.
+    callback escaped();
+    escaped => { root.dismissed(); }
+
+    background: Tokens.scrim;
+
+    FocusScope {
+        enabled: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.escaped();
+                return accept;
+            }
+            return reject;
+        }
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    carte := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(root.card-width, parent.width - 60px);
+        height: min(root.fit ? contenu.preferred-height : root.card-height, parent.height - 60px);
+        border-radius: Tokens.radius-large;
+        background: Tokens.panel;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #000000b0;
+        drop-shadow-offset-y: 14px;
+        clip: true;
+
+        // Clicks inside the card stay inside it.
+        TouchArea {}
+
+        contenu := VerticalLayout {
+            padding: 18px;
+            padding-top: 16px;
+            spacing: 14px;
+
+            HorizontalLayout {
+                min-height: 28px;
+                vertical-stretch: 0;
+                spacing: 8px;
+                Text {
+                    text: root.title;
+                    font-family: Tokens.font-display;
+                    font-size: 17px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: root.wrap-title ? top : center;
+                    wrap: root.wrap-title ? word-wrap : no-wrap;
+                    overflow: root.wrap-title ? clip : elide;
+                    horizontal-stretch: 1;
+                }
+                IconButton {
+                    y: root.wrap-title ? 2px : (parent.height - self.height) / 2;
+                    icon: Icons.window-close;
+                    label: root.close-label;
+                    shortcut: "Esc";
+                    button-size: 26px;
+                    icon-size: 13px;
+                    clicked => { root.dismissed(); }
+                }
+            }
+
+            @children
+        }
+    }
+    }
+}
+
+/// The buttons at the foot of a window, on the right; what they do on the left.
+export component ModalFooter inherits HorizontalLayout {
+    in property <string> note;
+
+    height: 32px;
+    vertical-stretch: 0;
+    spacing: 8px;
+
+    Text {
+        text: root.note;
+        font-size: 12px;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+        overflow: elide;
+        horizontal-stretch: 1;
+    }
+    @children
+}
+
+/// A card beside the thing it is about, pointing at it: an event in the week.
+///
+/// It opens on the left of its anchor, or on the right when there is no room, and stays
+/// inside the window. A click outside closes it, and so does Escape.
+export component Popover inherits Rectangle {
+    /// The anchor, in window coordinates: its left and right edges, and its top.
+    in property <length> anchor-left;
+    in property <length> anchor-right;
+    in property <length> anchor-top;
+    in property <length> card-width: 320px;
+    callback dismissed();
+
+    property <bool> a-gauche: root.anchor-left - root.card-width - 14px >= 8px;
+    property <length> hauteur: contenu.preferred-height;
+
+    FocusScope {
+        enabled: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismissed();
+                return accept;
+            }
+            return reject;
+        }
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    carte := Rectangle {
+        x: root.a-gauche
+            ? root.anchor-left - root.card-width - 12px
+            : min(root.anchor-right + 12px, root.width - root.card-width - 8px);
+        y: max(8px, min(root.anchor-top - 24px, root.height - root.hauteur - 8px));
+        width: root.card-width;
+        height: root.hauteur;
+        border-radius: Tokens.radius-large;
+        background: Tokens.panel;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+        drop-shadow-blur: 40px;
+        drop-shadow-color: #000000c0;
+        drop-shadow-offset-y: 14px;
+
+        // The tail, toward the anchor.
+        Rectangle {
+            x: root.a-gauche ? parent.width - 7px : -7px;
+            y: max(14px, min(root.anchor-top + 10px - carte.y, parent.height - 26px));
+            width: 12px;
+            height: 12px;
+            background: Tokens.panel;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            transform-rotation: 45deg;
+        }
+
+        TouchArea {}
+
+        contenu := VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+            @children
+        }
+    }
+    }
+}

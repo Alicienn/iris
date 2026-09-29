@@ -1,0 +1,299 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+import { Dot } from "@iris/base/atoms.slint";
+
+// What one chooses: one of several (segments, the queue's tabs), on or off (pills,
+// checks, toggles), and the small tags that say a priority.
+
+/// One of a few options, side by side on a plate: Month, Week, Day.
+export component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in property <int> selected;
+    /// An option can carry its colour when chosen (priorities). Empty: neutral.
+    in property <[color]> tints;
+    callback chosen(int);
+
+    height: 30px;
+    width: rang.preferred-width + 6px;
+    border-radius: Tokens.radius-medium;
+    background: Tokens.text.transparentize(0.96);
+
+    rang := HorizontalLayout {
+        x: 3px;
+        y: 3px;
+        height: parent.height - 6px;
+        width: self.preferred-width;
+        spacing: 2px;
+        for option[i] in root.options: Rectangle {
+            property <bool> on: i == root.selected;
+            property <color> teinte: root.tints.length > i ? root.tints[i] : Tokens.text;
+            width: mot.preferred-width + 24px;
+            border-radius: 6px;
+            background: self.on
+                ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.surface-active)
+                : touch.has-hover ? Tokens.surface-hover : transparent;
+            drop-shadow-blur: self.on && root.tints.length <= i ? 2px : 0px;
+            drop-shadow-color: #00000066;
+            drop-shadow-offset-y: 1px;
+            animate background { duration: Tokens.instant; }
+
+            accessible-role: button;
+            accessible-label: option;
+            accessible-item-selected: self.on;
+            accessible-action-default => { root.chosen(i); }
+
+            mot := Text {
+                text: option;
+                font-size: 12px;
+                font-weight: parent.on ? 600 : 400;
+                color: parent.on ? (root.tints.length > i ? parent.teinte : Tokens.text) : Tokens.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.chosen(i); }
+            }
+        }
+    }
+}
+
+/// The queue's tabs as the title of the list: the chosen one large, the others quiet,
+/// each with its count.
+export component QueueTabs inherits HorizontalLayout {
+    in property <[string]> names;
+    in property <[string]> counts;
+    in property <[string]> fulls;
+    in property <int> selected;
+    callback chosen(int);
+
+    spacing: 18px;
+    height: 34px;
+
+    for nom[i] in root.names: onglet := Rectangle {
+        property <bool> on: i == root.selected;
+        width: rang.preferred-width;
+
+        accessible-role: tab;
+        accessible-label: nom;
+        accessible-description: root.fulls.length > i ? root.fulls[i] : "";
+        accessible-item-selected: self.on;
+        accessible-action-default => { root.chosen(i); }
+
+        rang := HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: nom;
+                font-family: onglet.on ? Tokens.font-display : Tokens.font-family;
+                font-size: onglet.on ? 22px : 14px;
+                font-weight: onglet.on ? 600 : 400;
+                color: onglet.on ? Tokens.text : touch.has-hover ? Tokens.text-secondary : Tokens.text-muted;
+                vertical-alignment: bottom;
+            }
+            if root.counts.length > i && root.counts[i] != "0": Text {
+                text: root.counts[i];
+                font-size: onglet.on ? 13px : 12px;
+                color: onglet.on ? Tokens.text-secondary : Tokens.text-muted;
+                vertical-alignment: bottom;
+            }
+        }
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.chosen(i); }
+        }
+    }
+}
+
+export enum PillKind {
+    /// A filter, on or off.
+    toggle,
+    /// Something read from what was typed: a date, a list, a priority.
+    token,
+}
+
+/// A rounded word: a filter to turn on, or what a typed line was understood to say.
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    /// A dot of colour before the words (a list).
+    in property <color> dot;
+    in property <bool> has-dot;
+    in property <bool> on;
+    in property <PillKind> kind: PillKind.toggle;
+    /// A colour for the words and the plate (a priority).
+    in property <color> tint;
+    in property <bool> tinted;
+    callback toggled();
+
+    property <bool> jeton: root.kind == PillKind.token;
+    property <color> encre: root.tinted ? root.tint
+        : root.on ? Tokens.accent-text : Tokens.text-secondary;
+
+    height: root.jeton ? 26px : 24px;
+    width: rang.preferred-width + 20px;
+    border-radius: self.height / 2;
+    border-width: root.jeton || root.on ? 0px : 1px;
+    border-color: touch.has-hover ? Tokens.border-strong : Tokens.border;
+    background: root.tinted ? root.tint.transparentize(0.88)
+        : root.on ? Tokens.accent
+        : root.jeton ? Tokens.text.transparentize(0.94)
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: checkbox;
+    accessible-label: root.text;
+    accessible-checked: root.on;
+    accessible-action-default => { root.toggled(); }
+
+    rang := HorizontalLayout {
+        x: 10px;
+        width: self.preferred-width;
+        spacing: 6px;
+        if root.has-dot: Dot {
+            y: (parent.height - self.height) / 2;
+            tint: root.dot;
+            size: 7px;
+        }
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 12px;
+            tint: root.encre;
+        }
+        Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: root.on || root.tinted ? 600 : 400;
+            color: root.encre;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: !root.jeton;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+export enum CheckShape { round, square }
+
+/// A box to tick: round for a task, square (in its colour) for a selection.
+export component Check inherits Rectangle {
+    in property <bool> done;
+    /// Round: late, the rim goes red.
+    in property <bool> late;
+    in property <CheckShape> shape: CheckShape.round;
+    /// Square: its colour, filled when ticked.
+    in property <color> tint: Tokens.success;
+    in property <string> label;
+    in property <length> size: 20px;
+    /// Off: a picture of a check, the row around it takes the click.
+    in property <bool> interactive: true;
+    callback toggled();
+
+    property <bool> rond: root.shape == CheckShape.round;
+    property <color> plein: root.rond ? Tokens.success : root.tint;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.rond ? root.size / 2 : 4px;
+    border-width: 1.5px;
+    border-color: root.done ? root.plein
+        : !root.rond ? root.tint
+        : touch.has-hover ? Tokens.text-secondary
+        : root.late ? Tokens.error : Tokens.text-muted;
+    background: root.done ? root.plein : touch.has-hover && root.rond ? Tokens.surface-hover : transparent;
+    animate background, border-color { duration: Tokens.quick; }
+
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-checked: root.done;
+    accessible-action-default => { root.toggled(); }
+
+    if root.done || (touch.has-hover && root.rond): Icon {
+        data: Icons.check;
+        size: root.size * 0.62;
+        weight: 3.0;
+        tint: root.done ? white : Tokens.text-secondary;
+    }
+
+    touch := TouchArea {
+        enabled: root.interactive;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+/// On or off, for a setting.
+export component Toggle inherits Rectangle {
+    in-out property <bool> on;
+    in property <string> label;
+    callback toggled();
+
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: root.on ? Tokens.accent : Tokens.text.transparentize(0.9);
+    animate background { duration: Tokens.quick; }
+
+    accessible-role: switch;
+    accessible-label: root.label;
+    accessible-checked: root.on;
+    accessible-action-default => { root.on = !root.on; root.toggled(); }
+
+    Rectangle {
+        x: root.on ? 17px : 3px;
+        y: 3px;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: root.on ? Tokens.accent-text : Tokens.text-secondary;
+        animate x { duration: Tokens.quick; easing: cubic-bezier(0.2, 0, 0, 1); }
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.on = !root.on;
+            root.toggled();
+        }
+    }
+}
+
+/// A priority, told by a small coloured tag rather than by the colour of anything else.
+export global Priority {
+    public pure function tint(p: int) -> color {
+        return p == 3 ? Tokens.error : p == 2 ? Tokens.warning : #5b8def;
+    }
+    public pure function name(p: int) -> string {
+        return p == 3 ? "High" : p == 2 ? "Medium" : p == 1 ? "Low" : "";
+    }
+}
+
+/// A short word on a plate of its colour.
+export component Tag inherits Rectangle {
+    in property <string> text;
+    in property <color> tint: Tokens.text-secondary;
+
+    width: nom.preferred-width + 14px;
+    height: 18px;
+    border-radius: 4px;
+    background: root.tint.transparentize(0.86);
+
+    nom := Text {
+        text: root.text;
+        font-size: 10px;
+        font-weight: 600;
+        color: root.tint;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// "High", "Medium", "Low", in their colour.
+export component PriorityTag inherits Tag {
+    in property <int> priority;
+    text: Priority.name(root.priority);
+    tint: Priority.tint(root.priority);
+}

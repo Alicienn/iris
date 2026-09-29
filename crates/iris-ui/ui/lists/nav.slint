@@ -1,4 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+import { Dot } from "@iris/base/atoms.slint";
+import { Check, CheckShape } from "@iris/controls/choice.slint";
 
 // What the three side columns (accounts, calendars, task lists) share.
 //
@@ -18,11 +21,11 @@ export global Nav {
     }
 }
 
-/// The title over a group of rows: CALENDARS, LISTS, ACCOUNTS.
+/// The title over a group of rows: Calendars, Lists, Folders. Sentence case: capitals
+/// spaced out over every group shout, and a column of shouting reads as noise.
 export component SectionTitle inherits Text {
-    font-size: 10px;
-    letter-spacing: 1px;
-    font-weight: Tokens.weight-bold;
+    font-size: 12px;
+    font-weight: 600;
     color: Tokens.text-muted;
     vertical-alignment: center;
 }
@@ -41,4 +44,135 @@ export component SelectionMark inherits Rectangle {
     border-radius: 1.5px;
     background: Tokens.accent;
     animate height { duration: Tokens.instant; }
+}
+
+/// A row of a side column: a view, a list, a calendar, a mailbox, a tag, a folder.
+///
+/// What leads the row is an icon, a dot of colour or a square check in its colour; a
+/// group's title adds a chevron that folds what is under it. What follows the label is
+/// a count, or whatever the column puts there (`@children`: a sync button on hover, a
+/// warning mark). One touch area, on top, reads where it was hit: the chevron folds,
+/// a right click asks for the menu, anything else is a click.
+export component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <string> count;
+    in property <string> icon;
+    in property <color> icon-tint: Tokens.text-secondary;
+    in property <color> dot;
+    in property <bool> has-dot;
+    /// A square check in the row's colour (`dot`), ticked when `checked`.
+    in property <bool> has-check;
+    in property <bool> checked;
+    in property <bool> selected;
+    /// A title that holds rows under it: bold, with a chevron.
+    in property <bool> group;
+    in property <bool> folded;
+    /// Under a group's title: a step in.
+    in property <bool> nested;
+    /// Collapsed to its lead only (the accounts column, folded away).
+    in property <bool> compact;
+    in property <length> row-height: Nav.row-height;
+    /// Dimmed: a hidden calendar, a disabled account.
+    in property <bool> dim;
+
+    callback clicked();
+    callback fold-toggled();
+    callback context-menu(length, length);
+
+    out property <bool> hovered: touch.has-hover;
+    property <length> pli: 22px;
+
+    height: root.row-height;
+    border-radius: Tokens.radius-small;
+    background: Nav.background(root.selected, touch.has-hover);
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.label;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.clicked(); }
+
+    SelectionMark {
+        on: root.selected;
+        row-height: root.height;
+    }
+
+    HorizontalLayout {
+        padding-left: root.compact ? 0px : root.nested ? 26px : root.group ? 2px : 10px;
+        padding-right: 6px;
+        spacing: 9px;
+        alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
+
+        if root.group && !root.compact: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            background: touch.has-hover && touch.mouse-x < root.pli ? Tokens.surface-active : transparent;
+            accessible-role: button;
+            accessible-label: (root.folded ? "Unfold " : "Fold ") + root.label;
+            accessible-action-default => { root.fold-toggled(); }
+            Icon {
+                data: root.folded ? Icons.chevron-right : Icons.chevron-down;
+                size: 10px;
+                tint: Tokens.text-muted;
+            }
+        }
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 15px;
+            tint: root.selected ? Tokens.text : root.icon-tint;
+        }
+        if root.has-dot && !root.has-check: Dot {
+            y: (parent.height - self.height) / 2;
+            tint: root.dot;
+            size: 8px;
+        }
+        if root.has-check: Check {
+            y: (parent.height - self.height) / 2;
+            shape: CheckShape.square;
+            size: 14px;
+            tint: root.dot;
+            done: root.checked;
+            label: root.label;
+            // The row's touch area answers for it: one click, one place. A screen
+            // reader's "press" on the check still ticks it.
+            interactive: false;
+            toggled => { root.clicked(); }
+        }
+        if !root.compact: Text {
+            text: root.label;
+            font-size: Nav.label-size;
+            font-weight: root.selected || root.group ? 600 : 400;
+            color: root.dim ? Tokens.text-muted
+                : root.selected || root.group ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        @children
+        if !root.compact && root.count != "": Text {
+            text: root.count;
+            font-size: 11px;
+            color: root.selected ? Tokens.text-secondary : Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-menu(self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
+        clicked => {
+            if (root.group && !root.compact && self.mouse-x < root.pli) {
+                root.fold-toggled();
+            } else {
+                root.clicked();
+            }
+        }
+    }
 }

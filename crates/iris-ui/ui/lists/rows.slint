@@ -1,0 +1,446 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+import { Dot, Avatar, Hairline } from "@iris/base/atoms.slint";
+import { Link } from "@iris/controls/button.slint";
+import { Check, PriorityTag } from "@iris/controls/choice.slint";
+
+// The rows every list is made of: a header over a group, a row with what leads it,
+// its words and what follows, a row on a line of time, the line of the present, and a
+// property with its value.
+
+/// The title of a group: its name, a count in a quieter voice, and its way out.
+export component SectionHeader inherits Rectangle {
+    in property <string> title;
+    in property <string> count;
+    in property <string> link;
+    in property <string> link-label;
+    /// Red: the late ones.
+    in property <bool> urgent;
+    /// A hairline under it, where the group has no plate of its own.
+    in property <bool> rule;
+    callback open();
+
+    height: 32px;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 2px;
+        spacing: 8px;
+        Text {
+            text: root.title;
+            font-size: 13px;
+            font-weight: 600;
+            color: root.urgent ? Tokens.error : Tokens.text;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.count;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if root.link != "": Link {
+            y: (parent.height - self.height) / 2;
+            text: root.link;
+            label: root.link-label;
+            chevron: true;
+            clicked => { root.open(); }
+        }
+    }
+    if root.rule: Hairline {
+        y: parent.height - 1px;
+    }
+}
+
+export enum RowLead { none, avatar, check, dot }
+
+/// A row of a list: a message, a task, a subtask, a rule.
+///
+/// Drawn here; what it does beyond a click (being carried, being marked) belongs to
+/// the list that wraps it, which sets `interactive: false` and takes the pointer.
+export component ListRow inherits Rectangle {
+    in property <string> title;
+    /// Under the title; in `compact`, after the subtitle on the same line.
+    in property <string> subtitle;
+    in property <string> excerpt;
+    /// On the right: an hour, a day, "late".
+    in property <string> meta;
+    in property <bool> meta-urgent;
+    in property <RowLead> lead: RowLead.none;
+    in property <string> initials;
+    in property <color> tint;
+    /// A dot before the title (the mailbox of a message, the list of a task).
+    in property <color> mark;
+    in property <bool> has-mark;
+    /// A count after the title (messages in a thread).
+    in property <string> badge;
+    in property <int> priority;
+    in property <bool> attachment;
+    in property <bool> starred;
+    in property <bool> unread;
+    in property <bool> done;
+    in property <bool> late;
+    in property <bool> selected;
+    /// Two lines, tight: a mail queue. Off: a task list.
+    in property <bool> compact;
+    in property <bool> interactive: true;
+    in property <string> check-label;
+    callback clicked();
+    callback toggled();
+    callback context-menu(length, length);
+
+    out property <bool> hovered: touch.has-hover;
+
+    height: root.compact ? 46px : 52px;
+    border-radius: Tokens.radius-medium;
+    background: root.selected ? Tokens.surface-active
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.subtitle == "" ? root.title : root.title + ", " + root.subtitle;
+    accessible-description: root.unread ? "Unread" : root.meta;
+    accessible-item-selected: root.selected;
+    accessible-item-selectable: true;
+    accessible-action-default => { root.clicked(); }
+
+    touch := TouchArea {
+        enabled: root.interactive;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-menu(self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
+        clicked => { root.clicked(); }
+    }
+
+    // Unread: a small dot in the margin.
+    if root.unread: Rectangle {
+        x: 3px;
+        y: (parent.height - self.height) / 2;
+        width: 5px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Tokens.text;
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: root.compact ? 10px : 12px;
+
+        if root.lead == RowLead.avatar: Avatar {
+            y: (parent.height - self.height) / 2;
+            initials: root.initials;
+            tint: root.tint;
+            size: 28px;
+        }
+        if root.lead == RowLead.check: Check {
+            y: (parent.height - self.height) / 2;
+            done: root.done;
+            late: root.late;
+            label: root.check-label != "" ? root.check-label : root.title;
+            toggled => { root.toggled(); }
+        }
+        if root.lead == RowLead.dot: Dot {
+            y: (parent.height - self.height) / 2;
+            tint: root.tint;
+            size: 8px;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            min-width: 0;
+
+            // First line: the mark, the title, its count, and in compact the time.
+            HorizontalLayout {
+                spacing: 6px;
+                if root.has-mark && root.compact: Dot {
+                    y: (parent.height - self.height) / 2;
+                    tint: root.mark;
+                    size: 7px;
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 0;
+                    height: titre.preferred-height;
+                    titre := Text {
+                        width: parent.width;
+                        text: root.title;
+                        font-size: root.compact ? 13px : 14px;
+                        font-weight: root.unread ? 600 : 400;
+                        color: root.done ? Tokens.text-muted
+                            : root.compact && !root.unread ? Tokens.text-secondary : Tokens.text;
+                        overflow: elide;
+                    }
+                    if root.done: Rectangle {
+                        x: 0;
+                        y: parent.height / 2;
+                        width: min(titre.preferred-width, parent.width);
+                        height: 1px;
+                        background: Tokens.text-muted;
+                    }
+                }
+                if root.badge != "": Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: nombre.preferred-width + 10px;
+                    height: 15px;
+                    border-radius: 7.5px;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+                    nombre := Text {
+                        text: root.badge;
+                        font-size: 10px;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.compact: Text {
+                    text: root.meta;
+                    font-size: 11px;
+                    color: root.unread ? Tokens.text : Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Second line: the subtitle and what follows it.
+            if root.subtitle != "" || root.excerpt != "": HorizontalLayout {
+                spacing: 6px;
+                if !root.compact && root.has-mark: Dot {
+                    y: (parent.height - self.height) / 2;
+                    tint: root.mark;
+                    size: 7px;
+                }
+                if root.subtitle != "": Text {
+                    text: root.subtitle;
+                    font-size: root.compact ? 13px : 12px;
+                    color: root.compact ? (root.unread ? Tokens.text : Tokens.text-secondary) : Tokens.text-muted;
+                    overflow: elide;
+                    horizontal-stretch: 0;
+                    max-width: self.preferred-width;
+                }
+                Text {
+                    text: root.excerpt;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    min-width: 0;
+                }
+                if root.attachment: Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    data: Icons.paperclip;
+                    size: 12px;
+                    tint: Tokens.text-muted;
+                }
+                if root.starred: Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    data: Icons.star;
+                    size: 12px;
+                    filled: true;
+                    tint: Tokens.warning;
+                }
+            }
+        }
+
+        @children
+        if root.priority > 0 && !root.done: PriorityTag {
+            y: (parent.height - self.height) / 2;
+            priority: root.priority;
+        }
+        if !root.compact && root.meta != "": Text {
+            text: root.meta;
+            font-size: 12px;
+            color: root.meta-urgent ? Tokens.error : Tokens.text-secondary;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+}
+
+/// A row on a line of time: an hour, what marks it (a dot of its calendar, a task's
+/// box), the words, a detail. Past rows fade, late ones go red.
+export component TimeRow inherits Rectangle {
+    in property <string> time;
+    in property <string> title;
+    in property <string> detail;
+    /// A task: a round box. Otherwise a dot of `tint`.
+    in property <bool> task;
+    in property <color> tint;
+    in property <bool> done;
+    in property <bool> past;
+    in property <bool> late;
+    in property <bool> interactive: true;
+    callback clicked();
+    callback toggled();
+
+    height: 36px;
+    border-radius: Tokens.radius-small;
+    background: root.interactive && touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.time == "" ? root.title : root.time + " " + root.title;
+    accessible-description: root.detail;
+    accessible-action-default => { root.clicked(); }
+
+    touch := TouchArea {
+        enabled: root.interactive;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 14px;
+        Text {
+            width: 40px;
+            text: root.time;
+            font-size: 12px;
+            color: root.late ? Tokens.error : root.past || root.done ? Tokens.text-muted : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            width: 16px;
+            if root.task: Check {
+                y: (parent.height - self.height) / 2;
+                size: 16px;
+                done: root.done;
+                late: root.late;
+                label: root.title;
+                toggled => { root.toggled(); }
+            }
+            if !root.task: Dot {
+                x: 4px;
+                y: (parent.height - self.height) / 2;
+                tint: root.tint;
+                size: 8px;
+                opacity: root.past ? 0.5 : 1.0;
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0;
+            nom := Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.title;
+                font-size: 15px;
+                color: root.past || root.done ? Tokens.text-muted : Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.done: Rectangle {
+                x: 0;
+                y: parent.height / 2;
+                width: min(nom.preferred-width, parent.width);
+                height: 1px;
+                background: Tokens.text-muted;
+            }
+        }
+        if root.detail != "": Text {
+            text: root.detail;
+            font-size: 12px;
+            color: root.late ? Tokens.error : Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// The present, on a line of time: its hour in red, and a red line with a dot.
+export component NowLine inherits Rectangle {
+    in property <string> time;
+
+    height: 18px;
+    accessible-role: text;
+    accessible-label: "Now, " + root.time;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 14px;
+        Text {
+            width: 40px;
+            text: root.time;
+            font-size: 11px;
+            font-weight: 600;
+            color: Tokens.error;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Rectangle {
+                x: 4px;
+                y: (parent.height - self.height) / 2;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: Tokens.error;
+            }
+            Rectangle {
+                x: 6px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 6px;
+                height: 1px;
+                background: Tokens.error;
+            }
+        }
+    }
+}
+
+/// A property of something: its icon and name on the left, its value on the right
+/// (words, or a control put as a child).
+export component PropertyRow inherits Rectangle {
+    in property <string> name;
+    in property <string> icon;
+    in property <string> value;
+    in property <string> hint;
+
+    height: 40px;
+
+    HorizontalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            width: 100px;
+            spacing: 8px;
+            if root.icon != "": Icon {
+                y: (parent.height - self.height) / 2;
+                data: root.icon;
+                size: 14px;
+                tint: Tokens.text-muted;
+            }
+            Text {
+                text: root.name;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+        if root.value != "": Text {
+            text: root.value;
+            font-size: 13px;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            font-size: 13px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+        @children
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Hairline {
+        y: parent.height - 1px;
+    }
+}

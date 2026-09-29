@@ -1,0 +1,145 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Kbd } from "@iris/base/atoms.slint";
+
+export { IconButton }
+
+// What one presses. One button, in four kinds and two sizes, with its hover and
+// pressed states drawn here and nowhere else.
+
+export enum ButtonKind {
+    /// The one thing to do here: filled with the accent.
+    primary,
+    /// A plate and a border.
+    secondary,
+    /// Words only, until the pointer comes.
+    ghost,
+    /// Destroys something: filled red.
+    danger,
+}
+
+export enum ButtonSize { md, sm }
+
+export component Button inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    /// The key that does the same, shown after the words: "E".
+    in property <string> shortcut;
+    /// For a screen reader when the words are not enough: "Delete completed tasks".
+    in property <string> label;
+    in property <ButtonKind> kind: ButtonKind.secondary;
+    in property <ButtonSize> size: ButtonSize.md;
+    in property <bool> enabled: true;
+    /// Its work is under way: the icon dims. Nothing loops.
+    in property <bool> busy;
+    callback clicked();
+
+    property <bool> plein: root.kind == ButtonKind.primary || root.kind == ButtonKind.danger;
+    property <color> encre: root.kind == ButtonKind.primary ? Tokens.accent-text
+        : root.kind == ButtonKind.danger ? white
+        : root.kind == ButtonKind.ghost && !touch.has-hover ? Tokens.text-secondary
+        : Tokens.text;
+
+    height: root.size == ButtonSize.sm ? 28px : 32px;
+    width: rang.preferred-width + (root.size == ButtonSize.sm ? 20px : 28px);
+    border-radius: Tokens.radius-medium;
+    border-width: root.kind == ButtonKind.secondary ? 1px : 0px;
+    border-color: touch.has-hover ? Tokens.border-strong : Tokens.border;
+    background: root.kind == ButtonKind.primary
+        ? (touch.pressed ? Tokens.accent.darker(0.18) : touch.has-hover ? Tokens.accent.darker(0.07) : Tokens.accent)
+        : root.kind == ButtonKind.danger
+        ? (touch.pressed ? Tokens.error.darker(0.2) : touch.has-hover ? Tokens.error.darker(0.08) : Tokens.error)
+        : (touch.pressed ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover
+            : root.kind == ButtonKind.secondary ? Tokens.surface : transparent);
+    opacity: root.enabled ? 1.0 : 0.45;
+    animate background, border-color { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-description: root.shortcut;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    rang := HorizontalLayout {
+        x: root.size == ButtonSize.sm ? 10px : 14px;
+        width: self.preferred-width;
+        spacing: 8px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: root.size == ButtonSize.sm ? 13px : 14px;
+            weight: 2.0;
+            tint: root.encre;
+            alpha: root.busy ? 0.45 : 1.0;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            font-size: root.size == ButtonSize.sm ? 12px : 13px;
+            font-weight: root.kind == ButtonKind.ghost ? 400 : 600;
+            color: root.encre;
+            vertical-alignment: center;
+        }
+        if root.shortcut != "": Kbd {
+            y: (parent.height - self.height) / 2;
+            keys: root.shortcut;
+            on-accent: root.plein;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// Words that lead somewhere: "Open ›", "Clear", "Mail 18".
+export component Link inherits Rectangle {
+    in property <string> text;
+    /// A figure after the words, brighter: "Mail 18".
+    in property <string> count;
+    in property <bool> chevron;
+    in property <string> label;
+    in property <length> font-size: 12px;
+    callback clicked();
+
+    width: rang.preferred-width + 12px;
+    height: 26px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 6px;
+        width: self.preferred-width;
+        spacing: 5px;
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            color: touch.has-hover ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+        if root.count != "": Text {
+            text: root.count;
+            font-size: root.font-size;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+        if root.chevron: Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-right;
+            size: 12px;
+            weight: 2.2;
+            tint: touch.has-hover ? Tokens.text : Tokens.text-secondary;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}

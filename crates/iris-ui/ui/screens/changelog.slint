@@ -1,7 +1,9 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Floating } from "@iris/base/glass.slint";
-import { Icons, IconButton } from "@iris/base/icons.slint";
 import { ChangelogRowData } from "@iris/types.slint";
+import { Tag } from "@iris/controls/choice.slint";
+import { Button, ButtonKind } from "@iris/controls/button.slint";
+import { Hairline } from "@iris/base/atoms.slint";
+import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { ScrollView } from "std-widgets.slint";
 
 // What changed, version by version.
@@ -16,43 +18,33 @@ component ChangelogList inherits ScrollView {
     viewport-height: lignes.preferred-height;
 
     lignes := VerticalLayout {
-        padding-right: Tokens.space-2;
+        padding-right: 8px;
         spacing: 2px;
 
         for row[i] in root.rows: VerticalLayout {
             // A version: the number, its date, and a mark for the one installed.
             if row.kind == 0: VerticalLayout {
-                padding-top: i == 0 ? 0px : Tokens.space-4;
+                padding-top: i == 0 ? 0px : 18px;
                 HorizontalLayout {
-                    spacing: Tokens.space-2;
-                    height: 22px;
-
+                    spacing: 8px;
+                    height: 24px;
                     Text {
                         text: row.text;
-                        font-size: Tokens.size-body;
-                        font-weight: Tokens.weight-bold;
+                        font-family: Tokens.font-display;
+                        font-size: 16px;
+                        font-weight: 600;
                         color: Tokens.text;
                         vertical-alignment: center;
                     }
                     Text {
                         text: row.detail;
-                        font-size: Tokens.size-small;
+                        font-size: 12px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }
-                    if row.tag != "": Rectangle {
+                    if row.tag != "": Tag {
                         y: (parent.height - self.height) / 2;
-                        height: 16px;
-                        width: marque.preferred-width + 12px;
-                        border-radius: 8px;
-                        background: Tokens.surface-active;
-                        marque := Text {
-                            text: row.tag;
-                            font-size: 9px;
-                            color: Tokens.text-secondary;
-                            vertical-alignment: center;
-                            horizontal-alignment: center;
-                        }
+                        text: row.tag;
                     }
                     Rectangle {}
                 }
@@ -61,111 +53,33 @@ component ChangelogList inherits ScrollView {
             // A category.
             if row.kind == 1: Text {
                 text: row.text;
-                font-size: 9px;
-                letter-spacing: 1px;
+                font-size: 12px;
+                font-weight: 600;
                 color: Tokens.text-muted;
-                height: 22px;
+                height: 26px;
                 vertical-alignment: bottom;
             }
 
             // One change.
             if row.kind == 2: HorizontalLayout {
-                spacing: Tokens.space-2;
-                padding-left: Tokens.space-1;
-
+                spacing: 8px;
+                padding-left: 4px;
                 Text {
                     text: "•";
-                    font-size: Tokens.size-body;
+                    font-size: 13px;
                     color: Tokens.text-muted;
                     width: 8px;
                     vertical-alignment: top;
                 }
                 Text {
                     text: row.text;
-                    font-size: Tokens.size-body;
+                    font-size: 13px;
                     color: Tokens.text-secondary;
                     wrap: word-wrap;
                     horizontal-stretch: 1;
                 }
             }
         }
-    }
-}
-
-// A button with words on it, in the two weights a dialog needs.
-component DialogButton inherits Rectangle {
-    in property <string> text;
-    in property <bool> primary;
-    in property <bool> enabled: true;
-
-    callback clicked();
-
-    height: 28px;
-    width: max(96px, libelle.preferred-width + 24px);
-    border-radius: Tokens.radius-small;
-    border-width: root.primary ? 0px : 1px;
-    border-color: Tokens.border;
-    background: root.primary
-        ? Tokens.accent
-        : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
-    opacity: root.enabled ? 1.0 : 0.5;
-
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-enabled: root.enabled;
-    accessible-action-default => { root.clicked(); }
-
-    libelle := Text {
-        text: root.text;
-        font-size: Tokens.size-small;
-        font-weight: root.primary ? Tokens.weight-bold : Tokens.weight-body;
-        color: root.primary ? Tokens.accent-text : Tokens.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
-}
-
-// The title row every panel here shares.
-component PanelTitle inherits HorizontalLayout {
-    in property <string> title;
-    in property <string> subtitle;
-    in property <bool> closable: true;
-
-    callback close();
-
-    vertical-stretch: 0;
-    height: 28px;
-    spacing: Tokens.space-2;
-
-    Text {
-        text: root.title;
-        font-family: Tokens.font-family;
-        font-size: Tokens.size-title;
-        font-weight: Tokens.weight-bold;
-        color: Tokens.text;
-        vertical-alignment: center;
-    }
-    Text {
-        text: root.subtitle;
-        font-size: Tokens.size-small;
-        color: Tokens.text-muted;
-        vertical-alignment: center;
-        overflow: elide;
-    }
-    Rectangle {}
-    if root.closable: IconButton {
-        y: (parent.height - self.height) / 2;
-        icon: Icons.window-close;
-        label: "Close";
-        shortcut: "Esc";
-        button-size: 24px;
-        icon-size: 13px;
-        clicked => { root.close(); }
     }
 }
 
@@ -176,49 +90,23 @@ export component ChangelogPanel inherits Rectangle {
 
     callback dismissed();
 
-    background: Tokens.scrim;
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Changelog";
+        card-width: 560px;
+        card-height: 620px;
+        dismissed => { root.dismissed(); }
 
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
-
-    // Escape closes it wherever the focus was: opened with the mouse, the window's
-    // own shortcut handler no longer has the keyboard.
-    FocusScope {
-        init => { self.focus(); }
-        key-pressed(event) => {
-            if (event.text == Key.Escape) {
-                root.dismissed();
-                return accept;
-            }
-            reject
+        Text {
+            text: "You have " + root.version + ".";
+            font-size: 12px;
+            color: Tokens.text-muted;
         }
-    }
-
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(560px, parent.width - 60px);
-        height: min(620px, parent.height - 60px);
-
-        TouchArea {}
-
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
-
-            PanelTitle {
-                title: "Changelog";
-                subtitle: root.version;
-                close => { root.dismissed(); }
-            }
-
-            Rectangle { height: 1px; background: Tokens.border; }
-
-            ChangelogList {
-                vertical-stretch: 1;
-                rows: root.rows;
-            }
+        Hairline {}
+        ChangelogList {
+            vertical-stretch: 1;
+            rows: root.rows;
         }
     }
 }
@@ -242,105 +130,77 @@ export component UpdatePanel inherits Rectangle {
     callback confirmed();
     callback dismissed();
 
-    background: Tokens.scrim;
-
-    TouchArea {
-        clicked => { if (!root.busy) { root.dismissed(); } }
-    }
-
-    FocusScope {
-        init => { self.focus(); }
-        key-pressed(event) => {
-            if (event.text == Key.Escape && !root.busy) {
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Update Iris";
+        card-width: 500px;
+        card-height: 520px;
+        // Not while installing: the choice is made, and this is the only thing saying
+        // what is happening.
+        dismissed => {
+            if (!root.busy) {
                 root.dismissed();
-                return accept;
             }
-            reject
         }
-    }
 
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(500px, parent.width - 60px);
-        height: min(520px, parent.height - 60px);
+        Text {
+            text: root.current + "  →  " + root.available + ". Iris will close, install it and "
+                + "open again. Your mail and settings are kept.";
+            font-size: 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
 
-        TouchArea {}
+        Hairline {}
 
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
+        ChangelogList {
+            vertical-stretch: 1;
+            rows: root.notes;
+        }
 
-            PanelTitle {
-                title: "Update Iris";
-                subtitle: root.current + "  →  " + root.available;
-                closable: !root.busy;
-                close => { root.dismissed(); }
-            }
-
-            Text {
-                text: "Iris will close, install version " + root.available
-                    + " and open again. Your mail and settings are kept.";
-                font-size: Tokens.size-body;
-                color: Tokens.text-secondary;
-                wrap: word-wrap;
-            }
-
-            Rectangle { height: 1px; background: Tokens.border; }
-
-            ChangelogList {
-                vertical-stretch: 1;
-                rows: root.notes;
-            }
-
-            if root.busy: VerticalLayout {
-                spacing: Tokens.space-1;
-                vertical-stretch: 0;
-
+        if root.busy: VerticalLayout {
+            spacing: 4px;
+            vertical-stretch: 0;
+            Rectangle {
+                height: 4px;
+                border-radius: 2px;
+                background: Tokens.surface-low;
+                clip: true;
                 Rectangle {
-                    height: 4px;
+                    x: 0;
+                    width: parent.width * clamp(root.progress, 0, 1);
+                    height: 100%;
                     border-radius: 2px;
-                    background: Tokens.surface-low;
-                    clip: true;
-
-                    Rectangle {
-                        x: 0;
-                        width: parent.width * clamp(root.progress, 0, 1);
-                        height: 100%;
-                        border-radius: 2px;
-                        background: Tokens.accent;
-                        animate width { duration: Tokens.quick; }
-                    }
-                }
-                Text {
-                    text: root.status;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
+                    background: Tokens.accent;
+                    animate width { duration: Tokens.quick; }
                 }
             }
-
-            if root.error != "": Text {
-                text: root.error;
-                font-size: Tokens.size-small;
-                color: Tokens.error;
-                wrap: word-wrap;
+            Text {
+                text: root.status;
+                font-size: 12px;
+                color: Tokens.text-muted;
             }
+        }
 
-            HorizontalLayout {
-                vertical-stretch: 0;
-                spacing: Tokens.space-2;
-                Rectangle {}
-                DialogButton {
-                    text: "Later";
-                    enabled: !root.busy;
-                    clicked => { root.dismissed(); }
-                }
-                DialogButton {
-                    text: root.error != "" ? "Try again" : "Update now";
-                    primary: true;
-                    enabled: !root.busy;
-                    clicked => { root.confirmed(); }
-                }
+        if root.error != "": Text {
+            text: root.error;
+            font-size: 12px;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        ModalFooter {
+            Button {
+                text: "Later";
+                enabled: !root.busy;
+                clicked => { root.dismissed(); }
+            }
+            Button {
+                text: root.error != "" ? "Try again" : "Update now";
+                kind: ButtonKind.primary;
+                enabled: !root.busy;
+                clicked => { root.confirmed(); }
             }
         }
     }

@@ -4,6 +4,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { RuleRowData, PluginRowData } from "@iris/types.slint";
 import { PluginSettingsBody, PluginSettingData } from "@iris/screens/plugins.slint";
+import { Modal } from "@iris/layout/frames.slint";
 import { ListView, CheckBox } from "std-widgets.slint";
 
 // A section heading.
@@ -231,53 +232,23 @@ export component ModulesPanel inherits Rectangle {
     callback configure-plugin(string);
     callback dismissed();
 
-    background: Tokens.scrim;
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: root.settings-plugin != "" ? root.settings-plugin : "Modules";
+        card-width: 680px;
+        card-height: 640px;
+        dismissed => { root.dismissed(); }
 
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
-
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(680px, parent.width - 80px);
-        height: min(640px, parent.height - 80px);
-
-        // The panel swallows clicks, so editing a field does not close the window by
-        // touching the veil behind it.
-        TouchArea {}
-
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
-
-            HorizontalLayout {
-                spacing: Tokens.space-2;
-
-                // Le retour, et non une croix : on est descendu d'un cran dans la même
-                // fenêtre, et ce qu'on veut est remonter, pas tout fermer.
-                if root.settings-plugin != "": SmallButton {
+            // Le retour, et non une croix : on est descendu d'un cran dans la même
+            // fenêtre, et ce qu'on veut est remonter, pas tout fermer.
+            if root.settings-plugin != "": HorizontalLayout {
+                SmallButton {
                     label: "‹ Modules";
                     clicked => { root.settings-closed(); }
                 }
-
-                Text {
-                    text: root.settings-plugin != "" ? root.settings-plugin : "Modules";
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
                 Rectangle {}
-                SmallButton {
-                    label: "Close";
-                    clicked => { root.dismissed(); }
-                }
             }
-
-            Rectangle { height: 1px; background: Tokens.border; }
 
             if root.settings-plugin != "": PluginSettingsBody {
                 vertical-stretch: 1;
@@ -381,6 +352,5 @@ export component ModulesPanel inherits Rectangle {
             Rectangle {}
 
             }
-        }
     }
 }

@@ -1,8 +1,8 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Floating } from "@iris/base/glass.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
-
+import { Button, ButtonKind } from "@iris/controls/button.slint";
+import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 
 // What an account in trouble looks like when you click on it.
 //
@@ -27,194 +27,101 @@ export component AccountProblemPanel inherits Rectangle {
     callback disable-account();
     callback dismissed();
 
-    background: Tokens.scrim;
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: root.account;
+        card-width: 480px;
+        fit: true;
+        dismissed => { root.dismissed(); }
 
-    TouchArea {
-        clicked => { root.dismissed(); }
-    }
-
-    Floating {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: min(480px, parent.width - 80px);
-        height: min(root.needs-password ? 340px : 260px, parent.height - 80px);
-
-        TouchArea {}
-
-        VerticalLayout {
-            padding: Tokens.space-4;
-            spacing: Tokens.space-3;
-
-            HorizontalLayout {
-                spacing: Tokens.space-2;
-
-                Icon {
-                    y: 2px;
-                    data: Icons.warning;
-                    size: 18px;
-                    tint: Tokens.error;
-                }
-
-                VerticalLayout {
-                    spacing: 2px;
-                    Text {
-                        text: root.account;
-                        font-family: Tokens.font-family;
-                        font-size: Tokens.size-title;
-                        font-weight: Tokens.weight-bold;
-                        color: Tokens.text;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: "This mailbox is not syncing.";
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-muted;
-                    }
-                }
+        HorizontalLayout {
+            spacing: 8px;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.warning;
+                size: 16px;
+                tint: Tokens.error;
             }
-
-            Rectangle { height: 1px; background: Tokens.border; }
-
-            // Our reading of it first, because that is what tells the user whether
-            // this is theirs to fix or the server's to recover from.
             Text {
-                text: root.advice;
+                text: "This mailbox is not syncing.";
+                font-size: 13px;
+                color: Tokens.error;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+
+        // Our reading of it first, because that is what tells the user whether
+        // this is theirs to fix or the server's to recover from.
+        Text {
+            text: root.advice;
+            font-size: Tokens.size-body;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // Then the server's own words, which are ugly but are the only thing that
+        // helps when our reading of them is wrong.
+        if root.message != "": Rectangle {
+            height: detail.preferred-height + 16px;
+            border-radius: Tokens.radius-small;
+            background: Tokens.surface-low;
+            border-width: 1px;
+            border-color: Tokens.border;
+
+            detail := Text {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                text: root.message;
+                font-family: Tokens.font-mono;
+                font-size: 11px;
+                color: Tokens.text-muted;
+                wrap: word-wrap;
+            }
+        }
+
+        if root.needs-password: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: "New password";
+                font-size: 12px;
+                color: Tokens.text-muted;
+            }
+            TextField {
+                accessible-label: "New password";
+                input-type: InputType.password;
                 font-size: Tokens.size-body;
-                color: Tokens.text-secondary;
-                wrap: word-wrap;
+                text <=> root.password;
+                accepted => { root.save-password(); }
             }
+        }
 
-            // Then the server's own words, which are ugly but are the only thing that
-            // helps when our reading of them is wrong.
-            if root.message != "": Rectangle {
-                height: detail.preferred-height + 2 * Tokens.space-2;
-                border-radius: Tokens.radius-small;
-                background: Tokens.surface-low;
-                border-width: 1px;
-                border-color: Tokens.border;
+        if root.result != "": Text {
+            text: root.result;
+            font-size: 12px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
 
-                detail := Text {
-                    x: Tokens.space-2;
-                    y: Tokens.space-2;
-                    width: parent.width - 2 * Tokens.space-2;
-                    text: root.message;
-                    font-family: Tokens.font-mono;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    wrap: word-wrap;
-                }
+        // Turning the account off is a legitimate answer to "this is broken and I do
+        // not want to deal with it now", and hiding it would leave the marker blinking
+        // for ever.
+        ModalFooter {
+            Button {
+                text: "Disable";
+                label: "Disable this account";
+                kind: ButtonKind.ghost;
+                clicked => { root.disable-account(); }
             }
-
-            if root.needs-password: VerticalLayout {
-                spacing: 2px;
-                Text {
-                    text: "New password";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                }
-                TextField {
-                    accessible-label: "New password";
-                    input-type: InputType.password;
-                    font-size: Tokens.size-body;
-                    text <=> root.password;
-                    accepted => { root.save-password(); }
-                }
-            }
-
-            if root.result != "": Text {
-                text: root.result;
-                font-size: Tokens.size-small;
-                color: Tokens.text-secondary;
-                wrap: word-wrap;
-            }
-
-            Rectangle {}
-
-            HorizontalLayout {
-                spacing: Tokens.space-2;
-
-                // Turning the account off is a legitimate answer to "this is broken
-                // and I do not want to deal with it now", and hiding it would leave
-                // the marker blinking for ever.
-                Rectangle {
-                    width: 110px;
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: eteindre.has-hover ? Tokens.surface-hover : transparent;
-
-                    accessible-role: button;
-                    accessible-label: "Disable this account";
-                    accessible-action-default => { root.disable-account(); }
-
-                    Text {
-                        text: "Disable";
-                        font-size: Tokens.size-small;
-                        color: eteindre.has-hover ? Tokens.error : Tokens.text-muted;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    eteindre := TouchArea {
-                        clicked => { root.disable-account(); }
-                    }
-                }
-
-                Rectangle {}
-
-                Rectangle {
-                    width: 90px;
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: fermer.has-hover ? Tokens.surface-hover : Tokens.surface;
-
-                    accessible-role: button;
-                    accessible-label: "Close";
-                    accessible-action-default => { root.dismissed(); }
-
-                    Text {
-                        text: "Close";
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-secondary;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    fermer := TouchArea {
-                        clicked => { root.dismissed(); }
-                    }
-                }
-
-                Rectangle {
-                    width: 150px;
-                    height: 28px;
-                    border-radius: Tokens.radius-small;
-                    background: Tokens.accent;
-                    opacity: root.busy ? 0.5 : 1.0;
-
-                    accessible-role: button;
-                    accessible-label: root.needs-password ? "Save and retry" : "Try again";
-                    accessible-enabled: !root.busy;
-                    accessible-action-default => {
-                        root.needs-password ? root.save-password() : root.retry();
-                    }
-
-                    Text {
-                        text: root.busy
-                            ? "Trying…"
-                            : (root.needs-password ? "Save and retry" : "Try again");
-                        font-size: Tokens.size-small;
-                        font-weight: Tokens.weight-bold;
-                        color: Tokens.accent-text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    TouchArea {
-                        clicked => {
-                            if (!root.busy) {
-                                root.needs-password ? root.save-password() : root.retry();
-                            }
-                        }
-                    }
-                }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: root.busy ? "Trying…" : (root.needs-password ? "Save and retry" : "Try again");
+                label: root.needs-password ? "Save and retry" : "Try again";
+                kind: ButtonKind.primary;
+                enabled: !root.busy;
+                clicked => { root.needs-password ? root.save-password() : root.retry(); }
             }
         }
     }

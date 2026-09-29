@@ -1,0 +1,82 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Type, TextStyle, Tone } from "@iris/theme/type.slint";
+
+// The smallest pieces: a text in a named style, a dot of colour, a key, a hairline,
+// a face. Everything bigger is made of these.
+
+/// A text in one of the named styles and tones.
+export component Label inherits Text {
+    in property <TextStyle> style: TextStyle.body;
+    in property <Tone> tone: Tone.primary;
+
+    font-family: Type.family(root.style);
+    font-size: Type.size(root.style);
+    font-weight: Type.weight(root.style);
+    letter-spacing: Type.tracking(root.style);
+    color: Type.color(root.tone);
+    vertical-alignment: center;
+}
+
+/// A dot of colour: a mailbox, a list, a calendar.
+export component Dot inherits Rectangle {
+    in property <color> tint;
+    in property <length> size: 8px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: root.tint;
+}
+
+/// A key or a chord, as it is pressed: "E", "Ctrl F".
+export component Kbd inherits Rectangle {
+    in property <string> keys;
+    /// On a filled button: darker, quieter.
+    in property <bool> on-accent;
+
+    width: mot.preferred-width + 10px;
+    height: 16px;
+    border-radius: 4px;
+    background: root.on-accent ? transparent : Tokens.text.transparentize(0.93);
+
+    mot := Text {
+        text: root.keys;
+        font-size: 10px;
+        color: root.on-accent ? Tokens.accent-text.transparentize(0.45) : Tokens.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// A line across, between things.
+export component Hairline inherits Rectangle {
+    height: 1px;
+    background: Tokens.border;
+}
+
+/// A line down, between columns.
+export component VHairline inherits Rectangle {
+    width: 1px;
+    background: Tokens.border;
+}
+
+/// A person, as their initials on a disc of their own colour.
+export component Avatar inherits Rectangle {
+    in property <string> initials;
+    in property <color> tint;
+    in property <length> size: 28px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: root.tint.transparentize(0.84);
+
+    Text {
+        text: root.initials;
+        font-size: root.size * 0.36;
+        font-weight: 600;
+        color: root.tint;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
