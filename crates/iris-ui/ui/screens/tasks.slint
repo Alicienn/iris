@@ -1,14 +1,14 @@
-import { Tokens } from "tokens.slint";
-import { Glass } from "glass.slint";
-import { Icon, Icons, IconButton } from "icons.slint";
-import { TextField, TextArea } from "field.slint";
-import { TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData } from "types.slint";
-import { CalButton } from "calendar.slint";
-import { PanelFrame, DateButton, DatePicker, Labelled } from "calendar-panels.slint";
-import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Glass } from "@iris/base/glass.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { TextField, TextArea } from "@iris/controls/field.slint";
+import { TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData } from "@iris/types.slint";
+import { CalButton } from "@iris/screens/calendar.slint";
+import { PanelFrame, DateButton, DatePicker, Labelled } from "@iris/screens/calendar-panels.slint";
+import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ComboBox, ScrollView } from "std-widgets.slint";
-import { Nav, SectionTitle, SelectionMark } from "nav.slint";
-import { PriorityTag } from "kit.slint";
+import { Nav, SectionTitle, SelectionMark } from "@iris/lists/nav.slint";
+import { PriorityTag } from "@iris/controls/kit.slint";
 
 // The round box of a task: empty, or ticked. The same for every task: the priority
 // has its own tag.

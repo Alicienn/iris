@@ -1,11 +1,11 @@
-import { Tokens } from "tokens.slint";
-import { Glass } from "glass.slint";
-import { Icon, Icons, IconButton } from "icons.slint";
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Glass } from "@iris/base/glass.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import {
     CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData
-} from "types.slint";
+} from "@iris/types.slint";
 import { ScrollView } from "std-widgets.slint";
-import { Nav, SectionTitle } from "nav.slint";
+import { Nav, SectionTitle } from "@iris/lists/nav.slint";
 
 // A button with words on it, for the calendar's toolbar and panels.
 export component CalButton inherits Rectangle {

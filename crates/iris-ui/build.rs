@@ -24,6 +24,16 @@ fn compiler() {
     // dessiné par nos propres composants, à partir des tokens.
     let mut config = slint_build::CompilerConfiguration::new().with_style("fluent-dark".into());
 
+    // Every import names its file from the root of the interface, `@iris/…`, and not
+    // from where the importing file happens to sit: the files live in layer folders
+    // (theme, base, controls, lists, layout, screens, shell), and a path relative to
+    // each of them would change every time one moves.
+    let racine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui");
+    config = config.with_library_paths(std::collections::HashMap::from([(
+        "iris".to_string(),
+        racine,
+    )]));
+
     // Les informations de débogage sont ce qui permet aux tests de retrouver un
     // élément par son libellé d'accessibilité. Elles ne sont émises que dans les
     // profils de développement : en production elles n'ont pas d'usage, et elles

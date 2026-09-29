@@ -1,4 +1,4 @@
-import { Tokens } from "tokens.slint";
+import { Tokens } from "@iris/theme/tokens.slint";
 
 // Le matériau de verre.
 //
@@ -47,7 +47,7 @@ export component Glass inherits Rectangle {
     // the middle of it and nothing anywhere else — the grey patch that hovered above
     // "Nothing to do" was this, and it was on every empty panel in the application.
     Image {
-        source: @image-url("../assets/grain.png");
+        source: @image-url("../../assets/grain.png");
         image-rendering: pixelated;
         vertical-tiling: repeat;
         horizontal-tiling: repeat;

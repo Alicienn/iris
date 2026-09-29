@@ -1,41 +1,38 @@
-import { Tokens } from "tokens.slint";
-import { TextField } from "field.slint";
-import { Glass, Backdrop, Floating } from "glass.slint";
+import { Tokens } from "@iris/theme/tokens.slint";
+import { TextField } from "@iris/controls/field.slint";
+import { Glass, Backdrop, Floating } from "@iris/base/glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
-    ThemeSwatchData, AccountTagData, HomeItemData, DialArcData
-} from "types.slint";
-import { HomeView } from "home.slint";
-import { TagsPanel } from "tags.slint";
-import { ThreadListView, ThreadContextMenu } from "list.slint";
-import { Sidebar, AccountContextMenu } from "sidebar.slint";
+    ThemeSwatchData, AccountTagData, HomeItemData, DialArcData, FolderNodeData,
+    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
+    TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData
+} from "@iris/types.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+import { TitleBar } from "@iris/shell/titlebar.slint";
+import { Toast, SendNotice } from "@iris/shell/toast.slint";
+import { HomeView } from "@iris/screens/home.slint";
+import { TagsPanel } from "@iris/screens/tags.slint";
+import { ThreadListView, ThreadContextMenu } from "@iris/screens/list.slint";
+import { Sidebar, AccountContextMenu } from "@iris/screens/sidebar.slint";
 import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel }
-    from "folders.slint";
-import { FolderNodeData } from "types.slint";
-import { ConversationView } from "conversation.slint";
-import { SettingsPanel } from "settings.slint";
-import { AccountSetupPanel } from "account.slint";
-import { ModulesPanel } from "modules.slint";
-import { PluginSettingData } from "plugins.slint";
-import { ComposePanel } from "compose.slint";
-import { Icon, Icons } from "icons.slint";
-import { SignaturePanel } from "signature.slint";
-import { SourcePanel } from "source.slint";
-import { TitleBar } from "titlebar.slint";
-import { AccountProblemPanel } from "account-problem.slint";
-import { Toast, SendNotice } from "toast.slint";
-import { CalendarView } from "calendar.slint";
-import { TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel } from "tasks.slint";
+    from "@iris/screens/folders.slint";
+import { ConversationView } from "@iris/screens/conversation.slint";
+import { SettingsPanel } from "@iris/screens/settings.slint";
+import { AccountSetupPanel } from "@iris/screens/account.slint";
+import { ModulesPanel } from "@iris/screens/modules.slint";
+import { PluginSettingData } from "@iris/screens/plugins.slint";
+import { ComposePanel } from "@iris/screens/compose.slint";
+import { SignaturePanel } from "@iris/screens/signature.slint";
+import { SourcePanel } from "@iris/screens/source.slint";
+import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
+import { CalendarView } from "@iris/screens/calendar.slint";
+import { TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel }
+    from "@iris/screens/tasks.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu,
     CalendarRenamePanel, CalendarDeletePanel
-} from "calendar-panels.slint";
-import {
-    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
-    TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData
-} from "types.slint";
-import { ChangelogPanel, UpdatePanel } from "changelog.slint";
-import { ChangelogRowData } from "types.slint";
+} from "@iris/screens/calendar-panels.slint";
+import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import { ListView } from "std-widgets.slint";
 
 export { Tokens }
