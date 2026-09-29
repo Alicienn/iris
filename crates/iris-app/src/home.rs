@@ -1,117 +1,20 @@
-//! The Home screen: the day at a glance.
+//! The Home screen: the day, and nothing else.
 //!
-//! A dial of the day (the Iris mark grown into a clock of the 24 hours, today's events
-//! as arcs of their calendar's colour, the time gone by, the present), a greeting, one
-//! sentence that says what is waiting, and three columns: the latest mail of the
-//! queue, today's events on a line down the hours, the tasks due. Everything is read
-//! from the base when Home is shown, and again after each sync or each minute while it
-//! stays on screen: a handful of small queries, and nothing while another workspace is
-//! showing.
+//! The date, a greeting, one sentence on what is waiting, the next three things of
+//! the day (events and tasks together, in the order of their hours) and three ways
+//! out with their counts. Read from the base when Home is shown, and again after
+//! each sync or each minute while it stays on screen: a handful of small queries,
+//! and nothing while another workspace is showing.
 
 use crate::controller::Controller;
 use crate::services::{now, Services};
 use chrono::{Local, NaiveDate, Timelike};
-use iris_tasks::{due_label, is_overdue};
-use iris_ui::{AppWindow, DialArcData, HomeItemData, ThreadRowData};
+use iris_tasks::is_overdue;
+use iris_ui::{AppWindow, HomeItemData};
 use slint::{ComponentHandle, ModelRc, VecModel};
-use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
-/// Lines to start the day with. Short, and old enough to belong to everyone.
-pub const QUOTES: &[(&str, &str)] = &[
-    ("Well begun is half done.", "Aristotle"),
-    (
-        "The secret of getting ahead is getting started.",
-        "Mark Twain",
-    ),
-    (
-        "Simplicity is the ultimate sophistication.",
-        "Leonardo da Vinci",
-    ),
-    (
-        "It is not that we have a short time to live, but that we waste a lot of it.",
-        "Seneca",
-    ),
-    (
-        "The journey of a thousand miles begins with one step.",
-        "Lao Tzu",
-    ),
-    (
-        "Nature does not hurry, yet everything is accomplished.",
-        "Lao Tzu",
-    ),
-    (
-        "Do what you can, with what you have, where you are.",
-        "Theodore Roosevelt",
-    ),
-    (
-        "Our life is frittered away by detail. Simplify, simplify.",
-        "Henry David Thoreau",
-    ),
-    (
-        "Write it on your heart that every day is the best day in the year.",
-        "Ralph Waldo Emerson",
-    ),
-    ("Lost time is never found again.", "Benjamin Franklin"),
-    (
-        "Energy and persistence conquer all things.",
-        "Benjamin Franklin",
-    ),
-    ("Well done is better than well said.", "Benjamin Franklin"),
-    (
-        "Knowing is not enough; we must apply.",
-        "Johann Wolfgang von Goethe",
-    ),
-    (
-        "Great things are done by a series of small things brought together.",
-        "Vincent van Gogh",
-    ),
-    (
-        "Patience is bitter, but its fruit is sweet.",
-        "Jean-Jacques Rousseau",
-    ),
-    (
-        "Very little is needed to make a happy life.",
-        "Marcus Aurelius",
-    ),
-    (
-        "The happiness of your life depends upon the quality of your thoughts.",
-        "Marcus Aurelius",
-    ),
-    (
-        "Waste no more time arguing what a good man should be. Be one.",
-        "Marcus Aurelius",
-    ),
-    (
-        "Luck is what happens when preparation meets opportunity.",
-        "Seneca",
-    ),
-    (
-        "He who has a why to live can bear almost any how.",
-        "Friedrich Nietzsche",
-    ),
-    (
-        "It does not matter how slowly you go as long as you do not stop.",
-        "Confucius",
-    ),
-    (
-        "The man who moves a mountain begins by carrying away small stones.",
-        "Confucius",
-    ),
-    ("Begin at once to live.", "Seneca"),
-    ("Quality is not an act, it is a habit.", "Aristotle"),
-    (
-        "Nothing is particularly hard if you divide it into small jobs.",
-        "Henry Ford",
-    ),
-    ("Keep your face always toward the sunshine.", "Walt Whitman"),
-    (
-        "Be not afraid of going slowly; be afraid only of standing still.",
-        "Chinese proverb",
-    ),
-];
 
 /// Mail that arrived since Iris was opened, counted by the sync loop.
 static ARRIVEES: AtomicU64 = AtomicU64::new(0);
@@ -188,238 +91,121 @@ pub fn summary(unread: usize, due: usize, events_left: usize, evening: bool) -> 
     }
 }
 
-// --- The dial ------------------------------------------------------------------------
-
-/// The dial is drawn in a square of this side; the hours run on a circle of this radius.
-const DIAL: f64 = 212.0;
-const RAYON: f64 = 88.0;
-
-/// A point of the hours' circle: `fraction` of the day, midnight at the top, clockwise.
-pub fn dial_point(fraction: f64) -> (f64, f64) {
-    let a = fraction.clamp(0.0, 1.0) * std::f64::consts::TAU;
-    (DIAL / 2.0 + RAYON * a.sin(), DIAL / 2.0 - RAYON * a.cos())
-}
-
-/// The arc of the hours' circle between two fractions of the day, as SVG path commands.
-pub fn dial_arc(from: f64, to: f64) -> String {
-    let (from, to) = (from.clamp(0.0, 1.0), to.clamp(0.0, 1.0));
-    // A whole circle is not an arc: stop a hair short of it.
-    let to = to.min(from + 0.9995);
-    let ((x1, y1), (x2, y2)) = (dial_point(from), dial_point(to));
-    let grand = if to - from > 0.5 { 1 } else { 0 };
-    format!("M {x1:.2} {y1:.2} A {RAYON} {RAYON} 0 {grand} 1 {x2:.2} {y2:.2}")
-}
-
-/// How long something lasts, in words: "30 min", "1 h", "1 h 30".
-fn duree(ms: i64) -> String {
-    let minutes = (ms / 60_000).max(0);
+/// How long until something, in words: "in 25 min", "in 1 h 40".
+pub fn in_how_long(ms: i64) -> String {
+    let minutes = (ms / 60_000).max(1);
     match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m:02}"),
+        (0, m) => format!("in {m} min"),
+        (h, 0) => format!("in {h} h"),
+        (h, m) => format!("in {h} h {m:02}"),
     }
 }
 
-// --- The columns -----------------------------------------------------------------------
-
-fn sous_titre(titre: &str) -> HomeItemData {
-    HomeItemData {
-        title: titre.into(),
-        header: true,
-        ..Default::default()
-    }
+/// One thing of the day, and where it falls in it (minutes since midnight; late ones
+/// first, those without an hour last).
+struct Prochain {
+    rang: i64,
+    ligne: HomeItemData,
 }
 
-/// The tasks worth seeing first: late and today's (done ones struck through), then
-/// under "Next" the following ones with a date. At most `max` tasks.
-fn taches(services: &Services, max: usize) -> (Vec<HomeItemData>, usize) {
-    let maintenant = Local::now().naive_local();
-    let today = maintenant.date();
+/// What Home shows of the day.
+pub struct Journee {
+    /// The next things, three at most.
+    pub next: Vec<HomeItemData>,
+    /// Open tasks due today or late.
+    pub due: usize,
+    /// Today's events, and those still to come.
+    pub events: usize,
+    pub events_left: usize,
+}
+
+/// The day, from the calendars and the tasks.
+pub fn day(services: &Services, max: usize) -> Journee {
+    let maintenant = Local::now();
+    let today = maintenant.date_naive();
+    let instant = maintenant.timestamp_millis();
+    let mut tout: Vec<Prochain> = Vec::new();
+
+    // Today's events still to come or under way.
+    let evenements: Vec<crate::calendar::Upcoming> = crate::calendar::upcoming(services, today, 1)
+        .into_iter()
+        .filter(|u| u.day == today)
+        .collect();
+    let restants = evenements
+        .iter()
+        .filter(|u| !u.all_day && u.start > instant)
+        .count();
+    for u in evenements.iter().filter(|u| !u.all_day && u.end > instant) {
+        let debut = chrono::DateTime::from_timestamp_millis(u.start)
+            .map(|d| d.with_timezone(&Local))
+            .map(|d| (d.hour() * 60 + d.minute()) as i64)
+            .unwrap_or(0);
+        let detail = if u.start <= instant {
+            "now".to_string()
+        } else if u.start - instant < 3 * 3_600_000 {
+            in_how_long(u.start - instant)
+        } else {
+            u.location.trim().to_string()
+        };
+        tout.push(Prochain {
+            rang: debut,
+            ligne: HomeItemData {
+                key: u.key.as_str().into(),
+                title: u.title.as_str().into(),
+                meta: u.time.as_str().into(),
+                hint: detail.into(),
+                color: crate::calendar::couleur(&u.color),
+                ..Default::default()
+            },
+        });
+    }
+
+    // The tasks due today or late.
     let jour = |t: &iris_store::NewTask| {
         t.due_day
             .as_deref()
             .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
     };
-    let minute = |t: &iris_store::NewTask| t.due_minute.map(|m| m.clamp(0, 1439) as u32);
-    let ouvertes: Vec<iris_store::StoredTask> = services
+    let dues: Vec<iris_store::StoredTask> = services
         .store
         .open_tasks()
         .unwrap_or_default()
         .into_iter()
-        .filter(|t| t.task.parent_id.is_none() && jour(&t.task).is_some())
+        .filter(|t| t.task.parent_id.is_none() && jour(&t.task).is_some_and(|j| j <= today))
         .collect();
-    let faites_aujourdhui: Vec<iris_store::StoredTask> = services
-        .store
-        .done_tasks(None, 50)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|t| jour(&t.task) == Some(today))
-        .collect();
-
-    let ligne = |t: &iris_store::StoredTask| {
+    for t in &dues {
         let j = jour(&t.task).unwrap_or(today);
-        HomeItemData {
-            id: t.id as i32,
-            title: t.task.title.as_str().into(),
-            meta: due_label(j, minute(&t.task), today).into(),
-            overdue: !t.is_done() && is_overdue(j, minute(&t.task), maintenant),
-            done: t.is_done(),
-            priority: t.task.priority,
-            ..Default::default()
-        }
-    };
-
-    let maintenant_dus: Vec<&iris_store::StoredTask> = ouvertes
-        .iter()
-        .filter(|t| jour(&t.task).is_some_and(|j| j <= today))
-        .collect();
-    let dues = maintenant_dus.len();
-    let mut lignes: Vec<HomeItemData> = maintenant_dus
-        .into_iter()
-        .chain(faites_aujourdhui.iter())
-        .take(max)
-        .map(ligne)
-        .collect();
-    let reste = max.saturating_sub(lignes.len());
-    let suivantes: Vec<HomeItemData> = ouvertes
-        .iter()
-        .filter(|t| jour(&t.task).is_some_and(|j| j > today))
-        .take(reste)
-        .map(ligne)
-        .collect();
-    if !suivantes.is_empty() {
-        if !lignes.is_empty() {
-            lignes.push(sous_titre("Next"));
-        }
-        lignes.extend(suivantes);
-    }
-    (lignes, dues)
-}
-
-/// What the dial and the Today column show.
-struct Journee {
-    arcs: Vec<DialArcData>,
-    aujourdhui: Vec<HomeItemData>,
-    plus_tard: Vec<HomeItemData>,
-    total: usize,
-    restants: usize,
-}
-
-fn journee(services: &Services, maintenant: chrono::DateTime<Local>) -> Journee {
-    let today = maintenant.date_naive();
-    let minuit = crate::calendar::local_midnight_ms(today);
-    let jour_ms = 86_400_000.0;
-    let instant = maintenant.timestamp_millis();
-    let tous = crate::calendar::upcoming(services, today, 7);
-    let (du_jour, apres): (Vec<_>, Vec<_>) = tous.into_iter().partition(|u| u.day == today);
-
-    let fraction = |ms: i64| (ms - minuit) as f64 / jour_ms;
-    let arcs = du_jour
-        .iter()
-        .filter(|u| !u.all_day)
-        .map(|u| {
-            let (a, b) = (fraction(u.start), fraction(u.end));
-            // A short event still shows: at least a quarter of an hour of arc.
-            DialArcData {
-                path: dial_arc(a, b.max(a + 0.0104)).into(),
-                color: crate::calendar::couleur(&u.color),
-            }
-        })
-        .collect();
-
-    let mut aujourdhui = Vec::new();
-    let mut maintenant_pose = false;
-    for u in &du_jour {
-        if !u.all_day && !maintenant_pose && u.start > instant {
-            aujourdhui.push(HomeItemData {
-                now: true,
-                meta: maintenant.format("%H:%M").to_string().into(),
-                ..Default::default()
-            });
-            maintenant_pose = true;
-        }
-        let mut hint = if u.all_day {
-            String::new()
-        } else {
-            duree(u.end - u.start)
+        let minute = t.task.due_minute.map(|m| m.clamp(0, 1439) as u32);
+        let en_retard = is_overdue(j, minute, maintenant.naive_local());
+        let (rang, heure) = match (j < today, minute) {
+            // From another day: before everything, named by its day.
+            (true, _) => (-1, j.format("%a").to_string()),
+            (false, Some(m)) => (m as i64, format!("{:02}:{:02}", m / 60, m % 60)),
+            // Today, no hour: after the ones that have one.
+            (false, None) => (24 * 60, String::new()),
         };
-        if !u.location.trim().is_empty() {
-            if !hint.is_empty() {
-                hint.push_str(", ");
-            }
-            hint.push_str(u.location.trim());
-        }
-        aujourdhui.push(HomeItemData {
-            key: u.key.as_str().into(),
-            title: u.title.as_str().into(),
-            hint: hint.into(),
-            meta: if u.all_day {
-                "All day".into()
-            } else {
-                u.time.as_str().into()
+        tout.push(Prochain {
+            rang,
+            ligne: HomeItemData {
+                id: t.id as i32,
+                title: t.task.title.as_str().into(),
+                meta: heure.into(),
+                hint: if en_retard { "late".into() } else { Default::default() },
+                overdue: en_retard,
+                priority: t.task.priority,
+                ..Default::default()
             },
-            color: crate::calendar::couleur(&u.color),
-            past: u.past,
-            ..Default::default()
         });
     }
-    let restants = du_jour
-        .iter()
-        .filter(|u| !u.all_day && u.start > instant)
-        .count();
 
-    let demain = today.succ_opt().unwrap_or(today);
-    let plus_tard = apres
-        .iter()
-        .take(4)
-        .map(|u| {
-            let jour = if u.day == demain {
-                "Tomorrow".to_string()
-            } else {
-                u.day.format("%a").to_string()
-            };
-            HomeItemData {
-                key: u.key.as_str().into(),
-                title: u.title.as_str().into(),
-                meta: if u.time.is_empty() {
-                    jour
-                } else {
-                    format!("{jour} {}", u.time)
-                }
-                .into(),
-                color: crate::calendar::couleur(&u.color),
-                ..Default::default()
-            }
-        })
-        .collect();
-
+    // Late first, then by the hour, those without one last.
+    tout.sort_by_key(|p| p.rang);
     Journee {
-        arcs,
-        aujourdhui,
-        plus_tard,
-        total: du_jour.len(),
-        restants,
+        next: tout.into_iter().take(max).map(|p| p.ligne).collect(),
+        due: dues.len(),
+        events: evenements.len(),
+        events_left: restants,
     }
-}
-
-/// The latest conversations of the queue, the most recent first.
-fn courrier(services: &Services, max: u32) -> Vec<ThreadRowData> {
-    let requete = iris_store::ListQuery {
-        state: iris_types::WorkflowState::Todo,
-        accounts: Vec::new(),
-        hide_snoozed_until: Some(now()),
-        limit: max,
-        after: None,
-        scope: iris_store::Scope::Queue,
-        filters: Default::default(),
-    };
-    services
-        .store
-        .list_threads(&requete)
-        .unwrap_or_default()
-        .iter()
-        .map(|t| iris_ui::bridge::thread_row(t, "", now(), false))
-        .collect()
 }
 
 /// Fills the Home screen.
@@ -427,77 +213,18 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     let maintenant = Local::now();
     f.set_home_greeting(greeting(maintenant.hour()).into());
     f.set_home_date(maintenant.format("%A %-d %B").to_string().into());
-    f.set_home_time(maintenant.format("%H:%M").to_string().into());
-    f.set_home_weekday(maintenant.format("%A").to_string().into());
     f.set_home_sync_summary(sync_summary(ARRIVEES.load(Ordering::Relaxed)).into());
 
-    // The dial: what is gone of the day, the present, the events.
-    let jour_ms = 86_400_000.0;
-    let fraction = (maintenant.timestamp_millis()
-        - crate::calendar::local_midnight_ms(maintenant.date_naive())) as f64
-        / jour_ms;
-    let (x, y) = dial_point(fraction);
-    f.set_home_dial_elapsed(if fraction > 0.002 {
-        dial_arc(0.0, fraction).into()
-    } else {
-        Default::default()
-    });
-    f.set_home_dial_now_x(x as f32);
-    f.set_home_dial_now_y(y as f32);
-
-    let j = journee(services, maintenant);
-    f.set_home_dial_arcs(ModelRc::new(VecModel::from(j.arcs)));
-    f.set_home_events(ModelRc::new(VecModel::from(j.aujourdhui)));
-    f.set_home_later(ModelRc::new(VecModel::from(j.plus_tard)));
-    f.set_home_events_count(
-        match j.total {
-            0 => "Nothing today".to_string(),
-            n => format!("{} today", pluriel(n, "event", "events")),
-        }
-        .into(),
-    );
-
+    let j = day(services, 3);
     let non_lus = services.store.unread_count().unwrap_or(0) as usize;
-    f.set_home_mail(ModelRc::new(VecModel::from(courrier(services, 5))));
-    f.set_home_mail_count(
-        match non_lus {
-            0 => "All read".to_string(),
-            n => format!("{} unread", nombre(n)),
-        }
-        .into(),
-    );
+    // Beside each way out, what waits there; nothing when nothing does.
+    let compte = |n: usize| if n == 0 { String::new() } else { nombre(n) };
 
-    let (lignes, dues) = taches(services, 6);
-    f.set_home_tasks(ModelRc::new(VecModel::from(lignes)));
-    f.set_home_tasks_count(
-        match dues {
-            0 => "Nothing due".to_string(),
-            n => format!("{n} due today"),
-        }
-        .into(),
-    );
-
-    f.set_home_summary(summary(non_lus, dues, j.restants, maintenant.hour() >= 17).into());
-}
-
-thread_local! {
-    static CITATION: Cell<usize> = const { Cell::new(0) };
-    static MINUTERIE: std::cell::RefCell<Option<slint::Timer>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Draws a quote other than the one showing.
-fn nouvelle_citation(f: &AppWindow) {
-    let graine = now().millis().unsigned_abs() as usize;
-    let actuelle = CITATION.with(Cell::get);
-    let mut i = graine % QUOTES.len();
-    if i == actuelle {
-        i = (i + 1) % QUOTES.len();
-    }
-    CITATION.with(|c| c.set(i));
-    let (texte, auteur) = QUOTES[i];
-    f.set_home_quote(texte.into());
-    f.set_home_quote_author(auteur.into());
+    f.set_home_next(ModelRc::new(VecModel::from(j.next)));
+    f.set_home_mail_count(compte(non_lus).into());
+    f.set_home_tasks_count(compte(j.due).into());
+    f.set_home_events_count(compte(j.events).into());
+    f.set_home_summary(summary(non_lus, j.due, j.events_left, maintenant.hour() >= 17).into());
 }
 
 /// Refreshes Home if it is the workspace showing, after a sync.
@@ -512,8 +239,12 @@ fn vers(f: &AppWindow, workspace: i32) {
     f.invoke_workspace_changed(workspace);
 }
 
-pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>) {
-    nouvelle_citation(f);
+thread_local! {
+    static MINUTERIE: std::cell::RefCell<Option<slint::Timer>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub fn wire_home(f: &AppWindow, services: &Services, _controller: Arc<Controller>) {
     let redessiner = {
         let (faible, services) = (f.as_weak(), services.clone());
         Rc::new(move || {
@@ -523,21 +254,10 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
         })
     };
     {
-        let (redessiner, faible) = (Rc::clone(&redessiner), f.as_weak());
+        let redessiner = Rc::clone(&redessiner);
         crate::workspace::follow(f, move |w| {
             if w == 3 {
-                if let Some(f) = faible.upgrade() {
-                    nouvelle_citation(&f);
-                }
                 redessiner();
-            }
-        });
-    }
-    {
-        let faible = f.as_weak();
-        f.on_home_new_quote(move || {
-            if let Some(f) = faible.upgrade() {
-                nouvelle_citation(&f);
             }
         });
     }
@@ -553,14 +273,6 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
                 }
                 "calendar" => vers(&f, 1),
                 _ => vers(&f, 0),
-            }
-        });
-    }
-    {
-        let (services, faible) = (services.clone(), f.as_weak());
-        f.on_home_mail_opened(move |fil| {
-            if let Some(f) = faible.upgrade() {
-                crate::tasks::open_thread(&f, &services, &controller, fil as i64);
             }
         });
     }
@@ -630,15 +342,6 @@ mod tests {
     }
 
     #[test]
-    fn quotes_are_short_and_signed() {
-        for (texte, auteur) in QUOTES {
-            assert!(texte.len() <= 90, "{texte}");
-            assert!(!auteur.is_empty());
-            assert!(!texte.contains('—'), "no em-dash: {texte}");
-        }
-    }
-
-    #[test]
     fn the_sync_line_counts_what_arrived() {
         assert_eq!(sync_summary(0), "No new mail since you opened Iris");
         assert_eq!(sync_summary(1), "1 new message since you opened Iris");
@@ -660,35 +363,14 @@ mod tests {
     }
 
     #[test]
-    fn the_dial_runs_clockwise_from_midnight_at_the_top() {
-        let (x, y) = dial_point(0.0);
-        assert!((x - 106.0).abs() < 1e-9 && (y - 18.0).abs() < 1e-9);
-        let (x, y) = dial_point(0.25);
-        assert!(
-            (x - 194.0).abs() < 1e-9 && (y - 106.0).abs() < 1e-9,
-            "06:00 on the right"
-        );
-        let (x, y) = dial_point(0.5);
-        assert!(
-            (x - 106.0).abs() < 1e-9 && (y - 194.0).abs() < 1e-9,
-            "noon at the bottom"
-        );
-        assert!(
-            dial_arc(0.0, 0.7).contains(" 0 1 1 "),
-            "past half the day: the long way"
-        );
-        assert!(dial_arc(0.1, 0.2).contains(" 0 0 1 "));
+    fn a_wait_reads_as_people_say_it() {
+        assert_eq!(in_how_long(25 * 60_000), "in 25 min");
+        assert_eq!(in_how_long(60 * 60_000), "in 1 h");
+        assert_eq!(in_how_long(100 * 60_000), "in 1 h 40");
     }
 
     #[test]
-    fn durations_read_as_people_say_them() {
-        assert_eq!(duree(30 * 60_000), "30 min");
-        assert_eq!(duree(60 * 60_000), "1 h");
-        assert_eq!(duree(90 * 60_000), "1 h 30");
-    }
-
-    #[test]
-    fn home_fills_from_an_empty_base() {
+    fn the_day_puts_late_tasks_first_and_keeps_three() {
         let dir = tempfile::tempdir().unwrap();
         let services = Services::open(
             crate::paths::Paths::under(dir.path()),
@@ -704,7 +386,13 @@ mod tests {
                     .to_string(),
             )
         };
-        for (titre, j) in [("Call the plumber", jour(0)), ("Book the train", jour(2))] {
+        for (titre, j, m) in [
+            ("Buy bread", jour(0), None),
+            ("Renew the insurance", jour(-2), None),
+            ("Call the plumber", jour(0), Some(23 * 60 + 59)),
+            ("Book the train", jour(3), None),
+            ("Water the plants", jour(0), None),
+        ] {
             services
                 .store
                 .insert_task(
@@ -712,17 +400,18 @@ mod tests {
                         list_id: liste,
                         title: titre.into(),
                         due_day: j,
+                        due_minute: m,
                         ..Default::default()
                     },
                     now(),
                 )
                 .unwrap();
         }
-        let (lignes, dues) = taches(&services, 6);
-        assert_eq!(dues, 1);
-        assert_eq!(lignes.len(), 3, "today's, a title, the next one");
-        assert_eq!(lignes[0].title, "Call the plumber");
-        assert!(lignes[1].header);
-        assert!(courrier(&services, 5).is_empty());
+        let d = day(&services, 3);
+        assert_eq!(d.due, 4, "the next days are not due");
+        assert_eq!(d.next.len(), 3);
+        assert_eq!(d.next[0].title, "Renew the insurance");
+        assert!(d.next[0].overdue);
+        assert_eq!(d.next[1].title, "Call the plumber");
     }
 }

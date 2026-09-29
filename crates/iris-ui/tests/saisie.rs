@@ -1142,27 +1142,28 @@ fn le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri() {
 fn l_accueil_mene_a_ce_qu_il_montre() {
     let f = fenetre();
     f.set_workspace(3);
-    f.set_home_mail(ModelRc::new(VecModel::from(vec![iris_ui::ThreadRowData {
-        id: 31,
-        from: "Agnès Joly".into(),
-        subject: "Réunion de jeudi".into(),
-        unread: true,
-        ..Default::default()
-    }])));
-    f.set_home_tasks(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
-        id: 9,
-        title: "Call the plumber".into(),
-        ..Default::default()
-    }])));
+    f.set_home_next(ModelRc::new(VecModel::from(vec![
+        iris_ui::HomeItemData {
+            key: "4:1000".into(),
+            title: "Design review".into(),
+            meta: "14:00".into(),
+            ..Default::default()
+        },
+        iris_ui::HomeItemData {
+            id: 9,
+            title: "Call the plumber".into(),
+            ..Default::default()
+        },
+    ])));
     let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
-    let fils = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let evenements = Rc::new(RefCell::new(Vec::<String>::new()));
     let cochees = Rc::new(RefCell::new(Vec::<i32>::new()));
     let taches = Rc::new(RefCell::new(Vec::<i32>::new()));
     {
         let o = Rc::clone(&ouverts);
         f.on_home_open(move |t| o.borrow_mut().push(t.to_string()));
-        let m = Rc::clone(&fils);
-        f.on_home_mail_opened(move |id| m.borrow_mut().push(id));
+        let e = Rc::clone(&evenements);
+        f.on_home_event_opened(move |k| e.borrow_mut().push(k.to_string()));
         let c = Rc::clone(&cochees);
         f.on_home_task_toggled(move |id| c.borrow_mut().push(id));
         let t = Rc::clone(&taches);
@@ -1170,13 +1171,14 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
     }
     clic(&bouton(&f, "Open Mail"));
     clic(&bouton(&f, "Open Tasks"));
-    assert_eq!(*ouverts.borrow(), ["mail", "tasks"]);
+    clic(&bouton(&f, "Open Calendar"));
+    assert_eq!(*ouverts.borrow(), ["mail", "tasks", "calendar"]);
     clic(&par_role(
         &f,
         testing::AccessibleRole::ListItem,
-        "Agnès Joly, Réunion de jeudi",
+        "14:00 Design review",
     ));
-    assert_eq!(*fils.borrow(), [31], "a conversation opens from Home");
+    assert_eq!(*evenements.borrow(), ["4:1000"], "an event opens from Home");
     clic(&par_role(
         &f,
         testing::AccessibleRole::Checkbox,

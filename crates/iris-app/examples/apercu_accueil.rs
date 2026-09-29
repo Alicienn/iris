@@ -140,59 +140,8 @@ fn main() {
             let Some(f) = faible.upgrade() else { return };
             tour += 1;
             match tour {
-                // The queue of this sample base is empty: a few lines of mail, as a
-                // real one would have.
-                1 => f.set_home_mail(slint::ModelRc::new(slint::VecModel::from(
-                    [
-                        (
-                            "Jérôme Gauthier",
-                            "JG",
-                            "Devis façade, ajustements",
-                            "14:32",
-                            true,
-                            (0xe0, 0x79, 0x5b),
-                        ),
-                        (
-                            "Agnès Joly",
-                            "AJ",
-                            "Réunion de jeudi",
-                            "12:05",
-                            true,
-                            (0x5b, 0x8d, 0xef),
-                        ),
-                        (
-                            "Banque",
-                            "B",
-                            "Votre relevé de septembre",
-                            "09:12",
-                            false,
-                            (0x4f, 0xb2, 0x86),
-                        ),
-                        (
-                            "Paul Jégou",
-                            "PJ",
-                            "Logo, dernière version",
-                            "Mon",
-                            true,
-                            (0xb6, 0x7b, 0xe6),
-                        ),
-                    ]
-                    .iter()
-                    .enumerate()
-                    .map(
-                        |(i, (de, ini, sujet, date, non_lu, (r, g, b)))| iris_ui::ThreadRowData {
-                            id: i as i32,
-                            from: (*de).into(),
-                            initials: (*ini).into(),
-                            subject: (*sujet).into(),
-                            date: (*date).into(),
-                            unread: *non_lu,
-                            sender_tint: slint::Color::from_rgb_u8(*r, *g, *b),
-                            ..Default::default()
-                        },
-                    )
-                    .collect::<Vec<_>>(),
-                ))),
+                // The sample base has no mail: the count a real one would show.
+                1 => f.set_home_mail_count("12".into()),
                 2 => {
                     capture(&f, sortie.join("accueil.png"));
                     f.set_syncing_all(true);
