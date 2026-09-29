@@ -173,7 +173,15 @@ fn main() {
     f.set_conversation_empty(false);
     f.show().unwrap();
 
-    let theme = services.themes.active();
+    // IRIS_THEME=dark captures the dark theme.
+    let theme = services.themes.apply(
+        if std::env::var("IRIS_THEME").as_deref() == Ok("dark") {
+            iris_theme::Appearance::Dark
+        } else {
+            iris_theme::Appearance::Light
+        },
+        false,
+    );
     let etapes = slint::Timer::default();
     let faible = f.as_weak();
     let mut tour = 0;

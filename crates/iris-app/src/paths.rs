@@ -56,13 +56,7 @@ impl Paths {
 
     /// Crée les répertoires manquants.
     pub fn ensure(&self) -> Result<()> {
-        for chemin in [
-            &self.data,
-            &self.cache,
-            &self.config,
-            &self.themes(),
-            &self.blobs(),
-        ] {
+        for chemin in [&self.data, &self.cache, &self.config, &self.blobs()] {
             std::fs::create_dir_all(chemin)?;
         }
         Ok(())
@@ -74,11 +68,6 @@ impl Paths {
 
     pub fn vault(&self) -> PathBuf {
         self.data.join("secrets.json")
-    }
-
-    /// Thèmes de l'utilisateur, surveillés pour le rechargement à chaud.
-    pub fn themes(&self) -> PathBuf {
-        self.data.join("themes")
     }
 
     pub fn plugins(&self) -> PathBuf {
@@ -133,7 +122,6 @@ mod tests {
         let p = Paths::under("/tmp/iris");
         assert!(p.database().starts_with(&p.data));
         assert!(p.vault().starts_with(&p.data));
-        assert!(p.themes().starts_with(&p.data));
         assert!(p.plugins().starts_with(&p.data));
     }
 
@@ -144,7 +132,6 @@ mod tests {
         p.ensure().unwrap();
         p.ensure().unwrap();
 
-        assert!(p.themes().is_dir());
         assert!(p.blobs().is_dir());
     }
 

@@ -1,163 +1,206 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { TextStyle, Tone } from "@iris/theme/type.slint";
-import { Icons, IconButton } from "@iris/base/icons.slint";
-import { Label } from "@iris/base/atoms.slint";
-import { Link } from "@iris/controls/button.slint";
-import { TimeRow } from "@iris/lists/rows.slint";
+import { Kbd, Dot } from "@iris/base/atoms.slint";
+import { Check } from "@iris/controls/choice.slint";
 import { HomeItemData } from "@iris/types.slint";
 
-// The Home screen: the day, and nothing else.
+// Home: the day in a sentence, the one thing next, three ways in. Nothing else.
 //
-// The date, a greeting, one sentence on what is waiting, the next three things of the
-// day, and three ways out. Everything else was taken away: a start page earns its place
-// by being read in two seconds, and each thing added to it is read less.
-//
-// One moment of motion: the words come up when Home opens. Nothing loops.
+// A start page earns its place by being read in two seconds; each thing added to it
+// is read less. What is not here is one click away.
+
+component WayIn inherits Rectangle {
+    in property <string> text;
+    in property <string> count;
+    in property <string> label;
+    callback clicked();
+
+    width: rang.preferred-width;
+    height: 24px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.text;
+            font-size: 13.5px;
+            color: touch.has-hover ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+        if root.count != "": Text {
+            text: root.count;
+            font-size: 12.5px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
 
 export component HomeView inherits Rectangle {
     in property <string> greeting;
     in property <string> date;
     in property <string> summary;
-    /// The next things of the day: events and tasks, in the order of their hours.
+    /// The next thing of the day, first in the list: an event (no id) or a task.
     in property <[HomeItemData]> next;
     in property <string> mail-count;
     in property <string> tasks-count;
     in property <string> events-count;
-    in property <bool> syncing;
-    in property <string> sync-progress;
-    /// What the syncs brought since Iris was opened.
-    in property <string> sync-summary;
 
     callback opened(string);
-    callback sync();
     callback task-opened(int);
     callback task-toggled(int);
     callback event-opened(string);
 
-    // The words come up, once.
-    property <float> ouverture;
-    animate ouverture { duration: 520ms; easing: cubic-bezier(0.2, 0, 0, 1); }
-    init => { root.ouverture = 1; }
-
-    // Rows and links have an inset of their own for their hover; they are pulled
-    // back by it so their words line up with the column.
-    property <length> retrait-ligne: 8px;
-    property <length> retrait-lien: 6px;
+    property <bool> has-next: root.next.length > 0;
+    property <HomeItemData> first: root.has-next ? root.next[0] : { };
 
     background: Tokens.background;
 
-    // Sync, reduced to its icon in the corner; the tooltip says what it brought.
-    IconButton {
-        x: parent.width - self.width - 20px;
-        y: 16px;
-        icon: Icons.refresh;
-        label: root.syncing
-            ? (root.sync-progress != "" ? "Syncing " + root.sync-progress : "Syncing…")
-            : "Sync all accounts. " + root.sync-summary;
-        active: root.syncing;
-        button-size: 32px;
-        icon-size: 15px;
-        clicked => { root.sync(); }
-    }
-
-    // Centred in the window, a little above the middle where the eye rests.
+    // A little above the middle, where the eye rests.
     bloc := Rectangle {
-        width: min(520px, root.width - 64px);
+        width: min(560px, root.width - 64px);
         height: colonne.preferred-height;
         x: (root.width - self.width) / 2;
-        y: max(24px, (root.height - self.height) / 2 - 24px) + (1 - root.ouverture) * 12px;
-        opacity: root.ouverture;
+        y: max(24px, root.height * 0.42 - self.height / 2);
 
         colonne := VerticalLayout {
             width: bloc.width;
             spacing: 0px;
 
-            Label {
+            Text {
                 text: root.date;
-                style: TextStyle.body;
-                tone: Tone.muted;
+                font-size: 13px;
+                color: Tokens.text-muted;
             }
-            Rectangle { height: 10px; }
-            Label {
+            Rectangle { height: 6px; }
+            Text {
                 text: root.greeting;
-                style: TextStyle.display;
+                font-family: Tokens.font-display;
+                font-size: 30px;
+                font-weight: 600;
+                letter-spacing: -0.3px;
+                color: Tokens.text;
+                wrap: word-wrap;
             }
-            Rectangle { height: 14px; }
-            Label {
+            Rectangle { height: 8px; }
+            Text {
                 text: root.summary;
-                font-size: 16px;
-                tone: Tone.secondary;
+                font-size: 15px;
+                color: Tokens.text-secondary;
                 wrap: word-wrap;
             }
 
-            if root.next.length > 0: VerticalLayout {
-                padding-top: 44px;
-                spacing: 0px;
-                Label {
-                    text: "Next";
-                    style: TextStyle.caption;
-                    tone: Tone.muted;
-                    height: 24px;
-                    vertical-alignment: top;
-                }
-                Rectangle {
-                    height: lignes.preferred-height;
-                    lignes := VerticalLayout {
-                        x: -root.retrait-ligne;
-                        width: parent.width + 2 * root.retrait-ligne;
-                        for item in root.next: TimeRow {
-                            time: item.meta;
-                            title: item.title;
-                            detail: item.hint;
-                            task: item.id > 0;
-                            tint: item.color;
-                            done: item.done;
-                            late: item.overdue;
-                            past: item.past;
-                            clicked => {
-                                if (item.id > 0) {
-                                    root.task-opened(item.id);
-                                } else {
-                                    root.event-opened(item.key);
-                                }
+            // The one thing next, between two hairlines.
+            if root.has-next: VerticalLayout {
+                padding-top: 34px;
+                Rectangle { height: 1px; background: Tokens.border; }
+                prochain := Rectangle {
+                    height: 46px;
+                    accessible-role: button;
+                    accessible-label: "Next: " + root.first.title;
+                    accessible-description: root.first.meta;
+                    accessible-action-default => {
+                        if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
+                    }
+                    ligne := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            width: 44px;
+                            text: "Next";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Tokens.text-muted;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            width: 14px;
+                            if root.first.id > 0: Check {
+                                size: 14px;
+                                label: root.first.title;
+                                toggled => { root.task-toggled(root.first.id); }
                             }
-                            toggled => { root.task-toggled(item.id); }
+                            if root.first.id <= 0: Dot {
+                                tint: root.first.color;
+                                size: 9px;
+                            }
+                        }
+                        Text {
+                            text: root.first.title;
+                            font-size: 13.5px;
+                            font-weight: 500;
+                            color: ligne.has-hover ? Tokens.accent : Tokens.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        Text {
+                            text: root.first.meta;
+                            font-size: 12.5px;
+                            color: Tokens.text-muted;
+                            vertical-alignment: center;
                         }
                     }
                 }
+                Rectangle { height: 1px; background: Tokens.border; }
             }
 
-            Rectangle {
-                height: 40px + 26px;
-                HorizontalLayout {
-                    x: -root.retrait-lien;
-                    y: 40px;
-                    height: 26px;
-                    spacing: 4px;
-                    alignment: start;
-                    Link {
-                        text: "Mail";
-                        count: root.mail-count;
-                        label: "Open Mail";
-                        font-size: 13px;
-                        clicked => { root.opened("mail"); }
-                    }
-                    Link {
-                        text: "Tasks";
-                        count: root.tasks-count;
-                        label: "Open Tasks";
-                        font-size: 13px;
-                        clicked => { root.opened("tasks"); }
-                    }
-                    Link {
-                        text: "Calendar";
-                        count: root.events-count;
-                        label: "Open Calendar";
-                        font-size: 13px;
-                        clicked => { root.opened("calendar"); }
-                    }
+            HorizontalLayout {
+                padding-top: 22px;
+                spacing: 22px;
+                alignment: start;
+                WayIn {
+                    text: "Mail";
+                    count: root.mail-count;
+                    label: "Open Mail";
+                    clicked => { root.opened("mail"); }
+                }
+                WayIn {
+                    text: "Tasks";
+                    count: root.tasks-count;
+                    label: "Open Tasks";
+                    clicked => { root.opened("tasks"); }
+                }
+                WayIn {
+                    text: "Calendar";
+                    label: "Open Calendar";
+                    clicked => { root.opened("calendar"); }
                 }
             }
+        }
+    }
+
+    // What reaches everything else, said once and quietly.
+    HorizontalLayout {
+        y: root.height - 44px;
+        height: 22px;
+        alignment: center;
+        spacing: 6px;
+        Text {
+            text: "Press";
+            font-size: 12px;
+            color: Tokens.text-faint;
+            vertical-alignment: center;
+        }
+        Kbd {
+            y: (parent.height - self.height) / 2;
+            keys: "Ctrl K";
+        }
+        Text {
+            text: "to find or do anything";
+            font-size: 12px;
+            color: Tokens.text-faint;
+            vertical-alignment: center;
         }
     }
 }

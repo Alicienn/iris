@@ -454,7 +454,6 @@ fn cmd_doctor() -> Result<()> {
         "  blobs          {} object(s)",
         services.blobs.stats()?.count
     );
-    println!("  themes         {}", services.themes.names().join(", "));
 
     let comptes = services.store.accounts()?;
     println!("\nAccounts        {}", comptes.len());
@@ -486,15 +485,6 @@ fn cmd_doctor() -> Result<()> {
         iris_app::logging::current(&chemins).display()
     );
 
-    // Un thème invalide ne bloque pas le démarrage, mais l'utilisateur doit pouvoir
-    // savoir pourquoi son thème n'a pas l'air de fonctionner.
-    let avertissements = services.themes.active().lint();
-    if !avertissements.is_empty() {
-        println!("\nThème actif : {} avertissement(s)", avertissements.len());
-        for a in avertissements {
-            println!("  • {a}");
-        }
-    }
     Ok(())
 }
 
@@ -643,11 +633,9 @@ fn run_gui(
     // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
     // la première image, et non apparaître après un clignotement.
     let reglages = iris_app::settings::Settings::load(services.paths.settings());
-    if let Ok(theme) = services.themes.set_active(&reglages.theme) {
-        let _ = theme;
-    } else {
-        tracing::warn!(theme = %reglages.theme, "theme not found, falling back to the default");
-    }
+    services
+        .themes
+        .apply(reglages.appearance, iris_app::platform::system_dark());
 
     let fenetre = shell::build(&services)?;
     iris_app::memory::mark("fenêtre construite");

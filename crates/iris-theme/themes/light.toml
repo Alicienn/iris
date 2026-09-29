@@ -1,0 +1,34 @@
+# Iris, light. White panels on a light grey ground, one blue for what to act on.
+
+name = "light"
+label = "Light"
+dark = false
+
+[color]
+# The window's ground, and the side columns a shade darker.
+background     = "#f7f7f6"
+surface_low    = "#f0f0ee"
+# Lists, the reader, cards: white.
+surface        = "#ffffff"
+# What floats over the rest: menus, popovers, windows.
+surface_high   = "#ffffff"
+panel          = "#ffffff"
+surface_hover  = "#14141e0b"
+surface_active = "#14141e13"
+
+border         = "#e4e4e2"
+border_strong  = "#d3d3d0"
+
+text           = "#18181b"
+text_secondary = "#4a4a52"
+text_muted     = "#6e6e77"
+text_faint     = "#a9a9b0"
+text_inverse   = "#ffffff"
+
+accent         = "#2c62e8"
+accent_soft    = "#2c62e817"
+accent_text    = "#ffffff"
+
+error          = "#cc3527"
+warning        = "#a8660c"
+success        = "#1d8a4e"

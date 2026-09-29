@@ -338,3 +338,8 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   is drawn first as a mockup restricted to what the software renderer can draw. The
   folders share the accounts' column, and the queues are the list's title rather than
   tabs above it.
+- **Themes are no longer modules** (3.0.0). Two themes ship, light and dark, compiled
+  in; the appearance follows Windows by default. User theme files and the glass
+  material are gone: one look, designed as a whole, in two lights.
+- **Workspaces are chosen from a rail on the left** (3.0.0), not from tabs in the title
+  bar; the Iris mark at its top leads Home.

@@ -36,8 +36,8 @@ impl Density {
 
     pub fn factor(self) -> f32 {
         match self {
-            // 38 px: two lines, no faces. 48: two lines and faces. 62: the excerpt
-            // gets a line of its own.
+            // 45 px: two tight lines, no faces. 56: two lines and faces. 73: the
+            // excerpt gets a line of its own.
             Self::Compact => 0.8,
             Self::Normal => 1.0,
             Self::Comfortable => 1.3,
@@ -69,8 +69,12 @@ impl Density {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Nom du thème actif.
-    pub theme: String,
+    /// Light, dark, or as Windows is set. Replaces the theme name of the versions with
+    /// several themes; the old key is simply no longer read.
+    pub appearance: iris_theme::Appearance,
+    /// The first name Home greets. Empty: a greeting without a name.
+    #[serde(default)]
+    pub first_name: String,
     pub density: Density,
     pub automation: AutomationSettings,
     /// Identifiants clients OAuth. Absents du binaire à dessein : un secret
@@ -152,7 +156,8 @@ pub const UNDO_SEND_RANGE: std::ops::RangeInclusive<u32> = 0..=30;
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            theme: "mono".into(),
+            appearance: iris_theme::Appearance::System,
+            first_name: String::new(),
             density: Density::default(),
             automation: AutomationSettings::default(),
             oauth: Default::default(),
@@ -249,9 +254,7 @@ impl Settings {
             .undo_send_seconds
             .clamp(*UNDO_SEND_RANGE.start(), *UNDO_SEND_RANGE.end());
         self.calendar_view = self.calendar_view.clamp(0, 2);
-        if self.theme.trim().is_empty() {
-            self.theme = Self::default().theme;
-        }
+        self.first_name = self.first_name.trim().chars().take(40).collect();
         self
     }
 }
@@ -276,7 +279,8 @@ mod tests {
     fn les_reglages_font_l_aller_retour() {
         let (_d, chemin) = fichier();
         let reglages = Settings {
-            theme: "ice".into(),
+            appearance: iris_theme::Appearance::Dark,
+            first_name: "Camille".into(),
             density: Density::Compact,
             automation: AutomationSettings::MANUAL_ONLY,
             oauth: crate::oauth::OAuthSettings {
@@ -372,12 +376,26 @@ mod tests {
     }
 
     #[test]
-    fn un_theme_vide_revient_au_defaut() {
+    fn a_file_from_the_themes_follows_windows() {
+        // Before 3.0 the file named one of five themes. The key is no longer read:
+        // whoever had one now gets the system's light or dark.
         let (_d, chemin) = fichier();
         std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
-        std::fs::write(&chemin, "theme = \"  \"\n").unwrap();
+        std::fs::write(&chemin, "theme = \"sand\"\n").unwrap();
 
-        assert_eq!(Settings::load(&chemin).theme, "mono");
+        assert_eq!(
+            Settings::load(&chemin).appearance,
+            iris_theme::Appearance::System
+        );
+    }
+
+    #[test]
+    fn the_first_name_is_trimmed() {
+        let (_d, chemin) = fichier();
+        std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+        std::fs::write(&chemin, "first_name = \"  Camille \"\n").unwrap();
+
+        assert_eq!(Settings::load(&chemin).first_name, "Camille");
     }
 
     #[test]
@@ -385,10 +403,10 @@ mod tests {
         // Ajouter un réglage plus tard ne doit pas invalider les fichiers existants.
         let (_d, chemin) = fichier();
         std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
-        std::fs::write(&chemin, "theme = \"sand\"\n").unwrap();
+        std::fs::write(&chemin, "appearance = \"dark\"\n").unwrap();
 
         let reglages = Settings::load(&chemin);
-        assert_eq!(reglages.theme, "sand");
+        assert_eq!(reglages.appearance, iris_theme::Appearance::Dark);
         assert_eq!(reglages.density, Density::Normal);
         assert_eq!(reglages.automation, AutomationSettings::default());
     }

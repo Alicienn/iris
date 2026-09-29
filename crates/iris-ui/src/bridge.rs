@@ -401,20 +401,22 @@ pub fn command_row(command: &crate::commands::Command) -> CommandData {
 pub fn apply_theme(tokens: &crate::Tokens<'_>, theme: &Theme) {
     let couleur = |c: iris_theme::Color| Color::from_argb_u8(c.a, c.r, c.g, c.b);
 
+    tokens.set_dark(theme.dark);
     tokens.set_background(couleur(theme.color.background));
-    tokens.set_glow(couleur(theme.color.glow));
     tokens.set_surface_high(couleur(theme.color.surface_high));
     tokens.set_surface(couleur(theme.color.surface));
     tokens.set_surface_low(couleur(theme.color.surface_low));
+    tokens.set_panel(couleur(theme.color.panel));
     tokens.set_surface_hover(couleur(theme.color.surface_hover));
     tokens.set_surface_active(couleur(theme.color.surface_active));
     tokens.set_border(couleur(theme.color.border));
     tokens.set_border_strong(couleur(theme.color.border_strong));
-    tokens.set_edge_light(couleur(theme.color.edge_light));
     tokens.set_text(couleur(theme.color.text));
     tokens.set_text_secondary(couleur(theme.color.text_secondary));
     tokens.set_text_muted(couleur(theme.color.text_muted));
+    tokens.set_text_faint(couleur(theme.color.text_faint));
     tokens.set_accent(couleur(theme.color.accent));
+    tokens.set_accent_soft(couleur(theme.color.accent_soft));
     tokens.set_accent_text(couleur(theme.color.accent_text));
     tokens.set_error(couleur(theme.color.error));
     tokens.set_warning(couleur(theme.color.warning));
@@ -436,9 +438,6 @@ pub fn apply_theme(tokens: &crate::Tokens<'_>, theme: &Theme) {
 
     tokens.set_row_height(theme.density.row_height);
     tokens.set_row_padding_x(theme.density.row_padding_x);
-
-    tokens.set_glass_opacity(theme.glass.opacity);
-    tokens.set_grain(theme.glass.grain);
 
     // Slint exprime les durées en millisecondes entières, comme les tokens.
     tokens.set_instant(theme.motion.instant.round() as i64);

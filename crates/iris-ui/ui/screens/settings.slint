@@ -1,74 +1,10 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { ThemeSwatchData } from "@iris/types.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Segmented } from "@iris/controls/choice.slint";
+import { TextField } from "@iris/controls/field.slint";
 import { SectionTitle } from "@iris/lists/nav.slint";
 import { Modal } from "@iris/layout/frames.slint";
 import { CheckBox, SpinBox, ScrollView } from "std-widgets.slint";
-
-// The theme picker.
-//
-// Each entry shows the theme rather than naming it: three bands of its own colours,
-// in the order the eye meets them on screen — ground, surface, accent. Naming alone
-// makes people try each one to find out, and every trial repaints the window.
-component ThemePicker inherits HorizontalLayout {
-    in property <[ThemeSwatchData]> themes;
-    in property <int> selected;
-
-    callback chosen(int);
-
-    spacing: 8px;
-
-    for theme[i] in root.themes: Rectangle {
-        width: 78px;
-        height: 46px;
-        border-radius: Tokens.radius-small;
-        background: theme.background;
-        border-width: root.selected == i ? 2px : 1px;
-        border-color: root.selected == i ? Tokens.accent : Tokens.border;
-        clip: true;
-
-        accessible-role: tab;
-        accessible-label: theme.label;
-        accessible-item-selected: root.selected == i;
-        accessible-action-default => { root.chosen(i); }
-
-        VerticalLayout {
-            padding: 4px;
-            spacing: 3px;
-
-            // A band of the surface colour, then one of the accent: the two things
-            // that actually differ between themes at a glance.
-            Rectangle {
-                height: 8px;
-                border-radius: 2px;
-                background: theme.surface;
-            }
-            Rectangle {
-                height: 5px;
-                width: 26px;
-                border-radius: 2px;
-                background: theme.accent;
-            }
-
-            Rectangle {}
-
-            Text {
-                text: theme.label;
-                font-size: 9px;
-                color: theme.text;
-                overflow: elide;
-            }
-        }
-
-        TouchArea {
-            mouse-cursor: pointer;
-            clicked => { root.chosen(i); }
-        }
-    }
-
-    Rectangle {}
-}
 
 // Un interrupteur avec son explication.
 //
@@ -110,10 +46,12 @@ component Section inherits VerticalLayout {
 // Les réglages.
 //
 // Ce qui se règle : l'apparence, la densité, ce que l'application fait toute seule et
-// ce qu'elle demande au système. Tout le reste appartient au thème, qui est un fichier.
+// ce qu'elle demande au système.
 export component SettingsPanel inherits Rectangle {
-    in property <[ThemeSwatchData]> themes;
-    in property <int> active-theme;
+    /// 0 as Windows is set, 1 light, 2 dark.
+    in property <int> appearance;
+    /// The name Home greets.
+    in-out property <string> first-name;
     in property <int> density;
     in-out property <bool> reply-marks-waiting;
     in-out property <bool> new-message-reopens;
@@ -138,7 +76,8 @@ export component SettingsPanel inherits Rectangle {
 
     callback check-for-updates();
     callback install-update();
-    callback theme-chosen(int);
+    callback appearance-chosen(int);
+    callback first-name-changed(string);
     callback density-chosen(int);
     callback automation-changed();
     callback system-changed();
@@ -166,11 +105,26 @@ export component SettingsPanel inherits Rectangle {
                 padding-right: 8px;
                 padding-bottom: 12px;
 
-                Section { title: "Theme"; }
-                ThemePicker {
-                    themes: root.themes;
-                    selected: root.active-theme;
-                    chosen(i) => { root.theme-chosen(i); }
+                Section { title: "Your first name"; }
+                HorizontalLayout {
+                    TextField {
+                        width: 240px;
+                        accessible-label: "Your first name";
+                        placeholder-text: "Home greets you by it";
+                        text <=> root.first-name;
+                        edited(t) => { root.first-name-changed(t); }
+                    }
+                    Rectangle {}
+                }
+
+                Section { title: "Appearance"; }
+                HorizontalLayout {
+                    Segmented {
+                        options: ["System", "Light", "Dark"];
+                        selected: root.appearance;
+                        chosen(i) => { root.appearance-chosen(i); }
+                    }
+                    Rectangle {}
                 }
 
                 Section { title: "List density"; }
@@ -186,7 +140,7 @@ export component SettingsPanel inherits Rectangle {
                 Section { title: "Startup"; }
                 SettingToggle {
                     label: "Open Iris on Home";
-                    hint: "Your day at a glance first. Off: Iris opens on your mail, and Home stays one click away on the name at the top left.";
+                    hint: "Your day at a glance first. Off: Iris opens on your mail, and Home stays one click away on the Iris mark at the top left.";
                     value <=> root.home-at-startup;
                     toggled => { root.system-changed(); }
                 }

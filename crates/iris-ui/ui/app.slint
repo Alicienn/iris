@@ -3,7 +3,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { Glass, Backdrop, Floating } from "@iris/base/glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
-    ThemeSwatchData, AccountTagData, HomeItemData, FolderNodeData,
+    AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData
@@ -18,6 +18,7 @@ import { SectionHeader, ListRow, RowLead, TimeRow, NowLine, PropertyRow } from "
 import { Rail, PageHeader, Plate, DetailPanel, Toolbar, EmptyState, Modal, ModalFooter, Popover }
     from "@iris/layout/frames.slint";
 import { TitleBar } from "@iris/shell/titlebar.slint";
+import { Rail } from "@iris/shell/rail.slint";
 import { Toast, SendNotice } from "@iris/shell/toast.slint";
 import { HomeView } from "@iris/screens/home.slint";
 import { TagsPanel } from "@iris/screens/tags.slint";
@@ -42,7 +43,7 @@ import {
     CalendarRenamePanel, CalendarDeletePanel
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
-import { ListView } from "std-widgets.slint";
+import { ListView, Palette } from "std-widgets.slint";
 
 export { Tokens }
 
@@ -125,7 +126,7 @@ component CommandPalette inherits Rectangle {
                             background: Tokens.surface;
                             shortcut := Text {
                                 text: command.shortcut;
-                                font-size: 10px;
+                                font-size: 11px;
                                 color: Tokens.text-secondary;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
@@ -177,7 +178,7 @@ component StatusButton inherits Rectangle {
         }
         Text {
             text: root.text;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: root.highlighted ? Tokens.weight-bold : Tokens.weight-body;
             color: root.highlighted ? Tokens.accent-text : Tokens.text-muted;
             vertical-alignment: center;
@@ -207,7 +208,8 @@ component StatusBar inherits Rectangle {
     callback open-changelog();
     callback open-update();
 
-    height: 22px;
+    height: 24px;
+    background: Tokens.surface-low;
 
     // Un message d'état a une durée de vie.
     //
@@ -242,7 +244,7 @@ component StatusBar inherits Rectangle {
         // chose ne va pas, et la seule réponse qui rende un rapport exploitable.
         Text {
             text: root.version;
-            font-size: 10px;
+            font-size: 11px;
             color: Tokens.text-muted;
             opacity: 0.65;
             vertical-alignment: center;
@@ -250,7 +252,7 @@ component StatusBar inherits Rectangle {
 
         Text {
             text: root.status;
-            font-size: 10px;
+            font-size: 11px;
             color: Tokens.text-muted;
             vertical-alignment: center;
             overflow: elide;
@@ -263,7 +265,7 @@ component StatusBar inherits Rectangle {
         // n'est pas une erreur.
         if root.pending-ops > 0: Text {
             text: root.pending-ops + " waiting to be sent";
-            font-size: 10px;
+            font-size: 11px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
@@ -293,7 +295,7 @@ component StatusBar inherits Rectangle {
         // honest one is the time.
         if root.last-sync != "": Text {
             text: root.last-sync;
-            font-size: 10px;
+            font-size: 11px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
@@ -302,14 +304,14 @@ component StatusBar inherits Rectangle {
         // should say what that costs rather than leave it to the task manager.
         if root.vitals != "": Text {
             text: root.vitals;
-            font-size: 10px;
+            font-size: 11px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
 
         if root.syncing: Text {
             text: "Syncing…";
-            font-size: 10px;
+            font-size: 11px;
             color: Tokens.text-secondary;
             vertical-alignment: center;
         }
@@ -496,8 +498,14 @@ export component AppWindow inherits Window {
     in-out property <bool> new-smtp-tls: true;
 
     in-out property <bool> settings-open;
-    in property <[ThemeSwatchData]> themes;
-    in property <int> active-theme;
+    /// The rail's width: the screens drawn over the mail start after it.
+    out property <length> rail-width: 56px;
+    /// Open tasks due today or late, on the rail.
+    in property <int> tasks-badge;
+    /// 0 as Windows is set, 1 light, 2 dark.
+    in property <int> appearance;
+    /// The name Home greets.
+    in-out property <string> first-name;
     in property <int> density;
     in-out property <bool> reply-marks-waiting: true;
     in-out property <bool> new-message-reopens: true;
@@ -673,12 +681,11 @@ export component AppWindow inherits Window {
     in property <string> home-greeting;
     in property <string> home-date;
     in property <string> home-summary;
-    /// The next three things of the day.
+    /// The one thing next, alone in the list; empty when nothing is coming.
     in property <[HomeItemData]> home-next;
     in property <string> home-mail-count;
     in property <string> home-events-count;
     in property <string> home-tasks-count;
-    in property <string> home-sync-summary;
     /// A way out: "mail", "tasks", "calendar".
     callback home-open(string);
     callback home-task-opened(int);
@@ -863,7 +870,19 @@ export component AppWindow inherits Window {
     callback palette-query-changed(string);
     callback search-submitted(string);
     callback search-cleared();
-    callback theme-chosen(int);
+    callback appearance-chosen(int);
+    callback first-name-changed(string);
+    /// The theme showing is dark. The style's own controls (check boxes, spin boxes,
+    /// scroll bars) follow it: set by Rust each time it applies a theme.
+    in property <bool> scheme-dark;
+    changed scheme-dark => {
+        Palette.color-scheme = root.scheme-dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    // At first light, before any change: a light theme on a dark Windows must not keep
+    // the style's dark controls.
+    init => {
+        Palette.color-scheme = root.scheme-dark ? ColorScheme.dark : ColorScheme.light;
+    }
     callback density-chosen(int);
     callback automation-changed();
     callback system-changed();
@@ -1189,20 +1208,28 @@ export component AppWindow inherits Window {
             background: transparent;
         }
 
+        HorizontalLayout {
+        // The rail: Home behind the mark, Mail, Calendar and Tasks under it.
+        Rail {
+            workspace: root.workspace;
+            mail-badge: root.unified-count;
+            tasks-badge: root.tasks-badge;
+            workspace-chosen(i) => {
+                root.workspace = i;
+                root.workspace-changed(i);
+                shortcuts.focus();
+            }
+            palette => { root.palette-open = true; }
+            settings => { root.settings-open = true; }
+        }
+
         VerticalLayout {
             TitleBar {
-                title: "Iris";
                 maximised: root.window-maximised;
-                workspace: root.workspace;
                 can-go-back: root.can-go-back;
                 can-go-forward: root.can-go-forward;
                 back => { root.nav-back(); shortcuts.focus(); }
                 forward => { root.nav-forward(); shortcuts.focus(); }
-                workspace-chosen(i) => {
-                    root.workspace = i;
-                    root.workspace-changed(i);
-                    shortcuts.focus();
-                }
                 minimise => { root.window-minimise(); }
                 toggle-maximise => { root.window-toggle-maximise(); }
                 close => { root.window-close(); }
@@ -1412,15 +1439,16 @@ export component AppWindow inherits Window {
                 open-update => { root.update-open = true; }
             }
         }
+        }
     }
 
     // The calendar covers everything between the title bar and the status bar. Over
     // the mail rather than instead of it: coming back to the mail finds it exactly as
     // it was left - same list, same scroll, same open thread.
     if root.workspace == 1: CalendarView {
-        x: 1px;
+        x: root.rail-width;
         y: 32px;
-        width: parent.width - 2px;
+        width: parent.width - root.rail-width - 1px;
         height: parent.height - 32px - 23px;
         title: root.calendar-title;
         mode: root.calendar-mode;
@@ -1475,9 +1503,9 @@ export component AppWindow inherits Window {
     }
 
     if root.workspace == 2: TasksView {
-        x: 1px;
+        x: root.rail-width;
         y: 32px;
-        width: parent.width - 2px;
+        width: parent.width - root.rail-width - 1px;
         height: parent.height - 32px - 23px;
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
@@ -1558,9 +1586,9 @@ export component AppWindow inherits Window {
 
     // Home, over everything like the other workspaces.
     if root.workspace == 3: HomeView {
-        x: 1px;
+        x: root.rail-width;
         y: 32px;
-        width: parent.width - 2px;
+        width: parent.width - root.rail-width - 1px;
         height: parent.height - 32px - 23px;
         greeting: root.home-greeting;
         date: root.home-date;
@@ -1569,11 +1597,7 @@ export component AppWindow inherits Window {
         mail-count: root.home-mail-count;
         events-count: root.home-events-count;
         tasks-count: root.home-tasks-count;
-        syncing: root.syncing-all;
-        sync-progress: root.sync-progress;
-        sync-summary: root.home-sync-summary;
         opened(t) => { root.home-open(t); shortcuts.focus(); }
-        sync => { root.sync-all(); }
         task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
         task-toggled(id) => { root.home-task-toggled(id); }
         event-opened(k) => { root.home-event-opened(k); }
@@ -1967,8 +1991,9 @@ export component AppWindow inherits Window {
     if root.settings-open: SettingsPanel {
         width: 100%;
         height: 100%;
-        themes: root.themes;
-        active-theme: root.active-theme;
+        appearance: root.appearance;
+        first-name <=> root.first-name;
+        first-name-changed(t) => { root.first-name-changed(t); }
         density: root.density;
         reply-marks-waiting <=> root.reply-marks-waiting;
         new-message-reopens <=> root.new-message-reopens;
@@ -1989,7 +2014,7 @@ export component AppWindow inherits Window {
         check-for-updates => { root.check-for-updates(); }
         install-update => { root.settings-open = false; root.update-open = true; }
         system-changed => { root.system-changed(); }
-        theme-chosen(i) => { root.theme-chosen(i); }
+        appearance-chosen(i) => { root.appearance-chosen(i); }
         density-chosen(i) => { root.density-chosen(i); }
         automation-changed => { root.automation-changed(); }
         dismissed => { root.settings-open = false; }

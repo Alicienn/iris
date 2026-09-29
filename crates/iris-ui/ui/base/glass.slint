@@ -1,143 +1,43 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 
-// Le matériau de verre.
+// Surfaces. Flat: a colour from the theme, a hairline where one surface meets
+// another, and a shadow only under what floats over the rest.
 //
-// Un mot sur ce qui se passe ici, parce que c'est contre-intuitif : **il n'y a pas
-// de flou**, et il n'en faut pas.
-//
-// Un flou d'arrière-plan sert à rendre lisible un panneau translucide posé sur un
-// contenu détaillé. Or nos panneaux fixes sont posés sur *notre propre fond* : un
-// dégradé sombre parcouru de halos très diffus. Flouter un dégradé lisse ne change
-// rien à l'image — l'opération coûterait plusieurs millisecondes par frame pour un
-// résultat identique au pixel près.
-//
-// Ce qui produit réellement l'impression de verre, ce sont trois choses que nous
-// faisons : la **translucidité** (on voit le halo à travers), l'**arête lumineuse**
-// d'un pixel sur le bord supérieur, et le **grain**, qui supprime les bandes de
-// dégradé et donne une matière à la surface.
-//
-// Les surfaces qui flottent réellement au-dessus du contenu — la palette, les menus
-// — compensent par une opacité plus forte et une ombre portée, seule combinaison qui
-// reste lisible sans flou.
+// (The names are those of the glass these replace: translucent panels over a halo,
+// with grain and a lit edge. The look changed; every screen still says `Glass`.)
 
+/// A panel: white in light, graphite in dark. A floating one is the popover colour.
 export component Glass inherits Rectangle {
     in property <bool> floating: false;
     in property <bool> elevated: false;
     in property <length> radius: Tokens.radius-medium;
 
     border-radius: root.radius;
-    // A fixed panel is translucent because it sits on our own backdrop and the halo
-    // behind it is worth seeing. A floating one is opaque because it sits on the
-    // application, and a nine-percent wash over a message list is not a panel, it is
-    // a smear — which is what the settings window and the context menu were.
-    background: root.floating
-        ? Tokens.panel
-        : (root.elevated ? Tokens.surface-high : Tokens.surface);
-
-    // L'arête lumineuse : un liseré d'un pixel sur tout le contour, plus clair en
-    // haut. C'est le détail qui fait lire la surface comme une plaque plutôt que
-    // comme un aplat.
+    background: root.floating ? Tokens.panel : (root.elevated ? Tokens.surface-high : Tokens.surface);
     border-width: 1px;
     border-color: Tokens.border;
-
-    // Le grain, tuilé. Coût nul : une texture de 64 pixels de côté, répétée.
-    //
-    // `tile` and not `preserve`. Preserve keeps the aspect ratio and centres what it
-    // cannot fill, so a 64-pixel square in a tall panel drew one 64-pixel square in
-    // the middle of it and nothing anywhere else — the grey patch that hovered above
-    // "Nothing to do" was this, and it was on every empty panel in the application.
-    Image {
-        source: @image-url("../../assets/grain.png");
-        image-rendering: pixelated;
-        vertical-tiling: repeat;
-        horizontal-tiling: repeat;
-        width: 100%;
-        height: 100%;
-        opacity: Tokens.grain;
-        // Le grain ne doit jamais intercepter la souris.
-        visible: Tokens.grain > 0.0;
-    }
-
-    // Reflet supérieur : un dégradé très court qui simule la lumière rasante sur
-    // l'arête haute du panneau.
-    //
-    // Only along the straight part of the edge: drawn across the whole width, it ran
-    // square through the rounded corners and drew a flat line above each of them.
-    Rectangle {
-        x: root.radius;
-        y: 0;
-        height: 1px;
-        width: max(0px, parent.width - 2 * root.radius);
-        background: Tokens.edge-light;
-    }
-
-    // A short fall of light down the top of the panel.
-    //
-    // The one-pixel edge alone reads as a drawn line; this is what makes it read as
-    // an edge catching light. Twenty-four pixels, fading to nothing — long enough to
-    // be felt, short enough that nobody notices it as a gradient.
-    //
-    // Inside the border, with a curve a pixel tighter than the panel's: laid over the
-    // border it crossed the corners and drew a second, flatter curve inside each.
-    Rectangle {
-        x: 1px;
-        y: 1px;
-        height: 24px;
-        width: parent.width - 2px;
-        border-top-left-radius: max(0px, root.radius - 1px);
-        border-top-right-radius: max(0px, root.radius - 1px);
-        background: @linear-gradient(180deg,
-            Tokens.edge-light.transparentize(0.75) 0%,
-            Tokens.edge-light.transparentize(1.0) 100%);
-    }
 
     @children
 }
 
-// Ombre portée des surfaces flottantes.
+/// What floats over the rest (menus, the palette): the popover colour, a stronger
+/// edge, and a shadow.
 export component Floating inherits Rectangle {
     in property <length> radius: Tokens.radius-large;
 
-    drop-shadow-blur: 32px;
-    drop-shadow-color: #00000099;
-    drop-shadow-offset-y: 8px;
+    drop-shadow-blur: 28px;
+    drop-shadow-color: Tokens.shadow;
+    drop-shadow-offset-y: 10px;
     border-radius: root.radius;
-    background: transparent;
+    background: Tokens.panel;
+    border-width: 1px;
+    border-color: Tokens.border-strong;
 
-    Glass {
-        floating: true;
-        radius: root.radius;
-        width: 100%;
-        height: 100%;
-        @children
-    }
+    @children
 }
 
-// Le fond de la fenêtre : deux halos très diffus sur un fond sombre.
-//
-// C'est lui qui donne au verre quelque chose à laisser transparaître. Sans halo, une
-// surface translucide sur un aplat uni est indiscernable d'une surface opaque.
+/// The window's ground.
 export component Backdrop inherits Rectangle {
     background: Tokens.background;
-
-    Rectangle {
-        x: parent.width * -0.15;
-        y: parent.height * -0.35;
-        width: parent.width * 0.9;
-        height: parent.width * 0.9;
-        border-radius: self.width / 2;
-        background: @radial-gradient(circle, Tokens.glow 0%, transparent 70%);
-    }
-
-    Rectangle {
-        x: parent.width * 0.55;
-        y: parent.height * 0.5;
-        width: parent.width * 0.7;
-        height: parent.width * 0.7;
-        border-radius: self.width / 2;
-        background: @radial-gradient(circle, Tokens.glow 0%, transparent 70%);
-        opacity: 0.7;
-    }
-
     @children
 }

@@ -141,6 +141,16 @@ mod windows_impl {
         Ok(())
     }
 
+    /// Whether Windows asks applications to be dark (Settings › Personalisation ›
+    /// Colours › "Choose your app mode"). Absent, as on older systems: light.
+    pub fn system_dark() -> bool {
+        reg::read_dword(
+            reg::HKCU,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "AppsUseLightTheme",
+        ) == Some(0)
+    }
+
     /// Démarrer, ou non, à l'ouverture de session.
     ///
     /// Une valeur sous `Run`, et rien d'autre. Une tâche planifiée demanderait une
@@ -172,7 +182,7 @@ mod windows_impl {
         use windows_sys::Win32::System::Registry::{
             RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegDeleteValueW, RegOpenKeyExW,
             RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
-            REG_OPTION_NON_VOLATILE, REG_SZ,
+            REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
         };
 
         pub const HKCU: HKEY = HKEY_CURRENT_USER;
@@ -271,6 +281,37 @@ mod windows_impl {
             interroge == ERROR_SUCCESS
         }
 
+        /// A number (`REG_DWORD`), if the value is there and is one.
+        #[allow(unsafe_code)]
+        pub fn read_dword(hive: HKEY, path: &str, name: &str) -> Option<u32> {
+            let chemin = wide(path);
+            let nom = wide(name);
+            let mut cle: HKEY = std::ptr::null_mut();
+
+            // SÛRETÉ : même contrat que `write` ; `valeur` et `taille` vivent jusqu'au
+            // retour, et le tampon fait exactement les quatre octets annoncés.
+            if unsafe { RegOpenKeyExW(hive, chemin.as_ptr(), 0, KEY_READ, &mut cle) }
+                != ERROR_SUCCESS
+            {
+                return None;
+            }
+            let mut valeur: u32 = 0;
+            let mut taille: u32 = 4;
+            let mut genre: u32 = 0;
+            let lu = unsafe {
+                RegQueryValueExW(
+                    cle,
+                    nom.as_ptr(),
+                    std::ptr::null(),
+                    &mut genre,
+                    (&mut valeur as *mut u32).cast(),
+                    &mut taille,
+                )
+            };
+            unsafe { RegCloseKey(cle) };
+            (lu == ERROR_SUCCESS && genre == REG_DWORD).then_some(valeur)
+        }
+
         pub fn exists(hive: HKEY, path: &str) -> bool {
             open_exists(hive, path)
         }
@@ -340,10 +381,13 @@ mod windows_impl {
     pub fn set_start_at_login(_enabled: bool) -> Result<()> {
         Ok(())
     }
+    pub fn system_dark() -> bool {
+        false
+    }
 }
 
 pub use windows_impl::{
-    register_mailto, set_start_at_login, status, unregister_mailto, Registration,
+    register_mailto, set_start_at_login, status, system_dark, unregister_mailto, Registration,
 };
 
 /// Ouvre un fichier avec l'application que le système lui associe.

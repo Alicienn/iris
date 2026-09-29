@@ -1,0 +1,187 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+
+// The rail: the column on the far left that goes from one part of Iris to another.
+//
+// At the top the Iris mark, which leads Home. Under it Mail, Calendar and Tasks, each
+// with what waits there. At the bottom what is reached from everywhere: the palette
+// and the settings.
+
+/// The Iris mark: a circle and its pupil, drawn in the text's colour.
+export component IrisMark inherits Rectangle {
+    in property <length> size: 22px;
+    in property <color> tint: Tokens.text;
+    width: root.size;
+    height: root.size;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 12 3 A 9 9 0 1 0 12 21 A 9 9 0 1 0 12 3 Z";
+        stroke: root.tint;
+        stroke-width: root.size / 11;
+        fill: transparent;
+    }
+    Rectangle {
+        width: root.size * 0.27;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.tint;
+    }
+}
+
+component RailButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> selected;
+    /// A count on the corner: what waits there. Zero: none.
+    in property <int> badge;
+    callback clicked();
+
+    width: 38px;
+    height: 38px;
+    border-radius: Tokens.radius-medium;
+    background: root.selected ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    Icon {
+        data: root.icon;
+        size: 19px;
+        tint: root.selected || touch.has-hover ? Tokens.text : Tokens.text-muted;
+    }
+
+    if root.badge > 0: Rectangle {
+        x: parent.width - self.width - 2px;
+        y: 3px;
+        width: max(15px, nombre.preferred-width + 8px);
+        height: 15px;
+        border-radius: 7.5px;
+        background: Tokens.accent;
+        nombre := Text {
+            text: root.badge > 99 ? "99+" : root.badge;
+            font-size: 9.5px;
+            font-weight: 600;
+            color: Tokens.accent-text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    Tooltip {
+        text: @markdown("\{root.label}  \{root.shortcut}");
+    }
+}
+
+/// A place of Iris: announced as a tab, selected when it shows.
+component RailTab inherits RailButton {
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.clicked(); }
+}
+
+/// Something reached from everywhere: a button.
+component RailAction inherits RailButton {
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.clicked(); }
+}
+
+export component Rail inherits Rectangle {
+    /// Which workspace is showing: 0 mail, 1 calendar, 2 tasks, 3 Home.
+    in property <int> workspace;
+    in property <int> mail-badge;
+    in property <int> tasks-badge;
+    callback workspace-chosen(int);
+    callback palette();
+    callback settings();
+
+    width: 56px;
+    background: Tokens.surface-low;
+
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Tokens.border;
+    }
+
+    VerticalLayout {
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 2px;
+        alignment: start;
+
+        // The mark leads Home.
+        HorizontalLayout {
+            alignment: center;
+            padding-bottom: 12px;
+            logo := Rectangle {
+                width: 38px;
+                height: 38px;
+                border-radius: Tokens.radius-medium;
+                background: root.workspace == 3 ? Tokens.surface-active : accueil.has-hover ? Tokens.surface-hover : transparent;
+                accessible-role: button;
+                accessible-label: "Home";
+                accessible-description: "Ctrl+0";
+                accessible-action-default => { root.workspace-chosen(3); }
+                IrisMark { size: 22px; }
+                accueil := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.workspace-chosen(3); }
+                }
+                Tooltip {
+                    text: @markdown("Home  Ctrl+0");
+                }
+            }
+        }
+
+        for place[i] in [
+            { icon: Icons.inbox, label: "Mail", key: "Ctrl+1", ws: 0 },
+            { icon: Icons.calendar, label: "Calendar", key: "Ctrl+2", ws: 1 },
+            { icon: Icons.task, label: "Tasks", key: "Ctrl+3", ws: 2 },
+        ]: HorizontalLayout {
+            alignment: center;
+            RailTab {
+                icon: place.icon;
+                label: place.label;
+                shortcut: place.key;
+                selected: root.workspace == place.ws;
+                badge: place.ws == 0 ? root.mail-badge : place.ws == 2 ? root.tasks-badge : 0;
+                clicked => { root.workspace-chosen(place.ws); }
+            }
+        }
+    }
+
+    VerticalLayout {
+        y: parent.height - self.preferred-height;
+        height: self.preferred-height;
+        padding-bottom: 12px;
+        spacing: 2px;
+        HorizontalLayout {
+            alignment: center;
+            RailAction {
+                icon: Icons.search;
+                label: "Search and commands";
+                shortcut: "Ctrl+K";
+                clicked => { root.palette(); }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            RailAction {
+                icon: Icons.gear;
+                label: "Settings";
+                shortcut: "Ctrl+,";
+                clicked => { root.settings(); }
+            }
+        }
+    }
+}

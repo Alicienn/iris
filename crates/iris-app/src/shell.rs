@@ -1868,20 +1868,14 @@ pub fn wire_settings(
     reglages: Settings,
     chemin: std::path::PathBuf,
 ) {
-    let noms = services.themes.names();
     let courant = Arc::new(std::sync::Mutex::new(reglages));
     crate::settings::share(Arc::clone(&courant), chemin.clone());
 
     // L'état initial du panneau.
     {
         let reglages = courant.lock().expect("réglages empoisonnés").clone();
-        fenetre.set_themes(ModelRc::new(VecModel::from(
-            noms.iter()
-                .filter_map(|n| services.themes.get(n).map(|t| theme_swatch(n, &t)))
-                .collect::<Vec<_>>(),
-        )));
-        fenetre
-            .set_active_theme(noms.iter().position(|n| *n == reglages.theme).unwrap_or(0) as i32);
+        fenetre.set_appearance(reglages.appearance.index() as i32);
+        fenetre.set_first_name(reglages.first_name.as_str().into());
         fenetre.set_density(reglages.density.index() as i32);
         fenetre.set_reply_marks_waiting(reglages.automation.reply_marks_waiting);
         fenetre.set_new_message_reopens(reglages.automation.new_message_reopens);
@@ -1911,38 +1905,74 @@ pub fn wire_settings(
         }
     };
 
-    // --- Le thème ---
+    // --- Light, dark, or as Windows is set ---
     {
-        let noms = noms.clone();
         let themes = Arc::clone(&services.themes);
         let courant = Arc::clone(&courant);
         let enregistrer = enregistrer.clone();
         let faible = fenetre.as_weak();
 
-        fenetre.on_theme_chosen(move |index| {
+        fenetre.on_appearance_chosen(move |index| {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let Some(nom) = noms.get(index as usize) else {
+            let Some(apparence) = iris_theme::Appearance::from_index(index as usize) else {
                 return;
             };
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.appearance = apparence;
+            let theme = themes.apply(apparence, crate::platform::system_dark());
+            appliquer_apparence(&fenetre, &theme, reglages.density);
+            fenetre.set_appearance(index);
+            enregistrer(&reglages);
+        });
+    }
 
-            let theme = match themes.set_active(nom) {
-                Ok(t) => t,
-                Err(e) => {
-                    // Un thème qui refuse de se charger laisse l'ancien en place :
-                    // mieux vaut l'apparence précédente qu'un écran à moitié peint.
-                    tracing::warn!(theme = %nom, error = %e, "theme refused");
-                    fenetre.set_status(format!("Theme \"{nom}\" could not be read.").into());
+    // Following Windows: its setting is looked at every few seconds, and the theme
+    // changes with it. A registry value read, nothing more; only while "System" is
+    // chosen.
+    {
+        let themes = Arc::clone(&services.themes);
+        let courant = Arc::clone(&courant);
+        let faible = fenetre.as_weak();
+        let minuterie = slint::Timer::default();
+        let mut sombre = crate::platform::system_dark();
+        minuterie.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(3),
+            move || {
+                let maintenant = crate::platform::system_dark();
+                if maintenant == sombre {
                     return;
                 }
-            };
+                sombre = maintenant;
+                let Some(fenetre) = faible.upgrade() else {
+                    return;
+                };
+                let reglages = courant.lock().expect("réglages empoisonnés");
+                if reglages.appearance == iris_theme::Appearance::System {
+                    let theme = themes.apply(reglages.appearance, sombre);
+                    appliquer_apparence(&fenetre, &theme, reglages.density);
+                }
+            },
+        );
+        SYSTEME.with(|m| *m.borrow_mut() = Some(minuterie));
+    }
 
+    // --- The first name Home greets ---
+    {
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_first_name_changed(move |nom| {
             let mut reglages = courant.lock().expect("réglages empoisonnés");
-            reglages.theme = nom.clone();
-            appliquer_apparence(&fenetre, &theme, reglages.density);
-            fenetre.set_active_theme(index);
+            reglages.first_name = nom.trim().chars().take(40).collect();
             enregistrer(&reglages);
+            drop(reglages);
+            if let Some(fenetre) = faible.upgrade() {
+                crate::home::refresh_if_shown(&fenetre, &services);
+            }
         });
     }
 
@@ -2304,33 +2334,16 @@ pub fn wire_updates(
     });
 }
 
-/// A theme, reduced to what the picker draws.
-///
-/// Three colours and a label. Showing the theme is what stops people trying each one
-/// to find out what it looks like, and every trial repaints the whole window.
-fn theme_swatch(name: &str, theme: &iris_theme::Theme) -> iris_ui::ThemeSwatchData {
-    let colour = |c: iris_theme::Color| slint::Color::from_argb_u8(c.a, c.r, c.g, c.b);
-
-    iris_ui::ThemeSwatchData {
-        name: name.into(),
-        label: if theme.label.trim().is_empty() {
-            name.into()
-        } else {
-            theme.label.as_str().into()
-        },
-        // The surface is drawn over the background, so a translucent surface shown on
-        // its own would be nearly invisible: it is flattened against the ground first.
-        background: colour(theme.color.background),
-        surface: colour(theme.color.surface_high),
-        accent: colour(theme.color.accent),
-        text: colour(theme.color.text),
-    }
+thread_local! {
+    /// The timer that watches Windows' light or dark.
+    static SYSTEME: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Applique thème et densité aux jetons de l'interface.
 pub fn appliquer_apparence(fenetre: &AppWindow, theme: &iris_theme::Theme, densite: Density) {
     let tokens = fenetre.global::<Tokens>();
     bridge::apply_theme(&tokens, theme);
+    fenetre.set_scheme_dark(theme.dark);
     // La densité multiplie la hauteur du thème au lieu de la remplacer : un thème
     // aux lignes hautes reste plus aéré que les autres à densité égale.
     tokens.set_row_height(theme.density.row_height * densite.factor());

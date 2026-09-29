@@ -14,7 +14,7 @@ export component MenuEntry inherits Rectangle {
 
     callback activated();
 
-    height: 26px;
+    height: 30px;
     border-radius: Tokens.radius-small;
     background: touch.has-hover ? Tokens.surface-hover : transparent;
 
@@ -24,27 +24,27 @@ export component MenuEntry inherits Rectangle {
     accessible-action-default => { root.activated(); }
 
     HorizontalLayout {
-        padding-left: Tokens.space-2;
-        padding-right: Tokens.space-2;
-        spacing: Tokens.space-2;
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 9px;
 
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 14px;
+            size: 15px;
             tint: root.danger && touch.has-hover ? Tokens.error : Tokens.text-muted;
         }
         Text {
             text: root.label;
-            font-size: Tokens.size-small;
-            color: root.danger && touch.has-hover ? Tokens.error : Tokens.text;
+            font-size: 13px;
+            color: root.danger && touch.has-hover ? Tokens.error : touch.has-hover ? Tokens.text : Tokens.text-secondary;
             vertical-alignment: center;
             overflow: elide;
         }
         Rectangle {}
         if root.shortcut != "": Text {
             text: root.shortcut;
-            font-size: Tokens.size-small;
+            font-size: 11.5px;
             color: Tokens.text-muted;
             vertical-alignment: center;
         }
@@ -57,8 +57,13 @@ export component MenuEntry inherits Rectangle {
 
 // A thin rule between groups of entries.
 export component MenuSeparator inherits Rectangle {
-    height: 1px;
-    background: Tokens.border;
+    height: 9px;
+    Rectangle {
+        x: 5px;
+        width: parent.width - 10px;
+        height: 1px;
+        background: Tokens.border;
+    }
 }
 
 // The plate a menu is drawn on.
@@ -81,13 +86,13 @@ export component MenuSurface inherits Rectangle {
     y: max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px));
     width: root.menu-width;
     height: root.menu-height;
-    border-radius: Tokens.radius-medium;
-    background: Tokens.panel-high;
+    border-radius: Tokens.radius-large;
+    background: Tokens.panel;
     border-width: 1px;
     border-color: Tokens.border-strong;
-    drop-shadow-blur: 24px;
-    drop-shadow-color: #000000aa;
-    drop-shadow-offset-y: 6px;
+    drop-shadow-blur: 28px;
+    drop-shadow-color: Tokens.shadow;
+    drop-shadow-offset-y: 10px;
 
     // Swallows clicks, so choosing an item does not also hit the veil behind it.
     TouchArea {}

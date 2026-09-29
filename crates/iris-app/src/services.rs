@@ -54,7 +54,7 @@ impl Services {
         let store = Arc::new(Store::open(paths.database())?);
         let blobs = Arc::new(BlobStore::open(paths.blobs(), BLOB_CACHE_BYTES)?);
         let index = Arc::new(SearchIndex::open(paths.index())?);
-        let themes = Arc::new(ThemeRegistry::with_user_dir(paths.themes())?);
+        let themes = Arc::new(ThemeRegistry::builtin()?);
         let oauth: Arc<std::sync::RwLock<crate::oauth::OAuthSettings>> = Default::default();
         let secrets = open_secrets(&paths, master)?;
         let bus = EventBus::new();
@@ -282,7 +282,7 @@ mod tests {
             iris_store::CURRENT_VERSION
         );
         assert_eq!(s.index.document_count(), 0);
-        assert_eq!(s.themes.active().name, "mono");
+        assert_eq!(s.themes.active().name, "light");
         assert!(s.paths.blobs().is_dir());
     }
 

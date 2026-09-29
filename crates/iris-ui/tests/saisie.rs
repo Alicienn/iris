@@ -1142,19 +1142,13 @@ fn le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri() {
 fn l_accueil_mene_a_ce_qu_il_montre() {
     let f = fenetre();
     f.set_workspace(3);
-    f.set_home_next(ModelRc::new(VecModel::from(vec![
-        iris_ui::HomeItemData {
-            key: "4:1000".into(),
-            title: "Design review".into(),
-            meta: "14:00".into(),
-            ..Default::default()
-        },
-        iris_ui::HomeItemData {
-            id: 9,
-            title: "Call the plumber".into(),
-            ..Default::default()
-        },
-    ])));
+    // The one thing next: an event first.
+    f.set_home_next(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
+        key: "4:1000".into(),
+        title: "Design review".into(),
+        meta: "14:00, in 40 min".into(),
+        ..Default::default()
+    }])));
     let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
     let evenements = Rc::new(RefCell::new(Vec::<String>::new()));
     let cochees = Rc::new(RefCell::new(Vec::<i32>::new()));
@@ -1173,12 +1167,16 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
     clic(&bouton(&f, "Open Tasks"));
     clic(&bouton(&f, "Open Calendar"));
     assert_eq!(*ouverts.borrow(), ["mail", "tasks", "calendar"]);
-    clic(&par_role(
-        &f,
-        testing::AccessibleRole::ListItem,
-        "14:00 Design review",
-    ));
+    clic(&bouton(&f, "Next: Design review"));
     assert_eq!(*evenements.borrow(), ["4:1000"], "an event opens from Home");
+
+    // Then a task: its box ticks it, the rest of the line opens it.
+    f.set_home_next(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
+        id: 9,
+        title: "Call the plumber".into(),
+        meta: "15:00, in 1 h".into(),
+        ..Default::default()
+    }])));
     clic(&par_role(
         &f,
         testing::AccessibleRole::Checkbox,
@@ -1186,11 +1184,7 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
     ));
     assert_eq!(*cochees.borrow(), [9], "the box ticks the task");
     assert!(taches.borrow().is_empty(), "ticking does not open it");
-    clic(&par_role(
-        &f,
-        testing::AccessibleRole::ListItem,
-        "Call the plumber",
-    ));
+    clic(&bouton(&f, "Next: Call the plumber"));
     assert_eq!(*taches.borrow(), [9]);
 }
 

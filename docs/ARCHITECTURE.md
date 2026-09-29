@@ -11,7 +11,7 @@ Three stances set it apart:
 2. **Performance is a design constraint**, not an optimisation. It dictates the
    architecture — cursor pagination, event coalescing, a view model off the display
    thread — and not the other way round.
-3. **Everything is a module.** The kernel does not know what a mail is. Themes, rules,
+3. **Everything is a module.** The kernel does not know what a mail is. Rules,
    protocols and extensions are modules, and a third-party plugin sees the same
    permission model as an internal module.
 
@@ -144,9 +144,13 @@ Stated here so they are decided rather than discovered:
 
 ## Interface
 
-Four workspaces share one window, switched from the title bar or with `Ctrl`+`0` to
-`Ctrl`+`3`: **Home** (behind the name "Iris"), **Mail**, **Calendar**, **Tasks**.
-`app.slint` holds a `workspace` property (3 is Home) and renders the matching view;
+Four workspaces share one window, switched from the rail on the left (`shell/rail.slint`,
+3.0.0) or with `Ctrl`+`0` to `Ctrl`+`3`: **Home** (behind the Iris mark at the top of the
+rail), **Mail**, **Calendar**, **Tasks**, each with its count (the mail's To do, the tasks
+due or late). The palette and the settings sit at the rail's foot. To the right of the
+rail a thin strip moves the window and holds back, forward and the window's buttons;
+the status bar stays at the bottom. `app.slint` holds a `workspace` property (3 is Home)
+and renders the matching view over the mail, after the rail (`rail-width`);
 `workspace.rs` fans the change out to every Rust follower, because Slint keeps only one
 handler per callback.
 
@@ -159,11 +163,11 @@ same wherever it lives. A layer only imports the ones above it in this list:
 | Folder | Holds |
 |---|---|
 | `theme/` | `Tokens` (colours, sizes, radii, fonts), `Type` (the named text styles and tones) |
-| `base/` | icons, glass, spinner, and the atoms: `Label`, `Dot`, `Kbd`, `Hairline`, `Avatar` |
+| `base/` | icons, surfaces (`Glass`, `Floating`, `Backdrop`, flat since 3.0.0), spinner, and the atoms: `Label`, `Dot`, `Kbd`, `Hairline`, `Avatar` |
 | `controls/` | `Button` (primary, secondary, ghost, danger; two sizes; its key), `Link`, `Segmented`, `QueueTabs`, `Pill`, `Check`, `Toggle`, `PriorityTag`, the text fields |
 | `lists/` | `NavItem`, `SectionTitle`, `SelectionMark` (the side columns), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
 | `layout/` | `Rail`, `PageHeader`, `Plate`, `DetailPanel`, `Toolbar`, `EmptyState`, `Modal` + `ModalFooter`, `Popover`, menus |
-| `shell/` | title bar, toast |
+| `shell/` | the rail, the title strip, toast |
 | `screens/` | one file per screen, and its panels |
 
 `types.slint` (the data crossing from Rust) and `app.slint` (the window) stay at the root.
@@ -178,13 +182,14 @@ round caps and joins.
 The screens were redrawn in 2.0.0 from HTML mockups kept outside the repository, each
 port captured with its `apercu_*` example and compared with its mockup side by side.
 
-**Home** (`home.rs`, `screens/home.slint`, 1.0.0, redrawn in 1.1.0 and 2.0.0) is read
-from the base when it shows, after each sync and each minute while it stays. It holds
-the date, a greeting, a sentence built from the unread count, the tasks due and the
-events left, then **Next**: at most three things of the day, events and tasks merged in
-the order of their hours, late tasks first, untimed ones last (`home::day`). Three links
-lead to Mail, Tasks and Calendar with their counts. It opens first unless
-`home_at_startup` is off. Its one motion is the words coming up when it opens.
+**Home** (`home.rs`, `screens/home.slint`, 1.0.0, redrawn in 1.1.0, 2.0.0 and 3.0.0) is
+read from the base when it shows, after each sync and each minute while it stays. It
+holds the date, a greeting with the first name from the settings, a sentence built from
+the To do count, the tasks due (and late) and the events left, then **Next**: the one
+thing coming, the event under way or next, or the next task with an hour, whichever
+starts first (`home::day`, `upcoming`); what is late is not "next". Three links lead to
+Mail, Tasks and Calendar with their counts, and a line at the foot names `Ctrl`+`K`. It
+opens first unless `home_at_startup` is off.
 
 **Tasks** puts above the list, on Today, a date block and the day's calendar
 (`calendar::upcoming`), and in the header the day's progress; all of it travels as one
@@ -260,18 +265,17 @@ These rules come from bugs users hit, and each has a scenario in
   body tiles and painter caches are dropped (the layout is kept), then the working set
   is returned to Windows. Tiles repaint on demand when the window comes back.
 
-### The glass
+### Light and dark
 
-A word on the glass, because it is counter-intuitive: **there is no blur**. A background
-blur makes a panel readable over detailed content; our fixed panels sit on our own
-gradient, and blurring a smooth gradient changes nothing in the picture while costing
-several milliseconds per frame. What makes the impression of glass is translucency, a
-one-pixel luminous edge, and grain.
-
-A theme is **a file**, not code: colours, radii, spacing, typography, density, durations
-and glass parameters live in a TOML file reloaded live. The shipped themes are just files
-among others; if the default theme had the slightest privilege in the code, the promised
-modularity would be a fiction.
+Since 3.0.0 Iris has one look in two lights: `iris-theme` ships `light` and `dark`
+(TOML files compiled in: colours, radii, type sizes, row height, durations) and nothing
+else. User themes, their folder and the watcher that reloaded them are gone, and so is
+the glass: surfaces are flat, a hairline where two meet, a shadow only under what floats.
+The user's `appearance` is System (the default), Light or Dark. System reads Windows'
+`AppsUseLightTheme` at start and every three seconds after, and switches when it
+changes; applying a theme also sets the style's `Palette.color-scheme`, so its own
+controls (check boxes, scroll bars) follow. The font is Segoe UI Variable, Text for
+reading and Display for titles.
 
 ---
 

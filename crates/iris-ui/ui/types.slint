@@ -183,20 +183,6 @@ export struct PluginRowData {
     disabled-reason: string,
 }
 
-// A theme, as the picker shows it.
-//
-// The colours travel with the name because a theme picker that only lists names makes
-// people try each one to find out what it looks like — and every trial repaints the
-// whole window.
-export struct ThemeSwatchData {
-    name: string,
-    label: string,
-    background: color,
-    surface: color,
-    accent: color,
-    text: color,
-}
-
 export struct FolderNodeData {
     // Le chemin complet, qui est l'identité du dossier.
     path: string,

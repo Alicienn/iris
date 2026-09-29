@@ -21,22 +21,20 @@ pub struct Theme {
     pub spacing: SpacingTokens,
     pub typography: TypographyTokens,
     pub density: DensityTokens,
-    pub glass: GlassTokens,
     pub motion: MotionTokens,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            name: "sans-nom".into(),
-            label: "Sans nom".into(),
-            dark: true,
+            name: "unnamed".into(),
+            label: "Unnamed".into(),
+            dark: false,
             color: ColorTokens::default(),
             radius: RadiusTokens::default(),
             spacing: SpacingTokens::default(),
             typography: TypographyTokens::default(),
             density: DensityTokens::default(),
-            glass: GlassTokens::default(),
             motion: MotionTokens::default(),
         }
     }
@@ -79,10 +77,11 @@ impl Theme {
             ));
         }
 
-        if self.glass.blur > 80.0 {
+        // Muted text still has to be read: dates, counts, second lines.
+        let discret = sur_fond(self.color.text_muted).contrast_ratio(fond);
+        if discret < 3.0 {
             avertissements.push(format!(
-                "un flou de {} pixels coûtera cher à chaque frame",
-                self.glass.blur
+                "le texte discret n'a qu'un contraste de {discret:.1} sur le fond"
             ));
         }
 
@@ -110,21 +109,30 @@ impl Theme {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ColorTokens {
+    /// The window's ground.
     pub background: Color,
-    pub glow: Color,
-    pub surface_high: Color,
-    pub surface: Color,
+    /// The side columns: accounts, calendars, task lists, the rail.
     pub surface_low: Color,
+    /// Lists, the reader, cards.
+    pub surface: Color,
+    /// Raised above the rest.
+    pub surface_high: Color,
+    /// What floats: menus, popovers, windows.
+    pub panel: Color,
     pub surface_hover: Color,
     pub surface_active: Color,
     pub border: Color,
     pub border_strong: Color,
-    pub edge_light: Color,
     pub text: Color,
     pub text_secondary: Color,
     pub text_muted: Color,
+    /// Placeholders, what is past, what cannot be used.
+    pub text_faint: Color,
     pub text_inverse: Color,
+    /// The one colour for what to act on.
     pub accent: Color,
+    /// The accent as a ground: the chosen row, a filter that is on.
+    pub accent_soft: Color,
     pub accent_text: Color,
     pub error: Color,
     pub warning: Color,
@@ -132,27 +140,29 @@ pub struct ColorTokens {
 }
 
 impl Default for ColorTokens {
+    /// The light theme's values.
     fn default() -> Self {
         Self {
-            background: Color::rgb(0x0a, 0x0b, 0x0d),
-            glow: Color::rgba(0xff, 0xff, 0xff, 0x0d),
-            surface_high: Color::rgba(0xff, 0xff, 0xff, 0x0e),
-            surface: Color::rgba(0xff, 0xff, 0xff, 0x06),
-            surface_low: Color::rgba(0xff, 0xff, 0xff, 0x03),
-            surface_hover: Color::rgba(0xff, 0xff, 0xff, 0x10),
-            surface_active: Color::rgba(0xff, 0xff, 0xff, 0x17),
-            border: Color::rgba(0xff, 0xff, 0xff, 0x13),
-            border_strong: Color::rgba(0xff, 0xff, 0xff, 0x26),
-            edge_light: Color::rgba(0xff, 0xff, 0xff, 0x1f),
-            text: Color::rgb(0xf0, 0xf2, 0xf6),
-            text_secondary: Color::rgb(0x94, 0x9b, 0xab),
-            text_muted: Color::rgb(0x5a, 0x60, 0x70),
-            text_inverse: Color::rgb(0x0a, 0x0b, 0x0d),
-            accent: Color::rgb(0xf0, 0xf2, 0xf6),
-            accent_text: Color::rgb(0x0a, 0x0b, 0x0d),
-            error: Color::rgb(0xe5, 0x48, 0x4d),
-            warning: Color::rgb(0xd9, 0xa4, 0x41),
-            success: Color::rgb(0x5c, 0xb8, 0x7a),
+            background: Color::rgb(0xf7, 0xf7, 0xf6),
+            surface_low: Color::rgb(0xf0, 0xf0, 0xee),
+            surface: Color::rgb(0xff, 0xff, 0xff),
+            surface_high: Color::rgb(0xff, 0xff, 0xff),
+            panel: Color::rgb(0xff, 0xff, 0xff),
+            surface_hover: Color::rgba(0x14, 0x14, 0x1e, 0x0b),
+            surface_active: Color::rgba(0x14, 0x14, 0x1e, 0x13),
+            border: Color::rgb(0xe4, 0xe4, 0xe2),
+            border_strong: Color::rgb(0xd3, 0xd3, 0xd0),
+            text: Color::rgb(0x18, 0x18, 0x1b),
+            text_secondary: Color::rgb(0x4a, 0x4a, 0x52),
+            text_muted: Color::rgb(0x6e, 0x6e, 0x77),
+            text_faint: Color::rgb(0xa9, 0xa9, 0xb0),
+            text_inverse: Color::rgb(0xff, 0xff, 0xff),
+            accent: Color::rgb(0x2c, 0x62, 0xe8),
+            accent_soft: Color::rgba(0x2c, 0x62, 0xe8, 0x17),
+            accent_text: Color::rgb(0xff, 0xff, 0xff),
+            error: Color::rgb(0xcc, 0x35, 0x27),
+            warning: Color::rgb(0xa8, 0x66, 0x0c),
+            success: Color::rgb(0x1d, 0x8a, 0x4e),
         }
     }
 }
@@ -169,9 +179,9 @@ pub struct RadiusTokens {
 impl Default for RadiusTokens {
     fn default() -> Self {
         Self {
-            small: 6.0,
-            medium: 9.0,
-            large: 14.0,
+            small: 5.0,
+            medium: 7.0,
+            large: 9.0,
             pill: 999.0,
         }
     }
@@ -219,11 +229,11 @@ impl Default for TypographyTokens {
             // lieu de faire déborder.
             family: "Segoe UI Variable Text".into(),
             family_mono: "Cascadia Mono".into(),
-            size_small: 11.0,
-            size_body: 13.0,
+            size_small: 12.0,
+            size_body: 13.5,
             size_title: 15.0,
             weight_body: 400,
-            weight_bold: 620,
+            weight_bold: 600,
             tracking: -0.01,
             line_height: 1.45,
         }
@@ -240,42 +250,10 @@ pub struct DensityTokens {
 impl Default for DensityTokens {
     fn default() -> Self {
         Self {
-            row_height: 48.0,
-            row_padding_x: 12.0,
+            // Two lines and a face, with room around them: the mail list's row.
+            row_height: 56.0,
+            row_padding_x: 14.0,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct GlassTokens {
-    /// Rayon de flou des panneaux fixes.
-    pub blur: f32,
-    /// Rayon de flou des surfaces flottantes.
-    pub blur_floating: f32,
-    pub opacity: f32,
-    pub saturation: f32,
-    /// Amplitude du bruit appliqué au verre, de 0 à 1.
-    pub grain: f32,
-}
-
-impl Default for GlassTokens {
-    fn default() -> Self {
-        Self {
-            blur: 30.0,
-            blur_floating: 24.0,
-            opacity: 0.86,
-            saturation: 1.15,
-            grain: 0.035,
-        }
-    }
-}
-
-impl GlassTokens {
-    /// Le verre est-il désactivé ? Un flou nul permet de retomber sur des surfaces
-    /// opaques, sans autre changement de thème.
-    pub fn is_disabled(&self) -> bool {
-        self.blur <= 0.0
     }
 }
 
@@ -308,16 +286,16 @@ mod tests {
         // Écrire un thème qui ne change que son nom doit suffire.
         let t = Theme::from_toml("name = \"essai\"").unwrap();
         assert_eq!(t.name, "essai");
-        assert_eq!(t.radius.medium, 9.0);
+        assert_eq!(t.radius.medium, 7.0);
         assert_eq!(t.typography.family, "Segoe UI Variable Text");
-        assert_eq!(t.color.background, Color::rgb(0x0a, 0x0b, 0x0d));
+        assert_eq!(t.color.background, Color::rgb(0xf7, 0xf7, 0xf6));
     }
 
     #[test]
     fn un_theme_ne_change_que_ce_qu_il_declare() {
         let t = Theme::from_toml("name = \"dense\"\n[density]\nrow_height = 34.0\n").unwrap();
         assert_eq!(t.density.row_height, 34.0);
-        assert_eq!(t.density.row_padding_x, 12.0, "le reste est hérité");
+        assert_eq!(t.density.row_padding_x, 14.0, "le reste est hérité");
     }
 
     #[test]
@@ -328,21 +306,16 @@ mod tests {
 
     #[test]
     fn un_theme_survit_a_un_aller_retour_toml() {
-        let t = Theme::from_toml(include_str!("../themes/mono.toml")).unwrap();
+        let t = Theme::from_toml(include_str!("../themes/dark.toml")).unwrap();
         let relu = Theme::from_toml(&t.to_toml().unwrap()).unwrap();
         assert_eq!(t, relu);
     }
 
     #[test]
-    fn les_themes_livres_passent_leur_propre_verification() {
-        for source in [
-            include_str!("../themes/mono.toml"),
-            include_str!("../themes/ice.toml"),
-            include_str!("../themes/sand.toml"),
-        ] {
-            let t = Theme::from_toml(source).unwrap();
-            assert!(t.lint().is_empty(), "« {} » : {:?}", t.name, t.lint());
-        }
+    fn le_theme_clair_est_la_valeur_par_defaut() {
+        // The defaults are the light theme's: a file that says nothing is light.
+        let t = Theme::from_toml(include_str!("../themes/light.toml")).unwrap();
+        assert_eq!(t.color, ColorTokens::default());
     }
 
     #[test]
@@ -356,22 +329,9 @@ mod tests {
     }
 
     #[test]
-    fn un_flou_excessif_est_signale() {
-        let t = Theme::from_toml("name = \"flou\"\n[glass]\nblur = 200.0\n").unwrap();
-        assert!(t.lint().iter().any(|a| a.contains("flou")));
-    }
-
-    #[test]
     fn une_ligne_trop_basse_est_signalee() {
         let t = Theme::from_toml("name = \"minus\"\n[density]\nrow_height = 12.0\n").unwrap();
         assert!(t.lint().iter().any(|a| a.contains("hauteur de ligne")));
-    }
-
-    #[test]
-    fn le_verre_se_desactive_par_un_flou_nul() {
-        let t = Theme::from_toml("name = \"plat\"\n[glass]\nblur = 0.0\n").unwrap();
-        assert!(t.glass.is_disabled());
-        assert!(!Theme::default().glass.is_disabled());
     }
 
     #[test]

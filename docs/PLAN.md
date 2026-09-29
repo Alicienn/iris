@@ -431,3 +431,15 @@ screen is drawn again from an approved mockup with it.
       now, an event's card beside it.
 - [x] **S39.7** Mail v2: folders under the accounts, the queues as the list's title,
       rows of two lines, a named toolbar, a one-line reply.
+
+## E40 — The web edition, brought home (3.x)
+
+An interactive web edition of Iris, with sample data, served as the design reference;
+the application is brought to it screen by screen.
+
+- [x] **S40.1** Two themes, light and dark, with the reference's colours, sizes and
+      radii; the appearance follows Windows by default. User themes and glass removed.
+- [x] **S40.2** The rail on the left: the Iris mark for Home, Mail, Calendar and Tasks
+      with their counts, search and settings at its foot; a thin strip for the window.
+- [x] **S40.3** Home as in the reference: the day in a sentence, the one thing next,
+      three ways in; the greeting takes the first name set in the settings.

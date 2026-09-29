@@ -3,6 +3,21 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.0.0 — 2026-09-30
+
+### New
+- A rail on the left takes you to Home, Mail, Calendar and Tasks, with what waits in each.
+- Iris follows Windows' light or dark mode, or stays in the one you choose.
+- Tell Iris your first name in Settings and Home greets you by it.
+
+### Improved
+- A cleaner look throughout: white and grey panels in light, graphite in dark, one blue for what to act on.
+- Home is quieter: the day in one sentence, the one thing next, and a way into mail, tasks and calendar.
+- Menus and the status bar are lighter.
+
+### Removed
+- The five themes: Iris now has one look, light or dark.
+
 ## 2.0.0 — 2026-09-29
 
 ### New

@@ -1,86 +1,75 @@
-// Les design tokens, injectés depuis Rust.
+// The design tokens, set from Rust by the theme showing (light or dark).
 //
-// Rien dans l'interface n'écrit une couleur, un rayon ou une durée en dur : tout
-// passe par ce global. C'est ce qui permet à un thème d'être un fichier, et au
-// rechargement à chaud de changer l'apparence sans redémarrer.
+// Nothing in the interface writes a colour, a radius or a duration of its own: it
+// comes from here, which is what lets one switch repaint the whole window.
 
 export global Tokens {
-    // --- Couleurs ---
-    in-out property <color> background: #0a0b0d;
-    in-out property <color> glow: #ffffff0d;
-    in-out property <color> surface-high: #ffffff0e;
-    in-out property <color> surface: #ffffff06;
-    in-out property <color> surface-low: #ffffff03;
-    in-out property <color> surface-hover: #ffffff10;
-    in-out property <color> surface-active: #ffffff17;
-    in-out property <color> border: #ffffff13;
-    in-out property <color> border-strong: #ffffff26;
-    in-out property <color> edge-light: #ffffff1f;
-    in-out property <color> text: #f0f2f6;
-    in-out property <color> text-secondary: #949bab;
-    in-out property <color> text-muted: #5a6070;
-    in-out property <color> accent: #f0f2f6;
-    in-out property <color> accent-text: #0a0b0d;
-    in-out property <color> error: #e5484d;
-    in-out property <color> warning: #d9a441;
-    in-out property <color> success: #5cb87a;
+    // --- Colours ---
+    /// The window's ground.
+    in-out property <color> background: #f7f7f6;
+    /// The side columns: the rail, accounts, calendars, task lists.
+    in-out property <color> surface-low: #f0f0ee;
+    /// Lists, the reader, cards.
+    in-out property <color> surface: #ffffff;
+    /// Raised above the rest.
+    in-out property <color> surface-high: #ffffff;
+    /// What floats: menus, popovers, windows, tooltips.
+    in-out property <color> panel: #ffffff;
+    in-out property <color> surface-hover: #14141e0b;
+    in-out property <color> surface-active: #14141e13;
+    in-out property <color> border: #e4e4e2;
+    in-out property <color> border-strong: #d3d3d0;
+    in-out property <color> text: #18181b;
+    in-out property <color> text-secondary: #4a4a52;
+    in-out property <color> text-muted: #6e6e77;
+    /// Placeholders, what is past, what cannot be used.
+    in-out property <color> text-faint: #a9a9b0;
+    /// The one colour for what to act on.
+    in-out property <color> accent: #2c62e8;
+    /// The accent as a ground: the chosen row, a filter that is on.
+    in-out property <color> accent-soft: #2c62e817;
+    in-out property <color> accent-text: #ffffff;
+    in-out property <color> error: #cc3527;
+    in-out property <color> warning: #a8660c;
+    in-out property <color> success: #1d8a4e;
+    in-out property <bool> dark: false;
 
-    // --- Formes ---
-    in-out property <length> radius-small: 6px;
-    in-out property <length> radius-medium: 9px;
-    in-out property <length> radius-large: 14px;
+    // --- Shapes ---
+    in-out property <length> radius-small: 5px;
+    in-out property <length> radius-medium: 7px;
+    in-out property <length> radius-large: 9px;
 
-    // --- Espacement ---
-    // Toute marge de l'interface est un multiple de cette unité.
+    // --- Spacing ---
+    // Every margin of the interface is a multiple of this unit.
     in-out property <length> unit: 4px;
 
-    // --- Typographie ---
+    // --- Type ---
     in-out property <string> font-family: "Segoe UI Variable Text";
-    /// Large titles: the same family, cut for display sizes.
+    /// Titles: the same family, cut for display sizes.
     in-out property <string> font-display: "Segoe UI Variable Display";
     in-out property <string> font-mono: "Cascadia Mono";
-    in-out property <length> size-small: 11px;
-    in-out property <length> size-body: 13px;
+    in-out property <length> size-small: 12px;
+    in-out property <length> size-body: 13.5px;
     in-out property <length> size-title: 15px;
     in-out property <int> weight-body: 400;
-    in-out property <int> weight-bold: 620;
+    in-out property <int> weight-bold: 600;
     in-out property <float> line-height: 1.45;
 
-    // --- Densité ---
-    in-out property <length> row-height: 48px;
-    in-out property <length> row-padding-x: 12px;
+    // --- Density ---
+    in-out property <length> row-height: 56px;
+    in-out property <length> row-padding-x: 14px;
 
-    // --- Verre ---
-    // L'opacité et le grain sont réglables ; le flou, lui, est simulé (voir
-    // glass.slint).
-    in-out property <float> glass-opacity: 0.86;
-    in-out property <float> grain: 0.035;
-
-    // --- Mouvement ---
+    // --- Motion ---
     in-out property <duration> instant: 90ms;
     in-out property <duration> quick: 140ms;
     in-out property <duration> moderate: 220ms;
 
-    // --- Opaque surfaces ---
-    //
-    // Every `surface` above is a white wash at three to nine percent: they are made to
-    // sit *on* the backdrop and let its halo through. Painted over the application
-    // instead — a menu, a tooltip, a modal — that same wash is all but invisible, and
-    // the text on it lands on whatever happened to be underneath. That is exactly what
-    // the context menu, the tooltips and the settings panel were doing.
-    //
-    // So anything that floats gets an opaque ground. It is mixed from the two colours
-    // the theme already defines, which keeps it right in both directions: on a dark
-    // theme `text` is pale and the panel lifts, on a light one it is dark and the
-    // panel settles. A third hand-picked colour per theme would drift from them.
-    out property <color> panel: background.mix(text, 0.93);
-    out property <color> panel-high: background.mix(text, 0.88);
+    /// Behind a window over the others: a light dimming, darker on the dark theme.
+    out property <color> scrim: dark ? #00000080 : #0a0a0f47;
+    /// The shadow under what floats.
+    out property <color> shadow: dark ? #00000073 : #0f0f191f;
 
-    // The veil behind a modal. Dark on every theme on purpose: a modal dims what it
-    // covers, and a light veil over a light theme dims nothing.
-    out property <color> scrim: #00000077;
-
-    // Espacement calculé, pour éviter les multiplications éparpillées.
+    // Computed spacing, so that the multiplications are not scattered around.
     out property <length> space-1: unit;
     out property <length> space-2: unit * 2;
     out property <length> space-3: unit * 3;

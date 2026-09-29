@@ -1,10 +1,10 @@
 //! The Home screen: the day, and nothing else.
 //!
-//! The date, a greeting, one sentence on what is waiting, the next three things of
-//! the day (events and tasks together, in the order of their hours) and three ways
-//! out with their counts. Read from the base when Home is shown, and again after
-//! each sync or each minute while it stays on screen: a handful of small queries,
-//! and nothing while another workspace is showing.
+//! The date, a greeting (with the first name set in the settings), one sentence on
+//! what is waiting, the one thing next (the coming event or the next task with an
+//! hour) and three ways in with their counts. Read from the base when Home is shown,
+//! and again after each sync or each minute while it stays on screen: a handful of
+//! small queries, and nothing while another workspace is showing.
 
 use crate::controller::Controller;
 use crate::services::{now, Services};
@@ -34,12 +34,11 @@ pub fn greeting(hour: u32) -> &'static str {
     }
 }
 
-/// What the syncs brought, in one line.
-pub fn sync_summary(arrived: u64) -> String {
-    match arrived {
-        0 => "No new mail since you opened Iris".into(),
-        1 => "1 new message since you opened Iris".into(),
-        n => format!("{n} new messages since you opened Iris"),
+/// "Good evening, Camille", or without a name when none is set.
+pub fn greeting_for(hour: u32, first_name: &str) -> String {
+    match first_name.trim() {
+        "" => greeting(hour).to_string(),
+        nom => format!("{}, {nom}", greeting(hour)),
     }
 }
 
@@ -55,29 +54,28 @@ fn pluriel(n: usize, un: &str, plusieurs: &str) -> String {
     }
 }
 
-/// The sentence under the greeting: what is waiting, in plain words.
-pub fn summary(unread: usize, due: usize, events_left: usize, evening: bool) -> String {
-    let mut parties = vec![if unread == 0 {
-        "no unread mail".to_string()
+/// The sentence under the greeting: "12 conversations to answer and 5 tasks (2 late)."
+pub fn summary(to_answer: usize, due: usize, late: usize, events_left: usize) -> String {
+    if to_answer == 0 && due == 0 && events_left == 0 {
+        return "Nothing is waiting for you.".into();
+    }
+    let mut parties = vec![if to_answer == 0 {
+        "no mail to answer".to_string()
     } else {
-        pluriel(unread, "unread message", "unread messages")
+        format!(
+            "{} to answer",
+            pluriel(to_answer, "conversation", "conversations")
+        )
     }];
     if due > 0 {
-        parties.push(format!(
-            "{} today",
-            pluriel(due, "task to do", "tasks to do")
-        ));
+        let mut taches = pluriel(due, "task", "tasks");
+        if late > 0 {
+            taches.push_str(&format!(" ({late} late)"));
+        }
+        parties.push(taches);
     }
     if events_left > 0 {
-        let quand = if evening { "this evening" } else { "today" };
-        parties.push(if events_left == 1 {
-            format!("one more event {quand}")
-        } else {
-            format!("{events_left} more events {quand}")
-        });
-    }
-    if unread == 0 && due == 0 && events_left == 0 {
-        return "Nothing is waiting for you.".into();
+        parties.push(pluriel(events_left, "more event", "more events"));
     }
     let phrase = match parties.as_slice() {
         [seule] => seule.clone(),
@@ -110,10 +108,14 @@ struct Prochain {
 
 /// What Home shows of the day.
 pub struct Journee {
-    /// The next things, three at most.
+    /// The things of the day, late tasks first, `max` at most.
     pub next: Vec<HomeItemData>,
-    /// Open tasks due today or late.
+    /// The one thing next: the event under way or coming, or the next task with an
+    /// hour, whichever comes first. What is late is not "next".
+    pub upcoming: Option<HomeItemData>,
+    /// Open tasks due today or late, and how many of them are late.
     pub due: usize,
+    pub late: usize,
     /// Today's events, and those still to come.
     pub events: usize,
     pub events_left: usize,
@@ -125,6 +127,20 @@ pub fn day(services: &Services, max: usize) -> Journee {
     let today = maintenant.date_naive();
     let instant = maintenant.timestamp_millis();
     let mut tout: Vec<Prochain> = Vec::new();
+    // The next thing, with when it starts in milliseconds.
+    let mut suivant: Option<(i64, HomeItemData)> = None;
+    let mut garder = |debut: i64, ligne: HomeItemData| {
+        if suivant.as_ref().is_none_or(|(d, _)| debut < *d) {
+            suivant = Some((debut, ligne));
+        }
+    };
+    let quand = |debut: i64, heure: &str| {
+        if debut <= instant {
+            "Now".to_string()
+        } else {
+            format!("{heure}, {}", in_how_long(debut - instant))
+        }
+    };
 
     // Today's events still to come or under way.
     let evenements: Vec<crate::calendar::Upcoming> = crate::calendar::upcoming(services, today, 1)
@@ -147,17 +163,22 @@ pub fn day(services: &Services, max: usize) -> Journee {
         } else {
             u.location.trim().to_string()
         };
-        tout.push(Prochain {
-            rang: debut,
-            ligne: HomeItemData {
-                key: u.key.as_str().into(),
-                title: u.title.as_str().into(),
-                meta: u.time.as_str().into(),
-                hint: detail.into(),
-                color: crate::calendar::couleur(&u.color),
-                ..Default::default()
+        let ligne = HomeItemData {
+            key: u.key.as_str().into(),
+            title: u.title.as_str().into(),
+            meta: u.time.as_str().into(),
+            hint: detail.into(),
+            color: crate::calendar::couleur(&u.color),
+            ..Default::default()
+        };
+        garder(
+            u.start,
+            HomeItemData {
+                meta: quand(u.start, &u.time).into(),
+                ..ligne.clone()
             },
-        });
+        );
+        tout.push(Prochain { rang: debut, ligne });
     }
 
     // The tasks due today or late.
@@ -184,29 +205,40 @@ pub fn day(services: &Services, max: usize) -> Journee {
             // Today, no hour: after the ones that have one.
             (false, None) => (24 * 60, String::new()),
         };
-        tout.push(Prochain {
-            rang,
-            ligne: HomeItemData {
-                id: t.id as i32,
-                title: t.task.title.as_str().into(),
-                meta: heure.into(),
-                hint: if en_retard {
-                    "late".into()
-                } else {
-                    Default::default()
-                },
-                overdue: en_retard,
-                priority: t.task.priority,
-                ..Default::default()
+        let ligne = HomeItemData {
+            id: t.id as i32,
+            title: t.task.title.as_str().into(),
+            meta: heure.clone().into(),
+            hint: if en_retard {
+                "late".into()
+            } else {
+                Default::default()
             },
-        });
+            overdue: en_retard,
+            priority: t.task.priority,
+            ..Default::default()
+        };
+        if let (false, false, Some(m)) = (en_retard, j < today, minute) {
+            let debut = crate::calendar::local_midnight_ms(today) + m as i64 * 60_000;
+            garder(
+                debut,
+                HomeItemData {
+                    meta: quand(debut, &heure).into(),
+                    ..ligne.clone()
+                },
+            );
+        }
+        tout.push(Prochain { rang, ligne });
     }
 
+    let late = tout.iter().filter(|p| p.ligne.overdue).count();
     // Late first, then by the hour, those without one last.
     tout.sort_by_key(|p| p.rang);
     Journee {
         next: tout.into_iter().take(max).map(|p| p.ligne).collect(),
+        upcoming: suivant.map(|(_, l)| l),
         due: dues.len(),
+        late,
         events: evenements.len(),
         events_left: restants,
     }
@@ -215,27 +247,62 @@ pub fn day(services: &Services, max: usize) -> Journee {
 /// Fills the Home screen.
 pub fn refresh(f: &AppWindow, services: &Services) {
     let maintenant = Local::now();
-    f.set_home_greeting(greeting(maintenant.hour()).into());
+    let nom = crate::settings::current().first_name;
+    f.set_home_greeting(greeting_for(maintenant.hour(), &nom).into());
     f.set_home_date(maintenant.format("%A %-d %B").to_string().into());
-    f.set_home_sync_summary(sync_summary(ARRIVEES.load(Ordering::Relaxed)).into());
 
     let j = day(services, 3);
-    let non_lus = services.store.unread_count().unwrap_or(0) as usize;
-    // Beside each way out, what waits there; nothing when nothing does.
+    let a_traiter = to_answer(services);
+    // Beside each way in, what waits there; nothing when nothing does.
     let compte = |n: usize| if n == 0 { String::new() } else { nombre(n) };
 
-    f.set_home_next(ModelRc::new(VecModel::from(j.next)));
-    f.set_home_mail_count(compte(non_lus).into());
+    f.set_home_next(ModelRc::new(VecModel::from(
+        j.upcoming.into_iter().collect::<Vec<_>>(),
+    )));
+    f.set_home_mail_count(compte(a_traiter).into());
     f.set_home_tasks_count(compte(j.due).into());
     f.set_home_events_count(compte(j.events).into());
-    f.set_home_summary(summary(non_lus, j.due, j.events_left, maintenant.hour() >= 17).into());
+    f.set_home_summary(summary(a_traiter, j.due, j.late, j.events_left).into());
+    f.set_tasks_badge(j.due as i32);
 }
 
-/// Refreshes Home if it is the workspace showing, after a sync.
+/// The conversations in the To do queue, over every mailbox.
+fn to_answer(services: &Services) -> usize {
+    services
+        .store
+        .todo_counts_by_account(now())
+        .map(|c| c.values().map(|n| *n as usize).sum())
+        .unwrap_or(0)
+}
+
+/// Refreshes Home if it is the workspace showing, after a sync; the rail's count of
+/// tasks in any case.
 pub fn refresh_if_shown(f: &AppWindow, services: &Services) {
     if f.get_workspace() == 3 {
         refresh(f, services);
+    } else {
+        update_badges(f, services);
     }
+}
+
+/// The rail's count of tasks due today or late.
+pub fn update_badges(f: &AppWindow, services: &Services) {
+    let today = Local::now().date_naive();
+    let dues = services
+        .store
+        .open_tasks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| {
+            t.task.parent_id.is_none()
+                && t.task
+                    .due_day
+                    .as_deref()
+                    .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+                    .is_some_and(|j| j <= today)
+        })
+        .count();
+    f.set_tasks_badge(dues as i32);
 }
 
 fn vers(f: &AppWindow, workspace: i32) {
@@ -331,6 +398,7 @@ pub fn wire_home(f: &AppWindow, services: &Services, _controller: Arc<Controller
         );
     }
     MINUTERIE.with(|m| *m.borrow_mut() = Some(minuterie));
+    update_badges(f, services);
 }
 
 #[cfg(test)]
@@ -346,24 +414,23 @@ mod tests {
     }
 
     #[test]
-    fn the_sync_line_counts_what_arrived() {
-        assert_eq!(sync_summary(0), "No new mail since you opened Iris");
-        assert_eq!(sync_summary(1), "1 new message since you opened Iris");
-        assert_eq!(sync_summary(12), "12 new messages since you opened Iris");
+    fn the_greeting_carries_the_first_name() {
+        assert_eq!(greeting_for(20, "Camille"), "Good evening, Camille");
+        assert_eq!(greeting_for(20, "  "), "Good evening");
     }
 
     #[test]
     fn the_sentence_says_what_is_waiting() {
         assert_eq!(
-            summary(4, 2, 1, true),
-            "4 unread messages, 2 tasks to do today and one more event this evening."
+            summary(12, 5, 2, 0),
+            "12 conversations to answer and 5 tasks (2 late)."
         );
-        assert_eq!(summary(1, 0, 0, false), "1 unread message.");
+        assert_eq!(summary(1, 0, 0, 0), "1 conversation to answer.");
         assert_eq!(
-            summary(0, 1, 3, false),
-            "No unread mail, 1 task to do today and 3 more events today."
+            summary(0, 1, 0, 3),
+            "No mail to answer, 1 task and 3 more events."
         );
-        assert_eq!(summary(0, 0, 0, false), "Nothing is waiting for you.");
+        assert_eq!(summary(0, 0, 0, 0), "Nothing is waiting for you.");
     }
 
     #[test]

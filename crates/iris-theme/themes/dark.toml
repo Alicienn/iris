@@ -1,0 +1,31 @@
+# Iris, dark. Graphite panels, a lighter blue for what to act on.
+
+name = "dark"
+label = "Dark"
+dark = true
+
+[color]
+background     = "#19191c"
+surface_low    = "#151517"
+surface        = "#1e1e21"
+surface_high   = "#26262a"
+panel          = "#26262a"
+surface_hover  = "#ffffff0d"
+surface_active = "#ffffff16"
+
+border         = "#2c2c30"
+border_strong  = "#3a3a3f"
+
+text           = "#ececee"
+text_secondary = "#b4b4bb"
+text_muted     = "#8d8d96"
+text_faint     = "#5c5c64"
+text_inverse   = "#19191c"
+
+accent         = "#6f98ff"
+accent_soft    = "#6f98ff21"
+accent_text    = "#0f1320"
+
+error          = "#ef6a5d"
+warning        = "#e0a23c"
+success        = "#4fbf82"

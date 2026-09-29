@@ -27,7 +27,7 @@
 | <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Instant.** Opening, archiving and searching never make you wait, even with hundreds of thousands of messages. |
 | <img src="docs/assets/icons/shield.svg" width="20" alt=""> | **Private.** Remote images and tracking pixels are blocked by default. No telemetry. |
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Rules and plugins add features, each one isolated from the rest of the app. |
-| <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Themes.** Several looks included, dark and light. |
+| <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Light or dark.** One clean look, in light or dark, following Windows by default. |
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
 | <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, subtasks and reminders, typed in one line, with the conversations they came from one click away. |
 
@@ -61,16 +61,24 @@ The accounts are listed under their tags, in that order. Click a tag's name to s
 mail of its mailboxes only; click its arrow to fold its mailboxes away. The tag switch
 above the list shows them all in one list instead.
 
+## Getting around
+
+The rail on the left goes from one part of Iris to another: the **Iris mark** at the top
+for Home, then **Mail**, **Calendar** and **Tasks**, each with what waits there. At its
+foot, search and commands (`Ctrl`+`K`) and the settings (`Ctrl`+`,`).
+
+Iris is light or dark: *Settings › Appearance* follows Windows (the default), or keeps
+one of the two.
+
 ## Home
 
-Iris opens on **Home**: the date, a greeting, one sentence on what is waiting, and
-under **Next** the next three things of your day, events and tasks together in the order
-of their hours, late tasks first. Each opens where it lives; a task's circle ticks it
-off. Below, **Mail**, **Tasks** and **Calendar** lead to each with what waits there. The
-button in the top right corner syncs all your mailboxes.
+Iris opens on **Home**: the date, a greeting with your first name (set it in
+*Settings › Your first name*), one sentence on what is waiting, and **Next**: the coming
+event or the next task with an hour. It opens where it lives; a task's circle ticks it
+off. Below, **Mail**, **Tasks** and **Calendar** lead to each with what waits there.
 
-Click **Iris** at the top left, or press `Ctrl`+`0`, to come back to it. To open on your
-mail instead, switch off *Open Iris on Home* in *Settings*.
+Click the Iris mark at the top left, or press `Ctrl`+`0`, to come back to it. To open on
+your mail instead, switch off *Open Iris on Home* in *Settings*.
 
 ## Mail
 
@@ -89,7 +97,7 @@ a list of tasks, the calendar) and forward again, as in a browser.
 
 ## Calendar
 
-Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` and
+Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
 `Ctrl`+`2`. The calendar opens on the week, then on the view you chose last.
 
 - **New event** creates one in your own calendar; it can repeat and remind you before
@@ -114,7 +122,7 @@ arrow keys move to the previous or next period.
 
 ## Tasks
 
-Open **Tasks** in the title bar, or with `Ctrl`+`3`.
+Open **Tasks** in the rail, or with `Ctrl`+`3`.
 
 - Type a task in one line in the field at the bottom and press `Enter`. Iris reads the
   date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work
