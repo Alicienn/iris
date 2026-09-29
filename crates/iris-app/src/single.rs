@@ -109,6 +109,20 @@ mod plateforme {
     const MUTEX: &str = "Local\\Iris.SingleInstance";
     const EVENT: &str = "Local\\Iris.ShowWindow";
 
+    /// The name for one Iris per data folder. A portable copy (`IRIS_ROOT`) keeps its
+    /// own mail and is a separate Iris: it must not hand over to the installed one.
+    fn nom(base: &str) -> String {
+        match std::env::var_os("IRIS_ROOT") {
+            Some(racine) => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                racine.hash(&mut h);
+                format!("{base}.{:016x}", h.finish())
+            }
+            None => base.to_string(),
+        }
+    }
+
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
@@ -128,9 +142,9 @@ mod plateforme {
         pub fn acquire() -> Option<Self> {
             // The event before the mutex: a launch that finds the mutex must also
             // find the event to set.
-            let nom_evenement = wide(EVENT);
+            let nom_evenement = wide(&nom(EVENT));
             let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, nom_evenement.as_ptr()) };
-            let nom_mutex = wide(MUTEX);
+            let nom_mutex = wide(&nom(MUTEX));
             let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, nom_mutex.as_ptr()) };
             let deja = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
 
@@ -195,7 +209,7 @@ mod plateforme {
         // This launch was started by the user, so it may give the foreground away;
         // the running Iris could not take it on its own.
         unsafe { AllowSetForegroundWindow(ASFW_ANY) };
-        let nom = wide(EVENT);
+        let nom = wide(&nom(EVENT));
         let event = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, nom.as_ptr()) };
         if event.is_null() {
             tracing::warn!("single instance: the running Iris has no event to set");

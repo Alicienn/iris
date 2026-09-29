@@ -1,16 +1,17 @@
 //! L'onglet des tâches : ce qu'il y a à faire, venu du courrier ou d'ailleurs.
 //!
-//! Quatre vues et les listes de l'utilisateur. « Today » rassemble ce qui compte
-//! aujourd'hui, d'où qu'il vienne : les tâches dues ou en retard, les événements de
-//! l'agenda, et les conversations qui attendent une action. Une conversation devient
-//! une tâche d'une touche (`T`), et la tâche la rouvre d'un clic.
+//! Quatre vues et les listes de l'utilisateur. « Today » rassemble les tâches dues
+//! ou en retard ; « All tasks », toutes. Une tâche faite reste, barrée, dans la vue
+//! d'où on l'a cochée, jusqu'à ce qu'on vide les tâches terminées. Une conversation
+//! devient une tâche d'une touche (`T`), et la tâche la rouvre d'un clic. Une tâche se
+//! porte à la souris sur une liste, ou sur Today.
 
 use crate::controller::{Controller, Request};
 use crate::services::{now, Services};
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use iris_store::{NewTask, StoredTask, TaskList};
 use iris_tasks::{due_label, is_overdue, remind_at, section, Section, REMINDERS};
-use iris_types::{ThreadId, WorkflowState};
+use iris_types::ThreadId;
 use iris_ui::{AppWindow, SubtaskData, TaskDetailData, TaskPlaceData, TaskRowData};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -21,9 +22,6 @@ use std::sync::Arc;
 const COULEURS: [&str; 8] = [
     "#5b8def", "#e0795b", "#4fb286", "#b67be6", "#e3b341", "#e0608c", "#3fb1c9", "#8a9a5b",
 ];
-
-/// Combien de conversations « à faire » la vue Today montre.
-const COURRIER_DU_JOUR: u32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Vue {
@@ -143,7 +141,7 @@ fn titre_vue(vue: Vue, listes: &[TaskList]) -> String {
     match vue {
         Vue::Today => "Today".into(),
         Vue::Upcoming => "Upcoming".into(),
-        Vue::Anytime => "Anytime".into(),
+        Vue::Anytime => "All tasks".into(),
         Vue::Mail => "From mail".into(),
         Vue::List(id) => listes
             .iter()
@@ -155,9 +153,33 @@ fn titre_vue(vue: Vue, listes: &[TaskList]) -> String {
 
 fn indication(vue: Vue) -> &'static str {
     match vue {
-        Vue::Today => "Add a task for today — e.g. “Call Marie at 3pm !!”",
-        _ => "Add a task — e.g. “tomorrow 9am Send the quote #Work”",
+        Vue::Today => "Add a task for today, e.g. “Call Marie at 3pm !!”",
+        _ => "Add a task, e.g. “tomorrow 9am Send the quote #Work”",
     }
+}
+
+/// Does a task belong to a view? The same rule for the tasks to do and for the
+/// completed ones: a task done from Today stays in Today, struck through, until the
+/// completed tasks are cleared from there.
+fn dans_la_vue(vue: Vue, t: &StoredTask, today: NaiveDate) -> bool {
+    match vue {
+        Vue::Today => jour(&t.task).is_some_and(|j| j <= today),
+        Vue::Upcoming => jour(&t.task).is_some_and(|j| j > today),
+        Vue::Anytime => true,
+        Vue::Mail => t.task.thread_id.is_some(),
+        Vue::List(id) => t.task.list_id == id,
+    }
+}
+
+/// The completed tasks of a view, the most recently done first.
+fn terminees(services: &Services, vue: Vue, today: NaiveDate) -> Vec<StoredTask> {
+    services
+        .store
+        .done_tasks(None, 500)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| dans_la_vue(vue, t, today))
+        .collect()
 }
 
 fn section_ligne(titre: &str, compte: usize, rouge: bool) -> TaskRowData {
@@ -237,9 +259,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         .iter()
         .filter(|t| t.task.parent_id.is_none())
         .collect();
-    let du_jour = |t: &StoredTask| jour(&t.task).is_some_and(|j| j <= today);
-    let a_venir =
-        |t: &StoredTask| jour(&t.task).is_some_and(|j| j > today && j <= today + Duration::days(7));
+    let compte = |vue: Vue| dessus.iter().filter(|t| dans_la_vue(vue, t, today)).count();
 
     // --- La colonne de gauche.
     let mut lieux = vec![
@@ -247,25 +267,25 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             Vue::Today,
             "Today",
             iris_ui_icone::SOLEIL,
-            dessus.iter().filter(|t| du_jour(t)).count(),
+            compte(Vue::Today),
         ),
         (
             Vue::Upcoming,
             "Upcoming",
             iris_ui_icone::AGENDA,
-            dessus.iter().filter(|t| a_venir(t)).count(),
+            compte(Vue::Upcoming),
         ),
         (
             Vue::Anytime,
-            "Anytime",
+            "All tasks",
             iris_ui_icone::LISTE,
-            dessus.iter().filter(|t| t.task.due_day.is_none()).count(),
+            compte(Vue::Anytime),
         ),
         (
             Vue::Mail,
             "From mail",
             iris_ui_icone::COURRIER,
-            dessus.iter().filter(|t| t.task.thread_id.is_some()).count(),
+            compte(Vue::Mail),
         ),
     ]
     .into_iter()
@@ -321,64 +341,12 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             }
         };
 
+    let de_la_vue: Vec<&StoredTask> = dessus
+        .iter()
+        .copied()
+        .filter(|t| dans_la_vue(etat.vue, t, today))
+        .collect();
     match etat.vue {
-        Vue::Today => {
-            let taches: Vec<&StoredTask> = dessus.iter().copied().filter(|t| du_jour(t)).collect();
-            par_sections(taches, true, &mut lignes);
-
-            let evenements = crate::calendar::events_on(services, today);
-            if !evenements.is_empty() {
-                lignes.push(section_ligne("Calendar", evenements.len(), false));
-                for (debut, entier, titre, couleur) in evenements {
-                    let heure = if entier {
-                        "All day".to_string()
-                    } else {
-                        Local
-                            .timestamp_millis_opt(debut)
-                            .single()
-                            .map(|t| t.format("%H:%M").to_string())
-                            .unwrap_or_default()
-                    };
-                    lignes.push(TaskRowData {
-                        kind: 2,
-                        key: today.format("%Y-%m-%d").to_string().into(),
-                        title: titre.into(),
-                        meta: heure.into(),
-                        color: couleur,
-                        ..Default::default()
-                    });
-                }
-            }
-
-            let courrier = services
-                .store
-                .list_threads(&iris_store::ListQuery {
-                    state: WorkflowState::Todo,
-                    accounts: Vec::new(),
-                    hide_snoozed_until: Some(now()),
-                    limit: COURRIER_DU_JOUR,
-                    after: None,
-                    scope: iris_store::Scope::Queue,
-                    filters: iris_store::Filters::default(),
-                })
-                .unwrap_or_default();
-            if !courrier.is_empty() {
-                lignes.push(section_ligne("Mail to do", courrier.len(), false));
-                for c in courrier {
-                    lignes.push(TaskRowData {
-                        kind: 3,
-                        id: c.id.0 as i32,
-                        title: if c.subject.trim().is_empty() {
-                            "(No subject)".into()
-                        } else {
-                            c.subject.as_str().into()
-                        },
-                        meta: c.from_display.as_str().into(),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
         Vue::Upcoming => {
             // Un titre par jour sur la semaine qui vient, puis le reste.
             for k in 1..=7 {
@@ -410,33 +378,25 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
                 }
             }
         }
-        Vue::Anytime => {
-            for t in dessus.iter().filter(|t| t.task.due_day.is_none()) {
-                lignes.push(ligne_tache(services, t, etat, true, maintenant));
-            }
-        }
-        Vue::Mail => {
-            let taches: Vec<&StoredTask> = dessus
-                .iter()
-                .copied()
-                .filter(|t| t.task.thread_id.is_some())
-                .collect();
-            par_sections(taches, true, &mut lignes);
-        }
-        Vue::List(id) => {
-            let taches: Vec<&StoredTask> = dessus
-                .iter()
-                .copied()
-                .filter(|t| t.task.list_id == id)
-                .collect();
-            par_sections(taches, false, &mut lignes);
-            let faites = services.store.done_tasks(Some(id), 20).unwrap_or_default();
-            if !faites.is_empty() {
-                lignes.push(section_ligne("Completed", faites.len(), false));
-                for t in &faites {
-                    lignes.push(ligne_tache(services, t, etat, false, maintenant));
-                }
-            }
+        // Today, All tasks, From mail and the lists: by section, from late to later.
+        vue => par_sections(de_la_vue, !matches!(vue, Vue::List(_)), &mut lignes),
+    }
+
+    // What was done here stays here, struck through, until cleared.
+    let faites = terminees(services, etat.vue, today);
+    if !faites.is_empty() {
+        lignes.push(TaskRowData {
+            kind: 4,
+            ..section_ligne("Completed", faites.len(), false)
+        });
+        for t in &faites {
+            lignes.push(ligne_tache(
+                services,
+                t,
+                etat,
+                !matches!(etat.vue, Vue::List(_)),
+                maintenant,
+            ));
         }
     }
 
@@ -446,6 +406,10 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         .map(|l| l.id as i64)
         .collect();
     f.set_tasks_title(titre_vue(etat.vue, &etat.listes).into());
+    f.set_tasks_subtitle(match etat.vue {
+        Vue::Today => today.format("%A %-d %B").to_string().into(),
+        _ => SharedString::default(),
+    });
     f.set_task_add_hint(indication(etat.vue).into());
     f.set_task_rows(ModelRc::new(VecModel::from(lignes)));
     remplir_detail(f, services, etat, maintenant);
@@ -583,7 +547,7 @@ fn ajouter(services: &Services, etat: &mut Etat, texte: &str) -> Option<(i64, St
     let id = services.store.insert_task(&t, now()).ok()?;
 
     let ou = match echeance {
-        Some((j, m)) => format!("Added — due {}.", due_label(j, m, today)),
+        Some((j, m)) => format!("Added, due {}.", due_label(j, m, today)),
         None => "Added.".to_string(),
     };
     Some((id, message.map(|m| format!("{m} {ou}")).unwrap_or(ou)))
@@ -642,7 +606,7 @@ pub fn task_from_thread(services: &Services, thread: i64) -> Result<String, Stri
         list_id: liste,
         title: sujet.clone(),
         thread_id: Some(thread),
-        source: format!("{} — {}", fil.from_display, sujet),
+        source: format!("{}: {}", fil.from_display, sujet),
         ..Default::default()
     };
     services
@@ -773,26 +737,73 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_task_row_selected,
         [services, etat, redessiner, f, controller],
         |ligne| {
-            match ligne.kind {
-                0 => {
-                    let mut e = etat.borrow_mut();
-                    if e.choisie != Some(ligne.id as i64) {
-                        e.choisie = Some(ligne.id as i64);
-                        e.mois = None;
-                    }
-                    drop(e);
-                    redessiner();
-                }
-                // Un événement : l'agenda, sur ce jour.
-                2 => {
-                    f.set_workspace(1);
-                    f.invoke_workspace_changed(1);
-                    f.invoke_calendar_day_opened(ligne.key.clone());
-                }
-                // Une conversation : le courrier, sur elle.
-                3 => ouvrir_fil(f, services, controller, ligne.id as i64),
-                _ => {}
+            if ligne.kind != 0 {
+                return;
             }
+            let mut e = etat.borrow_mut();
+            if e.choisie != Some(ligne.id as i64) {
+                e.choisie = Some(ligne.id as i64);
+                e.mois = None;
+            }
+            drop(e);
+            redessiner();
+        }
+    );
+
+    // The completed tasks of the view, cleared from its Completed title.
+    geste!(
+        on_task_clear_completed,
+        [services, etat, redessiner, f, controller],
+        || {
+            let vue = etat.borrow().vue;
+            let faites = terminees(services, vue, maintenant_local().date());
+            for t in &faites {
+                let _ = services.store.delete_task(t.id);
+            }
+            let mut e = etat.borrow_mut();
+            if e.choisie.is_some_and(|c| faites.iter().any(|t| t.id == c)) {
+                e.choisie = None;
+            }
+            drop(e);
+            f.set_status(
+                match faites.len() {
+                    1 => "1 completed task deleted.".to_string(),
+                    n => format!("{n} completed tasks deleted."),
+                }
+                .into(),
+            );
+            redessiner();
+        }
+    );
+
+    // A task carried onto a list moves there; onto Today, it becomes due today.
+    geste!(
+        on_task_dropped,
+        [services, etat, redessiner, f, controller],
+        |id, cle| {
+            let (id, today) = (id as i64, maintenant_local().date());
+            let message = match Vue::depuis(&cle) {
+                Some(Vue::List(liste)) => {
+                    let nom = etat
+                        .borrow()
+                        .listes
+                        .iter()
+                        .find(|l| l.id == liste)
+                        .map(|l| l.name.clone())
+                        .unwrap_or_default();
+                    modifier(services, id, |t| t.list_id = liste)
+                        .then(|| format!("Moved to {nom}."))
+                }
+                Some(Vue::Today) => modifier(services, id, |t| {
+                    t.due_day = Some(today.format("%Y-%m-%d").to_string())
+                })
+                .then(|| "Due today.".to_string()),
+                _ => None,
+            };
+            if let Some(m) = message {
+                f.set_status(m.into());
+            }
+            redessiner();
         }
     );
 

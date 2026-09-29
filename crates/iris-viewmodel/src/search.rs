@@ -54,7 +54,7 @@ impl SearchState {
             (0, _) => "Aucun résultat.".to_string(),
             (1, false) => "1 conversation.".to_string(),
             (n, false) => format!("{n} conversations."),
-            (n, true) => format!("Plus de {n} conversations — affinez la recherche."),
+            (n, true) => format!("Plus de {n} conversations : affinez la recherche."),
         }
     }
 }

@@ -20,7 +20,7 @@ use iris_ui::{
     AccountRowData, AppWindow, MessageData, PluginRowData, RuleRowData, ThemeSwatchData,
     ThreadRowData,
 };
-use slint::{Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -1014,7 +1014,28 @@ fn une_erreur_de_composition_est_montree() {
 fn abandonner_un_message_est_possible() {
     let f = fenetre();
     f.set_compose_open(true);
+    f.on_compose_dismissed({
+        let fw = f.as_weak();
+        move || fw.upgrade().unwrap().set_compose_open(false)
+    });
+    f.on_compose_discard({
+        let fw = f.as_weak();
+        move || fw.upgrade().unwrap().set_compose_open(false)
+    });
 
+    // Nothing written: closing is enough.
+    par_libelle(&f, "Close message")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert!(!f.get_compose_open());
+
+    // Something written: the question offers to discard it.
+    f.set_compose_open(true);
+    f.set_compose_subject("Devis".into());
+    par_libelle(&f, "Close message")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert!(f.get_compose_confirm_close());
     par_libelle(&f, "Discard")
         .unwrap()
         .invoke_accessible_default_action();

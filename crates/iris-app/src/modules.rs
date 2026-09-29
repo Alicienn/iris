@@ -82,7 +82,7 @@ pub fn describe(rule: &Rule) -> String {
         // A rule with no condition matches everything. Saying so plainly is the only
         // honest wording: "always" is what it will do.
         (true, false) => format!("Always: {}", actions.join(", ")),
-        (false, true) => format!("When {} — but does nothing", conditions.join(joiner)),
+        (false, true) => format!("When {}, but does nothing", conditions.join(joiner)),
         (false, false) => format!(
             "When {}, {}{}",
             conditions.join(joiner),

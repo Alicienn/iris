@@ -156,6 +156,37 @@ component FormatBar inherits HorizontalLayout {
     Rectangle {}
 }
 
+// A button of the close question.
+component ComposeChoice inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> danger;
+    callback clicked();
+
+    width: libelle.preferred-width + 2 * Tokens.space-3;
+    border-radius: Tokens.radius-small;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Tokens.border;
+    background: root.primary ? Tokens.accent
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    libelle := Text {
+        text: root.text;
+        font-size: Tokens.size-small;
+        font-weight: root.primary ? Tokens.weight-bold : Tokens.weight-body;
+        color: root.primary ? Tokens.accent-text : root.danger ? Tokens.error : Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 // Writing a message.
 //
 // A modal by default, because writing deserves the whole window, with one gesture to
@@ -168,6 +199,8 @@ export component ComposePanel inherits Rectangle {
     in property <int> sender-index;
     in property <string> error;
     in property <[string]> attachments;
+    /// The question asked on closing a message with something in it.
+    in-out property <bool> confirm-close;
     in-out property <bool> minimised;
     in-out property <bool> show-cc;
     in-out property <string> to;
@@ -177,8 +210,16 @@ export component ComposePanel inherits Rectangle {
     in-out property <string> body;
 
     callback send();
+    /// Closed with nothing in it.
     callback dismissed();
+    /// Closed, and what was written thrown away.
+    callback discard();
+    callback save-draft();
     callback sender-chosen(int);
+
+    /// Anything written, added or attached: closing would lose it.
+    property <bool> has-content: root.to != "" || root.cc != "" || root.bcc != ""
+        || root.subject != "" || root.body != "" || root.attachments.length > 0;
     callback attach();
     callback attach-image();
     callback remove-attachment(int);
@@ -192,6 +233,26 @@ export component ComposePanel inherits Rectangle {
     // rest of the application behind glass.
     background: root.minimised ? transparent : Tokens.scrim;
     animate background { duration: Tokens.moderate; easing: ease-in-out; }
+
+    // Escape reaches the window even while a field has the cursor: it asks what to
+    // do with what is written, and a second Escape answers "keep writing". Never
+    // focused itself, so it takes no click away from the fields.
+    FocusScope {
+        enabled: false;
+        key-pressed(event) => {
+            if (event.text != Key.Escape) {
+                return reject;
+            }
+            if (root.confirm-close) {
+                root.confirm-close = false;
+            } else if (root.has-content) {
+                root.minimised = false;
+                root.confirm-close = true;
+            } else {
+                root.dismissed();
+            }
+            return accept;
+        }
 
     if !root.minimised: TouchArea {
         clicked => { root.minimised = true; }
@@ -249,10 +310,17 @@ export component ComposePanel inherits Rectangle {
                 }
                 IconButton {
                     icon: Icons.window-close;
-                    label: "Discard";
+                    label: "Close message";
                     button-size: 24px;
                     icon-size: 14px;
-                    clicked => { root.dismissed(); }
+                    clicked => {
+                        if (root.has-content) {
+                            root.minimised = false;
+                            root.confirm-close = true;
+                        } else {
+                            root.dismissed();
+                        }
+                    }
                 }
             }
 
@@ -299,31 +367,33 @@ export component ComposePanel inherits Rectangle {
 
                 // Cc and Bcc stay folded until asked for. Most messages have neither,
                 // and two empty fields at the top of every draft is two lines of
-                // furniture between the writer and the writing.
-                if !root.show-cc: Rectangle {
+                // furniture between the writer and the writing. The button stays, to
+                // fold them again; a field with something in it never folds away.
+                Rectangle {
                     width: 54px;
                     height: 30px;
                     border-radius: Tokens.radius-small;
-                    background: cc-touch.has-hover ? Tokens.surface-hover : transparent;
+                    background: root.show-cc ? Tokens.surface-active
+                        : cc-touch.has-hover ? Tokens.surface-hover : transparent;
 
                     accessible-role: button;
-                    accessible-label: "Add Cc and Bcc";
-                    accessible-action-default => { root.show-cc = true; }
+                    accessible-label: root.show-cc ? "Fold Cc and Bcc" : "Add Cc and Bcc";
+                    accessible-action-default => { root.show-cc = !root.show-cc; }
 
                     Text {
                         text: "Cc Bcc";
                         font-size: Tokens.size-small;
-                        color: Tokens.text-muted;
+                        color: root.show-cc ? Tokens.text-secondary : Tokens.text-muted;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
                     cc-touch := TouchArea {
-                        clicked => { root.show-cc = true; }
+                        clicked => { root.show-cc = !root.show-cc; }
                     }
                 }
             }
 
-            if !root.minimised && root.show-cc: Field {
+            if !root.minimised && (root.show-cc || root.cc != ""): Field {
                 label: "Cc";
                 placeholder: "Also send to";
                 value <=> root.cc;
@@ -331,7 +401,7 @@ export component ComposePanel inherits Rectangle {
                 edited(t) => { root.recipient-typed("cc", t); }
                 picked(c) => { root.recipient-picked("cc", c); }
             }
-            if !root.minimised && root.show-cc: Field {
+            if !root.minimised && (root.show-cc || root.bcc != ""): Field {
                 label: "Bcc";
                 placeholder: "Send without showing the address";
                 value <=> root.bcc;
@@ -438,8 +508,32 @@ export component ComposePanel inherits Rectangle {
 
                 Rectangle {}
 
+                // Kept in the account's Drafts folder, to finish later or elsewhere.
+                Rectangle {
+                    width: brouillon.preferred-width + 2 * Tokens.space-3;
+                    border-radius: Tokens.radius-small;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+                    background: brouillon-touch.has-hover ? Tokens.surface-hover : transparent;
+
+                    accessible-role: button;
+                    accessible-label: "Save draft";
+                    accessible-action-default => { root.save-draft(); }
+
+                    brouillon := Text {
+                        text: "Save draft";
+                        font-size: Tokens.size-small;
+                        color: Tokens.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    brouillon-touch := TouchArea {
+                        clicked => { root.save-draft(); }
+                    }
+                }
+
                 // Send closes the window. For a few seconds after, a notice at the
-                // bottom of the application can still take the message back — and
+                // bottom of the application can still take the message back, and
                 // brings this window back with it, as it was.
                 Rectangle {
                     width: 120px;
@@ -476,5 +570,69 @@ export component ComposePanel inherits Rectangle {
                 }
             }
         }
+    }
+
+    // Closing a message with something in it asks what to do with it. Closing an
+    // empty one just closes.
+    if root.confirm-close: Rectangle {
+        background: Tokens.scrim;
+
+        TouchArea {
+            clicked => { root.confirm-close = false; }
+        }
+
+        Floating {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: min(420px, parent.width - 40px);
+            height: question.preferred-height;
+
+            TouchArea {}
+
+            question := VerticalLayout {
+                padding: Tokens.space-4;
+                spacing: Tokens.space-3;
+
+                Text {
+                    text: "Save this message as a draft?";
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-title;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                }
+                Text {
+                    text: "A draft is kept in the Drafts folder of the account it is written from.";
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-secondary;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: Tokens.space-2;
+                    height: 28px;
+                    ComposeChoice {
+                        text: "Discard";
+                        danger: true;
+                        clicked => {
+                            root.confirm-close = false;
+                            root.discard();
+                        }
+                    }
+                    Rectangle {}
+                    ComposeChoice {
+                        text: "Cancel";
+                        clicked => { root.confirm-close = false; }
+                    }
+                    ComposeChoice {
+                        text: "Save draft";
+                        primary: true;
+                        clicked => {
+                            root.confirm-close = false;
+                            root.save-draft();
+                        }
+                    }
+                }
+            }
+        }
+    }
     }
 }

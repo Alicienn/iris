@@ -727,6 +727,9 @@ export component AppWindow inherits Window {
 
     // --- Tasks ---
     in property <string> tasks-title;
+    in property <string> tasks-subtitle;
+    callback task-clear-completed();
+    callback task-dropped(int, string);
     in property <[TaskPlaceData]> task-places;
     in property <[TaskRowData]> task-rows;
     in-out property <string> task-add-text;
@@ -817,6 +820,13 @@ export component AppWindow inherits Window {
     callback compose-remove-attachment(int);
     callback compose-format(string);
     callback compose-dismissed();
+    callback compose-discard();
+    callback compose-save-draft();
+    in-out property <bool> compose-confirm-close;
+    /// Something is written in the new-message window: closing it asks first.
+    property <bool> compose-has-content: root.compose-to != "" || root.compose-cc != ""
+        || root.compose-bcc != "" || root.compose-subject != "" || root.compose-body != ""
+        || root.compose-attachments.length > 0;
     in property <[string]> compose-suggestions;
     callback compose-recipient-typed(string, string);
     callback compose-recipient-picked(string, string);
@@ -879,6 +889,7 @@ export component AppWindow inherits Window {
             }
             // "c" writes a new message, the convention every mail client shares.
             if (event.text == "c" && !root.modal-open) {
+                root.compose-minimised = false;
                 root.compose-open = true;
                 return accept;
             }
@@ -892,8 +903,20 @@ export component AppWindow inherits Window {
                 root.context-menu-open = false;
                 return accept;
             }
+            // Escape asks, like the close button, when something is written; an
+            // open question is answered "no" by Escape.
+            if (event.text == Key.Escape && root.compose-open && root.compose-confirm-close) {
+                root.compose-confirm-close = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.compose-open) {
-                root.compose-open = false;
+                if (root.compose-has-content) {
+                    root.compose-minimised = false;
+                    root.compose-confirm-close = true;
+                } else {
+                    root.compose-dismissed();
+                    root.compose-open = false;
+                }
                 return accept;
             }
             // The small month first: Escape folds it and leaves the event open.
@@ -1184,7 +1207,10 @@ export component AppWindow inherits Window {
                             accessible-role: button;
                             accessible-label: "Write a new message";
                             accessible-description: "C";
-                            accessible-action-default => { root.compose-open = true; }
+                            accessible-action-default => {
+                                root.compose-minimised = false;
+                                root.compose-open = true;
+                            }
 
                             HorizontalLayout {
                                 alignment: center;
@@ -1205,8 +1231,13 @@ export component AppWindow inherits Window {
                                 }
                             }
 
+                            // Brought back full size, even if it was tucked into the
+                            // corner: New message is a request to write.
                             ecrire-touch := TouchArea {
-                                clicked => { root.compose-open = true; }
+                                clicked => {
+                                    root.compose-minimised = false;
+                                    root.compose-open = true;
+                                }
                             }
                         }
 
@@ -1400,6 +1431,9 @@ export component AppWindow inherits Window {
         width: parent.width - 2px;
         height: parent.height - 32px - 23px;
         title: root.tasks-title;
+        subtitle: root.tasks-subtitle;
+        clear-completed => { root.task-clear-completed(); }
+        task-dropped(id, cle) => { root.task-dropped(id, cle); }
         places: root.task-places;
         rows: root.task-rows;
         add-text <=> root.task-add-text;
@@ -1759,6 +1793,9 @@ export component AppWindow inherits Window {
         recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
         recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
         dismissed => { root.compose-dismissed(); root.compose-open = false; }
+        confirm-close <=> root.compose-confirm-close;
+        discard => { root.compose-discard(); }
+        save-draft => { root.compose-save-draft(); }
     }
 
     if root.source-open: SourcePanel {

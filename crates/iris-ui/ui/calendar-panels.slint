@@ -201,7 +201,7 @@ export component EventDetailPanel inherits Rectangle {
                 vertical-stretch: 1;
                 min-height: 70px;
                 accessible-label: "My notes";
-                placeholder-text: "Anything to remember about it — kept on this computer";
+                placeholder-text: "Anything to remember about it, kept on this computer";
                 text <=> root.notes;
                 edited(t) => { root.notes-edited(t); }
             }
@@ -525,7 +525,7 @@ export component SubscribePanel inherits Rectangle {
         dismissed => { if (!root.busy) { root.dismissed(); } }
 
         Text {
-            text: "Paste the calendar's public or secret link — the iCal / .ics address that "
+            text: "Paste the calendar's public or secret link: the iCal / .ics address that "
                 + "Google Calendar, Outlook, iCloud, a school or a club publishes. "
                 + "Iris reads it now and every half hour after; it stays read-only here.";
             font-size: Tokens.size-small;

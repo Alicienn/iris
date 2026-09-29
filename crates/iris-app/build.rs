@@ -18,7 +18,7 @@ fn main() {
         let mut resource = winresource::WindowsResource::new();
         resource.set_icon("assets/iris.ico");
         resource.set("ProductName", "Iris");
-        resource.set("FileDescription", "Iris — a mail client");
+        resource.set("FileDescription", "Iris, a mail client");
         resource.set("CompanyName", "Iris");
         resource.set("LegalCopyright", "Iris contributors");
         resource.set("OriginalFilename", "iris.exe");

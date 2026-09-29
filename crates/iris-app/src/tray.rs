@@ -145,9 +145,9 @@ mod plateforme {
     /// de tout contexte, et « 12 » tout seul ne dit pas de quoi.
     fn tooltip(unread: u32) -> String {
         match unread {
-            0 => "Iris — nothing unread".into(),
-            1 => "Iris — 1 unread message".into(),
-            n => format!("Iris — {n} unread messages"),
+            0 => "Iris: nothing unread".into(),
+            1 => "Iris: 1 unread message".into(),
+            n => format!("Iris: {n} unread messages"),
         }
     }
 

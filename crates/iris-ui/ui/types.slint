@@ -308,9 +308,10 @@ export struct TaskPlaceData {
 
 // A line of the tasks column.
 export struct TaskRowData {
-    // 0 a task, 1 a section title, 2 a calendar event, 3 a conversation to do.
+    // 0 a task, 1 a section title, 4 the title of the completed tasks (which can be
+    // cleared from it).
     kind: int,
-    // The task, the conversation, or for an event the day it is on ("YYYY-MM-DD").
+    // The task.
     id: int,
     key: string,
     title: string,

@@ -798,7 +798,7 @@ export component SearchBar inherits VerticalLayout {
 
         field := TextField {
             accessible-label: "Search";
-            placeholder-text: "Search — from:marie is:unread…";
+            placeholder-text: "Search, e.g. from:marie is:unread…";
             font-size: Tokens.size-small;
             text <=> root.query;
             accepted(t) => { root.submitted(t); }

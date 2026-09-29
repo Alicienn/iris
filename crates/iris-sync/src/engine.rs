@@ -854,9 +854,9 @@ impl SyncAllReport {
         match (self.added, self.failed.len()) {
             (0, 0) => "Up to date.".into(),
             (n, 0) => format!("{n} new message(s)."),
-            (0, _) => format!("Sync failed for {qui} — see the red ! in the account list."),
+            (0, _) => format!("Sync failed for {qui}. See the red ! in the account list."),
             (n, _) => format!(
-                "{n} new message(s). Sync failed for {qui} — see the red ! in the account list."
+                "{n} new message(s). Sync failed for {qui}. See the red ! in the account list."
             ),
         }
     }

@@ -158,7 +158,7 @@ fn cmd_register(inscrire: bool) -> Result<()> {
 
 fn print_help() {
     println!(
-        "Iris — a mail client\n\
+        "Iris, a mail client\n\
          \n\
          Usage:\n\
          \x20 iris [run]                     Start the application\n\
@@ -412,27 +412,6 @@ fn cmd_memory() -> Result<()> {
     iris_app::memory::track_sites(true);
     iris_app::memory::mark("processus démarré");
 
-    // L'interface est dessinée par le processeur.
-    //
-    // Mesuré avec l'exemple « mesure », même fenêtre, même infolettre : 209,7 Mo avec
-    // le rendu OpenGL (femtovg), 38,5 Mo en logiciel, pour une image que l'œil ne
-    // distingue pas. La différence est ce que le pilote graphique réserve pour un
-    // contexte GL, et elle n'apparaît dans aucun compteur de l'application. Un client
-    // de courrier redessine peu — un clic, un défilement — et le rendu logiciel ne
-    // repeint que ce qui a changé.
-    //
-    // `SLINT_BACKEND` garde la main, pour comparer ou contourner un souci d'affichage :
-    // `SLINT_BACKEND=winit-femtovg` rétablit l'ancien rendu.
-    if std::env::var_os("SLINT_BACKEND").is_none() {
-        if let Err(e) = slint::BackendSelector::new()
-            .backend_name("winit".into())
-            .renderer_name("software".into())
-            .select()
-        {
-            tracing::warn!(error = %e, "software renderer unavailable, using the default");
-        }
-    }
-
     let services = open_services()?;
     iris_app::memory::mark("base, index, coffre");
 
@@ -612,6 +591,19 @@ impl iris_sync::SendContext for SendTracker {
 
 // --- Interface ---
 
+/// Le rendu logiciel de Slint, sauf si `SLINT_BACKEND` en demande un autre.
+fn select_software_renderer() {
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        if let Err(e) = slint::BackendSelector::new()
+            .backend_name("winit".into())
+            .renderer_name("software".into())
+            .select()
+        {
+            tracing::warn!(error = %e, "software renderer unavailable, using the default");
+        }
+    }
+}
+
 fn run_gui(
     mailto: Option<iris_app::platform::MailtoRequest>,
     demarre_reduit: bool,
@@ -622,6 +614,23 @@ fn run_gui(
     let rapport_memoire = iris_app::memory::requested_interval();
     iris_app::memory::track_sites(rapport_memoire.is_some());
     iris_app::memory::mark("processus démarré");
+
+    // L'interface est dessinée par le processeur. Choisi avant la première fenêtre :
+    // après, Slint a déjà pris son moteur par défaut, OpenGL.
+    //
+    // Mesuré avec l'exemple « mesure », même fenêtre, même infolettre : 209,7 Mo avec
+    // le rendu OpenGL (femtovg), 38,5 Mo en logiciel, pour une image que l'œil ne
+    // distingue pas. La différence est ce que le pilote graphique réserve pour un
+    // contexte GL, et elle n'apparaît dans aucun compteur de l'application. Un client
+    // de courrier redessine peu — un clic, un défilement — et le rendu logiciel ne
+    // repeint que ce qui a changé.
+    //
+    // Ce bloc a longtemps vécu dans la commande `iris memory` au lieu d'ici : la
+    // fenêtre ordinaire tournait donc toujours en OpenGL.
+    //
+    // `SLINT_BACKEND` garde la main, pour comparer ou contourner un souci d'affichage :
+    // `SLINT_BACKEND=winit-femtovg` rétablit l'ancien rendu.
+    select_software_renderer();
 
     let services = open_services()?;
     iris_app::memory::mark("base, index, coffre");
@@ -753,7 +762,14 @@ fn run_gui(
                 .filter(|c| c.enabled)
                 .map(|c| (c.id, c.email))
                 .collect();
-            shell::wire_compose(&fenetre, &services, Arc::clone(&envoi), avis, identites);
+            shell::wire_compose(
+                &fenetre,
+                &services,
+                Arc::clone(&envoi),
+                avis,
+                identites,
+                runtime.handle().clone(),
+            );
             let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
             runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
         }

@@ -167,7 +167,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                     if alt.is_empty() {
                         "Remote image blocked".into()
                     } else {
-                        format!("{alt} — remote image blocked").into()
+                        format!("{alt} (remote image blocked)").into()
                     }
                 } else {
                     alt.as_str().into()

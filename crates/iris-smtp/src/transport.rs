@@ -102,6 +102,13 @@ impl Mailer for LettreMailer {
     }
 }
 
+/// Le message tel qu'il s'écrit dans un dossier : pour un brouillon, déposé plutôt
+/// qu'envoyé. Accepte un message sans destinataire.
+pub fn message_bytes(message: &Outgoing) -> Result<Vec<u8>> {
+    let domaine = domain_of(&message.from.addr);
+    build_lettre_message(message, &domaine).map(|(m, _)| m.formatted())
+}
+
 /// Traduit notre message vers celui de `lettre`.
 fn build_lettre_message(
     message: &Outgoing,
@@ -117,7 +124,20 @@ fn build_lettre_message(
         Ok(Mailbox::new(a.name.clone(), adresse))
     };
 
-    let mut builder = lettre::Message::builder().from(vers_mailbox(&message.from)?);
+    let expediteur = vers_mailbox(&message.from)?;
+    let mut builder = lettre::Message::builder().from(expediteur.clone());
+
+    // A draft may have nobody to send to yet. `lettre` derives its envelope from the
+    // recipients and refuses a message without one; given an envelope of its own —
+    // to the sender, never used since a draft is stored, not sent — it builds it.
+    if message.to.is_empty() && message.cc.is_empty() && message.bcc.is_empty() {
+        let envelope = lettre::address::Envelope::new(
+            Some(expediteur.email.clone()),
+            vec![expediteur.email.clone()],
+        )
+        .map_err(|e| Error::Config(format!("enveloppe : {e}")))?;
+        builder = builder.envelope(envelope);
+    }
 
     for a in &message.to {
         builder = builder.to(vers_mailbox(a)?);
@@ -261,6 +281,16 @@ mod tests {
             "Devis",
         )
         .body("Bonjour Marie")
+    }
+
+    #[test]
+    fn a_draft_without_recipient_is_still_a_message() {
+        let brouillon =
+            Outgoing::new(Address::new("moi@example.com"), vec![], "Idée").body("À reprendre");
+        let brut = String::from_utf8(message_bytes(&brouillon).unwrap()).unwrap();
+        assert!(brut.contains("Subject: "), "{brut}");
+        assert!(brut.contains("From: moi@example.com"), "{brut}");
+        assert!(!brut.contains("\r\nTo:"), "no recipient invented: {brut}");
     }
 
     #[tokio::test]

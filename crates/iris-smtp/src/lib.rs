@@ -20,7 +20,7 @@ pub use compose::{
     ReplyTarget,
 };
 pub use outbox::{Outbox, OutboxEvent, SendHandle, DEFAULT_DELAY};
-pub use transport::{FakeMailer, LettreMailer, Mailer, SendOutcome};
+pub use transport::{message_bytes, FakeMailer, LettreMailer, Mailer, SendOutcome};
 
 #[cfg(test)]
 mod tests {

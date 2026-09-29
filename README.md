@@ -28,7 +28,7 @@
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Modules.** Rules and plugins add features, each one isolated from the rest of the app. |
 | <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Themes.** Several looks included, dark and light. |
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
-| <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, steps and reminders, typed in one line, with the conversations they came from one click away. |
+| <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, subtasks and reminders, typed in one line, with the conversations they came from one click away. |
 
 ## Install
 
@@ -81,13 +81,18 @@ arrow keys move to the previous or next period.
 
 Open **Tasks** in the title bar, or with `Ctrl`+`3`.
 
-- Type a task in one line and press `Enter`. Iris reads the date, the time, the list
-  and the priority out of it: `tomorrow 9am Call Marie #Work !!`, `vendredi 14h30
-  Dentiste`, `in 2 weeks Renew the passport`. `!`, `!!`, `!!!` go from low to high
-  priority; a `#List` that does not exist yet is created.
-- **Today** shows what is due or late, today's events and the conversations still to
-  do. **Upcoming**, **Anytime** and **From mail** show the rest.
-- In the mail, `T` — or *Add to tasks* in a conversation's right-click menu — turns the
+- Type a task in one line in the field at the bottom and press `Enter`. Iris reads the
+  date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work
+  !!`, `vendredi 14h30 Dentiste`, `in 2 weeks Renew the passport`. `!`, `!!`, `!!!` go
+  from low to high priority, shown as a coloured tag; a `#List` that does not exist yet
+  is created.
+- **Today** shows what is due or late. **Upcoming**, **All tasks** and **From mail**
+  show the rest.
+- Drag a task onto a list or onto **Today** in the column on the left to move it there.
+- A checked task stays, struck through, in the view it was checked from; **Delete
+  completed** clears them.
+- A task can hold subtasks, a note and a reminder.
+- In the mail, `T` (or *Add to tasks* in a conversation's right-click menu) turns the
   conversation into a task. *Open message* in the task brings it back.
 
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
@@ -98,6 +103,9 @@ In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due d
 Sending closes the message window at once. For a few seconds, a notice at the bottom
 offers **Undo**, which brings the message back exactly as it was. Choose how long in
 *Settings* (5 seconds by default, 0 to turn it off).
+
+**Save draft** puts an unfinished message in the account's *Drafts* folder. Closing a
+message you have started asks whether to keep it as a draft or discard it.
 
 ## Updates
 

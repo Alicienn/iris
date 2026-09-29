@@ -87,6 +87,8 @@ fn main() {
         2,
     );
     ajoute(perso, "Call the plumber", jour(0), None, 0);
+    let poste = ajoute(perso, "Post the parcel", jour(0), None, 0);
+    services.store.set_task_done(poste, Some(t)).unwrap();
     ajoute(
         travail,
         "Prepare Thursday's review",
@@ -125,7 +127,7 @@ fn main() {
     }
     let mut d = services.store.task(devis).unwrap().unwrap().task;
     d.notes = "Marie wants the two options side by side.".into();
-    d.source = "Marie Martin — Quote for the new site".into();
+    d.source = "Marie Martin: Quote for the new site".into();
     d.thread_id = Some(1);
     services.store.update_task(devis, &d, t).unwrap();
 

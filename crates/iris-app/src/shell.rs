@@ -180,7 +180,7 @@ fn message_suspension(
     };
 
     Some(format!(
-        "{qui} paused after repeated failures — click the \"!\" to try again."
+        "{qui} paused after repeated failures. Click the \"!\" to try again."
     ))
 }
 
@@ -244,7 +244,7 @@ pub fn wire_sync(
                         Err(e) => fenetre.set_status(
                             match panne {
                                 Some(p) => format!(
-                                    "Sync failed: {} — click the red ! next to the account.",
+                                    "Sync failed: {}. Click the red ! next to the account.",
                                     p.summary()
                                 ),
                                 None => format!("Sync failed: {e}"),
@@ -1678,10 +1678,10 @@ impl AvisEnvoi {
         };
         if self.send.cancel(envoi.handle) {
             (envoi.remettre)(fenetre);
-            fenetre.set_status("Send cancelled — your message is back.".into());
+            fenetre.set_status("Send cancelled: your message is back.".into());
         } else {
             // Already gone: say so plainly rather than pretend.
-            fenetre.set_status("Too late — the message has gone.".into());
+            fenetre.set_status("Too late, the message has gone.".into());
         }
     }
 }
@@ -2265,7 +2265,7 @@ pub fn wire_updates(
                 Ok(()) => {
                     // The installer waits for this process to go before it replaces
                     // the executable. Leaving now is what lets it finish.
-                    f.set_update_status("Installing — Iris will open again in a moment.".into());
+                    f.set_update_status("Installing. Iris will open again in a moment.".into());
                     tracing::info!(version = %dispo.version, "update: installer started, quitting");
                     controller.shutdown();
                     let _ = slint::quit_event_loop();
@@ -2401,7 +2401,7 @@ pub fn wire_account_setup(
                 ) {
                     Ok(()) => {
                         fenetre.invoke_add_account_dismissed();
-                        fenetre.set_status("Password saved — checking it with the server…".into());
+                        fenetre.set_status("Password saved, checking it with the server…".into());
                         let engine = Arc::clone(&engine);
                         let services_ui = services_ui.clone();
                         let faible = fenetre.as_weak();
@@ -2418,9 +2418,9 @@ pub fn wire_account_setup(
                             let _ = faible.upgrade_in_event_loop(move |fenetre| {
                                 fenetre.set_status(
                                     match (resultat, panne) {
-                                        (Ok(_), _) => "Password saved — the account works.".into(),
+                                        (Ok(_), _) => "Password saved. The account works.".into(),
                                         (Err(_), Some(p)) => format!(
-                                            "Password saved, but sync still fails: {} — click the red ! for details.",
+                                            "Password saved, but sync still fails: {}. Click the red ! for details.",
                                             p.summary()
                                         ),
                                         (Err(e), None) => {
@@ -2617,9 +2617,9 @@ pub fn wire_account_setup(
                             let _ = faible.upgrade_in_event_loop(move |fenetre| {
                                 fenetre.set_status(
                                     match (resultat, panne) {
-                                        (Ok(_), _) => format!("{adresse} updated — the account works."),
+                                        (Ok(_), _) => format!("{adresse} updated. The account works."),
                                         (Err(_), Some(p)) => format!(
-                                            "{adresse} updated, but sync still fails: {} — click the red ! for details.",
+                                            "{adresse} updated, but sync still fails: {}. Click the red ! for details.",
                                             p.summary()
                                         ),
                                         (Err(e), None) => {
@@ -2812,7 +2812,7 @@ fn prefill_manual(fenetre: &AppWindow) {
     let defauts = crate::accounts::manual_defaults(fenetre.get_new_email().as_str());
 
     fenetre.set_add_account_manual(true);
-    fenetre.set_add_account_hint("Check the servers — they are guessed from your domain.".into());
+    fenetre.set_add_account_hint("Check the servers: they are guessed from your domain.".into());
     // Ce que l'utilisateur a déjà tapé n'est pas écrasé : une bascule qui efface la
     // saisie punit celui qui avait deviné juste.
     if fenetre.get_new_imap_host().is_empty() {
@@ -2976,7 +2976,7 @@ pub fn wire_source(
                 const MAX: usize = 256 * 1024;
                 let coupe = if texte.len() > MAX {
                     let mut t = texte.chars().take(MAX).collect::<String>();
-                    t.push_str("\n\n[…] truncated — the rest is attachment data.\n");
+                    t.push_str("\n\n[…] truncated: the rest is attachment data.\n");
                     t
                 } else {
                     texte.into_owned()
@@ -3050,7 +3050,7 @@ pub fn wire_attachment_open(
         match resultat {
             Ok(chemin) => fenetre.set_status(
                 format!(
-                    "Opened {} — the copy is in your downloads.",
+                    "Opened {}. The copy is in your downloads.",
                     chemin
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
@@ -3419,7 +3419,7 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
     // la fenêtre dépose cette phrase, ce qui vaut mieux que de ne rien déposer.
     {
         let mut charge = slint::DataTransfer::default();
-        charge.set_plain_text("Iris — conversation".into());
+        charge.set_plain_text("Iris conversation".into());
         fenetre.set_drag_payload(charge);
     }
     {
@@ -3552,7 +3552,7 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                     // sur la boîte de réception.
                     controller.send(Request::ShowScope(iris_viewmodel::depart()));
                     fenetre.set_status(
-                        format!("Folder removed on {n} mailbox(es) — the mail moved to the inbox.")
+                        format!("Folder removed on {n} mailbox(es). The mail moved to the inbox.")
                             .into(),
                     );
                     refresh_folders(&fenetre, &services);
@@ -4254,7 +4254,7 @@ pub fn wire_account_recovery(
                         Ok(n) => {
                             fenetre.set_problem_result(
                                 format!(
-                                    "Working again — {} fetched.",
+                                    "Working again: {} fetched.",
                                     iris_ui::format::plural(n as u64, "message")
                                 )
                                 .into(),
@@ -4322,7 +4322,7 @@ pub fn wire_account_recovery(
                             fenetre.set_problem_open(false);
                             fenetre.set_status(
                                 format!(
-                                    "Account working again — {}.",
+                                    "Account working again: {}.",
                                     iris_ui::format::plural(n as u64, "message")
                                 )
                                 .into(),
@@ -4373,6 +4373,7 @@ pub fn wire_compose(
     send: Arc<SendService>,
     avis: Rc<AvisEnvoi>,
     accounts: Vec<(iris_types::AccountId, String)>,
+    runtime: tokio::runtime::Handle,
 ) {
     // Which mailboxes can send, in the order the sidebar lists them.
     let identites = Arc::new(accounts);
@@ -4418,28 +4419,107 @@ pub fn wire_compose(
         fenetre.set_compose_show_cc(
             !fenetre.get_compose_cc().is_empty() || !fenetre.get_compose_bcc().is_empty(),
         );
-        fenetre.set_status("An unsent message was restored — see New message.".into());
+        fenetre.set_status("An unsent message was restored: see New message.".into());
     }
 
+    // Closed with nothing in it: there is nothing left to keep, here or on disk.
+    {
+        let chemin = chemin_brouillon.clone();
+        fenetre.on_compose_dismissed(move || {
+            let _ = crate::draft::Draft::clear(&chemin);
+        });
+    }
+
+    // Closed, and thrown away: after the question, on purpose.
     {
         let chemin = chemin_brouillon.clone();
         let pieces = Arc::clone(&pieces);
         let faible = fenetre.as_weak();
-        fenetre.on_compose_dismissed(move || {
+        fenetre.on_compose_discard(move || {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let garde = crate::draft::Draft {
+            vider_redaction(&fenetre, &pieces);
+            let _ = crate::draft::Draft::clear(&chemin);
+            fenetre.set_compose_open(false);
+            fenetre.set_status("Message discarded.".into());
+        });
+    }
+
+    // Saved as a draft: into the account's Drafts folder, on the server, found again
+    // from any device. The window closes at once; should the server be out of reach,
+    // the draft is kept on this computer and New message brings it back.
+    {
+        let chemin = chemin_brouillon.clone();
+        let pieces = Arc::clone(&pieces);
+        let identites = Arc::clone(&identites);
+        let send = Arc::clone(&send);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_save_draft(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let index = fenetre.get_compose_sender_index().max(0) as usize;
+            let Some((compte, _)) = identites.get(index) else {
+                fenetre.set_compose_error("No account to keep a draft in.".into());
+                return;
+            };
+            let brouillon = iris_sync::Draft {
+                account: *compte,
                 to: fenetre.get_compose_to().to_string(),
                 cc: fenetre.get_compose_cc().to_string(),
                 bcc: fenetre.get_compose_bcc().to_string(),
                 subject: fenetre.get_compose_subject().to_string(),
                 body: fenetre.get_compose_body().to_string(),
-                lost_attachments: pieces.lock().expect("poisoned attachments").len() as u32,
+                attachments: pieces.lock().expect("poisoned attachments").clone(),
             };
-            if let Err(e) = garde.save(&chemin) {
-                tracing::warn!(error = %e, "saving the draft");
-            }
+            vider_redaction(&fenetre, &pieces);
+            fenetre.set_compose_open(false);
+            fenetre.set_status("Saving the draft…".into());
+
+            let (send, chemin, pieces, faible) =
+                (Arc::clone(&send), chemin.clone(), Arc::clone(&pieces), faible.clone());
+            runtime.spawn(async move {
+                let resultat = send.save_draft(&brouillon).await;
+                let _ = faible.upgrade_in_event_loop(move |fenetre| match resultat {
+                    Ok(true) => {
+                        let _ = crate::draft::Draft::clear(&chemin);
+                        fenetre.set_status("Draft saved in Drafts.".into());
+                    }
+                    autre => {
+                        // Kept here, and put back in the window: nothing written is
+                        // lost because a server did not answer.
+                        let raison = match autre {
+                            Ok(_) => "this account has no Drafts folder".to_string(),
+                            Err(e) => e.to_string(),
+                        };
+                        let garde = crate::draft::Draft {
+                            to: brouillon.to.clone(),
+                            cc: brouillon.cc.clone(),
+                            bcc: brouillon.bcc.clone(),
+                            subject: brouillon.subject.clone(),
+                            body: brouillon.body.clone(),
+                            lost_attachments: brouillon.attachments.len() as u32,
+                        };
+                        if let Err(e) = garde.save(&chemin) {
+                            tracing::warn!(error = %e, "saving the draft here");
+                        }
+                        fenetre.set_compose_to(brouillon.to.into());
+                        fenetre.set_compose_cc(brouillon.cc.into());
+                        fenetre.set_compose_bcc(brouillon.bcc.into());
+                        fenetre.set_compose_subject(brouillon.subject.into());
+                        fenetre.set_compose_body(brouillon.body.into());
+                        show_attachments(&fenetre, &brouillon.attachments);
+                        *pieces.lock().expect("poisoned attachments") = brouillon.attachments;
+                        fenetre.set_status(
+                            format!(
+                                "Draft kept on this computer ({raison}): New message brings it back."
+                            )
+                            .into(),
+                        );
+                    }
+                });
+            });
         });
     }
 
@@ -4674,7 +4754,7 @@ fn attach_files(
         match std::fs::metadata(&chemin).map(|m| m.len()) {
             Ok(taille) if taille > MAX => {
                 refuses.push(format!(
-                    "{} is {:.0} MB — most servers refuse over 25",
+                    "{} is {:.0} MB, and most servers refuse over 25",
                     chemin.file_name().unwrap_or_default().to_string_lossy(),
                     taille as f64 / (1024.0 * 1024.0)
                 ));
@@ -4773,6 +4853,20 @@ pub fn apply_markup(body: &str, what: &str) -> String {
     } else {
         format!("{body} {addition}")
     }
+}
+
+/// Empties the new-message window entirely: fields, copies and attachments.
+fn vider_redaction(
+    fenetre: &AppWindow,
+    pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
+) {
+    pieces.lock().expect("poisoned attachments").clear();
+    show_attachments(fenetre, &[]);
+    clear_compose(fenetre);
+    fenetre.set_compose_cc(Default::default());
+    fenetre.set_compose_bcc(Default::default());
+    fenetre.set_compose_show_cc(false);
+    fenetre.set_compose_confirm_close(false);
 }
 
 /// Empties the compose window once a message is safely away.
@@ -4899,8 +4993,7 @@ pub fn wire_modules(
             // Loading WebAssembly into a running host mid-session is a restart-shaped
             // problem; saying so is better than pretending to reload and doing
             // nothing.
-            fenetre
-                .set_status("Plugins are loaded at startup — restart to pick up changes.".into());
+            fenetre.set_status("Plugins are loaded at startup: restart to pick up changes.".into());
         });
     }
 }
@@ -4966,7 +5059,7 @@ fn show_simulation(fenetre: &AppWindow, services: &Services, id: &str) {
             let mut text = simulation.summary();
             // A count on its own is not evidence. Two examples are.
             for hit in simulation.sample.iter().take(2) {
-                text.push_str(&format!("\n  · {} — {}", hit.from, hit.subject));
+                text.push_str(&format!("\n  · {}: {}", hit.from, hit.subject));
             }
             fenetre.set_simulation(text.into());
         }

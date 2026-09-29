@@ -101,6 +101,46 @@ impl SendService {
         Ok(message)
     }
 
+    /// A message still being written, as it is kept in the Drafts folder.
+    ///
+    /// Lenient where sending is strict: an address half typed is left out rather than
+    /// refused, and no recipient at all is fine. The signature is not added: it comes
+    /// with the send, and a draft reopened would otherwise carry it twice.
+    pub fn compose_draft(&self, draft: &Draft) -> Result<Outgoing> {
+        let compte = self
+            .engine
+            .store()
+            .account(draft.account)?
+            .ok_or_else(|| Error::store(format!("account {} not found", draft.account)))?;
+        let from = if compte.display_name.trim().is_empty() {
+            iris_types::Address::new(compte.email.clone())
+        } else {
+            iris_types::Address::named(compte.display_name.clone(), compte.email.clone())
+        };
+        let mut message = Outgoing::new(from, parse_recipients(&draft.to).0, draft.subject.trim());
+        message.cc = parse_recipients(&draft.cc).0;
+        message.bcc = parse_recipients(&draft.bcc).0;
+        message.text_body = draft.body.clone();
+        message.attachments = draft.attachments.clone();
+        message.date = crate::engine::now_utc();
+        Ok(message)
+    }
+
+    /// Keeps a message being written in its account's Drafts folder, on the server:
+    /// found again there from any device. `Ok(false)` when the account has no such
+    /// folder.
+    pub async fn save_draft(&self, draft: &Draft) -> Result<bool> {
+        let message = self.compose_draft(draft)?;
+        let brut = iris_smtp::message_bytes(&message)?;
+        self.append_to(
+            draft.account,
+            FolderRole::Drafts,
+            &brut,
+            Flags(Flags::DRAFT.0 | Flags::SEEN.0),
+        )
+        .await
+    }
+
     pub fn compose_new(
         &self,
         account: iris_types::AccountId,
@@ -286,12 +326,27 @@ impl SendService {
 
     /// Dépose une copie dans le dossier des messages envoyés.
     async fn append_to_sent(&self, account: iris_types::AccountId, raw: &[u8]) -> Result<bool> {
+        // Un message qu'on vient d'écrire est lu : le marquer autrement ferait
+        // apparaître un non-lu dans ses propres messages envoyés.
+        self.append_to(account, FolderRole::Sent, raw, Flags::SEEN)
+            .await
+    }
+
+    /// Dépose un message dans le dossier d'un rôle donné. `Ok(false)` si le compte
+    /// n'a pas ce dossier.
+    async fn append_to(
+        &self,
+        account: iris_types::AccountId,
+        role: FolderRole,
+        raw: &[u8],
+        flags: Flags,
+    ) -> Result<bool> {
         let Some(dossier) = self
             .engine
             .store()
             .folders(account)?
             .into_iter()
-            .find(|f| f.role == FolderRole::Sent)
+            .find(|f| f.role == role)
         else {
             return Ok(false);
         };
@@ -311,9 +366,7 @@ impl SendService {
             .connector()
             .connect(&point, &identifiants)
             .await?;
-        // Un message qu'on vient d'écrire est lu : le marquer autrement ferait
-        // apparaître un non-lu dans ses propres messages envoyés.
-        conn.append(&dossier.path, raw, Flags::SEEN).await?;
+        conn.append(&dossier.path, raw, flags).await?;
         let _ = conn.logout().await;
 
         Ok(true)
@@ -678,6 +731,7 @@ mod tests {
 
         let server = Arc::new(FakeServer::default());
         server.add_folder("Sent", FolderKind::Sent);
+        server.add_folder("Drafts", FolderKind::Drafts);
         server.deliver(
             "INBOX",
             b"Subject: Devis refonte\r\nFrom: Marie <marie@example.com>\r\n\
@@ -829,6 +883,21 @@ mod tests {
             f.store.thread_row(ThreadId(1)).unwrap().unwrap().state,
             iris_types::WorkflowState::Waiting
         );
+    }
+
+    #[tokio::test]
+    async fn a_draft_is_kept_in_the_drafts_folder_even_half_written() {
+        let f = fixture();
+        f.synchroniser().await;
+
+        let mut brouillon = Draft::new(iris_types::AccountId(1));
+        // Half typed: kept out, not refused.
+        brouillon.to = "mar".into();
+        brouillon.subject = "Devis".into();
+        brouillon.body = "À finir".into();
+        assert!(f.service.save_draft(&brouillon).await.unwrap());
+        assert_eq!(f.server.message_count("Drafts"), 1);
+        assert_eq!(f.mailer.count(), 0, "a draft is not sent");
     }
 
     #[tokio::test]

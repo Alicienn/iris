@@ -160,6 +160,102 @@ fn un_clic_d_un_champ_a_l_autre_sans_suggestions() {
     assert_eq!(f.get_compose_to().as_str(), "b");
 }
 
+fn new_message_rouvre_en_grand_une_fenetre_reduite() {
+    let f = fenetre();
+    composer(&f);
+    taper(&f, "marie@example.com");
+    clic(&bouton(&f, "Minimise"));
+    assert!(f.get_compose_minimised());
+    clic(&bouton(&f, "Write a new message"));
+    assert!(
+        !f.get_compose_minimised(),
+        "New message ouvre la fenêtre en grand"
+    );
+    assert_eq!(
+        f.get_compose_to().as_str(),
+        "marie@example.com",
+        "rien n'est perdu"
+    );
+}
+
+fn fermer_un_message_ecrit_demande_quoi_en_faire() {
+    let f = fenetre();
+    let (jetes, fermes, gardes) = (
+        Rc::new(RefCell::new(0)),
+        Rc::new(RefCell::new(0)),
+        Rc::new(RefCell::new(0)),
+    );
+    {
+        let j = Rc::clone(&jetes);
+        f.on_compose_discard(move || *j.borrow_mut() += 1);
+        let d = Rc::clone(&fermes);
+        f.on_compose_dismissed(move || *d.borrow_mut() += 1);
+        let g = Rc::clone(&gardes);
+        f.on_compose_save_draft(move || *g.borrow_mut() += 1);
+    }
+
+    // Empty: it just closes.
+    composer(&f);
+    clic(&bouton(&f, "Close message"));
+    assert!(!f.get_compose_open());
+    assert_eq!(*fermes.borrow(), 1);
+
+    // Written: a question first, and Cancel leaves it as it was.
+    composer(&f);
+    taper(&f, "marie@example.com");
+    clic(&bouton(&f, "Close message"));
+    assert!(f.get_compose_confirm_close(), "la question s'ouvre");
+    assert!(f.get_compose_open());
+    clic(&bouton(&f, "Cancel"));
+    assert!(!f.get_compose_confirm_close());
+    assert_eq!(f.get_compose_to().as_str(), "marie@example.com");
+
+    // Escape asks too, and a second Escape answers "no".
+    echap(&f);
+    assert!(f.get_compose_confirm_close(), "Échap pose la même question");
+    echap(&f);
+    assert!(!f.get_compose_confirm_close());
+    assert!(f.get_compose_open());
+
+    clic(&bouton(&f, "Close message"));
+    clic(&bouton(&f, "Discard"));
+    assert_eq!(*jetes.borrow(), 1);
+
+    composer(&f);
+    clic(&bouton(&f, "Save draft"));
+    assert_eq!(*gardes.borrow(), 1, "le brouillon se garde d'un bouton");
+}
+
+fn cc_et_bcc_se_replient_sauf_ce_qui_est_rempli() {
+    let f = fenetre();
+    composer(&f);
+    // A field shows its label on more than one element: the set is what counts.
+    let champs = |f: &AppWindow| -> std::collections::BTreeSet<String> {
+        testing::ElementQuery::from_root(f)
+            .match_descendants()
+            .match_accessible_role(testing::AccessibleRole::TextInput)
+            .find_all()
+            .into_iter()
+            .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+            .filter(|l| l == "Cc" || l == "Bcc")
+            .collect()
+    };
+    let ensemble = |noms: &[&str]| -> std::collections::BTreeSet<String> {
+        noms.iter().map(|n| n.to_string()).collect()
+    };
+    assert!(champs(&f).is_empty(), "repliés au départ");
+    clic(&bouton(&f, "Add Cc and Bcc"));
+    assert_eq!(champs(&f), ensemble(&["Cc", "Bcc"]));
+    clic(&champ(&f, "Cc"));
+    taper(&f, "paul@example.com");
+    clic(&bouton(&f, "Fold Cc and Bcc"));
+    assert_eq!(
+        champs(&f),
+        ensemble(&["Cc"]),
+        "le champ rempli reste, le vide se replie"
+    );
+}
+
 // --- Les corps peints par tuiles ---
 
 fn corps_en_tuiles(f: &AppWindow, tuiles: usize) {
@@ -603,6 +699,103 @@ fn la_case_d_une_tache_la_coche_sans_la_choisir() {
     assert_eq!(*choisies.borrow(), 0, "cocher n'ouvre pas la tâche");
 }
 
+fn centre(e: &testing::ElementHandle) -> slint::LogicalPosition {
+    let (pos, taille) = (e.absolute_position(), e.size());
+    slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + taille.height / 2.0)
+}
+
+/// Le bouton enfoncé sur `de`, la souris menée pas à pas jusqu'à `a`, puis relâchée.
+fn porter(f: &AppWindow, de: slint::LogicalPosition, a: slint::LogicalPosition) {
+    let bouton = PointerEventButton::Left;
+    f.window()
+        .dispatch_event(WindowEvent::PointerMoved { position: de });
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position: de,
+        button: bouton,
+    });
+    for i in 1..=10 {
+        let t = i as f32 / 10.0;
+        let position =
+            slint::LogicalPosition::new(de.x + (a.x - de.x) * t, de.y + (a.y - de.y) * t);
+        f.window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        slint::platform::update_timers_and_animations();
+    }
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position: a,
+        button: bouton,
+    });
+    slint::platform::update_timers_and_animations();
+}
+
+fn une_tache_portee_sur_une_liste_y_va() {
+    let f = fenetre();
+    f.set_workspace(2);
+    des_lieux(&f);
+    une_tache(&f);
+    let deposees = Rc::new(RefCell::new(Vec::<(i32, String)>::new()));
+    let choisies = Rc::new(RefCell::new(0));
+    {
+        let d = Rc::clone(&deposees);
+        f.on_task_dropped(move |id, cle| d.borrow_mut().push((id, cle.to_string())));
+        let c = Rc::clone(&choisies);
+        f.on_task_row_selected(move |_| *c.borrow_mut() += 1);
+    }
+
+    let tache = centre(&par_role(
+        &f,
+        testing::AccessibleRole::ListItem,
+        "Payer le loyer",
+    ));
+    let courses = centre(&par_role(&f, testing::AccessibleRole::Button, "Courses"));
+    porter(&f, tache, courses);
+    assert_eq!(
+        *deposees.borrow(),
+        [(5, "list:2".to_string())],
+        "lâchée sur « Courses », la tâche y va"
+    );
+    assert_eq!(*choisies.borrow(), 0, "porter n'ouvre pas la tâche");
+
+    // Lâchée ailleurs que sur une liste, elle reste où elle est.
+    let a_venir = centre(&par_role(&f, testing::AccessibleRole::Button, "upcoming"));
+    porter(&f, tache, a_venir);
+    assert_eq!(deposees.borrow().len(), 1, "« upcoming » ne prend rien");
+
+    // Un simple clic, sans bouger, la choisit toujours.
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::ListItem,
+        "Payer le loyer",
+    ));
+    assert_eq!(*choisies.borrow(), 1);
+}
+
+fn les_taches_terminees_se_suppriment_d_un_clic() {
+    let f = fenetre();
+    f.set_workspace(2);
+    f.set_task_rows(ModelRc::new(VecModel::from(vec![
+        iris_ui::TaskRowData {
+            kind: 4,
+            title: "COMPLETED".into(),
+            ..Default::default()
+        },
+        iris_ui::TaskRowData {
+            kind: 0,
+            id: 7,
+            title: "Arroser".into(),
+            done: true,
+            ..Default::default()
+        },
+    ])));
+    let vidages = Rc::new(RefCell::new(0));
+    {
+        let v = Rc::clone(&vidages);
+        f.on_task_clear_completed(move || *v.borrow_mut() += 1);
+    }
+    clic(&bouton(&f, "Delete completed tasks"));
+    assert_eq!(*vidages.borrow(), 1);
+}
+
 fn t_fait_d_une_conversation_une_tache() {
     let f = fenetre();
     f.set_selected_thread(42);
@@ -980,6 +1173,14 @@ fn main() {
             la_case_d_une_tache_la_coche_sans_la_choisir,
         ),
         (
+            "une_tache_portee_sur_une_liste_y_va",
+            une_tache_portee_sur_une_liste_y_va,
+        ),
+        (
+            "les_taches_terminees_se_suppriment_d_un_clic",
+            les_taches_terminees_se_suppriment_d_un_clic,
+        ),
+        (
             "t_fait_d_une_conversation_une_tache",
             t_fait_d_une_conversation_une_tache,
         ),
@@ -998,6 +1199,18 @@ fn main() {
         (
             "un_second_clic_droit_ouvre_le_menu_de_l_autre_compte",
             un_second_clic_droit_ouvre_le_menu_de_l_autre_compte,
+        ),
+        (
+            "new_message_rouvre_en_grand_une_fenetre_reduite",
+            new_message_rouvre_en_grand_une_fenetre_reduite,
+        ),
+        (
+            "fermer_un_message_ecrit_demande_quoi_en_faire",
+            fermer_un_message_ecrit_demande_quoi_en_faire,
+        ),
+        (
+            "cc_et_bcc_se_replient_sauf_ce_qui_est_rempli",
+            cc_et_bcc_se_replient_sauf_ce_qui_est_rempli,
         ),
         (
             "les_tags_d_un_compte_se_cherchent_dans_son_menu",

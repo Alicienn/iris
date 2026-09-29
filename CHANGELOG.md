@@ -3,10 +3,32 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 0.8.0 — 2026-09-29
+
+### New
+- Save a message as a draft with the Save draft button; it goes to your Drafts folder.
+- Closing a message you started asks whether to keep it as a draft.
+- Drag a task onto a list, or onto Today, to move it there.
+- Delete all completed tasks of a view in one click.
+
+### Improved
+- Iris uses much less memory while its window is open.
+- The Cc/Bcc button stays, so the two fields can be folded again; a filled one stays open.
+- Tasks: the add field sits at the bottom, cards are larger, and priority shows as a coloured tag.
+- Tasks: Anytime becomes All tasks and lists every task, today's included.
+- Tasks: Steps become Subtasks.
+- Tasks: a checked task stays, struck through, in the view you checked it from.
+- Tasks: Today no longer shows the Calendar and Mail to do sections.
+- Clearer wording in messages across Iris.
+
+### Fixed
+- New message opens an empty message after a send.
+- New message opens the message window even when one was minimised.
+
 ## 0.7.0 — 2026-09-29
 
 ### New
-- Tag your mailboxes — Clients, Personal, Club… — from a Tags button at the bottom of the accounts column.
+- Tag your mailboxes (Clients, Personal, Club…) from a Tags button at the bottom of the accounts column.
 - Right-click an account to tick its tags, with a search that can also create one.
 - Group the accounts by tag with the switch above their list.
 - Create calendars of your own besides Personal, and pick one for each event.
