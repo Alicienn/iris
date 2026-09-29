@@ -21,7 +21,7 @@
 
 | | |
 |---|---|
-| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Home.** Your day at a glance: unread mail, what arrived, tasks due and this week's events, one click from each. |
+| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Home.** Your day at a glance: a dial of today's events, your latest mail, the tasks due, one click from each. |
 | <img src="docs/assets/icons/inbox.svg" width="20" alt=""> | **A work queue.** Every conversation is *to do*, *waiting* or *done*. One keystroke moves it along. |
 | <img src="docs/assets/icons/users.svg" width="20" alt=""> | **All your accounts in one place.** A unified inbox, or one account at a time, without slowing down. |
 | <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Instant.** Opening, archiving and searching never make you wait, even with hundreds of thousands of messages. |
@@ -63,10 +63,12 @@ above the list shows them all in one list instead.
 
 ## Home
 
-Iris opens on **Home**: a greeting, a line to start the day, your unread mail, what is
-waiting in your queue, what arrived today, the tasks due, and this week's events. Each
-figure and each line opens where it lives; a task's circle ticks it off. **Sync all
-accounts** at the top right fetches everything, and the Iris mark turns while it does.
+Iris opens on **Home**. On the left, a dial of your day: the 24 hours around the Iris
+mark, today's events as arcs in their calendar's colour, and a dot for the present.
+Beside it, a greeting, one sentence on what is waiting, and **Sync all**, which lights a
+crown around the dial while your mailboxes sync. Below, side by side: the latest mail of
+your queue, today's events on a line down the hours with later ones this week, and the
+tasks due. Every line opens where it lives; a task's circle ticks it off.
 
 Click **Iris** at the top left, or press `Ctrl`+`0`, to come back to it. To open on your
 mail instead, switch off *Open Iris on Home* in *Settings*.

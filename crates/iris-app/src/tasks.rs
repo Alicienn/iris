@@ -1090,7 +1090,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 .flatten()
                 .and_then(|t| t.task.thread_id)
             {
-                ouvrir_fil(f, services, controller, fil);
+                open_thread(f, services, controller, fil);
             }
         }
     );
@@ -1246,7 +1246,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
 }
 
 /// Montre une conversation dans le courrier.
-fn ouvrir_fil(f: &AppWindow, services: &Services, controller: &Controller, fil: i64) {
+pub fn open_thread(f: &AppWindow, services: &Services, controller: &Controller, fil: i64) {
     let Ok(Some(ligne)) = services.store.thread_row(ThreadId(fil)) else {
         f.set_status("This conversation no longer exists.".into());
         return;

@@ -29,27 +29,29 @@ export struct ThreadRowData {
     sender-tint: color,
 }
 
-// A figure on the Home screen: "12", "unread", "across 4 accounts". `target` is
-// where a click on it goes: "mail", "tasks", "calendar".
-export struct HomeStatData {
-    value: string,
-    label: string,
-    hint: string,
-    target: string,
-    tint: color,
-}
-
-// A line of the Home screen: a task or an event, or a day's title (`header`).
+// A line of the Home screen: a task or an event, or a small title over the ones that
+// follow (`header`), or the line that marks the present hour in today's events (`now`).
 export struct HomeItemData {
     id: int,
     key: string,
     title: string,
+    // Under the title: "30 min, Studio Nord".
+    hint: string,
+    // On the right, or for today's events the hour on the left.
     meta: string,
     color: color,
     overdue: bool,
     done: bool,
     past: bool,
     header: bool,
+    now: bool,
+    priority: int,
+}
+
+// An arc of the dial of the day: an event, as an SVG path in a 212-unit square.
+export struct DialArcData {
+    path: string,
+    color: color,
 }
 
 export struct AccountRowData {

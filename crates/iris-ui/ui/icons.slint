@@ -107,6 +107,10 @@ export component Icon inherits Rectangle {
         commands: root.data;
         stroke: root.tint;
         stroke-width: root.weight / 24 * root.size;
+        // Round ends and joins, as every drawn icon set has them. Square ends made
+        // each stroke stop like a cut, and the icons read as rough.
+        stroke-line-cap: round;
+        stroke-line-join: round;
         fill: root.filled ? root.tint : transparent;
     }
 }

@@ -1,513 +1,735 @@
 import { Tokens } from "tokens.slint";
-import { Glass } from "glass.slint";
 import { Icon, Icons } from "icons.slint";
-import { HomeStatData, HomeItemData } from "types.slint";
-import { ScrollView } from "std-widgets.slint";
+import { HomeItemData, DialArcData, ThreadRowData } from "types.slint";
+import { Button, ButtonKind, ColumnHeader, CheckCircle, Avatar, PriorityTag, SubTitle } from "kit.slint";
 
-// The Home screen: the day at a glance, before the mail.
+// The Home screen: the day at a glance.
 //
-// What there is to read, what there is to do, what is coming, and one line to start
-// the day with. Everything on it leads somewhere: a figure opens its place, a task
-// opens in Tasks, an event in the calendar. It is a door, not a dashboard to tend.
+// One bold element, the dial of the day: the Iris mark grown into a clock of the
+// twenty-four hours, with today's events as arcs of their calendar's colour, the time
+// gone by, and the present. Everything around it is quiet: a greeting, one sentence
+// that says what is waiting, and three columns on a single plate.
+//
+// One moment of motion: the dial opens when Home appears, the words follow. Nothing
+// loops except the crown of the dial while every account syncs.
 
-// The Iris mark, drawn: a ring and its pupil. While the accounts sync, a crown of
-// points turns around it; the engine interpolates one value, and only while the
-// crown exists.
-component Mark inherits Rectangle {
+// --- The dial ---------------------------------------------------------------------
+
+// Drawn in a 212-unit square, scaled to `size`: midnight at the top, clockwise.
+component DayDial inherits Rectangle {
+    in property <length> size: 212px;
+    in property <[DialArcData]> arcs;
+    in property <string> elapsed;
+    in property <float> now-x;
+    in property <float> now-y;
+    in property <string> time;
+    in property <string> weekday;
     in property <bool> syncing;
-    in property <length> size: 64px;
+    /// 0 to 1 as the dial opens: the arcs come after the rings.
+    in property <float> reveal: 1;
+
+    property <float> k: root.size / 212px;
 
     width: root.size;
     height: root.size;
 
-    // The ring.
+    // The pupil: a faint light at the centre.
     Rectangle {
-        x: root.size * 0.18;
-        y: root.size * 0.18;
-        width: root.size * 0.64;
-        height: root.size * 0.64;
+        x: 42px * root.k;
+        y: 42px * root.k;
+        width: 128px * root.k;
+        height: self.width;
         border-radius: self.width / 2;
-        border-width: root.size * 0.07;
-        border-color: Tokens.text;
+        background: @radial-gradient(circle, Tokens.text.transparentize(0.93) 0%, Tokens.text.transparentize(1.0) 100%);
     }
-    // The pupil, which breathes while it works.
-    pupille := Rectangle {
-        property <float> ampleur: root.syncing ? 0.28 : 0.22;
-        animate ampleur { duration: 600ms; easing: ease-in-out; }
-        x: (root.size - self.width) / 2;
-        y: (root.size - self.height) / 2;
-        width: root.size * self.ampleur;
+    // The iris.
+    Rectangle {
+        x: 36px * root.k;
+        y: 36px * root.k;
+        width: 140px * root.k;
+        height: self.width;
+        border-radius: self.width / 2;
+        border-width: 1px;
+        border-color: Tokens.text.transparentize(0.89);
+    }
+    // The twenty-four hours.
+    Rectangle {
+        x: 15px * root.k;
+        y: 15px * root.k;
+        width: 182px * root.k;
+        height: self.width;
+        border-radius: self.width / 2;
+        border-width: 6px * root.k;
+        border-color: Tokens.text.transparentize(0.92);
+    }
+    // Midnight, six, noon, eighteen.
+    Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 212;
+        viewbox-height: 212;
+        commands: "M 106 8 V 13 M 204 106 H 199 M 106 204 V 199 M 8 106 H 13";
+        stroke: Tokens.text.transparentize(0.78);
+        stroke-width: 1.5px * root.k;
+        stroke-line-cap: round;
+    }
+    // The day gone by.
+    if root.elapsed != "": Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 212;
+        viewbox-height: 212;
+        commands: root.elapsed;
+        stroke: Tokens.text.transparentize(0.8);
+        stroke-width: 2px * root.k;
+        stroke-line-cap: round;
+        opacity: root.reveal;
+    }
+    // Today's events, in their colours.
+    for arc in root.arcs: Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 212;
+        viewbox-height: 212;
+        commands: arc.path;
+        stroke: arc.color;
+        stroke-width: 6px * root.k;
+        stroke-line-cap: round;
+        opacity: root.reveal;
+    }
+    // Now.
+    Rectangle {
+        x: (root.now-x - 9) * 1px * root.k;
+        y: (root.now-y - 9) * 1px * root.k;
+        width: 18px * root.k;
+        height: self.width;
+        border-radius: self.width / 2;
+        border-width: 1px;
+        border-color: Tokens.text.transparentize(0.8);
+        opacity: root.reveal;
+    }
+    Rectangle {
+        x: (root.now-x - 5) * 1px * root.k;
+        y: (root.now-y - 5) * 1px * root.k;
+        width: 10px * root.k;
         height: self.width;
         border-radius: self.width / 2;
         background: Tokens.text;
+        opacity: root.reveal;
     }
 
+    // The crown, while every account syncs: a glow that travels round the dial.
     if root.syncing: Rectangle {
         width: root.size;
         height: root.size;
         property <float> phase;
         animate phase {
-            duration: 1400ms;
+            duration: 1600ms;
             iteration-count: -1;
             easing: linear;
         }
         init => { self.phase = 1.0; }
-        property <length> point: root.size * 0.06;
-        property <length> rayon: root.size / 2 - self.point / 2;
+        property <length> point: 4px * root.k;
+        property <length> rayon: 101px * root.k;
 
-        for i in 16: Rectangle {
+        for i in 36: Rectangle {
             width: parent.point;
             height: parent.point;
             border-radius: parent.point / 2;
             background: Tokens.text;
-            x: root.size / 2 - parent.point / 2 + parent.rayon * Math.cos(22.5deg * i - 90deg);
-            y: root.size / 2 - parent.point / 2 + parent.rayon * Math.sin(22.5deg * i - 90deg);
-            opacity: 0.08 + 0.92 * Math.pow(Math.mod(parent.phase + i / 16, 1.0), 3);
+            x: root.size / 2 - parent.point / 2 + parent.rayon * Math.sin(10deg * i);
+            y: root.size / 2 - parent.point / 2 - parent.rayon * Math.cos(10deg * i);
+            opacity: 0.06 + 0.94 * Math.pow(Math.mod(parent.phase - i / 36 + 1, 1.0), 4);
         }
-    }
-}
-
-// A figure, and what it counts. A click goes where it lives.
-component StatCard inherits Rectangle {
-    in property <HomeStatData> stat;
-    callback opened(string);
-
-    // The four share the row equally, whatever their words.
-    min-width: 0;
-    preferred-width: 0;
-    height: 104px;
-    border-radius: Tokens.radius-large;
-    border-width: 1px;
-    border-color: touch.has-hover ? Tokens.border-strong : Tokens.border;
-    background: touch.has-hover ? Tokens.surface-high : Tokens.surface;
-    animate background, border-color { duration: Tokens.instant; }
-
-    accessible-role: button;
-    accessible-label: root.stat.value + " " + root.stat.label;
-    accessible-description: root.stat.hint;
-    accessible-action-default => { root.opened(root.stat.target); }
-
-    // A thin line of its colour along the top edge, inside the curve.
-    Rectangle {
-        x: Tokens.radius-large;
-        y: 0;
-        width: parent.width - 2 * Tokens.radius-large;
-        height: 2px;
-        border-radius: 1px;
-        background: root.stat.tint.transparentize(0.3);
     }
 
     VerticalLayout {
-        padding: 16px;
-        spacing: 2px;
         alignment: center;
+        spacing: 0px;
         Text {
-            text: root.stat.value;
-            font-size: 30px;
-            font-weight: Tokens.weight-bold;
+            text: root.time;
+            font-family: Tokens.font-display;
+            font-size: 34px * root.k;
+            font-weight: 300;
             color: Tokens.text;
+            horizontal-alignment: center;
         }
         Text {
-            text: root.stat.label;
-            font-size: Tokens.size-body;
-            color: Tokens.text-secondary;
-            overflow: elide;
-        }
-        Text {
-            text: root.stat.hint;
-            font-size: Tokens.size-small;
+            text: root.weekday;
+            font-size: 11px;
             color: Tokens.text-muted;
-            overflow: elide;
+            horizontal-alignment: center;
         }
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.opened(root.stat.target); }
     }
 }
 
-// A line of a panel: a task (with its box) or an event (with its colour), or the
-// title of a day.
-component ItemRow inherits Rectangle {
-    in property <HomeItemData> item;
-    /// Tasks have a box to tick; events a dot of their calendar's colour.
-    in property <bool> checkable;
-    callback opened(HomeItemData);
-    callback toggled(int);
+// --- The lines of the columns -----------------------------------------------------
 
-    height: root.item.header ? 30px : 40px;
-    border-radius: Tokens.radius-small;
-    background: !root.item.header && touch.has-hover ? Tokens.surface-hover : transparent;
+// A conversation of the queue: who, about what, when; a dot if it is unread.
+component MailLine inherits Rectangle {
+    in property <ThreadRowData> item;
+    callback opened(int);
+
+    height: 46px;
+    border-radius: Tokens.radius-medium;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
 
     accessible-role: list-item;
-    accessible-label: root.item.title;
-    accessible-description: root.item.meta;
-    accessible-action-default => { root.opened(root.item); }
+    accessible-label: root.item.from + ", " + root.item.subject;
+    accessible-description: root.item.unread ? "Unread" : "Read";
+    accessible-action-default => { root.opened(root.item.id); }
 
-    touch := TouchArea {
-        enabled: !root.item.header;
-        mouse-cursor: pointer;
-        clicked => { root.opened(root.item); }
-    }
-
-    if root.item.header: HorizontalLayout {
-        padding-left: 6px;
-        padding-top: 8px;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 12px;
+        Avatar {
+            y: (parent.height - self.height) / 2;
+            initials: root.item.initials;
+            tint: root.item.sender-tint;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.item.from;
+                font-size: 13px;
+                font-weight: root.item.unread ? 600 : 400;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.item.subject;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+        if root.item.unread: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 7px;
+            height: 7px;
+            border-radius: 3.5px;
+            background: Tokens.text;
+        }
         Text {
-            text: root.item.title;
-            font-size: 10px;
-            letter-spacing: 1px;
-            font-weight: Tokens.weight-bold;
-            color: root.item.overdue ? Tokens.error : Tokens.text-muted;
+            text: root.item.date;
+            font-size: 12px;
+            color: Tokens.text-muted;
             vertical-alignment: center;
         }
     }
 
-    if !root.item.header: HorizontalLayout {
-        padding-left: 8px;
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.item.id); }
+    }
+}
+
+// Today: an event on the line that runs down the hours, or the present on it.
+component EventLine inherits Rectangle {
+    in property <HomeItemData> item;
+    callback opened(string);
+
+    height: root.item.now ? 18px : 46px;
+    border-radius: Tokens.radius-medium;
+    background: !root.item.now && touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.item.now ? "Now, " + root.item.meta : root.item.meta + " " + root.item.title;
+    accessible-action-default => { root.opened(root.item.key); }
+
+    touch := TouchArea {
+        enabled: !root.item.now;
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.item.key); }
+    }
+
+    if root.item.now: HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        Text {
+            width: 40px;
+            text: root.item.meta;
+            font-size: 11px;
+            font-weight: 600;
+            color: Tokens.error;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Rectangle {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: Tokens.error;
+            }
+            Rectangle {
+                x: 2px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 2px;
+                height: 2px;
+                border-radius: 1px;
+                background: Tokens.error;
+            }
+        }
+    }
+
+    if !root.item.now: HorizontalLayout {
+        padding-left: 10px;
         padding-right: 10px;
         spacing: 12px;
-
-        if root.checkable: Rectangle {
-            y: (parent.height - self.height) / 2;
-            width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            border-width: 1.5px;
-            border-color: root.item.done ? Tokens.success
-                : case.has-hover ? Tokens.text-secondary : Tokens.text-muted;
-            background: root.item.done ? Tokens.success : transparent;
-
-            accessible-role: checkbox;
-            accessible-label: root.item.title;
-            accessible-checked: root.item.done;
-            accessible-action-default => { root.toggled(root.item.id); }
-
-            if root.item.done || case.has-hover: Icon {
-                data: Icons.check;
-                size: 11px;
-                weight: 3.0;
-                tint: root.item.done ? white : Tokens.text-secondary;
-            }
-            case := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.toggled(root.item.id); }
+        VerticalLayout {
+            width: 40px;
+            padding-top: 7px;
+            alignment: start;
+            Text {
+                text: root.item.meta;
+                font-size: 12px;
+                color: root.item.past ? Tokens.text-muted : Tokens.text-secondary;
             }
         }
-        if !root.checkable: Rectangle {
+        // The line down the day, and the event's dot on it.
+        Rectangle {
+            width: 10px;
+            Rectangle {
+                x: 4px;
+                width: 2px;
+                height: parent.height;
+                background: Tokens.border;
+            }
+            Rectangle {
+                x: 0;
+                y: 11px;
+                width: 10px;
+                height: 10px;
+                border-radius: 5px;
+                border-width: 2px;
+                border-color: Tokens.background;
+                background: root.item.color;
+            }
+        }
+        VerticalLayout {
+            alignment: start;
+            padding-top: 6px;
+            spacing: 1px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.item.title;
+                font-size: 13px;
+                color: root.item.past ? Tokens.text-muted : Tokens.text;
+                overflow: elide;
+            }
+            if root.item.hint != "": Text {
+                text: root.item.hint;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// Later this week: an event and when.
+component LaterLine inherits Rectangle {
+    in property <HomeItemData> item;
+    callback opened(string);
+
+    height: 34px;
+    border-radius: Tokens.radius-medium;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.item.title + ", " + root.item.meta;
+    accessible-action-default => { root.opened(root.item.key); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        Rectangle {
             y: (parent.height - self.height) / 2;
-            width: 4px;
-            height: 22px;
-            border-radius: 2px;
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
             background: root.item.color;
         }
-
         Text {
             text: root.item.title;
-            font-size: 14px;
-            color: root.item.done || root.item.past ? Tokens.text-muted : Tokens.text;
+            font-size: 13px;
+            color: Tokens.text;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
         }
         Text {
             text: root.item.meta;
-            font-size: Tokens.size-small;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.item.key); }
+    }
+}
+
+// A task: its box, its title, its priority, when it is due.
+component TaskLine inherits Rectangle {
+    in property <HomeItemData> item;
+    callback opened(int);
+    callback toggled(int);
+
+    height: root.item.header ? 30px : 44px;
+    border-radius: Tokens.radius-medium;
+    background: !root.item.header && touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.item.title;
+    accessible-description: root.item.meta;
+    accessible-action-default => { root.opened(root.item.id); }
+
+    touch := TouchArea {
+        enabled: !root.item.header;
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.item.id); }
+    }
+
+    if root.item.header: SubTitle {
+        x: 10px;
+        text: root.item.title;
+    }
+
+    if !root.item.header: HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 12px;
+        CheckCircle {
+            y: (parent.height - self.height) / 2;
+            done: root.item.done;
+            overdue: root.item.overdue;
+            label: root.item.title;
+            toggled => { root.toggled(root.item.id); }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            titre := Text {
+                width: parent.width;
+                text: root.item.title;
+                font-size: 13px;
+                color: root.item.done ? Tokens.text-muted : Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.item.done: Rectangle {
+                x: 0;
+                y: parent.height / 2;
+                width: min(titre.preferred-width, parent.width);
+                height: 1px;
+                background: Tokens.text-muted;
+            }
+        }
+        if root.item.priority > 0 && !root.item.done: PriorityTag {
+            y: (parent.height - self.height) / 2;
+            priority: root.item.priority;
+        }
+        Text {
+            text: root.item.meta;
+            font-size: 12px;
             color: root.item.overdue ? Tokens.error : Tokens.text-muted;
             vertical-alignment: center;
         }
     }
 }
 
-// A card with a title, a way to its full place, and lines.
-component Panel inherits Rectangle {
+// A column of the plate: a header, lines, and a word when there are none.
+component Column inherits VerticalLayout {
     in property <string> title;
-    in property <string> link;
+    in property <string> count;
+    in property <string> link-label;
     in property <string> empty;
-    in property <[HomeItemData]> items;
-    in property <bool> checkable;
-    callback link-clicked();
-    callback opened(HomeItemData);
-    callback toggled(int);
+    in property <bool> is-empty;
+    callback open();
 
-    border-radius: Tokens.radius-large;
-    border-width: 1px;
-    border-color: Tokens.border;
-    background: Tokens.surface;
-    clip: true;
+    horizontal-stretch: 1;
+    min-width: 0;
+    preferred-width: 0;
+    padding: 8px;
+    padding-top: 16px;
+    spacing: 2px;
 
-    VerticalLayout {
-        padding: 16px;
-        padding-bottom: 8px;
-        spacing: 6px;
-
-        HorizontalLayout {
-            height: 24px;
-            vertical-stretch: 0;
-            Text {
-                text: root.title;
-                font-size: Tokens.size-title;
-                font-weight: Tokens.weight-bold;
-                color: Tokens.text;
-                vertical-alignment: center;
-                horizontal-stretch: 1;
-            }
-            Rectangle {
-                width: lien.preferred-width + 16px;
-                border-radius: Tokens.radius-small;
-                background: lien-touch.has-hover ? Tokens.surface-hover : transparent;
-                accessible-role: button;
-                accessible-label: root.link;
-                accessible-action-default => { root.link-clicked(); }
-                lien := Text {
-                    text: root.link;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-secondary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-                lien-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.link-clicked(); }
-                }
-            }
-        }
-
-        if root.items.length == 0: Text {
-            vertical-stretch: 1;
-            text: root.empty;
-            font-size: Tokens.size-body;
-            color: Tokens.text-muted;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            wrap: word-wrap;
-        }
-
-        if root.items.length > 0: ScrollView {
-            vertical-stretch: 1;
-            VerticalLayout {
-                alignment: start;
-                spacing: 2px;
-                for item in root.items: ItemRow {
-                    item: item;
-                    checkable: root.checkable;
-                    opened(i) => { root.opened(i); }
-                    toggled(id) => { root.toggled(id); }
-                }
-            }
-        }
+    ColumnHeader {
+        title: root.title;
+        count: root.count;
+        link-label: root.link-label;
+        open => { root.open(); }
     }
+    Rectangle { height: 6px; }
+    @children
+    if root.is-empty: Text {
+        text: root.empty;
+        font-size: 13px;
+        color: Tokens.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        wrap: word-wrap;
+        height: 80px;
+    }
+    Rectangle { vertical-stretch: 1; }
 }
+
+// --- The page ---------------------------------------------------------------------
 
 export component HomeView inherits Rectangle {
     in property <string> greeting;
     in property <string> date;
+    in property <string> time;
+    in property <string> weekday;
+    in property <string> summary;
     in property <string> quote;
     in property <string> quote-author;
-    in property <[HomeStatData]> stats;
-    in property <[HomeItemData]> tasks;
-    in property <[HomeItemData]> events;
     in property <bool> syncing;
     in property <string> sync-progress;
     /// What the syncs brought since Iris was opened.
     in property <string> sync-summary;
+    in property <[DialArcData]> dial-arcs;
+    in property <string> dial-elapsed;
+    in property <float> dial-now-x;
+    in property <float> dial-now-y;
+    in property <[ThreadRowData]> mail;
+    in property <string> mail-count;
+    in property <[HomeItemData]> events;
+    in property <[HomeItemData]> later;
+    in property <string> events-count;
+    in property <[HomeItemData]> tasks;
+    in property <string> tasks-count;
 
     callback opened(string);
     callback sync();
+    callback mail-opened(int);
     callback task-opened(int);
     callback task-toggled(int);
     callback event-opened(string);
     callback new-quote();
 
+    // The one moment of motion: the dial opens, the words follow.
+    property <float> ouverture;
+    property <float> mots;
+    animate ouverture { duration: 620ms; easing: cubic-bezier(0.2, 0, 0, 1); }
+    animate mots { duration: 520ms; delay: 140ms; easing: cubic-bezier(0.2, 0, 0, 1); }
+    init => {
+        root.ouverture = 1;
+        root.mots = 1;
+    }
+
     background: Tokens.background;
 
-    // A soft light behind the mark, so the page has a centre.
+    // A soft light behind the dial, so the page has a centre.
     Rectangle {
-        x: -root.width * 0.1;
-        y: -root.height * 0.6;
-        width: root.width * 0.8;
-        height: root.width * 0.8;
+        x: (root.width - 1040px) / 2 - 240px;
+        y: -300px;
+        width: 780px;
+        height: 780px;
         border-radius: self.width / 2;
-        background: @radial-gradient(circle, Tokens.text.transparentize(0.94) 0%, transparent 65%);
+        background: @radial-gradient(circle, Tokens.text.transparentize(0.955) 0%, Tokens.text.transparentize(1.0) 62%);
     }
 
     HorizontalLayout {
         alignment: center;
-        padding: 28px;
+        padding-top: 36px;
+        padding-bottom: 24px;
+        padding-left: 28px;
+        padding-right: 28px;
 
         VerticalLayout {
             width: min(1040px, root.width - 56px);
-            spacing: 22px;
+            spacing: 32px;
 
-            // --- The morning line: the mark, the greeting, the day, the sync ---
+            // --- The dial, and the words beside it ---
             HorizontalLayout {
                 vertical-stretch: 0;
-                spacing: 20px;
+                spacing: 40px;
 
-                Mark {
-                    y: (parent.height - self.height) / 2;
-                    syncing: root.syncing;
-                    size: 68px;
-                }
-
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 2px;
-                    horizontal-stretch: 1;
-                    Text {
-                        text: root.greeting;
-                        font-family: Tokens.font-family;
-                        font-size: 30px;
-                        font-weight: Tokens.weight-bold;
-                        color: Tokens.text;
-                    }
-                    Text {
-                        text: root.date;
-                        font-size: Tokens.size-title;
-                        color: Tokens.text-secondary;
-                    }
-                }
-
-                // Sync every mailbox, and what the syncs brought.
                 Rectangle {
-                    width: 290px;
-                    height: 72px;
-                    y: (parent.height - self.height) / 2;
-                    border-radius: Tokens.radius-large;
-                    border-width: 1px;
-                    border-color: sync-touch.has-hover ? Tokens.border-strong : Tokens.border;
-                    background: sync-touch.has-hover ? Tokens.surface-high : Tokens.surface;
+                    width: 212px;
+                    height: 212px;
+                    cadran := DayDial {
+                        size: 212px * (0.9 + 0.1 * root.ouverture);
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        opacity: root.ouverture;
+                        reveal: max(0, (root.ouverture - 0.35) / 0.65);
+                        arcs: root.dial-arcs;
+                        elapsed: root.dial-elapsed;
+                        now-x: root.dial-now-x;
+                        now-y: root.dial-now-y;
+                        time: root.time;
+                        weekday: root.weekday;
+                        syncing: root.syncing;
+                    }
+                }
 
-                    accessible-role: button;
-                    accessible-label: root.syncing ? "Syncing all accounts" : "Sync all accounts";
-                    accessible-description: root.sync-summary;
-                    accessible-action-default => { root.sync(); }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    opacity: root.mots;
 
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        spacing: 12px;
-                        Icon {
-                            y: (parent.height - self.height) / 2;
-                            data: Icons.refresh;
-                            size: 20px;
-                            tint: root.syncing ? Tokens.accent : Tokens.text-secondary;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 0px;
+
+                        Text {
+                            text: root.greeting;
+                            font-family: Tokens.font-display;
+                            font-size: 44px;
+                            font-weight: 300;
+                            letter-spacing: -1px;
+                            color: Tokens.text;
                         }
-                        VerticalLayout {
-                            alignment: center;
-                            spacing: 2px;
-                            Text {
+                        Text {
+                            text: root.date;
+                            font-size: 15px;
+                            color: Tokens.text-secondary;
+                        }
+                        Rectangle { height: 16px; }
+                        Text {
+                            text: root.summary;
+                            font-size: 17px;
+                            color: Tokens.text;
+                            wrap: word-wrap;
+                        }
+                        Rectangle { height: 18px; }
+                        HorizontalLayout {
+                            spacing: 14px;
+                            Button {
+                                y: (parent.height - self.height) / 2;
+                                kind: ButtonKind.primary;
+                                icon: Icons.refresh;
+                                busy: root.syncing;
                                 text: root.syncing
                                     ? (root.sync-progress != "" ? "Syncing " + root.sync-progress : "Syncing…")
-                                    : "Sync all accounts";
-                                font-size: Tokens.size-body;
-                                font-weight: Tokens.weight-bold;
-                                color: Tokens.text;
-                                overflow: elide;
+                                    : "Sync all";
+                                clicked => { root.sync(); }
                             }
                             Text {
                                 text: root.sync-summary;
-                                font-size: Tokens.size-small;
+                                font-size: 12px;
                                 color: Tokens.text-muted;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
                                 overflow: elide;
+                            }
+                            // A line to start with; a click draws another.
+                            Rectangle {
+                                width: min(320px, citation.preferred-width + 16px);
+                                border-radius: Tokens.radius-medium;
+                                background: cite-touch.has-hover ? Tokens.surface-low : transparent;
+
+                                accessible-role: button;
+                                accessible-label: "Another quote";
+                                accessible-description: root.quote + " " + root.quote-author;
+                                accessible-action-default => { root.new-quote(); }
+
+                                citation := VerticalLayout {
+                                    padding: 6px;
+                                    padding-right: 8px;
+                                    spacing: 2px;
+                                    Text {
+                                        text: "“" + root.quote + "”";
+                                        font-size: 13px;
+                                        font-italic: true;
+                                        color: Tokens.text-secondary;
+                                        horizontal-alignment: right;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: root.quote-author;
+                                        font-size: 11px;
+                                        color: Tokens.text-muted;
+                                        horizontal-alignment: right;
+                                    }
+                                }
+                                cite-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.new-quote(); }
+                                }
                             }
                         }
                     }
-                    sync-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { root.sync(); }
-                    }
                 }
             }
 
-            // --- A line to start with; a click draws another ---
+            // --- Mail, today, tasks: one plate, hairlines between ---
             Rectangle {
-                vertical-stretch: 0;
-                height: citation.preferred-height + 24px;
-                border-radius: Tokens.radius-large;
-                background: cite-touch.has-hover ? Tokens.surface-low : transparent;
-
-                accessible-role: button;
-                accessible-label: "Another quote";
-                accessible-description: root.quote + " " + root.quote-author;
-                accessible-action-default => { root.new-quote(); }
-
-                citation := HorizontalLayout {
-                    y: 12px;
-                    padding-left: 4px;
-                    spacing: 14px;
-                    Icon {
-                        data: Icons.sparkle;
-                        size: 16px;
-                        tint: Tokens.text-muted;
-                    }
-                    VerticalLayout {
-                        spacing: 4px;
-                        Text {
-                            text: "“" + root.quote + "”";
-                            font-size: 17px;
-                            font-italic: true;
-                            color: Tokens.text-secondary;
-                            wrap: word-wrap;
-                        }
-                        Text {
-                            text: root.quote-author;
-                            font-size: Tokens.size-small;
-                            letter-spacing: 0.5px;
-                            color: Tokens.text-muted;
-                        }
-                    }
-                }
-                cite-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.new-quote(); }
-                }
-            }
-
-            // --- The figures ---
-            HorizontalLayout {
-                vertical-stretch: 0;
-                spacing: 14px;
-                for s in root.stats: StatCard {
-                    horizontal-stretch: 1;
-                    stat: s;
-                    opened(t) => { root.opened(t); }
-                }
-            }
-
-            // --- What to do, and what is coming ---
-            HorizontalLayout {
                 vertical-stretch: 1;
-                spacing: 14px;
-                Panel {
-                    horizontal-stretch: 1;
-                    title: "Up next";
-                    link: "Open Tasks";
-                    empty: "Nothing due. Add a task in Tasks, or from an event.";
-                    items: root.tasks;
-                    checkable: true;
-                    link-clicked => { root.opened("tasks"); }
-                    opened(i) => { root.task-opened(i.id); }
-                    toggled(id) => { root.task-toggled(id); }
-                }
-                Panel {
-                    horizontal-stretch: 1;
-                    title: "This week";
-                    link: "Open Calendar";
-                    empty: "Nothing in your calendars this week.";
-                    items: root.events;
-                    link-clicked => { root.opened("calendar"); }
-                    opened(i) => { root.event-opened(i.key); }
-                }
-            }
+                border-radius: Tokens.radius-large;
+                border-width: 1px;
+                border-color: Tokens.border;
+                background: Tokens.surface-low;
+                clip: true;
+                opacity: root.mots;
 
-            Text {
-                vertical-stretch: 0;
-                text: "Ctrl+0 Home   ·   Ctrl+1 Mail   ·   Ctrl+2 Calendar   ·   Ctrl+3 Tasks   ·   Alt+← Back";
-                font-size: Tokens.size-small;
-                color: Tokens.text-muted;
-                horizontal-alignment: center;
+                HorizontalLayout {
+                    Column {
+                        title: "Mail";
+                        count: root.mail-count;
+                        link-label: "Open Mail";
+                        empty: "Your queue is empty.";
+                        is-empty: root.mail.length == 0;
+                        open => { root.opened("mail"); }
+                        for m in root.mail: MailLine {
+                            item: m;
+                            opened(id) => { root.mail-opened(id); }
+                        }
+                    }
+                    Rectangle { width: 1px; background: Tokens.border; }
+                    Column {
+                        title: "Today";
+                        count: root.events-count;
+                        link-label: "Open Calendar";
+                        empty: "Nothing in your calendars this week.";
+                        is-empty: root.events.length == 0 && root.later.length == 0;
+                        open => { root.opened("calendar"); }
+                        VerticalLayout {
+                            spacing: 0px;
+                            for e in root.events: EventLine {
+                                item: e;
+                                opened(k) => { root.event-opened(k); }
+                            }
+                        }
+                        if root.later.length > 0: SubTitle {
+                            x: 10px;
+                            text: "Later this week";
+                        }
+                        for e in root.later: LaterLine {
+                            item: e;
+                            opened(k) => { root.event-opened(k); }
+                        }
+                    }
+                    Rectangle { width: 1px; background: Tokens.border; }
+                    Column {
+                        title: "Tasks";
+                        count: root.tasks-count;
+                        link-label: "Open Tasks";
+                        empty: "Nothing due. Add a task in Tasks, or from an event.";
+                        is-empty: root.tasks.length == 0;
+                        open => { root.opened("tasks"); }
+                        for t in root.tasks: TaskLine {
+                            item: t;
+                            opened(id) => { root.task-opened(id); }
+                            toggled(id) => { root.task-toggled(id); }
+                        }
+                    }
+                }
             }
         }
     }

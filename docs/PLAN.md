@@ -398,3 +398,16 @@ describe symptoms, and the symptoms are further apart than the fault.
       one line's height; compact rows of two lines that fit.
 - [x] **S37.6** A task deleted from its panel comes back with Ctrl+Z; the calendar opens
       on the week, or on the view last chosen.
+
+## E38 — Designed first, then built (1.1.0)
+
+Screens are now drawn as a mockup before they are written in Slint, restricted to what
+the software renderer can draw, and the port is compared with the mockup side by side.
+The mockups are a working tool and stay out of the repository.
+
+- [x] **S38.1** Home redrawn: a dial of the day (the 24 hours round the Iris mark,
+      today's events as arcs, the present), one sentence on what is waiting, and mail,
+      today and tasks on one plate. A conversation opens from Home.
+- [x] **S38.2** `ui/kit.slint`: buttons, links, column headers, checks, avatars and
+      priority tags drawn once, with their states.
+- [x] **S38.3** Icons stroked with round caps and joins.

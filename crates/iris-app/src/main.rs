@@ -1082,7 +1082,7 @@ fn run_gui(
 
     // Home and the history of places. Home opens first unless it was switched off;
     // the history starts where the window does.
-    iris_app::home::wire_home(&fenetre, &services);
+    iris_app::home::wire_home(&fenetre, &services, Arc::clone(&controller));
     let depart = if reglages.home_at_startup { 3 } else { 0 };
     iris_app::nav::wire_navigation(
         &fenetre,

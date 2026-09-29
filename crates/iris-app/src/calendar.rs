@@ -1117,6 +1117,9 @@ pub struct Upcoming {
     /// Over already.
     pub past: bool,
     pub start: i64,
+    pub end: i64,
+    pub all_day: bool,
+    pub location: String,
 }
 
 /// The occurrences of the visible calendars from `from`, over `days` days, in order.
@@ -1162,6 +1165,9 @@ pub fn upcoming(services: &Services, from: NaiveDate, days: i64) -> Vec<Upcoming
                 color: couleurs.get(&s.calendar_id).cloned().unwrap_or_default(),
                 past: o.end <= maintenant,
                 start: o.start,
+                end: o.end,
+                all_day: o.all_day,
+                location: s.event.location.clone(),
             })
         })
         .collect();

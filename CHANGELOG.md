@@ -3,6 +3,16 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 1.1.0 — 2026-09-29
+
+### New
+- Open a conversation straight from Home.
+
+### Improved
+- A new Home: a dial of your day with its events, one sentence on what is waiting, then your mail, today and your tasks side by side.
+- Today's events on Home sit on a line down the hours, with the present marked.
+- Icons are drawn with rounded strokes throughout Iris.
+
 ## 1.0.0 — 2026-09-29
 
 ### New

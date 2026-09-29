@@ -3,7 +3,7 @@ import { TextField } from "field.slint";
 import { Glass, Backdrop, Floating } from "glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
-    ThemeSwatchData, AccountTagData, HomeStatData, HomeItemData
+    ThemeSwatchData, AccountTagData, HomeItemData, DialArcData
 } from "types.slint";
 import { HomeView } from "home.slint";
 import { TagsPanel } from "tags.slint";
@@ -666,14 +666,26 @@ export component AppWindow inherits Window {
     // --- Home ---
     in property <string> home-greeting;
     in property <string> home-date;
+    in property <string> home-time;
+    in property <string> home-weekday;
+    in property <string> home-summary;
     in property <string> home-quote;
     in property <string> home-quote-author;
-    in property <[HomeStatData]> home-stats;
-    in property <[HomeItemData]> home-tasks;
+    in property <[DialArcData]> home-dial-arcs;
+    in property <string> home-dial-elapsed;
+    in property <float> home-dial-now-x;
+    in property <float> home-dial-now-y;
+    in property <[ThreadRowData]> home-mail;
+    in property <string> home-mail-count;
     in property <[HomeItemData]> home-events;
+    in property <[HomeItemData]> home-later;
+    in property <string> home-events-count;
+    in property <[HomeItemData]> home-tasks;
+    in property <string> home-tasks-count;
     in property <string> home-sync-summary;
-    /// A figure, or a panel's link: "mail", "tasks", "calendar".
+    /// A column's link: "mail", "tasks", "calendar".
     callback home-open(string);
+    callback home-mail-opened(int);
     callback home-task-opened(int);
     callback home-task-toggled(int);
     callback home-event-opened(string);
@@ -1603,15 +1615,27 @@ export component AppWindow inherits Window {
         height: parent.height - 32px - 23px;
         greeting: root.home-greeting;
         date: root.home-date;
+        time: root.home-time;
+        weekday: root.home-weekday;
+        summary: root.home-summary;
         quote: root.home-quote;
         quote-author: root.home-quote-author;
-        stats: root.home-stats;
-        tasks: root.home-tasks;
+        dial-arcs: root.home-dial-arcs;
+        dial-elapsed: root.home-dial-elapsed;
+        dial-now-x: root.home-dial-now-x;
+        dial-now-y: root.home-dial-now-y;
+        mail: root.home-mail;
+        mail-count: root.home-mail-count;
         events: root.home-events;
+        later: root.home-later;
+        events-count: root.home-events-count;
+        tasks: root.home-tasks;
+        tasks-count: root.home-tasks-count;
         syncing: root.syncing-all;
         sync-progress: root.sync-progress;
         sync-summary: root.home-sync-summary;
         opened(t) => { root.home-open(t); shortcuts.focus(); }
+        mail-opened(id) => { root.home-mail-opened(id); shortcuts.focus(); }
         sync => { root.sync-all(); }
         task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
         task-toggled(id) => { root.home-task-toggled(id); }

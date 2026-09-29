@@ -19,8 +19,8 @@ Three stances set it apart:
 
 ## Status
 
-The foundation is complete and exercised: the suite holds about **1,470 tests** (1,343
-tests and 128 interface scenarios, measured for 1.0.0),
+The foundation is complete and exercised: the suite holds about **1,470 tests** (1,346
+tests and 128 interface scenarios, measured for 1.1.0),
 including those that genuinely put synchronisation, the plugin sandbox and the rendering
 engine at fault, and two headless interface suites driven by real pointer and key events.
 
@@ -150,13 +150,21 @@ Four workspaces share one window, switched from the title bar or with `Ctrl`+`0`
 `workspace.rs` fans the change out to every Rust follower, because Slint keeps only one
 handler per callback.
 
-**Home** (`home.rs`, `ui/home.slint`, 1.0.0) is read from the base when it shows and
-after each sync while it stays: unread, the queue, what arrived today (one pass over
-`messages` in `Store::mail_stats`), the tasks due, the week's occurrences of the visible
-calendars, and a quote drawn from a list of old public-domain lines. Every figure and
-line leads to its place. It opens first unless `home_at_startup` is off. The Iris mark
-turns a crown of points while every account syncs, one animated value, only while it
-does.
+**Home** (`home.rs`, `ui/home.slint`, 1.0.0, redrawn in 1.1.0) is read from the base
+when it shows, after each sync and each minute while it stays. Its one bold element is
+a dial of the day, drawn in a 212-unit square: midnight at the top, today's timed
+occurrences as arcs (`dial_arc` builds the SVG path commands in Rust, Slint strokes
+them), the elapsed day and the present. Beside it a sentence built from the unread
+count, the tasks due and the events left; below, one plate with three columns: the five
+latest conversations of the queue (`list_threads`, To do), today's events on a line down
+the hours with a marker for the present, the tasks due then "Next". Every line leads to
+its place. It opens first unless `home_at_startup` is off. Motion is one opening (the
+dial scales and fades in, the words follow) and the crown that travels round the dial
+while every account syncs; nothing else loops.
+
+Screens are built from `ui/kit.slint`: `Button` (primary, secondary, ghost),
+`OpenLink`, `ColumnHeader`, `CheckCircle`, `Avatar`, `PriorityTag`, `SubTitle`, each with
+its hover and pressed states drawn once. Icons are stroked with round caps and joins.
 
 **Back and forward** (`nav.rs`, 1.0.0). A place is the workspace plus what each one last
 showed: the mailbox or tag, folder and tab of the mail, the tasks' view, the calendar's

@@ -8,16 +8,7 @@ import { PanelFrame, DateButton, DatePicker, Labelled } from "calendar-panels.sl
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { ComboBox, ScrollView } from "std-widgets.slint";
 import { Nav, SectionTitle, SelectionMark } from "nav.slint";
-
-// A priority, told by a small coloured tag beside the task rather than by its ring.
-global Priority {
-    public pure function tint(p: int) -> color {
-        return p == 3 ? Tokens.error : p == 2 ? Tokens.warning : #5b8def;
-    }
-    public pure function name(p: int) -> string {
-        return p == 3 ? "High" : p == 2 ? "Medium" : p == 1 ? "Low" : "";
-    }
-}
+import { PriorityTag } from "kit.slint";
 
 // The round box of a task: empty, or ticked. The same for every task: the priority
 // has its own tag.
@@ -50,25 +41,6 @@ component TaskCheck inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.toggled(); }
-    }
-}
-
-// A priority as a tag: "High" in red, "Medium" in amber, "Low" in blue.
-component PriorityTag inherits Rectangle {
-    in property <int> priority;
-
-    width: nom.preferred-width + 12px;
-    height: 16px;
-    border-radius: 4px;
-    background: Priority.tint(root.priority).transparentize(0.82);
-
-    nom := Text {
-        text: Priority.name(root.priority);
-        font-size: 9px;
-        font-weight: Tokens.weight-bold;
-        color: Priority.tint(root.priority);
-        horizontal-alignment: center;
-        vertical-alignment: center;
     }
 }
 

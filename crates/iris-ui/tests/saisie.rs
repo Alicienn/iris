@@ -1142,10 +1142,11 @@ fn le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri() {
 fn l_accueil_mene_a_ce_qu_il_montre() {
     let f = fenetre();
     f.set_workspace(3);
-    f.set_home_stats(ModelRc::new(VecModel::from(vec![iris_ui::HomeStatData {
-        value: "4".into(),
-        label: "Unread".into(),
-        target: "mail".into(),
+    f.set_home_mail(ModelRc::new(VecModel::from(vec![iris_ui::ThreadRowData {
+        id: 31,
+        from: "Agnès Joly".into(),
+        subject: "Réunion de jeudi".into(),
+        unread: true,
         ..Default::default()
     }])));
     f.set_home_tasks(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
@@ -1154,18 +1155,28 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
         ..Default::default()
     }])));
     let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
+    let fils = Rc::new(RefCell::new(Vec::<i32>::new()));
     let cochees = Rc::new(RefCell::new(Vec::<i32>::new()));
     let taches = Rc::new(RefCell::new(Vec::<i32>::new()));
     {
         let o = Rc::clone(&ouverts);
         f.on_home_open(move |t| o.borrow_mut().push(t.to_string()));
+        let m = Rc::clone(&fils);
+        f.on_home_mail_opened(move |id| m.borrow_mut().push(id));
         let c = Rc::clone(&cochees);
         f.on_home_task_toggled(move |id| c.borrow_mut().push(id));
         let t = Rc::clone(&taches);
         f.on_home_task_opened(move |id| t.borrow_mut().push(id));
     }
-    clic(&bouton(&f, "4 Unread"));
-    assert_eq!(*ouverts.borrow(), ["mail"]);
+    clic(&bouton(&f, "Open Mail"));
+    clic(&bouton(&f, "Open Tasks"));
+    assert_eq!(*ouverts.borrow(), ["mail", "tasks"]);
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::ListItem,
+        "Agnès Joly, Réunion de jeudi",
+    ));
+    assert_eq!(*fils.borrow(), [31], "a conversation opens from Home");
     clic(&par_role(
         &f,
         testing::AccessibleRole::Checkbox,

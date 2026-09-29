@@ -1,19 +1,23 @@
 //! The Home screen: the day at a glance.
 //!
-//! A greeting and the date, a line to start with, four figures — unread, the queue,
-//! what arrived today, the tasks due — the tasks coming up and the week's events.
-//! Everything is read from the base when Home is shown, and again after each sync
-//! while it stays on screen: it costs a handful of counts, and nothing runs while
-//! another workspace is showing.
+//! A dial of the day (the Iris mark grown into a clock of the 24 hours, today's events
+//! as arcs of their calendar's colour, the time gone by, the present), a greeting, one
+//! sentence that says what is waiting, and three columns: the latest mail of the
+//! queue, today's events on a line down the hours, the tasks due. Everything is read
+//! from the base when Home is shown, and again after each sync or each minute while it
+//! stays on screen: a handful of small queries, and nothing while another workspace is
+//! showing.
 
+use crate::controller::Controller;
 use crate::services::{now, Services};
-use chrono::{Datelike, Duration, Local, NaiveDate, Timelike};
+use chrono::{Local, NaiveDate, Timelike};
 use iris_tasks::{due_label, is_overdue};
-use iris_ui::{AppWindow, HomeItemData, HomeStatData};
+use iris_ui::{AppWindow, DialArcData, HomeItemData, ThreadRowData};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Lines to start the day with. Short, and old enough to belong to everyone.
 pub const QUOTES: &[(&str, &str)] = &[
@@ -136,11 +140,11 @@ pub fn sync_summary(arrived: u64) -> String {
     }
 }
 
-fn nombre(n: u32) -> String {
+fn nombre(n: usize) -> String {
     iris_ui::format::grouped_count(n as u64)
 }
 
-fn pluriel(n: u32, un: &str, plusieurs: &str) -> String {
+fn pluriel(n: usize, un: &str, plusieurs: &str) -> String {
     if n == 1 {
         format!("1 {un}")
     } else {
@@ -148,28 +152,87 @@ fn pluriel(n: u32, un: &str, plusieurs: &str) -> String {
     }
 }
 
-fn titre_jour(jour: NaiveDate, today: NaiveDate) -> String {
-    if jour == today {
-        "TODAY".into()
-    } else if jour == today + Duration::days(1) {
-        "TOMORROW".into()
+/// The sentence under the greeting: what is waiting, in plain words.
+pub fn summary(unread: usize, due: usize, events_left: usize, evening: bool) -> String {
+    let mut parties = vec![if unread == 0 {
+        "no unread mail".to_string()
     } else {
-        jour.format("%A %-d %b").to_string().to_uppercase()
+        pluriel(unread, "unread message", "unread messages")
+    }];
+    if due > 0 {
+        parties.push(format!(
+            "{} today",
+            pluriel(due, "task to do", "tasks to do")
+        ));
+    }
+    if events_left > 0 {
+        let quand = if evening { "this evening" } else { "today" };
+        parties.push(if events_left == 1 {
+            format!("one more event {quand}")
+        } else {
+            format!("{events_left} more events {quand}")
+        });
+    }
+    if unread == 0 && due == 0 && events_left == 0 {
+        return "Nothing is waiting for you.".into();
+    }
+    let phrase = match parties.as_slice() {
+        [seule] => seule.clone(),
+        [debut @ .., fin] => format!("{} and {fin}", debut.join(", ")),
+        [] => String::new(),
+    };
+    let mut lettres = phrase.chars();
+    match lettres.next() {
+        Some(p) => format!("{}{}.", p.to_uppercase(), lettres.as_str()),
+        None => phrase,
     }
 }
 
-fn en_tete(titre: &str, rouge: bool) -> HomeItemData {
+// --- The dial ------------------------------------------------------------------------
+
+/// The dial is drawn in a square of this side; the hours run on a circle of this radius.
+const DIAL: f64 = 212.0;
+const RAYON: f64 = 88.0;
+
+/// A point of the hours' circle: `fraction` of the day, midnight at the top, clockwise.
+pub fn dial_point(fraction: f64) -> (f64, f64) {
+    let a = fraction.clamp(0.0, 1.0) * std::f64::consts::TAU;
+    (DIAL / 2.0 + RAYON * a.sin(), DIAL / 2.0 - RAYON * a.cos())
+}
+
+/// The arc of the hours' circle between two fractions of the day, as SVG path commands.
+pub fn dial_arc(from: f64, to: f64) -> String {
+    let (from, to) = (from.clamp(0.0, 1.0), to.clamp(0.0, 1.0));
+    // A whole circle is not an arc: stop a hair short of it.
+    let to = to.min(from + 0.9995);
+    let ((x1, y1), (x2, y2)) = (dial_point(from), dial_point(to));
+    let grand = if to - from > 0.5 { 1 } else { 0 };
+    format!("M {x1:.2} {y1:.2} A {RAYON} {RAYON} 0 {grand} 1 {x2:.2} {y2:.2}")
+}
+
+/// How long something lasts, in words: "30 min", "1 h", "1 h 30".
+fn duree(ms: i64) -> String {
+    let minutes = (ms / 60_000).max(0);
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m:02}"),
+    }
+}
+
+// --- The columns -----------------------------------------------------------------------
+
+fn sous_titre(titre: &str) -> HomeItemData {
     HomeItemData {
         title: titre.into(),
         header: true,
-        overdue: rouge,
         ..Default::default()
     }
 }
 
-/// The tasks worth seeing first: late, today's (done ones struck through), then the
-/// next ones with a date. At most `max` of them.
-fn taches(services: &Services, max: usize) -> Vec<HomeItemData> {
+/// The tasks worth seeing first: late and today's (done ones struck through), then
+/// under "Next" the following ones with a date. At most `max` tasks.
+fn taches(services: &Services, max: usize) -> (Vec<HomeItemData>, usize) {
     let maintenant = Local::now().naive_local();
     let today = maintenant.date();
     let jour = |t: &iris_store::NewTask| {
@@ -201,62 +264,96 @@ fn taches(services: &Services, max: usize) -> Vec<HomeItemData> {
             meta: due_label(j, minute(&t.task), today).into(),
             overdue: !t.is_done() && is_overdue(j, minute(&t.task), maintenant),
             done: t.is_done(),
+            priority: t.task.priority,
             ..Default::default()
         }
     };
 
-    let mut lignes = Vec::new();
-    let mut compte = 0;
-    let mut section = |titre: &str,
-                       rouge: bool,
-                       dedans: Vec<&iris_store::StoredTask>,
-                       lignes: &mut Vec<HomeItemData>| {
-        let dedans: Vec<&iris_store::StoredTask> = dedans
-            .into_iter()
-            .take(max.saturating_sub(compte))
-            .collect();
-        if dedans.is_empty() {
-            return;
-        }
-        lignes.push(en_tete(titre, rouge));
-        compte += dedans.len();
-        lignes.extend(dedans.into_iter().map(ligne));
-    };
-    let en_retard: Vec<&iris_store::StoredTask> = ouvertes
+    let maintenant_dus: Vec<&iris_store::StoredTask> = ouvertes
         .iter()
-        .filter(|t| jour(&t.task).is_some_and(|j| j < today))
+        .filter(|t| jour(&t.task).is_some_and(|j| j <= today))
         .collect();
-    let du_jour: Vec<&iris_store::StoredTask> = ouvertes
-        .iter()
-        .filter(|t| jour(&t.task) == Some(today))
+    let dues = maintenant_dus.len();
+    let mut lignes: Vec<HomeItemData> = maintenant_dus
+        .into_iter()
         .chain(faites_aujourdhui.iter())
+        .take(max)
+        .map(ligne)
         .collect();
-    let a_venir: Vec<&iris_store::StoredTask> = ouvertes
+    let reste = max.saturating_sub(lignes.len());
+    let suivantes: Vec<HomeItemData> = ouvertes
         .iter()
         .filter(|t| jour(&t.task).is_some_and(|j| j > today))
+        .take(reste)
+        .map(ligne)
         .collect();
-    section("LATE", true, en_retard, &mut lignes);
-    section("TODAY", false, du_jour, &mut lignes);
-    section("COMING UP", false, a_venir, &mut lignes);
-    lignes
+    if !suivantes.is_empty() {
+        if !lignes.is_empty() {
+            lignes.push(sous_titre("Next"));
+        }
+        lignes.extend(suivantes);
+    }
+    (lignes, dues)
 }
 
-/// The week's events, under the title of their day.
-fn evenements(services: &Services, max: usize) -> (Vec<HomeItemData>, usize) {
-    let today = Local::now().date_naive();
+/// What the dial and the Today column show.
+struct Journee {
+    arcs: Vec<DialArcData>,
+    aujourdhui: Vec<HomeItemData>,
+    plus_tard: Vec<HomeItemData>,
+    total: usize,
+    restants: usize,
+}
+
+fn journee(services: &Services, maintenant: chrono::DateTime<Local>) -> Journee {
+    let today = maintenant.date_naive();
+    let minuit = crate::calendar::local_midnight_ms(today);
+    let jour_ms = 86_400_000.0;
+    let instant = maintenant.timestamp_millis();
     let tous = crate::calendar::upcoming(services, today, 7);
-    let aujourdhui = tous.iter().filter(|u| u.day == today).count();
-    let mut lignes = Vec::new();
-    let mut jour_courant = None;
-    for u in tous.iter().take(max) {
-        if jour_courant != Some(u.day) {
-            lignes.push(en_tete(&titre_jour(u.day, today), false));
-            jour_courant = Some(u.day);
+    let (du_jour, apres): (Vec<_>, Vec<_>) = tous.into_iter().partition(|u| u.day == today);
+
+    let fraction = |ms: i64| (ms - minuit) as f64 / jour_ms;
+    let arcs = du_jour
+        .iter()
+        .filter(|u| !u.all_day)
+        .map(|u| {
+            let (a, b) = (fraction(u.start), fraction(u.end));
+            // A short event still shows: at least a quarter of an hour of arc.
+            DialArcData {
+                path: dial_arc(a, b.max(a + 0.0104)).into(),
+                color: crate::calendar::couleur(&u.color),
+            }
+        })
+        .collect();
+
+    let mut aujourdhui = Vec::new();
+    let mut maintenant_pose = false;
+    for u in &du_jour {
+        if !u.all_day && !maintenant_pose && u.start > instant {
+            aujourdhui.push(HomeItemData {
+                now: true,
+                meta: maintenant.format("%H:%M").to_string().into(),
+                ..Default::default()
+            });
+            maintenant_pose = true;
         }
-        lignes.push(HomeItemData {
+        let mut hint = if u.all_day {
+            String::new()
+        } else {
+            duree(u.end - u.start)
+        };
+        if !u.location.trim().is_empty() {
+            if !hint.is_empty() {
+                hint.push_str(", ");
+            }
+            hint.push_str(u.location.trim());
+        }
+        aujourdhui.push(HomeItemData {
             key: u.key.as_str().into(),
             title: u.title.as_str().into(),
-            meta: if u.time.is_empty() {
+            hint: hint.into(),
+            meta: if u.all_day {
                 "All day".into()
             } else {
                 u.time.as_str().into()
@@ -266,120 +363,127 @@ fn evenements(services: &Services, max: usize) -> (Vec<HomeItemData>, usize) {
             ..Default::default()
         });
     }
-    (lignes, aujourdhui)
+    let restants = du_jour
+        .iter()
+        .filter(|u| !u.all_day && u.start > instant)
+        .count();
+
+    let demain = today.succ_opt().unwrap_or(today);
+    let plus_tard = apres
+        .iter()
+        .take(4)
+        .map(|u| {
+            let jour = if u.day == demain {
+                "Tomorrow".to_string()
+            } else {
+                u.day.format("%a").to_string()
+            };
+            HomeItemData {
+                key: u.key.as_str().into(),
+                title: u.title.as_str().into(),
+                meta: if u.time.is_empty() {
+                    jour
+                } else {
+                    format!("{jour} {}", u.time)
+                }
+                .into(),
+                color: crate::calendar::couleur(&u.color),
+                ..Default::default()
+            }
+        })
+        .collect();
+
+    Journee {
+        arcs,
+        aujourdhui,
+        plus_tard,
+        total: du_jour.len(),
+        restants,
+    }
+}
+
+/// The latest conversations of the queue, the most recent first.
+fn courrier(services: &Services, max: u32) -> Vec<ThreadRowData> {
+    let requete = iris_store::ListQuery {
+        state: iris_types::WorkflowState::Todo,
+        accounts: Vec::new(),
+        hide_snoozed_until: Some(now()),
+        limit: max,
+        after: None,
+        scope: iris_store::Scope::Queue,
+        filters: Default::default(),
+    };
+    services
+        .store
+        .list_threads(&requete)
+        .unwrap_or_default()
+        .iter()
+        .map(|t| iris_ui::bridge::thread_row(t, "", now(), false))
+        .collect()
 }
 
 /// Fills the Home screen.
 pub fn refresh(f: &AppWindow, services: &Services) {
     let maintenant = Local::now();
-    let today = maintenant.date_naive();
     f.set_home_greeting(greeting(maintenant.hour()).into());
     f.set_home_date(maintenant.format("%A %-d %B").to_string().into());
+    f.set_home_time(maintenant.format("%H:%M").to_string().into());
+    f.set_home_weekday(maintenant.format("%A").to_string().into());
     f.set_home_sync_summary(sync_summary(ARRIVEES.load(Ordering::Relaxed)).into());
 
-    // The figures.
-    let minuit = crate::calendar::local_midnight_ms(today);
-    let lundi = crate::calendar::local_midnight_ms(
-        today - Duration::days(today.weekday().num_days_from_monday() as i64),
+    // The dial: what is gone of the day, the present, the events.
+    let jour_ms = 86_400_000.0;
+    let fraction = (maintenant.timestamp_millis()
+        - crate::calendar::local_midnight_ms(maintenant.date_naive())) as f64
+        / jour_ms;
+    let (x, y) = dial_point(fraction);
+    f.set_home_dial_elapsed(if fraction > 0.002 {
+        dial_arc(0.0, fraction).into()
+    } else {
+        Default::default()
+    });
+    f.set_home_dial_now_x(x as f32);
+    f.set_home_dial_now_y(y as f32);
+
+    let j = journee(services, maintenant);
+    f.set_home_dial_arcs(ModelRc::new(VecModel::from(j.arcs)));
+    f.set_home_events(ModelRc::new(VecModel::from(j.aujourdhui)));
+    f.set_home_later(ModelRc::new(VecModel::from(j.plus_tard)));
+    f.set_home_events_count(
+        match j.total {
+            0 => "Nothing today".to_string(),
+            n => format!("{} today", pluriel(n, "event", "events")),
+        }
+        .into(),
     );
-    let chiffres = services
-        .store
-        .mail_stats(
-            iris_types::Timestamp::from_millis(minuit),
-            iris_types::Timestamp::from_millis(lundi),
-        )
-        .unwrap_or_default();
-    let non_lus = services.store.unread_count().unwrap_or(0);
-    let a_traiter: u32 = services
-        .store
-        .todo_counts_by_account(now())
-        .unwrap_or_default()
-        .values()
-        .sum();
-    let comptes = services
-        .store
-        .accounts()
-        .unwrap_or_default()
-        .iter()
-        .filter(|c| c.enabled)
-        .count() as u32;
-    let taches_ouvertes = services.store.open_tasks().unwrap_or_default();
-    let dues = taches_ouvertes
-        .iter()
-        .filter(|t| {
-            t.task.parent_id.is_none()
-                && t.task
-                    .due_day
-                    .as_deref()
-                    .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
-                    .is_some_and(|j| j <= today)
-        })
-        .count() as u32;
-    let faites_semaine = services
-        .store
-        .done_tasks(None, 500)
-        .unwrap_or_default()
-        .iter()
-        .filter(|t| t.done_at.is_some_and(|d| d.millis() >= lundi))
-        .count() as u32;
-    let (evts, evts_du_jour) = evenements(services, 14);
 
-    let bleu = slint::Color::from_rgb_u8(0x5b, 0x8d, 0xef);
-    let vert = slint::Color::from_rgb_u8(0x4f, 0xb2, 0x86);
-    let ambre = slint::Color::from_rgb_u8(0xe3, 0xb3, 0x41);
-    let rose = slint::Color::from_rgb_u8(0xe0, 0x79, 0x5b);
-    f.set_home_stats(ModelRc::new(VecModel::from(vec![
-        HomeStatData {
-            value: nombre(non_lus).into(),
-            label: "Unread".into(),
-            hint: format!("across {}", pluriel(comptes, "account", "accounts")).into(),
-            target: "mail".into(),
-            tint: bleu,
-        },
-        HomeStatData {
-            value: nombre(a_traiter).into(),
-            label: "To do in your mail".into(),
-            hint: "conversations waiting for you".into(),
-            target: "mail".into(),
-            tint: rose,
-        },
-        HomeStatData {
-            value: nombre(chiffres.received_today).into(),
-            label: "Received today".into(),
-            hint: format!(
-                "{} this week, {} sent",
-                nombre(chiffres.received_week),
-                nombre(chiffres.sent_week)
-            )
-            .into(),
-            target: "mail".into(),
-            tint: vert,
-        },
-        HomeStatData {
-            value: nombre(dues).into(),
-            label: if dues == 1 {
-                "Task for today"
-            } else {
-                "Tasks for today"
-            }
-            .into(),
-            hint: format!(
-                "{} done this week, {} today",
-                nombre(faites_semaine),
-                pluriel(evts_du_jour as u32, "event", "events")
-            )
-            .into(),
-            target: "tasks".into(),
-            tint: ambre,
-        },
-    ])));
+    let non_lus = services.store.unread_count().unwrap_or(0) as usize;
+    f.set_home_mail(ModelRc::new(VecModel::from(courrier(services, 5))));
+    f.set_home_mail_count(
+        match non_lus {
+            0 => "All read".to_string(),
+            n => format!("{} unread", nombre(n)),
+        }
+        .into(),
+    );
 
-    f.set_home_tasks(ModelRc::new(VecModel::from(taches(services, 8))));
-    f.set_home_events(ModelRc::new(VecModel::from(evts)));
+    let (lignes, dues) = taches(services, 6);
+    f.set_home_tasks(ModelRc::new(VecModel::from(lignes)));
+    f.set_home_tasks_count(
+        match dues {
+            0 => "Nothing due".to_string(),
+            n => format!("{n} due today"),
+        }
+        .into(),
+    );
+
+    f.set_home_summary(summary(non_lus, dues, j.restants, maintenant.hour() >= 17).into());
 }
 
 thread_local! {
     static CITATION: Cell<usize> = const { Cell::new(0) };
+    static MINUTERIE: std::cell::RefCell<Option<slint::Timer>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Draws a quote other than the one showing.
@@ -393,7 +497,7 @@ fn nouvelle_citation(f: &AppWindow) {
     CITATION.with(|c| c.set(i));
     let (texte, auteur) = QUOTES[i];
     f.set_home_quote(texte.into());
-    f.set_home_quote_author(auteur.to_uppercase().into());
+    f.set_home_quote_author(auteur.into());
 }
 
 /// Refreshes Home if it is the workspace showing, after a sync.
@@ -408,7 +512,7 @@ fn vers(f: &AppWindow, workspace: i32) {
     f.invoke_workspace_changed(workspace);
 }
 
-pub fn wire_home(f: &AppWindow, services: &Services) {
+pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>) {
     nouvelle_citation(f);
     let redessiner = {
         let (faible, services) = (f.as_weak(), services.clone());
@@ -449,6 +553,14 @@ pub fn wire_home(f: &AppWindow, services: &Services) {
                 }
                 "calendar" => vers(&f, 1),
                 _ => vers(&f, 0),
+            }
+        });
+    }
+    {
+        let (services, faible) = (services.clone(), f.as_weak());
+        f.on_home_mail_opened(move |fil| {
+            if let Some(f) = faible.upgrade() {
+                crate::tasks::open_thread(&f, &services, &controller, fil as i64);
             }
         });
     }
@@ -505,10 +617,6 @@ pub fn wire_home(f: &AppWindow, services: &Services) {
     MINUTERIE.with(|m| *m.borrow_mut() = Some(minuterie));
 }
 
-thread_local! {
-    static MINUTERIE: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,6 +646,48 @@ mod tests {
     }
 
     #[test]
+    fn the_sentence_says_what_is_waiting() {
+        assert_eq!(
+            summary(4, 2, 1, true),
+            "4 unread messages, 2 tasks to do today and one more event this evening."
+        );
+        assert_eq!(summary(1, 0, 0, false), "1 unread message.");
+        assert_eq!(
+            summary(0, 1, 3, false),
+            "No unread mail, 1 task to do today and 3 more events today."
+        );
+        assert_eq!(summary(0, 0, 0, false), "Nothing is waiting for you.");
+    }
+
+    #[test]
+    fn the_dial_runs_clockwise_from_midnight_at_the_top() {
+        let (x, y) = dial_point(0.0);
+        assert!((x - 106.0).abs() < 1e-9 && (y - 18.0).abs() < 1e-9);
+        let (x, y) = dial_point(0.25);
+        assert!(
+            (x - 194.0).abs() < 1e-9 && (y - 106.0).abs() < 1e-9,
+            "06:00 on the right"
+        );
+        let (x, y) = dial_point(0.5);
+        assert!(
+            (x - 106.0).abs() < 1e-9 && (y - 194.0).abs() < 1e-9,
+            "noon at the bottom"
+        );
+        assert!(
+            dial_arc(0.0, 0.7).contains(" 0 1 1 "),
+            "past half the day: the long way"
+        );
+        assert!(dial_arc(0.1, 0.2).contains(" 0 0 1 "));
+    }
+
+    #[test]
+    fn durations_read_as_people_say_them() {
+        assert_eq!(duree(30 * 60_000), "30 min");
+        assert_eq!(duree(60 * 60_000), "1 h");
+        assert_eq!(duree(90 * 60_000), "1 h 30");
+    }
+
+    #[test]
     fn home_fills_from_an_empty_base() {
         let dir = tempfile::tempdir().unwrap();
         let services = Services::open(
@@ -547,21 +697,32 @@ mod tests {
         .unwrap();
         let liste = services.store.task_lists().unwrap()[0].id;
         let today = Local::now().date_naive();
-        services
-            .store
-            .insert_task(
-                &iris_store::NewTask {
-                    list_id: liste,
-                    title: "Call the plumber".into(),
-                    due_day: Some(today.format("%Y-%m-%d").to_string()),
-                    ..Default::default()
-                },
-                now(),
+        let jour = |n: i64| {
+            Some(
+                (today + chrono::Duration::days(n))
+                    .format("%Y-%m-%d")
+                    .to_string(),
             )
-            .unwrap();
-        let lignes = taches(&services, 8);
-        assert_eq!(lignes.len(), 2, "a title and the task");
-        assert!(lignes[0].header);
-        assert_eq!(lignes[1].title, "Call the plumber");
+        };
+        for (titre, j) in [("Call the plumber", jour(0)), ("Book the train", jour(2))] {
+            services
+                .store
+                .insert_task(
+                    &iris_store::NewTask {
+                        list_id: liste,
+                        title: titre.into(),
+                        due_day: j,
+                        ..Default::default()
+                    },
+                    now(),
+                )
+                .unwrap();
+        }
+        let (lignes, dues) = taches(&services, 6);
+        assert_eq!(dues, 1);
+        assert_eq!(lignes.len(), 3, "today's, a title, the next one");
+        assert_eq!(lignes[0].title, "Call the plumber");
+        assert!(lignes[1].header);
+        assert!(courrier(&services, 5).is_empty());
     }
 }
