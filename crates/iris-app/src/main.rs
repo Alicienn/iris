@@ -908,6 +908,7 @@ fn run_gui(
                         "synchronisation"
                     );
                 }
+                iris_app::home::count_arrivals(rapport.messages_added as u64);
 
                 // La bulle d'arrivée. Une seule pour tout le tour, et seulement quand
                 // du courrier est réellement arrivé : un drapeau modifié sur le
@@ -946,6 +947,7 @@ fn run_gui(
                         // de l'utilisateur. Un dossier retiré du serveur y restait
                         // jusqu'au prochain lancement.
                         shell::refresh_folders(&fenetre, &services);
+                        iris_app::home::refresh_if_shown(&fenetre, &services);
                     });
                 }
 
@@ -1078,6 +1080,18 @@ fn run_gui(
         minuterie
     };
 
+    // Home and the history of places. Home opens first unless it was switched off;
+    // the history starts where the window does.
+    iris_app::home::wire_home(&fenetre, &services);
+    let depart = if reglages.home_at_startup { 3 } else { 0 };
+    iris_app::nav::wire_navigation(
+        &fenetre,
+        iris_app::nav::Place::start(depart, reglages.calendar_view.clamp(0, 2)),
+    );
+    fenetre.set_workspace(depart);
+    fenetre.invoke_workspace_changed(depart);
+    ecoute_les_boutons_de_la_souris(&fenetre);
+
     // Une adresse cliquée dans un navigateur ouvre un brouillon, déjà rempli.
     //
     // Fait après tout le câblage : `wire_compose` installe les rappels de la fenêtre
@@ -1153,6 +1167,40 @@ fn run_gui(
 
     controller.shutdown();
     Ok(())
+}
+
+/// The mouse's back and forward buttons walk the history of places.
+///
+/// Read from the window's own events rather than from the interface: every row and
+/// button under the pointer would otherwise take the press before a handler beneath
+/// them could see it.
+fn ecoute_les_boutons_de_la_souris(fenetre: &iris_ui::AppWindow) {
+    use slint::winit_030::winit::event::{ElementState, MouseButton, WindowEvent};
+    use slint::winit_030::{EventResult, WinitWindowAccessor};
+    let faible = fenetre.as_weak();
+    fenetre.window().on_winit_window_event(move |_, evenement| {
+        if let WindowEvent::MouseInput {
+            state: ElementState::Pressed,
+            button,
+            ..
+        } = evenement
+        {
+            let sens = match button {
+                MouseButton::Back => Some(false),
+                MouseButton::Forward => Some(true),
+                _ => None,
+            };
+            if let (Some(avant), Some(f)) = (sens, faible.upgrade()) {
+                if avant {
+                    iris_app::nav::forward(&f);
+                } else {
+                    iris_app::nav::back(&f);
+                }
+                return EventResult::PreventDefault;
+            }
+        }
+        EventResult::Propagate
+    });
 }
 
 /// Brings the window back from the notification area, or from the taskbar, in front.

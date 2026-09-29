@@ -47,7 +47,11 @@ export component TextField inherits FieldFrame {
     forward-focus: input;
     focused: input.has-focus;
     min-height: 26px;
-    preferred-height: 30px;
+    preferred-height: max(30px, root.font-size * 2.3);
+    // One line of text never grows with the space around it: in a column with room
+    // to spare, the address and password fields of Add account stood 80 px tall.
+    max-height: max(40px, root.font-size * 2.6);
+    vertical-stretch: 0;
     min-width: 40px;
     preferred-width: 160px;
     clip: true;

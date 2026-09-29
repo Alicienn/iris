@@ -219,6 +219,70 @@ pub fn wire_tags(f: &AppWindow, services: &Services, sujet: Arc<Mutex<Option<Acc
     }
 }
 
+/// The accounts under a tag's title: those carrying it, or for 0 those carrying none.
+pub fn accounts_of_tag(services: &Services, tag: i64) -> Vec<AccountId> {
+    let liens = services.store.account_tag_links().unwrap_or_default();
+    services
+        .store
+        .accounts()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| match liens.get(&c.id) {
+            Some(t) if tag != 0 => t.contains(&tag),
+            Some(t) => t.is_empty(),
+            None => tag == 0,
+        })
+        .map(|c| c.id)
+        .collect()
+}
+
+/// The tag titles of the accounts column: a click shows their accounts' mail, the
+/// chevron folds them; and the order of the tags, dragged in their window.
+pub fn wire_tag_groups(
+    f: &AppWindow,
+    services: &Services,
+    controller: Arc<crate::controller::Controller>,
+) {
+    {
+        let (services, faible) = (services.clone(), f.as_weak());
+        f.on_tag_selected(move |tag| {
+            let Some(f) = faible.upgrade() else { return };
+            let comptes = accounts_of_tag(&services, tag as i64);
+            if comptes.is_empty() {
+                return;
+            }
+            f.set_selected_tag(tag);
+            controller.send(crate::controller::Request::FilterAccounts(comptes));
+        });
+    }
+    {
+        let (services, faible) = (services.clone(), f.as_weak());
+        f.on_tag_fold_toggled(move |tag| {
+            let Some(f) = faible.upgrade() else { return };
+            let tag = tag as i64;
+            crate::settings::update(|s| {
+                if let Some(i) = s.folded_tags.iter().position(|t| *t == tag) {
+                    s.folded_tags.remove(i);
+                } else {
+                    s.folded_tags.push(tag);
+                }
+            });
+            refresh_accounts(&f, &services, &[]);
+        });
+    }
+    {
+        let (services, faible) = (services.clone(), f.as_weak());
+        f.on_tag_moved(move |id, index| {
+            let Some(f) = faible.upgrade() else { return };
+            let _ = services
+                .store
+                .move_account_tag(id as i64, index.max(0) as usize);
+            remplir(&f, &services);
+            refresh_accounts(&f, &services, &[]);
+        });
+    }
+}
+
 /// Ce qu'une erreur de tag dit à l'utilisateur, sans le préfixe technique.
 fn message(e: &iris_types::Error) -> String {
     match e {
@@ -269,6 +333,32 @@ mod tests {
         assert!(tous.iter().find(|t| t.name == "Clients").unwrap().checked);
         assert!(!tous.iter().find(|t| t.name == "Perso").unwrap().checked);
         assert_eq!(menu_tags(&s, compte, " per ").len(), 1);
+    }
+
+    #[test]
+    fn a_tag_s_title_gathers_its_accounts_and_no_tag_the_rest() {
+        let (_d, s) = services();
+        let compte = |a: &str| {
+            s.store
+                .create_account(
+                    &iris_store::NewAccount::new(a, "imap.example.com", "smtp.example.com"),
+                    now(),
+                )
+                .unwrap()
+        };
+        let (a, b, c) = (
+            compte("a@example.com"),
+            compte("b@example.com"),
+            compte("c@example.com"),
+        );
+        let clients = s
+            .store
+            .create_account_tag("Clients", "#4fb286", now())
+            .unwrap();
+        s.store.set_account_tagged(a, clients, true).unwrap();
+        s.store.set_account_tagged(b, clients, true).unwrap();
+        assert_eq!(accounts_of_tag(&s, clients), [a, b]);
+        assert_eq!(accounts_of_tag(&s, 0), [c]);
     }
 
     #[test]

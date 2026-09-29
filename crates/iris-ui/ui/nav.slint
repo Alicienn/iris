@@ -1,0 +1,44 @@
+import { Tokens } from "tokens.slint";
+
+// What the three side columns (accounts, calendars, task lists) share.
+//
+// They had each grown their own idea of a selected row: a bar against the rounded
+// edge in the mail, a plain background in the tasks, nine-pixel titles here and
+// ten-pixel ones there. Side by side, three columns that disagree read as three
+// applications. Only the height is left to each: the mail lists a hundred mailboxes
+// and keeps its rows tight.
+
+export global Nav {
+    /// A row of the calendars and task lists. The accounts keep 26 px.
+    out property <length> row-height: 32px;
+    out property <length> label-size: Tokens.size-body;
+
+    public pure function background(selected: bool, hover: bool) -> brush {
+        return selected ? Tokens.surface-active : hover ? Tokens.surface-hover : transparent;
+    }
+}
+
+/// The title over a group of rows: CALENDARS, LISTS, ACCOUNTS.
+export component SectionTitle inherits Text {
+    font-size: 10px;
+    letter-spacing: 1px;
+    font-weight: Tokens.weight-bold;
+    color: Tokens.text-muted;
+    vertical-alignment: center;
+}
+
+/// The mark of the selected row: a short pill inside its left edge, clear of the
+/// rounded corners (a full-height bar ran square through them).
+export component SelectionMark inherits Rectangle {
+    in property <bool> on;
+    /// The height of the row it marks: a component cannot read its parent's.
+    in property <length> row-height;
+
+    x: 2px;
+    y: (root.row-height - self.height) / 2;
+    width: 3px;
+    height: root.on ? root.row-height * 0.55 : 0px;
+    border-radius: 1.5px;
+    background: Tokens.accent;
+    animate height { duration: Tokens.instant; }
+}

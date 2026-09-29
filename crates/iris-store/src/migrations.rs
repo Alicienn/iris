@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 12;
+pub const CURRENT_VERSION: i64 = 13;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -78,7 +78,32 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "account tags",
         sql: SCHEMA_V12,
     },
+    Migration {
+        version: 13,
+        name: "tags in an order of one's own, tasks of an event",
+        sql: SCHEMA_V13,
+    },
 ];
+
+/// Two additions.
+///
+/// **Tags have an order**, the one the user drags them into; the accounts column
+/// groups them in it. Existing tags start in the alphabetical order they were shown in.
+///
+/// **A task can belong to an event**: its identifier and the start of the occurrence
+/// (0 for an event that does not repeat, so that moving it keeps them). Not the
+/// calendar: a task outlives the calendar being hidden, unsubscribed or deleted.
+const SCHEMA_V13: &str = "
+ALTER TABLE account_tags ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+UPDATE account_tags SET position = (
+    SELECT COUNT(*) FROM account_tags AS avant
+    WHERE avant.name COLLATE NOCASE < account_tags.name COLLATE NOCASE
+) + 1;
+
+ALTER TABLE tasks ADD COLUMN event_uid TEXT;
+ALTER TABLE tasks ADD COLUMN event_start INTEGER;
+CREATE INDEX tasks_by_event ON tasks(event_uid, event_start) WHERE event_uid IS NOT NULL;
+";
 
 /// Les tags des adresses.
 ///

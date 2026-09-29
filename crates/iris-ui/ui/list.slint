@@ -37,6 +37,10 @@ component ThreadRow inherits Rectangle {
     callback context-menu(length, length);
 
     height: Tokens.row-height;
+    /// Too short for three lines of text: two, and no initials.
+    property <bool> compact: root.height < 50px;
+    // Whatever happens inside, nothing is drawn over the next row.
+    clip: true;
     background: root.selected
         ? Tokens.surface-active
         : (row-touch.has-hover ? Tokens.surface-hover : transparent);
@@ -223,7 +227,7 @@ component ThreadRow inherits Rectangle {
         // The sender's mark: initials on a circle of their own colour. A list is read
         // by faces before names, and the same sender keeps the same mark everywhere.
         // Left out when the row is too short to hold it (compact density).
-        if root.height >= 44px && root.data.initials != "": Rectangle {
+        if !root.compact && root.data.initials != "": Rectangle {
             y: (parent.height - self.height) / 2;
             width: 28px;
             height: 28px;
@@ -243,9 +247,15 @@ component ThreadRow inherits Rectangle {
         }
 
         VerticalLayout {
-            padding-top: Tokens.space-2;
-            padding-bottom: Tokens.space-2;
-            spacing: 2px;
+            // Compact rows hold two lines, not three: the subject and the excerpt
+            // share the second. Three lines of text need about fifty pixels, and at
+            // forty-five the excerpt was drawn over the next message.
+            //
+            // Centred rather than padded: fixed padding plus the lines came to more
+            // than the row, and what did not fit was the bottom of the excerpt, its
+            // j, g and ç. The margin is whatever the row has left over.
+            spacing: root.compact ? 1px : 2px;
+            alignment: center;
 
             // Ligne du haut : expéditeur, marqueurs, date.
             HorizontalLayout {
@@ -322,7 +332,7 @@ component ThreadRow inherits Rectangle {
                 }
             }
 
-            Text {
+            if !root.compact: Text {
                 text: root.data.subject;
                 font-family: Tokens.font-family;
                 font-size: Tokens.size-body;
@@ -331,11 +341,35 @@ component ThreadRow inherits Rectangle {
                 overflow: elide;
             }
 
-            Text {
+            if !root.compact: Text {
                 text: root.data.preview;
                 font-size: Tokens.size-small;
                 color: Tokens.text-muted;
                 overflow: elide;
+            }
+
+            // Compact: the subject, then as much of the excerpt as fits after it.
+            if root.compact: HorizontalLayout {
+                spacing: Tokens.space-2;
+                sujet := Text {
+                    text: root.data.subject;
+                    font-family: Tokens.font-family;
+                    font-size: Tokens.size-body;
+                    font-weight: root.data.unread ? Tokens.weight-bold : Tokens.weight-body;
+                    color: root.data.unread ? Tokens.text : Tokens.text-secondary;
+                    overflow: elide;
+                    horizontal-stretch: 0;
+                    max-width: self.preferred-width;
+                }
+                Text {
+                    text: root.data.preview;
+                    font-size: Tokens.size-small;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                }
             }
         }
     }
@@ -1030,12 +1064,15 @@ export component ThreadListView inherits VerticalLayout {
 
             // The same short fall of light the glass panels get, so the strip belongs
             // to the same material as everything around it.
+            // Inside the border by a pixel, with the curve a pixel tighter: drawn
+            // over it, its corners crossed the outer ones.
             Rectangle {
+                x: 1px;
                 y: 1px;
                 height: 12px;
-                width: 100%;
-                border-top-left-radius: Tokens.radius-medium;
-                border-top-right-radius: Tokens.radius-medium;
+                width: parent.width - 2px;
+                border-top-left-radius: Tokens.radius-medium - 1px;
+                border-top-right-radius: Tokens.radius-medium - 1px;
                 background: @linear-gradient(180deg,
                     Tokens.edge-light.transparentize(0.82) 0%,
                     Tokens.edge-light.transparentize(1.0) 100%);

@@ -5,22 +5,25 @@ import { Glass } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { ListView, ScrollView } from "std-widgets.slint";
+import { Nav, SectionTitle, SelectionMark } from "nav.slint";
 
-component SectionLabel inherits Text {
-    font-size: 9px;
-    letter-spacing: 1px;
-    color: Tokens.text-muted;
-}
+component SectionLabel inherits SectionTitle {}
 
 component AccountRow inherits Rectangle {
     in property <AccountRowData> account;
     in property <bool> selected;
     in property <bool> compact;
+    /// Listed under a tag's title.
+    in property <bool> nested;
 
     callback clicked();
     callback resume();
     callback sync();
     callback context-menu(length, length);
+    /// A tag's title: its accounts folded away or back.
+    callback fold-toggled();
+    /// Where the chevron of a tag's title ends.
+    property <length> fold-zone: 22px;
 
     /// A right click that landed on an open menu's veil, and where. The row under
     /// that point opens its own menu: without this, a second right click on another
@@ -60,70 +63,94 @@ component AccountRow inherits Rectangle {
 
     height: 26px;
     border-radius: Tokens.radius-small;
-    background: root.account.header ? transparent
-        : root.selected
-        ? Tokens.surface-active
-        : (touch.has-hover ? Tokens.surface-hover : transparent);
+    background: Nav.background(root.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
 
-    // A tag's title, when the accounts are grouped by tag: its colour and its name,
-    // in the voice of the section labels.
+    // A tag's title, when the accounts are grouped by tag. Read like a folder that
+    // holds its accounts: a chevron that folds them away, the tag in its colour, its
+    // name, how many. A click on it shows the mail of those accounts only.
     if root.account.header: HorizontalLayout {
-        padding-left: Tokens.space-1;
-        spacing: 6px;
-        alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.start;
-        Rectangle {
+        padding-left: root.compact ? 0px : 2px;
+        padding-right: Tokens.space-1;
+        spacing: 4px;
+        alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
+
+        if !root.compact: Rectangle {
             y: (parent.height - self.height) / 2;
-            width: 7px;
-            height: 7px;
-            border-radius: 3.5px;
-            background: root.account.tint;
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            background: touch.has-hover && touch.mouse-x < root.fold-zone
+                ? Tokens.surface-active : transparent;
+
+            accessible-role: button;
+            accessible-label: (root.account.folded ? "Unfold " : "Fold ") + root.account.label;
+            accessible-action-default => { root.fold-toggled(); }
+
+            Icon {
+                data: root.account.folded ? Icons.chevron-right : Icons.chevron-down;
+                size: 10px;
+                tint: Tokens.text-muted;
+            }
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.tag;
+            size: 13px;
+            tint: root.account.tag-id == 0 ? Tokens.text-muted : root.account.tint;
         }
         if !root.compact: Text {
             text: root.account.label;
-            font-size: 9px;
-            letter-spacing: 1px;
-            color: Tokens.text-muted;
+            font-size: Tokens.size-body;
+            font-weight: Tokens.weight-bold;
+            color: root.selected ? Tokens.text : Tokens.text-secondary;
             vertical-alignment: center;
             overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if !root.compact: Text {
+            text: root.account.members;
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
         }
     }
 
     accessible-role: list-item;
     accessible-label: root.account.label;
     accessible-item-selected: root.selected;
-    accessible-description: !root.account.needs-attention
+    accessible-description: root.account.header
+        ? root.account.members + " accounts"
+        : !root.account.needs-attention
         ? root.account.count + " to do"
         : root.account.problem != ""
             ? "Sync failed: " + root.account.problem
             : "Paused after repeated failures";
     accessible-action-default => { root.clicked(); }
 
-    // The selected account gets a bar on its left edge, the same marker the message
-    // list uses. Colour alone was carrying this before, and at these opacities it was
-    // not carrying it at all.
-    Rectangle {
-        x: 0;
-        width: root.selected ? 2px : 0px;
-        height: 100%;
-        border-radius: 1px;
-        background: Tokens.accent;
-        animate width { duration: Tokens.instant; }
+    // The selected account gets a mark on its left edge, the same one the calendars
+    // and the task lists use. Colour alone was carrying this before, and at these
+    // opacities it was not carrying it at all.
+    SelectionMark {
+        on: root.selected;
+        row-height: root.height;
     }
 
     if !root.account.header: HorizontalLayout {
-        padding-left: Tokens.space-2;
+        // Under a tag, a step in: the tag reads as the folder that holds them.
+        padding-left: root.compact ? 14px : root.nested ? 26px : 10px;
         padding-right: Tokens.space-1;
         spacing: Tokens.space-2;
+        alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
 
-        // La même pastille que dans la liste, à la même taille : c'est la seule chose
-        // qui relie une ligne de message à sa boîte, et deux tailles différentes pour
-        // la même couleur en font deux repères au lieu d'un.
+        // The mailbox's colour, as a dot like the calendars' and the lists'. It was
+        // a bar, and beside the bar that marks the selected row it read as a second
+        // selection.
         Rectangle {
-            width: 4px;
-            height: 16px;
+            width: 8px;
+            height: 8px;
             y: (parent.height - self.height) / 2;
-            border-radius: 2px;
+            border-radius: 4px;
             background: root.account.tint;
         }
 
@@ -213,13 +240,12 @@ component AccountRow inherits Rectangle {
     }
 
     touch := TouchArea {
-        enabled: !root.account.header;
         // Right-click reaches the account's own actions, the same way it reaches a
         // thread's. A mailbox whose password has changed is the case that matters:
         // the settings screen is three clicks and a scroll away from the row that is
         // already telling you something is wrong.
         pointer-event(event) => {
-            if (event.button == PointerEventButton.right
+            if (!root.account.header && event.button == PointerEventButton.right
                 && event.kind == PointerEventKind.down) {
                 // Absolue, comme pour les lignes de messages : la liste des comptes
                 // est virtualisée elle aussi, et `root.y` y désigne une position dans
@@ -229,7 +255,16 @@ component AccountRow inherits Rectangle {
                     self.absolute-position.y + self.mouse-y);
             }
         }
-        clicked => { root.clicked(); }
+        // On a tag's title the chevron folds, the rest shows the tag's mail. One
+        // touch area reads where it was hit, as the message rows do: two areas one
+        // above the other would fight over the click.
+        clicked => {
+            if (root.account.header && !root.compact && self.mouse-x < root.fold-zone) {
+                root.fold-toggled();
+            } else {
+                root.clicked();
+            }
+        }
     }
 }
 
@@ -255,12 +290,17 @@ export component Sidebar inherits Glass {
     in-out property <bool> collapsed;
     /// The accounts are listed under their tags.
     in property <bool> grouped;
+    /// The tag whose accounts' mail is shown, -1 for none (0 is "No tag").
+    in property <int> selected-tag: -1;
     in property <int> probe;
     in property <length> probe-x;
     in property <length> probe-y;
 
     callback account-selected(int);
     callback group-toggled();
+    /// A tag's title clicked: the mail of its accounts.
+    callback tag-selected(int);
+    callback tag-fold-toggled(int);
     callback open-tags();
     callback unified-selected();
     callback resume-account(int);
@@ -339,7 +379,7 @@ export component Sidebar inherits Glass {
                 needs-attention: false,
                 tint: Tokens.text-muted,
             };
-            selected: root.selected-id == 0;
+            selected: root.selected-tag < 0 && root.selected-id == 0;
             clicked => { root.unified-selected(); }
             sync => { root.sync-all(); }
         }
@@ -349,7 +389,7 @@ export component Sidebar inherits Glass {
         for account in root.pinned: AccountRow {
             account: account;
             compact: root.collapsed;
-            selected: account.id == root.selected-id;
+            selected: root.selected-tag < 0 && account.id == root.selected-id;
             probe: root.probe;
             probe-x: root.probe-x;
             probe-y: root.probe-y;
@@ -389,11 +429,21 @@ export component Sidebar inherits Glass {
             for account in root.others: AccountRow {
                 account: account;
                 compact: root.collapsed;
-                selected: !account.header && account.id == root.selected-id;
+                nested: root.grouped;
+                selected: account.header
+                    ? account.tag-id == root.selected-tag
+                    : root.selected-tag < 0 && account.id == root.selected-id;
                 probe: root.probe;
                 probe-x: root.probe-x;
                 probe-y: root.probe-y;
-                clicked => { root.account-selected(account.id); }
+                fold-toggled => { root.tag-fold-toggled(account.tag-id); }
+                clicked => {
+                    if (account.header) {
+                        root.tag-selected(account.tag-id);
+                    } else {
+                        root.account-selected(account.id);
+                    }
+                }
                 resume => { root.resume-account(account.id); }
                 sync => { root.sync-account(account.id); }
                 context-menu(mx, my) => { root.account-menu(account.id, mx, my); }

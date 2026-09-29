@@ -7,6 +7,7 @@ import { CalButton } from "calendar.slint";
 import { PanelFrame, DateButton, DatePicker, Labelled } from "calendar-panels.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Nav, SectionTitle, SelectionMark } from "nav.slint";
 
 // A priority, told by a small coloured tag beside the task rather than by its ring.
 global Priority {
@@ -102,14 +103,18 @@ component PlaceRow inherits Rectangle {
         }
     }
 
-    height: 34px;
+    height: Nav.row-height;
     border-radius: Tokens.radius-small;
     border-width: root.targeted ? 1.5px : 0px;
     border-color: Tokens.accent;
     background: root.targeted ? Tokens.accent.transparentize(0.8)
-        : root.place.selected ? Tokens.surface-active
-        : touch.has-hover ? Tokens.surface-hover : transparent;
+        : Nav.background(root.place.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
+
+    SelectionMark {
+        on: root.place.selected && !root.targeted;
+        row-height: root.height;
+    }
 
     accessible-role: button;
     accessible-label: root.place.name;
@@ -128,7 +133,7 @@ component PlaceRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: Tokens.space-2;
+        padding-left: 10px;
         padding-right: Tokens.space-2;
         spacing: Tokens.space-2;
 
@@ -147,7 +152,7 @@ component PlaceRow inherits Rectangle {
         }
         Text {
             text: root.place.name;
-            font-size: Tokens.size-body;
+            font-size: Nav.label-size;
             font-weight: root.place.selected ? Tokens.weight-bold : Tokens.weight-body;
             color: root.place.selected || root.targeted ? Tokens.text : Tokens.text-secondary;
             vertical-alignment: center;
@@ -580,7 +585,7 @@ component TaskDetail inherits Rectangle {
             vertical-stretch: 0;
             Icon {
                 y: (parent.height - self.height) / 2;
-                data: Icons.envelope-closed;
+                data: root.detail.from-event ? Icons.calendar : Icons.envelope-closed;
                 size: 13px;
                 tint: Tokens.text-muted;
             }
@@ -592,7 +597,7 @@ component TaskDetail inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
-            CalButton {
+            if root.detail.from-mail: CalButton {
                 text: "Open message";
                 clicked => { root.open-mail(); }
             }
@@ -715,20 +720,22 @@ export component TasksView inherits Rectangle {
 
     HorizontalLayout {
         // --- Left: the views and the lists ---
+        // Docked to the window's edge, as the mail's columns are: square, and
+        // separated by the hairline beside it rather than by a rounded border of its
+        // own, which drew a curve and a corner at each end.
         Glass {
             width: 240px;
+            radius: 0px;
+            border-width: 0px;
             VerticalLayout {
                 padding: Tokens.space-3;
                 spacing: 2px;
 
                 for place in root.places: VerticalLayout {
                     // A title above the first list.
-                    if place.is-list && place.key == root.places[4].key: Text {
+                    if place.is-list && place.key == root.places[4].key: SectionTitle {
                         height: 34px;
                         text: "LISTS";
-                        font-size: 10px;
-                        letter-spacing: 1px;
-                        color: Tokens.text-muted;
                         vertical-alignment: bottom;
                     }
                     PlaceRow {
@@ -863,6 +870,8 @@ export component TasksView inherits Rectangle {
         if root.has-detail: Rectangle { width: 1px; background: Tokens.border; }
         if root.has-detail: Glass {
             width: 360px;
+            radius: 0px;
+            border-width: 0px;
             TaskDetail {
                 detail: root.detail;
                 title <=> root.detail-title;

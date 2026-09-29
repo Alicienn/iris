@@ -109,8 +109,27 @@ pub struct Settings {
     #[serde(default = "cinq")]
     pub undo_send_seconds: u32,
     /// Les comptes de la colonne de gauche sont rangés sous leurs tags.
+    ///
+    /// On by default since 1.0, under a new name: the old `group_accounts_by_tag` was
+    /// written `false` into every settings file, asked for or not, and reading it
+    /// would have kept the grouping off for everyone who already had Iris.
+    #[serde(default = "vrai")]
+    pub accounts_by_tag: bool,
+    /// The tags whose accounts are folded away in the accounts column.
     #[serde(default)]
-    pub group_accounts_by_tag: bool,
+    pub folded_tags: Vec<i64>,
+    /// Iris opens on the Home screen. Off, it opens on the mail; Home stays one click
+    /// away on the name in the title bar.
+    #[serde(default = "vrai")]
+    pub home_at_startup: bool,
+    /// The calendar's view: 0 month, 1 week, 2 day. The last one chosen.
+    #[serde(default = "semaine")]
+    pub calendar_view: i32,
+}
+
+/// The calendar opens on the week: what is coming, hour by hour.
+fn semaine() -> i32 {
+    1
 }
 
 /// La valeur par défaut d'un réglage qui doit être allumé.
@@ -140,8 +159,51 @@ impl Default for Settings {
             handle_mailto: false,
             keep_running: true,
             undo_send_seconds: cinq(),
-            group_accounts_by_tag: false,
+            accounts_by_tag: true,
+            folded_tags: Vec::new(),
+            home_at_startup: true,
+            calendar_view: semaine(),
         }
+    }
+}
+
+/// The settings in use, and where they are written.
+///
+/// One copy for the whole application. The settings panel had its own, and a second
+/// one elsewhere (the calendar remembering its view) would have written over the
+/// panel's changes with a stale file, or the other way round.
+type Partages = (
+    std::sync::Arc<std::sync::Mutex<Settings>>,
+    std::path::PathBuf,
+);
+static PARTAGES: std::sync::OnceLock<Partages> = std::sync::OnceLock::new();
+
+/// Makes `current` the settings every module reads and changes. Called once, by the
+/// settings panel's wiring.
+pub fn share(current: std::sync::Arc<std::sync::Mutex<Settings>>, path: std::path::PathBuf) {
+    let _ = PARTAGES.set((current, path));
+}
+
+/// The settings in use; the defaults before they are shared (tests, previews).
+pub fn current() -> Settings {
+    PARTAGES
+        .get()
+        .and_then(|(s, _)| s.lock().ok().map(|s| s.clone()))
+        .unwrap_or_default()
+}
+
+/// Changes the settings in use and writes them. Nothing happens before they are
+/// shared.
+pub fn update(change: impl FnOnce(&mut Settings)) {
+    let Some((courant, chemin)) = PARTAGES.get() else {
+        return;
+    };
+    let Ok(mut reglages) = courant.lock() else {
+        return;
+    };
+    change(&mut reglages);
+    if let Err(e) = reglages.save(chemin) {
+        tracing::warn!(error = %e, "saving the settings");
     }
 }
 
@@ -184,6 +246,7 @@ impl Settings {
         self.undo_send_seconds = self
             .undo_send_seconds
             .clamp(*UNDO_SEND_RANGE.start(), *UNDO_SEND_RANGE.end());
+        self.calendar_view = self.calendar_view.clamp(0, 2);
         if self.theme.trim().is_empty() {
             self.theme = Self::default().theme;
         }
@@ -223,7 +286,10 @@ mod tests {
             handle_mailto: true,
             keep_running: false,
             undo_send_seconds: 12,
-            group_accounts_by_tag: true,
+            accounts_by_tag: false,
+            folded_tags: vec![3, 7],
+            home_at_startup: false,
+            calendar_view: 0,
         };
 
         reglages.save(&chemin).unwrap();
@@ -239,6 +305,25 @@ mod tests {
         // Absent of an older file: the default.
         std::fs::write(&chemin, "theme = \"mono\"\n").unwrap();
         assert_eq!(Settings::load(&chemin).undo_send_seconds, 5);
+    }
+
+    #[test]
+    fn an_older_file_opens_on_home_grouped_by_tag_on_the_week() {
+        // A file from 0.8 said `group_accounts_by_tag = false` without anyone having
+        // chosen it: 1.0 groups by tag all the same.
+        let (_d, chemin) = fichier();
+        std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+        std::fs::write(
+            &chemin,
+            "theme = \"mono\"\ngroup_accounts_by_tag = false\ncalendar_view = 7\n",
+        )
+        .unwrap();
+        let r = Settings::load(&chemin);
+        assert!(r.accounts_by_tag);
+        assert!(r.home_at_startup);
+        assert_eq!(r.calendar_view, 2, "out of range: brought back");
+        std::fs::write(&chemin, "theme = \"mono\"\n").unwrap();
+        assert_eq!(Settings::load(&chemin).calendar_view, 1);
     }
 
     #[test]

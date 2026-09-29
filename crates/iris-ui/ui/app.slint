@@ -3,8 +3,9 @@ import { TextField } from "field.slint";
 import { Glass, Backdrop, Floating } from "glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
-    ThemeSwatchData, AccountTagData
+    ThemeSwatchData, AccountTagData, HomeStatData, HomeItemData
 } from "types.slint";
+import { HomeView } from "home.slint";
 import { TagsPanel } from "tags.slint";
 import { ThreadListView, ThreadContextMenu } from "list.slint";
 import { Sidebar, AccountContextMenu } from "sidebar.slint";
@@ -31,7 +32,7 @@ import {
 } from "calendar-panels.slint";
 import {
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
-    TaskPlaceData, TaskRowData, TaskDetailData
+    TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData
 } from "types.slint";
 import { ChangelogPanel, UpdatePanel } from "changelog.slint";
 import { ChangelogRowData } from "types.slint";
@@ -385,9 +386,15 @@ export component AppWindow inherits Window {
     callback tag-renamed(int, string);
     callback tag-color-chosen(int, int);
     callback tag-deleted(int);
+    /// A tag dragged to `index` in the order.
+    callback tag-moved(int, int);
     /// The accounts listed under their tags, from the switch above the list.
-    in-out property <bool> group-by-tags;
+    in-out property <bool> group-by-tags: true;
     callback group-by-tags-changed();
+    /// The tag whose accounts' mail is shown: -1 none, 0 the accounts without a tag.
+    in-out property <int> selected-tag: -1;
+    callback tag-selected(int);
+    callback tag-fold-toggled(int);
 
     in property <bool> syncing-all;
     in property <string> sync-progress;
@@ -494,6 +501,7 @@ export component AppWindow inherits Window {
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
     in-out property <bool> keep-running: true;
+    in-out property <bool> home-at-startup: true;
     in property <string> system-note;
     /// How long a sent message can be taken back, from the settings.
     in-out property <int> undo-send-seconds: 5;
@@ -651,8 +659,34 @@ export component AppWindow inherits Window {
 
     // --- The calendar ---
     /// Which workspace fills the window: 0 mail, 1 calendar, 2 tasks.
+    /// 0 mail, 1 calendar, 2 tasks, 3 Home.
     in-out property <int> workspace;
     callback workspace-changed(int);
+
+    // --- Home ---
+    in property <string> home-greeting;
+    in property <string> home-date;
+    in property <string> home-quote;
+    in property <string> home-quote-author;
+    in property <[HomeStatData]> home-stats;
+    in property <[HomeItemData]> home-tasks;
+    in property <[HomeItemData]> home-events;
+    in property <string> home-sync-summary;
+    /// A figure, or a panel's link: "mail", "tasks", "calendar".
+    callback home-open(string);
+    callback home-task-opened(int);
+    callback home-task-toggled(int);
+    callback home-event-opened(string);
+    callback home-new-quote();
+
+    // --- Back and forward, between the places visited ---
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
+    callback nav-back();
+    callback nav-forward();
+    /// A place chosen in the interface: what it is ("account", "tag", "folder", "tab",
+    /// "tasks", "calendar-mode"…) and which one. The history keeps it.
+    callback navigated(string, string);
     in property <string> calendar-title;
     in property <int> calendar-mode;
     in property <[CalendarData]> calendars;
@@ -694,6 +728,12 @@ export component AppWindow inherits Window {
     in property <EventDetailData> event-detail;
     in-out property <string> event-notes;
     callback event-notes-edited(string);
+    in property <[SubtaskData]> event-tasks;
+    in-out property <string> event-new-task;
+    callback event-task-added(string);
+    callback event-task-toggled(int);
+    /// A task of the open event, shown in Tasks.
+    callback event-task-opened(int);
     callback event-edit();
     callback event-delete();
 
@@ -768,6 +808,8 @@ export component AppWindow inherits Window {
     /// Up or down the column, from the keyboard.
     callback task-move(int);
     callback task-toggle-selected();
+    /// Ctrl+Z in Tasks: the last task deleted comes back.
+    callback task-undo();
     // A list: right click, new, rename, delete.
     in-out property <bool> task-list-menu-open;
     in-out property <TaskPlaceData> task-list-menu-place;
@@ -875,11 +917,22 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
         key-pressed(event) => {
-            // Mail, calendar and tasks, from anywhere but an open window.
+            // Home, mail, calendar and tasks, from anywhere but an open window.
             if (event.modifiers.control && !root.modal-open
-                && (event.text == "1" || event.text == "2" || event.text == "3")) {
-                root.workspace = event.text == "1" ? 0 : event.text == "2" ? 1 : 2;
+                && (event.text == "0" || event.text == "1" || event.text == "2"
+                    || event.text == "3")) {
+                root.workspace = event.text == "0" ? 3 : event.text == "1" ? 0
+                    : event.text == "2" ? 1 : 2;
                 root.workspace-changed(root.workspace);
+                return accept;
+            }
+            // Back and forward through the places visited, as in a browser.
+            if (event.modifiers.alt && !root.modal-open && event.text == Key.LeftArrow) {
+                root.nav-back();
+                return accept;
+            }
+            if (event.modifiers.alt && !root.modal-open && event.text == Key.RightArrow) {
+                root.nav-forward();
                 return accept;
             }
             if (event.text == "k" && event.modifiers.control
@@ -1003,20 +1056,30 @@ export component AppWindow inherits Window {
             if (root.modal-open) {
                 return accept;
             }
+            // Home has no keys of its own, and the mail's do not reach through it.
+            if (root.workspace == 3) {
+                return accept;
+            }
             // The calendar has its own keys, and none of the mail's: "e" in the
             // calendar must not mark as done a thread nobody can see.
             if (root.workspace == 1) {
                 if (event.text == "t") { root.calendar-today(); }
                 if (event.text == "n") { root.calendar-new-event("", -1); }
-                if (event.text == "m") { root.calendar-mode-chosen(0); }
-                if (event.text == "w") { root.calendar-mode-chosen(1); }
-                if (event.text == "d") { root.calendar-mode-chosen(2); }
+                if (event.text == "m" || event.text == "w" || event.text == "d") {
+                    let m = event.text == "m" ? 0 : event.text == "w" ? 1 : 2;
+                    root.calendar-mode-chosen(m);
+                    root.navigated("calendar-mode", "\{m}");
+                }
                 if (event.text == Key.LeftArrow) { root.calendar-navigate(-1); }
                 if (event.text == Key.RightArrow) { root.calendar-navigate(1); }
                 return accept;
             }
             // The tasks have their own keys too.
             if (root.workspace == 2) {
+                if (event.text == "z" && event.modifiers.control) {
+                    root.task-undo();
+                    return accept;
+                }
                 if (event.text == "n") { root.task-focus-add += 1; }
                 if (event.text == Key.DownArrow || event.text == "j") { root.task-move(1); }
                 if (event.text == Key.UpArrow || event.text == "k") { root.task-move(-1); }
@@ -1110,6 +1173,10 @@ export component AppWindow inherits Window {
                 title: "Iris";
                 maximised: root.window-maximised;
                 workspace: root.workspace;
+                can-go-back: root.can-go-back;
+                can-go-forward: root.can-go-forward;
+                back => { root.nav-back(); shortcuts.focus(); }
+                forward => { root.nav-forward(); shortcuts.focus(); }
                 workspace-chosen(i) => {
                     root.workspace = i;
                     root.workspace-changed(i);
@@ -1137,8 +1204,16 @@ export component AppWindow inherits Window {
                     syncing: root.syncing-all;
                     sync-progress: root.sync-progress;
                     collapsed <=> root.sidebar-collapsed;
-                    account-selected(id) => { root.account-selected(id); shortcuts.focus(); }
-                    unified-selected => { root.unified-selected(); shortcuts.focus(); }
+                    account-selected(id) => {
+                        root.account-selected(id);
+                        root.navigated("account", "\{id}");
+                        shortcuts.focus();
+                    }
+                    unified-selected => {
+                        root.unified-selected();
+                        root.navigated("unified", "");
+                        shortcuts.focus();
+                    }
                     resume-account(id) => { root.resume-account(id); }
                     add-account => { root.add-account-open = true; }
                     filter-changed(t) => { root.account-filter-changed(t); }
@@ -1148,6 +1223,13 @@ export component AppWindow inherits Window {
                     open-modules => { root.modules-open = true; }
                     open-tags => { root.tags-requested(); }
                     grouped: root.group-by-tags;
+                    selected-tag: root.selected-tag;
+                    tag-selected(t) => {
+                        root.tag-selected(t);
+                        root.navigated("tag", "\{t}");
+                        shortcuts.focus();
+                    }
+                    tag-fold-toggled(t) => { root.tag-fold-toggled(t); }
                     group-toggled => {
                         root.group-by-tags = !root.group-by-tags;
                         root.group-by-tags-changed();
@@ -1245,8 +1327,15 @@ export component AppWindow inherits Window {
                             folders: root.folders;
                             selected-path: root.selected-folder;
                             accounts-total: root.account-count;
-                            folder-selected(p) => { root.folder-selected(p); shortcuts.focus(); }
-                            all-selected => { root.folder-cleared(); }
+                            folder-selected(p) => {
+                                root.folder-selected(p);
+                                root.navigated("folder", p);
+                                shortcuts.focus();
+                            }
+                            all-selected => {
+                                root.folder-cleared();
+                                root.navigated("folder", "");
+                            }
                             new-folder => { root.new-folder-requested(); }
                             folder-dropped(p) => { root.folder-dropped(p); }
                             folder-menu(p, mx, my) => {
@@ -1323,7 +1412,11 @@ export component AppWindow inherits Window {
                         // Picking a thread with the mouse hands the keyboard to the
                         // shortcuts, so « e » acts on it even after a search field had it.
                         row-clicked(id) => { root.thread-selected(id); shortcuts.focus(); }
-                        tab-selected(i) => { root.tab-selected(i); shortcuts.focus(); }
+                        tab-selected(i) => {
+                            root.tab-selected(i);
+                            root.navigated("tab", "\{i}");
+                            shortcuts.focus();
+                        }
                         scrolled-near-end => { root.scrolled-near-end(); }
                     }
                 }
@@ -1394,7 +1487,10 @@ export component AppWindow inherits Window {
         now-day: root.calendar-now-day;
         navigate(n) => { root.calendar-navigate(n); }
         today => { root.calendar-today(); }
-        mode-chosen(m) => { root.calendar-mode-chosen(m); }
+        mode-chosen(m) => {
+            root.calendar-mode-chosen(m);
+            root.navigated("calendar-mode", "\{m}");
+        }
         day-chosen(d) => { root.calendar-day-chosen(d); }
         day-opened(d) => { root.calendar-day-opened(d); }
         mini-navigate(n) => { root.calendar-mini-navigate(n); }
@@ -1453,6 +1549,7 @@ export component AppWindow inherits Window {
         // shortcuts: the arrows and the space bar then act on the column.
         place-chosen(k) => {
             root.task-place-chosen(k);
+            root.navigated("tasks", k);
             shortcuts.focus();
         }
         place-menu(p, x, y) => {
@@ -1486,11 +1583,40 @@ export component AppWindow inherits Window {
         step-toggled(id) => { root.task-step-toggled(id); }
         step-removed(id) => { root.task-step-removed(id); }
         open-mail => { root.task-open-mail(); }
-        delete => { root.task-delete(); }
+        // The panel closes with the task: the keyboard goes back to the shortcuts,
+        // so Ctrl+Z reaches them.
+        delete => {
+            root.task-delete();
+            shortcuts.focus();
+        }
         detail-closed => {
             root.task-detail-closed();
             shortcuts.focus();
         }
+    }
+
+    // Home, over everything like the other workspaces.
+    if root.workspace == 3: HomeView {
+        x: 1px;
+        y: 32px;
+        width: parent.width - 2px;
+        height: parent.height - 32px - 23px;
+        greeting: root.home-greeting;
+        date: root.home-date;
+        quote: root.home-quote;
+        quote-author: root.home-quote-author;
+        stats: root.home-stats;
+        tasks: root.home-tasks;
+        events: root.home-events;
+        syncing: root.syncing-all;
+        sync-progress: root.sync-progress;
+        sync-summary: root.home-sync-summary;
+        opened(t) => { root.home-open(t); shortcuts.focus(); }
+        sync => { root.sync-all(); }
+        task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
+        task-toggled(id) => { root.home-task-toggled(id); }
+        event-opened(k) => { root.home-event-opened(k); }
+        new-quote => { root.home-new-quote(); }
     }
 
     if root.task-list-menu-open: TaskListMenu {
@@ -1545,6 +1671,11 @@ export component AppWindow inherits Window {
         detail: root.event-detail;
         notes <=> root.event-notes;
         notes-edited(t) => { root.event-notes-edited(t); }
+        tasks: root.event-tasks;
+        new-task <=> root.event-new-task;
+        task-added(t) => { root.event-task-added(t); }
+        task-toggled(id) => { root.event-task-toggled(id); }
+        task-opened(id) => { root.event-task-opened(id); }
         edit => { root.event-edit(); }
         delete => { root.event-delete(); }
         dismissed => { root.event-detail-open = false; }
@@ -1741,6 +1872,7 @@ export component AppWindow inherits Window {
         renamed(id, nom) => { root.tag-renamed(id, nom); }
         color-chosen(id, i) => { root.tag-color-chosen(id, i); }
         deleted(id) => { root.tag-deleted(id); }
+        moved(id, index) => { root.tag-moved(id, index); }
         dismissed => { root.tags-open = false; }
     }
 
@@ -1882,6 +2014,7 @@ export component AppWindow inherits Window {
         start-at-login <=> root.start-at-login;
         handle-mailto <=> root.handle-mailto;
         keep-running <=> root.keep-running;
+        home-at-startup <=> root.home-at-startup;
         undo-send-seconds <=> root.undo-send-seconds;
         sending-changed => { root.sending-changed(); }
         system-note: root.system-note;

@@ -75,6 +75,67 @@ struct Etat {
     /// Where the notes of the open event go: calendar, identifier, occurrence (0 for
     /// an event that does not repeat, so that moving it keeps them).
     note: Option<(i64, String, i64)>,
+    /// The open event, for the tasks added from it.
+    ouvert: Option<Ouvert>,
+}
+
+/// The event open in the panel, as its tasks need it.
+#[derive(Debug, Clone)]
+struct Ouvert {
+    uid: String,
+    /// The occurrence, as the notes key it (0 when the event does not repeat).
+    occurrence: i64,
+    titre: String,
+    /// When this occurrence starts, in milliseconds.
+    debut: i64,
+    all_day: bool,
+}
+
+/// The tasks of the open event, in its panel.
+fn remplir_taches(f: &AppWindow, services: &Services, o: &Ouvert) {
+    let taches = services
+        .store
+        .tasks_for_event(&o.uid, o.occurrence)
+        .unwrap_or_default();
+    f.set_event_tasks(ModelRc::new(VecModel::from(
+        taches
+            .iter()
+            .map(|t| iris_ui::SubtaskData {
+                id: t.id as i32,
+                title: t.task.title.as_str().into(),
+                done: t.is_done(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
+
+/// A task for an event: in the first list, due when the occurrence starts (the day
+/// alone for an all-day event), named after it. It keeps the event's identifier, not
+/// its calendar: hiding or deleting the calendar leaves it where it is.
+fn tache_d_evenement(o: &Ouvert, liste: i64, titre: &str) -> iris_store::NewTask {
+    // An all-day event sits at midnight UTC: its day is read there, not shifted by
+    // the local zone into the day before.
+    let debut = if o.all_day {
+        chrono::DateTime::from_timestamp_millis(o.debut)
+            .map(|d| d.naive_utc())
+            .unwrap_or_default()
+    } else {
+        Local
+            .timestamp_millis_opt(o.debut)
+            .earliest()
+            .map(|d| d.naive_local())
+            .unwrap_or_default()
+    };
+    iris_store::NewTask {
+        list_id: liste,
+        title: titre.trim().to_string(),
+        due_day: Some(debut.date().format("%Y-%m-%d").to_string()),
+        due_minute: (!o.all_day).then(|| (debut.time() - NaiveTime::MIN).num_minutes() as i32),
+        source: format!("Event: {}", o.titre),
+        event_uid: Some(o.uid.clone()),
+        event_start: Some(o.occurrence),
+        ..Default::default()
+    }
 }
 
 fn aujourd_hui() -> NaiveDate {
@@ -394,6 +455,7 @@ pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellDat
         rappeles: HashSet::new(),
         selecteur: None,
         note: None,
+        ouvert: None,
     };
     cellules(
         &vide,
@@ -522,6 +584,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             rappeles: HashSet::new(),
             selecteur: None,
             note: None,
+            ouvert: None,
         };
         let o = charger(services, &mut copie);
         let cases = cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false);
@@ -1035,6 +1098,77 @@ pub fn import_ics(services: &Services, texte: &str) -> Result<ImportReport> {
 
 // --- Le câblage --------------------------------------------------------------------
 
+/// Local midnight of a day, in milliseconds.
+pub fn local_midnight_ms(day: NaiveDate) -> i64 {
+    layout::local_midnight(day, &Local)
+}
+
+/// An occurrence in the days to come, as Home lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Upcoming {
+    /// The key the calendar opens it by.
+    pub key: String,
+    pub title: String,
+    pub day: NaiveDate,
+    /// "14:30", empty for all day.
+    pub time: String,
+    /// `#rrggbb`, its calendar's.
+    pub color: String,
+    /// Over already.
+    pub past: bool,
+    pub start: i64,
+}
+
+/// The occurrences of the visible calendars from `from`, over `days` days, in order.
+pub fn upcoming(services: &Services, from: NaiveDate, days: i64) -> Vec<Upcoming> {
+    let de = layout::local_midnight(from, &Local);
+    let a = layout::local_midnight(from + Duration::days(days), &Local);
+    let stockes = services
+        .store
+        .events_for_range(de - 86_400_000, a + 86_400_000)
+        .unwrap_or_default();
+    let couleurs: HashMap<i64, String> = services
+        .store
+        .calendars()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| (c.id, c.color))
+        .collect();
+    let domaine: Vec<Event> = stockes.iter().map(|s| vers_domaine(&s.event)).collect();
+    let maintenant = now().millis();
+    let mut sortie: Vec<Upcoming> = iris_calendar::recur::occurrences(&domaine, de, a)
+        .into_iter()
+        .filter_map(|o| {
+            let s = &stockes[o.event];
+            let jour = if o.all_day {
+                layout::local_date(o.start, &chrono::Utc)
+            } else {
+                layout::local_date(o.start, &Local)
+            };
+            // An event that began before the period shows from its first day in it.
+            let jour = jour.max(from);
+            if jour >= from + Duration::days(days) || o.end <= de {
+                return None;
+            }
+            Some(Upcoming {
+                key: format!("{}:{}", s.id, o.start),
+                title: titre(&domaine[o.event]),
+                day: jour,
+                time: if o.all_day {
+                    String::new()
+                } else {
+                    heure(o.start)
+                },
+                color: couleurs.get(&s.calendar_id).cloned().unwrap_or_default(),
+                past: o.end <= maintenant,
+                start: o.start,
+            })
+        })
+        .collect();
+    sortie.sort_by_key(|u| (u.day, !u.time.is_empty(), u.start));
+    sortie
+}
+
 fn ms_depuis_cle(cle: &str) -> Option<(i64, i64)> {
     let (id, debut) = cle.split_once(':')?;
     Some((id.parse().ok()?, debut.parse().ok()?))
@@ -1044,7 +1178,8 @@ fn ms_depuis_cle(cle: &str) -> Option<(i64, i64)> {
 pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::runtime::Handle) {
     let today = aujourd_hui();
     let etat = Rc::new(RefCell::new(Etat {
-        mode: 0,
+        // The view chosen last time; the week the first time.
+        mode: crate::settings::current().calendar_view.clamp(0, 2),
         jour: today,
         mini: premier_du_mois(today),
         evenements: Vec::new(),
@@ -1053,6 +1188,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         rappeles: HashSet::new(),
         selecteur: None,
         note: None,
+        ouvert: None,
     }));
 
     fenetre.set_calendar_palette(ModelRc::new(VecModel::from(
@@ -1136,7 +1272,10 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
     {
         let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
         fenetre.on_calendar_mode_chosen(move |m| {
-            etat.borrow_mut().mode = m.clamp(0, 2);
+            let m = m.clamp(0, 2);
+            etat.borrow_mut().mode = m;
+            // Kept for next time: the calendar reopens the way it was left.
+            crate::settings::update(|s| s.calendar_view = m);
             redessiner();
         });
     }
@@ -1205,10 +1344,20 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 all_day: s.event.all_day,
             };
             let occurrence = if s.event.rrule.is_some() { debut } else { 0 };
+            let ouvert = Ouvert {
+                uid: s.event.uid.clone(),
+                occurrence,
+                titre: titre(&vers_domaine(&s.event)),
+                debut,
+                all_day: s.event.all_day,
+            };
+            remplir_taches(&f, &services, &ouvert);
+            f.set_event_new_task(SharedString::default());
             {
                 let mut e = etat.borrow_mut();
                 e.edite = Some(id);
                 e.note = Some((s.calendar_id, s.event.uid.clone(), occurrence));
+                e.ouvert = Some(ouvert);
             }
             f.set_event_notes(
                 services
@@ -1257,6 +1406,55 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             }
         });
     }
+    // --- The tasks of an event ---
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_event_task_added(move |texte| {
+            let Some(f) = faible.upgrade() else { return };
+            let Some(o) = etat.borrow().ouvert.clone() else {
+                return;
+            };
+            let Some(liste) = services
+                .store
+                .task_lists()
+                .ok()
+                .and_then(|l| l.first().map(|l| l.id))
+            else {
+                return;
+            };
+            let t = tache_d_evenement(&o, liste, &texte);
+            if t.title.is_empty() {
+                return;
+            }
+            if services.store.insert_task(&t, now()).is_ok() {
+                f.set_event_new_task(SharedString::default());
+                f.set_status(format!("Added to your tasks: {}.", t.title).into());
+            }
+            remplir_taches(&f, &services, &o);
+        });
+    }
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_event_task_toggled(move |id| {
+            let Some(f) = faible.upgrade() else { return };
+            if let Ok(Some(t)) = services.store.task(id as i64) {
+                let fait = if t.is_done() { None } else { Some(now()) };
+                let _ = services.store.set_task_done(t.id, fait);
+            }
+            if let Some(o) = etat.borrow().ouvert.as_ref() {
+                remplir_taches(&f, &services, o);
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_event_task_opened(move |id| {
+            let Some(f) = faible.upgrade() else { return };
+            f.set_event_detail_open(false);
+            crate::tasks::show_task(&f, id as i64);
+        });
+    }
+
     // What the user writes about an event, saved as it is typed.
     {
         let (services, etat) = (services.clone(), Rc::clone(&etat));

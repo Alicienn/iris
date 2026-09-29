@@ -41,11 +41,12 @@ component ChipRow inherits Rectangle {
         clip: true;
 
         Rectangle {
+            x: 1px;
             y: 1px;
             height: 12px;
-            width: 100%;
-            border-top-left-radius: Tokens.radius-medium;
-            border-top-right-radius: Tokens.radius-medium;
+            width: parent.width - 2px;
+            border-top-left-radius: Tokens.radius-medium - 1px;
+            border-top-right-radius: Tokens.radius-medium - 1px;
             background: @linear-gradient(180deg,
                 Tokens.edge-light.transparentize(0.82) 0%,
                 Tokens.edge-light.transparentize(1.0) 100%);
@@ -232,6 +233,8 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
     in-out property <bool> keep-running;
+    /// Iris opens on the Home screen.
+    in-out property <bool> home-at-startup;
     /// How long a sent message can still be taken back, in seconds.
     in-out property <int> undo-send-seconds;
     /// Ce que le système ne permet pas ici, et pourquoi.
@@ -327,6 +330,15 @@ export component SettingsPanel inherits Rectangle {
                         options: ["Compact", "Normal", "Comfortable"];
                         selected: root.density;
                         chosen(i) => { root.density-chosen(i); }
+                    }
+
+                    GroupLabel { text: "STARTUP"; }
+
+                    SettingToggle {
+                        label: "Open Iris on Home";
+                        hint: "Your day at a glance first. Off: Iris opens on your mail, and Home stays one click away on the name at the top left.";
+                        value <=> root.home-at-startup;
+                        toggled => { root.system-changed(); }
                     }
 
                     GroupLabel { text: "AUTOMATIONS"; }

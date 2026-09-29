@@ -14,6 +14,15 @@ use std::collections::BTreeMap;
 /// test below pins it to the constant so the two cannot drift apart.
 const SPAM_BIT: u32 = 1 << 9;
 
+/// What the Home screen says about the mail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MailStats {
+    pub received_today: u32,
+    pub received_week: u32,
+    pub sent_week: u32,
+    pub total: u32,
+}
+
 const THREAD_COLUMNS: &str = "id, state, last_activity_at, last_from_name, last_from_addr, \
      last_subject, last_preview, message_count, unread_count, flags_union, snooze_until, \
      last_account_id, put_aside_at IS NOT NULL";
@@ -240,6 +249,38 @@ impl Store {
             )
             .map(|n| n as u32)
             .map_err(|e| sql_err("comptage des non-lus", e))
+        })
+    }
+
+    /// A few figures for the Home screen, in one pass over the messages: how many
+    /// arrived since `today` and since `week`, how many were sent since `week`, and
+    /// how many are kept in all. Junk and the bin are left out of the arrivals.
+    pub fn mail_stats(&self, today: Timestamp, week: Timestamp) -> Result<MailStats> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT
+                   COALESCE(SUM(f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
+                       AND (m.flags & ?1) = 0 AND m.received >= ?2), 0),
+                   COALESCE(SUM(f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
+                       AND (m.flags & ?1) = 0 AND m.received >= ?3), 0),
+                   COALESCE(SUM(f.role = 'sent' AND m.date >= ?3), 0),
+                   COUNT(*)
+                 FROM messages m JOIN folders f ON f.id = m.folder_id",
+                params![
+                    iris_types::Flags::SPAM.0 as i64,
+                    today.millis(),
+                    week.millis()
+                ],
+                |r| {
+                    Ok(MailStats {
+                        received_today: r.get::<_, i64>(0)? as u32,
+                        received_week: r.get::<_, i64>(1)? as u32,
+                        sent_week: r.get::<_, i64>(2)? as u32,
+                        total: r.get::<_, i64>(3)? as u32,
+                    })
+                },
+            )
+            .map_err(|e| sql_err("chiffres du courrier", e))
         })
     }
 

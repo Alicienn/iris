@@ -329,5 +329,8 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 - **Undo send** is 5 seconds by default and a setting (0 to 30), not a fixed 10 seconds.
 - **Remote images** are fetched directly over HTTPS for a message the reader has
   unblocked, not through a local proxy (§9).
-- **Calendar and tasks read the database on the display thread**, a stated departure
-  from invariant 1 of §4.
+- **Calendar, tasks and Home read the database on the display thread**, a stated
+  departure from invariant 1 of §4.
+- **Iris opens on Home, not on the queue** (1.0.0): the day at a glance, mail, tasks and
+  events together, one click from each. The queue stays the heart of the mail; the
+  start page can be switched off.

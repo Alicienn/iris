@@ -3,6 +3,31 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 1.0.0 — 2026-09-29
+
+### New
+- Home: your day at a glance, opened from the name Iris at the top left or with Ctrl+0.
+- Home shows your unread mail, what arrived today, tasks due and this week's events, each one click away.
+- Iris opens on Home; switch it off in Settings to open on your mail.
+- Back and forward between the places you visit, with your mouse buttons, the arrows by the window buttons, or Alt+Left and Alt+Right.
+- Add tasks to a calendar event; they appear in Tasks, due when it starts.
+- Click a tag in the accounts column to see the mail of its mailboxes only.
+- Fold a tag's mailboxes away with its arrow.
+- Drag tags into the order you want in their window.
+- Ctrl+Z brings back a task you just deleted.
+
+### Improved
+- Accounts are grouped by tag from the start, and tag names read like folders.
+- The accounts, folders, calendars and task lists look and behave alike.
+- The calendar opens on the week, then on the view you chose last.
+- New calendar is now a + next to Calendars.
+- Deleting a task no longer opens the next one.
+
+### Fixed
+- Rounded windows, menus and panels no longer show a straight line across their corners.
+- Text fields keep a single line's height.
+- In compact density, the message excerpt is no longer cut off at the bottom.
+
 ## 0.8.0 — 2026-09-29
 
 ### New

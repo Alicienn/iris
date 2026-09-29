@@ -11,16 +11,40 @@ import { ScrollView } from "std-widgets.slint";
 component TagRow inherits Rectangle {
     in property <AccountTagData> tag;
     in property <[color]> palette;
+    /// Being carried to another place in the order.
+    in property <bool> carried;
+    /// Where the carried tag would land: before this row, or after it (the last).
+    in property <bool> drop-above;
+    in property <bool> drop-below;
 
     callback renamed(int, string);
     callback color-chosen(int, int);
     callback deleted(int);
+    /// The handle held, moved (the pointer's height in the window), let go.
+    callback carry-started();
+    callback carry-moved(length);
+    callback carry-ended();
 
     property <bool> colours;
     property <bool> confirming;
     property <string> nom: root.tag.name;
 
     height: ligne.preferred-height;
+    opacity: root.carried ? 0.4 : 1.0;
+
+    // Where it will land: a line across the top, or the bottom of the last row.
+    if root.drop-above: Rectangle {
+        y: -2px;
+        height: 2px;
+        border-radius: 1px;
+        background: Tokens.accent;
+    }
+    if root.drop-below: Rectangle {
+        y: root.height;
+        height: 2px;
+        border-radius: 1px;
+        background: Tokens.accent;
+    }
 
     ligne := VerticalLayout {
         spacing: 4px;
@@ -30,6 +54,34 @@ component TagRow inherits Rectangle {
         HorizontalLayout {
             height: 32px;
             spacing: Tokens.space-2;
+
+            // The handle it is carried by, to put it elsewhere in the order.
+            Rectangle {
+                width: 16px;
+                accessible-role: none;
+                Icon {
+                    data: Icons.grip;
+                    size: 14px;
+                    tint: prise.has-hover || prise.pressed ? Tokens.text-secondary : Tokens.text-muted;
+                }
+                prise := TouchArea {
+                    mouse-cursor: self.pressed ? MouseCursor.grabbing : MouseCursor.grab;
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left) {
+                            if (event.kind == PointerEventKind.down) {
+                                root.carry-started();
+                            } else if (event.kind == PointerEventKind.up) {
+                                root.carry-ended();
+                            }
+                        }
+                    }
+                    moved => {
+                        if (self.pressed) {
+                            root.carry-moved(self.absolute-position.y + self.mouse-y);
+                        }
+                    }
+                }
+            }
 
             // The colour: a click opens the swatches beneath.
             Rectangle {
@@ -148,7 +200,15 @@ export component TagsPanel inherits Rectangle {
     callback renamed(int, string);
     callback color-chosen(int, int);
     callback deleted(int);
+    /// A tag dragged to a new place in the order: its id, where it goes (0 first).
+    callback moved(int, int);
     callback dismissed();
+
+    // The tag being carried (its index), and where it would land.
+    property <int> porte: -1;
+    property <int> cible: -1;
+    // One row and the gap under it.
+    property <length> pas: 38px;
 
     PanelFrame {
         width: 100%;
@@ -194,17 +254,52 @@ export component TagsPanel inherits Rectangle {
             wrap: word-wrap;
         }
 
+        if root.tags.length > 1: Text {
+            text: "Drag a tag by its handle to change the order the accounts are grouped in.";
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+
         ScrollView {
             vertical-stretch: 1;
-            VerticalLayout {
+            // The mouse carries tags; the wheel scrolls.
+            mouse-drag-pan-enabled: false;
+            liste := VerticalLayout {
                 alignment: start;
                 spacing: 2px;
-                for tag in root.tags: TagRow {
+                padding-top: 2px;
+                for tag[i] in root.tags: TagRow {
                     tag: tag;
                     palette: root.palette;
+                    carried: root.porte == i;
+                    drop-above: root.porte >= 0 && root.cible == i
+                        && root.cible != root.porte && root.cible != root.porte + 1;
+                    drop-below: root.porte >= 0 && i == root.tags.length - 1
+                        && root.cible == root.tags.length && root.porte != i;
                     renamed(id, nom) => { root.renamed(id, nom); }
                     color-chosen(id, i) => { root.color-chosen(id, i); }
                     deleted(id) => { root.deleted(id); }
+                    carry-started => {
+                        root.porte = i;
+                        root.cible = i;
+                    }
+                    carry-moved(y) => {
+                        // Where between the rows the pointer is: 0 above the first,
+                        // the count below the last.
+                        root.cible = max(0, min(root.tags.length,
+                            round((y - liste.absolute-position.y) / root.pas)));
+                    }
+                    carry-ended => {
+                        let depuis = root.porte;
+                        let vers = root.cible;
+                        root.porte = -1;
+                        root.cible = -1;
+                        // Before its own row or just after it: it stays where it is.
+                        if (depuis >= 0 && vers != depuis && vers != depuis + 1) {
+                            root.moved(root.tags[depuis].id, vers > depuis ? vers - 1 : vers);
+                        }
+                    }
                 }
                 if root.tags.length == 0: Text {
                     height: 60px;

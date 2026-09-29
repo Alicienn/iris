@@ -67,6 +67,34 @@ struct Etat {
     /// Les tâches de la colonne, dans l'ordre, pour les flèches.
     ordre: Vec<i64>,
     listes: Vec<TaskList>,
+    /// What was deleted, most recent last, each with its subtasks: Ctrl+Z puts the
+    /// last of them back.
+    supprimees: Vec<Vec<StoredTask>>,
+}
+
+/// A task and its subtasks as they are before a delete, to put them back.
+fn avec_ses_etapes(services: &Services, id: i64) -> Vec<StoredTask> {
+    let Ok(Some(t)) = services.store.task(id) else {
+        return Vec::new();
+    };
+    let mut tout = vec![t];
+    tout.extend(services.store.subtasks(id).unwrap_or_default());
+    tout
+}
+
+/// Shows a task in the Tasks tab, among all of them, opened on the right.
+pub fn show_task(f: &AppWindow, id: i64) {
+    // One step back for the whole move: the view first, so the change of workspace
+    // that follows lands on the same place.
+    crate::nav::note(f, "tasks", "anytime");
+    f.set_workspace(2);
+    f.invoke_workspace_changed(2);
+    f.invoke_task_place_chosen("anytime".into());
+    f.invoke_task_row_selected(TaskRowData {
+        kind: 0,
+        id: id as i32,
+        ..Default::default()
+    });
 }
 
 // --- Le temps ----------------------------------------------------------------------
@@ -462,6 +490,8 @@ fn remplir_detail(f: &AppWindow, services: &Services, etat: &mut Etat, maintenan
             .unwrap_or(0) as i32,
         priority: t.task.priority,
         source: t.task.source.as_str().into(),
+        from_mail: t.task.thread_id.is_some(),
+        from_event: t.task.event_uid.is_some(),
         subtasks: ModelRc::new(VecModel::from(
             etapes
                 .iter()
@@ -645,6 +675,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         mois: None,
         ordre: Vec::new(),
         listes: Vec::new(),
+        supprimees: Vec::new(),
     }));
     f.set_task_reminders(ModelRc::new(VecModel::from(
         REMINDERS
@@ -757,18 +788,23 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         || {
             let vue = etat.borrow().vue;
             let faites = terminees(services, vue, maintenant_local().date());
+            let mut parties = Vec::new();
             for t in &faites {
+                parties.extend(avec_ses_etapes(services, t.id));
                 let _ = services.store.delete_task(t.id);
             }
             let mut e = etat.borrow_mut();
             if e.choisie.is_some_and(|c| faites.iter().any(|t| t.id == c)) {
                 e.choisie = None;
             }
+            if !parties.is_empty() {
+                e.supprimees.push(parties);
+            }
             drop(e);
             f.set_status(
                 match faites.len() {
-                    1 => "1 completed task deleted.".to_string(),
-                    n => format!("{n} completed tasks deleted."),
+                    1 => "1 completed task deleted. Ctrl+Z brings it back.".to_string(),
+                    n => format!("{n} completed tasks deleted. Ctrl+Z brings them back."),
                 }
                 .into(),
             );
@@ -1032,7 +1068,10 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_task_step_removed,
         [services, etat, redessiner, f, controller],
         |id| {
-            let _ = services.store.delete_task(id as i64);
+            let partie = avec_ses_etapes(services, id as i64);
+            if services.store.delete_task(id as i64).is_ok() && !partie.is_empty() {
+                etat.borrow_mut().supprimees.push(partie);
+            }
             redessiner();
         }
     );
@@ -1062,29 +1101,50 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         || {
             let mut e = etat.borrow_mut();
             let Some(id) = e.choisie else { return };
-            let titre = services
-                .store
-                .task(id)
-                .ok()
-                .flatten()
-                .map(|t| t.task.title)
+            let partie = avec_ses_etapes(services, id);
+            let titre = partie
+                .first()
+                .map(|t| t.task.title.clone())
                 .unwrap_or_default();
-            // La sélection passe à la suivante, pour enchaîner au clavier.
-            let i = e.ordre.iter().position(|x| *x == id);
-            e.choisie = i
-                .and_then(|i| {
-                    e.ordre
-                        .get(i + 1)
-                        .or_else(|| i.checked_sub(1).and_then(|j| e.ordre.get(j)))
-                })
-                .copied();
+            // The panel closes with the task. It used to open the next one, which
+            // nobody had asked to look at: the column is there to pick it.
+            e.choisie = None;
             e.mois = None;
+            if services.store.delete_task(id).is_ok() && !partie.is_empty() {
+                e.supprimees.push(partie);
+            }
             drop(e);
-            let _ = services.store.delete_task(id);
-            f.set_status(format!("Task deleted: {titre}").into());
+            f.set_status(format!("Task deleted: {titre}. Ctrl+Z brings it back.").into());
             redessiner();
         }
     );
+    // Ctrl+Z in Tasks: the last delete comes undone, and the task is shown again.
+    geste!(
+        on_task_undo,
+        [services, etat, redessiner, f, controller],
+        || {
+            let Some(partie) = etat.borrow_mut().supprimees.pop() else {
+                f.set_status("Nothing to undo.".into());
+                return;
+            };
+            let remises = services.store.restore_tasks(&partie, now()).unwrap_or(0);
+            let dessus: Vec<&StoredTask> = partie
+                .iter()
+                .filter(|t| !partie.iter().any(|p| Some(p.id) == t.task.parent_id))
+                .collect();
+            if remises == 0 {
+                f.set_status("That task's list is gone: it cannot come back.".into());
+            } else if let [seule] = dessus.as_slice() {
+                // A task put back is shown, where it was: the panel reopens on it.
+                etat.borrow_mut().choisie = Some(seule.id);
+                f.set_status(format!("Restored: {}.", seule.task.title).into());
+            } else {
+                f.set_status(format!("{} tasks restored.", dessus.len()).into());
+            }
+            redessiner();
+        }
+    );
+
     geste!(
         on_task_detail_closed,
         [services, etat, redessiner, f, controller],

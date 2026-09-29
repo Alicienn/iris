@@ -366,3 +366,35 @@ describe symptoms, and the symptoms are further apart than the fault.
       from the event so a refresh cannot erase them (schema 11).
 - [x] **S34.3** A colour per calendar.
 - [x] **S34.4** Conversations in Done can be deleted.
+
+## E35 — Tags for the mailboxes, calendars of one's own (0.7.0)
+
+- [x] **S35.1** Tags on one's own mailboxes: made, renamed, recoloured in their window,
+      ticked from an account's right-click menu with a search that can create one
+      (schema 12). The accounts column groups by tag.
+- [x] **S35.2** Local calendars besides Personal, each event put in the one chosen.
+
+## E36 — Drafts, and tasks one can carry (0.8.0)
+
+- [x] **S36.1** The software renderer selected where the window opens, not only for the
+      memory command: 55 MB instead of 161 MB with OpenGL.
+- [x] **S36.2** Save draft to the account's Drafts folder, kept locally if the server
+      refuses; closing a started message asks.
+- [x] **S36.3** Tasks dragged onto a list or Today; the add line at the bottom; priority
+      as a tag; checked tasks stay struck through where they were checked.
+
+## E37 — Home, and a way back (1.0.0)
+
+- [x] **S37.1** A Home screen behind the name in the title bar: greeting, a quote, four
+      figures, the tasks coming up and the week's events, each leading to its place.
+      Opens first unless switched off in Settings.
+- [x] **S37.2** Back and forward between the places visited: the mouse's own buttons,
+      two arrows beside the window buttons, Alt+Left and Alt+Right.
+- [x] **S37.3** Tags fold, show their mailboxes' mail on a click, and keep the order
+      they are dragged into (schema 13). Grouping by tag is on by default.
+- [x] **S37.4** Tasks added from an event, due when it starts, kept if its calendar goes.
+- [x] **S37.5** One look for the three side columns; square corners where a panel meets
+      the window, no straight line through a rounded one; one-line fields that keep
+      one line's height; compact rows of two lines that fit.
+- [x] **S37.6** A task deleted from its panel comes back with Ctrl+Z; the calendar opens
+      on the week, or on the view last chosen.

@@ -39,7 +39,7 @@ iris-calendar = { workspace = true }
 # L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 iana-time-zone = "0.1"
-slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std"] }
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std", "unstable-winit-030"] }
 tokio = { workspace = true }
 async-trait = "0.1"
 serde = { workspace = true }

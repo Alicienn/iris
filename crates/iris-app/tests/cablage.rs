@@ -65,6 +65,8 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
         "crates/iris-app/src/tasks.rs",
         "crates/iris-app/src/tags.rs",
         "crates/iris-app/src/workspace.rs",
+        "crates/iris-app/src/home.rs",
+        "crates/iris-app/src/nav.rs",
     ]
     .iter()
     .map(|p| std::fs::read_to_string(racine.join(p)).unwrap_or_else(|e| panic!("{p}: {e}")))

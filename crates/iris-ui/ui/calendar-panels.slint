@@ -2,7 +2,7 @@ import { Tokens } from "tokens.slint";
 import { Floating } from "glass.slint";
 import { Icon, Icons, IconButton } from "icons.slint";
 import { TextField, TextArea } from "field.slint";
-import { EventDetailData, CalendarData, MonthCellData } from "types.slint";
+import { EventDetailData, CalendarData, MonthCellData, SubtaskData } from "types.slint";
 import { CalButton, MiniMonth } from "calendar.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
@@ -96,12 +96,79 @@ export component Labelled inherits VerticalLayout {
     @children
 }
 
+// A task of an event: ticked here, opened in Tasks.
+component EventTaskRow inherits Rectangle {
+    in property <SubtaskData> task;
+    callback toggled(int);
+    callback opened(int);
+
+    height: 28px;
+    border-radius: Tokens.radius-small;
+    background: ligne.has-hover ? Tokens.surface-hover : transparent;
+
+    ligne := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.task.id); }
+    }
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: Tokens.space-2;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            border-width: 1.5px;
+            border-color: root.task.done ? Tokens.success : case.has-hover ? Tokens.text-secondary : Tokens.text-muted;
+            background: root.task.done ? Tokens.success : transparent;
+
+            accessible-role: checkbox;
+            accessible-label: root.task.title;
+            accessible-checked: root.task.done;
+            accessible-action-default => { root.toggled(root.task.id); }
+
+            if root.task.done: Icon {
+                data: Icons.check;
+                size: 10px;
+                weight: 3.0;
+                tint: white;
+            }
+            case := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.toggled(root.task.id); }
+            }
+        }
+        Text {
+            text: root.task.title;
+            font-size: Tokens.size-body;
+            color: root.task.done ? Tokens.text-muted : Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if ligne.has-hover: Text {
+            text: "Open in Tasks";
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
 // What an event is, when, where.
 export component EventDetailPanel inherits Rectangle {
     in property <EventDetailData> detail;
     /// What the user wrote about this event — theirs, even on a subscribed calendar.
     in-out property <string> notes;
+    /// The tasks added from this event, done or not.
+    in property <[SubtaskData]> tasks;
+    in-out property <string> new-task;
     callback notes-edited(string);
+    callback task-added(string);
+    callback task-toggled(int);
+    callback task-opened(int);
     callback edit();
     callback delete();
     callback dismissed();
@@ -113,7 +180,7 @@ export component EventDetailPanel inherits Rectangle {
         // A long title is read whole: it is often the only thing that says what the
         // event is.
         wrap-title: true;
-        card-height: 540px;
+        card-height: 640px;
         dismissed => { root.dismissed(); }
 
         HorizontalLayout {
@@ -204,6 +271,30 @@ export component EventDetailPanel inherits Rectangle {
                 placeholder-text: "Anything to remember about it, kept on this computer";
                 text <=> root.notes;
                 edited(t) => { root.notes-edited(t); }
+            }
+        }
+
+        // What there is to do for it. Each one is a task in Tasks, due when the
+        // event starts, and stays there if the calendar goes.
+        Labelled {
+            label: root.tasks.length == 0 ? "Tasks" : "Tasks (" + root.tasks.length + ")";
+            VerticalLayout {
+                spacing: 1px;
+                for t in root.tasks: EventTaskRow {
+                    task: t;
+                    toggled(id) => { root.task-toggled(id); }
+                    opened(id) => { root.task-opened(id); }
+                }
+            }
+            TextField {
+                accessible-label: "Add a task for this event";
+                placeholder-text: "Add a task for this event, due when it starts";
+                text <=> root.new-task;
+                accepted(t) => {
+                    if (t != "") {
+                        root.task-added(t);
+                    }
+                }
             }
         }
 

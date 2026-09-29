@@ -19,7 +19,8 @@ Three stances set it apart:
 
 ## Status
 
-The foundation is complete and exercised: the suite holds about **1,490 tests**,
+The foundation is complete and exercised: the suite holds about **1,470 tests** (1,343
+tests and 128 interface scenarios, measured for 1.0.0),
 including those that genuinely put synchronisation, the plugin sandbox and the rendering
 engine at fault, and two headless interface suites driven by real pointer and key events.
 
@@ -130,23 +131,51 @@ property**, not by discipline:
 
 Stated here so they are decided rather than discovered:
 
-- **Calendar and tasks read SQLite on the display thread.** Their state lives on the UI
-  thread and their queries are small and bounded (a visible period, a list), but they
-  break invariant 1 in letter. Moving them behind the view model is the fix if a large
-  calendar ever shows up in a frame time.
+- **Calendar, tasks and Home read SQLite on the display thread.** Their state lives on
+  the UI thread and their queries are small and bounded (a visible period, a list, a
+  handful of counts), but they break invariant 1 in letter. Moving them behind the view
+  model is the fix if a large calendar ever shows up in a frame time.
+- **The mouse's back and forward buttons are read from winit**, through Slint's
+  `unstable-winit-030` accessor: inside the interface, whatever row or button is under
+  the pointer takes the press first. The accessor is tied to Slint's minor version.
 - `iris-ui` and `iris-workflow` depend on `iris-store` directly.
 
 ---
 
 ## Interface
 
-Three workspaces share one window, switched from the title bar or with `Ctrl`+`1`,
-`Ctrl`+`2`, `Ctrl`+`3`: **Mail**, **Calendar**, **Tasks**. `app.slint` holds a
-`workspace` property and renders the matching view; `workspace.rs` fans the change out to
-every Rust follower, because Slint keeps only one handler per callback.
+Four workspaces share one window, switched from the title bar or with `Ctrl`+`0` to
+`Ctrl`+`3`: **Home** (behind the name "Iris"), **Mail**, **Calendar**, **Tasks**.
+`app.slint` holds a `workspace` property (3 is Home) and renders the matching view;
+`workspace.rs` fans the change out to every Rust follower, because Slint keeps only one
+handler per callback.
+
+**Home** (`home.rs`, `ui/home.slint`, 1.0.0) is read from the base when it shows and
+after each sync while it stays: unread, the queue, what arrived today (one pass over
+`messages` in `Store::mail_stats`), the tasks due, the week's occurrences of the visible
+calendars, and a quote drawn from a list of old public-domain lines. Every figure and
+line leads to its place. It opens first unless `home_at_startup` is off. The Iris mark
+turns a crown of points while every account syncs, one animated value, only while it
+does.
+
+**Back and forward** (`nav.rs`, 1.0.0). A place is the workspace plus what each one last
+showed: the mailbox or tag, folder and tab of the mail, the tasks' view, the calendar's
+view. The interface reports every choice (`navigated(kind, value)`), and each new place
+is a step; Back and Forward replay a place through the window's own callbacks, with the
+recording off. The mouse's buttons, two arrows beside the window buttons, `Alt`+`←` and
+`Alt`+`→`, 100 steps kept.
 
 Mail is three columns: accounts, work queue, conversation with a built-in reply. Each
-sender gets a round mark with their initials and a stable tint; unread mail a dot.
+sender gets a round mark with their initials and a stable tint; unread mail a dot. The
+accounts group under their tags by default: a tag's title folds its accounts (the folded
+tags are a setting) and a click on it filters the queue to its mailboxes, through the
+same `FilterAccounts` request as one mailbox. Tags keep the order they are dragged into.
+
+The three side columns share `ui/nav.slint`: one selection mark (a short pill inside the
+row, clear of its rounded corners), one hover, one section title. Only the height
+differs: 26 px in the mail, which lists a hundred mailboxes, 32 px elsewhere. Panels
+docked to the window's edge are square, with a hairline between them; only floating
+cards are rounded.
 
 ### Keyboard, focus and clicks
 
@@ -160,8 +189,9 @@ These rules come from bugs users hit, and each has a scenario in
   overlay — compose, settings, modules, palette, menus, calendar and task panels. While
   it is true, only `Escape` (and `Ctrl`+`K`) get through; when it turns false, focus goes
   back to the shortcuts.
-- Calendar and tasks have their own keys and accept them, so a mail key like `E` never
-  acts on a thread that is not on screen.
+- Home, calendar and tasks have their own keys (Home has none) and accept them, so a
+  mail key like `E` never acts on a thread that is not on screen. `Ctrl`+`Z` in Tasks
+  brings back the last task deleted, not a mail action.
 - Text fields are `TextField` / `TextArea` from `ui/field.slint`: focus shows on the
   border, never the background, and AltGr characters are accepted.
 
@@ -233,6 +263,12 @@ The application side (`crates/iris-app/src/calendar.rs`):
   is deleted; an empty note is deleted.
 - **Colours** (0.6.0): an eight-colour palette, written to the existing
   `calendars.color` column.
+- **Tasks of an event** (1.0.0): added from the event's panel, due when the occurrence
+  starts (the day alone for an all-day event), keyed like the notes by UID and
+  occurrence but **not** by calendar, so hiding, unsubscribing or deleting the calendar
+  leaves them in Tasks.
+- **The view** opens on the week the first time, then on the one last chosen
+  (`calendar_view` in the settings).
 
 ## Tasks
 
@@ -246,12 +282,16 @@ The application side (`crates/iris-app/src/calendar.rs`):
 - `due` says when a task is due, in words, and which section it belongs to.
 
 The application side (`crates/iris-app/src/tasks.rs`) builds the views — **Today**,
-**Upcoming**, **Anytime**, **From mail**, and the user's lists. Today combines tasks due
-or late, today's events and up to six conversations still to do. A task made from a
-conversation keeps the thread's identifier *and* a "Sender — Subject" line, so it
-outlives the thread; there is at most one task per thread. Reminders use the same
-30-second timer pattern as the calendar, with the due-reminder state stored in the
+**Upcoming**, **All tasks**, **From mail**, and the user's lists. One predicate says
+whether a task belongs to a view, for the open tasks and the completed ones alike, so a
+task checked from Today stays there struck through until the completed are cleared. A
+task made from a conversation keeps the thread's identifier *and* a "Sender: Subject"
+line, so it outlives the thread; there is at most one task per thread. Reminders use the
+same 30-second timer pattern as the calendar, with the due-reminder state stored in the
 database so a reminder fires once.
+
+A delete keeps the task and its subtasks in memory; `Ctrl`+`Z` puts them back under
+their own identifiers (`Store::restore_tasks`), unless their list has gone since.
 
 ## Sending, and undoing a send
 
@@ -291,6 +331,8 @@ Iris is refused rather than misread.
 | 9 | Calendars and events, with a "Personal" calendar (0.3.0) |
 | 10 | Task lists and tasks, with "My tasks" (0.5.0) |
 | 11 | Threads put aside from Done, and event notes (0.6.0) |
+| 12 | Tags on one's own mailboxes, and their links (0.7.0) |
+| 13 | Tags in an order of one's own; tasks tied to an event's UID and occurrence (1.0.0) |
 
 A new table or column always arrives as a new migration.
 

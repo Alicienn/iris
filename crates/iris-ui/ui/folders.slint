@@ -5,6 +5,7 @@ import { Icon, Icons, IconButton } from "icons.slint";
 import { Floating } from "glass.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "menu.slint";
 import { ListView } from "std-widgets.slint";
+import { Nav, SectionTitle, SelectionMark } from "nav.slint";
 
 // Une ligne de l'arborescence.
 //
@@ -31,16 +32,14 @@ component FolderRow inherits Rectangle {
         : root.node.role == "archive" ? Icons.archive
         : Icons.folder;
 
-    height: 24px;
+    height: 26px;
     border-radius: Tokens.radius-small;
     // Le survol d'un glisser se marque plus fort qu'un survol de souris : c'est le
     // moment où l'utilisateur doit être certain de l'endroit où il lâche, et une
     // nuance de gris de plus ne suffirait pas à le lui dire.
     background: depot.has-drag
         ? Tokens.accent.transparentize(0.75)
-        : (root.selected
-            ? Tokens.surface-active
-            : (touch.has-hover ? Tokens.surface-hover : transparent));
+        : Nav.background(root.selected, touch.has-hover);
     border-width: depot.has-drag ? 1px : 0px;
     border-color: Tokens.accent;
     animate background { duration: Tokens.instant; }
@@ -67,19 +66,15 @@ component FolderRow inherits Rectangle {
         + root.node.accounts + " mailboxes";
     accessible-action-default => { root.clicked(); }
 
-    Rectangle {
-        x: 0;
-        width: root.selected ? 2px : 0px;
-        height: 100%;
-        border-radius: 1px;
-        background: Tokens.accent;
-        animate width { duration: Tokens.instant; }
+    SelectionMark {
+        on: root.selected;
+        row-height: root.height;
     }
 
     HorizontalLayout {
-        padding-left: Tokens.space-2 + root.node.depth * 12px;
+        padding-left: 10px + root.node.depth * 12px;
         padding-right: Tokens.space-1;
-        spacing: Tokens.space-1;
+        spacing: Tokens.space-2;
 
         Icon {
             y: (parent.height - self.height) / 2;
@@ -90,7 +85,7 @@ component FolderRow inherits Rectangle {
 
         Text {
             text: root.node.name;
-            font-size: Tokens.size-small;
+            font-size: Nav.label-size;
             font-weight: root.selected ? Tokens.weight-bold : Tokens.weight-body;
             color: root.selected ? Tokens.text : Tokens.text-secondary;
             vertical-alignment: center;
@@ -157,12 +152,8 @@ export component FolderTree inherits VerticalLayout {
         vertical-stretch: 0;
         height: 18px;
 
-        Text {
+        SectionTitle {
             text: "FOLDERS";
-            font-size: 9px;
-            letter-spacing: 1px;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
         }
 
         Rectangle {}
@@ -180,20 +171,23 @@ export component FolderTree inherits VerticalLayout {
     // dit comment revenir à la vue complète.
     Rectangle {
         vertical-stretch: 0;
-        height: 24px;
+        height: 26px;
         border-radius: Tokens.radius-small;
-        background: root.selected-path == ""
-            ? Tokens.surface-active
-            : (tout-touch.has-hover ? Tokens.surface-hover : transparent);
+        background: Nav.background(root.selected-path == "", tout-touch.has-hover);
 
         accessible-role: list-item;
         accessible-label: "All folders";
         accessible-item-selected: root.selected-path == "";
         accessible-action-default => { root.all-selected(); }
 
+        SelectionMark {
+            on: root.selected-path == "";
+            row-height: parent.height;
+        }
+
         HorizontalLayout {
-            padding-left: Tokens.space-2;
-            spacing: Tokens.space-1;
+            padding-left: 10px;
+            spacing: Tokens.space-2;
 
             // Une pile de dossiers, pas l'icône de la boîte de réception : celle-ci
             // est juste en dessous, sur la ligne « Inbox », et deux lignes voisines
@@ -206,7 +200,7 @@ export component FolderTree inherits VerticalLayout {
             }
             Text {
                 text: "All folders";
-                font-size: Tokens.size-small;
+                font-size: Nav.label-size;
                 font-weight: root.selected-path == ""
                     ? Tokens.weight-bold
                     : Tokens.weight-body;

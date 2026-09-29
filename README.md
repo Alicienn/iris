@@ -21,6 +21,7 @@
 
 | | |
 |---|---|
+| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Home.** Your day at a glance: unread mail, what arrived, tasks due and this week's events, one click from each. |
 | <img src="docs/assets/icons/inbox.svg" width="20" alt=""> | **A work queue.** Every conversation is *to do*, *waiting* or *done*. One keystroke moves it along. |
 | <img src="docs/assets/icons/users.svg" width="20" alt=""> | **All your accounts in one place.** A unified inbox, or one account at a time, without slowing down. |
 | <img src="docs/assets/icons/zap.svg" width="20" alt=""> | **Instant.** Opening, archiving and searching never make you wait, even with hundreds of thousands of messages. |
@@ -51,21 +52,43 @@ Passwords are stored in the Windows credential store.
 
 ### Tags for your mailboxes
 
-With many mailboxes, tag them — *Clients*, *Personal*, *Club*. **Manage tags**, at the
-bottom of the accounts column, creates, renames, recolours and deletes them; right-click
-an account and open **Tags** to tick its own, or type to find or create one. The tag
-switch above the list groups the accounts under their tags.
+With many mailboxes, tag them (*Clients*, *Personal*, *Club*). **Manage tags**, at the
+bottom of the accounts column, creates, renames, recolours and deletes them, and you
+drag a tag by its handle to change their order; right-click an account and open
+**Tags** to tick its own, or type to find or create one.
+
+The accounts are listed under their tags, in that order. Click a tag's name to see the
+mail of its mailboxes only; click its arrow to fold its mailboxes away. The tag switch
+above the list shows them all in one list instead.
+
+## Home
+
+Iris opens on **Home**: a greeting, a line to start the day, your unread mail, what is
+waiting in your queue, what arrived today, the tasks due, and this week's events. Each
+figure and each line opens where it lives; a task's circle ticks it off. **Sync all
+accounts** at the top right fetches everything, and the Iris mark turns while it does.
+
+Click **Iris** at the top left, or press `Ctrl`+`0`, to come back to it. To open on your
+mail instead, switch off *Open Iris on Home* in *Settings*.
+
+## Back and forward
+
+The back and forward buttons of your mouse, the two arrows next to the window buttons,
+or `Alt`+`←` and `Alt`+`→` go back to the places you visited (a mailbox, a folder, a tab,
+a list of tasks, the calendar) and forward again, as in a browser.
 
 ## Calendar
 
 Switch between **Mail** and **Calendar** in the title bar, or with `Ctrl`+`1` and
-`Ctrl`+`2`.
+`Ctrl`+`2`. The calendar opens on the week, then on the view you chose last.
 
 - **New event** creates one in your own calendar; it can repeat and remind you before
   it starts.
-- **New calendar** adds a calendar of your own besides *Personal*; each event is put in
-  the one you choose. Right-click a calendar to rename it, change its colour or delete
-  it.
+- **+** next to *Calendars* adds a calendar of your own besides *Personal*; each event
+  is put in the one you choose. Right-click a calendar to rename it, change its colour
+  or delete it.
+- Open an event to add **tasks** for it. They appear in *Tasks*, due when the event
+  starts, and stay there if the calendar is hidden or removed.
 - **Subscribe to a calendar…** follows a calendar published as a link: the `webcal://`
   or `.ics` address that Google Calendar, Outlook, iCloud, a school or a club gives out.
   Iris reads it every half hour; subscribed calendars are read-only.
@@ -96,7 +119,7 @@ Open **Tasks** in the title bar, or with `Ctrl`+`3`.
   conversation into a task. *Open message* in the task brings it back.
 
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
-`Delete` delete.
+`Delete` delete, `Ctrl`+`Z` to bring back what you just deleted.
 
 ## Sending
 
@@ -128,7 +151,9 @@ installs it and reopens. You can also check by hand in *Settings › Updates*.
 | `C` | New message |
 | `Ctrl`+`K` | Command palette |
 | `T` | Add the conversation to tasks |
+| `Ctrl`+`0` | Home |
 | `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` | Mail / Calendar / Tasks |
+| `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |
 | `Ctrl`+`,` | Settings |
 

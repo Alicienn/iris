@@ -17,13 +17,17 @@ the first afternoon, and never forgive".
 | Composing | To / Cc / Bcc, attachments, formatting, signatures, an undo whose delay you choose |
 | Offline | Every action journalled and replayed; nothing waits for the network |
 | Privacy | Remote images blocked by default, trackers named |
-| Calendar | Month, week and day, subscriptions by link, invitations from mail, reminders, your own notes on any event |
-| Tasks | One-line entry, lists, steps, reminders, and tasks made from conversations |
+| Calendar | Month, week and day, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event |
+| Tasks | One-line entry, lists, subtasks, reminders, tasks made from conversations and events, undo |
+| Drafts | Saved to the server's Drafts folder, asked for when a started message is closed |
+| Home | A start page for the day: mail, queue, tasks due, the week's events |
+| Navigation | Back and forward across mailboxes, folders, views and workspaces, mouse buttons included |
+| Many mailboxes | Tags that group, fold, order and filter them |
 
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris did not, when this was written.
 
-> **Status (0.6.0):** items 1 to 5 are built, and so is most of item 7 — a calendar,
+> **Status (1.0.0):** items 1 to 5 are built, and so is most of item 7 — a calendar,
 > and invitations opened from a message go into it. What remains of 7 is answering an
 > invitation (Accept / Decline). Items 6, 8 and 9 are still missing.
 

@@ -29,6 +29,29 @@ export struct ThreadRowData {
     sender-tint: color,
 }
 
+// A figure on the Home screen: "12", "unread", "across 4 accounts". `target` is
+// where a click on it goes: "mail", "tasks", "calendar".
+export struct HomeStatData {
+    value: string,
+    label: string,
+    hint: string,
+    target: string,
+    tint: color,
+}
+
+// A line of the Home screen: a task or an event, or a day's title (`header`).
+export struct HomeItemData {
+    id: int,
+    key: string,
+    title: string,
+    meta: string,
+    color: color,
+    overdue: bool,
+    done: bool,
+    past: bool,
+    header: bool,
+}
+
 export struct AccountRowData {
     id: int,
     label: string,
@@ -47,6 +70,11 @@ export struct AccountRowData {
     // A group title in the list rather than an account: a tag, when accounts are
     // grouped by tag. `label` is its name and `tint` its colour.
     header: bool,
+    // For a group title: the tag (0 for the accounts without one), whether its
+    // accounts are folded away, and how many there are.
+    tag-id: int,
+    folded: bool,
+    members: int,
 }
 
 // A tag put on one's own mailboxes.
@@ -349,7 +377,10 @@ export struct TaskDetailData {
     list-index: int,
     reminder-index: int,
     priority: int,
-    // Where it came from: "Marie — Devis refonte". Empty for a task written here.
+    // Where it came from: "Marie: Devis refonte". Empty for a task written here.
     source: string,
+    // It came from a conversation, which it can open; or from a calendar event.
+    from-mail: bool,
+    from-event: bool,
     subtasks: [SubtaskData],
 }

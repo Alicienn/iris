@@ -101,12 +101,54 @@ component WorkspaceTab inherits Rectangle {
     }
 }
 
+// Back or forward through the places visited: a small arrow, dimmed when there is
+// nowhere to go.
+component NavButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> enabled;
+    callback clicked();
+
+    width: 34px;
+    height: 100%;
+    background: root.enabled && touch.has-hover ? Tokens.surface-hover : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        data: root.glyph;
+        size: 14px;
+        tint: root.enabled ? Tokens.text-secondary : Tokens.text-muted.transparentize(0.5);
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+
+    Tooltip {
+        text: @markdown("\{root.label}  \{root.shortcut}");
+    }
+}
+
 export component TitleBar inherits Rectangle {
     in property <string> title;
     in property <bool> maximised;
-    /// Which workspace is showing: 0 mail, 1 calendar, 2 tasks.
+    /// Which workspace is showing: 0 mail, 1 calendar, 2 tasks, 3 Home.
     in-out property <int> workspace;
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
     callback workspace-chosen(int);
+    callback back();
+    callback forward();
 
     callback minimise();
     callback toggle-maximise();
@@ -130,12 +172,30 @@ export component TitleBar inherits Rectangle {
         padding-left: Tokens.space-3;
         spacing: 0px;
 
-        Text {
-            text: root.title;
-            font-family: Tokens.font-family;
-            font-size: Tokens.size-small;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
+        // The name leads Home. It looks as it always did; only the pointer and a
+        // lighter colour under it say it can be clicked.
+        Rectangle {
+            width: nom.preferred-width;
+            accessible-role: button;
+            accessible-label: "Home";
+            accessible-description: "Ctrl+0";
+            accessible-action-default => { root.workspace-chosen(3); }
+
+            nom := Text {
+                text: root.title;
+                font-family: Tokens.font-family;
+                font-size: Tokens.size-small;
+                color: accueil.has-hover || root.workspace == 3 ? Tokens.text-secondary : Tokens.text-muted;
+                vertical-alignment: center;
+                height: 100%;
+            }
+            accueil := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.workspace-chosen(3); }
+            }
+            Tooltip {
+                text: @markdown("Home  Ctrl+0");
+            }
         }
 
         Rectangle { width: Tokens.space-4; }
@@ -189,6 +249,22 @@ export component TitleBar inherits Rectangle {
                 double-clicked => { root.toggle-maximise(); }
             }
         }
+
+        NavButton {
+            glyph: Icons.arrow-left;
+            label: "Back";
+            shortcut: "Alt+←";
+            enabled: root.can-go-back;
+            clicked => { root.back(); }
+        }
+        NavButton {
+            glyph: Icons.arrow-right;
+            label: "Forward";
+            shortcut: "Alt+→";
+            enabled: root.can-go-forward;
+            clicked => { root.forward(); }
+        }
+        Rectangle { width: Tokens.space-2; }
 
         WindowButton {
             glyph: Icons.window-minimise;

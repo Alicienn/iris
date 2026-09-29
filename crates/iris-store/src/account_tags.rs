@@ -32,14 +32,14 @@ fn nom_valide(name: &str) -> Result<&str> {
 }
 
 impl Store {
-    /// Tous les tags, par nom.
+    /// Tous les tags, dans l'ordre où l'utilisateur les a rangés.
     pub fn account_tags(&self) -> Result<Vec<AccountTag>> {
         self.with_conn(|c| {
             let mut stmt = c
                 .prepare(
                     "SELECT t.id, t.name, t.color, COUNT(l.account_id) FROM account_tags t \
                      LEFT JOIN account_tag_links l ON l.tag_id = t.id \
-                     GROUP BY t.id ORDER BY t.name COLLATE NOCASE",
+                     GROUP BY t.id ORDER BY t.position, t.name COLLATE NOCASE",
                 )
                 .map_err(err("lecture des tags"))?;
             let lignes = stmt
@@ -73,12 +73,45 @@ impl Store {
             if existe.is_some() {
                 return Err(Error::Config(format!("There is already a tag “{name}”.")));
             }
+            // A new tag goes last: the order is the user's, and a new one has no place
+            // in it yet.
             c.execute(
-                "INSERT INTO account_tags (name, color, created_at) VALUES (?1, ?2, ?3)",
+                "INSERT INTO account_tags (name, color, position, created_at) VALUES \
+                 (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM account_tags), ?3)",
                 params![name, color, now.millis()],
             )
             .map_err(err("création d'un tag"))?;
             Ok(c.last_insert_rowid())
+        })
+    }
+
+    /// Moves a tag to `index` in the order (0 is first); the others close up behind it.
+    pub fn move_account_tag(&self, id: i64, index: usize) -> Result<()> {
+        self.with_tx(|tx| {
+            let mut ordre: Vec<i64> = {
+                let mut stmt = tx
+                    .prepare("SELECT id FROM account_tags ORDER BY position, name COLLATE NOCASE")
+                    .map_err(err("ordre des tags"))?;
+                let ids = stmt
+                    .query_map([], |r| r.get(0))
+                    .map_err(err("ordre des tags"))?
+                    .collect::<rusqlite::Result<Vec<i64>>>()
+                    .map_err(err("ordre des tags"))?;
+                ids
+            };
+            let Some(depuis) = ordre.iter().position(|t| *t == id) else {
+                return Ok(());
+            };
+            let tag = ordre.remove(depuis);
+            ordre.insert(index.min(ordre.len()), tag);
+            for (i, t) in ordre.iter().enumerate() {
+                tx.execute(
+                    "UPDATE account_tags SET position = ?2 WHERE id = ?1",
+                    params![t, i as i64 + 1],
+                )
+                .map_err(err("ordre des tags"))?;
+            }
+            Ok(())
         })
     }
 
@@ -192,6 +225,28 @@ mod tests {
             .map(|t| t.name)
             .collect();
         assert_eq!(noms, ["Clients", "Famille"]);
+    }
+
+    #[test]
+    fn tags_keep_the_order_they_are_dragged_into() {
+        let s = Store::in_memory().unwrap();
+        let a = s.create_account_tag("Alpha", "#4fb286", t()).unwrap();
+        let b = s.create_account_tag("Beta", "#4fb286", t()).unwrap();
+        let c = s.create_account_tag("Gamma", "#4fb286", t()).unwrap();
+        let ordre = |s: &Store| -> Vec<i64> {
+            s.account_tags()
+                .unwrap()
+                .into_iter()
+                .map(|t| t.id)
+                .collect()
+        };
+        assert_eq!(ordre(&s), [a, b, c], "a new tag goes last");
+        s.move_account_tag(c, 0).unwrap();
+        assert_eq!(ordre(&s), [c, a, b]);
+        s.move_account_tag(c, 9).unwrap();
+        assert_eq!(ordre(&s), [a, b, c], "past the end: last");
+        s.move_account_tag(a, 1).unwrap();
+        assert_eq!(ordre(&s), [b, a, c]);
     }
 
     #[test]

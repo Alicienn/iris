@@ -60,10 +60,14 @@ export component Glass inherits Rectangle {
 
     // Reflet supérieur : un dégradé très court qui simule la lumière rasante sur
     // l'arête haute du panneau.
+    //
+    // Only along the straight part of the edge: drawn across the whole width, it ran
+    // square through the rounded corners and drew a flat line above each of them.
     Rectangle {
+        x: root.radius;
         y: 0;
         height: 1px;
-        width: 100%;
+        width: max(0px, parent.width - 2 * root.radius);
         background: Tokens.edge-light;
     }
 
@@ -72,12 +76,16 @@ export component Glass inherits Rectangle {
     // The one-pixel edge alone reads as a drawn line; this is what makes it read as
     // an edge catching light. Twenty-four pixels, fading to nothing — long enough to
     // be felt, short enough that nobody notices it as a gradient.
+    //
+    // Inside the border, with a curve a pixel tighter than the panel's: laid over the
+    // border it crossed the corners and drew a second, flatter curve inside each.
     Rectangle {
+        x: 1px;
         y: 1px;
         height: 24px;
-        width: 100%;
-        border-top-left-radius: root.radius;
-        border-top-right-radius: root.radius;
+        width: parent.width - 2px;
+        border-top-left-radius: max(0px, root.radius - 1px);
+        border-top-right-radius: max(0px, root.radius - 1px);
         background: @linear-gradient(180deg,
             Tokens.edge-light.transparentize(0.75) 0%,
             Tokens.edge-light.transparentize(1.0) 100%);

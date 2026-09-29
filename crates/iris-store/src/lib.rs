@@ -37,6 +37,7 @@ pub use model::{
 pub use ops::OpPayload;
 pub use rules::StoredRule;
 pub use tasks::{NewTask, StoredTask, TaskList};
+pub use threads::MailStats;
 
 use iris_types::{Error, Result};
 use rusqlite::Connection;

@@ -1047,11 +1047,12 @@ fn le_regroupement_par_tag_s_allume_au_dessus_de_la_liste() {
         let c = Rc::clone(&changes);
         f.on_group_by_tags_changed(move || *c.borrow_mut() += 1);
     }
-    clic(&bouton(&f, "Group accounts by tag"));
-    assert!(f.get_group_by_tags());
-    assert_eq!(*changes.borrow(), 1);
+    assert!(f.get_group_by_tags(), "grouped by tag from the start");
     clic(&bouton(&f, "Show accounts in one list"));
     assert!(!f.get_group_by_tags());
+    assert_eq!(*changes.borrow(), 1);
+    clic(&bouton(&f, "Group accounts by tag"));
+    assert!(f.get_group_by_tags());
 }
 
 fn un_nouveau_calendrier_s_ouvre_dans_son_nom() {
@@ -1094,6 +1095,345 @@ fn le_dernier_calendrier_perso_ne_se_supprime_pas() {
         !supprimer,
         "pas de suppression pour le seul calendrier à soi"
     );
+}
+
+// --- Home, and back and forward ---
+
+fn avec_modificateur(f: &AppWindow, modificateur: slint::platform::Key, touche: SharedString) {
+    let m = SharedString::from(modificateur);
+    f.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: m.clone() });
+    f.window().dispatch_event(WindowEvent::KeyPressed {
+        text: touche.clone(),
+    });
+    f.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: touche });
+    f.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: m });
+}
+
+fn le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri() {
+    let f = fenetre();
+    let touches = Rc::new(RefCell::new(Vec::<String>::new()));
+    let espaces = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |k| t.borrow_mut().push(k.to_string()));
+        let e = Rc::clone(&espaces);
+        f.on_workspace_changed(move |w| e.borrow_mut().push(w));
+    }
+    clic(&bouton(&f, "Home"));
+    assert_eq!(f.get_workspace(), 3, "the name opens Home");
+    assert_eq!(*espaces.borrow(), [3]);
+
+    taper(&f, "e#");
+    assert!(
+        touches.borrow().is_empty(),
+        "no key reaches the mail behind Home: {:?}",
+        touches.borrow()
+    );
+
+    ctrl(&f, "1");
+    assert_eq!(f.get_workspace(), 0);
+    ctrl(&f, "0");
+    assert_eq!(f.get_workspace(), 3, "Ctrl+0 is Home");
+}
+
+fn l_accueil_mene_a_ce_qu_il_montre() {
+    let f = fenetre();
+    f.set_workspace(3);
+    f.set_home_stats(ModelRc::new(VecModel::from(vec![iris_ui::HomeStatData {
+        value: "4".into(),
+        label: "Unread".into(),
+        target: "mail".into(),
+        ..Default::default()
+    }])));
+    f.set_home_tasks(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
+        id: 9,
+        title: "Call the plumber".into(),
+        ..Default::default()
+    }])));
+    let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
+    let cochees = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let taches = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let o = Rc::clone(&ouverts);
+        f.on_home_open(move |t| o.borrow_mut().push(t.to_string()));
+        let c = Rc::clone(&cochees);
+        f.on_home_task_toggled(move |id| c.borrow_mut().push(id));
+        let t = Rc::clone(&taches);
+        f.on_home_task_opened(move |id| t.borrow_mut().push(id));
+    }
+    clic(&bouton(&f, "4 Unread"));
+    assert_eq!(*ouverts.borrow(), ["mail"]);
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::Checkbox,
+        "Call the plumber",
+    ));
+    assert_eq!(*cochees.borrow(), [9], "the box ticks the task");
+    assert!(taches.borrow().is_empty(), "ticking does not open it");
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::ListItem,
+        "Call the plumber",
+    ));
+    assert_eq!(*taches.borrow(), [9]);
+}
+
+fn retour_et_avant_aux_boutons_et_au_clavier() {
+    let f = fenetre();
+    let retours = Rc::new(RefCell::new(0));
+    let avances = Rc::new(RefCell::new(0));
+    let pas = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
+    {
+        let r = Rc::clone(&retours);
+        f.on_nav_back(move || *r.borrow_mut() += 1);
+        let a = Rc::clone(&avances);
+        f.on_nav_forward(move || *a.borrow_mut() += 1);
+        let p = Rc::clone(&pas);
+        f.on_navigated(move |k, v| p.borrow_mut().push((k.to_string(), v.to_string())));
+    }
+    // Nowhere to go yet: the buttons do nothing.
+    clic(&bouton(&f, "Back"));
+    assert_eq!(*retours.borrow(), 0);
+
+    f.set_can_go_back(true);
+    f.set_can_go_forward(true);
+    clic(&bouton(&f, "Back"));
+    clic(&bouton(&f, "Forward"));
+    assert_eq!((*retours.borrow(), *avances.borrow()), (1, 1));
+
+    avec_modificateur(
+        &f,
+        slint::platform::Key::Alt,
+        SharedString::from(slint::platform::Key::LeftArrow),
+    );
+    assert_eq!(*retours.borrow(), 2, "Alt+Left goes back");
+
+    // A choice in the interface is a step of the history.
+    deux_comptes(&f);
+    f.set_group_by_tags(false);
+    clic(&ligne_de_compte(&f, "b@example.com"));
+    assert_eq!(
+        pas.borrow().last(),
+        Some(&("account".to_string(), "4".to_string()))
+    );
+
+    // Not from an open window.
+    composer(&f);
+    avec_modificateur(
+        &f,
+        slint::platform::Key::Alt,
+        SharedString::from(slint::platform::Key::LeftArrow),
+    );
+    assert_eq!(*retours.borrow(), 2);
+}
+
+// --- The accounts under their tags ---
+
+fn deux_tags(f: &AppWindow) {
+    let compte = |id: i32, nom: &str| iris_ui::AccountRowData {
+        id,
+        label: nom.into(),
+        ..Default::default()
+    };
+    f.set_other_accounts(ModelRc::new(VecModel::from(vec![
+        iris_ui::AccountRowData {
+            id: -1,
+            label: "Clients".into(),
+            header: true,
+            tag_id: 5,
+            members: 1,
+            ..Default::default()
+        },
+        compte(3, "a@example.com"),
+        iris_ui::AccountRowData {
+            id: -1,
+            label: "Personal".into(),
+            header: true,
+            tag_id: 6,
+            members: 1,
+            folded: true,
+            ..Default::default()
+        },
+    ])));
+}
+
+fn un_tag_se_choisit_et_se_replie() {
+    let f = fenetre();
+    deux_tags(&f);
+    let choisis = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let plies = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let c = Rc::clone(&choisis);
+        let fw = f.as_weak();
+        f.on_tag_selected(move |t| {
+            c.borrow_mut().push(t);
+            fw.upgrade().unwrap().set_selected_tag(t);
+        });
+        let p = Rc::clone(&plies);
+        f.on_tag_fold_toggled(move |t| p.borrow_mut().push(t));
+    }
+    clic(&ligne_de_compte(&f, "Clients"));
+    assert_eq!(*choisis.borrow(), [5], "the title shows the tag's mail");
+    assert!(
+        ligne_de_compte(&f, "Clients")
+            .accessible_item_selected()
+            .unwrap_or(false),
+        "the tag is marked as the place shown"
+    );
+    assert!(!ligne_de_compte(&f, "a@example.com")
+        .accessible_item_selected()
+        .unwrap_or(false));
+
+    // The chevron, at the left of the title, folds instead.
+    let titre = ligne_de_compte(&f, "Personal");
+    let (pos, taille) = (titre.absolute_position(), titre.size());
+    let point = slint::LogicalPosition::new(pos.x + 10.0, pos.y + taille.height / 2.0);
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position: point,
+        button: PointerEventButton::Left,
+    });
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position: point,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(*plies.borrow(), [6]);
+    assert_eq!(*choisis.borrow(), [5], "folding does not open the tag");
+    // And the chevron is a button of its own for a screen reader.
+    bouton(&f, "Unfold Personal");
+    bouton(&f, "Fold Clients");
+}
+
+fn les_tags_se_rangent_a_la_souris() {
+    let f = fenetre();
+    let tag = |id: i32, nom: &str| iris_ui::AccountTagData {
+        id,
+        name: nom.into(),
+        ..Default::default()
+    };
+    f.set_account_tags(ModelRc::new(VecModel::from(vec![
+        tag(1, "Alpha"),
+        tag(2, "Beta"),
+        tag(3, "Gamma"),
+    ])));
+    f.set_tags_open(true);
+    let deplaces = Rc::new(RefCell::new(Vec::<(i32, i32)>::new()));
+    {
+        let d = Rc::clone(&deplaces);
+        f.on_tag_moved(move |id, i| d.borrow_mut().push((id, i)));
+    }
+    // Gamma's handle, carried above Alpha.
+    // One field per row, found once per row whatever the query returns.
+    let mut noms: Vec<testing::ElementHandle> = Vec::new();
+    for c in testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::TextInput)
+        .find_all()
+        .into_iter()
+        .filter(|c| c.accessible_label().as_deref() == Some("Tag name"))
+    {
+        let y = c.absolute_position().y;
+        if !noms
+            .iter()
+            .any(|n| (n.absolute_position().y - y).abs() < 1.0)
+        {
+            noms.push(c);
+        }
+    }
+    noms.sort_by(|a, b| a.absolute_position().y.total_cmp(&b.absolute_position().y));
+    assert_eq!(noms.len(), 3);
+    let poignee = |e: &testing::ElementHandle| {
+        let (pos, taille) = (e.absolute_position(), e.size());
+        // The handle sits left of the colour, left of the name.
+        slint::LogicalPosition::new(pos.x - 36.0, pos.y + taille.height / 2.0)
+    };
+    let de = poignee(&noms[2]);
+    let a = slint::LogicalPosition::new(de.x, noms[0].absolute_position().y - 4.0);
+    porter(&f, de, a);
+    assert_eq!(*deplaces.borrow(), [(3, 0)], "Gamma goes first");
+}
+
+// --- Tasks: a delete is undone ---
+
+fn une_tache_supprimee_revient_par_ctrl_z() {
+    let f = fenetre();
+    f.set_workspace(2);
+    une_tache(&f);
+    f.set_task_has_detail(true);
+    f.set_task_detail_title("Payer le loyer".into());
+    let supprimees = Rc::new(RefCell::new(0));
+    let annulations = Rc::new(RefCell::new(0));
+    let annulations_courrier = Rc::new(RefCell::new(0));
+    {
+        let s = Rc::clone(&supprimees);
+        let fw = f.as_weak();
+        f.on_task_delete(move || {
+            *s.borrow_mut() += 1;
+            fw.upgrade().unwrap().set_task_has_detail(false);
+        });
+        let a = Rc::clone(&annulations);
+        f.on_task_undo(move || *a.borrow_mut() += 1);
+        let a = Rc::clone(&annulations_courrier);
+        f.on_undo(move || *a.borrow_mut() += 1);
+    }
+    // The cursor in the title, then the button: the panel closes with the task.
+    clic(&champ(&f, "Task title"));
+    clic(&bouton(&f, "Delete task"));
+    assert_eq!(*supprimees.borrow(), 1);
+    ctrl(&f, "z");
+    assert_eq!(*annulations.borrow(), 1, "Ctrl+Z brings the task back");
+    assert_eq!(
+        *annulations_courrier.borrow(),
+        0,
+        "and not a mail action behind"
+    );
+}
+
+// --- An event's tasks ---
+
+fn une_tache_s_ajoute_a_un_evenement() {
+    let f = fenetre();
+    f.set_workspace(1);
+    f.set_event_detail(iris_ui::EventDetailData {
+        title: "Quarterly review".into(),
+        ..Default::default()
+    });
+    f.set_event_detail_open(true);
+    f.set_event_tasks(ModelRc::new(VecModel::from(vec![iris_ui::SubtaskData {
+        id: 4,
+        title: "Print the slides".into(),
+        done: false,
+    }])));
+    let ajoutees = Rc::new(RefCell::new(Vec::<String>::new()));
+    let cochees = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let a = Rc::clone(&ajoutees);
+        f.on_event_task_added(move |t| a.borrow_mut().push(t.to_string()));
+        let c = Rc::clone(&cochees);
+        f.on_event_task_toggled(move |id| c.borrow_mut().push(id));
+    }
+    clic(&champ(&f, "Add a task for this event"));
+    taper(&f, "Book the room\n");
+    assert_eq!(*ajoutees.borrow(), ["Book the room"]);
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::Checkbox,
+        "Print the slides",
+    ));
+    assert_eq!(*cochees.borrow(), [4]);
+}
+
+// --- Fields keep one line's height ---
+
+fn un_champ_d_une_ligne_ne_grandit_pas() {
+    let f = fenetre();
+    f.set_add_account_open(true);
+    for nom in ["Email address", "Password"] {
+        let h = champ(&f, nom).size().height;
+        assert!(h <= 40.0, "{nom} stands {h} px tall");
+    }
 }
 
 fn main() {
@@ -1231,6 +1571,38 @@ fn main() {
         (
             "le_dernier_calendrier_perso_ne_se_supprime_pas",
             le_dernier_calendrier_perso_ne_se_supprime_pas,
+        ),
+        (
+            "le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri",
+            le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri,
+        ),
+        (
+            "l_accueil_mene_a_ce_qu_il_montre",
+            l_accueil_mene_a_ce_qu_il_montre,
+        ),
+        (
+            "retour_et_avant_aux_boutons_et_au_clavier",
+            retour_et_avant_aux_boutons_et_au_clavier,
+        ),
+        (
+            "un_tag_se_choisit_et_se_replie",
+            un_tag_se_choisit_et_se_replie,
+        ),
+        (
+            "les_tags_se_rangent_a_la_souris",
+            les_tags_se_rangent_a_la_souris,
+        ),
+        (
+            "une_tache_supprimee_revient_par_ctrl_z",
+            une_tache_supprimee_revient_par_ctrl_z,
+        ),
+        (
+            "une_tache_s_ajoute_a_un_evenement",
+            une_tache_s_ajoute_a_un_evenement,
+        ),
+        (
+            "un_champ_d_une_ligne_ne_grandit_pas",
+            un_champ_d_une_ligne_ne_grandit_pas,
         ),
     ];
 

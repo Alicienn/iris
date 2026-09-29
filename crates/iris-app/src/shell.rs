@@ -107,6 +107,10 @@ pub fn refresh_accounts(
     // Under their tags, when asked: a title per tag, its accounts beneath — an account
     // with two tags shows under both — then those without one. Empty groups (none of
     // their accounts matches the filter) are left out.
+    // A folded tag keeps its title and hides its accounts; a filter being typed
+    // unfolds everything, or it would find accounts nobody can see.
+    let replies = crate::settings::current().folded_tags;
+    let replie = |tag: i64| recherche.is_empty() && replies.contains(&tag);
     let lignes: Vec<AccountRowData> = if fenetre.get_group_by_tags() {
         let tags = services.store.account_tags().unwrap_or_default();
         let liens = services.store.account_tag_links().unwrap_or_default();
@@ -122,8 +126,13 @@ pub fn refresh_accounts(
             lignes.push(bridge::account_group_header(
                 &tag.name,
                 crate::calendar::couleur(&tag.color),
+                tag.id,
+                replie(tag.id),
+                dedans.len(),
             ));
-            lignes.extend(dedans.into_iter().map(|c| ligne(c)));
+            if !replie(tag.id) {
+                lignes.extend(dedans.into_iter().map(|c| ligne(c)));
+            }
         }
         let sans: Vec<&&iris_store::Account> = autres
             .iter()
@@ -133,8 +142,13 @@ pub fn refresh_accounts(
             lignes.push(bridge::account_group_header(
                 "No tag",
                 slint::Color::from_argb_u8(0, 0, 0, 0),
+                0,
+                replie(0),
+                sans.len(),
             ));
-            lignes.extend(sans.into_iter().map(|c| ligne(c)));
+            if !replie(0) {
+                lignes.extend(sans.into_iter().map(|c| ligne(c)));
+            }
         }
         lignes
     } else {
@@ -598,7 +612,11 @@ pub fn wire_callbacks(
 
     {
         let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
         fenetre.on_account_selected(move |id| {
+            if let Some(f) = faible.upgrade() {
+                f.set_selected_tag(-1);
+            }
             c.send(Request::FilterAccounts(vec![iris_types::AccountId(
                 id as i64,
             )]));
@@ -607,7 +625,11 @@ pub fn wire_callbacks(
 
     {
         let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
         fenetre.on_unified_selected(move || {
+            if let Some(f) = faible.upgrade() {
+                f.set_selected_tag(-1);
+            }
             c.send(Request::FilterAccounts(Vec::new()));
         });
     }
@@ -1848,6 +1870,7 @@ pub fn wire_settings(
 ) {
     let noms = services.themes.names();
     let courant = Arc::new(std::sync::Mutex::new(reglages));
+    crate::settings::share(Arc::clone(&courant), chemin.clone());
 
     // L'état initial du panneau.
     {
@@ -1867,7 +1890,8 @@ pub fn wire_settings(
         fenetre.set_notifications(reglages.notifications);
         fenetre.set_keep_running(reglages.keep_running);
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
-        fenetre.set_group_by_tags(reglages.group_accounts_by_tag);
+        fenetre.set_group_by_tags(reglages.accounts_by_tag);
+        fenetre.set_home_at_startup(reglages.home_at_startup);
 
         // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
         // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
@@ -1957,7 +1981,7 @@ pub fn wire_settings(
                 return;
             };
             let mut reglages = courant.lock().expect("réglages empoisonnés");
-            reglages.group_accounts_by_tag = fenetre.get_group_by_tags();
+            reglages.accounts_by_tag = fenetre.get_group_by_tags();
             enregistrer(&reglages);
             drop(reglages);
             refresh_accounts(&fenetre, &services, &[]);
@@ -2008,6 +2032,7 @@ pub fn wire_settings(
             // Rien à demander au système pour celui-ci : il ne décide que de ce que
             // fait la fermeture de la fenêtre, et de l'icône qui va avec.
             reglages.keep_running = fenetre.get_keep_running();
+            reglages.home_at_startup = fenetre.get_home_at_startup();
 
             let mut plaintes: Vec<String> = Vec::new();
 
@@ -3938,6 +3963,7 @@ pub fn wire_account_menu(
     }
 
     crate::tags::wire_tags(fenetre, services, Arc::clone(&sujet));
+    crate::tags::wire_tag_groups(fenetre, services, Arc::clone(&controller));
 
     {
         let faible = fenetre.as_weak();

@@ -33,8 +33,12 @@ pub struct NewTask {
     pub priority: i32,
     /// Le fil de courrier d'où vient la tâche.
     pub thread_id: Option<i64>,
-    /// De quoi nommer ce fil sans le relire : « Marie — Devis refonte ».
+    /// De quoi nommer ce fil sans le relire : « Marie: Devis refonte ».
     pub source: String,
+    /// The event the task was added from: its identifier…
+    pub event_uid: Option<String>,
+    /// …and the start of the occurrence (0 when the event does not repeat).
+    pub event_start: Option<i64>,
 }
 
 /// Une tâche, telle qu'elle se relit.
@@ -57,7 +61,7 @@ fn err(quoi: &str) -> impl Fn(rusqlite::Error) -> Error + '_ {
 }
 
 const COLONNES: &str = "id, list_id, parent_id, title, notes, due_day, due_minute, remind_before, \
-     remind_at, priority, thread_id, source, done_at, created_at";
+     remind_at, priority, thread_id, source, done_at, created_at, event_uid, event_start";
 
 fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
     Ok(StoredTask {
@@ -74,6 +78,8 @@ fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
             priority: r.get(9)?,
             thread_id: r.get(10)?,
             source: r.get(11)?,
+            event_uid: r.get(14)?,
+            event_start: r.get(15)?,
         },
         done_at: r.get::<_, Option<i64>>(12)?.map(Timestamp::from_millis),
         created_at: Timestamp::from_millis(r.get(13)?),
@@ -237,8 +243,9 @@ impl Store {
             c.execute(
                 "INSERT INTO tasks (list_id, parent_id, title, notes, due_day, due_minute, \
                  remind_before, remind_at, priority, thread_id, source, position, created_at, \
-                 updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, \
-                 (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?12, ?12)",
+                 updated_at, event_uid, event_start) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
+                 ?9, ?10, ?11, (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?12, ?12, \
+                 ?13, ?14)",
                 params![
                     t.list_id,
                     t.parent_id,
@@ -251,11 +258,75 @@ impl Store {
                     t.priority,
                     t.thread_id,
                     t.source,
-                    now.millis()
+                    now.millis(),
+                    t.event_uid,
+                    t.event_start
                 ],
             )
             .map_err(err("écriture d'une tâche"))?;
             Ok(c.last_insert_rowid())
+        })
+    }
+
+    /// Puts back tasks that were deleted, under their own identifiers, done or not as
+    /// they were: what Ctrl+Z needs after a delete. A task comes before its subtasks.
+    /// A list deleted since takes its tasks with it: those are not restored.
+    pub fn restore_tasks(&self, tasks: &[StoredTask], now: Timestamp) -> Result<usize> {
+        self.with_tx(|tx| {
+            let mut remises = 0;
+            for s in tasks {
+                let t = &s.task;
+                let fait = tx
+                    .execute(
+                        "INSERT OR IGNORE INTO tasks (id, list_id, parent_id, title, notes, \
+                         due_day, due_minute, remind_before, remind_at, reminded, priority, \
+                         thread_id, source, position, created_at, updated_at, done_at, \
+                         event_uid, event_start) \
+                         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?11, ?12, \
+                         (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?13, ?14, ?15, \
+                         ?16, ?17 WHERE EXISTS (SELECT 1 FROM task_lists WHERE id = ?2)",
+                        params![
+                            s.id,
+                            t.list_id,
+                            t.parent_id,
+                            t.title,
+                            t.notes,
+                            t.due_day,
+                            t.due_minute,
+                            t.remind_before,
+                            t.remind_at,
+                            t.priority,
+                            t.thread_id,
+                            t.source,
+                            s.created_at.millis(),
+                            now.millis(),
+                            s.done_at.map(|d| d.millis()),
+                            t.event_uid,
+                            t.event_start
+                        ],
+                    )
+                    .map_err(err("restauration d'une tâche"))?;
+                remises += fait;
+            }
+            Ok(remises)
+        })
+    }
+
+    /// The tasks added from an event: its identifier and occurrence, done or not.
+    pub fn tasks_for_event(&self, uid: &str, start: i64) -> Result<Vec<StoredTask>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare(&format!(
+                    "SELECT {COLONNES} FROM tasks WHERE event_uid = ?1 AND event_start = ?2 \
+                     AND parent_id IS NULL ORDER BY position, id"
+                ))
+                .map_err(err("tâches d'un événement"))?;
+            let lignes = stmt
+                .query_map(params![uid, start], tache)
+                .map_err(err("tâches d'un événement"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err("tâches d'un événement"));
+            lignes
         })
     }
 
@@ -266,7 +337,8 @@ impl Store {
                 "UPDATE tasks SET list_id = ?2, parent_id = ?3, title = ?4, notes = ?5, \
                  due_day = ?6, due_minute = ?7, remind_before = ?8, \
                  reminded = CASE WHEN remind_at IS ?9 THEN reminded ELSE 0 END, remind_at = ?9, \
-                 priority = ?10, thread_id = ?11, source = ?12, updated_at = ?13 WHERE id = ?1",
+                 priority = ?10, thread_id = ?11, source = ?12, updated_at = ?13, \
+                 event_uid = ?14, event_start = ?15 WHERE id = ?1",
                 params![
                     id,
                     t.list_id,
@@ -280,7 +352,9 @@ impl Store {
                     t.priority,
                     t.thread_id,
                     t.source,
-                    now.millis()
+                    now.millis(),
+                    t.event_uid,
+                    t.event_start
                 ],
             )
             .map_err(err("mise à jour d'une tâche"))?;
@@ -460,15 +534,59 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_task_comes_back_with_its_subtasks() {
+        let s = store();
+        let l = s.task_lists().unwrap()[0].id;
+        let parent = s.insert_task(&nouvelle(l, "déménager"), t(1)).unwrap();
+        let mut etape = nouvelle(l, "cartons");
+        etape.parent_id = Some(parent);
+        let etape = s.insert_task(&etape, t(2)).unwrap();
+        s.set_task_done(etape, Some(t(3))).unwrap();
+
+        let mut avant = vec![s.task(parent).unwrap().unwrap()];
+        avant.extend(s.subtasks(parent).unwrap());
+        s.delete_task(parent).unwrap();
+        assert!(s.task(etape).unwrap().is_none());
+
+        assert_eq!(s.restore_tasks(&avant, t(9)).unwrap(), 2);
+        assert_eq!(s.task(parent).unwrap().unwrap().task.title, "déménager");
+        assert_eq!(s.task(etape).unwrap().unwrap().done_at, Some(t(3)));
+        // Twice: nothing more.
+        assert_eq!(s.restore_tasks(&avant, t(9)).unwrap(), 0);
+    }
+
+    #[test]
+    fn an_event_keeps_its_tasks_by_identifier_and_occurrence() {
+        let s = store();
+        let l = s.task_lists().unwrap()[0].id;
+        let mut a = nouvelle(l, "Préparer les slides");
+        a.event_uid = Some("revue@example.com".into());
+        a.event_start = Some(1_000);
+        let id = s.insert_task(&a, t(1)).unwrap();
+        let mut b = a.clone();
+        b.event_start = Some(2_000);
+        s.insert_task(&b, t(2)).unwrap();
+        let liees = s.tasks_for_event("revue@example.com", 1_000).unwrap();
+        assert_eq!(liees.len(), 1);
+        assert_eq!(liees[0].id, id);
+        s.set_task_done(id, Some(t(5))).unwrap();
+        assert_eq!(
+            s.tasks_for_event("revue@example.com", 1_000).unwrap().len(),
+            1,
+            "done, it is still listed on the event"
+        );
+    }
+
+    #[test]
     fn tasks_remember_the_thread_they_came_from() {
         let s = store();
         let l = s.task_lists().unwrap()[0].id;
         let mut a = nouvelle(l, "Répondre au devis");
         a.thread_id = Some(42);
-        a.source = "Marie — Devis".into();
+        a.source = "Marie: Devis".into();
         s.insert_task(&a, t(1)).unwrap();
         let liees = s.tasks_for_thread(42).unwrap();
         assert_eq!(liees.len(), 1);
-        assert_eq!(liees[0].task.source, "Marie — Devis");
+        assert_eq!(liees[0].task.source, "Marie: Devis");
     }
 }

@@ -5,6 +5,7 @@ import {
     CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData
 } from "types.slint";
 import { ScrollView } from "std-widgets.slint";
+import { Nav, SectionTitle } from "nav.slint";
 
 // A button with words on it, for the calendar's toolbar and panels.
 export component CalButton inherits Rectangle {
@@ -215,9 +216,9 @@ component CalendarRow inherits Rectangle {
     /// A right click, where it happened in the window.
     callback menu(CalendarData, length, length);
 
-    height: root.cal.status != "" ? 40px : 28px;
+    height: root.cal.status != "" ? 42px : Nav.row-height;
     border-radius: Tokens.radius-small;
-    background: touch.has-hover ? Tokens.surface-hover : transparent;
+    background: Nav.background(false, touch.has-hover);
 
     accessible-role: checkbox;
     accessible-label: root.cal.name;
@@ -236,7 +237,7 @@ component CalendarRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: Tokens.space-1;
+        padding-left: 10px;
         padding-right: 2px;
         spacing: Tokens.space-2;
 
@@ -261,8 +262,8 @@ component CalendarRow inherits Rectangle {
             horizontal-stretch: 1;
             Text {
                 text: root.cal.name;
-                font-size: Tokens.size-small;
-                color: root.cal.visible ? Tokens.text : Tokens.text-muted;
+                font-size: Nav.label-size;
+                color: root.cal.visible ? Tokens.text-secondary : Tokens.text-muted;
                 overflow: elide;
             }
             if root.cal.status != "": Text {
@@ -607,6 +608,8 @@ export component CalendarView inherits Rectangle {
         // --- Left: create, jump, choose what shows ---
         Glass {
             width: 230px;
+            radius: 0px;
+            border-width: 0px;
             VerticalLayout {
                 padding: Tokens.space-3;
                 spacing: Tokens.space-3;
@@ -626,14 +629,24 @@ export component CalendarView inherits Rectangle {
                     navigate(n) => { root.mini-navigate(n); }
                 }
 
-                Text {
-                    text: "CALENDARS";
-                    font-size: 9px;
-                    letter-spacing: 1px;
-                    color: Tokens.text-muted;
+                // The section's title, with the + that adds to it.
+                HorizontalLayout {
+                    height: 22px;
+                    padding-left: 10px;
+                    SectionTitle {
+                        text: "CALENDARS";
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.plus;
+                        label: "New calendar";
+                        button-size: 22px;
+                        icon-size: 12px;
+                        clicked => { root.calendar-new(); }
+                    }
                 }
                 VerticalLayout {
-                    spacing: 1px;
+                    spacing: 2px;
                     for cal in root.calendars: CalendarRow {
                         cal: cal;
                         toggled(id) => { root.calendar-toggled(id); }
@@ -645,11 +658,6 @@ export component CalendarView inherits Rectangle {
 
                 VerticalLayout {
                     spacing: Tokens.space-1;
-                    CalButton {
-                        text: "New calendar";
-                        icon: Icons.plus;
-                        clicked => { root.calendar-new(); }
-                    }
                     CalButton {
                         text: "Subscribe to a calendar…";
                         icon: Icons.link;
