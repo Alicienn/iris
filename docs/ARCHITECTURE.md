@@ -516,7 +516,7 @@ A new table or column always arrives as a new migration.
   kept as an artifact. The same tests run on macOS in `macos.yml`, a separate workflow
   so that Release, which follows CI, does not wait for the slowest runner: the
   installer is Windows-only. The test jobs build unit and integration tests
-  only (`--lib --tests`, no examples, no doc-tests, no line tables); a push that only
+  only (`--lib --tests`, no examples, no doc-tests); a push that only
   touches `docs/`, a README or `CLAUDE.md` runs nothing, and a newer push to a pull
   request cancels the older run.
 - **Release** (`.github/workflows/release.yml`) runs after every green CI on `main`. If

@@ -57,11 +57,9 @@ jobs:
     name: Tests (windows-latest)
     runs-on: windows-latest
 
-    env:
-      # No line tables for the workspace crates: nobody steps through a CI build, a
-      # failing assertion still names its file and line, and the interface's generated
-      # code is smaller to write and to link. Dependencies already have none.
-      CARGO_PROFILE_DEV_DEBUG: "0"
+    # Keep the dev profile's debug info: iris-ui's build script emits the interface's
+    # debug info only when it is on (`DEBUG=true`), and the interface tests find their
+    # elements through it.
 
     steps:
       - uses: actions/checkout@v4
