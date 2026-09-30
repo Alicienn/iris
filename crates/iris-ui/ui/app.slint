@@ -32,7 +32,7 @@ import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import { PluginSettingData } from "@iris/screens/plugins.slint";
-import { ComposePanel, ScheduledPanel } from "@iris/screens/compose.slint";
+import { ComposePanel, ScheduledPanel, ParkedDraft } from "@iris/screens/compose.slint";
 import { SignaturePanel, AliasPanel } from "@iris/screens/signature.slint";
 import { SourcePanel } from "@iris/screens/source.slint";
 import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
@@ -63,6 +63,12 @@ component CommandPalette inherits Rectangle {
 
     callback accepted(string);
     callback dismissed();
+    /// What is typed, at each key: Rust sends back the commands that match.
+    callback query-changed(string);
+
+    // Opened, everything it can do is listed at once, before a key is typed: an empty
+    // panel under the field said nothing of what to type.
+    init => { root.query-changed(root.query); }
 
     background: #00000066;
 
@@ -85,16 +91,28 @@ component CommandPalette inherits Rectangle {
                 placeholder-text: "Command, account, search…";
                 font-size: Tokens.size-title;
                 text <=> root.query;
+                edited(t) => { root.query-changed(t); }
                 accepted => {
                     if (root.commands.length > 0) {
-                        root.accepted(root.commands[root.highlighted].id);
+                        root.accepted(root.commands[min(root.highlighted, root.commands.length - 1)].id);
                     }
                 }
+                // Opened to be typed in.
+                init => { self.focus(); }
             }
 
             Rectangle {
                 height: 1px;
                 background: Tokens.border;
+            }
+
+            if root.commands.length == 0: Text {
+                height: 40px;
+                text: "Nothing matches “" + root.query + "”.";
+                font-size: Tokens.size-body;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                horizontal-alignment: center;
             }
 
             ListView {
@@ -476,6 +494,14 @@ export component AppWindow inherits Window {
 
     in-out property <bool> compose-open;
     in-out property <bool> compose-minimised;
+    /// Where the bar a message is opened from sits, across (for it to rise from there).
+    in-out property <length> compose-parked-x: -1px;
+    /// The messages minimised to the foot of the window: their titles.
+    in property <[string]> parked-drafts;
+    /// Minimise: the message goes down to a bar of its own, kept on this computer.
+    callback compose-park();
+    /// A bar clicked: its message back in the window (index, where the bar was).
+    callback parked-open(int, length);
     in-out property <bool> compose-show-cc;
     in property <[string]> compose-senders;
     in property <int> compose-sender-index;
@@ -556,6 +582,14 @@ export component AppWindow inherits Window {
     /// A search pill clicked: Rust changes the query and searches again.
     callback search-pill(int);
     in-out property <string> reply-text;
+    /// Whom the reply box's Send and Reply all write to, To, Cc and Bcc apart.
+    in property <string> reply-to;
+    in property <string> reply-cc;
+    in property <string> reply-bcc;
+    in property <string> reply-all-to;
+    in property <string> reply-all-cc;
+    in property <string> reply-all-bcc;
+    callback reply-recipients-wanted();
     in-out property <string> account-filter;
 
     // --- Événements ---
@@ -788,6 +822,8 @@ export component AppWindow inherits Window {
     callback calendar-event-moved(string, int, int);
     /// An event stretched by its lower edge: (key, minutes added to its end).
     callback calendar-event-resized(string, int);
+    /// An event being stretched, before it is let go: the week laid out again with it.
+    callback calendar-event-stretching(string, int);
     /// A task let go on the week: (task, day, minute of the day).
     callback calendar-task-planned(int, string, int);
     callback calendar-toggled(int);
@@ -832,6 +868,10 @@ export component AppWindow inherits Window {
     callback event-task-opened(int);
     callback event-edit();
     callback event-delete();
+    /// A video call link given to the event shown; empty takes it away.
+    callback event-video-set(string);
+    /// A link opened in the browser (or the app it belongs to): a video call.
+    callback open-link(string);
 
     in-out property <bool> event-editor-open;
     in property <bool> editor-is-new;
@@ -1718,6 +1758,13 @@ export component AppWindow inherits Window {
                     reply-text <=> root.reply-text;
                     send => { root.send-reply(); }
                     reply-all => { root.reply-all(); }
+                    reply-to: root.reply-to;
+                    reply-cc: root.reply-cc;
+                    reply-bcc: root.reply-bcc;
+                    reply-all-to: root.reply-all-to;
+                    reply-all-cc: root.reply-all-cc;
+                    reply-all-bcc: root.reply-all-bcc;
+                    reply-recipients-wanted => { root.reply-recipients-wanted(); }
                     load-images => { root.load-images(); }
                     save-attachment(i) => { root.save-attachment(i); }
                     open-attachment(i) => { root.open-attachment(i); }
@@ -1803,6 +1850,7 @@ export component AppWindow inherits Window {
             root.calendar-event-menu(k, x, y);
         }
         event-resized(k, m) => { root.calendar-event-resized(k, m); }
+        event-stretching(k, m) => { root.calendar-event-stretching(k, m); }
         task-planned(id, d, m) => { root.calendar-task-planned(id, d, m); }
         calendar-toggled(id) => { root.calendar-toggled(id); }
         calendar-refresh(id) => { root.calendar-refresh(id); }
@@ -1970,6 +2018,7 @@ export component AppWindow inherits Window {
         task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
         task-toggled(id) => { root.home-task-toggled(id); }
         event-opened(k) => { root.home-event-opened(k); }
+        join(u) => { root.open-link(u); }
     }
 
     if root.task-list-menu-open: TaskListMenu {
@@ -2102,6 +2151,8 @@ export component AppWindow inherits Window {
         edit => { root.event-edit(); }
         delete => { root.event-delete(); }
         dismissed => { root.event-detail-open = false; }
+        join(u) => { root.open-link(u); }
+        video-set(u) => { root.event-video-set(u); }
     }
 
     if root.event-editor-open: EventEditorPanel {
@@ -2415,6 +2466,11 @@ export component AppWindow inherits Window {
         attachments: root.compose-attachments;
         error: root.compose-error;
         minimised <=> root.compose-minimised;
+        parked-x: root.compose-parked-x;
+        park => {
+            root.compose-park();
+            shortcuts.focus();
+        }
         show-cc <=> root.compose-show-cc;
         to <=> root.compose-to;
         cc <=> root.compose-cc;
@@ -2436,6 +2492,14 @@ export component AppWindow inherits Window {
         confirm-close <=> root.compose-confirm-close;
         discard => { root.compose-discard(); }
         save-draft => { root.compose-save-draft(); }
+    }
+
+    // The messages minimised, as bars at the foot of the window, right to left.
+    for titre[i] in root.parked-drafts: ParkedDraft {
+        x: root.width - 12px - (i + 1) * 300px - i * 8px;
+        y: root.height - 40px - 12px;
+        text: titre;
+        opened => { root.parked-open(i, self.x); }
     }
 
     if root.source-open: SourcePanel {
@@ -2525,6 +2589,12 @@ export component AppWindow inherits Window {
         profile-choices: root.profile-choices;
         profile-choice: root.profile-choice;
         profile-chosen(i) => { root.profile-chosen(i); }
+        // Google: no password, the browser signs in once the address is looked up.
+        google-ready: root.oauth-google-id != "";
+        google => {
+            root.new-password = "";
+            root.add-account-discover();
+        }
         dismissed => { root.add-account-dismissed(); }
     }
 
@@ -2575,6 +2645,7 @@ export component AppWindow inherits Window {
         commands: root.commands;
         highlighted: root.palette-highlighted;
         query <=> root.palette-query;
+        query-changed(t) => { root.palette-query-changed(t); }
         accepted(id) => {
             root.palette-open = false;
             root.command-invoked(id);

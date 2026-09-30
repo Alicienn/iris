@@ -64,14 +64,7 @@ impl RustlsConnector {
         &self,
         endpoint: &Endpoint,
     ) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
-        let tcp = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
-            .await
-            .map_err(|e| {
-                Error::network(format!(
-                    "connexion à {}:{} : {e}",
-                    endpoint.host, endpoint.port
-                ))
-            })?;
+        let tcp = connecter(&endpoint.host, endpoint.port).await?;
 
         // Nagle retarde les petites commandes IMAP de plusieurs dizaines de
         // millisecondes ; sur une synchronisation bavarde, cela se voit.
@@ -85,6 +78,38 @@ impl RustlsConnector {
             .await
             .map_err(|e| Error::network(format!("négociation TLS avec {} : {e}", endpoint.host)))
     }
+}
+
+/// How long one address of a server is given to take the connection.
+const PAR_ADRESSE: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Reaches `host:port` over TCP: its IPv4 addresses first, then IPv6, each for a few
+/// seconds only.
+///
+/// One `connect` on the name tried the addresses one after the other, each for as long
+/// as Windows waits (about twenty seconds). On a network whose IPv6 goes nowhere,
+/// Gmail's first addresses were IPv6: two of them used up the half-minute a sign-in is
+/// given, and the account failed with "did not answer" although its IPv4 answers at
+/// once.
+async fn connecter(host: &str, port: u16) -> Result<TcpStream> {
+    let echec =
+        |e: &dyn std::fmt::Display| Error::network(format!("connexion à {host}:{port} : {e}"));
+    let mut adresses: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| echec(&e))?
+        .collect();
+    adresses.sort_by_key(|a| a.is_ipv6());
+    let mut derniere = None;
+    for adresse in adresses {
+        match tokio::time::timeout(PAR_ADRESSE, TcpStream::connect(adresse)).await {
+            Ok(Ok(tcp)) => return Ok(tcp),
+            Ok(Err(e)) => derniere = Some(e.to_string()),
+            Err(_) => derniere = Some(format!("{adresse} did not answer")),
+        }
+    }
+    Err(echec(
+        &derniere.unwrap_or_else(|| "no address for this name".to_string()),
+    ))
 }
 
 impl Default for RustlsConnector {

@@ -220,6 +220,9 @@ property**, not by discipline:
    account), and the account is tried again at its next turn. Before, the accounts went
    one after the other with no time limit, and a server that took the connection and
    then said nothing stopped every account after it and every later pass.
+   Since 3.14.0 the TCP connection tries a server's IPv4 addresses first, then its IPv6
+   ones, 8 s each: on a network whose IPv6 goes nowhere, Gmail's IPv6 addresses each
+   held the whole attempt for Windows' twenty seconds and used up `connect_timeout`.
 
 ### Known departures
 
@@ -435,7 +438,7 @@ These rules come from bugs users hit, and each has a scenario in
 - Text fields are `TextField` / `TextArea` from `controls/field.slint`: focus shows on
   the border, never the background, and AltGr characters are accepted. A field inside a
   frame that shows the focus itself (the task add line, the reply) is `bare`.
-- **Selecting a message's words (3.13.0).** Rich-text blocks are read-only
+- **Selecting a message's words (3.14.0).** Rich-text blocks are read-only
   `TextInput`s (`SelectableText`), which select and copy on their own; the keys they
   ignore bubble to a `FocusScope` around the body, which hands the keyboard back to the
   shortcuts and sends the key again a turn later (`key-redispatch`), so `E` still acts
@@ -447,6 +450,12 @@ These rules come from bugs users hit, and each has a scenario in
   field (`copy-text`), the only way to it Slint offers. It used to be read as `C`,
   *New message*.
 - `?` opens the list of keys (`screens/help.slint`), a modal like the others.
+- **The palette (`Ctrl`+`K`)** asks Rust for its list when it opens and at each key
+  (`palette-query-changed`, filtered by `commands::filter`). The callback was declared
+  and wired in Rust but never called, so until 3.14.0 the palette opened empty and
+  stayed so.
+- Slint is 1.18 since 3.14.0 (1.17 before): its software renderer no longer panics on
+  very long lines of text, and skips what opaque elements cover.
 
 ### Rendering
 
@@ -484,7 +493,7 @@ changes; applying a theme also sets the style's `Palette.color-scheme`, so its o
 controls (check boxes, scroll bars) follow. The font is Segoe UI Variable, Text for
 reading and Display for titles.
 
-Since 3.13.0 the radii are 6, 9 and 12 px (5, 7, 9 before), and what opens eases in once:
+Since 3.14.0 the radii are 6, 9 and 12 px (5, 7, 9 before), and what opens eases in once:
 modals, popovers and menus fade and move a few pixels, the task details slide in. Each
 runs on an `entree` property set in `init`, so nothing animates afterwards and the
 software renderer stays idle. Tasks are cards on the window's ground in a column of at
@@ -536,6 +545,16 @@ The application side (`crates/iris-app/src/calendar.rs`):
   leaves them in Tasks.
 - **The view** opens on the week the first time, then on the one last chosen
   (`calendar_view` in the settings).
+- **Video calls** (3.14.0): a link set by hand lives in `event_links` (migration 19), by
+  calendar and UID like the colours, so a subscribed event keeps it; without one,
+  `visio::find` reads the first Meet, Teams, Zoom or Webex link in the event's place or
+  description, where invitations put theirs. The service is told by the link's host.
+  The card and Home offer *Join*, which hands the `https://` link to the system
+  (`platform::open_url`, nothing else accepted).
+- **Stretching live** (3.14.0): while an event is stretched, each quarter hour lays the
+  week out again with its new end (`etirer_en_direct`) and changes the grid's rows in
+  place, so the events it reaches share the column as it grows. A new model would
+  rebuild the rows and drop the drag under the pointer. A move still draws a copy.
 
 ## Tasks
 
@@ -560,7 +579,7 @@ database so a reminder fires once.
 A delete keeps the task and its subtasks in memory; `Ctrl`+`Z` puts them back under
 their own identifiers (`Store::restore_tasks`), unless their list has gone since.
 
-After a quick add (3.13.0) the new task's length is asked in a bubble over the add bar
+After a quick add (3.14.0) the new task's length is asked in a bubble over the add bar
 that takes nothing from the keyboard: while it shows, `Enter` sends the field to
 `task-add-answered`, where nothing skips, a length (`goals::parse_duration`) is kept,
 and anything else is the next task. `Later` has *Tonight* (today, 23:59).
@@ -577,6 +596,17 @@ bottom of the window counts down; **Undo** cancels the queued message and reopen
 compose window from what was captured at Send time — recipients, subject, body,
 attachments, sender. A second send replaces the notice, and the first message simply
 goes out. `crates/iris-app/tests/envoi.rs` covers both paths on a headless window.
+
+Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
+the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
+`draft.json`, attachments kept only while Iris runs) and empties the window, so New
+message writes another. A bar clicked puts its message back, opened minimised at the
+bar's place and grown a turn later: the window's corners are worked out from its two
+fixed shapes, not from the size being animated, so it rises and grows at once.
+What the window held when a bar is opened goes down to a bar of its own first.
+
+The reply box's Send and Reply all say, when pointed at, whom they write to: worked
+out by `SendService::compose_reply` as sending would, when another conversation shows.
 
 ---
 
@@ -610,6 +640,7 @@ Iris is refused rather than misread.
 | 16 | `event_colors`: an event's own colour, by calendar and UID (3.9.0) |
 | 17 | `scheduled_mail` (drafts to send later) and `invite_replies` (answers given, by UID) (3.11.0) |
 | 18 | `account_aliases`: other addresses a mailbox sends as (3.12.0) |
+| 19 | `event_links`: an event's video call link set by hand, by calendar and UID (3.14.0) |
 
 A new table or column always arrives as a new migration.
 

@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 18;
+pub const CURRENT_VERSION: i64 = 19;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -108,7 +108,25 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "addresses a mailbox sends as",
         sql: SCHEMA_V18,
     },
+    Migration {
+        version: 19,
+        name: "video call links of events",
+        sql: SCHEMA_V19,
+    },
 ];
+
+/// The video call an event is held on (Meet, Teams, Zoom, Webex…), set by hand. Beside
+/// the events and not in them, by calendar and UID as their colours are, so a link
+/// given to a subscribed event outlives its refresh. One found in the event's own place
+/// or description needs no row: it is read from there.
+const SCHEMA_V19: &str = "
+CREATE TABLE event_links (
+    calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    uid         TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    PRIMARY KEY (calendar_id, uid)
+);
+";
 
 /// The other addresses a mailbox sends as (aliases): the server accepts them from
 /// that account, and the composer offers them as senders. A name of their own when

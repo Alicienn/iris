@@ -1418,11 +1418,13 @@ export component TasksView inherits Rectangle {
             rename-closed => { root.goal-rename-closed(); }
 
             // The steps: the tasks toward it.
-            ScrollView {
+            etapes := ScrollView {
                 vertical-stretch: 1;
                 min-height: 60px;
                 mouse-drag-pan-enabled: false;
+                viewport-width: self.visible-width;
                 VerticalLayout {
+                    width: etapes.visible-width;
                     alignment: start;
                     spacing: 6px;
                     for ligne[i] in root.rows: TaskRow {
@@ -1529,11 +1531,15 @@ export component TasksView inherits Rectangle {
             }
             if root.overview.show-day: Hairline {}
 
-            ScrollView {
+            liste-taches := ScrollView {
                 vertical-stretch: 1;
                 // The mouse carries tasks; the wheel scrolls.
                 mouse-drag-pan-enabled: false;
+                // As wide as what shows: left to the rows' own width, the list ran
+                // past the column and its right-hand end (Clear, the dates) was cut.
+                viewport-width: self.visible-width;
                 VerticalLayout {
+                    width: liste-taches.visible-width;
                     alignment: start;
                     padding-left: 32px;
                     padding-right: 32px;

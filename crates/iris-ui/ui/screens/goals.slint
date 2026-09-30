@@ -320,6 +320,13 @@ export component GoalPage inherits VerticalLayout {
             root.rename-closed();
         }
     }
+    /// The title typed is kept (Enter, or a click elsewhere), then the field closes.
+    function keep-title() {
+        if (root.renaming && root.new-title != "" && root.new-title != root.goal.title) {
+            root.renamed(root.new-title);
+        }
+        root.close-rename();
+    }
 
     /// Too narrow for two columns (a task's details open beside it): the log goes
     /// behind a switch in the steps' column rather than squeezing them. Said by the
@@ -328,9 +335,9 @@ export component GoalPage inherits VerticalLayout {
     in property <bool> narrow;
     property <bool> side-shown;
 
-    padding-left: 36px;
-    padding-right: 36px;
-    padding-top: 24px;
+    padding-left: 32px;
+    padding-right: 32px;
+    padding-top: 18px;
     padding-bottom: 10px;
     spacing: 0px;
 
@@ -359,7 +366,7 @@ export component GoalPage inherits VerticalLayout {
             button-size: 26px;
             icon-size: 14px;
             clicked => {
-                root.close-rename();
+                root.keep-title();
                 root.edit-goal();
             }
         }
@@ -409,6 +416,8 @@ export component GoalPage inherits VerticalLayout {
         height: 40px;
         key-pressed(event) => {
             if (event.text == Key.Escape) {
+                // The old title back: nothing to keep when the field then goes.
+                root.new-title = root.goal.title;
                 root.close-rename();
                 return accept;
             }
@@ -423,11 +432,12 @@ export component GoalPage inherits VerticalLayout {
                 self.focus();
                 self.select-all();
             }
-            accepted(t) => {
-                if (t != "" && t != root.goal.title) {
-                    root.renamed(t);
+            accepted(t) => { root.keep-title(); }
+            // A click elsewhere keeps it too, as Enter does.
+            changed has-focus => {
+                if (!self.has-focus) {
+                    root.keep-title();
                 }
-                root.close-rename();
             }
         }
     }
@@ -437,20 +447,25 @@ export component GoalPage inherits VerticalLayout {
         color: Tokens.text-secondary;
         wrap: word-wrap;
     }
-    Rectangle { height: 16px; }
+    Rectangle { height: 12px; }
 
-    // Where it stands.
+    // Where it stands, and beside it the pace: one card.
     Rectangle {
         border-radius: Tokens.radius-large;
         border-width: 1px;
         border-color: Tokens.border;
-        height: etat.preferred-height;
+        background: Tokens.surface;
+        height: carte-etat.preferred-height;
+
+        carte-etat := HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 22px;
 
         etat := VerticalLayout {
-            padding-left: 18px;
-            padding-right: 18px;
-            padding-top: 14px;
-            padding-bottom: 16px;
+            horizontal-stretch: 1;
             spacing: 10px;
 
             HorizontalLayout {
@@ -511,72 +526,21 @@ export component GoalPage inherits VerticalLayout {
                 }
             }
         }
-    }
-    Rectangle { height: 22px; }
 
-    HorizontalLayout {
-        spacing: 32px;
-        vertical-stretch: 1;
-
-        // Left: the steps (tasks toward it), then the pace. When narrow, the log
-        // shares this column, behind a switch.
-        VerticalLayout {
-            horizontal-stretch: 14;
-            spacing: 0px;
-            HorizontalLayout {
-                height: root.narrow ? 32px : 24px;
-                padding-bottom: root.narrow ? 4px : 0px;
-                spacing: 7px;
-                if root.narrow: Segmented {
-                    y: (parent.height - self.height) / 2;
-                    options: ["Steps", root.goal.milestones ? "Milestones" : "Log"];
-                    selected: root.side-shown ? 1 : 0;
-                    chosen(i) => { root.side-shown = i == 1; }
-                }
-                if !root.narrow: Text {
-                    text: "Steps";
-                    font-size: 12px;
-                    font-weight: 600;
-                    color: Tokens.text-secondary;
-                    vertical-alignment: center;
-                }
-                if !root.side-shown || !root.narrow: Text {
-                    text: root.goal.open-steps;
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-                Rectangle {}
-            }
-            Hairline {}
-            if root.narrow && root.side-shown: GoalSide {
-                vertical-stretch: 1;
-                goal: root.goal;
-                log: root.log;
-                entry-removed(id) => { root.entry-removed(id); }
-                milestone-toggled(id) => { root.milestone-toggled(id); }
-                milestone-added(t) => { root.milestone-added(t); }
-                make-time => { root.make-time(); }
-            }
-            // The steps and the pace; folded away while the log takes the column.
-            VerticalLayout {
-                visible: !(root.narrow && root.side-shown);
-                max-height: self.visible ? 100000px : 0px;
-                vertical-stretch: self.visible ? 1 : 0;
-                spacing: 0px;
-            @children
-            Rectangle { height: 16px; }
+        // The pace: the dashed line is a steady pace from the day it was set to its
+        // day; the steps are what was logged. Left out when the page is narrow.
+        if !root.narrow: VerticalLayout {
+            width: 260px;
+            spacing: 2px;
             Text {
-                height: 22px;
                 text: "Pace";
                 font-size: 12px;
                 font-weight: 600;
                 color: Tokens.text-secondary;
             }
-            // The dashed line is a steady pace from the day it was set to its day;
-            // the steps are what was logged.
             Rectangle {
-                height: 120px;
+                vertical-stretch: 1;
+                min-height: 70px;
                 // A drawing, said in words for those who cannot see it.
                 accessible-role: image;
                 accessible-label: "Pace chart: " + root.goal.done + " " + root.goal.of-label
@@ -618,7 +582,7 @@ export component GoalPage inherits VerticalLayout {
                 Rectangle { y: parent.height - 1px; height: 1px; background: Tokens.border; }
             }
             HorizontalLayout {
-                height: 20px;
+                height: 16px;
                 Text {
                     text: root.start-label;
                     font-size: 11px;
@@ -631,23 +595,90 @@ export component GoalPage inherits VerticalLayout {
                     color: Tokens.text-muted;
                 }
             }
+        }
+        }
+    }
+    Rectangle { height: 14px; }
+
+    HorizontalLayout {
+        spacing: 18px;
+        vertical-stretch: 1;
+
+        // Left: the steps (tasks toward it), then the pace. When narrow, the log
+        // shares this column, behind a switch.
+        VerticalLayout {
+            horizontal-stretch: 14;
+            spacing: 0px;
+            HorizontalLayout {
+                height: root.narrow ? 32px : 24px;
+                padding-bottom: root.narrow ? 4px : 0px;
+                spacing: 7px;
+                if root.narrow: Segmented {
+                    y: (parent.height - self.height) / 2;
+                    options: ["Steps", root.goal.milestones ? "Milestones" : "Log"];
+                    selected: root.side-shown ? 1 : 0;
+                    chosen(i) => { root.side-shown = i == 1; }
+                }
+                if !root.narrow: Text {
+                    text: "Steps";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+                if !root.side-shown || !root.narrow: Text {
+                    text: root.goal.open-steps;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                Rectangle {}
+            }
+            if root.narrow && root.side-shown: GoalSide {
+                vertical-stretch: 1;
+                goal: root.goal;
+                log: root.log;
+                entry-removed(id) => { root.entry-removed(id); }
+                milestone-toggled(id) => { root.milestone-toggled(id); }
+                milestone-added(t) => { root.milestone-added(t); }
+                make-time => { root.make-time(); }
+            }
+            // The steps; folded away while the log takes the column.
+            VerticalLayout {
+                visible: !(root.narrow && root.side-shown);
+                max-height: self.visible ? 100000px : 0px;
+                vertical-stretch: self.visible ? 1 : 0;
+                padding-top: 8px;
+                spacing: 0px;
+            @children
             }
         }
 
         // Right: the log (or the milestones), and time set aside for it. Never wider
         // than it needs: the steps get the room. Not there when narrow: the steps'
         // column shows it behind its switch.
-        if !root.narrow: GoalSide {
+        // On a card of its own, rounded.
+        if !root.narrow: Rectangle {
             horizontal-stretch: 10;
             max-width: 320px;
             min-width: 220px;
-            goal: root.goal;
-            log: root.log;
-            titled: true;
-            entry-removed(id) => { root.entry-removed(id); }
-            milestone-toggled(id) => { root.milestone-toggled(id); }
-            milestone-added(t) => { root.milestone-added(t); }
-            make-time => { root.make-time(); }
+            border-radius: Tokens.radius-large;
+            border-width: 1px;
+            border-color: Tokens.border;
+            background: Tokens.surface;
+            GoalSide {
+                x: 14px;
+                y: 10px;
+                width: parent.width - 28px;
+                height: parent.height - 24px;
+                goal: root.goal;
+                log: root.log;
+                titled: true;
+                entry-removed(id) => { root.entry-removed(id); }
+                milestone-toggled(id) => { root.milestone-toggled(id); }
+                milestone-added(t) => { root.milestone-added(t); }
+                make-time => { root.make-time(); }
+            }
         }
     }
 }

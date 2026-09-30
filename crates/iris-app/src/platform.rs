@@ -426,6 +426,34 @@ pub fn open_path(path: &std::path::Path) -> iris_types::Result<()> {
     }
 }
 
+/// Opens a web link (a video call) in the browser, or the app that claims it.
+///
+/// Only `https://` links, whole: anything else is refused rather than handed to the
+/// system, which would run a file or a program just as readily.
+pub fn open_url(url: &str) -> iris_types::Result<()> {
+    let url = url.trim();
+    if !url.starts_with("https://") || url.chars().any(|c| c.is_whitespace() || c == '"') {
+        return Err(iris_types::Error::other(format!("not a web link: {url}")));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const SANS_FENETRE: u32 = 0x0800_0000;
+        std::process::Command::new("explorer.exe")
+            .arg(url)
+            .creation_flags(SANS_FENETRE)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| iris_types::Error::other(format!("ouverture : {e}")))
+    }
+    #[cfg(not(windows))]
+    {
+        Err(iris_types::Error::other(
+            "opening links is only wired up on Windows",
+        ))
+    }
+}
+
 /// Ce qu'un `mailto:` demande d'écrire.
 ///
 /// Analysé ici plutôt que dans l'écran de composition, parce que c'est une grammaire

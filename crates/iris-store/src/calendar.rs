@@ -464,6 +464,41 @@ impl Store {
         })
     }
 
+    /// The video call links set by hand, by calendar and UID.
+    pub fn event_links(&self) -> Result<std::collections::HashMap<(i64, String), String>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare("SELECT calendar_id, uid, url FROM event_links")
+                .map_err(err("liens de visio"))?;
+            let lignes = stmt
+                .query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))
+                .map_err(err("liens de visio"))?
+                .collect::<rusqlite::Result<_>>()
+                .map_err(err("liens de visio"));
+            lignes
+        })
+    }
+
+    /// Sets an event's video call link; an empty one takes it away.
+    pub fn set_event_link(&self, calendar: i64, uid: &str, url: &str) -> Result<()> {
+        self.with_conn(|c| {
+            if url.trim().is_empty() {
+                c.execute(
+                    "DELETE FROM event_links WHERE calendar_id = ?1 AND uid = ?2",
+                    params![calendar, uid],
+                )
+            } else {
+                c.execute(
+                    "INSERT INTO event_links (calendar_id, uid, url) VALUES (?1, ?2, ?3) \
+                     ON CONFLICT (calendar_id, uid) DO UPDATE SET url = excluded.url",
+                    params![calendar, uid, url.trim()],
+                )
+            }
+            .map(|_| ())
+            .map_err(err("lien de visio"))
+        })
+    }
+
     pub fn calendar_event_count(&self, calendar: i64) -> Result<u32> {
         self.with_conn(|c| {
             c.query_row(
@@ -506,6 +541,26 @@ mod tests {
             .unwrap();
         s.delete_calendar(cal).unwrap();
         assert!(s.event_colors().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_video_link_is_kept_through_a_refresh_and_taken_away_empty() {
+        let s = Store::in_memory().unwrap();
+        let t = Timestamp::from_millis(1);
+        let cal = s
+            .create_calendar("Club", "#4fb286", Some("https://example.com/c.ics"), t)
+            .unwrap();
+        s.set_event_link(cal, "point@example.com", " https://meet.example.com/abc ")
+            .unwrap();
+        s.replace_calendar_events(cal, &[], t).unwrap();
+        assert_eq!(
+            s.event_links()
+                .unwrap()
+                .get(&(cal, "point@example.com".to_string())),
+            Some(&"https://meet.example.com/abc".to_string())
+        );
+        s.set_event_link(cal, "point@example.com", "").unwrap();
+        assert!(s.event_links().unwrap().is_empty());
     }
 
     #[test]

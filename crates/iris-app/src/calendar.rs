@@ -13,7 +13,7 @@ use iris_ui::{
     AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData, TimedEventData,
     WeekDayData,
 };
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -485,6 +485,87 @@ pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellDat
     )
 }
 
+/// The timed events of the week or the day, as the grid draws them.
+fn blocs_de_semaine(
+    etat: &Etat,
+    occ: &[Occurrence],
+    blocs: &[layout::TimedBlock],
+    couleurs: &HashMap<i64, String>,
+    maintenant: iris_types::Timestamp,
+) -> Vec<TimedEventData> {
+    blocs
+        .iter()
+        .map(|b| {
+            let o = &occ[b.occurrence];
+            let p = puce(etat, o, couleurs);
+            let (stocke, domaine) = &etat.evenements[o.event];
+            TimedEventData {
+                movable: etat.locaux.contains(&stocke.calendar_id)
+                    && domaine.rrule.is_none()
+                    && domaine.recurrence_id.is_none(),
+                key: p.key,
+                title: p.title,
+                time: format!("{} – {}", heure(o.start), heure(o.end)).into(),
+                color: p.color,
+                day: b.day as i32,
+                lane: b.lane as i32,
+                lanes: b.lanes as i32,
+                top: b.start_min as f32 / 1440.0,
+                height: (b.end_min - b.start_min) as f32 / 1440.0,
+                past: o.end <= maintenant.millis(),
+            }
+        })
+        .collect()
+}
+
+/// An event being stretched by its lower edge, `minutes` longer (or shorter) than it
+/// is: the week laid out again with it so, and the grid's rows changed in place (a new
+/// model would rebuild them, and the one under the pointer would drop the drag). The
+/// events it now overlaps share the column with it as it grows.
+fn etirer_en_direct(
+    fenetre: &AppWindow,
+    services: &Services,
+    etat: &mut Etat,
+    cle: &str,
+    minutes: i64,
+) {
+    if etat.mode == 0 {
+        return;
+    }
+    let couleurs: HashMap<i64, String> = services
+        .store
+        .calendars()
+        .unwrap_or_default()
+        .iter()
+        .map(|c| (c.id, c.color.clone()))
+        .collect();
+    let mut occ = charger(services, etat);
+    let touches: Vec<usize> = (0..occ.len())
+        .filter(|&i| puce(etat, &occ[i], &couleurs).key.as_str() == cle)
+        .collect();
+    for i in touches {
+        occ[i].end = (occ[i].end + minutes * 60_000).max(occ[i].start + 15 * 60_000);
+    }
+    let (debut, n) = periode(etat);
+    let jours: Vec<NaiveDate> = (0..n as i64).map(|i| debut + Duration::days(i)).collect();
+    let (_, blocs) = layout::week_layout(&jours, &occ, &Local);
+    let nouveaux = blocs_de_semaine(etat, &occ, &blocs, &couleurs, now());
+    let modele = fenetre.get_calendar_week_events();
+    for i in 0..modele.row_count() {
+        let Some(ancien) = modele.row_data(i) else {
+            continue;
+        };
+        if let Some(neuf) = nouveaux
+            .iter()
+            .find(|n| n.key == ancien.key && n.day == ancien.day)
+        {
+            if *neuf != ancien {
+                modele.set_row_data(i, neuf.clone());
+            }
+        }
+    }
+}
+
 /// Recalcule tout ce que l'agenda affiche.
 fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     let maintenant = now();
@@ -553,31 +634,9 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
                     })
                     .collect::<Vec<_>>(),
             )));
-            fenetre.set_calendar_week_events(ModelRc::new(VecModel::from(
-                blocs
-                    .iter()
-                    .map(|b| {
-                        let o = &occ[b.occurrence];
-                        let p = puce(etat, o, &couleurs);
-                        let (stocke, domaine) = &etat.evenements[o.event];
-                        TimedEventData {
-                            movable: etat.locaux.contains(&stocke.calendar_id)
-                                && domaine.rrule.is_none()
-                                && domaine.recurrence_id.is_none(),
-                            key: p.key,
-                            title: p.title,
-                            time: format!("{} – {}", heure(o.start), heure(o.end)).into(),
-                            color: p.color,
-                            day: b.day as i32,
-                            lane: b.lane as i32,
-                            lanes: b.lanes as i32,
-                            top: b.start_min as f32 / 1440.0,
-                            height: (b.end_min - b.start_min) as f32 / 1440.0,
-                            past: o.end <= maintenant.millis(),
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            )));
+            fenetre.set_calendar_week_events(ModelRc::new(VecModel::from(blocs_de_semaine(
+                etat, &occ, &blocs, &couleurs, maintenant,
+            ))));
             match jours.iter().position(|d| *d == today) {
                 Some(i) => {
                     fenetre.set_calendar_now_day(i as i32);
@@ -782,6 +841,9 @@ fn choisir(f: &AppWindow, services: &Services, etat: &Rc<RefCell<Etat>>, k: Shar
             .unwrap_or_default()
             .into(),
     );
+    let liens = services.store.event_links().unwrap_or_default();
+    let pose = liens.get(&(s.calendar_id, s.event.uid.clone())).cloned();
+    let video = lien_de_visio(&liens, s.calendar_id, &s.event);
     f.set_event_detail(EventDetailData {
         key: k,
         title: titre(&vers_domaine(&s.event)).into(),
@@ -803,8 +865,34 @@ fn choisir(f: &AppWindow, services: &Services, etat: &Rc<RefCell<Etat>>, k: Shar
         reminder: rappel(s.event.reminder_minutes).into(),
         repeats: repetition(s.event.rrule.as_deref()).into(),
         editable: cal.is_some_and(|c| !c.is_subscription()),
+        video_url: video.clone().unwrap_or_default().into(),
+        video_kind: video
+            .as_deref()
+            .map(crate::visio::kind)
+            .unwrap_or("")
+            .into(),
+        video_label: video
+            .as_deref()
+            .map(crate::visio::label)
+            .unwrap_or("")
+            .into(),
+        video_set: pose.unwrap_or_default().into(),
     });
     true
+}
+
+/// The video call link of an event: set by hand (by calendar and UID), else found in
+/// its place or description.
+pub fn lien_de_visio(
+    liens: &HashMap<(i64, String), String>,
+    calendrier: i64,
+    e: &iris_store::NewEvent,
+) -> Option<String> {
+    crate::visio::of_event(
+        liens.get(&(calendrier, e.uid.clone())),
+        &e.location,
+        &e.description,
+    )
 }
 
 /// An event of one's own dragged in the grid: `jours` days and `minutes` later, its
@@ -1512,6 +1600,8 @@ pub struct Upcoming {
     pub end: i64,
     pub all_day: bool,
     pub location: String,
+    /// The video call it is held on, if one is known.
+    pub video: Option<String>,
 }
 
 /// The occurrences of the visible calendars from `from`, over `days` days, in order.
@@ -1530,6 +1620,7 @@ pub fn upcoming(services: &Services, from: NaiveDate, days: i64) -> Vec<Upcoming
         .map(|c| (c.id, c.color))
         .collect();
     let teintes = services.store.event_colors().unwrap_or_default();
+    let liens = services.store.event_links().unwrap_or_default();
     let domaine: Vec<Event> = stockes.iter().map(|s| vers_domaine(&s.event)).collect();
     let maintenant = now().millis();
     let mut sortie: Vec<Upcoming> = iris_calendar::recur::occurrences(&domaine, de, a)
@@ -1561,6 +1652,7 @@ pub fn upcoming(services: &Services, from: NaiveDate, days: i64) -> Vec<Upcoming
                 end: o.end,
                 all_day: o.all_day,
                 location: s.event.location.clone(),
+                video: lien_de_visio(&liens, s.calendar_id, &s.event),
             })
         })
         .collect();
@@ -1653,6 +1745,15 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 }
             }
             redessiner();
+        });
+    }
+    // While stretched, the week follows: the others it reaches make room.
+    {
+        let (faible, services, etat) = (fenetre.as_weak(), services.clone(), Rc::clone(&etat));
+        fenetre.on_calendar_event_stretching(move |cle, minutes| {
+            if let Some(f) = faible.upgrade() {
+                etirer_en_direct(&f, &services, &mut etat.borrow_mut(), &cle, minutes as i64);
+            }
         });
     }
     // A task dropped on the week: booked there, for as long as it takes.
@@ -1950,6 +2051,46 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 let _ = services
                     .store
                     .set_event_note(cal, &uid, occurrence, &texte, now());
+            }
+        });
+    }
+    // A video call link given to the event shown, kept beside it (a subscribed one
+    // included); its card then offers to join.
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_event_video_set(move |lien| {
+            let Some(f) = faible.upgrade() else { return };
+            let Some((cal, uid, _)) = etat.borrow().note.clone() else {
+                return;
+            };
+            let lien = lien.trim();
+            if !lien.is_empty() && !lien.starts_with("https://") {
+                f.set_status("A video call link starts with https://".into());
+                return;
+            }
+            match services.store.set_event_link(cal, &uid, lien) {
+                Ok(()) => {
+                    choisir(&f, &services, &etat, f.get_event_detail().key);
+                    f.set_status(
+                        if lien.is_empty() {
+                            "Video call link removed."
+                        } else {
+                            "Video call link saved."
+                        }
+                        .into(),
+                    );
+                }
+                Err(e) => f.set_status(format!("Could not keep the link: {e}").into()),
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_open_link(move |lien| {
+            if let Err(e) = crate::platform::open_url(&lien) {
+                if let Some(f) = faible.upgrade() {
+                    f.set_status(format!("Could not open it: {e}").into());
+                }
             }
         });
     }

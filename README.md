@@ -58,8 +58,13 @@ POP accounts are refused, since Iris speaks IMAP.
 Microsoft*, paste the details of an OAuth client for a desktop app. For Google, create
 it in the Google Cloud Console (its client ID and secret). For Outlook, register an
 app in Microsoft Entra (its application ID). Adding a Gmail or Outlook address then
-opens the browser to sign in, with no password to type. Without a client, type an app
-password as the password.
+opens the browser to sign in, with no password to type. **Continue with Google**, under
+the address in *Add an account*, does it directly; it stays greyed, and says why when
+pointed at, until a Google client is set. Without a client, type an app password as
+the password.
+
+A tag carries a red **!** while one of its mailboxes fails to sync, folded or not.
+**Sync** on a mailbox says *Syncing …* in the status bar, then how it went.
 
 **Send as.** Right-click a mailbox, *Send as…*, to give it the other addresses it may
 send from (aliases the server knows, with a name of their own if you like). They
@@ -82,7 +87,8 @@ beside *Accounts* shows them all in one list instead.
 
 The rail on the left goes from one part of Iris to another: the **Iris mark** at the top
 for Home, then **Mail**, **Calendar** and **Tasks**, each with what waits there. At its
-foot, search and commands (`Ctrl`+`K`) and the settings (`Ctrl`+`,`).
+foot, search and commands (`Ctrl`+`K`: every command at once, narrowed as you type)
+and the settings (`Ctrl`+`,`).
 
 Iris is light or dark: *Settings › Appearance* follows Windows (the default), or keeps
 one of the two.
@@ -134,6 +140,11 @@ click. An event is never added twice: invitations are matched by their identifie
 The list is by date, newest first; the button at the end of the filters sorts it by
 sender, subject or size (the biggest message first) instead, for the three queues.
 
+Minimise a message you are writing and it becomes a bar at the bottom right, kept as a
+draft on this computer (even if Iris closes); **New message** then starts another, and
+a click on a bar brings its message back. In the reply box under a conversation, point
+at **Send** or **Reply all** to see who it goes to.
+
 The clock beside **Send** sends later: this evening (before five), tomorrow morning or
 afternoon, or Monday morning. The message waits in Iris, so Iris must be running when
 its time comes. *Scheduled*, under the folders while something waits, lists them:
@@ -165,6 +176,10 @@ Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
   slot for the full editor.
 - Drag an event of your own to another hour or day, by quarter hours; drag its lower
   edge to change its length. Repeating events and subscribed calendars stay put.
+- An event held on a video call shows **Join on Meet** (or Teams, Zoom, Webex) in its
+  card and on Home. Links in an invitation are found on their own; paste one in the
+  card's *Video call link* to add or change it, in any calendar.
+- Stretch an event that shares its time with others and they make room as you go.
 - Right-click an event for its menu: *Open*, *Edit…*, *Delete* (in your own calendars),
   and its colour. A colour chosen there is the event's own, in place of its calendar's,
   kept even for a subscribed calendar; *Use the calendar's colour* gives it back.

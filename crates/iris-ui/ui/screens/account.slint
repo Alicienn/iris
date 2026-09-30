@@ -38,6 +38,75 @@ component Field inherits VerticalLayout {
 // faut dans la grande majorité des cas : la découverte trouve les serveurs seule.
 // Ensuite, seulement si elle échoue, les champs de serveur — parce qu'aucune chaîne
 // de découverte ne couvre tout, et qu'un utilisateur bloqué doit garder une porte.
+// Google's "G", in its four colours, as stroked arcs.
+component GoogleMark inherits Rectangle {
+    width: 18px;
+    height: 18px;
+    in property <float> alpha: 1.0;
+    opacity: root.alpha;
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 9 9 L 15.5 9 M 15.5 9 A 6.5 6.5 0 0 1 13.6 13.6";
+        stroke: #4285f4; stroke-width: 3px; fill: transparent;
+    }
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 13.6 13.6 A 6.5 6.5 0 0 1 4.4 13.6";
+        stroke: #34a853; stroke-width: 3px; fill: transparent;
+    }
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 4.4 13.6 A 6.5 6.5 0 0 1 2.5 9";
+        stroke: #fbbc05; stroke-width: 3px; fill: transparent;
+    }
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 2.5 9 A 6.5 6.5 0 0 1 13.6 4.4";
+        stroke: #ea4335; stroke-width: 3px; fill: transparent;
+    }
+}
+
+// "Continue with Google": the browser signs in, no password typed here. Greyed until
+// a Google client is set in Settings, and says so when pointed at.
+component GoogleButton inherits Rectangle {
+    in property <bool> ready;
+    callback clicked();
+
+    height: 38px;
+    border-radius: Tokens.radius-medium;
+    border-width: 1px;
+    border-color: root.ready && touche.has-hover ? Tokens.border-strong.mix(Tokens.text, 0.7) : Tokens.border-strong;
+    background: root.ready && touche.has-hover ? Tokens.surface-hover : Tokens.surface;
+    opacity: root.ready ? 1.0 : 0.55;
+
+    accessible-role: button;
+    accessible-label: "Continue with Google";
+    accessible-enabled: root.ready;
+    accessible-description: root.ready ? "Sign in through the browser"
+        : "Set your Google client in Settings, Sign in with Google or Microsoft, first";
+    accessible-action-default => { if (root.ready) { root.clicked(); } }
+
+    touche := TouchArea {
+        mouse-cursor: root.ready ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => { if (root.ready) { root.clicked(); } }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 10px;
+        GoogleMark { y: (parent.height - self.height) / 2; }
+        Text {
+            text: "Continue with Google";
+            font-size: 13px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+    }
+    if !root.ready: Tooltip {
+        text: @markdown("Set your Google client in Settings › Sign in with Google or Microsoft first.");
+    }
+}
+
 export component AccountSetupPanel inherits Rectangle {
     // The same screen serves adding and editing. They ask for the same nine things,
     // and two panels that ask for the same nine things drift apart until one of them
@@ -66,6 +135,10 @@ export component AccountSetupPanel inherits Rectangle {
     in property <[string]> profile-choices;
     in property <int> profile-choice;
     callback profile-chosen(int);
+    /// A Google client is set in Settings: the Google button can sign in.
+    in property <bool> google-ready;
+    /// Continue with Google: the address typed, signed in through the browser.
+    callback google();
 
     Modal {
         width: 100%;
@@ -97,6 +170,17 @@ export component AccountSetupPanel inherits Rectangle {
             placeholder: "you@example.com";
             value <=> root.email;
             accepted => { root.discover(); }
+        }
+
+        // A Google account: its address above, then the browser; no password here.
+        if !root.editing && !root.manual: GoogleButton {
+            ready: root.google-ready && !root.busy;
+            clicked => { root.google(); }
+        }
+        if !root.editing && !root.manual: Text {
+            text: "Or with a password:";
+            font-size: 12px;
+            color: Tokens.text-muted;
         }
 
         Field {

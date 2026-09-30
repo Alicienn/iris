@@ -117,6 +117,23 @@ pub fn refresh_accounts(
             .map(|c| a_traiter.get(&c.id).copied().unwrap_or(0))
             .sum()
     };
+    // A tag carries its accounts' "!" as long as one of them has it.
+    let en_panne = |comptes: &[&&iris_store::Account]| -> usize {
+        comptes
+            .iter()
+            .filter(|c| suspendus.contains(&c.id) || pannes.contains_key(&c.id))
+            .count()
+    };
+    let signaler = |mut titre: AccountRowData, n: usize| {
+        if n > 0 {
+            titre.needs_attention = true;
+            titre.problem = match n {
+                1 => "1 account here failed to sync".into(),
+                n => format!("{n} accounts here failed to sync").into(),
+            };
+        }
+        titre
+    };
     let lignes: Vec<AccountRowData> = if fenetre.get_group_by_tags() {
         let tags = services.store.account_tags().unwrap_or_default();
         let liens = services.store.account_tag_links().unwrap_or_default();
@@ -129,13 +146,16 @@ pub fn refresh_accounts(
             if dedans.is_empty() {
                 continue;
             }
-            lignes.push(bridge::account_group_header(
-                &tag.name,
-                crate::calendar::couleur(&tag.color),
-                tag.id,
-                replie(tag.id),
-                dedans.len(),
-                a_faire(&dedans),
+            lignes.push(signaler(
+                bridge::account_group_header(
+                    &tag.name,
+                    crate::calendar::couleur(&tag.color),
+                    tag.id,
+                    replie(tag.id),
+                    dedans.len(),
+                    a_faire(&dedans),
+                ),
+                en_panne(&dedans),
             ));
             if !replie(tag.id) {
                 lignes.extend(dedans.into_iter().map(|c| ligne(c)));
@@ -146,13 +166,16 @@ pub fn refresh_accounts(
             .filter(|c| liens.get(&c.id).is_none_or(|t| t.is_empty()))
             .collect();
         if !sans.is_empty() {
-            lignes.push(bridge::account_group_header(
-                "No tag",
-                slint::Color::from_argb_u8(0, 0, 0, 0),
-                0,
-                replie(0),
-                sans.len(),
-                a_faire(&sans),
+            lignes.push(signaler(
+                bridge::account_group_header(
+                    "No tag",
+                    slint::Color::from_argb_u8(0, 0, 0, 0),
+                    0,
+                    replie(0),
+                    sans.len(),
+                    a_faire(&sans),
+                ),
+                en_panne(&sans),
             ));
             if !replie(0) {
                 lignes.extend(sans.into_iter().map(|c| ligne(c)));
@@ -244,6 +267,16 @@ pub fn wire_sync(
             };
             let compte = iris_types::AccountId(id as i64);
             fenetre.set_syncing(true);
+            // Said at once, with the mailbox's name, and answered when it is over.
+            let adresse = services_un
+                .store
+                .accounts()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|c| c.id == compte)
+                .map(|c| c.email)
+                .unwrap_or_default();
+            fenetre.set_status(format!("Syncing {adresse}…").into());
 
             let engine = Arc::clone(&engine);
             let services_un = services_un.clone();
@@ -257,19 +290,25 @@ pub fn wire_sync(
                 let _ = faible.upgrade_in_event_loop(move |fenetre| {
                     fenetre.set_syncing(false);
                     match resultat {
-                        Ok(0) => fenetre.set_status("Up to date.".into()),
+                        Ok(0) => {
+                            fenetre.set_status(format!("{adresse} synced: up to date.").into())
+                        }
                         Ok(n) => fenetre.set_status(
-                            format!("{}.", iris_ui::format::plural(n as u64, "new message")).into(),
+                            format!(
+                                "{adresse} synced: {}.",
+                                iris_ui::format::plural(n as u64, "new message")
+                            )
+                            .into(),
                         ),
                         // The kind of failure and where to look, not the TLS library's
                         // paragraph: the whole message is one click away, on the mark.
                         Err(e) => fenetre.set_status(
                             match panne {
                                 Some(p) => format!(
-                                    "Sync failed: {}. Click the red ! next to the account.",
+                                    "{adresse} failed to sync: {}. Click the red ! next to it.",
                                     p.summary()
                                 ),
-                                None => format!("Sync failed: {e}"),
+                                None => format!("{adresse} failed to sync: {e}"),
                             }
                             .into(),
                         ),
@@ -2148,6 +2187,42 @@ pub fn wire_reply(
                 }
                 Err(e) => fenetre.set_status(format!("Cannot forward: {e}").into()),
             }
+        });
+    }
+
+    // Whom Send and Reply all will write to, worked out as sending would, for the
+    // buttons to say it when pointed at.
+    {
+        let send = Arc::clone(&send);
+        let selection = Arc::clone(&selection);
+        let faible = fenetre.as_weak();
+        fenetre.on_reply_recipients_wanted(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let thread = *selection.lock().expect("sélection");
+            let ligne = |adresses: &[iris_types::Address]| -> slint::SharedString {
+                adresses
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into()
+            };
+            let pour = |portee| {
+                thread
+                    .and_then(|t| send.compose_reply(t, " ", portee).ok())
+                    .map(|m| (ligne(&m.to), ligne(&m.cc), ligne(&m.bcc)))
+                    .unwrap_or_default()
+            };
+            let (a, cc, cci) = pour(iris_smtp::ReplyScope::Sender);
+            fenetre.set_reply_to(a);
+            fenetre.set_reply_cc(cc);
+            fenetre.set_reply_bcc(cci);
+            let (a, cc, cci) = pour(iris_smtp::ReplyScope::All);
+            fenetre.set_reply_all_to(a);
+            fenetre.set_reply_all_cc(cc);
+            fenetre.set_reply_all_bcc(cci);
         });
     }
 
@@ -5196,6 +5271,81 @@ pub fn wire_compose(
         });
     }
 
+    // --- Minimised messages, at the foot of the window ---
+    //
+    // Minimising takes the message out of the window and keeps it, on this computer,
+    // as a small bar at the bottom right; the window is then free, and New message
+    // writes another one. A click on a bar brings its message back, rising and
+    // growing into the window at once.
+    let chemin_reduits = services.paths.minimised_drafts();
+    REDUITS.with(|r| {
+        *r.borrow_mut() = crate::draft::Draft::load_all(&chemin_reduits)
+            .into_iter()
+            .map(|brouillon| Reduit {
+                brouillon,
+                pieces: Vec::new(),
+                expediteur: 0,
+            })
+            .collect();
+    });
+    montrer_reduits(fenetre);
+    {
+        let chemin = chemin_reduits.clone();
+        let chemin_brouillon = chemin_brouillon.clone();
+        let pieces = Arc::clone(&pieces);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_park(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            ranger(&fenetre, &pieces, &chemin);
+            let _ = crate::draft::Draft::clear(&chemin_brouillon);
+            fenetre.set_compose_open(false);
+        });
+    }
+    {
+        let chemin = chemin_reduits.clone();
+        let pieces = Arc::clone(&pieces);
+        let faible = fenetre.as_weak();
+        fenetre.on_parked_open(move |index, x| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // What the window holds goes down first, to a bar of its own.
+            if fenetre.get_compose_open() {
+                ranger(&fenetre, &pieces, &chemin);
+            }
+            let Some(reduit) = REDUITS.with(|r| {
+                let mut r = r.borrow_mut();
+                ((index as usize) < r.len()).then(|| r.remove(index as usize))
+            }) else {
+                return;
+            };
+            enregistrer_reduits(&chemin);
+            montrer_reduits(&fenetre);
+            let b = &reduit.brouillon;
+            fenetre.set_compose_to(b.to.as_str().into());
+            fenetre.set_compose_cc(b.cc.as_str().into());
+            fenetre.set_compose_bcc(b.bcc.as_str().into());
+            fenetre.set_compose_subject(b.subject.as_str().into());
+            fenetre.set_compose_body(b.body.as_str().into());
+            fenetre.set_compose_show_cc(!b.cc.is_empty() || !b.bcc.is_empty());
+            fenetre.set_compose_sender_index(reduit.expediteur);
+            show_attachments(&fenetre, &reduit.pieces);
+            *pieces.lock().expect("poisoned attachments") = reduit.pieces;
+            // From where its bar was, small, then up into the window.
+            fenetre.set_compose_parked_x(x);
+            fenetre.set_compose_minimised(true);
+            fenetre.set_compose_open(true);
+            let faible = fenetre.as_weak();
+            slint::Timer::single_shot(std::time::Duration::from_millis(30), move || {
+                if let Some(f) = faible.upgrade() {
+                    f.set_compose_minimised(false);
+                }
+            });
+        });
+    }
+
     // Closed, and thrown away: after the question, on purpose.
     {
         let chemin = chemin_brouillon.clone();
@@ -5868,6 +6018,68 @@ pub fn apply_markup(body: &str, what: &str) -> String {
 }
 
 /// Empties the new-message window entirely: fields, copies and attachments.
+/// A message minimised to the foot of the window.
+struct Reduit {
+    brouillon: crate::draft::Draft,
+    /// Its attachments, for as long as Iris runs (the file keeps only their count).
+    pieces: Vec<iris_smtp::Attachment>,
+    expediteur: i32,
+}
+
+thread_local! {
+    static REDUITS: std::cell::RefCell<Vec<Reduit>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The bars at the foot of the window, one per minimised message.
+fn montrer_reduits(fenetre: &AppWindow) {
+    let titres: Vec<slint::SharedString> = REDUITS.with(|r| {
+        r.borrow()
+            .iter()
+            .map(|m| m.brouillon.title().into())
+            .collect()
+    });
+    fenetre.set_parked_drafts(ModelRc::new(VecModel::from(titres)));
+}
+
+fn enregistrer_reduits(chemin: &std::path::Path) {
+    let brouillons: Vec<crate::draft::Draft> =
+        REDUITS.with(|r| r.borrow().iter().map(|m| m.brouillon.clone()).collect());
+    if let Err(e) = crate::draft::Draft::save_all(&brouillons, chemin) {
+        tracing::warn!(error = %e, "keeping the minimised messages");
+    }
+}
+
+/// Takes what the window holds down to a bar of its own, kept on this computer, and
+/// empties the window. Nothing written, nothing kept.
+fn ranger(
+    fenetre: &AppWindow,
+    pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
+    chemin: &std::path::Path,
+) {
+    let jointes = pieces.lock().expect("poisoned attachments").clone();
+    let brouillon = crate::draft::Draft {
+        to: fenetre.get_compose_to().to_string(),
+        cc: fenetre.get_compose_cc().to_string(),
+        bcc: fenetre.get_compose_bcc().to_string(),
+        subject: fenetre.get_compose_subject().to_string(),
+        body: fenetre.get_compose_body().to_string(),
+        lost_attachments: jointes.len() as u32,
+    };
+    if !brouillon.is_empty() || !jointes.is_empty() {
+        REDUITS.with(|r| {
+            r.borrow_mut().push(Reduit {
+                brouillon,
+                pieces: jointes,
+                expediteur: fenetre.get_compose_sender_index(),
+            })
+        });
+        enregistrer_reduits(chemin);
+        montrer_reduits(fenetre);
+        fenetre.set_status("Kept as a draft at the bottom right.".into());
+    }
+    vider_redaction(fenetre, pieces);
+}
+
 fn vider_redaction(
     fenetre: &AppWindow,
     pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,

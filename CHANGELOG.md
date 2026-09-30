@@ -3,9 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
-## 3.13.0 — 2026-10-01
+## 3.14.0 — 2026-10-01
 
 ### New
+- Several messages can be minimised at once: each becomes a bar at the bottom right, kept as a draft, and New message opens a fresh one.
+- Events can have a video call link; Meet, Teams, Zoom and Webex links are found on their own, and a Join button opens them from the event and from Home.
+- Continue with Google in Add an account, once your Google client is set in Settings.
+- Pointing at Send or Reply all shows who it goes to, To, Cc and Bcc apart.
+- A tag shows "!" while one of its accounts fails to sync.
+- Syncing one account says so in the status bar, then how it went.
 - Select a message's words with the mouse and copy them with Ctrl+C.
 - Inbox zero: an empty To do is celebrated, with the days in a row you got there.
 - After adding a task, a small bubble asks how long it takes; Enter skips it.
@@ -14,9 +20,21 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Pointing at "Inbox +2" names every folder the conversation is in.
 
 ### Improved
+- Ctrl+K lists everything at once and narrows the list as you type.
+- A minimised message rises and grows back into place in one movement.
+- Stretching an event that shares its column keeps its width, and the events it reaches make room as you go.
+- A goal's page is more compact: its pace sits beside where it stands, its log on a card.
+- A goal's new title is kept when you click elsewhere, as with Enter.
 - Tasks are cards in a centred column, and their details float beside them.
 - A task's details show the essentials; More options holds the slot, reminder, repeat and list.
 - Softer corners throughout, and windows, menus and cards ease in.
+
+### Fixed
+- Gmail accounts that failed with "did not answer within 30 seconds" sync again.
+- Long lines in the changelog wrap instead of running off the edge.
+- Today's number in the calendar is a round mark again.
+- The New message key hint and the All accounts icon of the folded column are centred.
+- Pointing at Next on Home no longer hides the line under it.
 
 ### Removed
 - The Goal field in a task's details: steps are added from the goal's page.

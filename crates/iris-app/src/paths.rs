@@ -94,6 +94,11 @@ impl Paths {
     pub fn draft(&self) -> PathBuf {
         self.data.join("draft.json")
     }
+
+    /// The messages minimised to the foot of the window.
+    pub fn minimised_drafts(&self) -> PathBuf {
+        self.data.join("minimised-drafts.json")
+    }
 }
 
 #[cfg(test)]

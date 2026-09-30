@@ -417,6 +417,12 @@ component WeekGrid inherits VerticalLayout {
     property <int> landing-start: root.held-begins + root.shift-minutes;
     property <int> landing-end: root.landing-start + root.held-span + root.stretch;
 
+    /// Stretched by a quarter hour more or less: the week is laid out again with it so,
+    /// and the events it reaches make room, while it keeps its share of the column.
+    callback event-stretching(string, int);
+    /// The stretch last reported, so each quarter hour is said once.
+    property <int> stretch-sent;
+
     // A task carried from the side column, in window coordinates, and how long the
     // block it books. `drop` goes up by one when it is let go.
     in property <bool> carrying;
@@ -491,16 +497,22 @@ component WeekGrid inherits VerticalLayout {
                     color: d.today ? Tokens.accent : Tokens.text-muted;
                     vertical-alignment: center;
                 }
+                // Today's number on a round of the accent: never narrower than it is
+                // tall, so "1" is a disc and not a squeezed bar.
                 Rectangle {
                     y: (parent.height - self.height) / 2;
-                    width: numero.preferred-width + (d.today ? 12px : 0px);
-                    height: 24px;
-                    border-radius: Tokens.radius-small;
+                    width: d.today ? max(26px, numero.preferred-width + 14px) : numero.preferred-width;
+                    height: 26px;
+                    border-radius: 13px;
                     background: d.today ? Tokens.accent : transparent;
                     numero := Text {
+                        width: parent.width;
+                        height: parent.height;
                         text: d.day;
-                        font-size: 17px;
+                        font-size: 16px;
                         font-weight: d.today ? 600 : 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
                         color: d.today ? Tokens.accent-text : jour.repos ? Tokens.text-muted : Tokens.text;
                     }
                 }
@@ -605,7 +617,9 @@ component WeekGrid inherits VerticalLayout {
             // faded, while a copy drawn over everything follows the pointer by
             // quarter hours; it lands when let go.
             for e in root.events: evenement := Rectangle {
-                property <bool> held: root.drag-mode != 0 && root.drag-key == e.key;
+                // Moved, it fades where it was under the copy that follows the
+                // pointer; stretched, it is drawn itself, at its new length.
+                property <bool> held: root.drag-mode == 1 && root.drag-key == e.key;
 
                 x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 2px;
                 y: e.top * grille.height + 1px;
@@ -697,6 +711,11 @@ component WeekGrid inherits VerticalLayout {
                                 && (abs(root.drag-dx) > 4px || abs(root.drag-dy) > 4px)) {
                                 root.close-draft();
                                 root.drag-mode = root.drag-stretch ? 2 : 1;
+                                root.stretch-sent = 0;
+                            }
+                            if (root.drag-mode == 2 && root.stretch != root.stretch-sent) {
+                                root.stretch-sent = root.stretch;
+                                root.event-stretching(e.key, root.stretch);
                             }
                         }
                     }
@@ -718,8 +737,8 @@ component WeekGrid inherits VerticalLayout {
                 }
             }
 
-            // The held event where it would land, over the others, with its new time.
-            if root.drag-mode != 0: Rectangle {
+            // The moved event where it would land, over the others, with its new time.
+            if root.drag-mode == 1: Rectangle {
                 x: root.gutter + (root.held.day + root.shift-days) * grille.colonne + 2px;
                 y: root.landing-start / 1440 * grille.height + 1px;
                 width: grille.colonne - 4px;
@@ -892,6 +911,8 @@ export component CalendarView inherits Rectangle {
     callback event-moved(string, int, int);
     /// An event stretched: (key, minutes added to its end).
     callback event-resized(string, int);
+    /// An event being stretched, before it is let go: (key, minutes added so far).
+    callback event-stretching(string, int);
     /// A task let go on the week: (task, day, minute of the day).
     callback task-planned(int, string, int);
 
@@ -1179,6 +1200,7 @@ export component CalendarView inherits Rectangle {
                 draft-closed => { root.draft-closed(); }
                 event-moved(k, d, m) => { root.event-moved(k, d, m); }
                 event-resized(k, m) => { root.event-resized(k, m); }
+                event-stretching(k, m) => { root.event-stretching(k, m); }
                 carrying: root.carried >= 0;
                 carry-x: root.carry-x;
                 carry-y: root.carry-y;

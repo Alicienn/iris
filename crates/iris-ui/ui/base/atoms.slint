@@ -43,7 +43,13 @@ export component Kbd inherits Rectangle {
     border-color: root.on-accent ? Tokens.accent-text.transparentize(0.4)
         : root.ink == Tokens.text-muted ? Tokens.border-strong : root.ink.transparentize(0.5);
 
+    // The whole cap, centred in it: left to its own size, the letter sat a pixel high
+    // and to the left.
     mot := Text {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
         text: root.keys;
         font-size: 10.5px;
         font-weight: 500;

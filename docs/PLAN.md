@@ -495,8 +495,18 @@ the application is brought to it screen by screen.
       made a card over 32,767 px wide and the software renderer aborted on its rounded
       corner), the invitation's answer buttons laid out in a row of their own, the
       window opened maximised.
-- [x] **S40.21** Cozier and quicker (3.13.0): words selected and copied in both kinds
+- [x] **S40.21** Cozier and quicker (3.14.0): words selected and copied in both kinds
       of body, inbox zero with its streak, a task's length asked after a quick add,
       Tonight in Later, `?` for the keys, every folder named over "Inbox +2", tasks as
       cards in a centred column with floating, shorter details (no Goal field), larger
       radii and one-time entrance animations.
+- [x] **S40.22** Several drafts, video calls, Google (3.14.0): messages minimised to
+      bars at the foot of the window and kept on disk, reopened rising and growing at
+      once; video call links on events (migration 19, found in invitations) with Join
+      on the card and Home; Continue with Google; recipients over Send and Reply all;
+      a tag's "!"; a manual sync said in the status bar; the palette filled and
+      filtered (its query never reached Rust); an event stretched live with the week
+      laid out again; the goal page compacted, its title kept on leaving the field;
+      IPv4 first, 8 s an address, for Gmail on networks with dead IPv6; Slint 1.18;
+      visual fixes (today's disc, key caps, the folded column, Home's line, the
+      changelog's wrapping).

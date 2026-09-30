@@ -52,6 +52,10 @@ export struct HomeItemData {
     header: bool,
     now: bool,
     priority: int,
+    // An event held on a video call: its link, the service, what its button says.
+    video-url: string,
+    video-kind: string,
+    video-label: string,
 }
 
 export struct AccountRowData {
@@ -356,6 +360,13 @@ export struct EventDetailData {
     editable: bool,
     // It wears a colour of its own (`color`), not its calendar's.
     own-color: bool,
+    // The video call it is held on: the link (set by hand, or found in its place or
+    // description), the service ("meet", "teams", "zoom", "webex", "call"), what the
+    // button says, and the link set by hand (to change it).
+    video-url: string,
+    video-kind: string,
+    video-label: string,
+    video-set: string,
 }
 
 // --- Tasks ---

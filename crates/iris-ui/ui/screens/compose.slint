@@ -269,6 +269,65 @@ component ComposeChoice inherits Rectangle {
 // are the same element at different sizes rather than two windows: the transition is
 // then a single animation of x, y, width and height, and the draft cannot be lost in
 // the handover because there is no handover.
+// A message minimised: a bar at the foot of the window, the size the window shrinks to,
+// its subject on it. A click brings it back.
+export component ParkedDraft inherits Rectangle {
+    in property <string> text;
+    callback opened();
+
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.quick; easing: ease-out; }
+
+    width: 300px;
+    height: 40px;
+    opacity: root.entree;
+    border-radius: Tokens.radius-large;
+    border-width: 1px;
+    border-color: touche.has-hover ? Tokens.border-strong : Tokens.border;
+    background: Tokens.panel;
+    drop-shadow-blur: 18px;
+    drop-shadow-offset-y: 6px;
+    drop-shadow-color: Tokens.shadow;
+
+    accessible-role: button;
+    accessible-label: "Open the draft " + root.text;
+    accessible-action-default => { root.opened(); }
+
+    touche := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 8px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 14px;
+            data: Icons.pencil;
+            size: 13px;
+            tint: Tokens.text-muted;
+        }
+        Text {
+            text: root.text;
+            font-size: Tokens.size-body;
+            font-weight: Tokens.weight-bold;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 14px;
+            data: Icons.window-maximise;
+            size: 13px;
+            tint: touche.has-hover ? Tokens.text : Tokens.text-muted;
+        }
+    }
+}
+
 export component ComposePanel inherits Rectangle {
     in property <[string]> senders;
     in property <int> sender-index;
@@ -277,6 +336,10 @@ export component ComposePanel inherits Rectangle {
     /// The question asked on closing a message with something in it.
     in-out property <bool> confirm-close;
     in-out property <bool> minimised;
+    /// Where the bar it opens from sits, across; below zero, the right-hand corner.
+    in property <length> parked-x: -1px;
+    /// Minimised: taken down to a bar at the foot of the window, the window freed.
+    callback park();
     in-out property <bool> show-cc;
     in-out property <string> to;
     in-out property <string> cc;
@@ -337,20 +400,26 @@ export component ComposePanel inherits Rectangle {
         }
 
     if !root.minimised: TouchArea {
-        clicked => { root.minimised = true; }
+        clicked => { root.park(); }
     }
+
+    // The two shapes, fixed: the corners are worked out from these and not from the
+    // size being animated, so the window rises and grows at once instead of growing
+    // where it was, then travelling.
+    property <length> grand-w: min(720px, root.width - 80px);
+    property <length> grand-h: min(600px, root.height - 80px);
 
     frame := Floating {
         // The morph. One element, four animated properties — nothing is created or
         // destroyed between the two states, so the text being typed survives.
         x: root.minimised
-            ? parent.width - self.width - Tokens.space-3
-            : (parent.width - self.width) / 2;
+            ? (root.parked-x >= 0 ? root.parked-x : root.width - 300px - Tokens.space-3)
+            : (root.width - root.grand-w) / 2;
         y: root.minimised
-            ? parent.height - self.height - Tokens.space-3
-            : (parent.height - self.height) / 2;
-        width: root.minimised ? 300px : min(720px, parent.width - 80px);
-        height: root.minimised ? 40px : min(600px, parent.height - 80px);
+            ? root.height - 40px - Tokens.space-3
+            : (root.height - root.grand-h) / 2;
+        width: root.minimised ? 300px : root.grand-w;
+        height: root.minimised ? 40px : root.grand-h;
 
         animate x, y, width, height {
             duration: Tokens.moderate;
@@ -388,7 +457,13 @@ export component ComposePanel inherits Rectangle {
                     label: root.minimised ? "Expand" : "Minimise";
                     button-size: 24px;
                     icon-size: 14px;
-                    clicked => { root.minimised = !root.minimised; }
+                    clicked => {
+                        if (root.minimised) {
+                            root.minimised = false;
+                        } else {
+                            root.park();
+                        }
+                    }
                 }
                 IconButton {
                     icon: Icons.window-close;

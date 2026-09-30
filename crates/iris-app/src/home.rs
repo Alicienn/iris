@@ -121,6 +121,20 @@ pub struct Journee {
     pub events_left: usize,
 }
 
+/// An empty row but for the video call it is held on, if any: its link, its service,
+/// what its button says.
+pub fn avec_visio(lien: Option<&str>) -> HomeItemData {
+    match lien {
+        Some(l) => HomeItemData {
+            video_url: l.into(),
+            video_kind: crate::visio::kind(l).into(),
+            video_label: crate::visio::label(l).into(),
+            ..Default::default()
+        },
+        None => HomeItemData::default(),
+    }
+}
+
 /// The day, from the calendars and the tasks.
 pub fn day(services: &Services, max: usize) -> Journee {
     let maintenant = Local::now();
@@ -169,7 +183,7 @@ pub fn day(services: &Services, max: usize) -> Journee {
             meta: u.time.as_str().into(),
             hint: detail.into(),
             color: crate::calendar::couleur(&u.color),
-            ..Default::default()
+            ..avec_visio(u.video.as_deref())
         };
         garder(
             u.start,

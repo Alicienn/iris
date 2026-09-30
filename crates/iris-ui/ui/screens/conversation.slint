@@ -475,6 +475,46 @@ component Attachments inherits VerticalLayout {
 // What the reading toolbar's menus hold: until when to snooze, and the rarer actions.
 // An invitation over the message that carries it: what, when, and where it stands in
 // the calendar, with the one thing to do about it.
+// A button of the reply box that says, when pointed at, to whom it sends: the To, Cc
+// and Bcc lines apart.
+component RecipientsButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <ButtonKind> kind;
+    in property <bool> enabled;
+    in property <string> to;
+    in property <string> cc;
+    in property <string> bcc;
+    callback clicked();
+
+    width: bouton.preferred-width;
+    bouton := Button {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        icon: root.icon;
+        kind: root.kind;
+        size: ButtonSize.sm;
+        enabled: root.enabled;
+        label: root.to == "" ? root.text : root.text + " to " + root.to
+            + (root.cc == "" ? "" : ", copy to " + root.cc)
+            + (root.bcc == "" ? "" : ", blind copy to " + root.bcc);
+        clicked => { root.clicked(); }
+    }
+    if root.to != "" && root.cc == "" && root.bcc == "": Tooltip {
+        text: @markdown("To: \{root.to}");
+    }
+    if root.to != "" && root.cc != "" && root.bcc == "": Tooltip {
+        text: @markdown("To: \{root.to}\n\nCc: \{root.cc}");
+    }
+    if root.to != "" && root.cc == "" && root.bcc != "": Tooltip {
+        text: @markdown("To: \{root.to}\n\nBcc: \{root.bcc}");
+    }
+    if root.to != "" && root.cc != "" && root.bcc != "": Tooltip {
+        text: @markdown("To: \{root.to}\n\nCc: \{root.cc}\n\nBcc: \{root.bcc}");
+    }
+}
+
 component InviteBanner inherits Rectangle {
     /// 1 not in the calendar, 2 in it, 3 changed since, 4 cancelled but still in it,
     /// 5 cancelled and not in it.
@@ -688,6 +728,15 @@ export component ConversationView inherits VerticalLayout {
     in property <[MessageData]> messages;
     in property <bool> empty: true;
     in-out property <string> reply-text;
+    /// Whom Send and Reply all write to, each line apart (addresses joined by commas).
+    in property <string> reply-to;
+    in property <string> reply-cc;
+    in property <string> reply-bcc;
+    in property <string> reply-all-to;
+    in property <string> reply-all-cc;
+    in property <string> reply-all-bcc;
+    /// Another conversation is shown: its reply's recipients are asked for.
+    callback reply-recipients-wanted();
 
     in property <bool> starred;
     /// The mailbox the conversation came to.
@@ -754,6 +803,7 @@ export component ConversationView inherits VerticalLayout {
     changed courant => {
         root.entree = 0;
         arrivee.running = true;
+        root.reply-recipients-wanted();
     }
     arrivee := Timer {
         interval: 16ms;
@@ -1222,22 +1272,27 @@ export component ConversationView inherits VerticalLayout {
                         spacing: 6px;
                         alignment: end;
                         height: 28px;
-                        Button {
+                        // Each says, pointed at, to whom it sends.
+                        RecipientsButton {
                             text: "Reply all";
                             icon: Icons.reply-all;
                             kind: ButtonKind.ghost;
-                            size: ButtonSize.sm;
                             enabled: root.reply-text != "";
+                            to: root.reply-all-to;
+                            cc: root.reply-all-cc;
+                            bcc: root.reply-all-bcc;
                             clicked => { root.reply-all(); }
                         }
                         // Sent, the reply leaves the field; the notice at the bottom
                         // of the window can take it back for a few seconds.
-                        Button {
+                        RecipientsButton {
                             text: "Send";
                             icon: Icons.send;
                             kind: ButtonKind.secondary;
-                            size: ButtonSize.sm;
                             enabled: root.reply-text != "";
+                            to: root.reply-to;
+                            cc: root.reply-cc;
+                            bcc: root.reply-bcc;
                             clicked => { root.send(); }
                         }
                     }

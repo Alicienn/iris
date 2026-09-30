@@ -2,6 +2,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Kbd, Dot } from "@iris/base/atoms.slint";
 import { Check } from "@iris/controls/choice.slint";
 import { HomeItemData } from "@iris/types.slint";
+import { JoinButton } from "@iris/controls/video.slint";
 
 // Home: the day in a sentence, the one thing next, three ways in. Nothing else.
 //
@@ -55,6 +56,8 @@ export component HomeView inherits Rectangle {
     callback task-opened(int);
     callback task-toggled(int);
     callback event-opened(string);
+    /// An event's video call joined: its link.
+    callback join(string);
 
     property <bool> has-next: root.next.length > 0;
     property <HomeItemData> first: root.has-next ? root.next[0] : { };
@@ -113,7 +116,12 @@ export component HomeView inherits Rectangle {
                             if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
                         }
                     }
+                    // Clear of the hairlines by a few pixels: what the hover repaints
+                    // (the title's new colour) must not reach them, or a line is lost
+                    // under the repainted ground at fractional scales.
                     HorizontalLayout {
+                        padding-top: 4px;
+                        padding-bottom: 4px;
                         spacing: 10px;
                         Text {
                             width: 44px;
@@ -149,6 +157,14 @@ export component HomeView inherits Rectangle {
                             font-size: 12.5px;
                             color: Tokens.text-muted;
                             vertical-alignment: center;
+                        }
+                        // Held on a video call: the service's button, one click in.
+                        if root.first.video-url != "": JoinButton {
+                            y: (parent.height - self.height) / 2;
+                            compact: true;
+                            kind: root.first.video-kind;
+                            text: root.first.video-label;
+                            clicked => { root.join(root.first.video-url); }
                         }
                     }
                 }

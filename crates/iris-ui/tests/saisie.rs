@@ -161,20 +161,28 @@ fn un_clic_d_un_champ_a_l_autre_sans_suggestions() {
 }
 
 fn new_message_rouvre_en_grand_une_fenetre_reduite() {
+    // Minimising takes the message down to a bar of its own (Rust keeps it), so the
+    // window is free for another; New message then opens it full size.
     let f = fenetre();
+    let ranges = Rc::new(RefCell::new(0));
+    {
+        let ranges = Rc::clone(&ranges);
+        let fw = f.as_weak();
+        f.on_compose_park(move || {
+            *ranges.borrow_mut() += 1;
+            fw.upgrade().unwrap().set_compose_open(false);
+        });
+    }
     composer(&f);
     taper(&f, "marie@example.com");
     clic(&bouton(&f, "Minimise"));
-    assert!(f.get_compose_minimised());
+    assert_eq!(*ranges.borrow(), 1, "the message goes down to a bar");
+    assert!(!f.get_compose_open(), "the window is free");
     clic(&bouton(&f, "Write a new message"));
+    assert!(f.get_compose_open());
     assert!(
         !f.get_compose_minimised(),
         "New message ouvre la fenêtre en grand"
-    );
-    assert_eq!(
-        f.get_compose_to().as_str(),
-        "marie@example.com",
-        "rien n'est perdu"
     );
 }
 
@@ -1584,6 +1592,30 @@ fn un_clic_dans_les_taches_n_atteint_pas_le_courrier_dessous() {
     assert!(f.get_compose_open());
 }
 
+fn la_palette_montre_tout_puis_filtre_a_chaque_touche() {
+    // Ctrl+K opened on an empty panel and typing changed nothing: what was typed never
+    // reached the list.
+    let f = fenetre();
+    let demandes = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let v = Rc::clone(&demandes);
+        f.on_palette_query_changed(move |q| v.borrow_mut().push(q.to_string()));
+    }
+    ctrl(&f, "k");
+    assert!(f.get_palette_open());
+    assert_eq!(
+        demandes.borrow().first().map(String::as_str),
+        Some(""),
+        "opened, the whole list is asked for"
+    );
+    taper(&f, "ar");
+    assert_eq!(
+        demandes.borrow().last().map(String::as_str),
+        Some("ar"),
+        "each key asks again"
+    );
+}
+
 fn un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo() {
     let f = fenetre();
     f.set_workspace(2);
@@ -1620,8 +1652,16 @@ fn un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo() {
     assert_eq!(noms.borrow().len(), 1);
     assert!(!champ_existe(&f, "Goal title"));
 
-    // The pencil opens every field.
+    // Leaving the field keeps what was typed, as Enter does; here by the pencil, which
+    // then opens every field.
+    clic(&bouton(&f, "Rename Send 10 applications"));
+    taper(&f, "Send 15 applications");
     clic(&bouton(&f, "Edit goal"));
+    assert_eq!(
+        noms.borrow().last().map(String::as_str),
+        Some("Send 15 applications")
+    );
+    assert!(!champ_existe(&f, "Goal title"));
     assert_eq!(*modifs.borrow(), 1);
 }
 
@@ -1742,12 +1782,15 @@ fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
     ])));
     let deplaces = Rc::new(RefCell::new(Vec::<(String, i32, i32)>::new()));
     let etires = Rc::new(RefCell::new(Vec::<(String, i32)>::new()));
+    let en_cours = Rc::new(RefCell::new(Vec::<(String, i32)>::new()));
     let ouverts = Rc::new(RefCell::new(0));
     {
         let v = Rc::clone(&deplaces);
         f.on_calendar_event_moved(move |k, d, m| v.borrow_mut().push((k.to_string(), d, m)));
         let v = Rc::clone(&etires);
         f.on_calendar_event_resized(move |k, m| v.borrow_mut().push((k.to_string(), m)));
+        let v = Rc::clone(&en_cours);
+        f.on_calendar_event_stretching(move |k, m| v.borrow_mut().push((k.to_string(), m)));
         let v = Rc::clone(&ouverts);
         f.on_calendar_event_opened(move |_| *v.borrow_mut() += 1);
     }
@@ -1779,6 +1822,12 @@ fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
     let bord = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + taille.height - 2.0);
     glisser(&f, bord, slint::LogicalPosition::new(bord.x, bord.y + 24.0));
     assert_eq!(*etires.borrow(), [("5:0".to_string(), 30)]);
+    // While it was stretched, the week was asked to follow it, not only at the end.
+    assert!(
+        en_cours.borrow().contains(&("5:0".to_string(), 30)),
+        "stretching is reported as it goes: {:?}",
+        en_cours.borrow()
+    );
 
     // One that cannot move (a subscription, a repeat) stays put.
     let b = bloc("Match");
@@ -2294,6 +2343,10 @@ fn main() {
         (
             "une_tache_portee_sur_une_liste_y_va",
             une_tache_portee_sur_une_liste_y_va,
+        ),
+        (
+            "la_palette_montre_tout_puis_filtre_a_chaque_touche",
+            la_palette_montre_tout_puis_filtre_a_chaque_touche,
         ),
         (
             "les_taches_terminees_se_suppriment_d_un_clic",

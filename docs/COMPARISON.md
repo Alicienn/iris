@@ -31,7 +31,7 @@ the first afternoon, and never forgive".
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris does not.
 
-## Missing, ordered by how soon it hurts (as of 3.13.0)
+## Missing, ordered by how soon it hurts (as of 3.14.0)
 
 ### 1. Signing in to Gmail or Outlook takes a client of one's own
 

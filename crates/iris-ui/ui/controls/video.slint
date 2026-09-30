@@ -1,0 +1,75 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+
+// The video services an event can be held on, each as a small tile in its colour: a
+// camera for Meet and Zoom, the initial for Teams and Webex, the accent for any other.
+export component VideoMark inherits Rectangle {
+    /// "meet", "teams", "zoom", "webex", or "call".
+    in property <string> kind;
+    in property <length> size: 18px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size * 0.28;
+    background: root.kind == "meet" ? #00897b
+        : root.kind == "teams" ? #5b5fc7
+        : root.kind == "zoom" ? #2d8cff
+        : root.kind == "webex" ? #07a4c5
+        : Tokens.accent;
+
+    if root.kind == "teams" || root.kind == "webex": Text {
+        text: root.kind == "teams" ? "T" : "W";
+        font-size: root.size * 0.62;
+        font-weight: 700;
+        color: #ffffff;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if root.kind != "teams" && root.kind != "webex": Icon {
+        data: Icons.video;
+        size: root.size * 0.66;
+        tint: #ffffff;
+    }
+}
+
+// "Join on Meet": the service's mark and the words, one click to the call.
+export component JoinButton inherits Rectangle {
+    in property <string> kind;
+    in property <string> text;
+    in property <bool> compact;
+    callback clicked();
+
+    height: root.compact ? 26px : 32px;
+    width: rang.preferred-width + (root.compact ? 14px : 20px);
+    border-radius: root.height / 2;
+    border-width: 1px;
+    border-color: touche.has-hover ? Tokens.border-strong : Tokens.border;
+    background: touche.has-hover ? Tokens.surface-hover : Tokens.surface;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    touche := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    rang := HorizontalLayout {
+        x: root.compact ? 5px : 7px;
+        width: self.preferred-width;
+        spacing: root.compact ? 6px : 8px;
+        VideoMark {
+            y: (parent.height - self.height) / 2;
+            kind: root.kind;
+            size: root.compact ? 16px : 20px;
+        }
+        Text {
+            text: root.text;
+            font-size: root.compact ? 12px : 13px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+    }
+}

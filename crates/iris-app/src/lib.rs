@@ -32,6 +32,7 @@ pub mod tags;
 pub mod tasks;
 pub mod tray;
 pub mod update;
+pub mod visio;
 pub mod vitals;
 pub mod workspace;
 

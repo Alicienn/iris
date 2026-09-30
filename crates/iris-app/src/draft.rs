@@ -74,6 +74,44 @@ impl Draft {
         std::fs::write(path, texte)
     }
 
+    /// The messages minimised to the foot of the window, in their order. A missing or
+    /// unreadable file holds none.
+    pub fn load_all(path: impl AsRef<Path>) -> Vec<Self> {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|texte| serde_json::from_str::<Vec<Self>>(&texte).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|d| !d.is_empty())
+            .collect()
+    }
+
+    /// Keeps the minimised messages; none left removes the file.
+    pub fn save_all(drafts: &[Self], path: impl AsRef<Path>) -> std::io::Result<()> {
+        let path = path.as_ref();
+        if drafts.is_empty() {
+            return Self::clear(path);
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let texte = serde_json::to_string_pretty(drafts)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, texte)
+    }
+
+    /// What names it at the foot of the window: its subject, else to whom, else
+    /// "New message".
+    pub fn title(&self) -> String {
+        if !self.subject.trim().is_empty() {
+            self.subject.trim().to_string()
+        } else if !self.to.trim().is_empty() {
+            format!("To {}", self.to.trim())
+        } else {
+            "New message".to_string()
+        }
+    }
+
     /// Efface le brouillon : le message est parti, ou l'utilisateur l'a abandonné.
     pub fn clear(path: impl AsRef<Path>) -> std::io::Result<()> {
         match std::fs::remove_file(path) {
@@ -146,6 +184,25 @@ mod tests {
     fn effacer_un_brouillon_absent_n_est_pas_une_erreur() {
         let (_d, chemin) = fichier();
         assert!(Draft::clear(&chemin).is_ok());
+    }
+
+    #[test]
+    fn minimised_messages_come_back_in_their_order() {
+        let (_d, chemin) = fichier();
+        let second = Draft {
+            to: "paul@example.com".into(),
+            ..Default::default()
+        };
+        Draft::save_all(&[brouillon(), Draft::default(), second.clone()], &chemin).unwrap();
+        assert_eq!(
+            Draft::load_all(&chemin),
+            vec![brouillon(), second.clone()],
+            "an empty one is not kept"
+        );
+        assert_eq!(brouillon().title(), "Devis");
+        assert_eq!(second.title(), "To paul@example.com");
+        Draft::save_all(&[], &chemin).unwrap();
+        assert!(!chemin.exists(), "none left, no file");
     }
 
     #[test]

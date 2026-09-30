@@ -7,8 +7,9 @@ import { CalButton, MiniMonth } from "@iris/screens/calendar.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
 import { Modal, Popover } from "@iris/layout/frames.slint";
-import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
 import { Check } from "@iris/controls/choice.slint";
+import { JoinButton } from "@iris/controls/video.slint";
 
 // The frame of the calendar's, the tasks' and the tags' windows: the shared modal.
 export component PanelFrame inherits Modal {}
@@ -108,6 +109,14 @@ component EventBody inherits VerticalLayout {
     callback edit();
     callback delete();
     callback dismissed();
+    /// Its video call opened in the browser (or its app).
+    callback join(string);
+    /// A video call link given to it; empty takes it away.
+    callback video-set(string);
+
+    /// The link being typed or changed.
+    property <bool> video-editing;
+    property <string> video-typed;
 
     spacing: 12px;
 
@@ -146,6 +155,37 @@ component EventBody inherits VerticalLayout {
     if root.detail.location != "": FactRow {
         icon: Icons.map-pin;
         text: root.detail.location;
+    }
+
+    // Its video call: the service's button, one click to join; and the link, given or
+    // changed in place.
+    if root.detail.video-url != "" && !root.video-editing: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        JoinButton {
+            kind: root.detail.video-kind;
+            text: root.detail.video-label;
+            clicked => { root.join(root.detail.video-url); }
+        }
+        Link {
+            y: (parent.height - self.height) / 2;
+            text: "Change";
+            label: "Change the video call link";
+            clicked => {
+                root.video-typed = root.detail.video-set != "" ? root.detail.video-set : root.detail.video-url;
+                root.video-editing = true;
+            }
+        }
+    }
+    if root.detail.video-url == "" || root.video-editing: TextField {
+        icon: Icons.video;
+        accessible-label: "Video call link";
+        placeholder-text: "Video call link (Meet, Teams, Zoom…)";
+        text <=> root.video-typed;
+        accepted(t) => {
+            root.video-set(t);
+            root.video-editing = false;
+        }
     }
     FactRow {
         icon: root.detail.reminder != "" ? Icons.bell : Icons.calendar;
@@ -266,6 +306,8 @@ export component EventDetailPanel inherits Rectangle {
     callback edit();
     callback delete();
     callback dismissed();
+    callback join(string);
+    callback video-set(string);
 
     if root.anchored: Popover {
         width: 100%;
@@ -287,6 +329,8 @@ export component EventDetailPanel inherits Rectangle {
             edit => { root.edit(); }
             delete => { root.delete(); }
             dismissed => { root.dismissed(); }
+            join(u) => { root.join(u); }
+            video-set(u) => { root.video-set(u); }
         }
     }
 
@@ -335,6 +379,8 @@ export component EventDetailPanel inherits Rectangle {
                 edit => { root.edit(); }
                 delete => { root.delete(); }
                 dismissed => { root.dismissed(); }
+                join(u) => { root.join(u); }
+                video-set(u) => { root.video-set(u); }
             }
         }
     }

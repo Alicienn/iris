@@ -977,16 +977,31 @@ fn une_piece_jointe_se_retire() {
 
 fn reduire_la_fenetre_ne_jette_pas_le_brouillon() {
     // Losing what somebody was writing is not a recoverable mistake.
+    // Minimising hands the message to Rust, which keeps it as a bar at the foot of the
+    // window; nothing in the window is thrown away on the way.
     let f = fenetre();
     f.set_compose_open(true);
     f.set_compose_body("half a sentence".into());
+    let garde = Rc::new(RefCell::new(String::new()));
+    {
+        let garde = Rc::clone(&garde);
+        let fw = f.as_weak();
+        f.on_compose_park(move || {
+            *garde.borrow_mut() = fw.upgrade().unwrap().get_compose_body().to_string();
+        });
+    }
 
-    par_libelle(&f, "Minimise")
-        .expect("the draft must be tuckable")
-        .invoke_accessible_default_action();
+    // The window's own Minimise comes first among the labels; the compose one is the
+    // one inside the compose panel, so both are tried.
+    for bouton in testing::ElementHandle::find_by_accessible_label(&f, "Minimise") {
+        bouton.invoke_accessible_default_action();
+    }
 
-    assert!(f.get_compose_open(), "the draft is still there");
-    assert_eq!(f.get_compose_body(), "half a sentence");
+    assert_eq!(
+        garde.borrow().as_str(),
+        "half a sentence",
+        "handed over whole"
+    );
 }
 
 fn une_erreur_de_composition_est_montree() {

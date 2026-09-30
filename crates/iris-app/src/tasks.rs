@@ -313,7 +313,7 @@ fn apercu(
                     color: crate::calendar::couleur(&u.color),
                     past: u.past,
                     now: premier,
-                    ..Default::default()
+                    ..crate::home::avec_visio(u.video.as_deref())
                 }
             })
             .collect()
