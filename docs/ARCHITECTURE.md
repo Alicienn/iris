@@ -513,7 +513,10 @@ A new table or column always arrives as a new migration.
   failed automatic check is shown only in Settings — being offline is not news.
 - **CI** (`.github/workflows/ci.yml`): format and clippy with warnings denied, the test
   suite on Windows and macOS without the HTML engine (no GPU there), and a Windows
-  release build kept as an artifact.
+  release build kept as an artifact. The test jobs build unit and integration tests
+  only (`--lib --tests`, no examples, no doc-tests, no line tables); a push that only
+  touches `docs/`, a README or `CLAUDE.md` runs nothing, and a newer push to a pull
+  request cancels the older run.
 - **Release** (`.github/workflows/release.yml`) runs after every green CI on `main`. If
   the `Cargo.toml` version has no release yet, it reuses the CI binary, builds the
   installer, tags `vX.Y.Z` and publishes it with that version's changelog section.

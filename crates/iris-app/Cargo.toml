@@ -8,6 +8,9 @@ license.workspace = true
 [[bin]]
 name = "iris"
 path = "src/main.rs"
+# No test in main.rs: its test build was one more link of the whole interface for
+# zero tests.
+test = false
 
 [features]
 # Le moteur HTML complet, transmis a iris-htmlview.

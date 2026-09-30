@@ -21,6 +21,10 @@ as notes. The same version twice publishes nothing, and a pushed tag must match
 click; the download is checked against the size and SHA-256 GitHub publishes, and the
 installer runs with `/SILENT /UPDATE`, which reopens Iris afterwards.
 
+CI itself (`.github/workflows/ci.yml`) skips pushes that only touch `docs/`, a README
+or `CLAUDE.md`, so such a push publishes nothing either. It can be run by hand from the
+Actions tab to measure it; Release ignores those runs.
+
 ```
 cargo build --release
 powershell -File packaging\build-plugins.ps1

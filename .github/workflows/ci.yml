@@ -12,7 +12,20 @@ name: CI
 on:
   push:
     branches: [main, master]
+    # Text that is not compiled has nothing to check. CHANGELOG.md is compiled in, so
+    # it is not listed.
+    paths-ignore: ["docs/**", "**/README.md", "CLAUDE.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/README.md", "CLAUDE.md"]
+  # To measure the pipeline again without a commit. Release ignores these runs.
+  workflow_dispatch:
+
+# A newer push to a pull request makes the run on the older one pointless. Never on
+# main: each of its runs may be the one that publishes a version, so each gets a
+# group of its own (a shared one would queue them, and drop the queued one).
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,6 +60,12 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
 
+    env:
+      # No line tables for the workspace crates: nobody steps through a CI build, a
+      # failing assertion still names its file and line, and the interface's generated
+      # code is smaller to write and to link. Dependencies already have none.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -56,12 +75,18 @@ jobs:
       # s'en passer — `BlitzRenderer::is_available` le vérifie — mais compiler la
       # dépendance sur chaque exécution coûte plusieurs minutes pour un chemin que
       # l'intégration continue ne peut de toute façon pas exercer.
+      #
+      # `--lib --tests`: the unit and integration tests, nothing else. `cargo test`
+      # alone also built every example (each one a full link of the interface) and
+      # ran the doc-tests, and there are none; clippy `--all-targets` already checks
+      # that the examples compile. The build is the same command with `--no-run`, so
+      # the tests reuse all of it; `cargo build` built the binary, which no test runs.
       - name: Compilation
-        run: cargo build --workspace --no-default-features
+        run: cargo test --workspace --no-default-features --lib --tests --no-run
 
       - name: Tests
         # Every failing binary reported in one run, not only the first.
-        run: cargo test --workspace --no-default-features --no-fail-fast
+        run: cargo test --workspace --no-default-features --lib --tests --no-fail-fast
 
   # Le binaire complet, avec le moteur de rendu, sur la plateforme prioritaire.
   # Il ne s'exécute pas ici : sans écran, il n'y a rien à ouvrir. On vérifie qu'il
