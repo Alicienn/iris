@@ -375,6 +375,8 @@ pub fn message_view(
         // rend rien.
         expanded: true,
         preview: message.preview.as_str().into(),
+        // An invitation it carries is set by the shell, which can read the calendar.
+        ..Default::default()
     }
 }
 
@@ -404,6 +406,7 @@ pub fn message_header(message: &StoredMessage, now: Timestamp) -> MessageData {
         id: message.id.get() as i32,
         expanded: false,
         preview: message.preview.as_str().into(),
+        ..Default::default()
     }
 }
 
