@@ -60,6 +60,28 @@ before saving. The encryption is decided by the port (993 and 465 direct TLS, an
 STARTTLS), never in the clear whatever the profile says; POP and binary profiles are
 refused by name.
 
+**Mail in 3.10.0.**
+
+- **Folder in the reading header.** `shell::dossiers_du_fil` names the folder of the
+  latest message by its role, or by the last segment of its path for a custom folder.
+  It adds "+N" when other messages of the thread sit elsewhere, and says red for the
+  bin and spam.
+- **Search.** A text search now drops threads `Store::thread_is_binned` finds thrown
+  away, by the queues' own rule: put aside, or no message outside trash and junk.
+  Before, a conversation deleted from the results stayed in them. Results are sorted
+  newest first unless the query holds `sort:relevance`, which `search::run` strips
+  before parsing. The pills under the field (`shell::PASTILLES`) add or remove their
+  words in the query and search again; which are on is read back from the query.
+- **Invitations.** For each expanded message, `shell::invitation_du_message` looks for
+  a `text/calendar` / `application/ics` / `.ics` attachment. It reads it from the raw
+  message and has `calendar::invitation` set it against the first local calendar, by
+  UID and `RECURRENCE-ID` as `import_ics` stores it. The result is one of five states
+  on the message's `invite-state`: to add, in the calendar, changed since,
+  cancelled-and-still-there, cancelled. The banner is on that message's card only.
+  Its button runs `import_ics`, which upserts, so an invitation is never added twice.
+  The conversation is then drawn again: its render cache is cleared and a full
+  refresh is asked for.
+
 The mail list's day titles (Today, Yesterday, This week, Earlier) are computed in
 `iris_ui::format::day_headers` and ride on the first row of each day, not as items of
 their own: the list keeps one item per conversation. They are given only when the rows

@@ -407,6 +407,9 @@ export component AppWindow inherits Window {
     in property <bool> selected-starred;
     /// The mailbox the open conversation came to: its address and its colour.
     in property <string> selected-account-email;
+    /// The folder the conversation shown is in, and whether it is the bin or the spam.
+    in property <string> selected-folder-label;
+    in property <bool> selected-folder-alarming;
     in property <color> selected-account-tint;
     /// Reading full screen: the accounts and the list step aside.
     in-out property <bool> reading-focus;
@@ -537,6 +540,10 @@ export component AppWindow inherits Window {
     in property <string> search-summary;
     in property <string> search-explanation;
     in-out property <string> search-query;
+    /// The search pills that are on (Unread, Attachments, 7 days, 30 days, Best match).
+    in property <[bool]> search-pills;
+    /// A search pill clicked: Rust changes the query and searches again.
+    callback search-pill(int);
     in-out property <string> reply-text;
     in-out property <string> account-filter;
 
@@ -669,6 +676,10 @@ export component AppWindow inherits Window {
     callback redo();
     callback save-attachment(int);
     callback open-attachment(int);
+    /// The invitation a message carries (its id): into the calendar, by UID.
+    callback invite-accept(int);
+    /// The event of an invitation, in the calendar: its key and its day.
+    callback invite-open(string, string);
     /// A tile of a message body, (message id, tile index), came near the screen or left it.
     callback body-tile-wanted(int, int);
     callback body-tile-released(int, int);
@@ -1480,6 +1491,8 @@ export component AppWindow inherits Window {
                         search-query <=> root.search-query;
                         search-submitted(q) => { root.search-submitted(q); }
                         search-cleared => { root.search-cleared(); }
+                        search-pills: root.search-pills;
+                        search-pill(i) => { root.search-pill(i); }
                         row-context-menu(id, mx, my, non-lu, epingle) => {
                             // Plus de `thread-selected` : un clic droit ouvrait le
                             // message, chargeait son corps et le marquait lu, pour
@@ -1559,6 +1572,8 @@ export component AppWindow inherits Window {
                     empty: root.conversation-empty;
                     starred: root.selected-starred;
                     account-email: root.selected-account-email;
+                    folder-label: root.selected-folder-label;
+                    folder-alarming: root.selected-folder-alarming;
                     account-tint: root.selected-account-tint;
                     focused: root.reading-focus;
                     archive => { root.thread-archive(); }
@@ -1584,6 +1599,8 @@ export component AppWindow inherits Window {
                     load-images => { root.load-images(); }
                     save-attachment(i) => { root.save-attachment(i); }
                     open-attachment(i) => { root.open-attachment(i); }
+                    invite-accept(id) => { root.invite-accept(id); }
+                    invite-open(k, d) => { root.invite-open(k, d); }
                     body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
                     body-tile-released(m, t) => { root.body-tile-released(m, t); }
                     bodies-suspended: root.bodies-suspended;

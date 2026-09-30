@@ -445,6 +445,98 @@ component Attachments inherits VerticalLayout {
 }
 
 // What the reading toolbar's menus hold: until when to snooze, and the rarer actions.
+// An invitation over the message that carries it: what, when, and where it stands in
+// the calendar, with the one thing to do about it.
+component InviteBanner inherits Rectangle {
+    /// 1 not in the calendar, 2 in it, 3 changed since, 4 cancelled but still in it,
+    /// 5 cancelled and not in it.
+    in property <int> state;
+    in property <string> title;
+    in property <string> when;
+    callback accept();
+    callback open();
+
+    property <bool> annule: root.state >= 4;
+
+    height: rang.preferred-height;
+    border-radius: Tokens.radius-large;
+    border-width: 1px;
+    border-color: root.annule ? Tokens.error.transparentize(0.6) : Tokens.accent.transparentize(0.6);
+    background: root.annule ? Tokens.error.transparentize(0.94) : Tokens.accent-soft;
+
+    accessible-role: groupbox;
+    accessible-label: "Invitation: " + root.title + ", " + root.when;
+
+    rang := HorizontalLayout {
+        padding: 12px;
+        padding-left: 14px;
+        spacing: 12px;
+
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 34px;
+            height: 34px;
+            border-radius: Tokens.radius-medium;
+            background: Tokens.surface;
+            Icon {
+                data: Icons.calendar;
+                size: 18px;
+                tint: root.annule ? Tokens.error : Tokens.accent;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.title;
+                font-size: 13.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.when + "  ·  " + (
+                    root.state == 1 ? "Invitation"
+                    : root.state == 2 ? "In your calendar"
+                    : root.state == 3 ? "Changed since you added it"
+                    : root.state == 4 ? "Cancelled by the organiser"
+                    : "Cancelled");
+                font-size: 12.5px;
+                color: root.annule ? Tokens.error : Tokens.text-secondary;
+                overflow: elide;
+            }
+        }
+        if root.state == 1: Button {
+            y: (parent.height - self.height) / 2;
+            text: "Add to calendar";
+            icon: Icons.plus;
+            kind: ButtonKind.primary;
+            size: ButtonSize.sm;
+            clicked => { root.accept(); }
+        }
+        if root.state == 3: Button {
+            y: (parent.height - self.height) / 2;
+            text: "Update";
+            kind: ButtonKind.primary;
+            size: ButtonSize.sm;
+            clicked => { root.accept(); }
+        }
+        if root.state == 4: Button {
+            y: (parent.height - self.height) / 2;
+            text: "Remove from calendar";
+            size: ButtonSize.sm;
+            clicked => { root.accept(); }
+        }
+        if root.state == 2 || root.state == 3: Button {
+            y: (parent.height - self.height) / 2;
+            text: "Open";
+            size: ButtonSize.sm;
+            clicked => { root.open(); }
+        }
+    }
+}
+
 export component ReaderMenu inherits Rectangle {
     /// "snooze" or "more".
     in property <string> kind;
@@ -546,6 +638,11 @@ export component ConversationView inherits VerticalLayout {
     in property <bool> starred;
     /// The mailbox the conversation came to.
     in property <string> account-email;
+    /// The folder it is in: "Inbox", "Spam", "Trash", a folder's name; "+1" when some
+    /// of its messages are elsewhere.
+    in property <string> folder-label;
+    /// Its latest message is in the bin or the spam: said in red.
+    in property <bool> folder-alarming;
     in property <color> account-tint;
     /// Read full screen, the accounts and the list set aside.
     in property <bool> focused;
@@ -557,6 +654,10 @@ export component ConversationView inherits VerticalLayout {
     callback reply-all();
     callback save-attachment(int);
     callback open-attachment(int);
+    /// The invitation a message carries: into the calendar (message id), or opened
+    /// there (event key, day).
+    callback invite-accept(int);
+    callback invite-open(string, string);
     callback archive();
     callback delete-thread();
     callback toggle-star();
@@ -795,6 +896,24 @@ export component ConversationView inherits VerticalLayout {
                                 max-width: self.preferred-width;
                             }
                         }
+                        // Where it is: a small folder mark and its name, quiet; red
+                        // only for the places mail goes to be gone.
+                        if root.folder-label != "": HorizontalLayout {
+                            spacing: 4px;
+                            horizontal-stretch: 0;
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.folder;
+                                size: 13px;
+                                tint: root.folder-alarming ? Tokens.error : Tokens.text-muted;
+                            }
+                            Text {
+                                text: root.folder-label;
+                                font-size: 12.5px;
+                                color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
                         if root.messages.length > 1: Text {
                             text: root.messages.length + " messages";
                             font-size: 12.5px;
@@ -898,6 +1017,16 @@ export component ConversationView inherits VerticalLayout {
                                 clicked => { root.toggle-message(message.id); }
                             }
                         }
+                    }
+
+                    // The invitation this message carries, set against the
+                    // calendar: on this message only, the one that brought it.
+                    if message.expanded && message.invite-state > 0: InviteBanner {
+                        state: message.invite-state;
+                        title: message.invite-title;
+                        when: message.invite-when;
+                        accept => { root.invite-accept(message.id); }
+                        open => { root.invite-open(message.invite-key, message.invite-day); }
                     }
 
                     if message.expanded && (message.blocked-images > 0

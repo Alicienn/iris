@@ -160,6 +160,15 @@ export struct MessageData {
     // Distinct d'un corps vide : l'un attend le serveur, l'autre n'a rien à montrer,
     // et les deux donnaient le même écran blanc.
     body-loading: bool,
+    // The invitation it carries (an .ics), set against the calendar: 0 none, 1 not in
+    // it yet, 2 in it as sent, 3 in it but changed since, 4 cancelled and still in it,
+    // 5 cancelled and not in it.
+    invite-state: int,
+    invite-title: string,
+    invite-when: string,
+    // The event in the calendar (`id:start`), and its day, to open it there.
+    invite-key: string,
+    invite-day: string,
 }
 
 export struct CommandData {

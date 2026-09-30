@@ -67,7 +67,18 @@ pub fn run(
     accounts: &[AccountId],
     now: Timestamp,
 ) -> Result<SearchState> {
-    let analysee = iris_search::parse(query);
+    // Newest first, like the lists, unless asked for the best matches first
+    // (`sort:relevance`): read by date, the results fall into days (Today, Yesterday…)
+    // and are read as a list; by relevance, the index's order is kept.
+    let par_pertinence = query
+        .split_whitespace()
+        .any(|m| m.eq_ignore_ascii_case("sort:relevance"));
+    let sans_tri: String = query
+        .split_whitespace()
+        .filter(|m| !m.eq_ignore_ascii_case("sort:relevance"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let analysee = iris_search::parse(&sans_tri);
     if analysee.is_empty() {
         return Ok(SearchState::default());
     }
@@ -80,7 +91,7 @@ pub fn run(
         ..Default::default()
     };
 
-    let lignes = if plan.store_only {
+    let mut lignes = if plan.store_only {
         scan_store(store, &plan, accounts, now)?
     } else {
         match index {
@@ -96,6 +107,9 @@ pub fn run(
         }
     };
 
+    if !par_pertinence {
+        lignes.sort_by_key(|r| std::cmp::Reverse(r.last_activity.millis()));
+    }
     etat.truncated = lignes.len() >= MAX_RESULTS;
     etat.results = lignes;
     Ok(etat)
@@ -164,6 +178,12 @@ fn from_index(
         let Some(ligne) = store.thread_row(hit.thread)? else {
             continue;
         };
+        // Thrown away (put in the bin here, or all in a bin or spam folder): not a
+        // result, as it is not in the queues. A conversation deleted from the results
+        // stayed in them, and the delete looked as if it had done nothing.
+        if store.thread_is_binned(ligne.id)? {
+            continue;
+        }
         if row_matches(store, &ligne, plan, now)? {
             out.push(ligne);
         }

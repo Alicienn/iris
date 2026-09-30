@@ -762,9 +762,15 @@ export component SearchBar inherits VerticalLayout {
     in property <string> explanation;
     in property <bool> active;
     in-out property <string> query;
+    /// Which of the pills under the field are on: Unread, Attachments, 7 days,
+    /// 30 days, Best match. Read from the query by Rust.
+    in property <[bool]> pills;
 
     callback submitted(string);
     callback cleared();
+    /// A pill clicked: its place in the row. Rust puts its words in the query, or takes
+    /// them out, and searches again.
+    callback pill(int);
 
     public function focus-field() {
         field.focus();
@@ -830,22 +836,50 @@ export component SearchBar inherits VerticalLayout {
         }
     }
 
+    // The filters one reaches for most, as pills: a click puts their words in the
+    // query ("is:unread", "newer_than:7d"…), so what the pills do is also what one
+    // learns to type.
+    if root.active: HorizontalLayout {
+        spacing: 6px;
+        vertical-stretch: 0;
+        height: 34px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        for p[i] in [
+            { text: "Unread", icon: Icons.envelope-closed },
+            { text: "Attachments", icon: Icons.paperclip },
+            { text: "7 days", icon: Icons.calendar },
+            { text: "30 days", icon: Icons.calendar },
+            { text: "Best match", icon: Icons.search },
+        ]: Pill {
+            text: p.text;
+            icon: p.icon;
+            on: root.pills.length > i && root.pills[i];
+            toggled => { root.pill(i); }
+        }
+        Rectangle {}
+    }
+
     // Ce qui a été compris, rendu à l'utilisateur. Une syntaxe de recherche que
-    // personne ne confirme est une syntaxe que personne n'apprend.
+    // personne ne confirme est une syntaxe que personne n'apprend. How many first, in
+    // full ink; what was understood after it, quieter.
     if root.active: HorizontalLayout {
         spacing: Tokens.space-2;
         vertical-stretch: 0;
+        padding-bottom: 6px;
 
         Text {
             text: root.summary;
             font-size: Tokens.size-small;
-            color: Tokens.text-secondary;
+            font-weight: 600;
+            color: Tokens.text;
         }
         Text {
             text: root.explanation;
             font-size: Tokens.size-small;
             color: Tokens.text-muted;
             overflow: elide;
+            horizontal-stretch: 1;
         }
     }
 }
@@ -867,6 +901,7 @@ export component ThreadListView inherits VerticalLayout {
     in property <string> folder-name;
     in property <string> search-summary;
     in property <string> search-explanation;
+    in property <[bool]> search-pills;
     in property <int> marked-count;
     in property <data-transfer> drag-payload;
     in property <string> marked-label;
@@ -877,6 +912,7 @@ export component ThreadListView inherits VerticalLayout {
     callback scrolled-near-end();
     callback search-submitted(string);
     callback search-cleared();
+    callback search-pill(int);
     callback folder-left();
     /// Le fil, la position, et son état — lu et épinglé.
     ///
@@ -963,8 +999,10 @@ export component ThreadListView inherits VerticalLayout {
         summary: root.search-summary;
         explanation: root.search-explanation;
         query <=> root.search-query;
+        pills: root.search-pills;
         submitted(q) => { root.search-submitted(q); }
         cleared => { root.search-cleared(); }
+        pill(i) => { root.search-pill(i); }
     }
 
     // Pendant une recherche, les onglets disparaissent : les résultats ne sont pas

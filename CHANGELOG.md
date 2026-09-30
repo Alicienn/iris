@@ -3,6 +3,20 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.10.0 — 2026-09-30
+
+### New
+- An invitation in a message shows as a banner over it: Add to calendar, or Open once it is there.
+- The banner says when an invitation changed or was cancelled since, and brings the calendar up to date in one click.
+- The folder a conversation is in shows beside its mailbox: Inbox, Spam, Trash, or a folder's name.
+- Pills under the search field: Unread, Attachments, 7 days, 30 days, Best match.
+
+### Improved
+- Search results come newest first, by day, like the list; Best match puts the closest first.
+
+### Fixed
+- A conversation deleted from the search results leaves them.
+
 ## 3.9.1 — 2026-09-30
 
 ### Fixed

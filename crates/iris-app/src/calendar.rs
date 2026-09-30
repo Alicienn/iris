@@ -1215,6 +1215,76 @@ pub async fn subscribe(services: &Services, lien: &str, nom: &str) -> Result<(i6
 
 /// Ce qu'un fichier d'agenda importé a changé.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+/// An invitation carried by a message, set against the calendar: what the banner over
+/// the message says and offers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invitation {
+    /// 1 not in the calendar yet (Add), 2 in it as sent (Open), 3 in it but changed
+    /// since (Update), 4 cancelled and still in it (Remove), 5 cancelled and not in it.
+    pub state: i32,
+    pub title: String,
+    /// "Tue 6 Oct, 09:00 – 10:00".
+    pub when: String,
+    /// The event in the calendar, `id:start`, when it is there.
+    pub key: String,
+    /// Its day, `YYYY-MM-DD`, to take the calendar there.
+    pub day: String,
+}
+
+/// Reads an invitation (an iCalendar text) against the calendar it would go to, the
+/// first one of one's own, as `import_ics` puts it there: by UID, so it is never added
+/// twice, and an update or a cancellation is recognised as such.
+pub fn invitation(services: &Services, texte: &str) -> Option<Invitation> {
+    let lu = iris_calendar::ics::parse(texte).ok()?;
+    let e = lu.events.first()?;
+    let calendrier = services
+        .store
+        .calendars()
+        .ok()?
+        .into_iter()
+        .find(|c| !c.is_subscription())?;
+    let dans = services
+        .store
+        .find_event(calendrier.id, &e.uid, e.recurrence_id)
+        .ok()
+        .flatten()
+        .and_then(|id| services.store.event(id).ok().flatten());
+    let o = Occurrence {
+        event: 0,
+        start: e.start,
+        end: e.end,
+        all_day: e.all_day,
+    };
+    let jour = if e.all_day {
+        layout::local_date(e.start, &chrono::Utc)
+    } else {
+        layout::local_date(e.start, &Local)
+    };
+    let state = match (&dans, e.cancelled) {
+        (Some(s), true) if !s.event.cancelled => 4,
+        (_, true) => 5,
+        (None, false) => 1,
+        (Some(s), false)
+            if s.event.start_ms != e.start
+                || s.event.end_ms != e.end
+                || s.event.summary != e.summary
+                || s.event.cancelled =>
+        {
+            3
+        }
+        (Some(_), false) => 2,
+    };
+    Some(Invitation {
+        state,
+        title: titre(e),
+        when: quand(&o),
+        key: dans
+            .map(|s| format!("{}:{}", s.id, s.event.start_ms))
+            .unwrap_or_default(),
+        day: jour.format("%Y-%m-%d").to_string(),
+    })
+}
+
 pub struct ImportReport {
     pub added: usize,
     pub updated: usize,
@@ -2319,6 +2389,52 @@ END:VCALENDAR
         )
         .unwrap();
         (s, dir)
+    }
+
+    #[test]
+    fn an_invitation_says_where_it_stands_in_the_calendar() {
+        let (s, _dir) = services_de_test();
+        let ics = |debut: &str, statut: &str| {
+            [
+                "BEGIN:VCALENDAR",
+                "METHOD:REQUEST",
+                "BEGIN:VEVENT",
+                "UID:revue-7@example.com",
+                &format!("DTSTART:{debut}"),
+                "DTEND:20261006T100000Z",
+                "SUMMARY:Revue budgétaire",
+                &format!("STATUS:{statut}"),
+                "END:VEVENT",
+                "END:VCALENDAR",
+                "",
+            ]
+            .join("\r\n")
+        };
+        let premiere = ics("20261006T090000Z", "CONFIRMED");
+        let inv = invitation(&s, &premiere).unwrap();
+        assert_eq!((inv.state, inv.title.as_str()), (1, "Revue budgétaire"));
+        assert!(inv.key.is_empty());
+
+        import_ics(&s, &premiere).unwrap();
+        let inv = invitation(&s, &premiere).unwrap();
+        assert_eq!(inv.state, 2, "in the calendar as sent");
+        assert!(!inv.key.is_empty());
+        // Added again from the banner: still one event.
+        import_ics(&s, &premiere).unwrap();
+        let perso = s.store.calendars().unwrap()[0].id;
+        assert_eq!(s.store.calendar_event_count(perso).unwrap(), 1);
+
+        // The organiser moves it: the older message's copy now differs.
+        let deplacee = ics("20261006T083000Z", "CONFIRMED");
+        import_ics(&s, &deplacee).unwrap();
+        assert_eq!(invitation(&s, &premiere).unwrap().state, 3);
+        assert_eq!(invitation(&s, &deplacee).unwrap().state, 2);
+
+        // Cancelled: said, until it is taken out.
+        let annulee = ics("20261006T083000Z", "CANCELLED");
+        assert_eq!(invitation(&s, &annulee).unwrap().state, 4);
+        import_ics(&s, &annulee).unwrap();
+        assert_eq!(invitation(&s, &annulee).unwrap().state, 5);
     }
 
     #[test]

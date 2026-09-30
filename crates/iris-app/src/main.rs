@@ -779,6 +779,7 @@ fn run_gui(
 
     shell::wire_attachments(&fenetre, &services, Arc::clone(&selection));
     shell::wire_attachment_open(&fenetre, &services, Arc::clone(&selection));
+    shell::wire_invitations(&fenetre, &services, Arc::clone(&controller));
     shell::wire_source(&fenetre, &services, Arc::clone(&selection));
     shell::wire_account_setup(
         &fenetre,

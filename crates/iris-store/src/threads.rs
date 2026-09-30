@@ -183,6 +183,28 @@ impl Store {
         })
     }
 
+    /// Is this conversation thrown away: put aside here, or with every message in a bin
+    /// or a spam folder? The same rule as the queues', for search to follow.
+    pub fn thread_is_binned(&self, id: ThreadId) -> Result<bool> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT put_aside_at IS NOT NULL
+                        OR NOT EXISTS (SELECT 1 FROM messages m
+                                       JOIN folders f ON f.id = m.folder_id
+                                       WHERE m.thread_id = threads.id
+                                         AND f.role NOT IN ('trash', 'junk'))
+                 FROM threads WHERE id = ?1",
+                [id.get()],
+                |r| r.get::<_, bool>(0),
+            )
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(true),
+                e => Err(e),
+            })
+            .map_err(|e| sql_err("fil jeté", e))
+        })
+    }
+
     /// Une page de la liste principale.
     ///
     /// La pagination est **par curseur** : la clause de reprise porte sur
@@ -749,6 +771,48 @@ mod tests {
                 .unwrap()
                 .thread
         }
+    }
+
+    #[test]
+    fn a_conversation_put_aside_or_all_in_the_bin_is_binned() {
+        let f = fixture();
+        let vivant = f.thread_at(1_000, "Marie");
+        assert!(!f.store.thread_is_binned(vivant).unwrap());
+
+        let jete = f.thread_at(2_000, "Paul");
+        f.store
+            .set_thread_put_aside(jete, Some(Timestamp::from_millis(3_000)))
+            .unwrap();
+        assert!(f.store.thread_is_binned(jete).unwrap());
+
+        // All its messages in the bin: binned too, once the server has moved them.
+        let corbeille = f
+            .store
+            .upsert_folder(f.account, "Trash", FolderRole::Trash)
+            .unwrap();
+        let uid = f.uid.get();
+        let dans_la_corbeille = f
+            .store
+            .insert_message(&NewMessage {
+                account: f.account,
+                folder: corbeille,
+                uid,
+                rfc_message_id: Some("jete@x".into()),
+                in_reply_to: None,
+                references: vec![],
+                subject: "Vieux".into(),
+                from_name: "Luc".into(),
+                from_addr: "luc@example.com".into(),
+                recipients_json: "[]".into(),
+                date: Timestamp::from_millis(4_000),
+                received: Timestamp::from_millis(4_000),
+                size: 10,
+                flags: Flags::NONE,
+                preview: String::new(),
+            })
+            .unwrap()
+            .thread;
+        assert!(f.store.thread_is_binned(dans_la_corbeille).unwrap());
     }
 
     #[test]

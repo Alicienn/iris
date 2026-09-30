@@ -478,3 +478,6 @@ the application is brought to it screen by screen.
       a colour of its own that outlives a subscription's refresh (migration 16).
 - [x] **S40.15** Sync that never hangs (3.9.1): a time limit on reaching a server and
       on each account's pass, and the accounts synced side by side.
+- [x] **S40.16** Mail that says where it is (3.10.0): the folder in the reading header,
+      invitations as a banner over their message, search pills and results by date, a
+      deleted conversation gone from the results.

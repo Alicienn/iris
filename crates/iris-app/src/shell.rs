@@ -668,6 +668,28 @@ pub fn wire_callbacks(
         });
     }
 
+    // A search pill: its words put in the query or taken out of it, and the search run
+    // again with the query shown as it now is.
+    {
+        let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_search_pill(move |i| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(pastille) = usize::try_from(i).ok().and_then(|i| PASTILLES.get(i)) else {
+                return;
+            };
+            let requete = basculer_pastille(fenetre.get_search_query().as_str(), pastille);
+            fenetre.set_search_query(requete.as_str().into());
+            if requete.trim().is_empty() {
+                c.send(Request::ClearSearch);
+            } else {
+                c.send(Request::Search(requete));
+            }
+        });
+    }
+
     {
         let c = Arc::clone(&controller);
         fenetre.on_search_cleared(move || {
@@ -905,6 +927,9 @@ pub fn apply_snapshot(
     let (r, g, b) = iris_ui::format::account_tint(&boite);
     fenetre.set_selected_account_email(boite.into());
     fenetre.set_selected_account_tint(slint::Color::from_rgb_u8(r, g, b));
+    let (dossier, alarmant) = dossiers_du_fil(services, &snapshot.messages);
+    fenetre.set_selected_folder_label(dossier.into());
+    fenetre.set_selected_folder_alarming(alarmant);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
 
     match &snapshot.search {
@@ -912,6 +937,12 @@ pub fn apply_snapshot(
             fenetre.set_searching(true);
             fenetre.set_search_summary(recherche.summary.as_str().into());
             fenetre.set_search_explanation(recherche.explanation.as_str().into());
+            fenetre.set_search_pills(ModelRc::new(VecModel::from(
+                PASTILLES
+                    .iter()
+                    .map(|(mots, _)| pastille_allumee(&recherche.query, mots))
+                    .collect::<Vec<_>>(),
+            )));
             // Le champ n'est pas réécrit : l'utilisateur peut être en train d'y
             // taper la requête suivante pendant que les résultats arrivent.
         }
@@ -923,6 +954,102 @@ pub fn apply_snapshot(
     }
 
     remplir_conversation(fenetre, services, renderer, &snapshot.messages, maintenant);
+}
+
+/// The pills under the search field, in their order: the words each puts in the query,
+/// and the words that count as it being on (the first is the one written). The two
+/// periods exclude each other.
+const PASTILLES: [(&[&str], &str); 5] = [
+    (&["is:unread", "etat:non_lu"], ""),
+    (&["has:attachment", "a_pj:pj", "has:pj"], ""),
+    (
+        &["newer_than:7d", "newer_than:7j", "plus_recent:7j"],
+        "periode",
+    ),
+    (
+        &["newer_than:30d", "newer_than:30j", "plus_recent:30j"],
+        "periode",
+    ),
+    (&["sort:relevance"], ""),
+];
+
+fn pastille_allumee(requete: &str, mots: &[&str]) -> bool {
+    requete
+        .split_whitespace()
+        .any(|m| mots.iter().any(|x| m.eq_ignore_ascii_case(x)))
+}
+
+/// The query with a pill's words taken out when they are there, put in when they are
+/// not; putting in a period takes the other one out.
+fn basculer_pastille(requete: &str, (mots, groupe): &(&[&str], &str)) -> String {
+    let allumee = pastille_allumee(requete, mots);
+    let mut garde: Vec<&str> = requete
+        .split_whitespace()
+        .filter(|m| !mots.iter().any(|x| m.eq_ignore_ascii_case(x)))
+        .filter(|m| {
+            allumee
+                || groupe.is_empty()
+                || !PASTILLES
+                    .iter()
+                    .filter(|(_, g)| g == groupe)
+                    .any(|(autres, _)| autres.iter().any(|x| m.eq_ignore_ascii_case(x)))
+        })
+        .collect();
+    if !allumee {
+        garde.push(mots[0]);
+    }
+    garde.join(" ")
+}
+
+/// Where a conversation is: the folder of its latest message ("Inbox", "Spam", "Trash",
+/// or a folder's own name), and "+1" when other messages of it are elsewhere. Empty
+/// when there is nothing to read. With it, whether that latest one is in the bin or the
+/// spam, which the header says in red.
+fn dossiers_du_fil(services: &Services, messages: &[iris_store::StoredMessage]) -> (String, bool) {
+    let mut nommes: Vec<String> = Vec::new();
+    let mut alarmant = None;
+    let mut connus: std::collections::HashMap<iris_types::AccountId, Vec<iris_store::Folder>> =
+        std::collections::HashMap::new();
+    for m in messages.iter().rev() {
+        let dossiers = connus
+            .entry(m.account)
+            .or_insert_with(|| services.store.folders(m.account).unwrap_or_default());
+        let Some(d) = dossiers.iter().find(|d| d.id == m.folder) else {
+            continue;
+        };
+        alarmant.get_or_insert(matches!(
+            d.role,
+            iris_store::FolderRole::Trash | iris_store::FolderRole::Junk
+        ));
+        let nom = folder_label(d.role, &d.path);
+        if !nommes.contains(&nom) {
+            nommes.push(nom);
+        }
+    }
+    let texte = match nommes.len() {
+        0 => String::new(),
+        1 => nommes.remove(0),
+        n => format!("{} +{}", nommes[0], n - 1),
+    };
+    (texte, alarmant.unwrap_or(false))
+}
+
+/// A folder as people call it: its role's word, else the last part of its path.
+fn folder_label(role: iris_store::FolderRole, path: &str) -> String {
+    use iris_store::FolderRole as R;
+    match role {
+        R::Inbox => "Inbox".into(),
+        R::Sent => "Sent".into(),
+        R::Drafts => "Drafts".into(),
+        R::Trash => "Trash".into(),
+        R::Junk => "Spam".into(),
+        R::Archive => "Archive".into(),
+        R::Other => path
+            .rsplit(['/', '.'])
+            .find(|p| !p.is_empty())
+            .unwrap_or(path)
+            .to_string(),
+    }
 }
 
 /// Remplit la colonne de lecture avec le fil entier.
@@ -1009,6 +1136,14 @@ pub fn remplir_conversation(
             // Le corps n'est pas encore descendu du serveur. L'écran doit le dire :
             // un panneau vide ne distingue pas « ça arrive » de « il n'y a rien ».
             vue.body_loading = message.body_blob.is_none();
+            // An invitation, over this message only: the one that carries it.
+            if let Some(inv) = invitation_du_message(services, message) {
+                vue.invite_state = inv.state;
+                vue.invite_title = inv.title.into();
+                vue.invite_when = inv.when.into();
+                vue.invite_key = inv.key.into();
+                vue.invite_day = inv.day.into();
+            }
             vue
         })
         .collect();
@@ -3173,6 +3308,60 @@ pub fn wire_source(
 /// temporaire : ouvrir depuis un emplacement que le système peut nettoyer sous
 /// l'application donne un fichier qui disparaît pendant qu'on le lit, et personne ne
 /// comprend pourquoi.
+/// The banner over a message that carries an invitation: add it to the calendar (or
+/// bring it up to date, or take a cancelled one out), and open it there.
+pub fn wire_invitations(fenetre: &AppWindow, services: &Services, controller: Arc<Controller>) {
+    {
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_invite_accept(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(message) = services
+                .store
+                .message_by_id(iris_types::MessageId(id as i64))
+                .ok()
+                .flatten()
+            else {
+                return;
+            };
+            let Some(texte) = texte_d_invitation(&services, &message) else {
+                fenetre.set_status("The invitation could not be read.".into());
+                return;
+            };
+            // By UID, as opening the file does: never twice, an update in place, a
+            // cancellation marked.
+            match crate::calendar::import_ics(&services, &texte) {
+                Ok(bilan) => fenetre.set_toast(bilan.message().into()),
+                Err(e) => fenetre.set_status(format!("Could not add the invitation: {e}").into()),
+            }
+            // The conversation is drawn again, its banner saying what is now true.
+            conversation_rendue().clear();
+            controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
+                full_refresh: true,
+                ..Default::default()
+            })));
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_invite_open(move |cle, jour| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_workspace(1);
+            fenetre.invoke_workspace_changed(1);
+            if !jour.is_empty() {
+                fenetre.invoke_calendar_day_chosen(jour);
+            }
+            if !cle.is_empty() {
+                fenetre.invoke_calendar_event_opened(cle);
+            }
+        });
+    }
+}
+
 pub fn wire_attachment_open(
     fenetre: &AppWindow,
     services: &Services,
@@ -3257,7 +3446,42 @@ fn octets_de_piece(
     let message = messages
         .last()
         .ok_or_else(|| iris_types::Error::other("conversation vide"))?;
+    octets_du_message(services, message, rang)
+}
 
+/// Is this attachment an invitation (iCalendar)?
+fn est_une_invitation(nom: &str, mime: &str) -> bool {
+    let mime = mime.to_ascii_lowercase();
+    mime.starts_with("text/calendar")
+        || mime.starts_with("application/ics")
+        || nom.to_ascii_lowercase().ends_with(".ics")
+}
+
+/// The iCalendar text of the first invitation a message carries, if it has one and its
+/// body is here.
+fn texte_d_invitation(services: &Services, message: &iris_store::StoredMessage) -> Option<String> {
+    let pieces = services.store.visible_attachments(message.id).ok()?;
+    let rang = pieces
+        .iter()
+        .position(|p| est_une_invitation(&p.meta.filename, &p.meta.mime_type))?;
+    let (_, _, octets) = octets_du_message(services, message, rang).ok()?;
+    Some(String::from_utf8_lossy(&octets).into_owned())
+}
+
+/// The invitation a message carries, set against the calendar.
+fn invitation_du_message(
+    services: &Services,
+    message: &iris_store::StoredMessage,
+) -> Option<crate::calendar::Invitation> {
+    crate::calendar::invitation(services, &texte_d_invitation(services, message)?)
+}
+
+/// Le nom, le type et les octets d'une pièce jointe d'un message.
+fn octets_du_message(
+    services: &Services,
+    message: &iris_store::StoredMessage,
+    rang: usize,
+) -> iris_types::Result<(String, String, Vec<u8>)> {
     let pieces = services.store.visible_attachments(message.id)?;
     let piece = pieces
         .get(rang)
@@ -5279,6 +5503,32 @@ pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
 mod tests {
     use super::*;
     use iris_ui::commands::builtin_commands;
+
+    #[test]
+    fn a_search_pill_puts_its_words_in_the_query_and_takes_them_out() {
+        let q = basculer_pastille("devis", &PASTILLES[0]);
+        assert_eq!(q, "devis is:unread");
+        assert!(pastille_allumee(&q, PASTILLES[0].0));
+        assert_eq!(basculer_pastille(&q, &PASTILLES[0]), "devis");
+        // Typed by hand in its French form, it is on, and a click takes it out.
+        assert!(pastille_allumee("devis etat:non_lu", PASTILLES[0].0));
+        assert_eq!(
+            basculer_pastille("devis etat:non_lu", &PASTILLES[0]),
+            "devis"
+        );
+        // The two periods exclude each other.
+        let q = basculer_pastille("devis newer_than:7d", &PASTILLES[3]);
+        assert_eq!(q, "devis newer_than:30d");
+    }
+
+    #[test]
+    fn a_folder_is_called_by_its_role_or_its_name() {
+        use iris_store::FolderRole as R;
+        assert_eq!(folder_label(R::Inbox, "INBOX"), "Inbox");
+        assert_eq!(folder_label(R::Junk, "Junk E-mail"), "Spam");
+        assert_eq!(folder_label(R::Other, "Clients/Atelier"), "Atelier");
+        assert_eq!(folder_label(R::Other, "INBOX.Factures"), "Factures");
+    }
 
     fn message(id: i64, flags: iris_types::Flags) -> iris_store::StoredMessage {
         iris_store::StoredMessage {

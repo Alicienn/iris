@@ -102,7 +102,20 @@ The reading pane's toolbar names its actions with their keys: **Done** `E`, **Sn
 **Waiting** `W`, **To task** `T`; then star, archive, delete, **Read full screen**
 (`Escape` to come back) and **More** (forward, read or unread, the source). Each message
 of the conversation sits in its own frame, up to 900 pixels wide, its attachments under
-it as file cards.
+it as file cards. Under the subject, beside the mailbox, the folder the conversation is
+in: *Inbox*, a folder's name, or *Spam* and *Trash* in red.
+
+A message carrying an invitation (an `.ics`) shows it as a banner at its top: what,
+when, and **Add to calendar**. Once added, it says *In your calendar* and offers
+**Open**; if the organiser changed or cancelled it since, it says so and brings the
+calendar up to date in one click. An event is never added twice: invitations are
+matched by their identifier.
+
+Searching shows pills under the field: **Unread**, **Attachments**, **7 days**,
+**30 days**, **Best match**. A pill puts its words in the query (`is:unread`,
+`has:attachment`, `newer_than:7d`, `sort:relevance`), so what it does can be typed too.
+Results come newest first, grouped by day; *Best match* puts the closest first.
+A conversation deleted from the results leaves them.
 
 *Settings › Rules and plugins* opens the modules.
 
