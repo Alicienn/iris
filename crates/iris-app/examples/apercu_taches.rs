@@ -131,6 +131,12 @@ fn main() {
         1,
     );
     ajoute(travail, "Book the train to Lyon", jour(3), None, 0);
+    ajoute(travail, "Send the VAT return", jour(7), None, 2);
+    // One that comes back every week.
+    let plantes = ajoute(perso, "Water the balcony plants", jour(0), Some(19 * 60), 0);
+    let mut p = services.store.task(plantes).unwrap().unwrap().task;
+    p.repeat = Some("weekly".into());
+    services.store.update_task(plantes, &p, t).unwrap();
     ajoute(perso, "Dentist", jour(12), Some(10 * 60 + 30), 0);
     ajoute(courses, "Bread", None, None, 0);
     ajoute(courses, "Olive oil", None, None, 0);
@@ -363,6 +369,27 @@ fn main() {
                 }
                 11 => {
                     capture(&f, sortie.join("taches-creneau.png"));
+                    f.set_task_slot_open(false);
+                    f.invoke_task_detail_closed();
+                    f.invoke_task_place_chosen("week".into());
+                }
+                12 => {
+                    capture(&f, sortie.join("taches-semaine.png"));
+                    f.invoke_task_place_chosen(format!("goal:{stages}").into());
+                    f.invoke_goal_edit_requested();
+                }
+                13 => {
+                    capture(&f, sortie.join("objectif-modifier.png"));
+                    f.set_goal_new_open(false);
+                    f.invoke_task_place_chosen("today".into());
+                    f.invoke_task_row_selected(iris_ui::TaskRowData {
+                        kind: 0,
+                        id: plantes as i32,
+                        ..Default::default()
+                    });
+                }
+                14 => {
+                    capture(&f, sortie.join("taches-repete.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

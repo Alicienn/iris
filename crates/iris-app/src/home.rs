@@ -358,10 +358,7 @@ pub fn wire_home(f: &AppWindow, services: &Services, _controller: Arc<Controller
     {
         let (services, redessiner) = (services.clone(), Rc::clone(&redessiner));
         f.on_home_task_toggled(move |id| {
-            if let Ok(Some(t)) = services.store.task(id as i64) {
-                let fait = if t.is_done() { None } else { Some(now()) };
-                let _ = services.store.set_task_done(t.id, fait);
-            }
+            crate::tasks::toggle_done(&services, id as i64);
             redessiner();
         });
     }

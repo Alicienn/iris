@@ -1565,6 +1565,47 @@ fn un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne() {
     assert_eq!(f.get_context_menu_thread(), 8, "the row under two titles");
 }
 
+fn un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo() {
+    let f = fenetre();
+    f.set_workspace(2);
+    f.set_task_page(1);
+    f.set_goal(iris_ui::GoalData {
+        id: 3,
+        title: "Send 10 applications".into(),
+        target: 10,
+        ..Default::default()
+    });
+    let noms = Rc::new(RefCell::new(Vec::<String>::new()));
+    let modifs = Rc::new(RefCell::new(0));
+    {
+        let v = Rc::clone(&noms);
+        f.on_goal_renamed(move |t| v.borrow_mut().push(t.to_string()));
+        let v = Rc::clone(&modifs);
+        f.on_goal_edit_requested(move || *v.borrow_mut() += 1);
+    }
+
+    // A click on the title types over it: the old one selected, the first key the
+    // new one's.
+    clic(&bouton(&f, "Rename Send 10 applications"));
+    assert!(champ(&f, "Goal title")
+        .accessible_value()
+        .is_some_and(|v| v == "Send 10 applications"));
+    taper(&f, "Send 12 applications\n");
+    assert_eq!(*noms.borrow(), ["Send 12 applications"]);
+    assert!(!champ_existe(&f, "Goal title"), "Enter closes the field");
+
+    // Escape leaves the old title.
+    clic(&bouton(&f, "Rename Send 10 applications"));
+    taper(&f, "Something else");
+    echap(&f);
+    assert_eq!(noms.borrow().len(), 1);
+    assert!(!champ_existe(&f, "Goal title"));
+
+    // The pencil opens every field.
+    clic(&bouton(&f, "Edit goal"));
+    assert_eq!(*modifs.borrow(), 1);
+}
+
 fn un_profil_s_importe_depuis_l_ajout_de_compte() {
     let f = fenetre();
     let demandes = Rc::new(RefCell::new(0));
@@ -1963,6 +2004,10 @@ fn main() {
         (
             "un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne",
             un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne,
+        ),
+        (
+            "un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo",
+            un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo,
         ),
         (
             "un_evenement_se_glisse_et_s_etire_sans_s_ouvrir",

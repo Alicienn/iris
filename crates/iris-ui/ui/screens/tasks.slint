@@ -241,7 +241,7 @@ component TaskRow inherits Rectangle {
     property <bool> tache: root.item.kind == 0;
     property <bool> has-line: root.item.list != "" || root.item.from-mail
         || root.item.progress != "" || root.item.has-notes || root.item.goal != ""
-        || root.item.estimate != "" || root.item.postponed >= 2;
+        || root.item.estimate != "" || root.item.postponed >= 2 || root.item.repeats != "";
     property <bool> pressed;
     property <bool> carrying;
     // A drag ends with a release, and a release makes a click: that one is not.
@@ -430,6 +430,22 @@ component TaskRow inherits Rectangle {
                         vertical-alignment: center;
                     }
                 }
+                if root.item.repeats != "": HorizontalLayout {
+                    spacing: 4px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 12px;
+                        data: Icons.repeat;
+                        size: 12px;
+                        tint: Tokens.text-muted;
+                    }
+                    Text {
+                        text: root.item.repeats;
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
                 // Put off again and again: said, quietly, in amber.
                 if root.item.postponed >= 2: HorizontalLayout {
                     spacing: 3px;
@@ -570,6 +586,8 @@ component TaskDetail inherits DetailPanel {
     in-out property <string> time;
     in property <[string]> lists;
     in property <[string]> reminders;
+    /// "Does not repeat", "Every day"…
+    in property <[string]> repeats;
     /// "None", then the goals.
     in property <[string]> goal-names;
     in property <bool> picker-open;
@@ -595,6 +613,7 @@ component TaskDetail inherits DetailPanel {
     callback picker-chosen(string);
     callback due-cleared();
     callback reminder-chosen(int);
+    callback repeat-chosen(int);
     callback priority-chosen(int);
     callback list-chosen(int);
     callback step-added(string);
@@ -842,6 +861,20 @@ component TaskDetail inherits DetailPanel {
                 model: root.reminders;
                 current-index: root.detail.reminder-index;
                 selected => { root.reminder-chosen(self.current-index); }
+            }
+        }
+        // Done, it comes back on the next day of its rule: a due day is needed to
+        // step from.
+        PropertyRow {
+            name: "Repeats";
+            icon: Icons.repeat;
+            ComboBox {
+                y: (parent.height - self.height) / 2;
+                height: 30px;
+                enabled: root.detail.has-due;
+                model: root.repeats;
+                current-index: root.detail.repeat-index;
+                selected => { root.repeat-chosen(self.current-index); }
             }
         }
         PropertyRow {
@@ -1095,6 +1128,7 @@ export component TasksView inherits Rectangle {
     in-out property <string> detail-time;
     in property <[string]> lists;
     in property <[string]> reminders;
+    in property <[string]> repeats;
     in property <bool> picker-open;
     in property <string> picker-title;
     in property <[MonthCellData]> picker-cells;
@@ -1120,6 +1154,9 @@ export component TasksView inherits Rectangle {
     callback milestone-added(string);
     callback make-time();
     callback goal-delete();
+    callback goal-edit();
+    callback goal-renamed(string);
+    callback goal-rename-closed();
     callback task-goal-chosen(int);
     /// Later for a task, and where its menu goes.
     callback task-later(int, length, length);
@@ -1148,6 +1185,7 @@ export component TasksView inherits Rectangle {
     callback picker-chosen(string);
     callback due-cleared();
     callback reminder-chosen(int);
+    callback repeat-chosen(int);
     callback priority-chosen(int);
     callback list-chosen(int);
     callback step-added(string);
@@ -1277,6 +1315,9 @@ export component TasksView inherits Rectangle {
             milestone-added(t) => { root.milestone-added(t); }
             make-time => { root.make-time(); }
             delete-goal => { root.goal-delete(); }
+            edit-goal => { root.goal-edit(); }
+            renamed(t) => { root.goal-renamed(t); }
+            rename-closed => { root.goal-rename-closed(); }
 
             // The steps: the tasks toward it.
             ScrollView {
@@ -1457,6 +1498,7 @@ export component TasksView inherits Rectangle {
             time <=> root.detail-time;
             lists: root.lists;
             reminders: root.reminders;
+            repeats: root.repeats;
             goal-names: root.goal-names;
             goal-chosen(i) => { root.task-goal-chosen(i); }
             later(x, y) => { root.task-later(root.detail.id, x, y); }
@@ -1476,6 +1518,7 @@ export component TasksView inherits Rectangle {
             picker-chosen(d) => { root.picker-chosen(d); }
             due-cleared => { root.due-cleared(); }
             reminder-chosen(i) => { root.reminder-chosen(i); }
+            repeat-chosen(i) => { root.repeat-chosen(i); }
             priority-chosen(p) => { root.priority-chosen(p); }
             list-chosen(i) => { root.list-chosen(i); }
             step-added(t) => { root.step-added(t); }

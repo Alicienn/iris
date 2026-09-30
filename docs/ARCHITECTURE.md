@@ -51,9 +51,11 @@ autoconfiguration, the Mozilla database, DNS `SRV`, `MX` and probing — and **s
 the proposed configuration came from**, so that a guess never passes for a certainty.
 
 A configuration profile (`.mobileconfig`) is the other way in: `iris-discover::mobileconfig`
-reads its `com.apple.mail.managed` payloads from the XML property list — taken from
-between `<?xml` and `</plist>`, so a signed profile's PKCS #7 envelope needs no parsing
-and its signature is not checked. It only fills the manual screen, which the user reads
+reads its `com.apple.mail.managed` payloads from the XML property list. A signed profile
+is a PKCS #7 envelope whose content signing tools often send in pieces (an indefinite
+length, 1,000-byte octet strings) with framing between them. A small BER reader takes the
+content out and puts it back together; the signature is not checked. Bytes that do not
+read as an envelope are searched raw, between `<?xml` and `</plist>`. It only fills the manual screen, which the user reads
 before saving. The encryption is decided by the port (993 and 465 direct TLS, any other
 STARTTLS), never in the clear whatever the profile says; POP and binary profiles are
 refused by name.
@@ -217,6 +219,22 @@ goal goes); adding on a goal's page adds a step toward it. *Make time for it* wr
 weekly event (`FREQ=WEEKLY;BYDAY=…;UNTIL=` the goal's day) in the first local calendar.
 Today lists up to three goals behind or due within the week. The Tasks view key is
 `goal:<id>` or `goals`, so Back returns to them. Nothing is counted automatically.
+Since 3.7.0 a goal is changed where it stands. A click on its title swaps the text for
+a field, which is focused with the old title selected. The field sits in a `FocusScope`
+that takes `Escape`, and closing it hands the keys back (`goal-rename-closed`). The
+pencil opens the new-goal window with `editing` set: its fields are filled from the
+goal, and `goals::creer(…, Some(id))` rewrites the goal with `update_goal`. The kind and
+colour stay, because the log or the milestones belong to it.
+
+**Repeating tasks and the week** (3.7.0). `tasks.repeat` (migration 15) holds `daily`,
+`weekdays`, `weekly`, `monthly` or `yearly`. `tasks::toggle_done` is the only way a
+task is ticked, from Tasks, Home and an event's panel alike. Ticking a repeating task
+inserts its next one on `iris_tasks::repeat::next_day`: one step from its due day,
+stepped again until after today, with a month from the 31st landing on the month's
+last day. It does not insert when an open task with the same title, list, rule and day
+already exists, so untick and tick again makes no second copy. `Vue::Week` (key `week`)
+is a view without tasks of its own. It lays out its own sections (late, put off, next
+week, done since Monday) and fills the nudges with up to three goals not yet reached.
 
 **When to do a task** (3.4.0). `tasks.estimate` is its length in minutes
 (`iris_tasks::goals::parse_duration` reads `45m`, `1h20`). *Find a slot* gathers the
@@ -460,6 +478,7 @@ Iris is refused rather than misread.
 | 12 | Tags on one's own mailboxes, and their links (0.7.0) |
 | 13 | Tags in an order of one's own; tasks tied to an event's UID and occurrence (1.0.0) |
 | 14 | Goals, their log and milestones; a task's goal, estimate and times put off (3.3.0) |
+| 15 | A task's `repeat` rule (3.7.0) |
 
 A new table or column always arrives as a new migration.
 

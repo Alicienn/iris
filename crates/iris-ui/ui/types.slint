@@ -373,6 +373,8 @@ export struct TaskRowData {
     goal-color: color,
     // How many times it was put off.
     postponed: int,
+    // It comes back once done: "Every week". Empty when it does not.
+    repeats: string,
 }
 
 // What the line to add a task understood, shown before Enter: a date (kind 0), a
@@ -437,6 +439,8 @@ export struct TaskDetailData {
     postponed: int,
     // It has a slot booked in the calendar: "14:00–14:45", else empty.
     slot: string,
+    // How it comes back once done: its place in the repeats offered, 0 for none.
+    repeat-index: int,
 }
 
 // A goal: something to reach by a day, and where it stands.

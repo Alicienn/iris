@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 14;
+pub const CURRENT_VERSION: i64 = 15;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -88,7 +88,19 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "goals, and how long a task takes",
         sql: SCHEMA_V14,
     },
+    Migration {
+        version: 15,
+        name: "tasks that come back",
+        sql: SCHEMA_V15,
+    },
 ];
+
+/// A task can repeat: `repeat` names how ("daily", "weekdays", "weekly", "monthly",
+/// "yearly"), NULL when it does not. Done, it makes its next one, due on the next day
+/// the rule gives; the one done stays done, in the log of what was done.
+const SCHEMA_V15: &str = "
+ALTER TABLE tasks ADD COLUMN repeat TEXT;
+";
 
 /// Goals, and three things a task learns.
 ///

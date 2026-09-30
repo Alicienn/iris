@@ -1657,10 +1657,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
         fenetre.on_event_task_toggled(move |id| {
             let Some(f) = faible.upgrade() else { return };
-            if let Ok(Some(t)) = services.store.task(id as i64) {
-                let fait = if t.is_done() { None } else { Some(now()) };
-                let _ = services.store.set_task_done(t.id, fait);
-            }
+            crate::tasks::toggle_done(&services, id as i64);
             if let Some(o) = etat.borrow().ouvert.as_ref() {
                 remplir_taches(&f, &services, o);
             }

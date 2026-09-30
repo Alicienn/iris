@@ -2469,13 +2469,16 @@ pub fn wire_account_setup(
                 .into_owned();
             match iris_discover::mobileconfig::parse(&octets) {
                 Ok(comptes) => fill_from_profile(&fenetre, &comptes, &nom),
-                Err(e) => fenetre.set_add_account_error(
-                    format!(
-                        "{nom} cannot be used: {}.",
-                        e.to_string().trim_end_matches('.')
+                // What the reader said, without the error's kind in front of it.
+                Err(e) => {
+                    let raison = match e {
+                        iris_types::Error::Config(m) => m,
+                        autre => autre.to_string(),
+                    };
+                    fenetre.set_add_account_error(
+                        format!("{nom} cannot be used: {}.", raison.trim_end_matches('.')).into(),
                     )
-                    .into(),
-                ),
+                }
             }
         });
     }

@@ -3,6 +3,19 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.7.0 — 2026-09-30
+
+### New
+- Click a goal's title to rename it; the pencil beside it changes its target, day and why.
+- Tasks can repeat: every day, weekday, week, month or year. Done, the next one appears.
+- This week, in Tasks: what is late, put off, due next week and done since Monday, with your goals.
+
+### Improved
+- Goal cards share the width instead of running off the page.
+
+### Fixed
+- Signed configuration profiles, as schools and companies send them, can be imported.
+
 ## 3.6.0 — 2026-09-30
 
 ### New

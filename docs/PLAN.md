@@ -463,3 +463,6 @@ the application is brought to it screen by screen.
 - [x] **S40.9** A calendar one can move things in (3.6.0): events dragged and
       stretched by quarter hours, today's tasks without an hour dragged onto the week,
       a task's slot carrying the task with it.
+- [x] **S40.10** Goals changed where they stand, tasks that come back, the week in
+      review (3.7.0): a goal renamed by its title and edited with the pencil, repeating
+      tasks (migration 15), *This week* in Tasks.

@@ -131,6 +131,7 @@ pub fn remplir(
     montre: Option<i64>,
     tous: bool,
     sur_today: bool,
+    revue: bool,
 ) {
     let today = Local::now().date_naive();
     let objectifs = services.store.goals().unwrap_or_default();
@@ -150,12 +151,21 @@ pub fn remplir(
             )
             .collect::<Vec<_>>(),
     )));
+    // On Today, the goals that need something this week; in the week's review, every
+    // goal not reached yet.
     f.set_goal_nudges(ModelRc::new(VecModel::from(if sur_today {
         objectifs
             .iter()
             .filter(|g| a_pousser(&allure(services, g, today).2))
             .take(3)
             .map(|g| donnees(services, g, today, false))
+            .collect::<Vec<_>>()
+    } else if revue {
+        objectifs
+            .iter()
+            .map(|g| donnees(services, g, today, false))
+            .filter(|d| d.status != 2)
+            .take(3)
             .collect::<Vec<_>>()
     } else {
         Vec::new()
@@ -253,7 +263,45 @@ pub fn ouvrir_nouveau(f: &AppWindow) {
     f.set_goal_new_due(dans_un_mois.format("%Y-%m-%d").to_string().into());
     f.set_goal_new_why(SharedString::default());
     f.set_goal_new_error(SharedString::default());
+    f.set_goal_new_editing(false);
     f.set_goal_new_open(true);
+}
+
+/// Opens the same window on goal `id`, its fields filled in.
+pub fn ouvrir_edition(f: &AppWindow, services: &Services, id: i64) {
+    let Some(g) = services.store.goal(id).ok().flatten() else {
+        return;
+    };
+    let jalons = g.goal.kind == GoalKind::Milestones;
+    f.set_goal_new_title(g.goal.title.as_str().into());
+    f.set_goal_new_kind(jalons as i32);
+    f.set_goal_new_target(g.goal.target.to_string().into());
+    f.set_goal_new_unit(g.goal.unit.as_str().into());
+    f.set_goal_new_due(g.goal.due_day.as_str().into());
+    f.set_goal_new_why(g.goal.why.as_str().into());
+    f.set_goal_new_error(SharedString::default());
+    f.set_goal_new_editing(true);
+    f.set_goal_new_open(true);
+}
+
+/// A new title for goal `id`, typed over the old one on its page.
+pub fn renommer(services: &Services, id: i64, titre: &str) -> Result<(), String> {
+    let titre = titre.trim();
+    if titre.is_empty() {
+        return Err("A goal needs a name.".into());
+    }
+    let g = services
+        .store
+        .goal(id)
+        .ok()
+        .flatten()
+        .ok_or("This goal no longer exists.")?;
+    let mut change = g.goal.clone();
+    change.title = titre.to_string();
+    services
+        .store
+        .update_goal(id, &change)
+        .map_err(|e| e.to_string())
 }
 
 pub fn dans_jours(f: &AppWindow, jours: i64) {
@@ -261,8 +309,9 @@ pub fn dans_jours(f: &AppWindow, jours: i64) {
     f.set_goal_new_due(d.format("%Y-%m-%d").to_string().into());
 }
 
-/// Reads the new-goal window and makes the goal; its id, or what is wrong.
-pub fn creer(f: &AppWindow, services: &Services) -> Result<i64, String> {
+/// Reads the goal window and makes the goal, or saves goal `edite` with what it says
+/// (keeping how it is measured and its colour); the goal's id, or what is wrong.
+pub fn creer(f: &AppWindow, services: &Services, edite: Option<i64>) -> Result<i64, String> {
     let titre = f.get_goal_new_title().trim().to_string();
     if titre.is_empty() {
         return Err("Say what you want to reach.".into());
@@ -279,11 +328,35 @@ pub fn creer(f: &AppWindow, services: &Services) -> Result<i64, String> {
             .ok_or("The target should be a number, like 10.")?
     };
     let jour = jour_de(&f.get_goal_new_due()).ok_or("The date should look like 2026-10-30.")?;
-    if jour <= Local::now().date_naive() {
+    // A goal being changed may keep today as its day; a new one looks ahead.
+    if jour < Local::now().date_naive() || (edite.is_none() && jour == Local::now().date_naive()) {
         return Err("The date should be after today.".into());
     }
     let n = services.store.goals().map(|g| g.len()).unwrap_or(0);
     let unite = f.get_goal_new_unit().trim().to_string();
+    if let Some(id) = edite {
+        let ancien = services
+            .store
+            .goal(id)
+            .ok()
+            .flatten()
+            .ok_or("This goal no longer exists.")?;
+        let mut change = ancien.goal.clone();
+        change.title = titre;
+        change.why = f.get_goal_new_why().trim().to_string();
+        change.due_day = jour.format("%Y-%m-%d").to_string();
+        if change.kind == GoalKind::Count {
+            change.target = cible;
+            if !unite.is_empty() {
+                change.unit = unite;
+            }
+        }
+        services
+            .store
+            .update_goal(id, &change)
+            .map_err(|e| e.to_string())?;
+        return Ok(id);
+    }
     let objectif = NewGoal {
         title: titre,
         why: f.get_goal_new_why().trim().to_string(),
@@ -422,6 +495,35 @@ pub fn bloquer(f: &AppWindow, services: &Services, goal: i64) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_goal_is_renamed_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Services::open(
+            crate::paths::Paths::under(dir.path()),
+            Some(iris_secrets::Secret::new("maitre")),
+        )
+        .unwrap();
+        let g = NewGoal {
+            title: "Send 10 applications".into(),
+            why: "An internship".into(),
+            kind: GoalKind::Count,
+            target: 10,
+            unit: "applications".into(),
+            due_day: "2026-10-30".into(),
+            color: "#4f8cff".into(),
+        };
+        let id = s.store.create_goal(&g, now()).unwrap();
+        renommer(&s, id, "  Send 12 applications ").unwrap();
+        let apres = s.store.goal(id).unwrap().unwrap().goal;
+        assert_eq!(apres.title, "Send 12 applications");
+        assert_eq!(
+            (apres.target, apres.due_day.as_str()),
+            (10, "2026-10-30"),
+            "only the name changes"
+        );
+        assert!(renommer(&s, id, "   ").is_err(), "a goal keeps a name");
+    }
 
     #[test]
     fn the_hour_reads_as_people_write_it() {

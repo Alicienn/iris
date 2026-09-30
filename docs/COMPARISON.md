@@ -20,7 +20,7 @@ the first afternoon, and never forgive".
 | Offline | Every action journalled and replayed; nothing waits for the network |
 | Privacy | Remote images blocked by default, trackers named |
 | Calendar | Month, week and day, an event typed straight into a free slot, events dragged and stretched, today's tasks dragged onto the week, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event |
-| Tasks | One-line entry, lists, subtasks, reminders, tasks made from conversations and events, undo |
+| Tasks | One-line entry, lists, subtasks, reminders, repeating tasks, a review of the week, tasks made from conversations and events, undo |
 | Goals | A target or milestones by a date, the pace needed, time blocked weekly in the calendar — none of the four mail clients has them |
 | Drafts | Saved to the server's Drafts folder, asked for when a started message is closed |
 | Home | A start page for the day: one sentence on what waits, the next three events and tasks |

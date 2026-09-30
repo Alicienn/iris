@@ -183,7 +183,19 @@ on what you did, if you like), or tick the milestones as you reach them. What yo
 on a goal's page is a step toward it; any task can be given a goal in its details.
 **Make time for it** blocks time in your calendar on the days you choose, every week
 until the goal's day. Today points to the goals behind or due this week. Iris counts
-nothing on its own.
+nothing on its own. Click a goal's title to rename it (`Enter` keeps it, `Escape` the
+old one); the pencil beside it changes the rest: its target, its day, what it is for.
+How a goal is measured stays as it was set.
+
+### Repeating tasks and the week
+
+*Repeats* in a task's details makes it come back: every day, every weekday, every
+week, every month or every year. Ticked, it makes its next one, due on the next day of
+its rule. Its hour, reminder, length and goal come with it, not its subtasks. A task
+done late comes back after today, never in the past.
+
+*This week*, in the column on the left, looks back and ahead: what is late, what was
+put off, what is due next week, what was done since Monday, and the goals under way.
 
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
 `L` later,

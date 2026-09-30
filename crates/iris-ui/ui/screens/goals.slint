@@ -304,6 +304,22 @@ export component GoalPage inherits VerticalLayout {
     callback milestone-added(string);
     callback make-time();
     callback delete-goal();
+    /// The pencil: every field of the goal, in its window.
+    callback edit-goal();
+    /// A new title typed over the old one.
+    callback renamed(string);
+    /// The title's field closed, saved or not: the keys go back to the shortcuts.
+    callback rename-closed();
+
+    /// The title is being typed over.
+    property <bool> renaming;
+    property <string> new-title;
+    function close-rename() {
+        if (root.renaming) {
+            root.renaming = false;
+            root.rename-closed();
+        }
+    }
 
     /// Too narrow for two columns (a task's details open beside it): the log goes
     /// behind a switch in the steps' column rather than squeezing them. Said by the
@@ -338,6 +354,17 @@ export component GoalPage inherits VerticalLayout {
         }
         IconButton {
             y: (parent.height - self.height) / 2;
+            icon: Icons.pencil;
+            label: "Edit goal";
+            button-size: 26px;
+            icon-size: 14px;
+            clicked => {
+                root.close-rename();
+                root.edit-goal();
+            }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
             icon: Icons.trash;
             label: "Delete goal";
             button-size: 26px;
@@ -346,13 +373,63 @@ export component GoalPage inherits VerticalLayout {
             clicked => { root.delete-goal(); }
         }
     }
-    Text {
-        text: root.goal.title;
-        font-family: Tokens.font-display;
-        font-size: 24px;
-        font-weight: 600;
-        color: Tokens.text;
-        wrap: word-wrap;
+    // The title: a click types over it; Enter keeps the new one, Escape the old.
+    if !root.renaming: Rectangle {
+        height: titre.preferred-height + 4px;
+        border-radius: Tokens.radius-medium;
+        background: renommer.has-hover ? Tokens.surface-hover : transparent;
+
+        accessible-role: button;
+        accessible-label: "Rename " + root.goal.title;
+        accessible-action-default => {
+            root.new-title = root.goal.title;
+            root.renaming = true;
+        }
+
+        titre := Text {
+            x: 0px;
+            width: parent.width;
+            text: root.goal.title;
+            font-family: Tokens.font-display;
+            font-size: 24px;
+            font-weight: 600;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+        renommer := TouchArea {
+            mouse-cursor: text;
+            clicked => {
+                root.new-title = root.goal.title;
+                root.renaming = true;
+            }
+        }
+    }
+    if root.renaming: FocusScope {
+        enabled: false;
+        height: 40px;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-rename();
+                return accept;
+            }
+            return reject;
+        }
+        TextField {
+            accessible-label: "Goal title";
+            font-size: 20px;
+            text <=> root.new-title;
+            // Opened to be typed in: the first key is the title's.
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            accepted(t) => {
+                if (t != "" && t != root.goal.title) {
+                    root.renamed(t);
+                }
+                root.close-rename();
+            }
+        }
     }
     if root.goal.why != "": Text {
         text: root.goal.why;
@@ -701,8 +778,13 @@ export component GoalNudges inherits HorizontalLayout {
     alignment: start;
     height: 34px;
 
+    // Each as wide as it needs, up to 360 px; when they do not fit side by side they
+    // share the row, their text cut short, rather than push the page wider.
     for g in root.goals: Rectangle {
-        width: min(360px, rang.preferred-width + 22px);
+        preferred-width: min(360px, rang.preferred-width + 22px);
+        max-width: self.preferred-width;
+        min-width: 90px;
+        horizontal-stretch: 1;
         border-radius: Tokens.radius-large;
         border-width: 1px;
         border-color: pousse.has-hover ? Tokens.border-strong : Tokens.border;
@@ -758,6 +840,8 @@ export component NewGoalPanel inherits Rectangle {
     in-out property <string> due;
     in-out property <string> why;
     in property <string> error;
+    /// The goal shown, changed rather than a new one: how it is measured stays.
+    in property <bool> editing;
 
     callback in-days(int);
     callback confirmed();
@@ -766,7 +850,7 @@ export component NewGoalPanel inherits Rectangle {
     Modal {
         width: 100%;
         height: 100%;
-        title: "New goal";
+        title: root.editing ? "Edit goal" : "New goal";
         close-label: "Cancel";
         card-width: 520px;
         fit: true;
@@ -792,11 +876,18 @@ export component NewGoalPanel inherits Rectangle {
                 color: Tokens.text-muted;
                 vertical-alignment: center;
             }
-            Segmented {
+            // Fixed once the goal exists: what was logged or ticked belongs to it.
+            if !root.editing: Segmented {
                 y: (parent.height - self.height) / 2;
                 options: ["A number", "Milestones"];
                 selected: root.kind;
                 chosen(i) => { root.kind = i; }
+            }
+            if root.editing: Text {
+                text: root.kind == 0 ? "A number" : "Milestones";
+                font-size: 13px;
+                color: Tokens.text;
+                vertical-alignment: center;
             }
             Rectangle {}
         }
@@ -883,7 +974,7 @@ export component NewGoalPanel inherits Rectangle {
             wrap: word-wrap;
         }
 
-        Text {
+        if !root.editing: Text {
             text: "Iris shows the pace you need, and points to the goal on Today when you fall behind.";
             font-size: 12px;
             color: Tokens.text-muted;
@@ -892,7 +983,7 @@ export component NewGoalPanel inherits Rectangle {
 
         ModalFooter {
             Button {
-                text: "Create goal";
+                text: root.editing ? "Save" : "Create goal";
                 kind: ButtonKind.primary;
                 clicked => { root.confirmed(); }
             }

@@ -31,6 +31,21 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<ProfileAccount>> {
             "this profile is in binary form: export it as XML and try again".into(),
         ));
     }
+    // A signed profile: the property list is the envelope's content, which the
+    // signing tool may have cut into pieces with a few bytes of framing between them.
+    // Read from the envelope when it can be; from the raw bytes when it cannot.
+    let contenu;
+    let bytes = if bytes.first() == Some(&0x30) {
+        match ber::find_content(bytes, b"<plist") {
+            Some(c) => {
+                contenu = c;
+                &contenu[..]
+            }
+            None => bytes,
+        }
+    } else {
+        bytes
+    };
     let debut = find(bytes, b"<?xml")
         .or_else(|| find(bytes, b"<plist"))
         .ok_or_else(|| Error::Config("this file is not a configuration profile".into()))?;
@@ -116,6 +131,133 @@ fn account(dict: &[(String, Value)]) -> Option<ProfileAccount> {
         },
         password,
     })
+}
+
+/// Just enough of BER, the encoding of a signed profile's envelope (PKCS #7), to take
+/// its content out: lengths definite or not, and an octet string sent in pieces put
+/// back together. Nothing is verified.
+mod ber {
+    /// One element: its tag byte, whether it holds elements, and where its content
+    /// is (`start..end`); `next` is where the element after it begins.
+    struct Tlv {
+        tag: u8,
+        constructed: bool,
+        start: usize,
+        end: usize,
+        next: usize,
+    }
+
+    /// The element at `pos`, or `None` when the bytes do not make one. Deep nesting is
+    /// refused rather than followed: a profile is a few levels deep.
+    fn tlv(d: &[u8], pos: usize, depth: u32) -> Option<Tlv> {
+        if depth > 32 {
+            return None;
+        }
+        let tag = *d.get(pos)?;
+        let mut i = pos + 1;
+        if tag & 0x1f == 0x1f {
+            // A tag number over 30, in the bytes that follow.
+            while *d.get(i)? & 0x80 != 0 {
+                i += 1;
+            }
+            i += 1;
+        }
+        let constructed = tag & 0x20 != 0;
+        let premier = *d.get(i)?;
+        i += 1;
+        if premier == 0x80 {
+            // No length: the elements run to two zero bytes.
+            if !constructed {
+                return None;
+            }
+            let start = i;
+            let mut p = i;
+            loop {
+                if d.get(p..p + 2)? == [0, 0] {
+                    return Some(Tlv {
+                        tag,
+                        constructed,
+                        start,
+                        end: p,
+                        next: p + 2,
+                    });
+                }
+                p = tlv(d, p, depth + 1)?.next;
+            }
+        }
+        let longueur = if premier < 0x80 {
+            premier as usize
+        } else {
+            let n = (premier & 0x7f) as usize;
+            if n == 0 || n > 4 {
+                return None;
+            }
+            let l = d
+                .get(i..i + n)?
+                .iter()
+                .fold(0usize, |a, b| (a << 8) | *b as usize);
+            i += n;
+            l
+        };
+        let end = i.checked_add(longueur)?;
+        if end > d.len() {
+            return None;
+        }
+        Some(Tlv {
+            tag,
+            constructed,
+            start: i,
+            end,
+            next: end,
+        })
+    }
+
+    /// The bytes of an octet string, its pieces put together.
+    fn octets(d: &[u8], e: &Tlv, depth: u32, out: &mut Vec<u8>) -> Option<()> {
+        if !e.constructed {
+            out.extend_from_slice(&d[e.start..e.end]);
+            return Some(());
+        }
+        let mut p = e.start;
+        while p < e.end {
+            let enfant = tlv(d, p, depth + 1)?;
+            octets(d, &enfant, depth + 1, out)?;
+            p = enfant.next;
+        }
+        Some(())
+    }
+
+    /// The first octet string, depth first, whose bytes contain `needle`.
+    pub fn find_content(d: &[u8], needle: &[u8]) -> Option<Vec<u8>> {
+        fn chercher(
+            d: &[u8],
+            start: usize,
+            end: usize,
+            needle: &[u8],
+            depth: u32,
+        ) -> Option<Vec<u8>> {
+            let mut p = start;
+            while p < end {
+                let e = tlv(d, p, depth)?;
+                if e.tag & 0x1f == 0x04 && e.tag & 0xc0 == 0 {
+                    let mut out = Vec::new();
+                    if octets(d, &e, depth, &mut out).is_some()
+                        && out.windows(needle.len()).any(|w| w == needle)
+                    {
+                        return Some(out);
+                    }
+                } else if e.constructed {
+                    if let Some(c) = chercher(d, e.start, e.end, needle, depth + 1) {
+                        return Some(c);
+                    }
+                }
+                p = e.next;
+            }
+            None
+        }
+        let racine = tlv(d, 0, 0)?;
+        chercher(d, 0, racine.next, needle, 0)
+    }
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -363,6 +505,63 @@ mod tests {
         signe.extend_from_slice(&[0x00, 0x00, 0xa0, 0x82, 0xfe]);
         let comptes = parse(&signe).unwrap();
         assert_eq!(comptes[0].config.imap_host, "imap.example.com");
+    }
+
+    /// A signed profile as signing tools write it: indefinite lengths, and the
+    /// property list sent as an octet string in pieces, framing between them.
+    fn enveloppe(xml: &[u8], morceau: usize) -> Vec<u8> {
+        let oid_signed = [
+            0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02,
+        ];
+        let oid_data = [
+            0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01,
+        ];
+        let mut d = vec![0x30, 0x80];
+        d.extend_from_slice(&oid_signed);
+        d.extend_from_slice(&[0xa0, 0x80, 0x30, 0x80, 0x02, 0x01, 0x01, 0x31, 0x00]);
+        d.extend_from_slice(&[0x30, 0x80]);
+        d.extend_from_slice(&oid_data);
+        d.extend_from_slice(&[0xa0, 0x80, 0x24, 0x80]);
+        for piece in xml.chunks(morceau) {
+            d.push(0x04);
+            d.push(0x82);
+            d.push((piece.len() >> 8) as u8);
+            d.push(piece.len() as u8);
+            d.extend_from_slice(piece);
+        }
+        // The octet string, [0], the content info; then the certificates would come,
+        // then the signed data and the outer [0] and sequence end.
+        d.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        d.extend_from_slice(&[0x31, 0x03, 0x02, 0x01, 0x00]);
+        d.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        d
+    }
+
+    #[test]
+    fn a_signed_profile_cut_in_pieces_is_put_back_together() {
+        let signe = enveloppe(PROFIL.as_bytes(), 300);
+        // The pieces' framing lands inside the XML: read raw, it would not parse.
+        let comptes = parse(&signe).unwrap();
+        assert_eq!(comptes[0].config.imap_host, "imap.example.com");
+        assert_eq!(comptes[0].config.smtp_port, 587);
+        assert_eq!(comptes[0].password.as_deref(), Some("secret"));
+    }
+
+    /// A profile of one's own, read where it lies and never copied here:
+    /// `IRIS_PROFILE=<path> cargo test -p iris-discover -- --ignored a_real_profile`.
+    #[test]
+    #[ignore]
+    fn a_real_profile_reads() {
+        let chemin = std::env::var("IRIS_PROFILE").expect("IRIS_PROFILE");
+        let comptes = parse(&std::fs::read(chemin).unwrap()).unwrap();
+        assert!(!comptes.is_empty());
+        assert!(!comptes[0].config.imap_host.is_empty());
+    }
+
+    #[test]
+    fn an_empty_password_is_no_password() {
+        let xml = PROFIL.replace("<string>secret</string>", "<string/>");
+        assert_eq!(parse(xml.as_bytes()).unwrap()[0].password, None);
     }
 
     #[test]

@@ -37,6 +37,9 @@ enum Vue {
     Goal(i64),
     /// All the goals.
     Goals,
+    /// The week in review: what was done, put off or left late, what comes next week,
+    /// and the goals under way.
+    Week,
 }
 
 impl Vue {
@@ -49,6 +52,7 @@ impl Vue {
             Vue::List(id) => format!("list:{id}"),
             Vue::Goal(id) => format!("goal:{id}"),
             Vue::Goals => "goals".into(),
+            Vue::Week => "week".into(),
         }
     }
 
@@ -59,6 +63,7 @@ impl Vue {
             "anytime" => Vue::Anytime,
             "mail" => Vue::Mail,
             "goals" => Vue::Goals,
+            "week" => Vue::Week,
             autre => match autre.strip_prefix("goal:") {
                 Some(id) => Vue::Goal(id.parse().ok()?),
                 None => Vue::List(autre.strip_prefix("list:")?.parse().ok()?),
@@ -195,6 +200,7 @@ fn titre_vue(vue: Vue, listes: &[TaskList]) -> String {
             .unwrap_or_default(),
         Vue::Goal(_) => String::new(),
         Vue::Goals => "Goals".into(),
+        Vue::Week => "This week".into(),
     }
 }
 
@@ -217,7 +223,8 @@ fn dans_la_vue(vue: Vue, t: &StoredTask, today: NaiveDate) -> bool {
         Vue::Mail => t.task.thread_id.is_some(),
         Vue::List(id) => t.task.list_id == id,
         Vue::Goal(id) => t.task.goal_id == Some(id),
-        Vue::Goals => false,
+        // The review lays out its own sections; nothing belongs to it as such.
+        Vue::Goals | Vue::Week => false,
     }
 }
 
@@ -460,6 +467,7 @@ fn ligne_tache(
             .map(|g| crate::calendar::couleur(&g.goal.color))
             .unwrap_or_default(),
         postponed: t.task.postponed,
+        repeats: iris_tasks::repeat::label(t.task.repeat.as_deref()).into(),
     }
 }
 
@@ -787,6 +795,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         },
         etat.vue == Vue::Goals,
         etat.vue == Vue::Today,
+        etat.vue == Vue::Week,
     );
 
     let ouvertes = services.store.open_tasks().unwrap_or_default();
@@ -822,6 +831,8 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             iris_ui_icone::COURRIER,
             compte(Vue::Mail),
         ),
+        // Not a count of tasks: a look back at the week, and ahead at the next.
+        (Vue::Week, "This week", iris_ui_icone::SEMAINE, 0),
     ]
     .into_iter()
     .map(|(vue, nom, icone, compte)| TaskPlaceData {
@@ -914,6 +925,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
                 }
             }
         }
+        Vue::Week => revue_de_la_semaine(services, etat, &dessus, maintenant, &mut lignes),
         // Today, All tasks, From mail and the lists: by section, from late to later.
         vue => par_sections(de_la_vue, !matches!(vue, Vue::List(_)), &mut lignes),
     }
@@ -963,11 +975,98 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
     f.set_tasks_title(titre_vue(etat.vue, &etat.listes).into());
     f.set_tasks_subtitle(match etat.vue {
         Vue::Today => today.format("%A %-d %B").to_string().into(),
+        Vue::Week => {
+            let lundi = lundi_de(today);
+            format!(
+                "{} – {}",
+                lundi.format("%a %-d %b"),
+                (lundi + Duration::days(6)).format("%a %-d %b")
+            )
+            .into()
+        }
         _ => SharedString::default(),
     });
     f.set_task_add_hint(indication(etat.vue).into());
     f.set_task_rows(ModelRc::new(VecModel::from(lignes)));
     remplir_detail(f, services, etat, maintenant);
+}
+
+fn lundi_de(d: NaiveDate) -> NaiveDate {
+    d - Duration::days(d.weekday().num_days_from_monday() as i64)
+}
+
+/// The week in review, as sections of the list: what was done since Monday, what was
+/// put off, what is late, and what is due next week. Each task once, in the first
+/// section it belongs to.
+fn revue_de_la_semaine(
+    services: &Services,
+    etat: &Etat,
+    ouvertes: &[&StoredTask],
+    maintenant: NaiveDateTime,
+    lignes: &mut Vec<TaskRowData>,
+) {
+    let today = maintenant.date();
+    let lundi = lundi_de(today);
+    let lundi_suivant = lundi + Duration::days(7);
+    let local = |ms: i64| {
+        Local
+            .timestamp_millis_opt(ms)
+            .single()
+            .map(|d| d.date_naive())
+    };
+
+    let faites: Vec<StoredTask> = services
+        .store
+        .done_tasks(None, 500)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| {
+            t.done_at
+                .and_then(|d| local(d.millis()))
+                .is_some_and(|j| j >= lundi)
+        })
+        .collect();
+    let en_retard: Vec<&StoredTask> = ouvertes
+        .iter()
+        .copied()
+        .filter(|t| jour(&t.task).is_some_and(|j| j < today))
+        .collect();
+    let repoussees: Vec<&StoredTask> = ouvertes
+        .iter()
+        .copied()
+        .filter(|t| t.task.postponed > 0 && !en_retard.iter().any(|r| r.id == t.id))
+        .collect();
+    let semaine_prochaine: Vec<&StoredTask> = ouvertes
+        .iter()
+        .copied()
+        .filter(|t| {
+            jour(&t.task)
+                .is_some_and(|j| j >= lundi_suivant && j < lundi_suivant + Duration::days(7))
+                && !repoussees.iter().any(|r| r.id == t.id)
+        })
+        .collect();
+
+    let mut section = |titre: &str, taches: &[&StoredTask], rouge: bool| {
+        if taches.is_empty() {
+            return;
+        }
+        lignes.push(section_ligne(titre, taches.len(), rouge));
+        for t in taches {
+            lignes.push(ligne_tache(services, t, etat, true, maintenant));
+        }
+    };
+    section("Late", &en_retard, true);
+    section("Put off", &repoussees, false);
+    section("Next week", &semaine_prochaine, false);
+    let faites: Vec<&StoredTask> = faites.iter().collect();
+    section("Done this week", &faites, false);
+    if lignes.is_empty() {
+        lignes.push(section_ligne(
+            "Nothing late, nothing put off: a clear week",
+            0,
+            false,
+        ));
+    }
 }
 
 /// Le panneau de droite : la tâche choisie, ou rien.
@@ -1040,6 +1139,7 @@ fn remplir_detail(f: &AppWindow, services: &Services, etat: &mut Etat, maintenan
             .is_some_and(|u| u != uid_de_creneau(t.id)),
         estimate: t.task.estimate.unwrap_or(0),
         postponed: t.task.postponed,
+        repeat_index: iris_tasks::repeat::index(t.task.repeat.as_deref()) as i32,
         slot: creneau_reserve(services, t.id)
             .map(|(_, a, b)| format!("{}–{}", heure_locale(a), heure_locale(b)))
             .unwrap_or_default()
@@ -1079,6 +1179,9 @@ mod iris_ui_icone {
     pub const LISTE: &str =
         "M 12 3.5 A 8.5 8.5 0 1 0 12 20.5 A 8.5 8.5 0 1 0 12 3.5 Z M 8 12.3 L 10.8 15 L 16 9.3";
     pub const COURRIER: &str = "M 5.0 5.5 H 19.0 A 1.5 1.5 0 0 1 20.5 7.0 V 17.0 A 1.5 1.5 0 0 1 19.0 18.5 H 5.0 A 1.5 1.5 0 0 1 3.5 17.0 V 7.0 A 1.5 1.5 0 0 1 5.0 5.5 Z M 3.5 8 L 12 13.5 L 20.5 8";
+    /// Bars of a week, rising: the review.
+    pub const SEMAINE: &str =
+        "M 4 20.5 H 20 M 6.5 17 V 13 M 10.5 17 V 9 M 14.5 17 V 11 M 18.5 17 V 5.5";
 }
 
 // --- Écrire ----------------------------------------------------------------------------
@@ -1157,11 +1260,58 @@ fn modifier(services: &Services, id: i64, change: impl FnOnce(&mut NewTask)) -> 
 }
 
 fn basculer(services: &Services, id: i64) {
-    if let Ok(Some(t)) = services.store.task(id) {
-        let _ = services
-            .store
-            .set_task_done(id, if t.is_done() { None } else { Some(now()) });
+    toggle_done(services, id);
+}
+
+/// Ticks a task, or unticks it. A repeating task ticked makes its next one, due on the
+/// next day of its rule: the same title, list, hour, reminder, length, goal and rule,
+/// without its subtasks or what it came from. Unticked and ticked again, it does not
+/// make a second one.
+pub(crate) fn toggle_done(services: &Services, id: i64) {
+    let Ok(Some(t)) = services.store.task(id) else {
+        return;
+    };
+    if t.is_done() {
+        let _ = services.store.set_task_done(id, None);
+        return;
     }
+    let _ = services.store.set_task_done(id, Some(now()));
+    let (Some(regle), Some(du)) = (t.task.repeat.as_deref(), jour(&t.task)) else {
+        return;
+    };
+    let Some(suivant) = iris_tasks::repeat::next_day(regle, du, maintenant_local().date()) else {
+        return;
+    };
+    let jour_suivant = suivant.format("%Y-%m-%d").to_string();
+    let deja = services
+        .store
+        .open_tasks()
+        .unwrap_or_default()
+        .into_iter()
+        .any(|o| {
+            o.task.title == t.task.title
+                && o.task.list_id == t.task.list_id
+                && o.task.repeat == t.task.repeat
+                && o.task.due_day.as_deref() == Some(jour_suivant.as_str())
+        });
+    if deja {
+        return;
+    }
+    let mut prochaine = NewTask {
+        list_id: t.task.list_id,
+        title: t.task.title.clone(),
+        notes: t.task.notes.clone(),
+        due_day: Some(jour_suivant),
+        due_minute: t.task.due_minute,
+        remind_before: t.task.remind_before,
+        priority: t.task.priority,
+        goal_id: t.task.goal_id,
+        estimate: t.task.estimate,
+        repeat: t.task.repeat.clone(),
+        ..Default::default()
+    };
+    recalculer_rappel(&mut prochaine);
+    let _ = services.store.insert_task(&prochaine, now());
 }
 
 /// Une conversation devient une tâche, dans la première liste.
@@ -1242,6 +1392,12 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         REMINDERS
             .iter()
             .map(|(n, _)| SharedString::from(*n))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_repeats(ModelRc::new(VecModel::from(
+        iris_tasks::repeat::REPEATS
+            .iter()
+            .map(|(_, n)| SharedString::from(*n))
             .collect::<Vec<_>>(),
     )));
 
@@ -1394,7 +1550,18 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
     geste!(
         on_goal_new_confirmed,
         [services, etat, redessiner, f, controller],
-        || match crate::goals::creer(f, services) {
+        || match crate::goals::creer(
+            f,
+            services,
+            f.get_goal_new_editing()
+                .then(|| objectif_montre(etat))
+                .flatten()
+        ) {
+            Ok(_) if f.get_goal_new_editing() => {
+                f.set_goal_new_open(false);
+                f.set_goal_new_editing(false);
+                redessiner();
+            }
             Ok(id) => {
                 f.set_goal_new_open(false);
                 let cle = Vue::Goal(id).cle();
@@ -1407,6 +1574,28 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 redessiner();
             }
             Err(message) => f.set_goal_new_error(message.into()),
+        }
+    );
+    geste!(
+        on_goal_edit_requested,
+        [services, etat, redessiner, f, controller],
+        || {
+            if let Some(g) = objectif_montre(etat) {
+                crate::goals::ouvrir_edition(f, services, g);
+            }
+        }
+    );
+    geste!(
+        on_goal_renamed,
+        [services, etat, redessiner, f, controller],
+        |titre| {
+            let Some(g) = objectif_montre(etat) else {
+                return;
+            };
+            match crate::goals::renommer(services, g, &titre) {
+                Ok(()) => redessiner(),
+                Err(message) => f.set_status(message.into()),
+            }
         }
     );
     geste!(
@@ -1871,6 +2060,22 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         }
     );
     geste!(
+        on_task_repeat_chosen,
+        [services, etat, redessiner, f, controller],
+        |i| {
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
+            let regle = iris_tasks::repeat::REPEATS
+                .get(i.max(0) as usize)
+                .map(|(mot, _)| *mot)
+                .filter(|mot| !mot.is_empty())
+                .map(str::to_string);
+            modifier(services, id, |t| t.repeat = regle);
+            redessiner();
+        }
+    );
+    geste!(
         on_task_priority_chosen,
         [services, etat, redessiner, f, controller],
         |p| {
@@ -2139,6 +2344,56 @@ mod tests {
         }
         assert_eq!(Vue::depuis("list:x"), None);
         assert_eq!(Vue::depuis("goal:x"), None);
+    }
+
+    #[test]
+    fn a_repeating_task_done_makes_its_next_one_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = Services::open(
+            crate::paths::Paths::under(dir.path()),
+            Some(iris_secrets::Secret::new("test")),
+        )
+        .unwrap();
+        let liste = services.store.task_lists().unwrap()[0].id;
+        let today = maintenant_local().date();
+        let id = services
+            .store
+            .insert_task(
+                &NewTask {
+                    list_id: liste,
+                    title: "Water the plants".into(),
+                    due_day: Some(today.format("%Y-%m-%d").to_string()),
+                    due_minute: Some(9 * 60),
+                    estimate: Some(15),
+                    repeat: Some("weekly".into()),
+                    ..Default::default()
+                },
+                now(),
+            )
+            .unwrap();
+
+        toggle_done(&services, id);
+        let ouvertes = services.store.open_tasks().unwrap();
+        assert_eq!(ouvertes.len(), 1, "the next one, and only it, is open");
+        let prochaine = &ouvertes[0].task;
+        let dans_une_semaine = (today + Duration::days(7)).format("%Y-%m-%d").to_string();
+        assert_eq!(
+            prochaine.due_day.as_deref(),
+            Some(dans_une_semaine.as_str())
+        );
+        assert_eq!(
+            (
+                prochaine.due_minute,
+                prochaine.estimate,
+                prochaine.repeat.as_deref()
+            ),
+            (Some(9 * 60), Some(15), Some("weekly"))
+        );
+
+        // Unticked and ticked again: no second copy.
+        toggle_done(&services, id);
+        toggle_done(&services, id);
+        assert_eq!(services.store.open_tasks().unwrap().len(), 1);
     }
 
     #[test]

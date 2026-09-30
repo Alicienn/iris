@@ -45,6 +45,9 @@ pub struct NewTask {
     pub estimate: Option<i32>,
     /// How many times it was put off to a later day.
     pub postponed: i32,
+    /// How it comes back once done: "daily", "weekdays", "weekly", "monthly",
+    /// "yearly"; `None` when it does not.
+    pub repeat: Option<String>,
 }
 
 /// Une tâche, telle qu'elle se relit.
@@ -69,7 +72,7 @@ fn err(quoi: &str) -> impl Fn(rusqlite::Error) -> Error + '_ {
 pub(crate) const COLONNES: &str =
     "id, list_id, parent_id, title, notes, due_day, due_minute, remind_before, \
      remind_at, priority, thread_id, source, done_at, created_at, event_uid, event_start, \
-     goal_id, estimate, postponed";
+     goal_id, estimate, postponed, repeat";
 
 pub(crate) fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
     Ok(StoredTask {
@@ -91,6 +94,7 @@ pub(crate) fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
             goal_id: r.get(16)?,
             estimate: r.get(17)?,
             postponed: r.get(18)?,
+            repeat: r.get(19)?,
         },
         done_at: r.get::<_, Option<i64>>(12)?.map(Timestamp::from_millis),
         created_at: Timestamp::from_millis(r.get(13)?),
@@ -254,10 +258,10 @@ impl Store {
             c.execute(
                 "INSERT INTO tasks (list_id, parent_id, title, notes, due_day, due_minute, \
                  remind_before, remind_at, priority, thread_id, source, position, created_at, \
-                 updated_at, event_uid, event_start, goal_id, estimate, postponed) VALUES \
-                 (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, \
+                 updated_at, event_uid, event_start, goal_id, estimate, postponed, repeat) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, \
                  (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?12, ?12, ?13, ?14, ?15, \
-                 ?16, ?17)",
+                 ?16, ?17, ?18)",
                 params![
                     t.list_id,
                     t.parent_id,
@@ -275,7 +279,8 @@ impl Store {
                     t.event_start,
                     t.goal_id,
                     t.estimate,
-                    t.postponed
+                    t.postponed,
+                    t.repeat
                 ],
             )
             .map_err(err("écriture d'une tâche"))?;
@@ -296,10 +301,10 @@ impl Store {
                         "INSERT OR IGNORE INTO tasks (id, list_id, parent_id, title, notes, \
                          due_day, due_minute, remind_before, remind_at, reminded, priority, \
                          thread_id, source, position, created_at, updated_at, done_at, \
-                         event_uid, event_start, goal_id, estimate, postponed) \
+                         event_uid, event_start, goal_id, estimate, postponed, repeat) \
                          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?11, ?12, \
                          (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?13, ?14, ?15, \
-                         ?16, ?17, (SELECT id FROM goals WHERE id = ?18), ?19, ?20 \
+                         ?16, ?17, (SELECT id FROM goals WHERE id = ?18), ?19, ?20, ?21 \
                          WHERE EXISTS (SELECT 1 FROM task_lists WHERE id = ?2)",
                         params![
                             s.id,
@@ -321,7 +326,8 @@ impl Store {
                             t.event_start,
                             t.goal_id,
                             t.estimate,
-                            t.postponed
+                            t.postponed,
+                            t.repeat
                         ],
                     )
                     .map_err(err("restauration d'une tâche"))?;
@@ -358,7 +364,7 @@ impl Store {
                  reminded = CASE WHEN remind_at IS ?9 THEN reminded ELSE 0 END, remind_at = ?9, \
                  priority = ?10, thread_id = ?11, source = ?12, updated_at = ?13, \
                  event_uid = ?14, event_start = ?15, goal_id = ?16, estimate = ?17, \
-                 postponed = ?18 WHERE id = ?1",
+                 postponed = ?18, repeat = ?19 WHERE id = ?1",
                 params![
                     id,
                     t.list_id,
@@ -377,7 +383,8 @@ impl Store {
                     t.event_start,
                     t.goal_id,
                     t.estimate,
-                    t.postponed
+                    t.postponed,
+                    t.repeat
                 ],
             )
             .map_err(err("mise à jour d'une tâche"))?;

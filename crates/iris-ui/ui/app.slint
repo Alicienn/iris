@@ -842,6 +842,11 @@ export component AppWindow inherits Window {
     in property <string> goal-new-error;
     callback goal-new-in-days(int);
     callback goal-new-confirmed();
+    /// The same window for the goal shown: Rust fills it with the goal and opens it.
+    callback goal-edit-requested();
+    in property <bool> goal-new-editing;
+    /// The goal shown, renamed by typing over its title.
+    callback goal-renamed(string);
     /// Time for the goal shown, blocked every week in the calendar.
     callback goal-time-requested();
     in-out property <bool> goal-time-open;
@@ -892,6 +897,8 @@ export component AppWindow inherits Window {
     in-out property <string> task-detail-time;
     in property <[string]> task-lists;
     in property <[string]> task-reminders;
+    /// "Does not repeat", "Every day"…: how a task can come back once done.
+    in property <[string]> task-repeats;
     in-out property <bool> task-picker-open;
     in property <string> task-picker-title;
     in property <[MonthCellData]> task-picker-cells;
@@ -907,6 +914,7 @@ export component AppWindow inherits Window {
     callback task-picker-chosen(string);
     callback task-due-cleared();
     callback task-reminder-chosen(int);
+    callback task-repeat-chosen(int);
     callback task-priority-chosen(int);
     callback task-list-chosen(int);
     callback task-step-added(string);
@@ -1680,6 +1688,7 @@ export component AppWindow inherits Window {
         detail-time <=> root.task-detail-time;
         lists: root.task-lists;
         reminders: root.task-reminders;
+        repeats: root.task-repeats;
         picker-open: root.task-picker-open;
         picker-title: root.task-picker-title;
         picker-cells: root.task-picker-cells;
@@ -1701,6 +1710,10 @@ export component AppWindow inherits Window {
         milestone-added(t) => { root.milestone-added(t); }
         make-time => { root.goal-time-requested(); }
         goal-delete => { root.goal-delete-open = true; }
+        goal-edit => { root.goal-edit-requested(); }
+        goal-renamed(t) => { root.goal-renamed(t); }
+        // The title's field closed: the keys go back to the shortcuts.
+        goal-rename-closed => { shortcuts.focus(); }
         task-goal-chosen(i) => { root.task-goal-chosen(i); }
         task-later(id, x, y) => {
             root.task-later-id = id;
@@ -1748,6 +1761,7 @@ export component AppWindow inherits Window {
         picker-chosen(d) => { root.task-picker-chosen(d); }
         due-cleared => { root.task-due-cleared(); }
         reminder-chosen(i) => { root.task-reminder-chosen(i); }
+        repeat-chosen(i) => { root.task-repeat-chosen(i); }
         priority-chosen(p) => { root.task-priority-chosen(p); }
         list-chosen(i) => { root.task-list-chosen(i); }
         step-added(t) => { root.task-step-added(t); }
@@ -1866,6 +1880,7 @@ export component AppWindow inherits Window {
         due <=> root.goal-new-due;
         why <=> root.goal-new-why;
         error: root.goal-new-error;
+        editing: root.goal-new-editing;
         in-days(n) => { root.goal-new-in-days(n); }
         confirmed => { root.goal-new-confirmed(); }
         dismissed => { root.goal-new-open = false; }
