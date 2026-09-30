@@ -377,9 +377,12 @@ export component GoalPage inherits VerticalLayout {
             }
         }
 
-        // Right: the log (or the milestones), and time set aside for it.
+        // Right: the log (or the milestones), and time set aside for it. Never wider
+        // than it needs: the steps get the room.
         VerticalLayout {
             horizontal-stretch: 10;
+            max-width: 320px;
+            min-width: 220px;
             spacing: 0px;
             Text {
                 height: 24px;

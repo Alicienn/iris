@@ -346,6 +346,13 @@ export struct TaskRowData {
     // Steps done out of steps: "1 of 3". Empty without steps.
     progress: string,
     selected: bool,
+    // How long it takes: "45 min". Empty when not said.
+    estimate: string,
+    // The goal it moves forward, and its colour. Empty for none.
+    goal: string,
+    goal-color: color,
+    // How many times it was put off.
+    postponed: int,
 }
 
 // What the line to add a task understood, shown before Enter: a date (kind 0), a
@@ -404,6 +411,12 @@ export struct TaskDetailData {
     steps-done: int,
     // The goal it moves forward: 0 for none, else its place in the goals + 1.
     goal-index: int,
+    // How long it takes, in minutes; 0 when not said.
+    estimate: int,
+    // How many times it was put off.
+    postponed: int,
+    // It has a slot booked in the calendar: "14:00–14:45", else empty.
+    slot: string,
 }
 
 // A goal: something to reach by a day, and where it stands.

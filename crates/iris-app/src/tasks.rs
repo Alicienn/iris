@@ -8,7 +8,7 @@
 
 use crate::controller::{Controller, Request};
 use crate::services::{now, Services};
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
 use iris_store::{NewTask, StoredTask, TaskList};
 use iris_tasks::{due_label, is_overdue, remind_at, section, Section, REMINDERS};
 use iris_types::ThreadId;
@@ -83,6 +83,10 @@ struct Etat {
     /// What was deleted, most recent last, each with its subtasks: Ctrl+Z puts the
     /// last of them back.
     supprimees: Vec<Vec<StoredTask>>,
+    /// The task Later is open for.
+    plus_tard: Option<i64>,
+    /// The free stretches offered for the task shown, in minutes since midnight.
+    creneaux: Vec<i32>,
 }
 
 /// A task and its subtasks as they are before a delete, to put them back.
@@ -404,6 +408,10 @@ fn ligne_tache(
         .map(|(total, faites)| (faites, total))
         .unwrap_or((0, 0));
     let liste = etat.listes.iter().find(|l| l.id == t.task.list_id);
+    let objectif = t
+        .task
+        .goal_id
+        .and_then(|g| services.store.goal(g).ok().flatten());
     let (meta, retard) = match jour(&t.task) {
         Some(j) => (
             due_label(j, minute(&t.task), maintenant.date()),
@@ -434,7 +442,236 @@ fn ligne_tache(
             SharedString::default()
         },
         selected: etat.choisie == Some(t.id),
+        estimate: t
+            .task
+            .estimate
+            .map(iris_tasks::goals::duration_label)
+            .unwrap_or_default()
+            .into(),
+        // The goal, except on its own page, where it goes without saying.
+        goal: objectif
+            .as_ref()
+            .filter(|g| etat.vue != Vue::Goal(g.id))
+            .map(|g| g.goal.title.as_str())
+            .unwrap_or("")
+            .into(),
+        goal_color: objectif
+            .as_ref()
+            .map(|g| crate::calendar::couleur(&g.goal.color))
+            .unwrap_or_default(),
+        postponed: t.task.postponed,
     }
+}
+
+/// The identifier of the calendar event booked for a task.
+fn uid_de_creneau(tache: i64) -> String {
+    format!("task-{tache}@iris")
+}
+
+/// The first calendar of one's own: where slots are booked.
+fn calendrier_local(services: &Services) -> Option<iris_store::StoredCalendar> {
+    services
+        .store
+        .calendars()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|c| !c.is_subscription())
+}
+
+/// The slot booked for a task, if there is one: (event id, start, end) in ms.
+fn creneau_reserve(services: &Services, tache: i64) -> Option<(i64, i64, i64)> {
+    let cal = calendrier_local(services)?;
+    let id = services
+        .store
+        .find_event(cal.id, &uid_de_creneau(tache), None)
+        .ok()
+        .flatten()?;
+    let e = services.store.event(id).ok().flatten()?;
+    Some((id, e.event.start_ms, e.event.end_ms))
+}
+
+fn heure_locale(ms: i64) -> String {
+    Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|d| d.format("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
+fn hm(minutes: i32) -> String {
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+/// Books a slot for a task: an event of its length in the first calendar of one's
+/// own (the one already booked is moved), and the task's day and hour set to it.
+fn reserver(services: &Services, id: i64, jour: NaiveDate, minute: i32) -> Result<String, String> {
+    let t = services
+        .store
+        .task(id)
+        .ok()
+        .flatten()
+        .ok_or("This task no longer exists.")?;
+    let cal = calendrier_local(services).ok_or("There is no calendar of your own to put it in.")?;
+    let longueur = t.task.estimate.unwrap_or(30).max(5) as i64;
+    let debut = jour.and_time(NaiveTime::MIN) + Duration::minutes(minute as i64);
+    let a = vers_ms(debut);
+    let uid = uid_de_creneau(id);
+    let evenement = iris_store::NewEvent {
+        uid: uid.clone(),
+        summary: t.task.title.clone(),
+        start_ms: a,
+        end_ms: a + longueur * 60_000,
+        tzid: iana_time_zone::get_timezone().ok(),
+        ..Default::default()
+    };
+    match services.store.find_event(cal.id, &uid, None).ok().flatten() {
+        Some(existant) => services
+            .store
+            .update_event(existant, cal.id, &evenement, now()),
+        None => services
+            .store
+            .insert_event(cal.id, &evenement, now())
+            .map(|_| ()),
+    }
+    .map_err(|e| e.to_string())?;
+    modifier(services, id, |t| {
+        t.due_day = Some(jour.format("%Y-%m-%d").to_string());
+        t.due_minute = Some(minute);
+        // Tied to the event it booked, so the event lists it — unless it came from
+        // another event, which it keeps.
+        if t.event_uid.is_none() {
+            t.event_uid = Some(uid.clone());
+            t.event_start = Some(0);
+        }
+    });
+    Ok(format!(
+        "Blocked {}–{} in {}.",
+        hm(minute),
+        hm(minute + longueur as i32),
+        cal.name
+    ))
+}
+
+/// Takes a task's booked slot off the calendar. Its day and hour stay.
+fn liberer(services: &Services, id: i64) {
+    if let Some((evenement, _, _)) = creneau_reserve(services, id) {
+        let _ = services.store.delete_event(evenement);
+    }
+    let uid = uid_de_creneau(id);
+    modifier(services, id, |t| {
+        if t.event_uid.as_deref() == Some(uid.as_str()) {
+            t.event_uid = None;
+            t.event_start = None;
+        }
+    });
+}
+
+/// Fills the slot picker for a task: its day (the due day, or today), what the day
+/// holds, and where its length fits. Returns the starts offered.
+fn creneaux(f: &AppWindow, services: &Services, id: i64) -> Vec<i32> {
+    let Some(t) = services.store.task(id).ok().flatten() else {
+        return Vec::new();
+    };
+    let maintenant = maintenant_local();
+    let today = maintenant.date();
+    let jour_vise = jour(&t.task).filter(|j| *j >= today).unwrap_or(today);
+    let longueur = t.task.estimate.unwrap_or(30);
+    let minute_de = |ms: i64| {
+        Local
+            .timestamp_millis_opt(ms)
+            .single()
+            .map(|d| {
+                let d = d.naive_local();
+                if d.date() < jour_vise {
+                    0
+                } else if d.date() > jour_vise {
+                    24 * 60
+                } else {
+                    (d.time().num_seconds_from_midnight() / 60) as i32
+                }
+            })
+            .unwrap_or(0)
+    };
+    let propre = uid_de_creneau(id);
+    // Its own booking does not stand in its way.
+    let deja = creneau_reserve(services, id).map(|(ev, _, _)| format!("{ev}:"));
+    let mut occupe: Vec<(i32, i32, String)> = crate::calendar::upcoming(services, jour_vise, 1)
+        .into_iter()
+        .filter(|u| !u.all_day)
+        .filter(|u| deja.as_deref().is_none_or(|p| !u.key.starts_with(p)))
+        .map(|u| (minute_de(u.start), minute_de(u.end), u.title))
+        .collect();
+    // The other tasks of that day that have an hour.
+    for autre in services.store.open_tasks().unwrap_or_default() {
+        if autre.id == id || autre.task.event_uid.as_deref() == Some(propre.as_str()) {
+            continue;
+        }
+        if jour(&autre.task) == Some(jour_vise) {
+            if let Some(m) = autre.task.due_minute {
+                occupe.push((
+                    m,
+                    m + autre.task.estimate.unwrap_or(30),
+                    autre.task.title.clone(),
+                ));
+            }
+        }
+    }
+    occupe.sort();
+    let depuis = if jour_vise == today {
+        (maintenant.time().num_seconds_from_midnight() / 60) as i32
+    } else {
+        0
+    };
+    let libres = iris_tasks::slots::free_slots(
+        &occupe.iter().map(|(a, b, _)| (*a, *b)).collect::<Vec<_>>(),
+        longueur,
+        depuis,
+        9,
+    );
+    f.set_task_slot_day(
+        if jour_vise == today {
+            "today".to_string()
+        } else {
+            jour_vise.format("%A %-d %B").to_string()
+        }
+        .into(),
+    );
+    f.set_task_slot_need(
+        format!(
+            "{} needed · between your events",
+            iris_tasks::goals::duration_label(longueur)
+        )
+        .into(),
+    );
+    f.set_task_slot_busy(ModelRc::new(VecModel::from(
+        occupe
+            .iter()
+            .filter(|(_, b, _)| *b > depuis)
+            .take(4)
+            .map(|(a, b, titre)| SharedString::from(format!("{}–{}  {titre}", hm(*a), hm(*b))))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slots(ModelRc::new(VecModel::from(
+        libres
+            .iter()
+            .map(|m| SharedString::from(format!("{}–{}", hm(*m), hm(m + longueur))))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slot_open(true);
+    libres
+}
+
+/// The day a slot picker is about: the task's due day from today on, or today.
+fn jour_des_creneaux(services: &Services, id: i64) -> NaiveDate {
+    let today = maintenant_local().date();
+    services
+        .store
+        .task(id)
+        .ok()
+        .flatten()
+        .and_then(|t| jour(&t.task))
+        .filter(|j| *j >= today)
+        .unwrap_or(today)
 }
 
 /// Recalcule tout ce que l'onglet affiche.
@@ -707,7 +944,18 @@ fn remplir_detail(f: &AppWindow, services: &Services, etat: &mut Etat, maintenan
             .unwrap_or(0),
         source: t.task.source.as_str().into(),
         from_mail: t.task.thread_id.is_some(),
-        from_event: t.task.event_uid.is_some(),
+        // A slot booked for it is not an event it came from.
+        from_event: t
+            .task
+            .event_uid
+            .as_deref()
+            .is_some_and(|u| u != uid_de_creneau(t.id)),
+        estimate: t.task.estimate.unwrap_or(0),
+        postponed: t.task.postponed,
+        slot: creneau_reserve(services, t.id)
+            .map(|(_, a, b)| format!("{}–{}", heure_locale(a), heure_locale(b)))
+            .unwrap_or_default()
+            .into(),
         steps_done: etapes.iter().filter(|e| e.is_done()).count() as i32,
         subtasks: ModelRc::new(VecModel::from(
             etapes
@@ -899,6 +1147,8 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         ordre: Vec::new(),
         listes: Vec::new(),
         supprimees: Vec::new(),
+        plus_tard: None,
+        creneaux: Vec::new(),
     }));
     f.set_task_reminders(ModelRc::new(VecModel::from(
         REMINDERS
@@ -1107,6 +1357,162 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 f.set_status("Goal deleted. Its steps stay in your tasks.".into());
                 redessiner();
             }
+        }
+    );
+
+    // --- When to do a task ---
+    geste!(
+        on_task_later_requested,
+        [services, etat, redessiner, f, controller],
+        |id| {
+            let Some(t) = services.store.task(id as i64).ok().flatten() else {
+                return;
+            };
+            let titre: String = t.task.title.chars().take(28).collect();
+            let titre = if t.task.title.chars().count() > 28 {
+                format!("{titre}…")
+            } else {
+                titre
+            };
+            etat.borrow_mut().plus_tard = Some(id as i64);
+            f.set_task_later_title(titre.into());
+            f.set_task_later_open(true);
+        }
+    );
+    geste!(
+        on_task_later_chosen,
+        [services, etat, redessiner, f, controller],
+        |mot| {
+            let Some(id) = etat.borrow_mut().plus_tard.take() else {
+                return;
+            };
+            let Some(quand) = iris_tasks::slots::Later::from_word(&mot) else {
+                return;
+            };
+            let jour_neuf = quand.day(maintenant_local().date());
+            // The slot booked was for the old day: it goes.
+            liberer(services, id);
+            let change = modifier(services, id, |t| {
+                t.due_day = jour_neuf.map(|j| j.format("%Y-%m-%d").to_string());
+                // Tomorrow keeps its hour; the others start the day free.
+                if quand != iris_tasks::slots::Later::Tomorrow || jour_neuf.is_none() {
+                    t.due_minute = None;
+                }
+                t.postponed += 1;
+            });
+            if change {
+                f.set_status(format!("Moved to {}.", quand.label()).into());
+            }
+            redessiner();
+        }
+    );
+    geste!(
+        on_task_later_pick_date,
+        [services, etat, redessiner, f, controller],
+        || {
+            let Some(id) = etat.borrow_mut().plus_tard.take() else {
+                return;
+            };
+            // Counted too: picking a later day is putting it off.
+            modifier(services, id, |t| t.postponed += 1);
+            {
+                let mut e = etat.borrow_mut();
+                e.choisie = Some(id);
+                e.remplie = None;
+                e.mois = Some(premier_du_mois(jour_des_creneaux(services, id)));
+            }
+            redessiner();
+        }
+    );
+    geste!(
+        on_task_estimate_chosen,
+        [services, etat, redessiner, f, controller],
+        |minutes| {
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
+            if modifier(services, id, |t| {
+                t.estimate = (minutes > 0).then_some(minutes);
+            }) {
+                redessiner();
+            }
+        }
+    );
+    geste!(
+        on_task_estimate_typed,
+        [services, etat, redessiner, f, controller],
+        |texte| {
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
+            match iris_tasks::goals::parse_duration(&texte) {
+                Some(m) => {
+                    modifier(services, id, |t| t.estimate = Some(m));
+                    redessiner();
+                }
+                None => f.set_status("A length looks like 45m, 1h or 1h20.".into()),
+            }
+        }
+    );
+    geste!(
+        on_task_slot_requested,
+        [services, etat, redessiner, f, controller],
+        || {
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
+            let offerts = creneaux(f, services, id);
+            etat.borrow_mut().creneaux = offerts;
+        }
+    );
+    geste!(
+        on_task_slot_chosen,
+        [services, etat, redessiner, f, controller],
+        |i| {
+            let (id, minute) = {
+                let e = etat.borrow();
+                (e.choisie, e.creneaux.get(i as usize).copied())
+            };
+            let (Some(id), Some(minute)) = (id, minute) else {
+                return;
+            };
+            f.set_task_slot_open(false);
+            match reserver(services, id, jour_des_creneaux(services, id), minute) {
+                Ok(message) => f.set_status(message.into()),
+                Err(message) => f.set_status(message.into()),
+            }
+            redessiner();
+        }
+    );
+    geste!(
+        on_task_slot_typed,
+        [services, etat, redessiner, f, controller],
+        |texte| {
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
+            let Some(minute) = lire_heure(&texte) else {
+                f.set_status("A time looks like 16:30.".into());
+                return;
+            };
+            f.set_task_slot_open(false);
+            match reserver(services, id, jour_des_creneaux(services, id), minute as i32) {
+                Ok(message) => f.set_status(message.into()),
+                Err(message) => f.set_status(message.into()),
+            }
+            redessiner();
+        }
+    );
+    geste!(
+        on_task_unbook,
+        [services, etat, redessiner, f, controller],
+        || {
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
+            liberer(services, id);
+            f.set_status("Slot removed from your calendar.".into());
+            redessiner();
         }
     );
 
@@ -1638,10 +2044,56 @@ mod tests {
             Vue::Anytime,
             Vue::Mail,
             Vue::List(7),
+            Vue::Goal(3),
+            Vue::Goals,
         ] {
             assert_eq!(Vue::depuis(&v.cle()), Some(v));
         }
         assert_eq!(Vue::depuis("list:x"), None);
+        assert_eq!(Vue::depuis("goal:x"), None);
+    }
+
+    #[test]
+    fn a_slot_is_booked_moved_and_taken_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = Services::open(
+            crate::paths::Paths::under(dir.path()),
+            Some(iris_secrets::Secret::new("test")),
+        )
+        .unwrap();
+        let liste = services.store.task_lists().unwrap()[0].id;
+        let id = services
+            .store
+            .insert_task(
+                &NewTask {
+                    list_id: liste,
+                    title: "Write to Atelier".into(),
+                    estimate: Some(45),
+                    ..Default::default()
+                },
+                now(),
+            )
+            .unwrap();
+        let jour = NaiveDate::from_ymd_opt(2026, 10, 2).unwrap();
+        let message = reserver(&services, id, jour, 14 * 60).unwrap();
+        assert!(message.starts_with("Blocked 14:00–14:45"), "{message}");
+        let (_, a, b) = creneau_reserve(&services, id).expect("booked");
+        assert_eq!(b - a, 45 * 60_000, "as long as the task takes");
+        let t = services.store.task(id).unwrap().unwrap().task;
+        assert_eq!(t.due_day.as_deref(), Some("2026-10-02"));
+        assert_eq!(t.due_minute, Some(840));
+        assert_eq!(t.event_uid.as_deref(), Some(uid_de_creneau(id).as_str()));
+
+        // Booked again: moved, not doubled.
+        reserver(&services, id, jour, 16 * 60).unwrap();
+        let cal = calendrier_local(&services).unwrap();
+        assert_eq!(services.store.calendar_event_count(cal.id).unwrap(), 1);
+
+        liberer(&services, id);
+        assert!(creneau_reserve(&services, id).is_none());
+        let t = services.store.task(id).unwrap().unwrap().task;
+        assert_eq!(t.event_uid, None);
+        assert_eq!(t.due_minute, Some(960), "its hour stays");
     }
 
     #[test]

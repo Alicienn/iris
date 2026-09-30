@@ -1645,6 +1645,66 @@ fn faire_du_temps_s_ouvre_dans_l_heure() {
     assert!(!f.get_goal_time_open());
 }
 
+// --- When to do a task ---
+
+fn une_tache_ouverte(f: &AppWindow) {
+    f.set_workspace(2);
+    une_tache(f);
+    f.set_task_detail(iris_ui::TaskDetailData {
+        id: 5,
+        ..Default::default()
+    });
+    f.set_task_has_detail(true);
+}
+
+fn l_remet_a_plus_tard_et_le_menu_garde_le_clavier() {
+    let f = fenetre();
+    une_tache_ouverte(&f);
+    let demandes = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let choix = Rc::new(RefCell::new(Vec::<String>::new()));
+    let touches = Rc::new(RefCell::new(0));
+    {
+        let fw = f.as_weak();
+        let d = Rc::clone(&demandes);
+        f.on_task_later_requested(move |id| {
+            d.borrow_mut().push(id);
+            fw.upgrade().unwrap().set_task_later_open(true);
+        });
+        let c = Rc::clone(&choix);
+        f.on_task_later_chosen(move |q| c.borrow_mut().push(q.to_string()));
+        let t = Rc::clone(&touches);
+        f.on_task_toggle_selected(move || *t.borrow_mut() += 1);
+    }
+    taper(&f, "l");
+    assert_eq!(*demandes.borrow(), [5], "L puts off the task shown");
+    assert!(f.get_task_later_open());
+    taper(&f, " ");
+    assert_eq!(
+        *touches.borrow(),
+        0,
+        "the space bar does not tick the task behind"
+    );
+    echap(&f);
+    assert!(!f.get_task_later_open(), "Escape closes it");
+
+    taper(&f, "l");
+    clic(&bouton(&f, "This weekend"));
+    assert_eq!(*choix.borrow(), ["weekend"]);
+    assert!(!f.get_task_later_open(), "a choice closes it");
+}
+
+fn la_duree_se_choisit_d_un_clic() {
+    let f = fenetre();
+    une_tache_ouverte(&f);
+    let durees = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let d = Rc::clone(&durees);
+        f.on_task_estimate_chosen(move |m| d.borrow_mut().push(m));
+    }
+    clic(&case_a_cocher(&f, "1 h"));
+    assert_eq!(*durees.borrow(), [60]);
+}
+
 fn case_a_cocher(f: &AppWindow, libelle: &str) -> testing::ElementHandle {
     testing::ElementQuery::from_root(f)
         .match_descendants()
@@ -1713,6 +1773,14 @@ fn main() {
         (
             "faire_du_temps_s_ouvre_dans_l_heure",
             faire_du_temps_s_ouvre_dans_l_heure,
+        ),
+        (
+            "l_remet_a_plus_tard_et_le_menu_garde_le_clavier",
+            l_remet_a_plus_tard_et_le_menu_garde_le_clavier,
+        ),
+        (
+            "la_duree_se_choisit_d_un_clic",
+            la_duree_se_choisit_d_un_clic,
         ),
         (
             "une_touche_ne_touche_pas_le_courrier_derriere_la_fenetre",

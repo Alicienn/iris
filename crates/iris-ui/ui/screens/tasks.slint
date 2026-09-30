@@ -7,7 +7,7 @@ import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/c
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
-import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { DateButton, DatePicker } from "@iris/screens/calendar-panels.slint";
 import { GoalRow, GoalPage, GoalsOverview, GoalNudges } from "@iris/screens/goals.slint";
 import {
@@ -285,10 +285,13 @@ component TaskRow inherits Rectangle {
     callback carry-started(TaskRowData, length, length);
     callback carry-moved(length, length);
     callback carry-ended();
+    /// Later: the task, and where the menu goes (under the button).
+    callback later(TaskRowData, length, length);
 
     property <bool> tache: root.item.kind == 0;
     property <bool> has-line: root.item.list != "" || root.item.from-mail
-        || root.item.progress != "" || root.item.has-notes;
+        || root.item.progress != "" || root.item.has-notes || root.item.goal != ""
+        || root.item.estimate != "" || root.item.postponed >= 2;
     property <bool> pressed;
     property <bool> carrying;
     // A drag ends with a release, and a release makes a click: that one is not.
@@ -443,6 +446,59 @@ component TaskRow inherits Rectangle {
                         vertical-alignment: center;
                     }
                 }
+                // The goal it moves forward, in the goal's colour.
+                if root.item.goal != "": HorizontalLayout {
+                    spacing: 4px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 9px;
+                        height: 9px;
+                        border-radius: 4.5px;
+                        border-width: 2px;
+                        border-color: root.item.goal-color;
+                    }
+                    Text {
+                        text: root.item.goal;
+                        font-size: 12px;
+                        color: root.item.goal-color;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        max-width: 180px;
+                    }
+                }
+                if root.item.estimate != "": HorizontalLayout {
+                    spacing: 4px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 12px;
+                        data: Icons.hourglass;
+                        size: 12px;
+                        tint: Tokens.text-muted;
+                    }
+                    Text {
+                        text: root.item.estimate;
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+                // Put off again and again: said, quietly, in amber.
+                if root.item.postponed >= 2: HorizontalLayout {
+                    spacing: 3px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 12px;
+                        data: Icons.refresh;
+                        size: 12px;
+                        tint: Tokens.warning;
+                    }
+                    Text {
+                        text: root.item.postponed + "×";
+                        font-size: 12px;
+                        color: Tokens.warning;
+                        vertical-alignment: center;
+                    }
+                }
                 if root.item.progress != "": HorizontalLayout {
                     spacing: 4px;
                     Icon {
@@ -487,6 +543,21 @@ component TaskRow inherits Rectangle {
                 : root.item.done ? Tokens.text-muted : Tokens.text-secondary;
             vertical-alignment: center;
             horizontal-alignment: right;
+        }
+        // Later, on the chosen row: the one gesture a list of things to do needs most
+        // after "done". (Only there: a button that came and went with the hover would
+        // lose the hover to itself.)
+        if !root.item.done && root.item.selected: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.arrow-right;
+            label: "Later";
+            shortcut: "L";
+            button-size: 26px;
+            icon-size: 14px;
+            clicked => {
+                root.later(root.item, self.absolute-position.x,
+                    self.absolute-position.y + self.height + 4px);
+            }
         }
     }
 }
@@ -559,6 +630,15 @@ component TaskDetail inherits DetailPanel {
 
     callback toggled(int);
     callback goal-chosen(int);
+    /// Later, and where its menu goes.
+    callback later(length, length);
+    /// A free slot of its day, and where the list of them goes.
+    callback slot-requested(length, length);
+    /// The booked slot taken off the calendar.
+    callback unbook();
+    /// How long it takes, in minutes (0: not said), or as typed ("1h20").
+    callback estimate-chosen(int);
+    callback estimate-typed(string);
     callback title-edited(string);
     callback notes-edited(string);
     callback time-edited(string);
@@ -577,17 +657,34 @@ component TaskDetail inherits DetailPanel {
     callback closed();
 
     property <string> new-step;
+    property <string> other-estimate;
 
-    // Its list above it, and the way out.
+    public function focus-step() {
+        etape.focus();
+    }
+
+    // Its list above it, Later, and the way out.
     HorizontalLayout {
         height: 28px;
         vertical-stretch: 0;
+        spacing: 4px;
         Text {
             text: root.lists.length > root.detail.list-index ? root.lists[root.detail.list-index] : "";
             font-size: 12px;
             color: Tokens.text-muted;
             vertical-alignment: center;
             horizontal-stretch: 1;
+        }
+        if !root.detail.done: Button {
+            y: (parent.height - self.height) / 2;
+            text: "Later";
+            label: "Move it later";
+            icon: Icons.arrow-right;
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => {
+                root.later(self.absolute-position.x, self.absolute-position.y + self.height + 4px);
+            }
         }
         IconButton {
             y: (parent.height - self.height) / 2;
@@ -616,6 +713,48 @@ component TaskDetail inherits DetailPanel {
             font-size: 18px;
             text <=> root.title;
             edited(t) => { root.title-edited(t); }
+        }
+    }
+
+    // Put off three times and more: a question rather than a fourth time.
+    if root.detail.postponed >= 3 && !root.detail.done: Rectangle {
+        vertical-stretch: 0;
+        height: coince.preferred-height;
+        border-radius: Tokens.radius-large;
+        background: Tokens.warning.transparentize(0.91);
+        coince := VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Text {
+                text: "Moved " + root.detail.postponed + " times. Make it smaller, give it a slot, or let it go.";
+                font-size: 12.5px;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                Button {
+                    text: "Split into steps";
+                    size: ButtonSize.sm;
+                    clicked => { root.focus-step(); }
+                }
+                Button {
+                    text: "Give it a slot";
+                    size: ButtonSize.sm;
+                    clicked => {
+                        root.slot-requested(self.absolute-position.x,
+                            self.absolute-position.y + self.height + 4px);
+                    }
+                }
+                Button {
+                    text: "Let it go";
+                    label: "Let it go (delete)";
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
+                    clicked => { root.delete(); }
+                }
+            }
         }
     }
 
@@ -658,6 +797,92 @@ component TaskDetail inherits DetailPanel {
             cells: root.picker-cells;
             navigate(n) => { root.picker-navigate(n); }
             chosen(d) => { root.picker-chosen(d); }
+        }
+        // How long it takes: the usual lengths, or any other written out.
+        PropertyRow {
+            name: "Takes";
+            icon: Icons.hourglass;
+            HorizontalLayout {
+                spacing: 2px;
+                for m[i] in [15, 30, 60, 120]: Rectangle {
+                    property <bool> on: root.detail.estimate == m;
+                    y: (parent.height - self.height) / 2;
+                    width: mot.preferred-width + 16px;
+                    height: 24px;
+                    border-radius: Tokens.radius-small;
+                    background: self.on ? Tokens.surface-active : duree.has-hover ? Tokens.surface-hover : transparent;
+
+                    accessible-role: checkbox;
+                    accessible-label: ["15 min", "30 min", "1 h", "2 h"][i];
+                    accessible-checked: self.on;
+                    accessible-action-default => { root.estimate-chosen(self.on ? 0 : m); }
+
+                    mot := Text {
+                        text: ["15 min", "30 min", "1 h", "2 h"][i];
+                        font-size: 12.5px;
+                        font-weight: parent.on ? 600 : 400;
+                        color: parent.on ? Tokens.text : Tokens.text-muted;
+                    }
+                    duree := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.estimate-chosen(parent.on ? 0 : m); }
+                    }
+                }
+                TextField {
+                    y: (parent.height - self.height) / 2;
+                    min-width: 56px;
+                    preferred-width: 84px;
+                    horizontal-stretch: 1;
+                    height: 26px;
+                    font-size: 12.5px;
+                    accessible-label: "Other length";
+                    placeholder-text: root.detail.estimate > 0
+                        && root.detail.estimate != 15 && root.detail.estimate != 30
+                        && root.detail.estimate != 60 && root.detail.estimate != 120
+                        ? (root.detail.estimate < 60 ? root.detail.estimate + " min"
+                            : floor(root.detail.estimate / 60) + " h " + mod(root.detail.estimate, 60))
+                        : "Other: 45m";
+                    text <=> root.other-estimate;
+                    accepted(t) => {
+                        root.estimate-typed(t);
+                        root.other-estimate = "";
+                    }
+                }
+            }
+        }
+        // A slot for it in the calendar, found among the day's events.
+        PropertyRow {
+            name: "Slot";
+            icon: Icons.clock;
+            HorizontalLayout {
+                spacing: 6px;
+                if root.detail.slot != "": Text {
+                    text: root.detail.slot;
+                    font-size: 13px;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: root.detail.slot != "" ? "Change" : "Find a slot";
+                    label: root.detail.slot != "" ? "Change the slot" : "Find a slot";
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
+                    clicked => {
+                        root.slot-requested(self.absolute-position.x,
+                            self.absolute-position.y + self.height + 4px);
+                    }
+                }
+                if root.detail.slot != "": Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Remove";
+                    label: "Remove the slot";
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
+                    clicked => { root.unbook(); }
+                }
+                Rectangle {}
+            }
         }
         PropertyRow {
             name: "Reminder";
@@ -800,7 +1025,7 @@ component TaskDetail inherits DetailPanel {
         }
         HorizontalLayout {
             padding-top: 4px;
-            TextField {
+            etape := TextField {
                 icon: Icons.plus;
                 accessible-label: "Add a subtask";
                 placeholder-text: "Add a subtask";
@@ -948,6 +1173,12 @@ export component TasksView inherits Rectangle {
     callback make-time();
     callback goal-delete();
     callback task-goal-chosen(int);
+    /// Later for a task, and where its menu goes.
+    callback task-later(int, length, length);
+    callback slot-requested(length, length);
+    callback unbook();
+    callback estimate-chosen(int);
+    callback estimate-typed(string);
 
     callback place-chosen(string);
     callback place-menu(TaskPlaceData, length, length);
@@ -1112,6 +1343,7 @@ export component TasksView inherits Rectangle {
                         selected(r) => { root.row-selected(r); }
                         toggled(id) => { root.toggled(id); }
                         clear-completed => { root.clear-completed(); }
+                        later(r, x, y) => { root.task-later(r.id, x, y); }
                     }
                     if root.rows.length == 0: Text {
                         height: 44px;
@@ -1193,6 +1425,7 @@ export component TasksView inherits Rectangle {
                             selected(r) => { root.row-selected(r); }
                             toggled(id) => { root.toggled(id); }
                             clear-completed => { root.clear-completed(); }
+                            later(r, x, y) => { root.task-later(r.id, x, y); }
                             carry-started(r, x, y) => {
                                 root.carried = r.id;
                                 root.carried-title = r.title;
@@ -1254,6 +1487,11 @@ export component TasksView inherits Rectangle {
             reminders: root.reminders;
             goal-names: root.goal-names;
             goal-chosen(i) => { root.task-goal-chosen(i); }
+            later(x, y) => { root.task-later(root.detail.id, x, y); }
+            slot-requested(x, y) => { root.slot-requested(x, y); }
+            unbook => { root.unbook(); }
+            estimate-chosen(m) => { root.estimate-chosen(m); }
+            estimate-typed(t) => { root.estimate-typed(t); }
             picker-open: root.picker-open;
             picker-title: root.picker-title;
             picker-cells: root.picker-cells;
@@ -1307,6 +1545,162 @@ export component TasksView inherits Rectangle {
                 color: Tokens.text;
                 vertical-alignment: center;
                 overflow: elide;
+            }
+        }
+    }
+}
+
+// Later: to when a task is put off. Each use is counted; a task put off again and
+// again gets asked about in its details.
+export component LaterMenu inherits Rectangle {
+    in property <string> task;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    callback chosen(string);
+    callback pick-date();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 240px;
+        menu-height: entrees.preferred-height + 8px;
+
+        entrees := VerticalLayout {
+            padding: 4px;
+            MenuHeader { text: "Move “" + root.task + "” to"; }
+            MenuEntry {
+                icon: Icons.sun;
+                label: "Tomorrow";
+                activated => { root.chosen("tomorrow"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.calendar;
+                label: "This weekend";
+                activated => { root.chosen("weekend"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.arrow-right;
+                label: "Next week";
+                activated => { root.chosen("nextweek"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.calendar;
+                label: "Pick a date…";
+                activated => { root.pick-date(); root.dismissed(); }
+            }
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.hourglass;
+                label: "Someday (no date)";
+                activated => { root.chosen("someday"); root.dismissed(); }
+            }
+        }
+    }
+}
+
+// A slot for a task: the day's events, the free stretches its length fits in, or a
+// time written out.
+export component SlotPicker inherits Rectangle {
+    in property <string> day;
+    /// "45 min needed · between your events".
+    in property <string> need;
+    in property <[string]> busy;
+    in property <[string]> slots;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    callback chosen(int);
+    callback typed(string);
+    callback dismissed();
+
+    property <string> autre;
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 330px;
+        menu-height: carte.preferred-height;
+
+        carte := VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            Text {
+                text: "A slot on " + root.day;
+                font-size: 14px;
+                font-weight: 600;
+                color: Tokens.text;
+            }
+            Text {
+                text: root.need;
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+            }
+            for b in root.busy: Text {
+                text: b;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+            // The free stretches, three to a row.
+            for rang in ceil(root.slots.length / 3): HorizontalLayout {
+                alignment: start;
+                height: 26px;
+                // Each chip with the gap after it; those of other rows take no room.
+                for s[i] in root.slots: Rectangle {
+                    property <bool> ici: floor(i / 3) == rang;
+                    visible: self.ici;
+                    width: self.ici ? 98px : 0px;
+                    Rectangle {
+                        x: 0;
+                        width: 92px;
+                        border-radius: Tokens.radius-medium;
+                        border-width: 1px;
+                        border-color: creneau.has-hover ? Tokens.border-strong : Tokens.border;
+                        background: creneau.has-hover ? Tokens.surface-hover : Tokens.surface;
+
+                        accessible-role: button;
+                        accessible-label: s;
+                        accessible-action-default => { root.chosen(i); }
+
+                        Text {
+                            text: s;
+                            font-size: 12.5px;
+                            color: Tokens.text;
+                        }
+                        creneau := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.chosen(i); }
+                        }
+                    }
+                }
+            }
+            if root.slots.length == 0: Text {
+                text: "No free stretch left that day.";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+            }
+            TextField {
+                accessible-label: "Other time";
+                placeholder-text: "Other time, e.g. 16:30";
+                font-size: 12.5px;
+                text <=> root.autre;
+                accepted(t) => { root.typed(t); }
             }
         }
     }

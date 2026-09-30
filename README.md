@@ -151,7 +151,14 @@ Open **Tasks** in the rail, or with `Ctrl`+`3`.
 - Drag a task onto a list or onto **Today** in the column on the left to move it there.
 - A checked task stays, struck through, in the view it was checked from; **Clear**
   beside *Done* removes them.
-- A task can hold subtasks, a note and a reminder.
+- A task can hold subtasks, a note and a reminder, and say how long it takes (*Takes*:
+  15 min, 30 min, 1 h, 2 h, or any length written out, like `1h20`).
+- **Find a slot**, in a task's details, lists the free stretches of its day between your
+  events and other timed tasks; the one you pick is blocked in your first calendar and
+  gives the task its hour. *Remove* takes it back off.
+- **Later** (`L`, or the arrow on the chosen row) puts a task off to tomorrow, this
+  weekend, next week, a date, or someday. Iris counts it: a task put off three times
+  asks whether to split it into steps, give it a slot, or let it go.
 - In the mail, `T` (or *Add to tasks* in a conversation's right-click menu) turns the
   conversation into a task. *Open message* in the task brings it back.
 
@@ -168,6 +175,7 @@ until the goal's day. Today points to the goals behind or due this week. Iris co
 nothing on its own.
 
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
+`L` later,
 `Delete` delete, `Ctrl`+`Z` to bring back what you just deleted.
 
 ## Sending

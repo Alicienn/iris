@@ -36,8 +36,9 @@ import { SignaturePanel } from "@iris/screens/signature.slint";
 import { SourcePanel } from "@iris/screens/source.slint";
 import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
 import { CalendarView } from "@iris/screens/calendar.slint";
-import { TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel }
-    from "@iris/screens/tasks.slint";
+import {
+    TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker
+} from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu,
@@ -844,6 +845,30 @@ export component AppWindow inherits Window {
     callback goal-time-confirmed();
     in-out property <bool> goal-delete-open;
     callback goal-delete-confirmed();
+    // --- When to do a task ---
+    /// Later: which task, where its menu goes; Rust fills the title and opens it.
+    in-out property <int> task-later-id;
+    in-out property <length> task-later-x;
+    in-out property <length> task-later-y;
+    in-out property <bool> task-later-open;
+    in property <string> task-later-title;
+    callback task-later-requested(int);
+    callback task-later-chosen(string);
+    callback task-later-pick-date();
+    /// A slot for the task shown: the day's events and free stretches.
+    in-out property <length> task-slot-x;
+    in-out property <length> task-slot-y;
+    in-out property <bool> task-slot-open;
+    in property <string> task-slot-day;
+    in property <string> task-slot-need;
+    in property <[string]> task-slot-busy;
+    in property <[string]> task-slots;
+    callback task-slot-requested();
+    callback task-slot-chosen(int);
+    callback task-slot-typed(string);
+    callback task-unbook();
+    callback task-estimate-chosen(int);
+    callback task-estimate-typed(string);
     in property <[TaskRowData]> task-rows;
     in-out property <string> task-add-text;
     in property <string> task-add-hint;
@@ -984,7 +1009,8 @@ export component AppWindow inherits Window {
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
         || root.reader-menu != ""
-        || root.goal-new-open || root.goal-time-open || root.goal-delete-open;
+        || root.goal-new-open || root.goal-time-open || root.goal-delete-open
+        || root.task-later-open || root.task-slot-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -1049,6 +1075,14 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.reader-menu != "") {
                 root.reader-menu = "";
+                return accept;
+            }
+            if (event.text == Key.Escape && root.task-later-open) {
+                root.task-later-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.task-slot-open) {
+                root.task-slot-open = false;
                 return accept;
             }
             // Escape asks, like the close button, when something is written; an
@@ -1181,6 +1215,13 @@ export component AppWindow inherits Window {
                 if (event.text == " ") { root.task-toggle-selected(); }
                 if (event.text == Key.Delete && root.task-has-detail) { root.task-delete(); }
                 if (event.text == "d" && root.task-has-detail) { root.task-picker-toggled(); }
+                // "l": later, for the task shown; the menu in the middle of the window.
+                if (event.text == "l" && root.task-has-detail && !root.task-detail.done) {
+                    root.task-later-id = root.task-detail.id;
+                    root.task-later-x = root.width / 2 - 120px;
+                    root.task-later-y = root.height / 3;
+                    root.task-later-requested(root.task-detail.id);
+                }
                 if (event.text == Key.Escape) {
                     if (root.task-picker-open) {
                         root.task-picker-open = false;
@@ -1647,6 +1688,20 @@ export component AppWindow inherits Window {
         make-time => { root.goal-time-requested(); }
         goal-delete => { root.goal-delete-open = true; }
         task-goal-chosen(i) => { root.task-goal-chosen(i); }
+        task-later(id, x, y) => {
+            root.task-later-id = id;
+            root.task-later-x = x;
+            root.task-later-y = y;
+            root.task-later-requested(id);
+        }
+        slot-requested(x, y) => {
+            root.task-slot-x = x;
+            root.task-slot-y = y;
+            root.task-slot-requested();
+        }
+        unbook => { root.task-unbook(); }
+        estimate-chosen(m) => { root.task-estimate-chosen(m); }
+        estimate-typed(t) => { root.task-estimate-typed(t); }
         // Picking a place or a task with the mouse hands the keyboard back to the
         // shortcuts: the arrows and the space bar then act on the column.
         place-chosen(k) => {
@@ -1760,6 +1815,31 @@ export component AppWindow inherits Window {
             root.task-list-delete-confirmed(root.task-list-menu-place.list-id);
         }
         dismissed => { root.task-list-delete-open = false; }
+    }
+
+    if root.task-later-open: LaterMenu {
+        width: 100%;
+        height: 100%;
+        task: root.task-later-title;
+        menu-x: root.task-later-x;
+        menu-y: root.task-later-y;
+        chosen(quand) => { root.task-later-chosen(quand); }
+        pick-date => { root.task-later-pick-date(); }
+        dismissed => { root.task-later-open = false; }
+    }
+
+    if root.task-slot-open: SlotPicker {
+        width: 100%;
+        height: 100%;
+        day: root.task-slot-day;
+        need: root.task-slot-need;
+        busy: root.task-slot-busy;
+        slots: root.task-slots;
+        menu-x: root.task-slot-x;
+        menu-y: root.task-slot-y;
+        chosen(i) => { root.task-slot-chosen(i); }
+        typed(t) => { root.task-slot-typed(t); }
+        dismissed => { root.task-slot-open = false; }
     }
 
     if root.goal-new-open: NewGoalPanel {

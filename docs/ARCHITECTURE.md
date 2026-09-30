@@ -19,8 +19,8 @@ Three stances set it apart:
 
 ## Status
 
-The foundation is complete and exercised: the suite holds about **1,493 tests** (1,353
-tests and 140 interface scenarios, measured for 3.3.0),
+The foundation is complete and exercised: the suite holds about **1,500 tests** (1,358
+tests and 142 interface scenarios, measured for 3.4.0),
 including those that genuinely put synchronisation, the plugin sandbox and the rendering
 engine at fault, and two headless interface suites driven by real pointer and key events.
 
@@ -202,6 +202,17 @@ goal goes); adding on a goal's page adds a step toward it. *Make time for it* wr
 weekly event (`FREQ=WEEKLY;BYDAY=…;UNTIL=` the goal's day) in the first local calendar.
 Today lists up to three goals behind or due within the week. The Tasks view key is
 `goal:<id>` or `goals`, so Back returns to them. Nothing is counted automatically.
+
+**When to do a task** (3.4.0). `tasks.estimate` is its length in minutes
+(`iris_tasks::goals::parse_duration` reads `45m`, `1h20`). *Find a slot* gathers the
+day's timed events (`calendar::upcoming`) and timed tasks, and `iris_tasks::slots::
+free_slots` offers the starts where the length fits between 8:00 and 20:00, from now
+on. The slot chosen is an event in the first local calendar with the fixed UID
+`task-<id>@iris` (so booking again moves it), tied to the task through
+`event_uid`/`event_start = 0` so the event lists it; *Remove* deletes it and keeps the
+task's hour. *Later* (`Later::day`) sets the day and counts `tasks.postponed`; at three
+the details ask whether to split, book or drop the task; a booked slot goes with the
+old day.
 
 **Tasks** puts above the list, on Today, a date block and the day's calendar
 (`calendar::upcoming`), and in the header the day's progress; all of it travels as one

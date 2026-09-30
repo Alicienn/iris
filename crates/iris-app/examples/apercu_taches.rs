@@ -240,18 +240,24 @@ fn main() {
         .store
         .log_goal(livres, "The Old Man and the Sea", a(-30, 20, 0))
         .unwrap();
-    for (titre, j) in [
-        ("Find 5 more companies in Lyon", 0),
-        ("Update the CV with the last project", 1),
-        ("Write the application to Bloc Studio", 2),
+    let mut coince = 0;
+    for (titre, j, duree, reporte) in [
+        ("Find 5 more companies in Lyon", 0, 45, 3),
+        ("Update the CV with the last project", 1, 60, 0),
+        ("Write the application to Bloc Studio", 2, 30, 0),
     ] {
         let id = ajoute(perso, titre, jour(j), None, 0);
         let mut t = services.store.task(id).unwrap().unwrap().task;
         t.goal_id = Some(stages);
+        t.estimate = Some(duree);
+        t.postponed = reporte;
         services
             .store
             .update_task(id, &t, iris_types::Timestamp::EPOCH)
             .unwrap();
+        if reporte > 0 {
+            coince = id;
+        }
     }
 
     let cal = services.store.calendars().unwrap()[0].id;
@@ -341,6 +347,22 @@ fn main() {
                 }
                 9 => {
                     capture(&f, sortie.join("objectif-temps.png"));
+                    f.set_goal_time_open(false);
+                    f.invoke_task_row_selected(iris_ui::TaskRowData {
+                        kind: 0,
+                        id: coince as i32,
+                        ..Default::default()
+                    });
+                }
+                10 => {
+                    capture(&f, sortie.join("taches-coince.png"));
+                    // Where "Give it a slot" puts it.
+                    f.set_task_slot_x(930.0);
+                    f.set_task_slot_y(220.0);
+                    f.invoke_task_slot_requested();
+                }
+                11 => {
+                    capture(&f, sortie.join("taches-creneau.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

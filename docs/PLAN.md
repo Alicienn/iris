@@ -454,5 +454,6 @@ the application is brought to it screen by screen.
 - [x] **S40.6** Goals as in the reference (3.3.0): a target or milestones by a date,
       their pace and chart, a log kept by hand, steps as tasks, time blocked weekly in
       the calendar, nudges on Today. Nothing counted automatically.
-- [ ] **S40.7** Task timing as in the reference: how long a task takes, Later with how
-      often it was put off, and a free slot found for it in the day.
+- [x] **S40.7** Task timing as in the reference (3.4.0): how long a task takes, Later
+      with how often it was put off and a question at three, a free slot found in the
+      day and booked in the calendar.

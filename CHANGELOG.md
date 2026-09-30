@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.4.0 — 2026-09-30
+
+### New
+- Say how long a task takes: 15 min, 30 min, 1 h, 2 h, or any other length.
+- Find a slot: Iris lists the free stretches of the day and blocks the one you pick in your calendar.
+- Later (L): tomorrow, this weekend, next week, a date, or someday.
+- A task put off three times asks whether to split it, give it a slot, or let it go.
+- Task rows show their goal, how long they take and how often they were put off.
+
 ## 3.3.0 — 2026-09-30
 
 ### New
