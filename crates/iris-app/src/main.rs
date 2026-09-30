@@ -758,6 +758,13 @@ fn run_gui(
                 identites,
                 runtime.handle().clone(),
             );
+            // Answering an invitation sends mail too.
+            shell::wire_invite_answers(
+                &fenetre,
+                &services,
+                Arc::clone(&envoi),
+                Arc::clone(&controller),
+            );
             let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
             runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
         }

@@ -485,3 +485,6 @@ the application is brought to it screen by screen.
       details, the pace chart and the folder said in words, how an event moves told,
       and *To plan* usable without a mouse (its clock button and default action book
       the first free time).
+- [x] **S40.18** What the other clients have (3.11.0): answering an invitation (iTIP
+      REPLY), sending later with a Scheduled list, sorting the list, Ctrl+Z in the
+      calendar (migration 17).

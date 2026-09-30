@@ -37,6 +37,8 @@ pub enum Request {
     MarkAll,
     /// Les filtres rapides de la liste.
     SetFilters(iris_store::Filters),
+    /// The order of the lists: date, sender, subject or size.
+    SetSort(iris_store::Sort),
     /// Tout décocher.
     ClearMarks,
     /// Agir sur le lot coché, ou à défaut sur la ligne courante.
@@ -106,6 +108,8 @@ pub struct Snapshot {
     /// Les filtres rapides allumés. L'interface en dessine les pastilles ; elle ne les
     /// mémorise pas, pour qu'il n'y ait qu'une seule idée de ce qui est actif.
     pub filters: iris_store::Filters,
+    /// The order the lists are in.
+    pub sort: iris_store::Sort,
     /// Les comptes montrés. Vide signifie « tous ».
     ///
     /// L'interface s'en sert pour marquer la bonne ligne dans la barre latérale.
@@ -250,6 +254,7 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             Ok(true)
         }
         Request::SetFilters(f) => Ok(!vm.set_filters(f)?.is_empty()),
+        Request::SetSort(s) => Ok(!vm.set_sort(s)?.is_empty()),
         Request::MarkAll => {
             vm.mark_all_visible();
             Ok(true)
@@ -417,6 +422,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         marked: vm.selection().marked().clone(),
         scope: vm.scope().clone(),
         filters: vm.filters(),
+        sort: vm.sort(),
         accounts: vm.accounts_filter().to_vec(),
         rows: vm.rows().to_vec(),
         selected: vm.selection().thread(),

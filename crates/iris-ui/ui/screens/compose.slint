@@ -3,6 +3,81 @@ import { TextField, TextArea } from "@iris/controls/field.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { ComboBox, ListView } from "std-widgets.slint";
+import { MenuEntry, MenuHeader, MenuSurface } from "@iris/layout/menu.slint";
+import { Modal } from "@iris/layout/frames.slint";
+import { ScheduledMailData } from "@iris/types.slint";
+
+// The messages waiting to be sent later: to whom, about what, when; each can go now,
+// or come back into the composer to be changed (and leaves the waiting ones).
+export component ScheduledPanel inherits Rectangle {
+    in property <[ScheduledMailData]> rows;
+    callback edit(int);
+    callback send-now(int);
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Scheduled";
+        card-width: 520px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        for m in root.rows: Rectangle {
+            height: 52px;
+            HorizontalLayout {
+                spacing: 10px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.clock;
+                    size: 16px;
+                    tint: Tokens.accent;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: m.subject == "" ? "(No subject)" : m.subject;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: m.when + "  ·  to " + m.to;
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        overflow: elide;
+                    }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.pencil;
+                    label: "Edit " + m.subject;
+                    button-size: 28px;
+                    clicked => { root.edit(m.id); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.send;
+                    label: "Send " + m.subject + " now";
+                    button-size: 28px;
+                    clicked => { root.send-now(m.id); }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Tokens.border;
+            }
+        }
+        if root.rows.length == 0: Text {
+            text: "Nothing waiting.";
+            font-size: 13px;
+            color: Tokens.text-muted;
+        }
+    }
+}
 
 // One labelled field of the header block.
 component Field inherits VerticalLayout {
@@ -210,6 +285,13 @@ export component ComposePanel inherits Rectangle {
     in-out property <string> body;
 
     callback send();
+    /// When to send it instead: its place among `later-options`.
+    callback send-later(int);
+    /// "This evening, 18:00", "Tomorrow morning, 08:00"…
+    in property <[string]> later-options;
+    property <bool> later-open;
+    property <length> later-x;
+    property <length> later-y;
     /// Closed with nothing in it.
     callback dismissed();
     /// Closed, and what was written thrown away.
@@ -532,6 +614,19 @@ export component ComposePanel inherits Rectangle {
                     }
                 }
 
+                // Later: when it should leave, from a short list; the message waits
+                // in Iris until then.
+                later-button := IconButton {
+                    icon: Icons.clock;
+                    label: "Send later";
+                    button-size: 28px;
+                    clicked => {
+                        root.later-x = self.absolute-position.x - root.absolute-position.x;
+                        root.later-y = self.absolute-position.y - root.absolute-position.y;
+                        root.later-open = true;
+                    }
+                }
+
                 // Send closes the window. For a few seconds after, a notice at the
                 // bottom of the application can still take the message back, and
                 // brings this window back with it, as it was.
@@ -566,6 +661,45 @@ export component ComposePanel inherits Rectangle {
 
                     TouchArea {
                         clicked => { root.send(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // When to send it: the times Rust offers (this evening, tomorrow morning…), above
+    // the clock that opened them.
+    if root.later-open: Rectangle {
+        TouchArea {
+            clicked => { root.later-open = false; }
+        }
+        FocusScope {
+            enabled: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.later-open = false;
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        MenuSurface {
+            available-width: root.width;
+            available-height: root.height;
+            menu-x: max(8px, root.later-x - 200px + 28px);
+            menu-y: max(8px, root.later-y - self.menu-height - 6px);
+            menu-width: 220px;
+            menu-height: plus-tard.preferred-height + 8px;
+
+            plus-tard := VerticalLayout {
+                padding: 4px;
+                MenuHeader { text: "Send later"; }
+                for choix[i] in root.later-options: MenuEntry {
+                    icon: Icons.clock;
+                    label: choix;
+                    activated => {
+                        root.later-open = false;
+                        root.send-later(i);
                     }
                 }
             }

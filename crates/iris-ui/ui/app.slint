@@ -6,7 +6,7 @@ import {
     AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
-    TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData
+    TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -22,7 +22,7 @@ import { Rail } from "@iris/shell/rail.slint";
 import { Toast, SendNotice } from "@iris/shell/toast.slint";
 import { HomeView } from "@iris/screens/home.slint";
 import { TagsPanel } from "@iris/screens/tags.slint";
-import { ThreadListView, ThreadContextMenu } from "@iris/screens/list.slint";
+import { ThreadListView, ThreadContextMenu, SortMenu } from "@iris/screens/list.slint";
 import { Sidebar, AccountContextMenu } from "@iris/screens/sidebar.slint";
 import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel }
     from "@iris/screens/folders.slint";
@@ -31,7 +31,7 @@ import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import { PluginSettingData } from "@iris/screens/plugins.slint";
-import { ComposePanel } from "@iris/screens/compose.slint";
+import { ComposePanel, ScheduledPanel } from "@iris/screens/compose.slint";
 import { SignaturePanel } from "@iris/screens/signature.slint";
 import { SourcePanel } from "@iris/screens/source.slint";
 import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
@@ -639,6 +639,12 @@ export component AppWindow inherits Window {
     in property <bool> filter-attachments;
     in property <bool> filter-starred;
     callback filter-toggled(string);
+    /// The lists' order: 0 date, 1 sender, 2 subject, 3 size; and its menu.
+    in property <int> list-sort;
+    callback sort-chosen(int);
+    in-out property <bool> sort-menu-open;
+    in-out property <length> sort-menu-x;
+    in-out property <length> sort-menu-y;
 
     callback row-mark-toggled(int);
     callback row-drag-started(int);
@@ -680,6 +686,8 @@ export component AppWindow inherits Window {
     callback invite-accept(int);
     /// The event of an invitation, in the calendar: its key and its day.
     callback invite-open(string, string);
+    /// An invitation answered: the message's id, and 0 Accept, 1 Maybe, 2 Decline.
+    callback invite-answer(int, int);
     /// A tile of a message body, (message id, tile index), came near the screen or left it.
     callback body-tile-wanted(int, int);
     callback body-tile-released(int, int);
@@ -744,6 +752,8 @@ export component AppWindow inherits Window {
     in-out property <length> event-menu-y;
     /// A colour of its own for the chosen event, from the palette; -1: its calendar's.
     callback event-color-chosen(int);
+    /// Ctrl+Z in the calendar: the last change made there, undone.
+    callback calendar-undo();
     /// An event dragged to another time: (key, days later, minutes later).
     callback calendar-event-moved(string, int, int);
     /// An event stretched by its lower edge: (key, minutes added to its end).
@@ -1004,6 +1014,18 @@ export component AppWindow inherits Window {
     callback rule-added();
     callback plugins-reloaded();
     callback compose-send();
+    /// When a message can be sent later, as the menu offers it; Rust fills them.
+    in property <[string]> compose-later-options;
+    /// Send later, at the time chosen among `compose-later-options`.
+    callback compose-send-later(int);
+    /// Messages waiting to be sent later: how many, and the window that lists them.
+    in property <int> scheduled-count;
+    in-out property <bool> scheduled-open;
+    in property <[ScheduledMailData]> scheduled-rows;
+    callback scheduled-requested();
+    /// Back into the composer (and out of the waiting ones), or sent now.
+    callback scheduled-edit(int);
+    callback scheduled-send-now(int);
     callback compose-sender-chosen(int);
     callback compose-attach();
     callback compose-attach-image();
@@ -1041,7 +1063,7 @@ export component AppWindow inherits Window {
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
-        || root.event-menu-open
+        || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
@@ -1165,6 +1187,14 @@ export component AppWindow inherits Window {
                 root.event-menu-open = false;
                 return accept;
             }
+            if (event.text == Key.Escape && root.scheduled-open) {
+                root.scheduled-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.sort-menu-open) {
+                root.sort-menu-open = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.calendar-rename-open) {
                 root.calendar-rename-open = false;
                 return accept;
@@ -1231,6 +1261,12 @@ export component AppWindow inherits Window {
             // The calendar has its own keys, and none of the mail's: "e" in the
             // calendar must not mark as done a thread nobody can see.
             if (root.workspace == 1) {
+                // The last change made in the calendar, undone: a move, a stretch, a
+                // delete, a colour.
+                if (event.text == "z" && event.modifiers.control) {
+                    root.calendar-undo();
+                    return accept;
+                }
                 if (event.text == "t") { root.calendar-today(); }
                 if (event.text == "n") { root.calendar-new-event("", -1); }
                 if (event.text == "m" || event.text == "w" || event.text == "d") {
@@ -1463,6 +1499,8 @@ export component AppWindow inherits Window {
                             root.navigated("folder", "");
                         }
                         new-folder => { root.new-folder-requested(); }
+                        scheduled: root.scheduled-count;
+                        scheduled-requested => { root.scheduled-requested(); }
                         folder-dropped(p) => { root.folder-dropped(p); }
                         folder-menu(p, mx, my) => {
                             root.folder-menu-x = mx;
@@ -1523,6 +1561,13 @@ export component AppWindow inherits Window {
                         filter-attachments: root.filter-attachments;
                         filter-starred: root.filter-starred;
                         filter-toggled(quoi) => { root.filter-toggled(quoi); }
+                        sort-label: root.list-sort == 1 ? "Sender" : root.list-sort == 2 ? "Subject"
+                            : root.list-sort == 3 ? "Size" : "Date";
+                        sort-menu(x, y) => {
+                            root.sort-menu-x = x;
+                            root.sort-menu-y = y;
+                            root.sort-menu-open = true;
+                        }
                         row-mark-toggled(id) => { root.row-mark-toggled(id); }
                         row-drag-started(id) => { root.row-drag-started(id); }
                         row-mark-extended(id) => { root.row-mark-extended(id); }
@@ -1601,6 +1646,7 @@ export component AppWindow inherits Window {
                     open-attachment(i) => { root.open-attachment(i); }
                     invite-accept(id) => { root.invite-accept(id); }
                     invite-open(k, d) => { root.invite-open(k, d); }
+                    invite-answer(id, a) => { root.invite-answer(id, a); }
                     body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
                     body-tile-released(m, t) => { root.body-tile-released(m, t); }
                     bodies-suspended: root.bodies-suspended;
@@ -2241,6 +2287,38 @@ export component AppWindow inherits Window {
         dismissed => { root.reader-menu = ""; }
     }
 
+    if root.sort-menu-open: SortMenu {
+        width: 100%;
+        height: 100%;
+        current: root.list-sort;
+        menu-x: root.sort-menu-x;
+        menu-y: root.sort-menu-y;
+        chosen(i) => {
+            root.sort-menu-open = false;
+            root.sort-chosen(i);
+            shortcuts.focus();
+        }
+        dismissed => {
+            root.sort-menu-open = false;
+            shortcuts.focus();
+        }
+    }
+
+    if root.scheduled-open: ScheduledPanel {
+        width: 100%;
+        height: 100%;
+        rows: root.scheduled-rows;
+        edit(id) => {
+            root.scheduled-open = false;
+            root.scheduled-edit(id);
+        }
+        send-now(id) => { root.scheduled-send-now(id); }
+        dismissed => {
+            root.scheduled-open = false;
+            shortcuts.focus();
+        }
+    }
+
     if root.compose-open: ComposePanel {
         width: 100%;
         height: 100%;
@@ -2256,6 +2334,8 @@ export component AppWindow inherits Window {
         subject <=> root.compose-subject;
         body <=> root.compose-body;
         send => { root.compose-send(); }
+        later-options: root.compose-later-options;
+        send-later(i) => { root.compose-send-later(i); }
         sender-chosen(i) => { root.compose-sender-chosen(i); }
         attach => { root.compose-attach(); }
         attach-image => { root.compose-attach-image(); }

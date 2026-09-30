@@ -1276,6 +1276,8 @@ mod tests {
                     after: None,
                     scope: iris_store::Scope::Queue,
                     filters: iris_store::Filters::default(),
+                    sort: iris_store::Sort::Date,
+                    offset: 0,
                 })
                 .unwrap()
                 .iter()

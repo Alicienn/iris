@@ -650,6 +650,93 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
 }
 
+/// A change made in the calendar that Ctrl+Z can take back.
+#[derive(Debug, Clone)]
+enum Annulable {
+    /// Moved or stretched: the event as it was.
+    Modifie {
+        id: i64,
+        calendrier: i64,
+        avant: NewEvent,
+    },
+    /// Deleted: the event, and the notes written on it.
+    Supprime {
+        calendrier: i64,
+        evenement: NewEvent,
+        note: String,
+    },
+    /// Given a colour of its own: the one it wore before (`None`: its calendar's).
+    Couleur {
+        calendrier: i64,
+        uid: String,
+        avant: Option<String>,
+    },
+}
+
+thread_local! {
+    /// The calendar's changes, the last one last. Twenty are kept: enough to take
+    /// back a few slips, not a history.
+    static ANNULABLES: RefCell<Vec<Annulable>> = const { RefCell::new(Vec::new()) };
+}
+
+fn retenir(a: Annulable) {
+    ANNULABLES.with(|v| {
+        let mut v = v.borrow_mut();
+        v.push(a);
+        if v.len() > 20 {
+            v.remove(0);
+        }
+    });
+}
+
+/// Takes back the last change made in the calendar; what the status line says.
+fn annuler(services: &Services) -> String {
+    let Some(a) = ANNULABLES.with(|v| v.borrow_mut().pop()) else {
+        return "Nothing to undo in the calendar.".into();
+    };
+    let resultat = match &a {
+        Annulable::Modifie {
+            id,
+            calendrier,
+            avant,
+        } => services
+            .store
+            .update_event(*id, *calendrier, avant, now())
+            .map(|_| {
+                crate::tasks::slot_moved(services, &avant.uid, avant.start_ms);
+                "Undone: the event is back where it was."
+            }),
+        Annulable::Supprime {
+            calendrier,
+            evenement,
+            note,
+        } => services
+            .store
+            .insert_event(*calendrier, evenement, now())
+            .map(|_| {
+                if !note.is_empty() {
+                    let _ =
+                        services
+                            .store
+                            .set_event_note(*calendrier, &evenement.uid, 0, note, now());
+                }
+                "Undone: the event is back."
+            }),
+        Annulable::Couleur {
+            calendrier,
+            uid,
+            avant,
+        } => services
+            .store
+            .set_event_color(*calendrier, uid, avant.as_deref())
+            .map(|_| "Undone: its colour is back."),
+    };
+    match resultat {
+        Ok(m) => m.to_string(),
+        Err(e) => format!("Could not undo: {e}"),
+    }
+}
+
 /// Makes the event behind `k` (`id:start`) the chosen one: its details, notes and
 /// tasks filled in, ready for its card or its menu. False when it no longer exists.
 fn choisir(f: &AppWindow, services: &Services, etat: &Rc<RefCell<Etat>>, k: SharedString) -> bool {
@@ -757,6 +844,11 @@ fn deplacer(services: &Services, cle: &str, jours: i64, minutes: i64, etirer: bo
     let mut nouveau = e.clone();
     nouveau.start_ms = iris_calendar::time::zoned_millis(debut, &Local);
     nouveau.end_ms = iris_calendar::time::zoned_millis(fin, &Local);
+    retenir(Annulable::Modifie {
+        id,
+        calendrier: stocke.calendar_id,
+        avant: e.clone(),
+    });
     services
         .store
         .update_event(id, stocke.calendar_id, &nouveau, now())?;
@@ -1227,12 +1319,33 @@ pub struct Invitation {
     pub key: String,
     /// Its day, `YYYY-MM-DD`, to take the calendar there.
     pub day: String,
+    /// It asks for an answer the mailbox can give (it has an organiser who is not
+    /// oneself, and is not a cancellation).
+    pub can_reply: bool,
+    /// What was answered: "ACCEPTED", "TENTATIVE", "DECLINED", or empty.
+    pub reply: String,
+}
+
+/// Takes an invitation declined out of the calendar it went into, if it is there.
+pub fn remove_invited(services: &Services, uid: &str) {
+    let Some(calendrier) = services
+        .store
+        .calendars()
+        .ok()
+        .and_then(|c| c.into_iter().find(|c| !c.is_subscription()))
+    else {
+        return;
+    };
+    if let Ok(Some(id)) = services.store.find_event(calendrier.id, uid, None) {
+        let _ = services.store.move_event_notes(calendrier.id, uid, None);
+        let _ = services.store.delete_event(id);
+    }
 }
 
 /// Reads an invitation (an iCalendar text) against the calendar it would go to, the
 /// first one of one's own, as `import_ics` puts it there: by UID, so it is never added
 /// twice, and an update or a cancellation is recognised as such.
-pub fn invitation(services: &Services, texte: &str) -> Option<Invitation> {
+pub fn invitation(services: &Services, texte: &str, moi: &str) -> Option<Invitation> {
     let lu = iris_calendar::ics::parse(texte).ok()?;
     let e = lu.events.first()?;
     let calendrier = services
@@ -1280,6 +1393,13 @@ pub fn invitation(services: &Services, texte: &str) -> Option<Invitation> {
             .map(|s| format!("{}:{}", s.id, s.event.start_ms))
             .unwrap_or_default(),
         day: jour.format("%Y-%m-%d").to_string(),
+        can_reply: !e.cancelled && crate::invite::replyable(texte, moi).is_some(),
+        reply: services
+            .store
+            .invite_reply(&e.uid)
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
     })
 }
 
@@ -1498,6 +1618,18 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         })
     };
 
+    // Ctrl+Z in the calendar.
+    {
+        let (faible, services, redessiner) =
+            (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_undo(move || {
+            let message = annuler(&services);
+            if let Some(f) = faible.upgrade() {
+                f.set_status(message.into());
+            }
+            redessiner();
+        });
+    }
     // An event dragged to another time, or stretched by its lower edge.
     {
         let (faible, services, redessiner) =
@@ -1701,6 +1833,15 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 .ok()
                 .and_then(|i| COULEURS.get(i))
                 .copied();
+            retenir(Annulable::Couleur {
+                calendrier: s.calendar_id,
+                uid: s.event.uid.clone(),
+                avant: etat
+                    .borrow()
+                    .teintes
+                    .get(&(s.calendar_id, s.event.uid.clone()))
+                    .cloned(),
+            });
             let _ = services
                 .store
                 .set_event_color(s.calendar_id, &s.event.uid, couleur);
@@ -1823,8 +1964,16 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             let Some(f) = faible.upgrade() else { return };
             let id = etat.borrow().edite;
             if let Some(id) = id {
-                // Its notes go with it.
+                // Its notes go with it; both come back with Ctrl+Z.
                 if let Ok(Some(ev)) = services.store.event(id) {
+                    retenir(Annulable::Supprime {
+                        calendrier: ev.calendar_id,
+                        note: services
+                            .store
+                            .event_note(ev.calendar_id, &ev.event.uid, 0)
+                            .unwrap_or_default(),
+                        evenement: ev.event.clone(),
+                    });
                     let _ = services
                         .store
                         .move_event_notes(ev.calendar_id, &ev.event.uid, None);
@@ -2427,12 +2576,12 @@ END:VCALENDAR
             .join("\r\n")
         };
         let premiere = ics("20261006T090000Z", "CONFIRMED");
-        let inv = invitation(&s, &premiere).unwrap();
+        let inv = invitation(&s, &premiere, "marie@example.com").unwrap();
         assert_eq!((inv.state, inv.title.as_str()), (1, "Revue budgétaire"));
         assert!(inv.key.is_empty());
 
         import_ics(&s, &premiere).unwrap();
-        let inv = invitation(&s, &premiere).unwrap();
+        let inv = invitation(&s, &premiere, "marie@example.com").unwrap();
         assert_eq!(inv.state, 2, "in the calendar as sent");
         assert!(!inv.key.is_empty());
         // Added again from the banner: still one event.
@@ -2443,14 +2592,30 @@ END:VCALENDAR
         // The organiser moves it: the older message's copy now differs.
         let deplacee = ics("20261006T083000Z", "CONFIRMED");
         import_ics(&s, &deplacee).unwrap();
-        assert_eq!(invitation(&s, &premiere).unwrap().state, 3);
-        assert_eq!(invitation(&s, &deplacee).unwrap().state, 2);
+        assert_eq!(
+            invitation(&s, &premiere, "marie@example.com")
+                .unwrap()
+                .state,
+            3
+        );
+        assert_eq!(
+            invitation(&s, &deplacee, "marie@example.com")
+                .unwrap()
+                .state,
+            2
+        );
 
         // Cancelled: said, until it is taken out.
         let annulee = ics("20261006T083000Z", "CANCELLED");
-        assert_eq!(invitation(&s, &annulee).unwrap().state, 4);
+        assert_eq!(
+            invitation(&s, &annulee, "marie@example.com").unwrap().state,
+            4
+        );
         import_ics(&s, &annulee).unwrap();
-        assert_eq!(invitation(&s, &annulee).unwrap().state, 5);
+        assert_eq!(
+            invitation(&s, &annulee, "marie@example.com").unwrap().state,
+            5
+        );
     }
 
     #[test]
@@ -2507,6 +2672,22 @@ END:VCALENDAR
             s.store.event(id).unwrap().unwrap().event.end_ms,
             mardi(9, 45)
         );
+
+        // Ctrl+Z takes the changes back one by one, the last first.
+        assert!(annuler(&s).starts_with("Undone"));
+        assert_eq!(
+            s.store.event(id).unwrap().unwrap().event.end_ms,
+            mardi(11, 15)
+        );
+        annuler(&s);
+        annuler(&s);
+        let e = s.store.event(id).unwrap().unwrap().event;
+        assert_eq!(
+            (e.start_ms, e.end_ms),
+            (a(9, 0), a(10, 0)),
+            "back on Monday"
+        );
+        assert_eq!(annuler(&s), "Nothing to undo in the calendar.");
 
         // A repeating one stays where it is.
         let r = s

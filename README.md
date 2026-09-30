@@ -106,10 +106,21 @@ it as file cards. Under the subject, beside the mailbox, the folder the conversa
 in: *Inbox*, a folder's name, or *Spam* and *Trash* in red.
 
 A message carrying an invitation (an `.ics`) shows it as a banner at its top: what,
-when, and **Add to calendar**. Once added, it says *In your calendar* and offers
-**Open**; if the organiser changed or cancelled it since, it says so and brings the
-calendar up to date in one click. An event is never added twice: invitations are
-matched by their identifier.
+when, and **Accept**, **Maybe** or **Decline**. The answer is sent to the organiser
+from the mailbox the invitation came to, and your calendar follows: added for Accept
+and Maybe, taken out for Decline. The banner then says what you answered; another
+click changes it. An invitation with no organiser to answer offers **Add to calendar**
+instead. Once added, it says *In your calendar* and offers **Open**. If the organiser
+changed or cancelled it since, it says so and brings the calendar up to date in one
+click. An event is never added twice: invitations are matched by their identifier.
+
+The list is by date, newest first; the button at the end of the filters sorts it by
+sender, subject or size (the biggest message first) instead, for the three queues.
+
+The clock beside **Send** sends later: this evening (before five), tomorrow morning or
+afternoon, or Monday morning. The message waits in Iris, so Iris must be running when
+its time comes. *Scheduled*, under the folders while something waits, lists them:
+change one (it comes back into the composer and waits no more), or send it now.
 
 Searching shows pills under the field: **Unread**, **Attachments**, **7 days**,
 **30 days**, **Best match**. A pill puts its words in the query (`is:unread`,
@@ -140,6 +151,8 @@ Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
 - Right-click an event for its menu: *Open*, *Edit…*, *Delete* (in your own calendars),
   and its colour. A colour chosen there is the event's own, in place of its calendar's,
   kept even for a subscribed calendar; *Use the calendar's colour* gives it back.
+- `Ctrl`+`Z` in the calendar takes back the last move, stretch, deletion or colour,
+  then the one before (twenty at most).
 - *To plan* lists today's tasks (and late ones) that have no hour yet. Drag one onto
   the week: it is booked there for as long as it takes (half an hour when not said),
   and the task gets that day and hour. Moving that slot later moves the task too. The

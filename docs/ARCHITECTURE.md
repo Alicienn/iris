@@ -82,6 +82,35 @@ refused by name.
   The conversation is then drawn again: its render cache is cleared and a full
   refresh is asked for.
 
+**Mail in 3.11.0.**
+
+- **Answering an invitation** (`iris-app::invite`) builds an iTIP `REPLY` (RFC 5546)
+  from the invitation's own lines: UID, SEQUENCE, RECURRENCE-ID, DTSTART and
+  DTEND with their parameters, and ORGANIZER. It adds one ATTENDEE, the mailbox
+  answering: its line from the invitation with `PARTSTAT` replaced and `RSVP` dropped,
+  or a bare one when it was not listed. The reply is folded at 75 octets and sent to
+  the organiser as a `text/calendar; method=REPLY` attachment of a short message,
+  from the mailbox the invitation came to, through the outbox with no undo delay.
+  Accept and Maybe then `import_ics` the invitation; Decline takes it out of the
+  calendar (`calendar::remove_invited`). The answer is kept by UID in
+  `invite_replies` for the banner. A cancellation, an invitation one organises
+  oneself, and one with no organiser are not offered the answer.
+- **Sending later** keeps the draft, not a composed message, as JSON in
+  `scheduled_mail` (attachments included), with its To and subject beside it for the
+  list. A UI timer checks every thirty seconds: what is due is composed then (with that
+  date), queued with no undo delay, and taken out of the table. A message that fails
+  stays and is said. The times offered are computed by `later::options` from the local
+  clock. *Scheduled* in the folder column lists what waits; *Edit* takes a draft out and
+  back into the composer.
+- **Sorting.** `ListQuery` carries a `Sort` (date, sender, subject, size). By date
+  it pages by cursor as before; the others order by `lower(last_from_name)`,
+  `lower(last_subject)` or the thread's largest message, and page by `OFFSET`, which
+  costs more deep in a list but a queue is not that deep. The day titles do not show
+  then, since the rows no longer run by date.
+- **Undo in the calendar.** `calendar::retenir` keeps the last twenty changes (the
+  event before a move or a stretch, a deleted event with its notes, a colour); Ctrl+Z
+  in the calendar pops one and puts it back, a task's slot taking its task along.
+
 The mail list's day titles (Today, Yesterday, This week, Earlier) are computed in
 `iris_ui::format::day_headers` and ride on the first row of each day, not as items of
 their own: the list keeps one item per conversation. They are given only when the rows
@@ -533,6 +562,7 @@ Iris is refused rather than misread.
 | 14 | Goals, their log and milestones; a task's goal, estimate and times put off (3.3.0) |
 | 15 | A task's `repeat` rule (3.7.0) |
 | 16 | `event_colors`: an event's own colour, by calendar and UID (3.9.0) |
+| 17 | `scheduled_mail` (drafts to send later) and `invite_replies` (answers given, by UID) (3.11.0) |
 
 A new table or column always arrives as a new migration.
 

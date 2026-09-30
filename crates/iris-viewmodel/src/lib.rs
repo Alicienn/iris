@@ -424,6 +424,34 @@ impl ViewModel {
         self.list().filters()
     }
 
+    /// The order of the lists, the three queues alike (as the filters are).
+    pub fn set_sort(&mut self, sort: iris_store::Sort) -> Result<ViewUpdate> {
+        let store = Arc::clone(&self.store);
+        let mut change = false;
+        for liste in self.lists.iter_mut() {
+            if liste.set_sort(sort) {
+                liste.reload(&store)?;
+                change = true;
+            }
+        }
+        if !change {
+            return Ok(ViewUpdate::default());
+        }
+        self.select_first();
+        Ok(ViewUpdate {
+            list: ListUpdate {
+                reordered: true,
+                ..Default::default()
+            },
+            selection_changed: true,
+            ..Default::default()
+        })
+    }
+
+    pub fn sort(&self) -> iris_store::Sort {
+        self.list().sort()
+    }
+
     pub fn set_accounts_filter(&mut self, accounts: Vec<AccountId>) -> Result<ViewUpdate> {
         if self.accounts == accounts {
             return Ok(ViewUpdate::default());

@@ -453,10 +453,17 @@ component InviteBanner inherits Rectangle {
     in property <int> state;
     in property <string> title;
     in property <string> when;
+    /// It can be answered, and what was answered ("ACCEPTED", "TENTATIVE", "DECLINED").
+    in property <bool> can-reply;
+    in property <string> reply;
     callback accept();
     callback open();
+    /// An answer sent to the organiser: 0 Accept, 1 Maybe, 2 Decline.
+    callback answer(int);
 
     property <bool> annule: root.state >= 4;
+    /// Answered with its buttons rather than added with one.
+    property <bool> repondre: root.can-reply && root.state <= 3;
 
     height: rang.preferred-height;
     border-radius: Tokens.radius-large;
@@ -497,7 +504,10 @@ component InviteBanner inherits Rectangle {
             }
             Text {
                 text: root.when + "  ·  " + (
-                    root.state == 1 ? "Invitation"
+                    root.reply == "ACCEPTED" && !root.annule ? "You accepted"
+                    : root.reply == "TENTATIVE" && !root.annule ? "You said maybe"
+                    : root.reply == "DECLINED" && !root.annule ? "You declined"
+                    : root.state == 1 ? "Invitation"
                     : root.state == 2 ? "In your calendar"
                     : root.state == 3 ? "Changed since you added it"
                     : root.state == 4 ? "Cancelled by the organiser"
@@ -507,7 +517,20 @@ component InviteBanner inherits Rectangle {
                 overflow: elide;
             }
         }
-        if root.state == 1: Button {
+        // Answered: sent to the organiser, and the calendar follows. The answer given
+        // is the filled button; another click changes it.
+        for mot[i] in ["Accept", "Maybe", "Decline"]: Button {
+            property <string> statut: i == 0 ? "ACCEPTED" : i == 1 ? "TENTATIVE" : "DECLINED";
+            visible: root.repondre;
+            width: root.repondre ? self.preferred-width : 0px;
+            y: (parent.height - self.height) / 2;
+            text: mot;
+            label: mot + " the invitation";
+            kind: root.reply == self.statut ? ButtonKind.primary : ButtonKind.secondary;
+            size: ButtonSize.sm;
+            clicked => { root.answer(i); }
+        }
+        if root.state == 1 && !root.repondre: Button {
             y: (parent.height - self.height) / 2;
             text: "Add to calendar";
             icon: Icons.plus;
@@ -515,7 +538,7 @@ component InviteBanner inherits Rectangle {
             size: ButtonSize.sm;
             clicked => { root.accept(); }
         }
-        if root.state == 3: Button {
+        if root.state == 3 && root.reply == "": Button {
             y: (parent.height - self.height) / 2;
             text: "Update";
             kind: ButtonKind.primary;
@@ -658,6 +681,8 @@ export component ConversationView inherits VerticalLayout {
     /// there (event key, day).
     callback invite-accept(int);
     callback invite-open(string, string);
+    /// An invitation answered (message id; 0 Accept, 1 Maybe, 2 Decline).
+    callback invite-answer(int, int);
     callback archive();
     callback delete-thread();
     callback toggle-star();
@@ -1027,8 +1052,11 @@ export component ConversationView inherits VerticalLayout {
                         state: message.invite-state;
                         title: message.invite-title;
                         when: message.invite-when;
+                        can-reply: message.invite-can-reply;
+                        reply: message.invite-reply;
                         accept => { root.invite-accept(message.id); }
                         open => { root.invite-open(message.invite-key, message.invite-day); }
+                        answer(a) => { root.invite-answer(message.id, a); }
                     }
 
                     if message.expanded && (message.blocked-images > 0

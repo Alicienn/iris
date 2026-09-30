@@ -52,6 +52,8 @@ pub struct ThreadList {
     /// regarde mais *ce qu'on garde* : on filtre la boîte de réception comme on filtre
     /// la corbeille, et changer de dossier ne doit pas les oublier.
     filters: iris_store::Filters,
+    /// The order: by date (by cursor), or by sender, subject or size (by position).
+    sort: iris_store::Sort,
 }
 
 /// Ce qu'une mise à jour a changé, pour que l'interface ne redessine que l'utile.
@@ -84,7 +86,21 @@ impl ThreadList {
             total: 0,
             now,
             filters: iris_store::Filters::default(),
+            sort: iris_store::Sort::Date,
         }
+    }
+
+    pub fn sort(&self) -> iris_store::Sort {
+        self.sort
+    }
+
+    /// Changes the order. `true` if it changed.
+    pub fn set_sort(&mut self, sort: iris_store::Sort) -> bool {
+        if self.sort == sort {
+            return false;
+        }
+        self.sort = sort;
+        true
     }
 
     pub fn with_page_size(mut self, size: u32) -> Self {
@@ -155,6 +171,7 @@ impl ThreadList {
             .hiding_snoozed(self.now);
         base.scope = self.scope.clone();
         base.filters = self.filters;
+        base.sort = self.sort;
         base
     }
 
@@ -193,8 +210,12 @@ impl ThreadList {
         }
 
         let mut requete = self.query();
-        if let Some(c) = self.cursor {
-            requete = requete.after(c);
+        if self.sort == iris_store::Sort::Date {
+            if let Some(c) = self.cursor {
+                requete = requete.after(c);
+            }
+        } else {
+            requete.offset = self.rows.len() as u32;
         }
 
         let page = store.list_threads(&requete)?;

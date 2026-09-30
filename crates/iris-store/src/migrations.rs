@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 16;
+pub const CURRENT_VERSION: i64 = 17;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -98,7 +98,37 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "an event's own colour",
         sql: SCHEMA_V16,
     },
+    Migration {
+        version: 17,
+        name: "mail sent later",
+        sql: SCHEMA_V17,
+    },
 ];
+
+/// Messages written now to leave later. The draft is kept, not a composed message: it
+/// is composed when its time comes (with that date), and one taken back opens in the
+/// composer as it was written. `payload` is its JSON, attachments included.
+///
+/// And the answers given to invitations (Accept, Maybe, Decline), by the event's UID,
+/// so the banner over the invitation says what was answered.
+const SCHEMA_V17: &str = "
+CREATE TABLE scheduled_mail (
+    id         INTEGER PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    send_at    INTEGER NOT NULL,
+    to_line    TEXT NOT NULL DEFAULT '',
+    subject    TEXT NOT NULL DEFAULT '',
+    payload    TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX scheduled_mail_by_time ON scheduled_mail(send_at);
+
+CREATE TABLE invite_replies (
+    uid        TEXT PRIMARY KEY,
+    partstat   TEXT NOT NULL,
+    replied_at INTEGER NOT NULL
+);
+";
 
 /// An event can wear a colour of its own instead of its calendar's. Kept beside the
 /// events rather than in them, by calendar and UID as the notes are: a subscribed

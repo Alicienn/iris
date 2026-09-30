@@ -224,19 +224,40 @@ impl Store {
 
             push_scope(&mut sql, &mut args, q);
 
-            if let Some(cur) = q.after {
-                // Comparaison de n-uplets plutôt que « a < ? OR (a = ? AND b < ?) » :
-                // la forme disjonctive empêche SQLite d'exploiter l'index directeur et
-                // le fait retomber sur un balayage, dont le coût croît avec la
-                // profondeur de la page. Le n-uplet, lui, se traduit en une simple
-                // descente d'index.
-                sql.push_str(" AND (last_activity_at, id) < (?, ?)");
-                args.push(SqlValue::Integer(cur.last_activity.millis()));
-                args.push(SqlValue::Integer(cur.id.get()));
+            // By date, the cursor; by anything else, the position (see `Sort`).
+            match q.sort {
+                crate::model::Sort::Date => {
+                    if let Some(cur) = q.after {
+                        // Comparaison de n-uplets plutôt que « a < ? OR (a = ? AND
+                        // b < ?) » : la forme disjonctive empêche SQLite d'exploiter
+                        // l'index directeur et le fait retomber sur un balayage, dont le
+                        // coût croît avec la profondeur de la page. Le n-uplet, lui, se
+                        // traduit en une simple descente d'index.
+                        sql.push_str(" AND (last_activity_at, id) < (?, ?)");
+                        args.push(SqlValue::Integer(cur.last_activity.millis()));
+                        args.push(SqlValue::Integer(cur.id.get()));
+                    }
+                    sql.push_str(" ORDER BY last_activity_at DESC, id DESC LIMIT ?");
+                    args.push(SqlValue::Integer(q.limit as i64));
+                }
+                autre => {
+                    let cle = match autre {
+                        crate::model::Sort::Sender => {
+                            "lower(COALESCE(NULLIF(last_from_name, ''), last_from_addr)) ASC"
+                        }
+                        crate::model::Sort::Subject => "lower(last_subject) ASC",
+                        _ => {
+                            "(SELECT MAX(m2.size) FROM messages m2 \
+                             WHERE m2.thread_id = threads.id) DESC"
+                        }
+                    };
+                    sql.push_str(&format!(
+                        " ORDER BY {cle}, last_activity_at DESC, id DESC LIMIT ? OFFSET ?"
+                    ));
+                    args.push(SqlValue::Integer(q.limit as i64));
+                    args.push(SqlValue::Integer(q.offset as i64));
+                }
             }
-
-            sql.push_str(" ORDER BY last_activity_at DESC, id DESC LIMIT ?");
-            args.push(SqlValue::Integer(q.limit as i64));
 
             let mut stmt = c
                 .prepare_cached(&sql)
@@ -771,6 +792,35 @@ mod tests {
                 .unwrap()
                 .thread
         }
+    }
+
+    #[test]
+    fn a_list_sorts_by_sender_and_pages_by_position() {
+        let f = fixture();
+        for (ms, nom) in [
+            (1_000, "Zoé"),
+            (3_000, "anne"),
+            (2_000, "Marc"),
+            (4_000, "Bruno"),
+        ] {
+            f.thread_at(ms, nom);
+        }
+        let noms = |q: &ListQuery| -> Vec<String> {
+            f.store
+                .list_threads(q)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.from_display)
+                .collect()
+        };
+        let mut q = ListQuery::new(WorkflowState::Todo, 2);
+        q.sort = crate::model::Sort::Sender;
+        assert_eq!(noms(&q), ["anne", "Bruno"], "A to Z, whatever the case");
+        q.offset = 2;
+        assert_eq!(noms(&q), ["Marc", "Zoé"], "the next page from its position");
+        // By date, as before: newest first.
+        let q = ListQuery::new(WorkflowState::Todo, 2);
+        assert_eq!(noms(&q), ["Bruno", "anne"]);
     }
 
     #[test]

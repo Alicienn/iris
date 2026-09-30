@@ -23,6 +23,7 @@ mod migrations;
 mod model;
 mod ops;
 mod rules;
+mod scheduled;
 mod tasks;
 mod threads;
 
@@ -34,10 +35,11 @@ pub use goals::{Goal, GoalEntry, GoalKind, Milestone, NewGoal};
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Contact, Filters, Folder, FolderRole, ListCursor, ListQuery, NewAccount,
-    NewMessage, OpKind, PendingOp, Scope, StoredMessage, ThreadRow,
+    NewMessage, OpKind, PendingOp, Scope, Sort, StoredMessage, ThreadRow,
 };
 pub use ops::OpPayload;
 pub use rules::StoredRule;
+pub use scheduled::ScheduledMail;
 pub use tasks::{NewTask, StoredTask, TaskList};
 pub use threads::MailStats;
 

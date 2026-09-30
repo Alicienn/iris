@@ -265,9 +265,38 @@ impl Scope {
     }
 }
 
+/// The order of a list. By date it pages by cursor (the index's order); the others
+/// page by position, which costs more deep in a list but a queue is not that deep.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Sort {
+    /// Newest first.
+    #[default]
+    Date,
+    /// By the name of who wrote last, A to Z.
+    Sender,
+    /// By subject, A to Z.
+    Subject,
+    /// The biggest message first.
+    Size,
+}
+
+impl Sort {
+    pub fn from_index(i: i32) -> Self {
+        match i {
+            1 => Sort::Sender,
+            2 => Sort::Subject,
+            3 => Sort::Size,
+            _ => Sort::Date,
+        }
+    }
+}
+
 /// Ce qu'on demande à la liste.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListQuery {
+    /// The order, and where a list not by date resumes (rows already read).
+    pub sort: Sort,
+    pub offset: u32,
     pub state: WorkflowState,
     /// Restriction à certains comptes. Vide signifie « tous ».
     pub accounts: Vec<AccountId>,
@@ -314,6 +343,8 @@ impl Filters {
 impl ListQuery {
     pub fn new(state: WorkflowState, limit: u32) -> Self {
         Self {
+            sort: Sort::Date,
+            offset: 0,
             state,
             accounts: Vec::new(),
             hide_snoozed_until: None,

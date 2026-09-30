@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.11.0 — 2026-09-30
+
+### New
+- Send later: the clock beside Send offers this evening, tomorrow morning or afternoon, and Monday morning.
+- Scheduled, under the folders, lists what waits: change a message or send it now.
+- Answer an invitation from its banner: Accept, Maybe or Decline, sent to the organiser, and your calendar follows.
+- Sort the mail list by date, sender, subject or size.
+- Ctrl+Z in the calendar takes back a move, a stretch, a deletion or a colour.
+
 ## 3.10.1 — 2026-09-30
 
 ### Improved

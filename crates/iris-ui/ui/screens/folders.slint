@@ -5,7 +5,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ListView } from "std-widgets.slint";
-import { Nav, SectionTitle } from "@iris/lists/nav.slint";
+import { Nav, NavItem, SectionTitle } from "@iris/lists/nav.slint";
 import { Button, ButtonKind } from "@iris/controls/button.slint";
 import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 
@@ -140,6 +140,9 @@ export component FolderTree inherits VerticalLayout {
     callback folder-selected(string);
     callback all-selected();
     callback new-folder();
+    /// Messages waiting to be sent later, and the window that lists them.
+    in property <int> scheduled;
+    callback scheduled-requested();
     callback folder-dropped(string);
     callback folder-menu(string, length, length);
 
@@ -207,6 +210,15 @@ export component FolderTree inherits VerticalLayout {
         tout-touch := TouchArea {
             clicked => { root.all-selected(); }
         }
+    }
+
+    // Written, waiting for their time: there only while there are some.
+    if root.scheduled > 0: NavItem {
+        vertical-stretch: 0;
+        label: "Scheduled";
+        icon: Icons.clock;
+        count: "\{root.scheduled}";
+        clicked => { root.scheduled-requested(); }
     }
 
     ListView {

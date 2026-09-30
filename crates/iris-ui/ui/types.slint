@@ -169,6 +169,10 @@ export struct MessageData {
     // The event in the calendar (`id:start`), and its day, to open it there.
     invite-key: string,
     invite-day: string,
+    // It can be answered (it has an organiser, not oneself), and what was answered:
+    // "ACCEPTED", "TENTATIVE", "DECLINED", or empty.
+    invite-can-reply: bool,
+    invite-reply: string,
 }
 
 export struct CommandData {
@@ -308,6 +312,15 @@ export struct TimedEventData {
     // In a calendar of one's own and not repeating: it can be dragged to another time
     // and stretched by its lower edge.
     movable: bool,
+}
+
+// A message waiting to be sent later.
+export struct ScheduledMailData {
+    id: int,
+    to: string,
+    subject: string,
+    // "Tomorrow, 08:00".
+    when: string,
 }
 
 // A task waiting for a time, in the calendar's side column, to be dragged onto the week.

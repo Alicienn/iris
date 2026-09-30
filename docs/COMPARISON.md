@@ -31,7 +31,7 @@ the first afternoon, and never forgive".
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris does not.
 
-## Missing, ordered by how soon it hurts (as of 3.10.1)
+## Missing, ordered by how soon it hurts (as of 3.11.0)
 
 ### 1. Signing in to Gmail or Outlook with the browser
 
@@ -39,43 +39,27 @@ Both work today with an app password, and the code for signing in with Google or
 Microsoft is there, but no published build turns it on: it needs an OAuth client of
 one's own. For a Gmail account, an app password is the step where most people stop.
 
-### 2. Answering an invitation
-
-An invitation shows as a banner over its message and goes into the calendar in one
-click (3.10.0). What Outlook and Thunderbird also do is answer it: Accept, Maybe or
-Decline, sent back to the organiser (iTIP `REPLY`).
-
-### 3. Sending later
-
-Gmail, Outlook and Apple Mail can hold a message until a chosen time. Iris holds one
-only for the seconds of its undo.
-
-### 4. Sorting is always by date
-
-Thunderbird and Outlook sort by sender, size and subject. Useful for "who sent me that
-big file", but rarer than the above, and a queue is chronological by nature.
-
-### 5. One address per account
+### 2. One address per account
 
 No aliases: a mailbox that receives for several addresses can only send from one.
 
-### 6. No spell check
+### 3. No spell check
 
 Expected in a composer, and it needs dictionaries shipped and a text engine that can
 underline a run. Real work, not a corner to cut.
 
-### 7. No templates, no reminder when nobody answers
+### 4. No templates, no reminder when nobody answers
 
 Saved replies, and "tell me in three days if there is no answer", which the *Waiting*
 queue half does already.
 
-### 8. No encryption, no server-side filters, no vacation reply
+### 5. No encryption, no server-side filters, no vacation reply
 
 PGP and S/MIME are projects. Sieve means speaking another protocol. A vacation reply
 means sending mail without being asked, which the module sandbox refuses on purpose: it
 belongs in the application or nowhere, and probably nowhere.
 
-### 9. Windows only
+### 6. Windows only
 
 The code builds and its tests pass on macOS in CI; what a Mac build still lacks is the
 tray, notifications, the title bar, a font of its own, a signed `.app`, and an
@@ -85,5 +69,6 @@ updater for it. Android would be a second interface.
 
 Signatures per account, quick filters over the list, the message source, emptying a
 folder and marking it read, opening an attachment, a calendar with invitations as a
-banner over their message (added, updated, cancelled), `mailto:` links, system
-notifications, starting at login.
+banner over their message (added, updated, cancelled) and answered from it (Accept,
+Maybe, Decline), sending later, sorting by sender, subject or size, `mailto:` links,
+system notifications, starting at login.

@@ -861,6 +861,12 @@ pub fn apply_snapshot(
     fenetre.set_filter_unread(snapshot.filters.unread);
     fenetre.set_filter_attachments(snapshot.filters.attachments);
     fenetre.set_filter_starred(snapshot.filters.starred);
+    fenetre.set_list_sort(match snapshot.sort {
+        iris_store::Sort::Date => 0,
+        iris_store::Sort::Sender => 1,
+        iris_store::Sort::Subject => 2,
+        iris_store::Sort::Size => 3,
+    });
     fenetre.set_marked_count(snapshot.marked.len() as i32);
     fenetre.set_marked_label(iris_ui::format::short_count(snapshot.marked.len() as u64).into());
     // Ce que l'arborescence doit montrer comme choisi. Un rôle est désigné par son nom
@@ -1143,6 +1149,8 @@ pub fn remplir_conversation(
                 vue.invite_when = inv.when.into();
                 vue.invite_key = inv.key.into();
                 vue.invite_day = inv.day.into();
+                vue.invite_can_reply = inv.can_reply;
+                vue.invite_reply = inv.reply.into();
             }
             vue
         })
@@ -3362,6 +3370,48 @@ pub fn wire_invitations(fenetre: &AppWindow, services: &Services, controller: Ar
     }
 }
 
+/// Accept, Maybe or Decline on an invitation's banner: the answer goes to the
+/// organiser from the mailbox the invitation came to, and the calendar follows.
+pub fn wire_invite_answers(
+    fenetre: &AppWindow,
+    services: &Services,
+    send: Arc<SendService>,
+    controller: Arc<Controller>,
+) {
+    let services = services.clone();
+    let faible = fenetre.as_weak();
+    fenetre.on_invite_answer(move |id, choix| {
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        let Some(reponse) = crate::invite::Answer::from_index(choix) else {
+            return;
+        };
+        let Some(message) = services
+            .store
+            .message_by_id(iris_types::MessageId(id as i64))
+            .ok()
+            .flatten()
+        else {
+            return;
+        };
+        let Some(texte) = texte_d_invitation(&services, &message) else {
+            fenetre.set_status("The invitation could not be read.".into());
+            return;
+        };
+        let moi = adresse_du_compte(&services, message.account);
+        match crate::invite::respond(&services, &send, message.account, &moi, &texte, reponse) {
+            Ok(dit) => fenetre.set_toast(dit.into()),
+            Err(e) => fenetre.set_status(format!("Could not answer: {e}").into()),
+        }
+        conversation_rendue().clear();
+        controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
+            full_refresh: true,
+            ..Default::default()
+        })));
+    });
+}
+
 pub fn wire_attachment_open(
     fenetre: &AppWindow,
     services: &Services,
@@ -3473,7 +3523,22 @@ fn invitation_du_message(
     services: &Services,
     message: &iris_store::StoredMessage,
 ) -> Option<crate::calendar::Invitation> {
-    crate::calendar::invitation(services, &texte_d_invitation(services, message)?)
+    crate::calendar::invitation(
+        services,
+        &texte_d_invitation(services, message)?,
+        &adresse_du_compte(services, message.account),
+    )
+}
+
+/// The address of the mailbox a message came to: who answers its invitation.
+fn adresse_du_compte(services: &Services, compte: iris_types::AccountId) -> String {
+    services
+        .store
+        .account(compte)
+        .ok()
+        .flatten()
+        .map(|c| c.email)
+        .unwrap_or_default()
 }
 
 /// Le nom, le type et les octets d'une pièce jointe d'un message.
@@ -4141,6 +4206,12 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
                 _ => filtres = iris_store::Filters::default(),
             }
             controller.send(Request::SetFilters(filtres));
+        });
+    }
+    {
+        let controller = Arc::clone(&controller);
+        fenetre.on_sort_chosen(move |i| {
+            controller.send(Request::SetSort(iris_store::Sort::from_index(i)));
         });
     }
     {
@@ -5116,7 +5187,172 @@ pub fn wire_compose(
         });
     }
 
-    let _ = services;
+    // --- Sending later ---
+    rafraichir_plus_tard(fenetre, services);
+    {
+        let services = services.clone();
+        let pieces = Arc::clone(&pieces);
+        let identites = Arc::clone(&identites);
+        let chemin_envoi = chemin_brouillon.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_send_later(move |i| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let index = fenetre.get_compose_sender_index().max(0) as usize;
+            let Some((compte, _)) = identites.get(index) else {
+                fenetre.set_compose_error("No account can send.".into());
+                return;
+            };
+            let Some((_, quand)) = usize::try_from(i).ok().and_then(|i| {
+                crate::later::options(chrono::Local::now().naive_local())
+                    .get(i)
+                    .cloned()
+            }) else {
+                return;
+            };
+            let brouillon = iris_sync::Draft {
+                account: *compte,
+                to: fenetre.get_compose_to().to_string(),
+                cc: fenetre.get_compose_cc().to_string(),
+                bcc: fenetre.get_compose_bcc().to_string(),
+                subject: fenetre.get_compose_subject().to_string(),
+                body: fenetre.get_compose_body().to_string(),
+                attachments: pieces.lock().expect("poisoned attachments").clone(),
+            };
+            if brouillon.to.trim().is_empty() {
+                fenetre.set_compose_error("Say who it is for first.".into());
+                return;
+            }
+            match crate::later::schedule(&services, &brouillon, quand) {
+                Ok(message) => {
+                    pieces.lock().expect("poisoned attachments").clear();
+                    show_attachments(&fenetre, &[]);
+                    clear_compose(&fenetre);
+                    fenetre.set_compose_cc(Default::default());
+                    fenetre.set_compose_bcc(Default::default());
+                    fenetre.set_compose_open(false);
+                    if let Err(e) = crate::draft::Draft::clear(&chemin_envoi) {
+                        tracing::warn!(error = %e, "clearing the draft");
+                    }
+                    fenetre.set_status(message.into());
+                    rafraichir_plus_tard(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_compose_error(format!("Could not keep it: {e}").into()),
+            }
+        });
+    }
+    // Every half minute, what is due leaves.
+    {
+        let (services, send, faible) = (services.clone(), Arc::clone(&send), fenetre.as_weak());
+        let minuterie = slint::Timer::default();
+        minuterie.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(30),
+            move || {
+                let Some(fenetre) = faible.upgrade() else {
+                    return;
+                };
+                let (partis, echecs) = crate::later::send_due(&services, &send, None);
+                if partis > 0 {
+                    fenetre.set_status(
+                        if partis == 1 {
+                            "A scheduled message was sent.".to_string()
+                        } else {
+                            format!("{partis} scheduled messages were sent.")
+                        }
+                        .into(),
+                    );
+                }
+                if let Some(e) = echecs.first() {
+                    fenetre.set_status(format!("Could not send {e}").into());
+                }
+                rafraichir_plus_tard(&fenetre, &services);
+            },
+        );
+        PLUS_TARD.with(|m| *m.borrow_mut() = Some(minuterie));
+    }
+    {
+        let (services, faible) = (services.clone(), fenetre.as_weak());
+        fenetre.on_scheduled_requested(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            rafraichir_plus_tard(&fenetre, &services);
+            fenetre.set_scheduled_open(true);
+        });
+    }
+    {
+        let (services, send, faible) = (services.clone(), Arc::clone(&send), fenetre.as_weak());
+        fenetre.on_scheduled_send_now(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let (partis, echecs) = crate::later::send_due(&services, &send, Some(id as i64));
+            if partis > 0 {
+                fenetre.set_status("Sent.".into());
+            }
+            if let Some(e) = echecs.first() {
+                fenetre.set_status(format!("Could not send {e}").into());
+            }
+            rafraichir_plus_tard(&fenetre, &services);
+            if fenetre.get_scheduled_count() == 0 {
+                fenetre.set_scheduled_open(false);
+            }
+        });
+    }
+    // Back into the composer, as it was written: it waits no more.
+    {
+        let (services, pieces, identites, faible) = (
+            services.clone(),
+            Arc::clone(&pieces),
+            Arc::clone(&identites),
+            fenetre.as_weak(),
+        );
+        fenetre.on_scheduled_edit(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(d) = crate::later::take(&services, id as i64) else {
+                fenetre.set_status("That message is no longer waiting.".into());
+                return;
+            };
+            fenetre.set_compose_to(d.to.into());
+            fenetre.set_compose_cc(d.cc.as_str().into());
+            fenetre.set_compose_bcc(d.bcc.as_str().into());
+            fenetre.set_compose_show_cc(!d.cc.is_empty() || !d.bcc.is_empty());
+            fenetre.set_compose_subject(d.subject.into());
+            fenetre.set_compose_body(d.body.into());
+            if let Some(i) = identites.iter().position(|(c, _)| *c == d.account) {
+                fenetre.set_compose_sender_index(i as i32);
+            }
+            show_attachments(&fenetre, &d.attachments);
+            *pieces.lock().expect("poisoned attachments") = d.attachments;
+            fenetre.set_compose_error(Default::default());
+            fenetre.set_compose_minimised(false);
+            fenetre.set_compose_open(true);
+            rafraichir_plus_tard(&fenetre, &services);
+        });
+    }
+}
+
+thread_local! {
+    /// The half-minute check of what is due, for as long as the window lives.
+    static PLUS_TARD: std::cell::RefCell<Option<slint::Timer>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The count beside Scheduled, its list, and the times the composer offers now.
+fn rafraichir_plus_tard(fenetre: &AppWindow, services: &Services) {
+    let lignes = crate::later::rows(services);
+    fenetre.set_scheduled_count(lignes.len() as i32);
+    fenetre.set_scheduled_rows(ModelRc::new(VecModel::from(lignes)));
+    fenetre.set_compose_later_options(ModelRc::new(VecModel::from(
+        crate::later::options(chrono::Local::now().naive_local())
+            .into_iter()
+            .map(|(l, _)| slint::SharedString::from(l))
+            .collect::<Vec<_>>(),
+    )));
 }
 
 /// Asks for files and reads them into the draft.

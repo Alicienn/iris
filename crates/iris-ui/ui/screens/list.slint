@@ -612,6 +612,39 @@ export component ThreadContextMenu inherits Rectangle {
     }
 }
 
+// The orders a list can be in, the current one ticked.
+export component SortMenu inherits Rectangle {
+    in property <int> current;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    callback chosen(int);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 190px;
+        menu-height: ordres.preferred-height + 8px;
+
+        ordres := VerticalLayout {
+            padding: 4px;
+            for nom[i] in ["Date, newest first", "Sender, A to Z", "Subject, A to Z", "Size, biggest first"]: MenuEntry {
+                icon: i == root.current ? Icons.check : "";
+                label: nom;
+                activated => { root.chosen(i); }
+            }
+        }
+    }
+}
+
 // La barre des actions groupées.
 //
 // Elle **remplace** les onglets tant qu'un lot est coché, au lieu de s'ajouter au
@@ -924,6 +957,10 @@ export component ThreadListView inherits VerticalLayout {
     in property <bool> filter-attachments;
     in property <bool> filter-starred;
     callback filter-toggled(string);
+    /// The list's order, as its button says it ("Date", "Sender"…), and the button
+    /// asking for the menu, where the window should put it.
+    in property <string> sort-label: "Date";
+    callback sort-menu(length, length);
 
     callback row-mark-toggled(int);
     callback row-mark-extended(int);
@@ -1146,6 +1183,43 @@ export component ThreadListView inherits VerticalLayout {
         }
 
         Rectangle {}
+
+        // The order of the list: by date unless asked otherwise; its menu opens over
+        // the window.
+        tri := Rectangle {
+            width: tri-texte.preferred-width + 30px;
+            border-radius: Tokens.radius-medium;
+            background: tri-touch.has-hover ? Tokens.surface-hover : transparent;
+
+            accessible-role: button;
+            accessible-label: "Sort by " + root.sort-label;
+            accessible-action-default => {
+                root.sort-menu(tri.absolute-position.x, tri.absolute-position.y + tri.height);
+            }
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 6px;
+                spacing: 4px;
+                tri-texte := Text {
+                    text: root.sort-label;
+                    font-size: Tokens.size-small;
+                    color: root.sort-label == "Date" ? Tokens.text-muted : Tokens.accent;
+                    vertical-alignment: center;
+                }
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.chevron-down;
+                    size: 12px;
+                    tint: Tokens.text-muted;
+                }
+            }
+            tri-touch := TouchArea {
+                clicked => {
+                    root.sort-menu(tri.absolute-position.x, tri.absolute-position.y + tri.height);
+                }
+            }
+        }
 
         // Une sortie visible. Un filtre laissé allumé fait croire à une boîte vide, et
         // c'est la panne la plus déroutante qu'un filtre puisse produire.
