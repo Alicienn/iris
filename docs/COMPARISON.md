@@ -29,77 +29,61 @@ the first afternoon, and never forgive".
 | Account setup | Address and password, or a configuration profile (`.mobileconfig`) as Apple Mail takes it |
 
 The queue is the point of the product, and none of the four has it. What follows is
-about the ordinary things they all have and Iris did not, when this was written.
+about the ordinary things they all have and Iris does not.
 
-> **Status (1.0.0):** items 1 to 5 are built, and so is most of item 7 — a calendar,
-> and invitations opened from a message go into it. What remains of 7 is answering an
-> invitation (Accept / Decline). Items 6, 8 and 9 are still missing.
+## Missing, ordered by how soon it hurts (as of 3.10.1)
 
-## Missing, ordered by how soon it hurts
+### 1. Signing in to Gmail or Outlook with the browser
 
-### 1. No signature — *every message Iris sends is unsigned*
+Both work today with an app password, and the code for signing in with Google or
+Microsoft is there, but no published build turns it on: it needs an OAuth client of
+one's own. For a Gmail account, an app password is the step where most people stop.
 
-All four have this, per account, since forever. For anyone using mail for work it is
-noticed on the first message and cannot be worked around except by retyping four lines
-each time. **Nothing else on this list is missed this quickly.**
+### 2. Answering an invitation
 
-### 2. No way to narrow the list — *unread only, with attachments, starred*
+An invitation shows as a banner over its message and goes into the calendar in one
+click (3.10.0). What Outlook and Thunderbird also do is answer it: Accept, Maybe or
+Decline, sent back to the organiser (iTIP `REPLY`).
 
-Every client has these, usually as a strip above the list. Iris has search, which
-answers a different question: search is for finding one message you remember, a filter
-is for reducing several hundred you have not read. On a queue of 188, the second is the
-one you reach for.
+### 3. Sending later
 
-### 3. No message source — *no headers, no raw text*
+Gmail, Outlook and Apple Mail can hold a message until a chosen time. Iris holds one
+only for the seconds of its undo.
 
-Thunderbird has Ctrl+U, Outlook and Apple Mail bury it in a menu. It matters less often
-than the rest, and when it matters nothing else will do: a message that arrives wrong,
-a sender who is not who they claim, a rule that fires when it should not.
+### 4. Sorting is always by date
 
-### 4. No bulk folder actions — *no "mark all as read", no "empty the bin"*
+Thunderbird and Outlook sort by sender, size and subject. Useful for "who sent me that
+big file", but rarer than the above, and a queue is chronological by nature.
 
-The screenshot shows Trash at 865. Every client can empty it. Marking a folder read is
-the other half: after a week away, opening two hundred messages one by one to clear a
-badge is not triage.
+### 5. One address per account
 
-### 5. Attachments can be saved but not opened
+No aliases: a mailbox that receives for several addresses can only send from one.
 
-Saving then finding the file in Explorer is three steps where every other client has
-one. The reading pane already lists them with size and type.
-
-### 6. Sorting is always by date
-
-Thunderbird and Outlook sort by sender, size and subject. Genuinely useful for "who
-sent me that big file" — but rarer than the five above, and a queue is chronological by
-nature.
-
-### 7. Nothing for calendars or invitations
-
-An `.ics` in a message is an attachment like any other. Outlook and Thunderbird show a
-card with Accept / Decline. This is a large piece of work — a calendar store, a
-timezone library, an iTIP reply path — and it is the honest answer for why it is not
-next.
-
-### 8. No spell check
+### 6. No spell check
 
 Expected in a composer, and it needs dictionaries shipped and a text engine that can
 underline a run. Real work, not a corner to cut.
 
-### 9. No encryption, no aliases, no server-side filters, no vacation reply
+### 7. No templates, no reminder when nobody answers
 
-PGP and S/MIME are projects. Aliases are small but only matter to people who have them.
-Sieve means speaking another protocol. A vacation reply means sending mail without
-being asked, which the module sandbox refuses on purpose — it belongs in the
-application or nowhere, and probably nowhere.
+Saved replies, and "tell me in three days if there is no answer", which the *Waiting*
+queue half does already.
 
-## What was built next
+### 8. No encryption, no server-side filters, no vacation reply
 
-Five — all shipped since — chosen because each is missed early, none needs a new subsystem, and together
-they close the gap between "an interesting way to triage mail" and "a mail client you
-can actually live in":
+PGP and S/MIME are projects. Sieve means speaking another protocol. A vacation reply
+means sending mail without being asked, which the module sandbox refuses on purpose: it
+belongs in the application or nowhere, and probably nowhere.
 
-1. **Signatures**, per account, appended to what you write and to replies.
-2. **Quick filters** over the list: unread, attachments, starred.
-3. **Message source**, headers and all.
-4. **Empty a folder** and **mark a folder read**.
-5. **Open an attachment**, not only save it.
+### 9. Windows only
+
+The code builds and its tests pass on macOS in CI; what a Mac build still lacks is the
+tray, notifications, the title bar, a font of its own, a signed `.app`, and an
+updater for it. Android would be a second interface.
+
+## Closed since the first version of this list
+
+Signatures per account, quick filters over the list, the message source, emptying a
+folder and marking it read, opening an attachment, a calendar with invitations as a
+banner over their message (added, updated, cancelled), `mailto:` links, system
+notifications, starting at login.

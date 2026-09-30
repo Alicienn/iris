@@ -226,16 +226,16 @@ an installer. Until one exists, none of them can be built and tested honestly.
 
 The ordering below is by how often the absence is felt, not by effort.
 
-- [ ] **S27.1** `mailto:` links. Registering under `SOFTWARE\Clients\Mail`,
+- [x] **S27.1** `mailto:` links. Registering under `SOFTWARE\Clients\Mail`,
       `RegisteredApplications` and the `Capabilities` key so Windows offers Iris as a
       default mail client. Without it, an address clicked in a browser can never open
       Iris — the most visible gap of the three.
-- [ ] **S27.2** System notifications. Windows toasts require an `AppUserModelID`
+- [x] **S27.2** System notifications. Windows toasts require an `AppUserModelID`
       declared by a Start Menu shortcut; without one, nothing appears, or it appears
       under a generic host name. "New mail has arrived" is the whole point of a client
       that syncs in the background, so this decides whether background sync is worth
       having.
-- [ ] **S27.3** Start at login, as a setting rather than an installer checkbox. The
+- [x] **S27.3** Start at login, as a setting rather than an installer checkbox. The
       installer registers the possibility; **the switch lives in Settings**, next to
       the other automations, because starting itself is something the application does
       on its own and every one of those is switchable in one place.
