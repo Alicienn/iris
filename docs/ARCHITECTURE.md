@@ -269,6 +269,16 @@ calendar's colour at 16 % with a 45 % outline, past ones at 55 % opacity
 The column's *Still today* was removed in 3.8.1: the week in front of it already says
 it.
 
+A right-click on an event (3.9.0), in the week, the month or the all-day row, sends
+`calendar-event-menu(key, x, y)`. Rust makes it the chosen event, as a click does
+(`calendar::choisir` fills the card's data without opening it), and opens
+`EventContextMenu`. *Edit* and *Delete* then go through the card's own `event-edit` and
+`event-delete`, and *Open* opens the card beside the pointer. The colour is
+`event_colors (calendar_id, uid, color)` (migration 16): kept beside the events, as the
+notes are, because a subscription's events are replaced at each refresh.
+`calendar::teinte` prefers it to the calendar's colour everywhere an event is drawn:
+the grid, the month, Home's and Tasks' day lines (`upcoming`), the card.
+
 The mail's columns are hidden (`visible: workspace == 0`) while another workspace is
 shown. The calendar, the tasks and Home are laid over them, and Slint passes a click on
 a part without a `TouchArea` to what lies under it; the software renderer also painted
@@ -490,6 +500,7 @@ Iris is refused rather than misread.
 | 13 | Tags in an order of one's own; tasks tied to an event's UID and occurrence (1.0.0) |
 | 14 | Goals, their log and milestones; a task's goal, estimate and times put off (3.3.0) |
 | 15 | A task's `repeat` rule (3.7.0) |
+| 16 | `event_colors`: an event's own colour, by calendar and UID (3.9.0) |
 
 A new table or column always arrives as a new migration.
 

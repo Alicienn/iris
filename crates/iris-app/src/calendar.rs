@@ -77,6 +77,8 @@ struct Etat {
     note: Option<(i64, String, i64)>,
     /// The open event, for the tasks added from it.
     ouvert: Option<Ouvert>,
+    /// The colours events wear instead of their calendar's, by calendar and UID.
+    teintes: HashMap<(i64, String), String>,
 }
 
 /// The event open in the panel, as its tasks need it.
@@ -376,6 +378,20 @@ fn cle(etat: &Etat, o: &Occurrence) -> String {
     format!("{}:{}", etat.evenements[o.event].0.id, o.start)
 }
 
+/// The colour an event wears: its own if it was given one, else its calendar's.
+fn teinte<'a>(
+    teintes: &'a HashMap<(i64, String), String>,
+    couleurs: &'a HashMap<i64, String>,
+    calendrier: i64,
+    uid: &str,
+) -> &'a str {
+    teintes
+        .get(&(calendrier, uid.to_string()))
+        .or_else(|| couleurs.get(&calendrier))
+        .map(String::as_str)
+        .unwrap_or("")
+}
+
 fn puce(etat: &Etat, o: &Occurrence, couleurs: &HashMap<i64, String>) -> CalendarChipData {
     let (stocke, e) = &etat.evenements[o.event];
     CalendarChipData {
@@ -386,12 +402,12 @@ fn puce(etat: &Etat, o: &Occurrence, couleurs: &HashMap<i64, String>) -> Calenda
         } else {
             heure(o.start).into()
         },
-        color: couleur(
-            couleurs
-                .get(&stocke.calendar_id)
-                .map(String::as_str)
-                .unwrap_or(""),
-        ),
+        color: couleur(teinte(
+            &etat.teintes,
+            couleurs,
+            stocke.calendar_id,
+            &stocke.event.uid,
+        )),
         all_day: o.all_day,
     }
 }
@@ -457,6 +473,7 @@ pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellDat
         selecteur: None,
         note: None,
         ouvert: None,
+        teintes: HashMap::new(),
     };
     cellules(
         &vide,
@@ -503,6 +520,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         .map(|c| c.id)
         .collect();
 
+    etat.teintes = services.store.event_colors().unwrap_or_default();
     let occ = charger(services, etat);
     fenetre.set_calendar_title(titre_periode(etat).into());
     fenetre.set_calendar_mode(etat.mode);
@@ -619,6 +637,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             selecteur: None,
             note: None,
             ouvert: None,
+            teintes: etat.teintes.clone(),
         };
         let o = charger(services, &mut copie);
         let cases = marquer(cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false));
@@ -629,6 +648,76 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         etat, etat.jour, etat.mini, &occ_mini, &couleurs, false,
     ));
     fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
+}
+
+/// Makes the event behind `k` (`id:start`) the chosen one: its details, notes and
+/// tasks filled in, ready for its card or its menu. False when it no longer exists.
+fn choisir(f: &AppWindow, services: &Services, etat: &Rc<RefCell<Etat>>, k: SharedString) -> bool {
+    let Some((id, debut)) = ms_depuis_cle(&k) else {
+        return false;
+    };
+    let Ok(Some(s)) = services.store.event(id) else {
+        return false;
+    };
+    let cal = services.store.calendar(s.calendar_id).ok().flatten();
+    let duree = s.event.end_ms - s.event.start_ms;
+    let o = Occurrence {
+        event: 0,
+        start: debut,
+        end: debut + duree,
+        all_day: s.event.all_day,
+    };
+    let occurrence = if s.event.rrule.is_some() { debut } else { 0 };
+    let ouvert = Ouvert {
+        uid: s.event.uid.clone(),
+        occurrence,
+        titre: titre(&vers_domaine(&s.event)),
+        debut,
+        all_day: s.event.all_day,
+    };
+    remplir_taches(f, services, &ouvert);
+    f.set_event_new_task(SharedString::default());
+    let propre = etat
+        .borrow()
+        .teintes
+        .get(&(s.calendar_id, s.event.uid.clone()))
+        .cloned();
+    {
+        let mut e = etat.borrow_mut();
+        e.edite = Some(id);
+        e.note = Some((s.calendar_id, s.event.uid.clone(), occurrence));
+        e.ouvert = Some(ouvert);
+    }
+    f.set_event_notes(
+        services
+            .store
+            .event_note(s.calendar_id, &s.event.uid, occurrence)
+            .unwrap_or_default()
+            .into(),
+    );
+    f.set_event_detail(EventDetailData {
+        key: k,
+        title: titre(&vers_domaine(&s.event)).into(),
+        when: quand(&o).into(),
+        calendar: cal
+            .as_ref()
+            .map(|c| c.name.clone())
+            .unwrap_or_default()
+            .into(),
+        color: couleur(
+            propre
+                .as_deref()
+                .or(cal.as_ref().map(|c| c.color.as_str()))
+                .unwrap_or(""),
+        ),
+        own_color: propre.is_some(),
+        location: s.event.location.as_str().into(),
+        description: s.event.description.as_str().into(),
+        reminder: rappel(s.event.reminder_minutes).into(),
+        repeats: repetition(s.event.rrule.as_deref()).into(),
+        editable: cal.is_some_and(|c| !c.is_subscription()),
+    });
+    true
 }
 
 /// An event of one's own dragged in the grid: `jours` days and `minutes` later, its
@@ -1250,6 +1339,7 @@ pub fn upcoming(services: &Services, from: NaiveDate, days: i64) -> Vec<Upcoming
         .into_iter()
         .map(|c| (c.id, c.color))
         .collect();
+    let teintes = services.store.event_colors().unwrap_or_default();
     let domaine: Vec<Event> = stockes.iter().map(|s| vers_domaine(&s.event)).collect();
     let maintenant = now().millis();
     let mut sortie: Vec<Upcoming> = iris_calendar::recur::occurrences(&domaine, de, a)
@@ -1275,7 +1365,7 @@ pub fn upcoming(services: &Services, from: NaiveDate, days: i64) -> Vec<Upcoming
                 } else {
                     heure(o.start)
                 },
-                color: couleurs.get(&s.calendar_id).cloned().unwrap_or_default(),
+                color: teinte(&teintes, &couleurs, s.calendar_id, &s.event.uid).to_string(),
                 past: o.end <= maintenant,
                 start: o.start,
                 end: o.end,
@@ -1308,6 +1398,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         selecteur: None,
         note: None,
         ouvert: None,
+        teintes: HashMap::new(),
     }));
 
     fenetre.set_calendar_palette(ModelRc::new(VecModel::from(
@@ -1492,60 +1583,42 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
         fenetre.on_calendar_event_opened(move |k| {
             let Some(f) = faible.upgrade() else { return };
-            let Some((id, debut)) = ms_depuis_cle(&k) else {
+            if choisir(&f, &services, &etat, k) {
+                f.set_event_detail_open(true);
+            }
+        });
+    }
+    // Right-click on an event: the same event chosen, and its menu at the pointer.
+    {
+        let (services, etat, faible) = (services.clone(), Rc::clone(&etat), fenetre.as_weak());
+        fenetre.on_calendar_event_menu(move |k, x, y| {
+            let Some(f) = faible.upgrade() else { return };
+            if choisir(&f, &services, &etat, k) {
+                f.set_event_menu_x(x);
+                f.set_event_menu_y(y);
+                f.set_event_menu_open(true);
+            }
+        });
+    }
+    // A colour of its own for the chosen event (-1: its calendar's again).
+    {
+        let (services, etat, redessiner) =
+            (services.clone(), Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_event_color_chosen(move |i| {
+            let Some(id) = etat.borrow().edite else {
                 return;
             };
             let Ok(Some(s)) = services.store.event(id) else {
                 return;
             };
-            let cal = services.store.calendar(s.calendar_id).ok().flatten();
-            let duree = s.event.end_ms - s.event.start_ms;
-            let o = Occurrence {
-                event: 0,
-                start: debut,
-                end: debut + duree,
-                all_day: s.event.all_day,
-            };
-            let occurrence = if s.event.rrule.is_some() { debut } else { 0 };
-            let ouvert = Ouvert {
-                uid: s.event.uid.clone(),
-                occurrence,
-                titre: titre(&vers_domaine(&s.event)),
-                debut,
-                all_day: s.event.all_day,
-            };
-            remplir_taches(&f, &services, &ouvert);
-            f.set_event_new_task(SharedString::default());
-            {
-                let mut e = etat.borrow_mut();
-                e.edite = Some(id);
-                e.note = Some((s.calendar_id, s.event.uid.clone(), occurrence));
-                e.ouvert = Some(ouvert);
-            }
-            f.set_event_notes(
-                services
-                    .store
-                    .event_note(s.calendar_id, &s.event.uid, occurrence)
-                    .unwrap_or_default()
-                    .into(),
-            );
-            f.set_event_detail(EventDetailData {
-                key: k,
-                title: titre(&vers_domaine(&s.event)).into(),
-                when: quand(&o).into(),
-                calendar: cal
-                    .as_ref()
-                    .map(|c| c.name.clone())
-                    .unwrap_or_default()
-                    .into(),
-                color: couleur(cal.as_ref().map(|c| c.color.as_str()).unwrap_or("")),
-                location: s.event.location.as_str().into(),
-                description: s.event.description.as_str().into(),
-                reminder: rappel(s.event.reminder_minutes).into(),
-                repeats: repetition(s.event.rrule.as_deref()).into(),
-                editable: cal.is_some_and(|c| !c.is_subscription()),
-            });
-            f.set_event_detail_open(true);
+            let couleur = usize::try_from(i)
+                .ok()
+                .and_then(|i| COULEURS.get(i))
+                .copied();
+            let _ = services
+                .store
+                .set_event_color(s.calendar_id, &s.event.uid, couleur);
+            redessiner();
         });
     }
     {
@@ -2246,6 +2319,16 @@ END:VCALENDAR
         )
         .unwrap();
         (s, dir)
+    }
+
+    #[test]
+    fn an_event_wears_its_own_colour_else_its_calendars() {
+        let couleurs = HashMap::from([(1, "#5b8def".to_string()), (2, "#4fb286".to_string())]);
+        let teintes = HashMap::from([((1, "a@iris".to_string()), "#e0795b".to_string())]);
+        assert_eq!(teinte(&teintes, &couleurs, 1, "a@iris"), "#e0795b");
+        assert_eq!(teinte(&teintes, &couleurs, 1, "b@iris"), "#5b8def");
+        // The same UID in another calendar is another event.
+        assert_eq!(teinte(&teintes, &couleurs, 2, "a@iris"), "#4fb286");
     }
 
     #[test]

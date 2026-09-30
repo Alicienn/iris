@@ -41,7 +41,7 @@ import {
 } from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import {
-    EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu,
+    EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu, EventContextMenu,
     CalendarRenamePanel, CalendarDeletePanel
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
@@ -726,6 +726,13 @@ export component AppWindow inherits Window {
     callback calendar-quick-event(string, int, string);
     /// Today's tasks without a time, to drag onto the week.
     in property <[PlanTaskData]> calendar-to-plan;
+    /// Right-click on an event: Rust makes it the chosen one and opens its menu there.
+    callback calendar-event-menu(string, length, length);
+    in-out property <bool> event-menu-open;
+    in-out property <length> event-menu-x;
+    in-out property <length> event-menu-y;
+    /// A colour of its own for the chosen event, from the palette; -1: its calendar's.
+    callback event-color-chosen(int);
     /// An event dragged to another time: (key, days later, minutes later).
     callback calendar-event-moved(string, int, int);
     /// An event stretched by its lower edge: (key, minutes added to its end).
@@ -1023,6 +1030,7 @@ export component AppWindow inherits Window {
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
+        || root.event-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
@@ -1140,6 +1148,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.calendar-menu-open) {
                 root.calendar-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.event-menu-open) {
+                root.event-menu-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.calendar-rename-open) {
@@ -1636,6 +1648,13 @@ export component AppWindow inherits Window {
         draft-closed => { shortcuts.focus(); }
         to-plan: root.calendar-to-plan;
         event-moved(k, d, m) => { root.calendar-event-moved(k, d, m); }
+        event-menu(k, x, y) => {
+            // Where the card opens if "Open" is chosen: beside the pointer.
+            root.event-anchor-left = x;
+            root.event-anchor-right = x;
+            root.event-anchor-top = y;
+            root.calendar-event-menu(k, x, y);
+        }
         event-resized(k, m) => { root.calendar-event-resized(k, m); }
         task-planned(id, d, m) => { root.calendar-task-planned(id, d, m); }
         calendar-toggled(id) => { root.calendar-toggled(id); }
@@ -1965,6 +1984,40 @@ export component AppWindow inherits Window {
         picker-closed => { root.editor-picker = -1; }
         save => { root.event-save(); }
         dismissed => { root.event-editor-open = false; }
+    }
+
+    // A right-click on an event. Rust has made it the chosen event, as a click does, so
+    // Edit and Delete act on it through the same callbacks as its card.
+    if root.event-menu-open: EventContextMenu {
+        width: 100%;
+        height: 100%;
+        event: root.event-detail;
+        palette: root.calendar-palette;
+        menu-x: root.event-menu-x;
+        menu-y: root.event-menu-y;
+        open => {
+            root.event-menu-open = false;
+            root.event-anchored = true;
+            root.event-detail-open = true;
+        }
+        edit => {
+            root.event-menu-open = false;
+            root.event-edit();
+        }
+        delete => {
+            root.event-menu-open = false;
+            root.event-delete();
+            shortcuts.focus();
+        }
+        color-chosen(i) => {
+            root.event-menu-open = false;
+            root.event-color-chosen(i);
+            shortcuts.focus();
+        }
+        dismissed => {
+            root.event-menu-open = false;
+            shortcuts.focus();
+        }
     }
 
     if root.calendar-menu-open: CalendarContextMenu {

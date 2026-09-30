@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 15;
+pub const CURRENT_VERSION: i64 = 16;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -93,7 +93,25 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "tasks that come back",
         sql: SCHEMA_V15,
     },
+    Migration {
+        version: 16,
+        name: "an event's own colour",
+        sql: SCHEMA_V16,
+    },
 ];
+
+/// An event can wear a colour of its own instead of its calendar's. Kept beside the
+/// events rather than in them, by calendar and UID as the notes are: a subscribed
+/// calendar's events are replaced at each refresh, and the colour chosen for one must
+/// outlive that. Every occurrence of a repeating event takes it.
+const SCHEMA_V16: &str = "
+CREATE TABLE event_colors (
+    calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    uid         TEXT NOT NULL,
+    color       TEXT NOT NULL,
+    PRIMARY KEY (calendar_id, uid)
+);
+";
 
 /// A task can repeat: `repeat` names how ("daily", "weekdays", "weekly", "monthly",
 /// "yearly"), NULL when it does not. Done, it makes its next one, due on the next day

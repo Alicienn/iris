@@ -429,6 +429,41 @@ impl Store {
         })
     }
 
+    /// The colours events wear instead of their calendar's, by calendar and UID.
+    pub fn event_colors(&self) -> Result<std::collections::HashMap<(i64, String), String>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare("SELECT calendar_id, uid, color FROM event_colors")
+                .map_err(err("couleurs des événements"))?;
+            let lignes = stmt
+                .query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))
+                .map_err(err("couleurs des événements"))?
+                .collect::<rusqlite::Result<_>>()
+                .map_err(err("couleurs des événements"));
+            lignes
+        })
+    }
+
+    /// Gives an event a colour of its own, `#rrggbb`; `None` gives it back its
+    /// calendar's.
+    pub fn set_event_color(&self, calendar: i64, uid: &str, color: Option<&str>) -> Result<()> {
+        self.with_conn(|c| {
+            match color {
+                Some(couleur) => c.execute(
+                    "INSERT INTO event_colors (calendar_id, uid, color) VALUES (?1, ?2, ?3) \
+                     ON CONFLICT (calendar_id, uid) DO UPDATE SET color = excluded.color",
+                    params![calendar, uid, couleur],
+                ),
+                None => c.execute(
+                    "DELETE FROM event_colors WHERE calendar_id = ?1 AND uid = ?2",
+                    params![calendar, uid],
+                ),
+            }
+            .map(|_| ())
+            .map_err(err("couleur d'un événement"))
+        })
+    }
+
     pub fn calendar_event_count(&self, calendar: i64) -> Result<u32> {
         self.with_conn(|c| {
             c.query_row(
@@ -445,6 +480,33 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_event_keeps_its_own_colour_through_a_refresh_and_can_give_it_back() {
+        let s = Store::in_memory().unwrap();
+        let t = Timestamp::from_millis(1);
+        let cal = s
+            .create_calendar("Club", "#4fb286", Some("https://example.com/c.ics"), t)
+            .unwrap();
+        s.set_event_color(cal, "regate@example.com", Some("#e0795b"))
+            .unwrap();
+        s.set_event_color(cal, "regate@example.com", Some("#5b8def"))
+            .unwrap();
+        s.replace_calendar_events(cal, &[], t).unwrap();
+        let couleurs = s.event_colors().unwrap();
+        assert_eq!(
+            couleurs.get(&(cal, "regate@example.com".to_string())),
+            Some(&"#5b8def".to_string()),
+            "the last one chosen, kept through the refresh"
+        );
+        s.set_event_color(cal, "regate@example.com", None).unwrap();
+        assert!(s.event_colors().unwrap().is_empty());
+        // Gone with its calendar.
+        s.set_event_color(cal, "x@example.com", Some("#e0795b"))
+            .unwrap();
+        s.delete_calendar(cal).unwrap();
+        assert!(s.event_colors().unwrap().is_empty());
+    }
 
     #[test]
     fn notes_survive_a_refresh_and_leave_with_the_calendar() {

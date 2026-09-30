@@ -124,6 +124,9 @@ Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
   slot for the full editor.
 - Drag an event of your own to another hour or day, by quarter hours; drag its lower
   edge to change its length. Repeating events and subscribed calendars stay put.
+- Right-click an event for its menu: *Open*, *Edit…*, *Delete* (in your own calendars),
+  and its colour. A colour chosen there is the event's own, in place of its calendar's,
+  kept even for a subscribed calendar; *Use the calendar's colour* gives it back.
 - *To plan* lists today's tasks (and late ones) that have no hour yet. Drag one onto
   the week: it is booked there for as long as it takes (half an hour when not said),
   and the task gets that day and hour. Moving that slot later moves the task too.

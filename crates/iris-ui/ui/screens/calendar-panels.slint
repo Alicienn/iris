@@ -4,7 +4,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
 import { EventDetailData, CalendarData, MonthCellData, SubtaskData } from "@iris/types.slint";
 import { CalButton, MiniMonth } from "@iris/screens/calendar.slint";
-import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
 import { Modal, Popover } from "@iris/layout/frames.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
@@ -794,6 +794,114 @@ export component CalendarContextMenu inherits Rectangle {
                 label: root.cal.subscribed ? "Unsubscribe…" : "Delete calendar…";
                 danger: true;
                 activated => { root.remove(); }
+            }
+        }
+    }
+}
+
+// What a right-click on an event offers: open it, change it, give it a colour of its
+// own, delete it. Changing and deleting only in a calendar of one's own; a colour
+// anywhere, subscribed calendars included, since it is kept on this computer.
+export component EventContextMenu inherits Rectangle {
+    in property <EventDetailData> event;
+    in property <[color]> palette;
+    in property <length> menu-x;
+    in property <length> menu-y;
+
+    callback open();
+    callback edit();
+    callback delete();
+    /// A swatch of the palette; -1 for the calendar's colour again.
+    callback color-chosen(int);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+        // A right-click elsewhere closes it too, rather than being swallowed.
+        pointer-event(ev) => {
+            if (ev.button == PointerEventButton.right && ev.kind == PointerEventKind.down) {
+                root.dismissed();
+            }
+        }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 236px;
+        menu-height: entries.preferred-height + 8px;
+
+        entries := VerticalLayout {
+            padding: 4px;
+
+            MenuHeader {
+                text: root.event.title;
+            }
+
+            MenuEntry {
+                icon: Icons.calendar;
+                label: "Open";
+                activated => { root.open(); }
+            }
+            if root.event.editable: MenuEntry {
+                icon: Icons.pencil;
+                label: "Edit…";
+                activated => { root.edit(); }
+            }
+
+            MenuSeparator {}
+
+            // Its colour: one click on a swatch; the ring marks the one it wears.
+            HorizontalLayout {
+                padding-left: Tokens.space-2;
+                padding-right: Tokens.space-2;
+                padding-top: 4px;
+                padding-bottom: 2px;
+                spacing: 5px;
+                height: 30px;
+                for couleur[i] in root.palette: rond := Rectangle {
+                    property <bool> portee: root.event.own-color && root.event.color == couleur;
+                    width: 20px;
+                    height: 20px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 10px;
+                    background: couleur;
+                    border-width: self.portee || pastille.has-hover ? 2px : 0px;
+                    border-color: self.portee ? Tokens.text : Tokens.border-strong;
+
+                    accessible-role: button;
+                    accessible-label: "Event colour " + (i + 1);
+                    accessible-action-default => { root.color-chosen(i); }
+
+                    if rond.portee: Icon {
+                        data: Icons.check;
+                        size: 11px;
+                        weight: 3.0;
+                        tint: white;
+                    }
+                    pastille := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.color-chosen(i); }
+                    }
+                }
+                Rectangle {}
+            }
+            if root.event.own-color: MenuEntry {
+                icon: Icons.refresh;
+                label: "Use the calendar's colour";
+                activated => { root.color-chosen(-1); }
+            }
+
+            if root.event.editable: MenuSeparator {}
+            if root.event.editable: MenuEntry {
+                icon: Icons.trash;
+                label: "Delete";
+                danger: true;
+                activated => { root.delete(); }
             }
         }
     }

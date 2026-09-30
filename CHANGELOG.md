@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.9.0 — 2026-09-30
+
+### New
+- Right-click an event for its menu: open it, edit it, delete it, or give it a colour of its own.
+- An event's own colour replaces its calendar's everywhere it shows, and survives a subscribed calendar's refresh.
+
 ## 3.8.1 — 2026-09-30
 
 ### Fixed

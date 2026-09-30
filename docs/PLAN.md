@@ -474,3 +474,5 @@ the application is brought to it screen by screen.
 - [x] **S40.13** What was seen in use (3.8.1): clicks and paint no longer reach the mail
       under the other workspaces, the event card and a dropped task placed with the
       grid's scroll counted, *Still today* removed.
+- [x] **S40.14** An event's menu (3.9.0): right-click to open, edit, delete, or give it
+      a colour of its own that outlives a subscription's refresh (migration 16).

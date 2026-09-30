@@ -1836,6 +1836,77 @@ fn la_fiche_d_un_evenement_s_ouvre_a_cote_de_lui() {
     assert!((f.get_event_anchor_right() - (pos.x + taille.width)).abs() < 2.0);
 }
 
+fn un_clic_droit_sur_un_evenement_ouvre_son_menu_qui_garde_le_clavier() {
+    let f = fenetre();
+    une_semaine(&f);
+    f.set_calendar_week_events(ModelRc::new(VecModel::from(vec![
+        iris_ui::TimedEventData {
+            key: "5:0".into(),
+            title: "Atelier".into(),
+            time: "09:00 – 10:00".into(),
+            day: 1,
+            lanes: 1,
+            top: 540.0 / 1440.0,
+            height: 60.0 / 1440.0,
+            movable: true,
+            ..Default::default()
+        },
+    ])));
+    f.set_calendar_palette(ModelRc::new(VecModel::from(vec![
+        slint::Color::from_rgb_u8(0x5b, 0x8d, 0xef),
+        slint::Color::from_rgb_u8(0xe0, 0x79, 0x5b),
+        slint::Color::from_rgb_u8(0x4f, 0xb2, 0x86),
+    ])));
+    let demandes = Rc::new(RefCell::new(Vec::<String>::new()));
+    let couleurs = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let touches = Rc::new(RefCell::new(0));
+    {
+        let (v, fw) = (Rc::clone(&demandes), f.as_weak());
+        f.on_calendar_event_menu(move |k, x, y| {
+            v.borrow_mut().push(k.to_string());
+            // As Rust does: the event chosen, the menu opened where asked.
+            let f = fw.upgrade().unwrap();
+            f.set_event_detail(iris_ui::EventDetailData {
+                key: k,
+                title: "Atelier".into(),
+                editable: true,
+                ..Default::default()
+            });
+            f.set_event_menu_x(x);
+            f.set_event_menu_y(y);
+            f.set_event_menu_open(true);
+        });
+        let v = Rc::clone(&couleurs);
+        f.on_event_color_chosen(move |i| v.borrow_mut().push(i));
+        let v = Rc::clone(&touches);
+        f.on_key_pressed(move |_| *v.borrow_mut() += 1);
+    }
+    let bloc = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().is_some_and(|l| l.ends_with("Atelier")))
+        .expect("l'événement");
+    clic_droit(&f, centre(&bloc));
+    assert_eq!(*demandes.borrow(), ["5:0"]);
+    assert!(f.get_event_menu_open());
+    // Near the pointer, not somewhere down the scrolled day.
+    assert!((f.get_event_menu_y() - centre(&bloc).y).abs() < 2.0);
+
+    // An open menu owns the keyboard; a swatch gives the event its colour.
+    taper(&f, "t");
+    assert_eq!(*touches.borrow(), 0);
+    clic(&bouton(&f, "Event colour 3"));
+    assert_eq!(*couleurs.borrow(), [2]);
+    assert!(!f.get_event_menu_open());
+
+    // Escape closes it.
+    clic_droit(&f, centre(&bloc));
+    echap(&f);
+    assert!(!f.get_event_menu_open());
+}
+
 fn une_tache_se_pose_sur_la_semaine() {
     let f = fenetre();
     une_semaine(&f);
@@ -2103,6 +2174,10 @@ fn main() {
         (
             "la_fiche_d_un_evenement_s_ouvre_a_cote_de_lui",
             la_fiche_d_un_evenement_s_ouvre_a_cote_de_lui,
+        ),
+        (
+            "un_clic_droit_sur_un_evenement_ouvre_son_menu_qui_garde_le_clavier",
+            un_clic_droit_sur_un_evenement_ouvre_son_menu_qui_garde_le_clavier,
         ),
         (
             "une_tache_se_pose_sur_la_semaine",

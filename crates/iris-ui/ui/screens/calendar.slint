@@ -30,6 +30,8 @@ component Chip inherits Rectangle {
     callback opened(string);
     /// Where it is in the window, for the card that opens beside it.
     callback anchored(length, length, length);
+    /// Right-click: its key, and where the pointer is in the window.
+    callback menu(string, length, length);
 
     height: 20px;
     border-radius: 4px;
@@ -76,6 +78,13 @@ component Chip inherits Rectangle {
             root.anchored(root.absolute-position.x, root.absolute-position.x + root.width,
                 root.absolute-position.y);
             root.opened(root.chip.key);
+        }
+        pointer-event(ev) => {
+            if (ev.button == PointerEventButton.right && ev.kind == PointerEventKind.down) {
+                root.menu(root.chip.key,
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
         }
     }
 }
@@ -256,6 +265,7 @@ component MonthGrid inherits VerticalLayout {
     callback day-double-clicked(string);
     callback event-opened(string);
     callback event-anchored(length, length, length);
+    callback event-menu(string, length, length);
 
     padding-left: 12px;
     padding-right: 12px;
@@ -331,6 +341,7 @@ component MonthGrid inherits VerticalLayout {
                     opacity: cell.in-month ? 1.0 : 0.55;
                     anchored(l, r, t) => { root.event-anchored(l, r, t); }
                     opened(k) => { root.event-opened(k); }
+                    menu(k, x, y) => { root.event-menu(k, x, y); }
                 }
                 if cell.more > 0: Text {
                     text: "+" + cell.more + " more";
@@ -354,6 +365,8 @@ component WeekGrid inherits VerticalLayout {
 
     callback event-opened(string);
     callback event-anchored(length, length, length);
+    /// Right-click on an event: its key, and the pointer in the window.
+    callback event-menu(string, length, length);
     callback slot-double-clicked(string, int);
     callback day-opened(string);
     /// A title typed in a free slot: (day, minute of the day, title).
@@ -515,6 +528,7 @@ component WeekGrid inherits VerticalLayout {
                 chip: chip;
                 anchored(l, r, t) => { root.event-anchored(l, r, t); }
                 opened(k) => { root.event-opened(k); }
+                menu(k, x, y) => { root.event-menu(k, x, y); }
             }
         }
     }
@@ -634,6 +648,16 @@ component WeekGrid inherits VerticalLayout {
                         ? MouseCursor.ns-resize
                         : (evenement.held ? MouseCursor.grabbing : MouseCursor.pointer);
                     pointer-event(ev) => {
+                        // Right-click: its menu, at the pointer (placed from the
+                        // grid's own position and scroll, as the card is).
+                        if (ev.button == PointerEventButton.right
+                            && ev.kind == PointerEventKind.down) {
+                            root.close-draft();
+                            root.event-menu(e.key,
+                                defil.absolute-position.x + defil.viewport-x + evenement.x + self.mouse-x,
+                                defil.absolute-position.y + defil.viewport-y + evenement.y + self.mouse-y);
+                            return;
+                        }
                         if (ev.button != PointerEventButton.left) {
                             return;
                         }
@@ -896,6 +920,8 @@ export component CalendarView inherits Rectangle {
     callback subscribe-requested();
     /// An event was clicked here: where it is in the window, just before `event-opened`.
     callback event-anchored(length, length, length);
+    /// Right-click on an event: its key, and the pointer in the window.
+    callback event-menu(string, length, length);
 
     background: Tokens.surface;
 
@@ -1117,10 +1143,12 @@ export component CalendarView inherits Rectangle {
                 day-double-clicked(d) => { root.new-event(d, 9 * 60); }
                 event-anchored(l, r, t) => { root.event-anchored(l, r, t); }
                 event-opened(k) => { root.event-opened(k); }
+                event-menu(k, x, y) => { root.event-menu(k, x, y); }
             }
 
             if root.mode != 0: WeekGrid {
                 vertical-stretch: 1;
+                event-menu(k, x, y) => { root.event-menu(k, x, y); }
                 days: root.week-days;
                 events: root.week-events;
                 now-fraction: root.now-fraction;
