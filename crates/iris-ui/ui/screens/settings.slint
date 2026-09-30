@@ -82,6 +82,11 @@ export component SettingsPanel inherits Rectangle {
     callback automation-changed();
     callback system-changed();
     callback sending-changed();
+    /// The OAuth clients for signing in with Google or Microsoft.
+    in-out property <string> google-client-id;
+    in-out property <string> google-client-secret;
+    in-out property <string> microsoft-client-id;
+    callback oauth-changed();
     callback open-modules();
     callback dismissed();
 
@@ -224,6 +229,38 @@ export component SettingsPanel inherits Rectangle {
                         color: Tokens.text-secondary;
                         vertical-alignment: center;
                     }
+                }
+
+                // Signing in with Google or Microsoft through the browser needs a client
+                // of one's own, registered with them: its ID (and Google's secret) here.
+                Section { title: "Sign in with Google or Microsoft"; }
+                Text {
+                    text: "Gmail and Outlook accounts can sign in through the browser instead of an app password. Create an OAuth client for a desktop app (Google Cloud Console, or Microsoft Entra for Outlook), then paste its details here.";
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    wrap: word-wrap;
+                }
+                TextField {
+                    accessible-label: "Google client ID";
+                    placeholder-text: "Google client ID (….apps.googleusercontent.com)";
+                    font-size: 12.5px;
+                    text <=> root.google-client-id;
+                    edited(t) => { root.oauth-changed(); }
+                }
+                TextField {
+                    accessible-label: "Google client secret";
+                    placeholder-text: "Google client secret";
+                    font-size: 12.5px;
+                    input-type: InputType.password;
+                    text <=> root.google-client-secret;
+                    edited(t) => { root.oauth-changed(); }
+                }
+                TextField {
+                    accessible-label: "Microsoft client ID";
+                    placeholder-text: "Microsoft application (client) ID";
+                    font-size: 12.5px;
+                    text <=> root.microsoft-client-id;
+                    edited(t) => { root.oauth-changed(); }
                 }
 
                 Section { title: "System"; }

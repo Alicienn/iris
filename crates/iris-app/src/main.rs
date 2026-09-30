@@ -740,22 +740,12 @@ fn run_gui(
             );
             // Writing a new message uses the same outbox as a reply, so the delay to
             // change your mind behaves identically. Every enabled mailbox is offered
-            // as a sender: with a hundred of them, sending from the wrong one is the
-            // mistake that costs.
-            let identites: Vec<(iris_types::AccountId, String)> = services
-                .store
-                .accounts()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|c| c.enabled)
-                .map(|c| (c.id, c.email))
-                .collect();
+            // as a sender, and its aliases after it (the composer reads them itself).
             shell::wire_compose(
                 &fenetre,
                 &services,
                 Arc::clone(&envoi),
                 avis,
-                identites,
                 runtime.handle().clone(),
             );
             // Answering an invitation sends mail too.

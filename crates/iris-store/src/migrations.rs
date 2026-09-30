@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 17;
+pub const CURRENT_VERSION: i64 = 18;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -103,7 +103,25 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "mail sent later",
         sql: SCHEMA_V17,
     },
+    Migration {
+        version: 18,
+        name: "addresses a mailbox sends as",
+        sql: SCHEMA_V18,
+    },
 ];
+
+/// The other addresses a mailbox sends as (aliases): the server accepts them from
+/// that account, and the composer offers them as senders. A name of their own when
+/// they want one ("Support"), else the account's.
+const SCHEMA_V18: &str = "
+CREATE TABLE account_aliases (
+    id         INTEGER PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    address    TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    UNIQUE (account_id, address)
+);
+";
 
 /// Messages written now to leave later. The draft is kept, not a composed message: it
 /// is composed when its time comes (with that date), and one taken back opens in the

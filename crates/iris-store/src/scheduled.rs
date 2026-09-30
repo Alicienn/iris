@@ -137,10 +137,87 @@ impl Store {
     }
 }
 
+/// An address a mailbox sends as, besides its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Alias {
+    pub id: i64,
+    pub account: AccountId,
+    pub address: String,
+    pub name: String,
+}
+
+impl Store {
+    /// The addresses every mailbox sends as besides its own, by mailbox then address.
+    pub fn aliases(&self) -> Result<Vec<Alias>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare(
+                    "SELECT id, account_id, address, name FROM account_aliases \
+                     ORDER BY account_id, address",
+                )
+                .map_err(err("alias"))?;
+            let lignes = stmt
+                .query_map([], |r| {
+                    Ok(Alias {
+                        id: r.get(0)?,
+                        account: AccountId(r.get(1)?),
+                        address: r.get(2)?,
+                        name: r.get(3)?,
+                    })
+                })
+                .map_err(err("alias"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err("alias"));
+            lignes
+        })
+    }
+
+    /// A new address for a mailbox to send as; nothing when it has it already.
+    pub fn add_alias(&self, account: AccountId, address: &str, name: &str) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "INSERT OR IGNORE INTO account_aliases (account_id, address, name) \
+                 VALUES (?1, ?2, ?3)",
+                params![account.get(), address.trim().to_lowercase(), name.trim()],
+            )
+            .map(|_| ())
+            .map_err(err("alias"))
+        })
+    }
+
+    pub fn remove_alias(&self, id: i64) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute("DELETE FROM account_aliases WHERE id = ?1", [id])
+                .map(|_| ())
+                .map_err(err("alias"))
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::NewAccount;
+
+    #[test]
+    fn a_mailbox_sends_as_its_aliases_once_each() {
+        let s = Store::in_memory().unwrap();
+        let t = Timestamp::from_millis(0);
+        let compte = s
+            .create_account(&NewAccount::new("a@example.com", "i", "s"), t)
+            .unwrap();
+        s.add_alias(compte, " Support@Example.com ", "Support")
+            .unwrap();
+        s.add_alias(compte, "support@example.com", "").unwrap();
+        let alias = s.aliases().unwrap();
+        assert_eq!(alias.len(), 1, "once");
+        assert_eq!(
+            (alias[0].address.as_str(), alias[0].name.as_str()),
+            ("support@example.com", "Support")
+        );
+        s.remove_alias(alias[0].id).unwrap();
+        assert!(s.aliases().unwrap().is_empty());
+    }
 
     #[test]
     fn a_message_waits_for_its_time_then_leaves_the_list() {

@@ -39,7 +39,7 @@ pub use model::{
 };
 pub use ops::OpPayload;
 pub use rules::StoredRule;
-pub use scheduled::ScheduledMail;
+pub use scheduled::{Alias, ScheduledMail};
 pub use tasks::{NewTask, StoredTask, TaskList};
 pub use threads::MailStats;
 

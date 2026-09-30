@@ -607,6 +607,7 @@ export component AccountContextMenu inherits Rectangle {
     callback edit-account();
     callback change-password();
     callback edit-signature();
+    callback edit-aliases();
     callback toggle-pinned();
     callback toggle-enabled();
     callback remove-account();
@@ -802,6 +803,13 @@ export component AccountContextMenu inherits Rectangle {
                 icon: Icons.quote;
                 label: "Signature…";
                 activated => { root.edit-signature(); root.dismissed(); }
+            }
+            // The other addresses this mailbox sends as: offered as senders when
+            // writing.
+            MenuEntry {
+                icon: Icons.envelope-closed;
+                label: "Send as…";
+                activated => { root.edit-aliases(); root.dismissed(); }
             }
 
             // Opens beside the menu rather than replacing it: the account stays named

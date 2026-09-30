@@ -19,6 +19,9 @@ struct Enveloppe {
     subject: String,
     body: String,
     pieces: Vec<Piece>,
+    /// The alias it goes out as, when not the mailbox's own address.
+    #[serde(default)]
+    alias: Option<iris_types::Address>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,8 +31,9 @@ struct Piece {
     content: Vec<u8>,
 }
 
-fn pack(d: &iris_sync::Draft) -> String {
+fn pack(d: &iris_sync::Draft, alias: Option<&iris_types::Address>) -> String {
     serde_json::to_string(&Enveloppe {
+        alias: alias.cloned(),
         to: d.to.clone(),
         cc: d.cc.clone(),
         bcc: d.bcc.clone(),
@@ -48,9 +52,13 @@ fn pack(d: &iris_sync::Draft) -> String {
     .unwrap_or_default()
 }
 
-fn unpack(account: AccountId, payload: &str) -> Option<iris_sync::Draft> {
+fn unpack(
+    account: AccountId,
+    payload: &str,
+) -> Option<(iris_sync::Draft, Option<iris_types::Address>)> {
     let e: Enveloppe = serde_json::from_str(payload).ok()?;
-    Some(iris_sync::Draft {
+    let alias = e.alias;
+    let d = iris_sync::Draft {
         account,
         to: e.to,
         cc: e.cc,
@@ -66,7 +74,8 @@ fn unpack(account: AccountId, payload: &str) -> Option<iris_sync::Draft> {
                 content: p.content,
             })
             .collect(),
-    })
+    };
+    Some((d, alias))
 }
 
 /// The times offered, from `maintenant`: this evening (before five), tomorrow morning
@@ -112,6 +121,7 @@ pub fn when_label(t: Timestamp, maintenant: NaiveDateTime) -> String {
 pub fn schedule(
     services: &Services,
     draft: &iris_sync::Draft,
+    alias: Option<&iris_types::Address>,
     quand: NaiveDateTime,
 ) -> Result<String> {
     let a = Timestamp::from_millis(iris_calendar::time::zoned_millis(quand, &Local));
@@ -120,7 +130,7 @@ pub fn schedule(
         a,
         draft.to.trim(),
         draft.subject.trim(),
-        &pack(draft),
+        &pack(draft, alias),
         now(),
     )?;
     Ok(format!(
@@ -146,12 +156,13 @@ pub fn rows(services: &Services) -> Vec<iris_ui::ScheduledMailData> {
         .collect()
 }
 
-/// Takes one out of the waiting ones, and gives its draft back.
-pub fn take(services: &Services, id: i64) -> Option<iris_sync::Draft> {
+/// Takes one out of the waiting ones, and gives its draft back, with the address of
+/// the alias it was to go out as.
+pub fn take(services: &Services, id: i64) -> Option<(iris_sync::Draft, Option<String>)> {
     let m = services.store.scheduled_mail_by_id(id).ok().flatten()?;
-    let d = unpack(m.account, &m.payload)?;
+    let (d, alias) = unpack(m.account, &m.payload)?;
     services.store.unschedule_mail(id).ok()?;
-    Some(d)
+    Some((d, alias.map(|a| a.addr)))
 }
 
 /// Sends every message whose time has come (or `seulement` that one, now): composed
@@ -175,12 +186,15 @@ pub fn send_due(
     let mut partis = 0;
     let mut echecs = Vec::new();
     for m in prets {
-        let Some(brouillon) = unpack(m.account, &m.payload) else {
+        let Some((brouillon, alias)) = unpack(m.account, &m.payload) else {
             echecs.push(format!("“{}” could not be read back", m.subject));
             let _ = services.store.unschedule_mail(m.id);
             continue;
         };
-        let envoye = send.compose_full(&brouillon).and_then(|message| {
+        let envoye = send.compose_full(&brouillon).and_then(|mut message| {
+            if let Some(a) = alias {
+                message.from = a;
+            }
             send.set_delay(std::time::Duration::ZERO);
             send.queue(message)
         });
@@ -236,6 +250,10 @@ mod tests {
                 content: vec![0, 1, 2, 255],
             }],
         };
-        assert_eq!(unpack(AccountId(3), &pack(&d)), Some(d));
+        let alias = iris_types::Address::named("Support", "support@example.com");
+        assert_eq!(
+            unpack(AccountId(3), &pack(&d, Some(&alias))),
+            Some((d, Some(alias)))
+        );
     }
 }

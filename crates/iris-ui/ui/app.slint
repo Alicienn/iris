@@ -6,7 +6,8 @@ import {
     AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
-    TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData
+    TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
+    AliasData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -32,7 +33,7 @@ import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import { PluginSettingData } from "@iris/screens/plugins.slint";
 import { ComposePanel, ScheduledPanel } from "@iris/screens/compose.slint";
-import { SignaturePanel } from "@iris/screens/signature.slint";
+import { SignaturePanel, AliasPanel } from "@iris/screens/signature.slint";
 import { SourcePanel } from "@iris/screens/source.slint";
 import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
 import { CalendarView } from "@iris/screens/calendar.slint";
@@ -526,6 +527,11 @@ export component AppWindow inherits Window {
     /// How long a sent message can be taken back, from the settings.
     in-out property <int> undo-send-seconds: 5;
     callback sending-changed();
+    /// The OAuth clients for signing in with Google or Microsoft, as typed in Settings.
+    in-out property <string> oauth-google-id;
+    in-out property <string> oauth-google-secret;
+    in-out property <string> oauth-microsoft-id;
+    callback oauth-changed();
 
     // The notice at the bottom of the window while a message waits to leave.
     in property <bool> send-notice-open;
@@ -662,6 +668,16 @@ export component AppWindow inherits Window {
     callback account-menu-password();
     callback account-menu-signature();
     in-out property <bool> signature-open;
+    /// The addresses the menu's mailbox sends as: its window, filled by Rust.
+    callback account-menu-aliases();
+    in-out property <bool> alias-open;
+    in property <string> alias-account;
+    in property <[AliasData]> alias-rows;
+    in property <string> alias-error;
+    in-out property <string> alias-new-address;
+    in-out property <string> alias-new-name;
+    callback alias-added();
+    callback alias-removed(int);
     in property <string> signature-account;
     in-out property <string> signature-text;
     callback signature-saved();
@@ -1007,6 +1023,10 @@ export component AppWindow inherits Window {
     callback add-account-manual-requested();
     /// "Import a profile": pick a .mobileconfig and fill the fields in from it.
     callback add-account-import();
+    /// A profile holding several accounts: their names, which one fills the fields.
+    in property <[string]> profile-choices;
+    in property <int> profile-choice;
+    callback profile-chosen(int);
     callback add-account-dismissed();
     callback rule-toggled(string, bool);
     callback rule-simulated(string);
@@ -1057,7 +1077,7 @@ export component AppWindow inherits Window {
     /// and no field clicked yet, "e" marked as done the thread displayed behind it.
     property <bool> modal-open: (root.compose-open && !root.compose-minimised)
         || root.settings-open || root.modules-open || root.add-account-open
-        || root.problem-open || root.source-open || root.signature-open
+        || root.problem-open || root.source-open || root.signature-open || root.alias-open
         || root.changelog-open || root.update-open || root.tags-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
@@ -2212,6 +2232,7 @@ export component AppWindow inherits Window {
         edit-account => { root.account-menu-edit(); }
         change-password => { root.account-menu-password(); }
         edit-signature => { root.account-menu-signature(); }
+        edit-aliases => { root.account-menu-aliases(); }
         toggle-pinned => { root.account-menu-pin(); }
         toggle-enabled => { root.account-menu-enable(); }
         remove-account => { root.account-menu-remove(); }
@@ -2359,6 +2380,22 @@ export component AppWindow inherits Window {
         dismissed => { root.source-open = false; }
     }
 
+    if root.alias-open: AliasPanel {
+        width: 100%;
+        height: 100%;
+        account: root.alias-account;
+        rows: root.alias-rows;
+        error: root.alias-error;
+        new-address <=> root.alias-new-address;
+        new-name <=> root.alias-new-name;
+        added => { root.alias-added(); }
+        removed(id) => { root.alias-removed(id); }
+        dismissed => {
+            root.alias-open = false;
+            shortcuts.focus();
+        }
+    }
+
     if root.signature-open: SignaturePanel {
         width: 100%;
         height: 100%;
@@ -2418,6 +2455,9 @@ export component AppWindow inherits Window {
         save-manual => { root.add-account-save(); }
         switch-to-manual => { root.add-account-manual-requested(); }
         import-profile => { root.add-account-import(); }
+        profile-choices: root.profile-choices;
+        profile-choice: root.profile-choice;
+        profile-chosen(i) => { root.profile-chosen(i); }
         dismissed => { root.add-account-dismissed(); }
     }
 
@@ -2444,6 +2484,10 @@ export component AppWindow inherits Window {
         home-at-startup <=> root.home-at-startup;
         undo-send-seconds <=> root.undo-send-seconds;
         sending-changed => { root.sending-changed(); }
+        google-client-id <=> root.oauth-google-id;
+        google-client-secret <=> root.oauth-google-secret;
+        microsoft-client-id <=> root.oauth-microsoft-id;
+        oauth-changed => { root.oauth-changed(); }
         system-note: root.system-note;
         version: root.version;
         update-status: root.update-check-status;

@@ -488,3 +488,6 @@ the application is brought to it screen by screen.
 - [x] **S40.18** What the other clients have (3.11.0): answering an invitation (iTIP
       REPLY), sending later with a Scheduled list, sorting the list, Ctrl+Z in the
       calendar (migration 17).
+- [x] **S40.19** Accounts (3.12.0): browser sign-in with an OAuth client set in
+      Settings (Google's secret sent), aliases to send as (migration 18), a profile's
+      account chosen among several, app passwords accepted for Gmail and Outlook.

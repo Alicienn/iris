@@ -111,6 +111,22 @@ refused by name.
   event before a move or a stretch, a deleted event with its notes, a colour); Ctrl+Z
   in the calendar pops one and puts it back, a task's slot taking its task along.
 
+**Accounts in 3.12.0.**
+
+- **OAuth clients.** The OAuth clients live in the settings file
+  (`OAuthSettings`: Google's client ID and secret, Microsoft's application ID). They
+  are typed in *Settings › Sign in with Google or Microsoft* and take effect for the
+  next sign-in or refresh (`services.oauth`). Google's desktop clients ask their
+  secret back even with PKCE, so `iris_oauth::exchange_code` and `refresh` send
+  `client_secret` when there is one. Adding an account whose provider signs in through
+  the browser, with no client set but a password typed, goes the password way (an
+  app password) instead of failing.
+- **Aliases.** They sit in `account_aliases`. The composer's senders
+  (`shell::EXPEDITEURS`) are each enabled mailbox followed by its aliases, read again
+  when one is added or removed. Sending as an alias composes as the mailbox (its
+  server, its signature) and then replaces `From`. A message sent later keeps its alias
+  in its JSON.
+
 The mail list's day titles (Today, Yesterday, This week, Earlier) are computed in
 `iris_ui::format::day_headers` and ride on the first row of each day, not as items of
 their own: the list keeps one item per conversation. They are given only when the rows
@@ -563,6 +579,7 @@ Iris is refused rather than misread.
 | 15 | A task's `repeat` rule (3.7.0) |
 | 16 | `event_colors`: an event's own colour, by calendar and UID (3.9.0) |
 | 17 | `scheduled_mail` (drafts to send later) and `invite_replies` (answers given, by UID) (3.11.0) |
+| 18 | `account_aliases`: other addresses a mailbox sends as (3.12.0) |
 
 A new table or column always arrives as a new migration.
 

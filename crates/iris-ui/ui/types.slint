@@ -314,6 +314,13 @@ export struct TimedEventData {
     movable: bool,
 }
 
+// An address a mailbox sends as, besides its own.
+export struct AliasData {
+    id: int,
+    address: string,
+    name: string,
+}
+
 // A message waiting to be sent later.
 export struct ScheduledMailData {
     id: int,

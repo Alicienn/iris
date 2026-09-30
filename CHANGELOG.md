@@ -3,6 +3,16 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.12.0 — 2026-09-30
+
+### New
+- Sign in with Google or Microsoft through the browser: paste your OAuth client in Settings, then add the account.
+- Send as: give a mailbox other addresses (right-click it, Send as…); they appear as senders when you write.
+- A configuration profile holding several accounts lets you pick which one to add.
+
+### Fixed
+- A Gmail or Outlook account with an app password can be added without an OAuth client set up.
+
 ## 3.11.0 — 2026-09-30
 
 ### New

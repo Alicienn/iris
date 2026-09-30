@@ -51,8 +51,19 @@
 Your host or IT department sent a configuration profile (`.mobileconfig`, made for
 iPhones and Macs)? **Import a profile** in the same window fills in the servers, and the
 password when the profile carries one; check them and save. Signed profiles are read
-too. A profile with several accounts fills in the first; POP accounts are refused,
-since Iris speaks IMAP.
+too. A profile with several accounts offers a list to pick which one fills the fields;
+POP accounts are refused, since Iris speaks IMAP.
+
+**Signing in with Google or Microsoft.** In *Settings › Sign in with Google or
+Microsoft*, paste the details of an OAuth client for a desktop app. For Google, create
+it in the Google Cloud Console (its client ID and secret). For Outlook, register an
+app in Microsoft Entra (its application ID). Adding a Gmail or Outlook address then
+opens the browser to sign in, with no password to type. Without a client, type an app
+password as the password.
+
+**Send as.** Right-click a mailbox, *Send as…*, to give it the other addresses it may
+send from (aliases the server knows, with a name of their own if you like). They
+appear as senders when you write, after the mailbox's own address.
 
 Passwords are stored in the Windows credential store.
 
@@ -280,8 +291,10 @@ Hover over any button to see its shortcut.
 
 - Windows only for now.
 - IMAP accounts with a password work out of the box. For Gmail, use an
-  [app password](https://myaccount.google.com/apppasswords). Browser sign-in (Gmail,
-  Outlook) is not enabled in published builds yet.
+  [app password](https://myaccount.google.com/apppasswords), or sign in through the
+  browser once you have set an OAuth client of your own in *Settings › Sign in with
+  Google or Microsoft*. Iris ships without one: each provider wants its own
+  registration.
 
 ## Privacy
 

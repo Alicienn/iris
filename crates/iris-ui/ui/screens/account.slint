@@ -3,7 +3,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { Button, ButtonKind } from "@iris/controls/button.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { Modal, ModalFooter } from "@iris/layout/frames.slint";
-import { CheckBox } from "std-widgets.slint";
+import { CheckBox, ComboBox } from "std-widgets.slint";
 
 // Un champ avec son intitulé.
 component Field inherits VerticalLayout {
@@ -62,6 +62,10 @@ export component AccountSetupPanel inherits Rectangle {
     /// Fill the fields in from a configuration profile (.mobileconfig).
     callback import-profile();
     callback dismissed();
+    /// A profile holding several accounts: which fills the fields.
+    in property <[string]> profile-choices;
+    in property <int> profile-choice;
+    callback profile-chosen(int);
 
     Modal {
         width: 100%;
@@ -70,6 +74,23 @@ export component AccountSetupPanel inherits Rectangle {
         card-width: 480px;
         fit: true;
         dismissed => { root.dismissed(); }
+
+        // The profile imported holds several accounts: the one shown, chosen here.
+        if root.profile-choices.length > 1: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: "Account in the profile";
+                font-size: 12px;
+                color: Tokens.text-muted;
+            }
+            ComboBox {
+                height: 32px;
+                accessible-label: "Account in the profile";
+                model: root.profile-choices;
+                current-index: root.profile-choice;
+                selected => { root.profile-chosen(self.current-index); }
+            }
+        }
 
         Field {
             label: "Email address";

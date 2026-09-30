@@ -220,16 +220,23 @@ pub async fn exchange_code(
     endpoint: &dyn TokenEndpoint,
     request: &AuthRequest,
     client_id: &str,
+    client_secret: Option<&str>,
     code: &str,
     now: Timestamp,
 ) -> Result<Tokens> {
-    let params = vec![
+    let mut params = vec![
         ("client_id".to_string(), client_id.to_string()),
         ("code".to_string(), code.to_string()),
         ("code_verifier".to_string(), request.verifier.clone()),
         ("grant_type".to_string(), "authorization_code".to_string()),
         ("redirect_uri".to_string(), request.redirect_uri.clone()),
     ];
+    // Google's desktop clients come with a secret it asks for even with PKCE; it is not
+    // a secret in any real sense (every copy carries it), and Microsoft's public
+    // clients have none.
+    if let Some(s) = client_secret.filter(|s| !s.trim().is_empty()) {
+        params.push(("client_secret".to_string(), s.trim().to_string()));
+    }
 
     let corps = endpoint
         .post_form(request.provider.token_url(), &params)
@@ -242,14 +249,18 @@ pub async fn refresh(
     endpoint: &dyn TokenEndpoint,
     provider: Provider,
     client_id: &str,
+    client_secret: Option<&str>,
     refresh_token: &str,
     now: Timestamp,
 ) -> Result<Tokens> {
-    let params = vec![
+    let mut params = vec![
         ("client_id".to_string(), client_id.to_string()),
         ("refresh_token".to_string(), refresh_token.to_string()),
         ("grant_type".to_string(), "refresh_token".to_string()),
     ];
+    if let Some(s) = client_secret.filter(|s| !s.trim().is_empty()) {
+        params.push(("client_secret".to_string(), s.trim().to_string()));
+    }
 
     let corps = endpoint.post_form(provider.token_url(), &params).await?;
     let mut jetons = parse_tokens(&corps, now)?;
@@ -687,13 +698,25 @@ mod tests {
         let endpoint = FakeEndpoint::with(r#"{"access_token":"a","expires_in":3600}"#);
         let r = begin(Provider::Google, "client", 8080, None, b"g");
 
-        exchange_code(&endpoint, &r, "client", "le-code", now())
-            .await
-            .unwrap();
+        exchange_code(
+            &endpoint,
+            &r,
+            "client",
+            Some("secret-du-bureau"),
+            "le-code",
+            now(),
+        )
+        .await
+        .unwrap();
 
         let requete = endpoint.derniere_requete.lock().unwrap().clone();
         let params: BTreeMap<_, _> = requete.into_iter().collect();
         assert_eq!(params.get("code").map(String::as_str), Some("le-code"));
+        assert_eq!(
+            params.get("client_secret").map(String::as_str),
+            Some("secret-du-bureau"),
+            "Google's desktop client asks for it"
+        );
         assert_eq!(params.get("code_verifier"), Some(&r.verifier));
         assert_eq!(
             params.get("grant_type").map(String::as_str),
@@ -710,6 +733,7 @@ mod tests {
             &endpoint,
             Provider::Google,
             "client",
+            None,
             "ancien-renouv",
             now(),
         )
@@ -724,7 +748,7 @@ mod tests {
     async fn un_nouveau_jeton_de_renouvellement_remplace_l_ancien() {
         let endpoint =
             FakeEndpoint::with(r#"{"access_token":"a","refresh_token":"frais","expires_in":60}"#);
-        let t = refresh(&endpoint, Provider::Google, "c", "ancien", now())
+        let t = refresh(&endpoint, Provider::Google, "c", None, "ancien", now())
             .await
             .unwrap();
         assert_eq!(t.refresh_token.as_deref(), Some("frais"));

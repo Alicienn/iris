@@ -33,10 +33,22 @@ const DELAI_AUTORISATION: Duration = Duration::from_secs(300);
 #[serde(default)]
 pub struct OAuthSettings {
     pub google_client_id: String,
+    /// The secret Google gives a desktop client, and asks back even with PKCE. It is
+    /// not confidential (every copy of an app carries it), so it sits in the settings
+    /// beside the ID. Microsoft's public clients have none.
+    pub google_client_secret: String,
     pub microsoft_client_id: String,
 }
 
 impl OAuthSettings {
+    /// The client secret to send, when the provider's client has one.
+    pub fn client_secret(&self, provider: Provider) -> Option<&str> {
+        match provider {
+            Provider::Google => Some(self.google_client_secret.trim()).filter(|s| !s.is_empty()),
+            Provider::Microsoft => None,
+        }
+    }
+
     pub fn client_id(&self, provider: Provider) -> Option<&str> {
         let brut = match provider {
             Provider::Google => &self.google_client_id,
@@ -144,7 +156,15 @@ pub async fn refresh_access(
         })?;
 
     let endpoint = HttpEndpoint::new()?;
-    let jetons = iris_oauth::refresh(&endpoint, provider, client_id, refresh.expose(), now).await?;
+    let jetons = iris_oauth::refresh(
+        &endpoint,
+        provider,
+        client_id,
+        settings.client_secret(provider),
+        refresh.expose(),
+        now,
+    )
+    .await?;
 
     store_tokens(secrets, email, &jetons)?;
     Ok(jetons.access_token)
@@ -199,7 +219,15 @@ pub async fn authorize(
     let code = iris_oauth::parse_redirect(&redirection.url, &demande.state)?;
 
     let endpoint = HttpEndpoint::new()?;
-    let jetons = iris_oauth::exchange_code(&endpoint, &demande, client_id, &code, now).await?;
+    let jetons = iris_oauth::exchange_code(
+        &endpoint,
+        &demande,
+        client_id,
+        settings.client_secret(provider),
+        &code,
+        now,
+    )
+    .await?;
 
     // Sans jeton de rafraîchissement, le compte se déconnecte en silence au bout
     // d'une heure. Le dire tout de suite vaut mieux que le découvrir demain.
@@ -343,7 +371,7 @@ mod tests {
     fn un_identifiant_client_vide_ou_blanc_ne_compte_pas() {
         let reglages = OAuthSettings {
             google_client_id: "   ".into(),
-            microsoft_client_id: String::new(),
+            ..Default::default()
         };
         assert!(!reglages.is_configured(Provider::Google));
         assert!(!reglages.is_configured(Provider::Microsoft));
@@ -353,7 +381,7 @@ mod tests {
     fn un_identifiant_client_configure_est_rendu_sans_espaces() {
         let reglages = OAuthSettings {
             google_client_id: "  abc.apps.googleusercontent.com  ".into(),
-            microsoft_client_id: String::new(),
+            ..Default::default()
         };
         assert_eq!(
             reglages.client_id(Provider::Google),
@@ -389,7 +417,7 @@ mod tests {
         let (coffre, _d) = coffre();
         let reglages = OAuthSettings {
             google_client_id: "client".into(),
-            microsoft_client_id: String::new(),
+            ..Default::default()
         };
 
         let erreur = refresh_access(

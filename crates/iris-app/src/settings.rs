@@ -285,6 +285,7 @@ mod tests {
             automation: AutomationSettings::MANUAL_ONLY,
             oauth: crate::oauth::OAuthSettings {
                 google_client_id: "abc.apps.googleusercontent.com".into(),
+                google_client_secret: "GOCSPX-exemple".into(),
                 microsoft_client_id: String::new(),
             },
             notifications: false,

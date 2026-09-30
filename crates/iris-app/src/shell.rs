@@ -2074,6 +2074,9 @@ pub fn wire_settings(
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
         fenetre.set_group_by_tags(reglages.accounts_by_tag);
         fenetre.set_home_at_startup(reglages.home_at_startup);
+        fenetre.set_oauth_google_id(reglages.oauth.google_client_id.as_str().into());
+        fenetre.set_oauth_google_secret(reglages.oauth.google_client_secret.as_str().into());
+        fenetre.set_oauth_microsoft_id(reglages.oauth.microsoft_client_id.as_str().into());
 
         // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
         // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
@@ -2145,6 +2148,29 @@ pub fn wire_settings(
             },
         );
         SYSTEME.with(|m| *m.borrow_mut() = Some(minuterie));
+    }
+
+    // --- The OAuth clients: saved as typed, and used from the next sign-in on ---
+    {
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let oauth = Arc::clone(&services.oauth);
+        let faible = fenetre.as_weak();
+        fenetre.on_oauth_changed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let nouveaux = crate::oauth::OAuthSettings {
+                google_client_id: fenetre.get_oauth_google_id().trim().to_string(),
+                google_client_secret: fenetre.get_oauth_google_secret().trim().to_string(),
+                microsoft_client_id: fenetre.get_oauth_microsoft_id().trim().to_string(),
+            };
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.oauth = nouveaux.clone();
+            enregistrer(&reglages);
+            drop(reglages);
+            *oauth.write().expect("réglages OAuth empoisonnés") = nouveaux;
+        });
     }
 
     // --- The first name Home greets ---
@@ -2574,6 +2600,7 @@ pub fn wire_account_setup(
             fenetre.set_new_imap_port(Default::default());
             fenetre.set_new_smtp_host(Default::default());
             fenetre.set_new_smtp_port(Default::default());
+            fenetre.set_profile_choices(ModelRc::default());
         });
     }
     // --- Passer à la main sans attendre l'échec ---
@@ -2584,6 +2611,16 @@ pub fn wire_account_setup(
                 return;
             };
             prefill_manual(&fenetre);
+        });
+    }
+    // --- Another account of the profile, from its list ---
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_profile_chosen(move |i| {
+            if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_profile_choice(i);
+                profile_account_chosen(&fenetre, i.max(0) as usize);
+            }
         });
     }
     // --- A configuration profile (.mobileconfig) ---
@@ -2994,13 +3031,25 @@ async fn ajouter(
 ) -> iris_types::Result<crate::accounts::AddedAccount> {
     etape("Recherche de la configuration…");
     let decouverte = crate::accounts::discover(email).await?;
-    let config = decouverte.config.clone();
+    let mut config = decouverte.config.clone();
 
-    let fournisseur = match config.auth {
+    let mut fournisseur = match config.auth {
         iris_discover::Auth::OAuthGoogle => Some(iris_oauth::Provider::Google),
         iris_discover::Auth::OAuthMicrosoft => Some(iris_oauth::Provider::Microsoft),
         iris_discover::Auth::Password => None,
     };
+    // No client set for that provider, and a password given: an app password, which
+    // Gmail and Outlook still take. The browser is for when a client is set.
+    if let Some(f) = fournisseur {
+        let configure = oauth
+            .read()
+            .expect("réglages OAuth empoisonnés")
+            .is_configured(f);
+        if !configure && !motdepasse.is_empty() {
+            fournisseur = None;
+            config.auth = iris_discover::Auth::Password;
+        }
+    }
 
     let id = match fournisseur {
         Some(fournisseur) => {
@@ -3009,8 +3058,10 @@ async fn ajouter(
                 // Le dire, plutôt que d'ouvrir un navigateur vers une page d'erreur
                 // du fournisseur que personne ne saura interpréter.
                 return Err(iris_types::Error::Config(format!(
-                    "{} exige une connexion par navigateur, et aucun identifiant client                      n'est configuré pour ce fournisseur",
-                    config.provider.as_deref().unwrap_or("ce compte")
+                    "{} signs in with an app password (type it as the password), or through \
+                     the browser once its client is set in Settings › Sign in with Google or \
+                     Microsoft",
+                    config.provider.as_deref().unwrap_or("This account")
                 )));
             }
 
@@ -3102,7 +3153,53 @@ fn fill_from_profile(
     comptes: &[iris_discover::mobileconfig::ProfileAccount],
     fichier: &str,
 ) {
-    let Some(compte) = comptes.first() else {
+    // Several accounts in one profile: a list over the fields to pick which one fills
+    // them, the first to begin with.
+    fenetre.set_profile_choices(ModelRc::new(VecModel::from(if comptes.len() > 1 {
+        comptes
+            .iter()
+            .map(|c| {
+                let adresse = if c.config.email.is_empty() {
+                    c.config.imap_host.as_str()
+                } else {
+                    c.config.email.as_str()
+                };
+                slint::SharedString::from(match &c.description {
+                    Some(d) => format!("{d} ({adresse})"),
+                    None => adresse.to_string(),
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    })));
+    fenetre.set_profile_choice(0);
+    PROFIL.with(|p| *p.borrow_mut() = (comptes.to_vec(), fichier.to_string()));
+    fill_from_profile_account(fenetre, comptes, 0, fichier);
+}
+
+thread_local! {
+    /// The accounts of the profile last imported, for its list to choose among.
+    static PROFIL: std::cell::RefCell<(Vec<iris_discover::mobileconfig::ProfileAccount>, String)> =
+        const { std::cell::RefCell::new((Vec::new(), String::new())) };
+}
+
+/// Another account of the imported profile chosen from its list.
+fn profile_account_chosen(fenetre: &AppWindow, i: usize) {
+    PROFIL.with(|p| {
+        let (comptes, fichier) = &*p.borrow();
+        fill_from_profile_account(fenetre, comptes, i, fichier);
+    });
+}
+
+/// Fills the add-account screen from the profile's account `i`.
+fn fill_from_profile_account(
+    fenetre: &AppWindow,
+    comptes: &[iris_discover::mobileconfig::ProfileAccount],
+    i: usize,
+    fichier: &str,
+) {
+    let Some(compte) = comptes.get(i) else {
         return;
     };
     let c = &compte.config;
@@ -3130,7 +3227,7 @@ fn fill_from_profile(
     }
     if comptes.len() > 1 {
         indice.push_str(&format!(
-            " The profile holds {} accounts: this is the first.",
+            " The profile holds {} accounts: pick another in the list above.",
             comptes.len()
         ));
     }
@@ -4525,6 +4622,80 @@ pub fn wire_account_menu(
         });
     }
 
+    // --- Send as: the mailbox's aliases ---
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_aliases(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let Some(details) = courant() else {
+                return;
+            };
+            fenetre.set_alias_account(details.email.as_str().into());
+            fenetre.set_alias_new_address(Default::default());
+            fenetre.set_alias_new_name(Default::default());
+            fenetre.set_alias_error(Default::default());
+            montrer_alias(&fenetre, &services, details.id);
+            fenetre.set_alias_open(true);
+        });
+    }
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_alias_added(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(details) = courant() else {
+                return;
+            };
+            let adresse = fenetre.get_alias_new_address().trim().to_lowercase();
+            let (bons, _) = iris_sync::parse_recipients(&adresse);
+            if bons.len() != 1 || adresse.contains([',', ';']) {
+                fenetre.set_alias_error("That does not look like one email address.".into());
+                return;
+            }
+            if adresse == details.email.to_lowercase() {
+                fenetre.set_alias_error("That is the mailbox's own address.".into());
+                return;
+            }
+            match services.store.add_alias(
+                details.id,
+                &adresse,
+                fenetre.get_alias_new_name().trim(),
+            ) {
+                Ok(()) => {
+                    fenetre.set_alias_new_address(Default::default());
+                    fenetre.set_alias_new_name(Default::default());
+                    fenetre.set_alias_error(Default::default());
+                    montrer_alias(&fenetre, &services, details.id);
+                    charger_expediteurs(&fenetre, &services);
+                }
+                Err(e) => fenetre.set_alias_error(format!("Could not add it: {e}").into()),
+            }
+        });
+    }
+    {
+        let services = services.clone();
+        let courant = courant.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_alias_removed(move |id| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let _ = services.store.remove_alias(id as i64);
+            if let Some(details) = courant() {
+                montrer_alias(&fenetre, &services, details.id);
+            }
+            charger_expediteurs(&fenetre, &services);
+        });
+    }
+
     // --- Pin, disable, remove ---
     {
         let services = services.clone();
@@ -4837,17 +5008,10 @@ pub fn wire_compose(
     services: &Services,
     send: Arc<SendService>,
     avis: Rc<AvisEnvoi>,
-    accounts: Vec<(iris_types::AccountId, String)>,
     runtime: tokio::runtime::Handle,
 ) {
-    // Which mailboxes can send, in the order the sidebar lists them.
-    let identites = Arc::new(accounts);
-    fenetre.set_compose_senders(ModelRc::new(VecModel::from(
-        identites
-            .iter()
-            .map(|(_, email)| slint::SharedString::from(email.as_str()))
-            .collect::<Vec<_>>(),
-    )));
+    // Which mailboxes can send, and as which addresses (their aliases after them).
+    charger_expediteurs(fenetre, services);
 
     // What is going with the message. Held here rather than in the interface because
     // the bytes are ours: the panel shows names, we keep the files.
@@ -4917,20 +5081,18 @@ pub fn wire_compose(
     {
         let chemin = chemin_brouillon.clone();
         let pieces = Arc::clone(&pieces);
-        let identites = Arc::clone(&identites);
         let send = Arc::clone(&send);
         let faible = fenetre.as_weak();
         fenetre.on_compose_save_draft(move || {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let index = fenetre.get_compose_sender_index().max(0) as usize;
-            let Some((compte, _)) = identites.get(index) else {
+            let Some(exp) = expediteur(fenetre.get_compose_sender_index()) else {
                 fenetre.set_compose_error("No account to keep a draft in.".into());
                 return;
             };
             let brouillon = iris_sync::Draft {
-                account: *compte,
+                account: exp.account,
                 to: fenetre.get_compose_to().to_string(),
                 cc: fenetre.get_compose_cc().to_string(),
                 bcc: fenetre.get_compose_bcc().to_string(),
@@ -5095,7 +5257,6 @@ pub fn wire_compose(
         let send = Arc::clone(&send);
         let avis = Rc::clone(&avis);
         let pieces = Arc::clone(&pieces);
-        let identites = Arc::clone(&identites);
         let chemin_envoi = chemin_brouillon.clone();
         let faible = fenetre.as_weak();
 
@@ -5104,14 +5265,14 @@ pub fn wire_compose(
                 return;
             };
 
-            let index = fenetre.get_compose_sender_index().max(0) as usize;
-            let Some((compte, _)) = identites.get(index) else {
+            let index = fenetre.get_compose_sender_index();
+            let Some(exp) = expediteur(index) else {
                 fenetre.set_compose_error("No account can send.".into());
                 return;
             };
 
             let brouillon = iris_sync::Draft {
-                account: *compte,
+                account: exp.account,
                 to: fenetre.get_compose_to().to_string(),
                 cc: fenetre.get_compose_cc().to_string(),
                 bcc: fenetre.get_compose_bcc().to_string(),
@@ -5121,7 +5282,7 @@ pub fn wire_compose(
             };
 
             let message = match send.compose_full(&brouillon) {
-                Ok(m) => m,
+                Ok(m) => en_tant_que(m, &exp),
                 Err(e) => {
                     fenetre.set_compose_error(e.to_string().into());
                     return;
@@ -5192,15 +5353,13 @@ pub fn wire_compose(
     {
         let services = services.clone();
         let pieces = Arc::clone(&pieces);
-        let identites = Arc::clone(&identites);
         let chemin_envoi = chemin_brouillon.clone();
         let faible = fenetre.as_weak();
         fenetre.on_compose_send_later(move |i| {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let index = fenetre.get_compose_sender_index().max(0) as usize;
-            let Some((compte, _)) = identites.get(index) else {
+            let Some(exp) = expediteur(fenetre.get_compose_sender_index()) else {
                 fenetre.set_compose_error("No account can send.".into());
                 return;
             };
@@ -5212,7 +5371,7 @@ pub fn wire_compose(
                 return;
             };
             let brouillon = iris_sync::Draft {
-                account: *compte,
+                account: exp.account,
                 to: fenetre.get_compose_to().to_string(),
                 cc: fenetre.get_compose_cc().to_string(),
                 bcc: fenetre.get_compose_bcc().to_string(),
@@ -5224,7 +5383,7 @@ pub fn wire_compose(
                 fenetre.set_compose_error("Say who it is for first.".into());
                 return;
             }
-            match crate::later::schedule(&services, &brouillon, quand) {
+            match crate::later::schedule(&services, &brouillon, exp.alias.as_ref(), quand) {
                 Ok(message) => {
                     pieces.lock().expect("poisoned attachments").clear();
                     show_attachments(&fenetre, &[]);
@@ -5303,17 +5462,12 @@ pub fn wire_compose(
     }
     // Back into the composer, as it was written: it waits no more.
     {
-        let (services, pieces, identites, faible) = (
-            services.clone(),
-            Arc::clone(&pieces),
-            Arc::clone(&identites),
-            fenetre.as_weak(),
-        );
+        let (services, pieces, faible) = (services.clone(), Arc::clone(&pieces), fenetre.as_weak());
         fenetre.on_scheduled_edit(move |id| {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let Some(d) = crate::later::take(&services, id as i64) else {
+            let Some((d, alias)) = crate::later::take(&services, id as i64) else {
                 fenetre.set_status("That message is no longer waiting.".into());
                 return;
             };
@@ -5323,7 +5477,14 @@ pub fn wire_compose(
             fenetre.set_compose_show_cc(!d.cc.is_empty() || !d.bcc.is_empty());
             fenetre.set_compose_subject(d.subject.into());
             fenetre.set_compose_body(d.body.into());
-            if let Some(i) = identites.iter().position(|(c, _)| *c == d.account) {
+            // The sender it was to leave as: its mailbox, and its alias if it had one.
+            let rang = EXPEDITEURS.with(|e| {
+                e.borrow().iter().position(|x| {
+                    x.account == d.account
+                        && x.alias.as_ref().map(|a| a.addr.as_str()) == alias.as_deref()
+                })
+            });
+            if let Some(i) = rang {
                 fenetre.set_compose_sender_index(i as i32);
             }
             show_attachments(&fenetre, &d.attachments);
@@ -5353,6 +5514,90 @@ fn rafraichir_plus_tard(fenetre: &AppWindow, services: &Services) {
             .map(|(l, _)| slint::SharedString::from(l))
             .collect::<Vec<_>>(),
     )));
+}
+
+/// The aliases of one mailbox, in their window.
+fn montrer_alias(fenetre: &AppWindow, services: &Services, compte: iris_types::AccountId) {
+    fenetre.set_alias_rows(ModelRc::new(VecModel::from(
+        services
+            .store
+            .aliases()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|a| a.account == compte)
+            .map(|a| iris_ui::AliasData {
+                id: a.id as i32,
+                address: a.address.into(),
+                name: a.name.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
+
+/// Who a message can be sent as: a mailbox, as its own address or one of its aliases.
+#[derive(Debug, Clone)]
+struct Expediteur {
+    account: iris_types::AccountId,
+    /// The alias it goes out as; `None` for the mailbox's own address.
+    alias: Option<iris_types::Address>,
+}
+
+thread_local! {
+    /// The senders the composer offers, in its order: each enabled mailbox, then its
+    /// aliases. Read again when an alias is added or removed.
+    static EXPEDITEURS: std::cell::RefCell<Vec<Expediteur>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Reads the senders again, and gives the composer their labels.
+pub fn charger_expediteurs(fenetre: &AppWindow, services: &Services) {
+    let comptes: Vec<_> = services
+        .store
+        .accounts()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| c.enabled)
+        .collect();
+    let alias = services.store.aliases().unwrap_or_default();
+    let mut liste = Vec::new();
+    let mut libelles = Vec::new();
+    for c in &comptes {
+        liste.push(Expediteur {
+            account: c.id,
+            alias: None,
+        });
+        libelles.push(slint::SharedString::from(c.email.as_str()));
+        for a in alias.iter().filter(|a| a.account == c.id) {
+            let nom = if a.name.trim().is_empty() {
+                c.display_name.trim()
+            } else {
+                a.name.trim()
+            };
+            liste.push(Expediteur {
+                account: c.id,
+                alias: Some(if nom.is_empty() {
+                    iris_types::Address::new(a.address.clone())
+                } else {
+                    iris_types::Address::named(nom.to_string(), a.address.clone())
+                }),
+            });
+            libelles.push(format!("{} (via {})", a.address, c.email).into());
+        }
+    }
+    EXPEDITEURS.with(|e| *e.borrow_mut() = liste);
+    fenetre.set_compose_senders(ModelRc::new(VecModel::from(libelles)));
+}
+
+fn expediteur(index: i32) -> Option<Expediteur> {
+    EXPEDITEURS.with(|e| e.borrow().get(index.max(0) as usize).cloned())
+}
+
+/// A composed message sent as the alias chosen, if one was.
+fn en_tant_que(mut message: iris_smtp::Outgoing, exp: &Expediteur) -> iris_smtp::Outgoing {
+    if let Some(a) = &exp.alias {
+        message.from = a.clone();
+    }
+    message
 }
 
 /// Asks for files and reads them into the draft.
