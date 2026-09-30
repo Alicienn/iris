@@ -13,27 +13,28 @@ export component Segmented inherits Rectangle {
     in property <[color]> tints;
     callback chosen(int);
 
-    height: 30px;
-    width: rang.preferred-width + 6px;
+    height: 28px;
+    width: rang.preferred-width + 4px;
     border-radius: Tokens.radius-medium;
-    background: Tokens.text.transparentize(0.96);
+    background: Tokens.surface-active;
 
     rang := HorizontalLayout {
-        x: 3px;
-        y: 3px;
-        height: parent.height - 6px;
+        x: 2px;
+        y: 2px;
+        height: parent.height - 4px;
         width: self.preferred-width;
         spacing: 2px;
         for option[i] in root.options: Rectangle {
             property <bool> on: i == root.selected;
             property <color> teinte: root.tints.length > i ? root.tints[i] : Tokens.text;
-            width: mot.preferred-width + 18px;
-            border-radius: 6px;
+            width: mot.preferred-width + 22px;
+            border-radius: Tokens.radius-small;
+            // The chosen one is a raised key: the plain surface with a small shadow.
             background: self.on
-                ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.surface-active)
-                : touch.has-hover ? Tokens.surface-hover : transparent;
+                ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.surface)
+                : transparent;
             drop-shadow-blur: self.on && root.tints.length <= i ? 2px : 0px;
-            drop-shadow-color: #00000066;
+            drop-shadow-color: #0000001f;
             drop-shadow-offset-y: 1px;
             animate background { duration: Tokens.instant; }
 
@@ -44,9 +45,10 @@ export component Segmented inherits Rectangle {
 
             mot := Text {
                 text: option;
-                font-size: 12px;
+                font-size: 12.5px;
                 font-weight: parent.on ? 600 : 400;
-                color: parent.on ? (root.tints.length > i ? parent.teinte : Tokens.text) : Tokens.text-secondary;
+                color: parent.on ? (root.tints.length > i ? parent.teinte : Tokens.text)
+                    : touch.has-hover ? Tokens.text : Tokens.text-secondary;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
@@ -58,8 +60,7 @@ export component Segmented inherits Rectangle {
     }
 }
 
-/// The queue's tabs as the title of the list: the chosen one large, the others quiet,
-/// each with its count.
+/// The queue's tabs over the list: words on a plate when chosen, each with its count.
 export component QueueTabs inherits HorizontalLayout {
     in property <[string]> names;
     in property <[string]> counts;
@@ -68,12 +69,16 @@ export component QueueTabs inherits HorizontalLayout {
     in property <int> selected;
     callback chosen(int);
 
-    spacing: 18px;
-    height: 34px;
+    spacing: 2px;
+    height: 28px;
 
     for nom[i] in root.names: onglet := Rectangle {
         property <bool> on: i == root.selected;
-        width: rang.preferred-width;
+        width: rang.preferred-width + 20px;
+        border-radius: Tokens.radius-medium;
+        background: self.on ? Tokens.surface-active
+            : touch.has-hover ? Tokens.surface-hover : transparent;
+        animate background { duration: Tokens.instant; }
 
         accessible-role: tab;
         accessible-label: nom;
@@ -82,20 +87,21 @@ export component QueueTabs inherits HorizontalLayout {
         accessible-action-default => { root.chosen(i); }
 
         rang := HorizontalLayout {
+            x: 10px;
+            width: self.preferred-width;
             spacing: 6px;
             Text {
                 text: nom;
-                font-family: onglet.on ? Tokens.font-display : Tokens.font-family;
-                font-size: onglet.on ? 22px : 14px;
+                font-size: 13px;
                 font-weight: onglet.on ? 600 : 400;
-                color: onglet.on ? Tokens.text : touch.has-hover ? Tokens.text-secondary : Tokens.text-muted;
-                vertical-alignment: bottom;
+                color: onglet.on || touch.has-hover ? Tokens.text : Tokens.text-secondary;
+                vertical-alignment: center;
             }
             if root.counts.length > i && root.counts[i] != "0" && root.counts[i] != "": Text {
                 text: root.counts[i];
-                font-size: onglet.on ? 13px : 12px;
-                color: onglet.on ? Tokens.text-secondary : Tokens.text-muted;
-                vertical-alignment: bottom;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
             }
         }
         touch := TouchArea {
@@ -128,17 +134,19 @@ export component Pill inherits Rectangle {
 
     property <bool> jeton: root.kind == PillKind.token;
     property <color> encre: root.tinted ? root.tint
-        : root.on ? Tokens.accent-text : Tokens.text-secondary;
+        : root.on ? Tokens.accent
+        : touch.has-hover ? Tokens.text : Tokens.text-secondary;
 
-    height: root.jeton ? 26px : 24px;
-    width: rang.preferred-width + 20px;
-    border-radius: self.height / 2;
-    border-width: root.jeton || root.on ? 0px : 1px;
+    // A chip: a small outlined key, the accent's soft ground when on.
+    height: 26px;
+    width: rang.preferred-width + 18px;
+    border-radius: Tokens.radius-medium;
+    border-width: root.jeton || root.on || root.tinted ? 0px : 1px;
     border-color: touch.has-hover ? Tokens.border-strong : Tokens.border;
     background: root.tinted ? root.tint.transparentize(0.88)
-        : root.on ? Tokens.accent
-        : root.jeton ? Tokens.text.transparentize(0.94)
-        : touch.has-hover ? Tokens.surface-hover : transparent;
+        : root.on ? Tokens.accent-soft
+        : root.jeton ? Tokens.surface-active
+        : Tokens.surface;
     animate background { duration: Tokens.instant; }
 
     accessible-role: checkbox;
@@ -147,7 +155,7 @@ export component Pill inherits Rectangle {
     accessible-action-default => { root.toggled(); }
 
     rang := HorizontalLayout {
-        x: 10px;
+        x: 9px;
         width: self.preferred-width;
         spacing: 6px;
         if root.has-dot: Dot {
@@ -158,12 +166,12 @@ export component Pill inherits Rectangle {
         if root.icon != "": Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 12px;
+            size: 13px;
             tint: root.encre;
         }
         Text {
             text: root.text;
-            font-size: 12px;
+            font-size: 12.5px;
             font-weight: root.on || root.tinted ? 600 : 400;
             color: root.encre;
             vertical-alignment: center;

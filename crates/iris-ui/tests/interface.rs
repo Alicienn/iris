@@ -392,13 +392,17 @@ fn piece(nom: &str, genre: &str, taille: &str) -> iris_ui::AttachmentData {
 
 fn une_piece_jointe_s_enregistre_par_son_nom() {
     let f = fenetre();
-    f.set_message(MessageData {
+    // Shown on the card of the message being read.
+    let lu = MessageData {
         attachments: modele(vec![
             piece("devis.pdf", "PDF", "2,4 Mo"),
             piece("plan.png", "Image", "180 ko"),
         ]),
+        expanded: true,
         ..Default::default()
-    });
+    };
+    f.set_message(lu.clone());
+    f.set_messages(modele(vec![lu]));
     f.set_conversation_empty(false);
 
     let enregistres = Rc::new(RefCell::new(Vec::<i32>::new()));
@@ -1070,6 +1074,8 @@ fn message(id: i32, de: &str, deplie: bool) -> MessageData {
         id,
         from: de.into(),
         from_address: "x@y.fr".into(),
+        initials: "HD".into(),
+        tint: Default::default(),
         to: SharedString::new(),
         date: "12:30".into(),
         subject: "Devis".into(),
@@ -1260,9 +1266,13 @@ fn chaque_action_de_lecture_est_atteignable() {
     for label in [
         "Mark as done",
         "Archive",
-        "Snooze until tomorrow",
+        "Snooze…",
+        "Move to Waiting",
+        "Make it a task",
         "Star",
         "Delete",
+        "Read full screen",
+        "More actions",
     ] {
         assert!(par_libelle(&f, label).is_some(), "missing: {label}");
     }
@@ -1285,15 +1295,72 @@ fn archiver_est_rapporte() {
 }
 
 fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
-    // One button, two meanings, decided by what the message currently is.
+    // One entry, two meanings, decided by what the message currently is. It lives
+    // in the toolbar's More menu.
     let f = fenetre();
     f.set_conversation_empty(false);
+    assert!(par_libelle(&f, "Mark as read").is_none(), "only once the menu opens");
+
+    par_libelle(&f, "More actions")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(f.get_reader_menu(), "more");
 
     f.set_selected_unread(true);
     assert!(par_libelle(&f, "Mark as read").is_some());
 
     f.set_selected_unread(false);
     assert!(par_libelle(&f, "Mark as unread").is_some());
+}
+
+fn reporter_demande_jusqu_a_quand() {
+    // Later today, tomorrow morning, the weekend, next week: the one asked for goes
+    // to the conversation being read.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    f.set_selected_thread(42);
+    let reports = Rc::new(RefCell::new(Vec::<(i32, String)>::new()));
+    {
+        let r = Rc::clone(&reports);
+        f.on_menu_snooze(move |id, quand| r.borrow_mut().push((id, quand.to_string())));
+    }
+
+    par_libelle(&f, "Snooze…")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(f.get_reader_menu(), "snooze");
+    par_libelle(&f, "This weekend")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*reports.borrow(), [(42, "weekend".to_string())]);
+    assert_eq!(f.get_reader_menu(), "", "picking closes the menu");
+}
+
+fn lire_en_plein_ecran_ecarte_les_colonnes() {
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    par_libelle(&f, "Read full screen")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert!(f.get_reading_focus());
+    par_libelle(&f, "Leave full screen")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert!(!f.get_reading_focus());
+}
+
+fn en_attente_depuis_la_barre() {
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    let fois = Rc::new(RefCell::new(0));
+    {
+        let n = Rc::clone(&fois);
+        f.on_thread_waiting(move || *n.borrow_mut() += 1);
+    }
+    par_libelle(&f, "Move to Waiting")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*fois.borrow(), 1);
 }
 
 // --- Les dossiers ---
@@ -1351,14 +1418,17 @@ fn beaucoup_de_pieces_jointes_sont_comptees_pas_empilees() {
     // un message qu'on est venu lire.
     let f = fenetre();
     f.set_conversation_empty(false);
-    f.set_message(MessageData {
+    let lu = MessageData {
         attachments: modele(
             (0..12)
                 .map(|i| piece(&format!("f{i}.pdf"), "PDF", "1 Mo"))
                 .collect(),
         ),
+        expanded: true,
         ..Default::default()
-    });
+    };
+    f.set_message(lu.clone());
+    f.set_messages(modele(vec![lu]));
 
     assert!(
         par_libelle(&f, "Open f0.pdf").is_some(),
@@ -1371,10 +1441,13 @@ fn beaucoup_de_pieces_jointes_sont_comptees_pas_empilees() {
 
     let tout = par_libelle(&f, "Show all 12 attachments").expect("le décompte est un bouton");
     tout.invoke_accessible_default_action();
+    // Row after row under the first: the next ones are there (the last ones are
+    // further down the column, past the fold of this window).
     assert!(
-        par_libelle(&f, "Save f11.pdf").is_some(),
+        par_libelle(&f, "Save f4.pdf").is_some(),
         "et il les montre toutes"
     );
+    assert!(par_libelle(&f, "Show all 12 attachments").is_none());
 }
 
 // --- Le menu contextuel d'un compte ---
@@ -1685,6 +1758,15 @@ fn main() {
             "le_bouton_de_lecture_dit_ce_qu_il_va_faire",
             le_bouton_de_lecture_dit_ce_qu_il_va_faire as fn(),
         ),
+        (
+            "reporter_demande_jusqu_a_quand",
+            reporter_demande_jusqu_a_quand as fn(),
+        ),
+        (
+            "lire_en_plein_ecran_ecarte_les_colonnes",
+            lire_en_plein_ecran_ecarte_les_colonnes as fn(),
+        ),
+        ("en_attente_depuis_la_barre", en_attente_depuis_la_barre as fn()),
         (
             "les_indesirables_ne_sont_plus_un_onglet",
             les_indesirables_ne_sont_plus_un_onglet as fn(),

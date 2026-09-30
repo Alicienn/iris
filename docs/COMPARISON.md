@@ -10,7 +10,9 @@ the first afternoon, and never forgive".
 |---|---|
 | Accounts | Many, unified, colour-coded per mailbox |
 | Threading | Across accounts, on References and Message-ID |
-| Triage | A queue — To do / Waiting / Done — instead of a flat inbox |
+| Triage | A queue — To do / Waiting / Done — instead of a flat inbox; Done, Snooze and Archive on a row's hover, as Gmail has them |
+| Snooze | Later today, tomorrow morning, this weekend, next week |
+| Reading | Each message framed, a full-screen mode, attachments as file cards |
 | Folders | Created, renamed and deleted on every mailbox at once |
 | Search | `from:`, `is:unread`, free text, over a local index |
 | Automation | Rules, plus WebAssembly modules in a sandbox with no network |

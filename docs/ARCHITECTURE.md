@@ -19,8 +19,8 @@ Three stances set it apart:
 
 ## Status
 
-The foundation is complete and exercised: the suite holds about **1,475 tests** (1,347
-tests and 128 interface scenarios, measured for 2.0.0),
+The foundation is complete and exercised: the suite holds about **1,472 tests** (1,337
+tests and 135 interface scenarios, measured for 3.1.0),
 including those that genuinely put synchronisation, the plugin sandbox and the rendering
 engine at fault, and two headless interface suites driven by real pointer and key events.
 
@@ -165,7 +165,7 @@ same wherever it lives. A layer only imports the ones above it in this list:
 | `theme/` | `Tokens` (colours, sizes, radii, fonts), `Type` (the named text styles and tones) |
 | `base/` | icons, surfaces (`Glass`, `Floating`, `Backdrop`, flat since 3.0.0), spinner, and the atoms: `Label`, `Dot`, `Kbd`, `Hairline`, `Avatar` |
 | `controls/` | `Button` (primary, secondary, ghost, danger; two sizes; its key), `Link`, `Segmented`, `QueueTabs`, `Pill`, `Check`, `Toggle`, `PriorityTag`, the text fields |
-| `lists/` | `NavItem`, `SectionTitle`, `SelectionMark` (the side columns), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
+| `lists/` | `NavItem`, `SectionTitle` (the side columns), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
 | `layout/` | `Rail`, `PageHeader`, `Plate`, `DetailPanel`, `Toolbar`, `EmptyState`, `Modal` + `ModalFooter`, `Popover`, menus |
 | `shell/` | the rail, the title strip, toast |
 | `screens/` | one file per screen, and its panels |
@@ -208,21 +208,35 @@ is a step; Back and Forward replay a place through the window's own callbacks, w
 recording off. The mouse's buttons, two arrows beside the window buttons, `Alt`+`←` and
 `Alt`+`→`, 100 steps kept.
 
-Mail is three columns: accounts with the folders under them (one column since 2.0.0,
-with **New message** at its top), the work queue, and the conversation with its toolbar
-and a built-in reply. The queue's tabs are the list's title (`QueueTabs`); rows are two
-lines (48 px at normal density, 38 compact, 62 comfortable with the excerpt on a third
-line). Each sender gets a round mark with their initials and a stable tint, the mailbox a
-dot, unread mail a dot in the margin. The accounts group under their tags by default: a
-tag's title folds its accounts (the folded tags are a setting) and a click on it filters
-the queue to its mailboxes, through the same `FilterAccounts` request as one mailbox.
-Tags keep the order they are dragged into.
+Mail is three columns (236, 380 and the rest, redrawn in 3.1.0 after the web design):
+accounts with the folders under them (one column since 2.0.0, with an outlined **New
+message** at its top and, at its foot, when the mail last synced), the work queue, and
+the conversation with its toolbar and a built-in reply. Above the list sit the search
+box, the queues as pills (`QueueTabs`) and the filter chips, over a hairline. Rows run
+edge to edge with a hairline under each, two lines (56 px at normal density, 45
+compact, 73 comfortable with the excerpt on a third line); the chosen one takes the
+accent's soft ground. Each sender gets a round mark with their initials and a stable
+tint, the mailbox a dot, unread mail an accent dot in the margin. On hover a row shows
+Done, Snooze and Archive; they have no touch area of their own — the row's reads where
+it was hit (`action-at`), as it does for the tick box — and they go through the same
+`menu-*` callbacks as the right-click menu. The accounts group under their tags by
+default: a tag's title (its colour, the To do of its mailboxes) folds its accounts (the
+folded tags are a setting) and a click on it filters the queue to its mailboxes, through
+the same `FilterAccounts` request as one mailbox. Tags keep the order they are dragged
+into.
 
-The three side columns share `lists/nav.slint`: one selection mark (a short pill inside
-the row, clear of its rounded corners), one hover, one section title in sentence case.
-Rows are 30 px in the mail, which lists a hundred mailboxes, 32 px elsewhere. Panels
-docked to the window's edge are square, with a hairline between them; only floating
-cards are rounded.
+The conversation runs up to 900 px wide, centred beyond: the subject, the mailbox it
+came to, then each message on a framed card (face, name, address, date; the body under
+the name; the attachments of the message read as file cards, as many to a row as fit).
+The toolbar's Snooze and More open `ReaderMenu` (`reader-menu` in `app.slint`, part of
+`modal-open`); snoozing "weekend" means Saturday 8:00 (`heures_de_report`). Read full
+screen (`reading-focus`) folds the accounts and the list to nothing without destroying
+them, so the list keeps its scroll; `Escape` brings them back.
+
+The three side columns share `lists/nav.slint`: one selection (the active surface and a
+bold label, as on the web; the pill inside the edge went in 3.1.0), one hover, one
+section title in sentence case. Rows are 30 px everywhere. Panels docked to the
+window's edge are square, with a hairline between them; only floating cards are rounded.
 
 ### Keyboard, focus and clicks
 

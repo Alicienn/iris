@@ -1443,10 +1443,109 @@ fn un_champ_d_une_ligne_ne_grandit_pas() {
     }
 }
 
+// --- A row's hover buttons ---
+
+fn les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir() {
+    let f = fenetre();
+    f.set_rows(ModelRc::new(VecModel::from(vec![iris_ui::ThreadRowData {
+        id: 7,
+        from: "Agnès Joly".into(),
+        subject: "Réunion de jeudi".into(),
+        date: "12:05".into(),
+        ..Default::default()
+    }])));
+    let faits = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let reportes = Rc::new(RefCell::new(Vec::<(i32, String)>::new()));
+    let archives = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let ouverts = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let v = Rc::clone(&faits);
+        f.on_menu_done(move |id| v.borrow_mut().push(id));
+        let v = Rc::clone(&reportes);
+        f.on_menu_snooze(move |id, q| v.borrow_mut().push((id, q.to_string())));
+        let v = Rc::clone(&archives);
+        f.on_menu_archive(move |id| v.borrow_mut().push(id));
+        let v = Rc::clone(&ouverts);
+        f.on_thread_selected(move |id| v.borrow_mut().push(id));
+    }
+
+    let rangee = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| {
+            e.accessible_label()
+                .is_some_and(|l| l.starts_with("Agnès Joly"))
+        })
+        .expect("la ligne");
+    // No buttons until the pointer is on the row.
+    assert!(testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .iter()
+        .all(|b| b.accessible_label().as_deref() != Some("Mark this conversation as done")));
+    f.window().dispatch_event(WindowEvent::PointerMoved {
+        position: centre(&rangee),
+    });
+
+    clic(&bouton(&f, "Mark this conversation as done"));
+    clic(&bouton(&f, "Snooze this conversation until tomorrow"));
+    clic(&bouton(&f, "Archive this conversation"));
+    assert_eq!(*faits.borrow(), [7]);
+    assert_eq!(*reportes.borrow(), [(7, "tomorrow".to_string())]);
+    assert_eq!(*archives.borrow(), [7]);
+    assert!(ouverts.borrow().is_empty(), "a button on the row does not open it");
+
+    // Anywhere else on the row, a click opens it.
+    clic(&rangee);
+    assert_eq!(*ouverts.borrow(), [7]);
+}
+
+fn echap_quitte_la_lecture_en_plein_ecran() {
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    clic(&bouton(&f, "Read full screen"));
+    assert!(f.get_reading_focus());
+    echap(&f);
+    assert!(!f.get_reading_focus(), "Escape brings the columns back");
+}
+
+fn le_menu_de_report_garde_le_clavier() {
+    // An open menu owns the keyboard: "e" does not mark the thread behind it as done,
+    // and Escape closes it.
+    let f = fenetre();
+    f.set_conversation_empty(false);
+    let touches = Rc::new(RefCell::new(0));
+    {
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |_| *t.borrow_mut() += 1);
+    }
+    clic(&bouton(&f, "Snooze…"));
+    assert_eq!(f.get_reader_menu(), "snooze");
+    taper(&f, "e");
+    assert_eq!(*touches.borrow(), 0);
+    echap(&f);
+    assert_eq!(f.get_reader_menu(), "");
+}
+
 fn main() {
     testing::init_no_event_loop();
 
     let scenarios: Vec<(&str, fn())> = vec![
+        (
+            "les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir",
+            les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir,
+        ),
+        (
+            "echap_quitte_la_lecture_en_plein_ecran",
+            echap_quitte_la_lecture_en_plein_ecran,
+        ),
+        (
+            "le_menu_de_report_garde_le_clavier",
+            le_menu_de_report_garde_le_clavier,
+        ),
         (
             "une_touche_ne_touche_pas_le_courrier_derriere_la_fenetre",
             une_touche_ne_touche_pas_le_courrier_derriere_la_fenetre,

@@ -28,21 +28,27 @@ export component Dot inherits Rectangle {
     background: root.tint;
 }
 
-/// A key or a chord, as it is pressed: "E", "Ctrl F".
+/// A key or a chord, as it is pressed: "E", "Ctrl F". Outlined, as a keycap.
 export component Kbd inherits Rectangle {
     in property <string> keys;
-    /// On a filled button: darker, quieter.
+    /// On a filled button: in the button's ink, quieter.
     in property <bool> on-accent;
+    /// Inside a button: in the button's ink rather than its own grey.
+    in property <color> ink: Tokens.text-muted;
 
-    width: mot.preferred-width + 10px;
-    height: 16px;
+    width: max(17px, mot.preferred-width + 10px);
+    height: 17px;
     border-radius: 4px;
-    background: root.on-accent ? transparent : Tokens.text.transparentize(0.93);
+    border-width: 1px;
+    border-color: root.on-accent ? Tokens.accent-text.transparentize(0.4)
+        : root.ink == Tokens.text-muted ? Tokens.border-strong : root.ink.transparentize(0.5);
 
     mot := Text {
         text: root.keys;
-        font-size: 10px;
-        color: root.on-accent ? Tokens.accent-text.transparentize(0.45) : Tokens.text-muted;
+        font-size: 10.5px;
+        font-weight: 500;
+        color: root.on-accent ? Tokens.accent-text.transparentize(0.25)
+            : root.ink == Tokens.text-muted ? Tokens.text-muted : root.ink.transparentize(0.4);
         horizontal-alignment: center;
         vertical-alignment: center;
     }

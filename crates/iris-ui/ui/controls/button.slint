@@ -40,11 +40,11 @@ export component Button inherits Rectangle {
         : root.kind == ButtonKind.ghost && !touch.has-hover ? Tokens.text-secondary
         : Tokens.text;
 
-    height: root.size == ButtonSize.sm ? 28px : 32px;
-    width: rang.preferred-width + (root.size == ButtonSize.sm ? 20px : 28px);
+    height: root.size == ButtonSize.sm ? 28px : 30px;
+    width: rang.preferred-width + (root.size == ButtonSize.sm ? 18px : 22px);
     border-radius: Tokens.radius-medium;
     border-width: root.kind == ButtonKind.secondary ? 1px : 0px;
-    border-color: touch.has-hover ? Tokens.border-strong : Tokens.border;
+    border-color: Tokens.border-strong;
     background: root.kind == ButtonKind.primary
         ? (touch.pressed ? Tokens.accent.darker(0.18) : touch.has-hover ? Tokens.accent.darker(0.07) : Tokens.accent)
         : root.kind == ButtonKind.danger
@@ -65,19 +65,19 @@ export component Button inherits Rectangle {
     rang := HorizontalLayout {
         x: (root.width - self.width) / 2;
         width: self.preferred-width;
-        spacing: 8px;
+        spacing: 6px;
         if root.icon != "": Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: root.size == ButtonSize.sm ? 13px : 14px;
-            weight: 2.0;
+            size: root.size == ButtonSize.sm ? 14px : 15px;
+            weight: 1.6;
             tint: root.encre;
             alpha: root.busy ? 0.45 : 1.0;
         }
         if root.text != "": Text {
             text: root.text;
-            font-size: root.size == ButtonSize.sm ? 12px : 13px;
-            font-weight: root.kind == ButtonKind.ghost ? 400 : 600;
+            font-size: root.size == ButtonSize.sm ? 12.5px : 13px;
+            font-weight: root.plein ? 600 : 500;
             color: root.encre;
             vertical-alignment: center;
         }
@@ -85,6 +85,7 @@ export component Button inherits Rectangle {
             y: (parent.height - self.height) / 2;
             keys: root.shortcut;
             on-accent: root.plein;
+            ink: root.encre;
         }
     }
 

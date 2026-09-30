@@ -43,7 +43,7 @@
 
 ## Getting started
 
-1. Click **+** at the top of the accounts column.
+1. Click **+** beside *Accounts* in the accounts column.
 2. Enter your address and password. Iris finds the server settings on its own and tells
    you where it found them.
 3. Your mail arrives, inbox first.
@@ -58,8 +58,8 @@ drag a tag by its handle to change their order; right-click an account and open
 **Tags** to tick its own, or type to find or create one.
 
 The accounts are listed under their tags, in that order. Click a tag's name to see the
-mail of its mailboxes only; click its arrow to fold its mailboxes away. The tag switch
-above the list shows them all in one list instead.
+mail of its mailboxes only; click its arrow to fold its mailboxes away. The tag button
+beside *Accounts* shows them all in one list instead.
 
 ## Getting around
 
@@ -82,12 +82,23 @@ your mail instead, switch off *Open Iris on Home* in *Settings*.
 
 ## Mail
 
-One column on the left holds **New message**, your accounts (grouped by tag) and, under
-them, the folders. The list shows two lines per conversation, the queue (**To do**,
-**Waiting**, **Done**) as its title and the **Unread**, **Attachments** and **Starred**
-filters under it. The reading pane's toolbar names its actions with their keys: **Done**
-`E`, **Archive** `A`, **Snooze** `S`, **To tasks** `T`. Choose how tight the list is in
-*Settings › Density*.
+One column on the left holds **New message**, your accounts (grouped by tag, each tag
+with its colour and what its mailboxes have to do) and, under them, the folders. Its
+foot says when the mail last synced.
+
+The list shows two lines per conversation, under the search box, the queues (**To do**,
+**Waiting**, **Done**) and the **Unread**, **Attachments** and **Starred** filters.
+Point at a conversation for **Done**, **Snooze** and **Archive** without opening it.
+Choose how tight the list is in *Settings › Density*.
+
+The reading pane's toolbar names its actions with their keys: **Done** `E`, **Snooze**
+`S` (which asks until when: later today, tomorrow morning, this weekend, next week),
+**Waiting** `W`, **To task** `T`; then star, archive, delete, **Read full screen**
+(`Escape` to come back) and **More** (forward, read or unread, the source). Each message
+of the conversation sits in its own frame, up to 900 pixels wide, its attachments under
+it as file cards.
+
+*Settings › Rules and plugins* opens the modules.
 
 ## Back and forward
 
@@ -166,12 +177,14 @@ installs it and reopens. You can also check by hand in *Settings › Updates*.
 |---|---|
 | `E` | Mark as done |
 | `A` | Archive |
-| `S` | Snooze until tomorrow |
+| `S` | Snooze until tomorrow morning |
+| `W` | Move to Waiting |
 | `R` | Mark as read or unread |
 | `F` | Star |
 | `Shift`+`3` | Delete |
 | `C` | New message |
-| `Ctrl`+`F` | Search the mail |
+| `/` or `Ctrl`+`F` | Search the mail |
+| `Escape` | Leave full-screen reading, a search, a selection |
 | `Ctrl`+`K` | Command palette |
 | `T` | Add the conversation to tasks |
 | `Ctrl`+`0` | Home |

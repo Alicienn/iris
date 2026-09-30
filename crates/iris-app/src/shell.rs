@@ -111,6 +111,12 @@ pub fn refresh_accounts(
     // unfolds everything, or it would find accounts nobody can see.
     let replies = crate::settings::current().folded_tags;
     let replie = |tag: i64| recherche.is_empty() && replies.contains(&tag);
+    let a_faire = |comptes: &[&&iris_store::Account]| -> u32 {
+        comptes
+            .iter()
+            .map(|c| a_traiter.get(&c.id).copied().unwrap_or(0))
+            .sum()
+    };
     let lignes: Vec<AccountRowData> = if fenetre.get_group_by_tags() {
         let tags = services.store.account_tags().unwrap_or_default();
         let liens = services.store.account_tag_links().unwrap_or_default();
@@ -129,6 +135,7 @@ pub fn refresh_accounts(
                 tag.id,
                 replie(tag.id),
                 dedans.len(),
+                a_faire(&dedans),
             ));
             if !replie(tag.id) {
                 lignes.extend(dedans.into_iter().map(|c| ligne(c)));
@@ -145,6 +152,7 @@ pub fn refresh_accounts(
                 0,
                 replie(0),
                 sans.len(),
+                a_faire(&sans),
             ));
             if !replie(0) {
                 lignes.extend(sans.into_iter().map(|c| ligne(c)));
@@ -345,7 +353,7 @@ pub fn refresh_vitals(
 ) {
     fenetre.set_vitals(reader.sample().summary().into());
     fenetre.set_last_sync(match last_sync {
-        Some(t) => format!("synced {}", crate::vitals::ago(t, now())).into(),
+        Some(t) => format!("Synced {}", crate::vitals::ago(t, now())).into(),
         None => slint::SharedString::default(),
     });
 }
@@ -509,6 +517,10 @@ pub fn wire_callbacks(
     {
         let c = Arc::clone(&controller);
         fenetre.on_thread_done(move || c.send(Request::Apply(iris_viewmodel::Action::Done)));
+    }
+    {
+        let c = Arc::clone(&controller);
+        fenetre.on_thread_waiting(move || c.send(Request::Apply(iris_viewmodel::Action::Waiting)));
     }
     {
         let c = Arc::clone(&controller);
@@ -866,6 +878,14 @@ pub fn apply_snapshot(
             .map(|r| r.flags_union.contains(iris_types::Flags::FLAGGED))
             .unwrap_or(false),
     );
+    // The mailbox it came to, under the subject: its dot and its address.
+    let boite = selectionne
+        .and_then(|r| adresses.get(&r.account))
+        .cloned()
+        .unwrap_or_default();
+    let (r, g, b) = iris_ui::format::account_tint(&boite);
+    fenetre.set_selected_account_email(boite.into());
+    fenetre.set_selected_account_tint(slint::Color::from_rgb_u8(r, g, b));
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
 
     match &snapshot.search {
@@ -1582,6 +1602,12 @@ fn heures_de_report(quand: &str, maintenant: iris_types::Timestamp) -> u32 {
         // n'est pas reporter.
         "monday" => {
             let jours = ((7 - jour) % 7).max(if jour == 0 { 7 } else { 0 });
+            let jours = if jours == 0 { 7 } else { jours };
+            jours * 24 - heure + MATIN
+        }
+        // Samedi matin. Un samedi, le suivant.
+        "weekend" => {
+            let jours = (5 - jour).rem_euclid(7);
             let jours = if jours == 0 { 7 } else { jours };
             jours * 24 - heure + MATIN
         }
@@ -5213,6 +5239,16 @@ mod tests {
 
         let lundi = instant(4, 10);
         assert_eq!(heures_de_report("monday", lundi), 7 * 24 - 10 + 8);
+    }
+
+    #[test]
+    fn le_week_end_est_samedi_matin() {
+        let vendredi = instant(1, 10); // jour 1 = vendredi
+        assert_eq!(heures_de_report("weekend", vendredi), 24 - 10 + 8);
+        let samedi = instant(2, 10);
+        assert_eq!(heures_de_report("weekend", samedi), 7 * 24 - 10 + 8);
+        let lundi = instant(4, 10);
+        assert_eq!(heures_de_report("weekend", lundi), 5 * 24 - 10 + 8);
     }
 
     #[test]

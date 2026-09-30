@@ -75,13 +75,15 @@ pub fn account_row(account: &Account, unread: u32, suspended: bool) -> AccountRo
     }
 }
 
-/// Le titre d'un groupe de comptes : un tag, ou ceux qui n'en ont pas.
+/// Le titre d'un groupe de comptes : un tag, ou ceux qui n'en ont pas. `todo` is what
+/// its accounts have left to deal with, together.
 pub fn account_group_header(
     label: &str,
     tint: Color,
     tag: i64,
     folded: bool,
     members: usize,
+    todo: u32,
 ) -> AccountRowData {
     AccountRowData {
         // Négatif : jamais l'identifiant d'un compte, donc jamais « sélectionné ».
@@ -92,6 +94,9 @@ pub fn account_group_header(
         tag_id: tag as i32,
         folded,
         members: members as i32,
+        count: todo as i32,
+        count_label: short_count(todo as u64).into(),
+        count_full: grouped_count(todo as u64).into(),
         ..Default::default()
     }
 }
@@ -319,6 +324,22 @@ pub fn tile_placeholders(document: &dyn iris_htmlview::TiledDocument) -> Vec<Bod
         .collect()
 }
 
+/// Who sent a message, as shown: the name, or the address when there is none.
+fn sender(message: &StoredMessage) -> &str {
+    if message.from_name.trim().is_empty() {
+        message.from_addr.as_str()
+    } else {
+        message.from_name.as_str()
+    }
+}
+
+/// The sender's face, the same one their row in the list shows.
+fn face(message: &StoredMessage) -> (SharedString, Color) {
+    let nom = sender(message);
+    let (r, g, b) = account_tint(nom);
+    (crate::format::initials(nom).into(), Color::from_rgb_u8(r, g, b))
+}
+
 /// Compose la vue d'un message.
 pub fn message_view(
     message: &StoredMessage,
@@ -326,17 +347,16 @@ pub fn message_view(
     attachments: &[AttachmentData],
     now: Timestamp,
 ) -> MessageData {
+    let (initials, tint) = face(message);
     MessageData {
         // Sans rendu par image, ces deux champs restent inertes.
         body_tiles: ModelRc::default(),
         body_is_image: false,
         body_loading: false,
-        from: if message.from_name.trim().is_empty() {
-            message.from_addr.as_str().into()
-        } else {
-            message.from_name.as_str().into()
-        },
+        from: sender(message).into(),
         from_address: message.from_addr.as_str().into(),
+        initials,
+        tint,
         to: SharedString::default(),
         date: relative_date(message.received, now).into(),
         subject: display_subject(&message.subject).into(),
@@ -360,16 +380,15 @@ pub fn message_view(
 /// lit un en paierait onze pour rien. L'aperçu suffit à retrouver le bon, et le corps
 /// arrive quand on le déplie.
 pub fn message_header(message: &StoredMessage, now: Timestamp) -> MessageData {
+    let (initials, tint) = face(message);
     MessageData {
         body_tiles: ModelRc::default(),
         body_is_image: false,
         body_loading: false,
-        from: if message.from_name.trim().is_empty() {
-            message.from_addr.as_str().into()
-        } else {
-            message.from_name.as_str().into()
-        },
+        from: sender(message).into(),
         from_address: message.from_addr.as_str().into(),
+        initials,
+        tint,
         to: SharedString::default(),
         date: relative_date(message.received, now).into(),
         subject: display_subject(&message.subject).into(),

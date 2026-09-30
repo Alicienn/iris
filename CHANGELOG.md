@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.1.0 — 2026-09-30
+
+### New
+- Done, Snooze and Archive on each conversation when you point at it in the list.
+- Snooze asks until when: later today, tomorrow morning, this weekend or next week.
+- Waiting in the reading toolbar, for a conversation that waits on an answer.
+- Read full screen: the accounts and the list step aside until you press Escape.
+
+### Improved
+- Each message of a conversation sits in its own frame, in a wider reading column.
+- Attachments show under the message they came with, as file cards.
+- The mail list is flatter and easier to scan, the chosen conversation tinted blue.
+- The queues and filters above the list are small pills; the search box is wider.
+- The accounts column: tags with their colour and count, and when mail last synced.
+- Rules and plugins now open from Settings.
+
 ## 3.0.0 — 2026-09-30
 
 ### New

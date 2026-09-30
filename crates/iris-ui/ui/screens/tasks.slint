@@ -4,7 +4,7 @@ import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
 import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
 import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
-import { Nav, SectionTitle, SelectionMark } from "@iris/lists/nav.slint";
+import { Nav, SectionTitle } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
@@ -50,17 +50,12 @@ component PlaceRow inherits Rectangle {
     }
 
     height: Nav.row-height;
-    border-radius: Tokens.radius-small;
+    border-radius: Tokens.radius-medium;
     border-width: root.targeted ? 1.5px : 0px;
     border-color: Tokens.accent;
     background: root.targeted ? Tokens.accent.transparentize(0.8)
         : Nav.background(root.place.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
-
-    SelectionMark {
-        on: root.place.selected && !root.targeted;
-        row-height: root.height;
-    }
 
     accessible-role: button;
     accessible-label: root.place.name;

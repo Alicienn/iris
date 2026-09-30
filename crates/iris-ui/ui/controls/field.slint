@@ -19,10 +19,12 @@ component FieldFrame inherits Rectangle {
     /// itself (the line to add a task).
     in property <bool> bare;
 
-    background: root.bare ? transparent : Tokens.surface-low;
-    border-radius: Tokens.radius-small;
+    // A faint tint of the text colour rather than a plate and a line: a field reads
+    // as a place to type on any ground, and the border is left free to say "focused".
+    background: root.bare ? transparent : Tokens.surface-hover;
+    border-radius: Tokens.radius-medium;
     border-width: root.bare ? 0px : 1px;
-    border-color: root.focused ? Tokens.accent : Tokens.border;
+    border-color: root.focused ? Tokens.accent : transparent;
     opacity: root.enabled ? 1.0 : 0.6;
     animate border-color { duration: Tokens.instant; }
 }
@@ -50,7 +52,7 @@ export component TextField inherits FieldFrame {
     // How far the text has scrolled left to keep the cursor in view.
     property <length> offset: 0px;
     property <length> pad: Tokens.space-2;
-    property <length> gauche: root.icon != "" ? 30px : root.pad;
+    property <length> gauche: root.icon != "" ? 33px : root.pad + 2px;
     property <length> droite: root.shortcut != "" ? touche.width + 12px : root.pad;
     property <length> utile: root.width - root.gauche - root.droite;
 
@@ -83,10 +85,10 @@ export component TextField inherits FieldFrame {
     }
 
     if root.icon != "": Icon {
-        x: 10px;
+        x: 9px;
         y: (parent.height - self.height) / 2;
         data: root.icon;
-        size: 14px;
+        size: 16px;
         tint: Tokens.text-muted;
     }
 

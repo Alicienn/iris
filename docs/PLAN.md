@@ -443,3 +443,12 @@ the application is brought to it screen by screen.
       with their counts, search and settings at its foot; a thin strip for the window.
 - [x] **S40.3** Home as in the reference: the day in a sentence, the one thing next,
       three ways in; the greeting takes the first name set in the settings.
+- [x] **S40.4** Mail as in the reference (3.1.0): outlined New message, tags with their
+      colour and count, the last sync at the column's foot; the queues and filters as
+      pills; flat rows with Done, Snooze and Archive on hover; a toolbar with Snooze
+      until when, Waiting, full-screen reading and More; each message on a framed card
+      up to 900 px wide, its attachments as file cards. No summary or other AI feature.
+- [ ] **S40.5** Calendar as in the reference: outlined New event, a click on a free
+      slot creates the event in place, tinted translucent events, overlaps side by side.
+- [ ] **S40.6** Tasks and goals as in the reference: goals with a target and a date,
+      their pace, and time booked in the calendar to work on them.

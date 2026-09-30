@@ -82,6 +82,7 @@ export component SettingsPanel inherits Rectangle {
     callback automation-changed();
     callback system-changed();
     callback sending-changed();
+    callback open-modules();
     callback dismissed();
 
     Modal {
@@ -257,6 +258,28 @@ export component SettingsPanel inherits Rectangle {
                     font-size: 12px;
                     color: Tokens.warning;
                     wrap: word-wrap;
+                }
+
+                // What acts on mail without you: sorting rules, and plugins.
+                Section { title: "Rules and plugins"; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    vertical-stretch: 0;
+                    min-height: 28px;
+                    Text {
+                        text: "Sort mail as it arrives, and extend Iris.";
+                        font-size: 13px;
+                        color: Tokens.text-secondary;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "Open modules";
+                        label: "Modules: rules and plugins";
+                        size: ButtonSize.sm;
+                        clicked => { root.open-modules(); }
+                    }
                 }
 
                 Section { title: "Updates"; }

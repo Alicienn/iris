@@ -26,7 +26,7 @@ import { ThreadListView, ThreadContextMenu } from "@iris/screens/list.slint";
 import { Sidebar, AccountContextMenu } from "@iris/screens/sidebar.slint";
 import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel }
     from "@iris/screens/folders.slint";
-import { ConversationView } from "@iris/screens/conversation.slint";
+import { ConversationView, ReaderMenu } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
@@ -200,7 +200,6 @@ component StatusBar inherits Rectangle {
     in property <bool> syncing;
     in property <int> pending-ops;
     in property <string> vitals;
-    in property <string> last-sync;
     in property <string> version;
     /// A newer version, when one is published. Empty: up to date, or not yet asked.
     in property <string> update-version;
@@ -290,15 +289,8 @@ component StatusBar inherits Rectangle {
             clicked => { root.open-update(); }
         }
 
-        // When the servers were last heard from. An application that syncs on its own
-        // schedule owes the reader an answer to "is this current", and the only
-        // honest one is the time.
-        if root.last-sync != "": Text {
-            text: root.last-sync;
-            font-size: 11px;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
-        }
+        // (When the servers were last heard from is at the foot of the accounts,
+        // beside the button that syncs them.)
 
         // What it is costing. Same reasoning: it works in the background, so it
         // should say what that costs rather than leave it to the task manager.
@@ -411,6 +403,15 @@ export component AppWindow inherits Window {
     in property <bool> window-maximised;
     in property <bool> selected-unread;
     in property <bool> selected-starred;
+    /// The mailbox the open conversation came to: its address and its colour.
+    in property <string> selected-account-email;
+    in property <color> selected-account-tint;
+    /// Reading full screen: the accounts and the list step aside.
+    in-out property <bool> reading-focus;
+    /// A menu of the reading toolbar, open: "snooze" or "more"; "" for none.
+    in-out property <string> reader-menu;
+    in-out property <length> reader-menu-x;
+    in-out property <length> reader-menu-y;
     in property <bool> loading;
     in property <bool> syncing;
     in property <int> pending-ops;
@@ -546,7 +547,6 @@ export component AppWindow inherits Window {
     callback problem-disable();
     callback sync-account(int);
     callback sync-all();
-    callback open-settings();
     callback window-minimise();
     callback window-toggle-maximise();
     callback window-close();
@@ -569,6 +569,8 @@ export component AppWindow inherits Window {
     callback thread-toggle-unread();
     callback thread-toggle-star();
     callback thread-snooze();
+    /// The open conversation goes to Waiting: an answer is expected.
+    callback thread-waiting();
     callback forward-thread();
     callback thread-done();
     callback account-selected(int);
@@ -933,7 +935,8 @@ export component AppWindow inherits Window {
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
-        || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open;
+        || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
+        || root.reader-menu != "";
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -994,6 +997,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.context-menu-open) {
                 root.context-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.reader-menu != "") {
+                root.reader-menu = "";
                 return accept;
             }
             // Escape asks, like the close button, when something is written; an
@@ -1151,6 +1158,11 @@ export component AppWindow inherits Window {
                 root.search-cleared();
                 return accept;
             }
+            // Escape brings the accounts and the list back after reading full screen.
+            if (event.text == Key.Escape && root.reading-focus) {
+                root.reading-focus = false;
+                return accept;
+            }
 
             // Échap vide la sélection avant tout le reste des files : c'est le geste
             // de sortie d'un mode, et un lot coché est un mode.
@@ -1240,7 +1252,9 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 // Colonne 1 : les comptes.
                 Sidebar {
-                    width: root.sidebar-collapsed ? 48px : 232px;
+                    // Reading full screen: the accounts and the list step aside.
+                    visible: !root.reading-focus;
+                    width: root.reading-focus ? 0px : root.sidebar-collapsed ? 50px : 236px;
                     animate width { duration: Tokens.quick; easing: ease-in-out; }
                     pinned: root.pinned-accounts;
                     others: root.other-accounts;
@@ -1251,6 +1265,8 @@ export component AppWindow inherits Window {
                     filter <=> root.account-filter;
                     syncing: root.syncing-all;
                     sync-progress: root.sync-progress;
+                    last-sync: root.last-sync;
+                    account-total: root.account-count;
                     collapsed <=> root.sidebar-collapsed;
                     account-selected(id) => {
                         root.account-selected(id);
@@ -1267,8 +1283,6 @@ export component AppWindow inherits Window {
                     filter-changed(t) => { root.account-filter-changed(t); }
                     sync-account(id) => { root.sync-account(id); }
                     sync-all => { root.sync-all(); }
-                    open-settings => { root.settings-open = true; }
-                    open-modules => { root.modules-open = true; }
                     open-tags => { root.tags-requested(); }
                     grouped: root.group-by-tags;
                     selected-tag: root.selected-tag;
@@ -1323,11 +1337,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { width: 1px; background: Tokens.border; }
+                Rectangle { width: root.reading-focus ? 0px : 1px; background: Tokens.border; }
 
                 // Colonne 2 : la file de travail.
                 Glass {
-                    width: 360px;
+                    visible: !root.reading-focus;
+                    width: root.reading-focus ? 0px : 380px;
                     radius: 0px;
                     border-width: 0px;
 
@@ -1374,6 +1389,17 @@ export component AppWindow inherits Window {
                         row-mark-toggled(id) => { root.row-mark-toggled(id); }
                         row-drag-started(id) => { root.row-drag-started(id); }
                         row-mark-extended(id) => { root.row-mark-extended(id); }
+                        // The same actions the right-click menu carries, on the row.
+                        row-quick(id, what) => {
+                            if (what == "done") {
+                                root.menu-done(id);
+                            } else if (what == "snooze") {
+                                root.menu-snooze(id, "tomorrow");
+                            } else {
+                                root.menu-archive(id);
+                            }
+                            shortcuts.focus();
+                        }
                         bulk-done => { root.bulk-done(); }
                         bulk-archive => { root.bulk-archive(); }
                         bulk-delete => { root.bulk-delete(); }
@@ -1394,23 +1420,38 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { width: 1px; background: Tokens.border; }
+                Rectangle { width: root.reading-focus ? 0px : 1px; background: Tokens.border; }
 
-                // Colonne 3 : la conversation.
+                // Colonne 3 : la conversation, on the plain surface the list has.
+                Rectangle {
+                background: Tokens.surface;
                 ConversationView {
+                    width: 100%;
+                    height: 100%;
                     body-width-changed(w) => { root.reader-width(w); }
                     message: root.message;
                     messages: root.messages;
                     toggle-message(id) => { root.toggle-message(id); }
                     empty: root.conversation-empty;
-                    unread: root.selected-unread;
                     starred: root.selected-starred;
+                    account-email: root.selected-account-email;
+                    account-tint: root.selected-account-tint;
+                    focused: root.reading-focus;
                     archive => { root.thread-archive(); }
                     delete-thread => { root.thread-delete(); }
-                    toggle-unread => { root.thread-toggle-unread(); }
                     toggle-star => { root.thread-toggle-star(); }
-                    snooze => { root.thread-snooze(); }
-                    forward-thread => { root.forward-thread(); }
+                    waiting => { root.thread-waiting(); }
+                    toggle-focus => { root.reading-focus = !root.reading-focus; }
+                    snooze-menu(mx, my) => {
+                        root.reader-menu-x = mx;
+                        root.reader-menu-y = my;
+                        root.reader-menu = "snooze";
+                    }
+                    more-menu(mx, my) => {
+                        root.reader-menu-x = mx;
+                        root.reader-menu-y = my;
+                        root.reader-menu = "more";
+                    }
                     mark-done => { root.thread-done(); }
                     to-task => { root.thread-to-task(root.selected-thread); }
                     reply-text <=> root.reply-text;
@@ -1423,6 +1464,7 @@ export component AppWindow inherits Window {
                     body-tile-released(m, t) => { root.body-tile-released(m, t); }
                     bodies-suspended: root.bodies-suspended;
                 }
+                }
             }
 
             Rectangle { height: 1px; background: Tokens.border; }
@@ -1431,7 +1473,6 @@ export component AppWindow inherits Window {
                 status <=> root.status;
                 version: root.version;
                 vitals: root.vitals;
-                last-sync: root.last-sync;
                 syncing: root.syncing;
                 pending-ops: root.pending-ops;
                 update-version: root.update-version;
@@ -1889,6 +1930,22 @@ export component AppWindow inherits Window {
         reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
     }
 
+    // The reading toolbar's menus: until when to snooze, and the rarer actions. They
+    // act on the conversation being read.
+    if root.reader-menu != "": ReaderMenu {
+        width: 100%;
+        height: 100%;
+        kind: root.reader-menu;
+        unread: root.selected-unread;
+        menu-x: root.reader-menu-x;
+        menu-y: root.reader-menu-y;
+        snooze(quand) => { root.menu-snooze(root.selected-thread, quand); }
+        forward-thread => { root.forward-thread(); }
+        toggle-unread => { root.thread-toggle-unread(); }
+        view-source => { root.view-source(); }
+        dismissed => { root.reader-menu = ""; }
+    }
+
     if root.compose-open: ComposePanel {
         width: 100%;
         height: 100%;
@@ -1994,6 +2051,11 @@ export component AppWindow inherits Window {
         appearance: root.appearance;
         first-name <=> root.first-name;
         first-name-changed(t) => { root.first-name-changed(t); }
+        // One window for another: the modules replace the settings.
+        open-modules => {
+            root.settings-open = false;
+            root.modules-open = true;
+        }
         density: root.density;
         reply-marks-waiting <=> root.reply-marks-waiting;
         new-message-reopens <=> root.new-message-reopens;

@@ -55,6 +55,21 @@ export component MenuEntry inherits Rectangle {
     }
 }
 
+// What the entries below it are about: "Snooze until".
+export component MenuHeader inherits Rectangle {
+    in property <string> text;
+    height: 24px;
+    Text {
+        x: 9px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+    }
+}
+
 // A thin rule between groups of entries.
 export component MenuSeparator inherits Rectangle {
     height: 9px;

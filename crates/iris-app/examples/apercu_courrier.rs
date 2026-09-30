@@ -5,7 +5,8 @@
 //! $env:SLINT_BACKEND="winit-software"; cargo run -p iris-app --example apercu_courrier -- <dossier>
 //! ```
 //!
-//! Écrit `courrier-compact.png`, `courrier-normal.png` et `courrier-confort.png`.
+//! Écrit `courrier-compact.png`, `courrier-normal.png`, `courrier-confort.png` et
+//! `courrier-plein-ecran.png` (la conversation lue en plein écran).
 
 use iris_app::services::{now, Services};
 use iris_app::settings::Density;
@@ -41,10 +42,15 @@ fn ligne(
         preview: extrait.into(),
         date: date.into(),
         unread: non_lu,
-        message_count: 1,
-        account_tint: slint::Color::from_rgb_u8(0x5b, 0x8d, 0xef),
-        initials: de.chars().take(1).collect::<String>().to_uppercase().into(),
-        sender_tint: slint::Color::from_rgb_u8(0xe0, 0x79, 0x5b),
+        message_count: 1 + id % 3,
+        flagged: id == 4,
+        has_attachment: id % 2 == 0,
+        account_tint: slint::Color::from_rgb_u8(0xe0, 0x8a, 0x3c),
+        initials: iris_ui::format::initials(de).into(),
+        sender_tint: {
+            let (r, g, b) = iris_ui::format::account_tint(de);
+            slint::Color::from_rgb_u8(r, g, b)
+        },
         ..Default::default()
     }
 }
@@ -139,6 +145,8 @@ fn main() {
         id: 11,
         from: "Jérôme Gauthier".into(),
         from_address: "jerome@facades.example.com".into(),
+        initials: "JG".into(),
+        tint: slint::Color::from_rgb_u8(0x7a, 0x8b, 0xa8),
         to: "me".into(),
         date: "Today 14:32".into(),
         subject: "Devis façade — ajustements".into(),
@@ -162,12 +170,17 @@ fn main() {
     let premier = iris_ui::MessageData {
         id: 10,
         from: "Jérôme Gauthier".into(),
+        initials: "JG".into(),
+        tint: slint::Color::from_rgb_u8(0x7a, 0x8b, 0xa8),
         date: "Thu".into(),
         preview: "Voici le devis pour la façade, en deux options comme convenu".into(),
         expanded: false,
         ..Default::default()
     };
     f.set_selected_thread(1);
+    f.set_selected_account_email("contact@atelier.example.com".into());
+    f.set_selected_account_tint(slint::Color::from_rgb_u8(0xe0, 0x8a, 0x3c));
+    f.set_last_sync("Synced 2 min ago".into());
     f.set_message(dernier.clone());
     f.set_messages(ModelRc::new(VecModel::from(vec![premier, dernier])));
     f.set_conversation_empty(false);
@@ -203,6 +216,11 @@ fn main() {
                 }
                 4 => {
                     capture(&f, sortie.join("courrier-confort.png"));
+                    iris_app::shell::appliquer_apparence(&f, &theme, Density::Normal);
+                    f.set_reading_focus(true);
+                }
+                5 => {
+                    capture(&f, sortie.join("courrier-plein-ecran.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

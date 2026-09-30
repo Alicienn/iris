@@ -1,13 +1,13 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextArea } from "@iris/controls/field.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
-import { MessageData, MessageBlockData, BodyTileData } from "@iris/types.slint";
-import { Glass } from "@iris/base/glass.slint";
+import { MessageData, MessageBlockData, BodyTileData, AttachmentData } from "@iris/types.slint";
 import { LoadingLine } from "@iris/base/spinner.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Toolbar } from "@iris/layout/frames.slint";
-import { Hairline } from "@iris/base/atoms.slint";
+import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { Avatar } from "@iris/base/atoms.slint";
 
 // Un bloc du corps du message.
 //
@@ -279,6 +279,260 @@ component BodyTile inherits Rectangle {
     }
 }
 
+// The attachments of a message, as file cards: a badge for the kind, the name, the
+// size.
+//
+// Une par carte, avec son type et sa taille : « devis.pdf » seul ne dit pas s'il faut
+// l'ouvrir maintenant ou attendre d'être au bureau, et « PDF · 2,4 Mo » le dit.
+//
+// As many to a row as the card has room for. Au-delà d'une rangée, les suivantes sont
+// comptées plutôt que dessinées, et le décompte les montre toutes, rangée par rangée.
+component Attachments inherits VerticalLayout {
+    in property <[AttachmentData]> files;
+    in-out property <bool> expanded;
+    callback open(int);
+    callback save(int);
+
+    /// How many cards a row holds, the count included.
+    property <int> par-rang: max(2, floor((root.width - root.padding-left) / 208px));
+    /// How many show while folded: a row, less the place of the count when some
+    /// are left over.
+    property <int> montrees: root.files.length > root.par-rang ? root.par-rang - 1 : root.files.length;
+
+    spacing: 8px;
+
+    for rang[r] in root.expanded ? ceil(root.files.length / root.par-rang) : 1: HorizontalLayout {
+    height: 52px;
+
+    // Each card with the gap after it; those of other rows take no room at all.
+    for piece[i] in root.files: Rectangle {
+        property <bool> ici: root.expanded ? floor(i / root.par-rang) == r : i < root.montrees;
+        width: self.ici ? 208px : 0px;
+        visible: self.ici;
+
+    fichier := Rectangle {
+        property <bool> pdf: piece.kind == "PDF";
+        property <bool> picture: piece.icon == "image";
+        property <color> teinte: self.pdf ? Tokens.error : self.picture ? Tokens.success : Tokens.text-muted;
+        x: 0px;
+        width: 200px;
+        border-radius: Tokens.radius-large;
+        background: piece-touch.has-hover ? Tokens.surface-hover : transparent;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+        animate background { duration: Tokens.instant; }
+
+        // Le clic **ouvre**, et la flèche enregistre : neuf fois sur dix on veut
+        // seulement regarder le fichier, pas le garder.
+        accessible-role: button;
+        accessible-label: "Open " + piece.name;
+        accessible-description: piece.kind + ", " + piece.size;
+        accessible-action-default => { root.open(i); }
+
+        piece-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.open(i); }
+        }
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 10px;
+
+            // The kind, as a small coloured page.
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 30px;
+                height: 36px;
+                border-radius: 4px;
+                background: fichier.teinte.transparentize(0.88);
+                if fichier.pdf || fichier.picture: Text {
+                    text: fichier.pdf ? "PDF" : "IMG";
+                    font-size: 9px;
+                    font-weight: 700;
+                    color: fichier.teinte;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                if !fichier.pdf && !fichier.picture: Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    data: piece.icon == "archive" ? Icons.archive
+                        : piece.icon == "table" ? Icons.list
+                        : piece.icon == "envelope-closed" ? Icons.envelope-closed
+                        : Icons.paperclip;
+                    size: 15px;
+                    tint: Tokens.text-secondary;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 1px;
+                horizontal-stretch: 1;
+                Text {
+                    text: piece.name;
+                    font-size: 12.5px;
+                    font-weight: 500;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
+                Text {
+                    text: piece.size;
+                    font-size: 11.5px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+            }
+
+            // Enregistrer, pour qui veut garder le fichier. Toujours présent, rarement
+            // visible : un `if` le retirerait de l'arbre d'accessibilité, donc du
+            // clavier et des lecteurs d'écran.
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Tokens.radius-small;
+                opacity: piece-touch.has-hover || garder.has-hover ? 1.0 : 0.0;
+                animate opacity { duration: Tokens.instant; }
+                background: garder.has-hover ? Tokens.surface-active : transparent;
+
+                accessible-role: button;
+                accessible-label: "Save " + piece.name;
+                accessible-action-default => { root.save(i); }
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.download;
+                    size: 14px;
+                    tint: Tokens.text;
+                }
+
+                garder := TouchArea {
+                    clicked => { root.save(i); }
+                }
+            }
+        }
+    } // fichier
+    }
+
+    if r == 0 && root.files.length > root.montrees && !root.expanded: Rectangle {
+        width: 60px;
+        border-radius: Tokens.radius-large;
+        background: reste.has-hover ? Tokens.surface-hover : transparent;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+
+        accessible-role: button;
+        accessible-label: "Show all " + root.files.length + " attachments";
+        accessible-action-default => { root.expanded = true; }
+
+        Text {
+            text: "+" + (root.files.length - root.montrees);
+            font-size: 12.5px;
+            color: Tokens.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        reste := TouchArea {
+            clicked => { root.expanded = true; }
+        }
+    }
+
+    Rectangle {}
+    } // rang
+}
+
+// What the reading toolbar's menus hold: until when to snooze, and the rarer actions.
+export component ReaderMenu inherits Rectangle {
+    /// "snooze" or "more".
+    in property <string> kind;
+    in property <bool> unread;
+    in property <length> menu-x;
+    in property <length> menu-y;
+
+    callback snooze(string);
+    callback forward-thread();
+    callback toggle-unread();
+    callback view-source();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    if root.kind == "snooze": MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 230px;
+        menu-height: reports.preferred-height + 8px;
+
+        reports := VerticalLayout {
+            padding: 4px;
+            MenuHeader { text: "Snooze until"; }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Later today";
+                activated => { root.snooze("evening"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.sun;
+                label: "Tomorrow morning";
+                shortcut: "S";
+                activated => { root.snooze("tomorrow"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.calendar;
+                label: "This weekend";
+                activated => { root.snooze("weekend"); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.arrow-right;
+                label: "Next week";
+                activated => { root.snooze("monday"); root.dismissed(); }
+            }
+        }
+    }
+
+    if root.kind == "more": MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        // Opened from the last button of the bar: it hangs to the left of it.
+        menu-x: root.menu-x - 220px;
+        menu-y: root.menu-y;
+        menu-width: 220px;
+        menu-height: autres.preferred-height + 8px;
+
+        autres := VerticalLayout {
+            padding: 4px;
+            // Forward opens the ordinary editor, subject and quote filled in, the
+            // recipient left empty: the one thing a forward cannot guess.
+            MenuEntry {
+                icon: Icons.forward;
+                label: "Forward";
+                activated => { root.forward-thread(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: root.unread ? Icons.envelope-open : Icons.envelope-closed;
+                label: root.unread ? "Mark as read" : "Mark as unread";
+                shortcut: "R";
+                activated => { root.toggle-unread(); root.dismissed(); }
+            }
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.code;
+                label: "View source";
+                activated => { root.view-source(); root.dismissed(); }
+            }
+        }
+    }
+}
+
 // La colonne de lecture, avec la réponse intégrée au bas du fil.
 export component ConversationView inherits VerticalLayout {
     /// Le message le plus récent : c'est lui que l'en-tête et la barre d'actions
@@ -289,8 +543,14 @@ export component ConversationView inherits VerticalLayout {
     in property <bool> empty: true;
     in-out property <string> reply-text;
 
-    in property <bool> unread;
     in property <bool> starred;
+    /// The mailbox the conversation came to.
+    in property <string> account-email;
+    in property <color> account-tint;
+    /// Read full screen, the accounts and the list set aside.
+    in property <bool> focused;
+    /// How wide the thread runs at most; centred beyond.
+    in property <length> column: 900px;
 
     callback send();
     callback load-images();
@@ -299,10 +559,13 @@ export component ConversationView inherits VerticalLayout {
     callback open-attachment(int);
     callback archive();
     callback delete-thread();
-    callback toggle-unread();
     callback toggle-star();
-    callback snooze();
-    callback forward-thread();
+    /// The snooze menu, and where its top left goes (in the window).
+    callback snooze-menu(length, length);
+    /// The menu of the rarer actions, and where its top right goes.
+    callback more-menu(length, length);
+    callback waiting();
+    callback toggle-focus();
     callback mark-done();
     /// The conversation becomes a task.
     callback to-task();
@@ -359,6 +622,9 @@ export component ConversationView inherits VerticalLayout {
     // The toolbar, across the top of the reader: what moves the conversation on, in
     // words with their keys, then what marks it, as icons. Every one of these was
     // once reachable only from the palette or a key nobody had been told about.
+    // What moves the conversation on, in words with their keys; then what marks it,
+    // as icons. Every one of these was once reachable only from the palette or a key
+    // nobody had been told about.
     if !root.empty: Toolbar {
         vertical-stretch: 0;
         Button {
@@ -371,28 +637,35 @@ export component ConversationView inherits VerticalLayout {
             size: ButtonSize.sm;
             clicked => { root.mark-done(); }
         }
-        Button {
-            y: (parent.height - self.height) / 2;
-            text: "Archive";
-            icon: Icons.archive;
-            shortcut: "A";
-            kind: ButtonKind.ghost;
-            size: ButtonSize.sm;
-            clicked => { root.archive(); }
-        }
-        Button {
+        Rectangle { width: 4px; }
+        // Snooze asks until when: later today, tomorrow morning, the weekend, next
+        // week. "S" goes straight to tomorrow morning.
+        snooze-button := Button {
             y: (parent.height - self.height) / 2;
             text: "Snooze";
-            label: "Snooze until tomorrow";
+            label: "Snooze…";
             icon: Icons.clock;
             shortcut: "S";
             kind: ButtonKind.ghost;
             size: ButtonSize.sm;
-            clicked => { root.snooze(); }
+            clicked => {
+                root.snooze-menu(self.absolute-position.x,
+                    self.absolute-position.y + self.height + 6px);
+            }
         }
         Button {
             y: (parent.height - self.height) / 2;
-            text: "To tasks";
+            text: "Waiting";
+            label: "Move to Waiting";
+            icon: Icons.hourglass;
+            shortcut: "W";
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => { root.waiting(); }
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "To task";
             label: "Make it a task";
             icon: Icons.task;
             shortcut: "T";
@@ -403,87 +676,62 @@ export component ConversationView inherits VerticalLayout {
 
         Rectangle { horizontal-stretch: 1; }
 
-        // Forward opens the ordinary editor, subject and quote filled in, the
-        // recipient left empty: the one thing a forward cannot guess.
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: Icons.forward;
-            label: "Forward";
-            clicked => { root.forward-thread(); }
-        }
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: root.unread ? Icons.envelope-closed : Icons.envelope-open;
-            label: root.unread ? "Mark as read" : "Mark as unread";
-            shortcut: "R";
-            clicked => { root.toggle-unread(); }
-        }
         IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.star;
             label: root.starred ? "Remove star" : "Star";
             shortcut: "F";
-            active: root.starred;
+            button-size: 30px;
+            filled: root.starred;
+            tinted: root.starred;
+            tint: Tokens.warning;
             clicked => { root.toggle-star(); }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.archive;
+            label: "Archive";
+            shortcut: "A";
+            button-size: 30px;
+            clicked => { root.archive(); }
         }
         IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.trash;
             label: "Delete";
-            shortcut: "Shift+3";
+            shortcut: "Del";
+            button-size: 30px;
             danger: true;
             clicked => { root.delete-thread(); }
+        }
+        // The conversation alone on screen: the accounts and the list step aside.
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: root.focused ? Icons.collapse : Icons.expand;
+            label: root.focused ? "Leave full screen" : "Read full screen";
+            button-size: 30px;
+            active: root.focused;
+            clicked => { root.toggle-focus(); }
+        }
+        // The rest, less often: forward, read or unread, the source.
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.more;
+            label: "More actions";
+            button-size: 30px;
+            clicked => {
+                root.more-menu(self.absolute-position.x + self.width,
+                    self.absolute-position.y + self.height + 6px);
+            }
         }
     }
 
     if !root.empty: VerticalLayout {
-        padding-left: 28px;
-        padding-right: 28px;
-        padding-top: 22px;
-        padding-bottom: 16px;
+        padding-top: 0px;
+        padding-bottom: 18px;
         spacing: 14px;
 
-        // The subject, large; under it who, from where, and how many.
-        VerticalLayout {
-            spacing: 6px;
-            vertical-stretch: 0;
-            Text {
-                text: root.message.subject;
-                font-family: Tokens.font-display;
-                font-size: 24px;
-                font-weight: 600;
-                color: Tokens.text;
-                wrap: word-wrap;
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                Text {
-                    text: root.message.from;
-                    font-size: 12px;
-                    font-weight: 600;
-                    color: Tokens.text-secondary;
-                }
-                Text {
-                    text: root.message.from-address;
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                    overflow: elide;
-                }
-                if root.messages.length > 1: Text {
-                    text: root.messages.length + " messages";
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                }
-                Rectangle { horizontal-stretch: 1; }
-                Text {
-                    text: root.message.date;
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                }
-            }
-        }
-
-        // Le fil, du plus ancien au plus récent.
+        // Le fil, du plus ancien au plus récent, sous son sujet.
         //
         // C'était **un seul message** : le dernier. Un échange de douze en montrait un
         // et cachait onze, alors que la liste affichait « 12 » à côté du sujet — le
@@ -493,32 +741,86 @@ export component ConversationView inherits VerticalLayout {
         // seulement une question de place, c'est ce qui rend la chose tenable — un
         // corps rendu coûte une rasterisation, et en faire douze pour en lire un
         // paierait onze fois pour rien. Le corps arrive au dépliage.
+        //
+        // The column is generous: the thread runs up to 900 px wide and is centred
+        // beyond that, each message on a card of its own.
         defil := ScrollView {
             vertical-stretch: 1;
-            viewport-height: fil.preferred-height;
+            viewport-height: fil.preferred-height + 26px + 20px;
 
             fil := VerticalLayout {
-                spacing: Tokens.space-2;
+                x: max(40px, (defil.visible-width - root.column) / 2);
+                y: 26px + (1 - root.entree) * 10px;
+                width: min(root.column, defil.visible-width - 80px);
+                // Its own height: given the viewport's, the layout spread the extra
+                // room between the subject and the first card.
+                height: self.preferred-height;
+                spacing: 10px;
                 // A new thread arrives rather than appears: ten pixels and a fade,
                 // over a fifth of a second. Enough to say "this changed", too short
                 // to wait for.
-                y: (1 - root.entree) * 10px;
                 opacity: 0.4 + 0.6 * root.entree;
                 animate y, opacity { duration: 200ms; easing: ease-out; }
 
-                // Each message on a card of its own: the folded ones a quiet line,
-                // the open one framed, so the change of author reads at a glance.
+                // The subject, large; under it the mailbox it came to, and how many.
+                VerticalLayout {
+                    spacing: 6px;
+                    padding-bottom: 10px;
+                    Text {
+                        text: root.message.subject;
+                        font-family: Tokens.font-display;
+                        font-size: 22px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            horizontal-stretch: 0;
+                            if root.account-email != "": Rectangle {
+                                y: (parent.height - self.height) / 2;
+                                width: 7px;
+                                height: 7px;
+                                border-radius: 3.5px;
+                                background: root.account-tint;
+                            }
+                            Text {
+                                text: root.account-email;
+                                font-size: 12.5px;
+                                color: Tokens.text-secondary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                max-width: self.preferred-width;
+                            }
+                        }
+                        if root.messages.length > 1: Text {
+                            text: root.messages.length + " messages";
+                            font-size: 12.5px;
+                            color: Tokens.text-muted;
+                            vertical-alignment: center;
+                            horizontal-stretch: 0;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+
+                // Each message on a card of its own, framed: the folded ones a single
+                // line, the open one with its header and body, so the change of author
+                // reads at a glance.
                 for message[i] in root.messages: Rectangle {
                     height: carte.preferred-height;
                     border-radius: Tokens.radius-large;
                     border-width: 1px;
                     border-color: message.expanded ? Tokens.border-strong : Tokens.border;
-                    background: message.expanded ? transparent : Tokens.surface-low;
+                    background: Tokens.surface;
 
                 carte := VerticalLayout {
-                    padding: message.expanded ? 16px : 4px;
-                    // With a header line above it, the header's own height is the margin.
-                    padding-top: root.messages.length > 1 ? 4px : 16px;
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 4px;
+                    padding-bottom: message.expanded ? 20px : 4px;
                     spacing: 10px;
 
                     // L'en-tête, et la poignée qui déplie et replie — sauf quand il n'y
@@ -530,30 +832,19 @@ export component ConversationView inherits VerticalLayout {
                     // replier le seul message du fil, c'est-à-dire de masquer la totalité
                     // de ce qu'on venait d'ouvrir. Un fil d'un message est le cas le plus
                     // fréquent de tous.
-                    if root.messages.length > 1: Rectangle {
-                        height: 34px;
-                        border-radius: Tokens.radius-small;
-                        background: entete.has-hover ? Tokens.surface-hover : transparent;
-                        animate background { duration: Tokens.instant; }
-
-                        accessible-role: button;
-                        accessible-label: (message.expanded ? "Collapse " : "Expand ")
-                            + message.from + ", " + message.date;
-                        accessible-expanded: message.expanded;
-                        accessible-action-default => { root.toggle-message(message.id); }
+                    // The sender's face and name, their address when open, the date.
+                    // A click folds or unfolds it, when there is more than one.
+                    Rectangle {
+                        height: 48px;
 
                         HorizontalLayout {
-                            padding-left: Tokens.space-1;
-                            padding-right: Tokens.space-1;
-                            spacing: Tokens.space-2;
+                            spacing: 10px;
 
-                            Icon {
+                            Avatar {
                                 y: (parent.height - self.height) / 2;
-                                data: message.expanded
-                                    ? Icons.chevron-down
-                                    : Icons.chevron-right;
-                                size: 12px;
-                                tint: Tokens.text-muted;
+                                initials: message.initials;
+                                tint: message.tint;
+                                size: 30px;
                             }
 
                             Text {
@@ -563,31 +854,49 @@ export component ConversationView inherits VerticalLayout {
                                 color: Tokens.text;
                                 vertical-alignment: center;
                                 overflow: elide;
+                                horizontal-stretch: 0;
+                                max-width: self.preferred-width;
                             }
 
-                            // Replié, l'aperçu prend la place laissée libre : c'est ce
-                            // qui permet de retrouver un message dans un fil sans en
-                            // ouvrir quatre.
-                            if !message.expanded: Text {
-                                text: message.preview;
-                                font-size: Tokens.size-small;
+                            // Open: the address, and to whom. Folded, the preview
+                            // takes the room left: it is what finds a message in a
+                            // thread without opening four.
+                            if message.expanded: Text {
+                                text: message.from-address + (message.to != "" ? " · to " + message.to : "");
+                                font-size: 12px;
                                 color: Tokens.text-muted;
                                 vertical-alignment: center;
                                 overflow: elide;
                                 horizontal-stretch: 1;
                             }
-                            if message.expanded: Rectangle { horizontal-stretch: 1; }
+                            if !message.expanded: Text {
+                                text: message.preview;
+                                font-size: 12.5px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
 
                             Text {
                                 text: message.date;
-                                font-size: Tokens.size-small;
+                                font-size: 12px;
                                 color: Tokens.text-muted;
                                 vertical-alignment: center;
                             }
                         }
 
-                        entete := TouchArea {
-                            clicked => { root.toggle-message(message.id); }
+                        if root.messages.length > 1: Rectangle {
+                            accessible-role: button;
+                            accessible-label: (message.expanded ? "Collapse " : "Expand ")
+                                + message.from + ", " + message.date;
+                            accessible-expanded: message.expanded;
+                            accessible-action-default => { root.toggle-message(message.id); }
+
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.toggle-message(message.id); }
+                            }
                         }
                     }
 
@@ -625,8 +934,10 @@ export component ConversationView inherits VerticalLayout {
                         }
                     }
 
+                    // Text bodies sit under the name, clear of the face.
                     if message.expanded && !message.body-loading && !message.body-is-image: VerticalLayout {
-                        spacing: Tokens.space-2;
+                        padding-left: 40px;
+                        spacing: 10px;
                         for block in message.blocks: MessageBlock {
                             block: block;
                         }
@@ -642,181 +953,20 @@ export component ConversationView inherits VerticalLayout {
                             color: Tokens.text-muted;
                         }
                     }
+
+                    // The attachments of the message being read, as file cards
+                    // under its body: what it is, how big.
+                    if message.expanded && message.id == root.message.id
+                        && root.message.attachments.length > 0: Attachments {
+                        padding-left: message.body-is-image ? 0px : 40px;
+                        padding-top: 6px;
+                        files: root.message.attachments;
+                        expanded <=> root.attachments-expanded;
+                        open(i) => { root.open-attachment(i); }
+                        save(i) => { root.save-attachment(i); }
+                    }
                 } // carte
                 }
-            }
-        }
-
-        // Le bandeau des pièces jointes.
-        //
-        // Une par pastille, avec son type et sa taille : « devis.pdf » seul ne dit pas
-        // s'il faut l'ouvrir maintenant ou attendre d'être au bureau, et « PDF · 2,4 Mo »
-        // le dit. Un glyphe « ▣ » tenait lieu d'icône ; c'était un carré vide dans la
-        // plupart des polices.
-        //
-        // La rangée **défile horizontalement** au lieu de s'empiler. Douze pièces
-        // jointes sur trois rangs mangeraient la moitié du volet de lecture pour un
-        // message qu'on est venu lire ; sur une rangée qui défile, elles coûtent
-        // toujours la même hauteur.
-        if root.message.attachments.length > 0: HorizontalLayout {
-            vertical-stretch: 0;
-            height: 42px;
-            spacing: Tokens.space-2;
-
-            Icon {
-                y: (parent.height - self.height) / 2;
-                data: Icons.paperclip;
-                size: 14px;
-                tint: Tokens.text-muted;
-            }
-
-            Text {
-                text: root.message.attachments.length;
-                font-size: Tokens.size-small;
-                font-weight: Tokens.weight-bold;
-                color: Tokens.text-secondary;
-                vertical-alignment: center;
-            }
-
-            // Une rangée simple, qui déborde plutôt qu'elle ne défile.
-            //
-            // Un « Flickable » aurait défilé, mais ses enfants ne se laissent pas
-            // atteindre par l'arbre d'accessibilité, et une pastille qu'un lecteur
-            // d'écran ne voit pas est une pastille qui n'existe pas pour la moitié des
-            // gens. Le débordement est borné autrement : au-delà de quatre pièces
-            // jointes, les suivantes sont comptées plutôt que dessinées, et le
-            // décompte ouvre la liste entière.
-            HorizontalLayout {
-                horizontal-stretch: 1;
-                spacing: Tokens.space-2;
-
-                for piece[i] in root.message.attachments: Rectangle {
-                    width: (i < 4 || root.attachments-expanded) ? 190px : 0px;
-                    visible: i < 4 || root.attachments-expanded;
-                    border-radius: Tokens.radius-small;
-                    background: piece-touch.has-hover
-                        ? Tokens.surface-hover
-                        : Tokens.surface;
-                    border-width: 1px;
-                    border-color: Tokens.border;
-                    animate background { duration: Tokens.instant; }
-
-                    // Le clic **ouvre**, et la flèche enregistre.
-                    //
-                    // Neuf fois sur dix on veut seulement regarder le PDF, pas le
-                    // garder — et enregistrer puis retrouver le fichier dans
-                    // l'explorateur faisait trois gestes là où tout autre client en
-                    // demande un. Le geste rare garde son bouton ; le geste courant
-                    // prend la pastille entière.
-                    accessible-role: button;
-                    accessible-label: "Open " + piece.name;
-                    accessible-description: piece.kind + ", " + piece.size;
-                    accessible-action-default => { root.open-attachment(i); }
-
-                    HorizontalLayout {
-                        padding-left: Tokens.space-2;
-                        padding-right: Tokens.space-2;
-                        spacing: Tokens.space-2;
-
-                        Icon {
-                            y: (parent.height - self.height) / 2;
-                            data: piece.icon == "image" ? Icons.image
-                                : piece.icon == "archive" ? Icons.archive
-                                : piece.icon == "table" ? Icons.list
-                                : piece.icon == "file-text" ? Icons.quote
-                                : piece.icon == "envelope-closed" ? Icons.envelope-closed
-                                : Icons.paperclip;
-                            size: 16px;
-                            tint: Tokens.text-secondary;
-                        }
-
-                        VerticalLayout {
-                            alignment: center;
-                            spacing: 1px;
-
-                            Text {
-                                text: piece.name;
-                                font-size: Tokens.size-small;
-                                color: Tokens.text;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: piece.kind + " · " + piece.size;
-                                font-size: 10px;
-                                color: Tokens.text-muted;
-                                overflow: elide;
-                            }
-                        }
-
-                        // Enregistrer, pour qui veut garder le fichier. Déclaré après
-                        // la zone tactile de la pastille dans l'ordre du dessin mais
-                        // **au-dessus** d'elle pour l'événement, puisque le dernier
-                        // frère l'emporte : c'est ce qui permet à un bouton dans un
-                        // bouton de faire autre chose que son parent.
-                        // Toujours présent, rarement visible — la même règle que la
-                        // case à cocher d'une ligne de liste, et pour deux raisons.
-                        // Un `if` le retirerait de l'arbre d'accessibilité, donc du
-                        // clavier et des lecteurs d'écran ; et il ferait sauter la
-                        // largeur de la pastille à chaque passage de souris.
-                        Rectangle {
-                            width: 20px;
-                            height: 20px;
-                            y: (parent.height - self.height) / 2;
-                            border-radius: Tokens.radius-small;
-                            opacity: piece-touch.has-hover || garder.has-hover ? 1.0 : 0.0;
-                            animate opacity { duration: Tokens.instant; }
-                            background: garder.has-hover
-                                ? Tokens.surface-active
-                                : transparent;
-
-                            accessible-role: button;
-                            accessible-label: "Save " + piece.name;
-                            accessible-action-default => { root.save-attachment(i); }
-
-                            Icon {
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
-                                data: Icons.chevron-down;
-                                size: 13px;
-                                tint: Tokens.text;
-                            }
-
-                            garder := TouchArea {
-                                clicked => { root.save-attachment(i); }
-                            }
-                        }
-                    }
-
-                    piece-touch := TouchArea {
-                        clicked => { root.open-attachment(i); }
-                    }
-                }
-
-                if root.message.attachments.length > 4 && !root.attachments-expanded: Rectangle {
-                    width: 78px;
-                    border-radius: Tokens.radius-small;
-                    background: reste.has-hover ? Tokens.surface-hover : transparent;
-                    border-width: 1px;
-                    border-color: Tokens.border;
-
-                    accessible-role: button;
-                    accessible-label: "Show all "
-                        + root.message.attachments.length + " attachments";
-                    accessible-action-default => { root.attachments-expanded = true; }
-
-                    Text {
-                        text: "+" + (root.message.attachments.length - 4);
-                        font-size: Tokens.size-small;
-                        color: Tokens.text-secondary;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    reste := TouchArea {
-                        clicked => { root.attachments-expanded = true; }
-                    }
-                }
-
-                Rectangle {}
             }
         }
 
@@ -824,34 +974,37 @@ export component ConversationView inherits VerticalLayout {
         // répondre est le geste qui fait avancer le workflow, il ne doit rien
         // recouvrir.
         // One line until it is written in; it grows with what is written, up to a
-        // few lines.
+        // few lines. It lines up with the thread above it.
         Rectangle {
             vertical-stretch: 0;
-            height: root.reply-text == "" ? 54px : 120px;
-            border-radius: Tokens.radius-large;
-            border-width: 1px;
-            border-color: Tokens.border-strong;
-            background: Tokens.surface;
+            height: root.reply-text == "" ? 84px : 160px;
 
-            HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                padding-top: 8px;
-                padding-bottom: 8px;
-                spacing: 8px;
-
-                TextArea {
-                    bare: true;
-                    accessible-label: "Your reply";
-                    text <=> root.reply-text;
-                    placeholder-text: "Reply…";
-                    font-size: 13px;
-                }
+            Rectangle {
+                x: max(40px, (root.width - root.column) / 2);
+                width: min(root.column, root.width - 80px);
+                border-radius: Tokens.radius-large;
+                border-width: 1px;
+                border-color: champ.has-focus ? Tokens.accent : Tokens.border-strong;
+                background: Tokens.surface;
 
                 VerticalLayout {
-                    alignment: end;
+                    padding: 4px;
+                    padding-bottom: 6px;
+                    spacing: 0px;
+
+                    champ := TextArea {
+                        bare: true;
+                        accessible-label: "Your reply";
+                        text <=> root.reply-text;
+                        placeholder-text: "Reply to " + root.message.from + "…";
+                        font-size: Tokens.size-body;
+                        min-height: 36px;
+                    }
+
                     HorizontalLayout {
                         spacing: 6px;
+                        alignment: end;
+                        height: 28px;
                         Button {
                             text: "Reply all";
                             icon: Icons.reply-all;
@@ -865,7 +1018,7 @@ export component ConversationView inherits VerticalLayout {
                         Button {
                             text: "Send";
                             icon: Icons.send;
-                            kind: ButtonKind.primary;
+                            kind: ButtonKind.secondary;
                             size: ButtonSize.sm;
                             enabled: root.reply-text != "";
                             clicked => { root.send(); }
