@@ -5301,7 +5301,7 @@ pub fn wire_compose(
                     brouillon.body.clone(),
                     brouillon.attachments.clone(),
                     fenetre.get_compose_show_cc(),
-                    index as i32,
+                    index,
                 );
                 move |fenetre: &AppWindow| {
                     let (a, cc, cci, objet, corps, jointes, copies, expediteur) = ecrit;

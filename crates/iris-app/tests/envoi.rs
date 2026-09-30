@@ -122,7 +122,8 @@ fn a_sent_message_leaves_new_message_empty() {
         Some(iris_secrets::Secret::new("test")),
     )
     .unwrap();
-    let compte = services
+    // The composer offers it as a sender, read from the base.
+    services
         .store
         .create_account(
             &iris_store::NewAccount::new("moi@example.com", "imap.example.com", "smtp.example.com"),
@@ -151,7 +152,6 @@ fn a_sent_message_leaves_new_message_empty() {
         &services,
         Arc::clone(&envoi),
         avis,
-        vec![(compte, "moi@example.com".into())],
         runtime.handle().clone(),
     );
     f.set_undo_send_seconds(5);
