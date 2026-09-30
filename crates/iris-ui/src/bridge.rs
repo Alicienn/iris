@@ -337,7 +337,10 @@ fn sender(message: &StoredMessage) -> &str {
 fn face(message: &StoredMessage) -> (SharedString, Color) {
     let nom = sender(message);
     let (r, g, b) = account_tint(nom);
-    (crate::format::initials(nom).into(), Color::from_rgb_u8(r, g, b))
+    (
+        crate::format::initials(nom).into(),
+        Color::from_rgb_u8(r, g, b),
+    )
 }
 
 /// Compose la vue d'un message.

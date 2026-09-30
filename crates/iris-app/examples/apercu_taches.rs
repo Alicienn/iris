@@ -166,7 +166,13 @@ fn main() {
     services.store.update_task(devis, &d, t).unwrap();
 
     // Goals: one counted, on track; one in milestones; one behind.
-    let objectif = |titre: &str, jalons: bool, cible: i32, unite: &str, depuis: i64, dans: i64, couleur: &str| {
+    let objectif = |titre: &str,
+                    jalons: bool,
+                    cible: i32,
+                    unite: &str,
+                    depuis: i64,
+                    dans: i64,
+                    couleur: &str| {
         services
             .store
             .create_goal(
@@ -191,24 +197,61 @@ fn main() {
             )
             .unwrap()
     };
-    let stages = objectif("Send 10 internship applications", false, 10, "applications", -13, 18, "#5b7cf0");
-    for (j, note) in [(-11, "Studio Nord"), (-8, "Atelier Martin"), (-4, "Façades Gauthier"), (-1, "Called Bloc Studio, they want a mail")] {
+    let stages = objectif(
+        "Send 10 internship applications",
+        false,
+        10,
+        "applications",
+        -13,
+        18,
+        "#5b7cf0",
+    );
+    for (j, note) in [
+        (-11, "Studio Nord"),
+        (-8, "Atelier Martin"),
+        (-4, "Façades Gauthier"),
+        (-1, "Called Bloc Studio, they want a mail"),
+    ] {
         services.store.log_goal(stages, note, a(j, 11, 0)).unwrap();
     }
     let site = objectif("Launch the new website", true, 1, "", -20, 25, "#e8a45b");
-    for (k, m) in ["Brief", "Wireframes", "Design", "Content", "Launch"].iter().enumerate() {
+    for (k, m) in ["Brief", "Wireframes", "Design", "Content", "Launch"]
+        .iter()
+        .enumerate()
+    {
         let id = services.store.add_milestone(site, m).unwrap();
         if k < 2 {
-            services.store.set_milestone_done(id, Some(a(-15 + k as i64 * 6, 10, 0))).unwrap();
+            services
+                .store
+                .set_milestone_done(id, Some(a(-15 + k as i64 * 6, 10, 0)))
+                .unwrap();
         }
     }
-    let livres = objectif("Read 4 books this term", false, 4, "books", -40, 30, "#6fb7a4");
-    services.store.log_goal(livres, "The Old Man and the Sea", a(-30, 20, 0)).unwrap();
-    for (titre, j) in [("Find 5 more companies in Lyon", 0), ("Update the CV with the last project", 1), ("Write the application to Bloc Studio", 2)] {
+    let livres = objectif(
+        "Read 4 books this term",
+        false,
+        4,
+        "books",
+        -40,
+        30,
+        "#6fb7a4",
+    );
+    services
+        .store
+        .log_goal(livres, "The Old Man and the Sea", a(-30, 20, 0))
+        .unwrap();
+    for (titre, j) in [
+        ("Find 5 more companies in Lyon", 0),
+        ("Update the CV with the last project", 1),
+        ("Write the application to Bloc Studio", 2),
+    ] {
         let id = ajoute(perso, titre, jour(j), None, 0);
         let mut t = services.store.task(id).unwrap().unwrap().task;
         t.goal_id = Some(stages);
-        services.store.update_task(id, &t, iris_types::Timestamp::EPOCH).unwrap();
+        services
+            .store
+            .update_task(id, &t, iris_types::Timestamp::EPOCH)
+            .unwrap();
     }
 
     let cal = services.store.calendars().unwrap()[0].id;

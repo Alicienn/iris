@@ -1299,7 +1299,10 @@ fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
     // in the toolbar's More menu.
     let f = fenetre();
     f.set_conversation_empty(false);
-    assert!(par_libelle(&f, "Mark as read").is_none(), "only once the menu opens");
+    assert!(
+        par_libelle(&f, "Mark as read").is_none(),
+        "only once the menu opens"
+    );
 
     par_libelle(&f, "More actions")
         .unwrap()
@@ -1816,7 +1819,10 @@ fn main() {
             "lire_en_plein_ecran_ecarte_les_colonnes",
             lire_en_plein_ecran_ecarte_les_colonnes as fn(),
         ),
-        ("en_attente_depuis_la_barre", en_attente_depuis_la_barre as fn()),
+        (
+            "en_attente_depuis_la_barre",
+            en_attente_depuis_la_barre as fn(),
+        ),
         (
             "les_indesirables_ne_sont_plus_un_onglet",
             les_indesirables_ne_sont_plus_un_onglet as fn(),

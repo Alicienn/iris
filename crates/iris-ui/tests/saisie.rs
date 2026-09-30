@@ -1496,7 +1496,10 @@ fn les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir() {
     assert_eq!(*faits.borrow(), [7]);
     assert_eq!(*reportes.borrow(), [(7, "tomorrow".to_string())]);
     assert_eq!(*archives.borrow(), [7]);
-    assert!(ouverts.borrow().is_empty(), "a button on the row does not open it");
+    assert!(
+        ouverts.borrow().is_empty(),
+        "a button on the row does not open it"
+    );
 
     // Anywhere else on the row, a click opens it.
     clic(&rangee);
@@ -1541,7 +1544,8 @@ fn un_creneau_du_lundi(f: &AppWindow) -> slint::LogicalPosition {
 }
 
 fn cliquer_a(f: &AppWindow, position: slint::LogicalPosition) {
-    f.window().dispatch_event(WindowEvent::PointerMoved { position });
+    f.window()
+        .dispatch_event(WindowEvent::PointerMoved { position });
     f.window().dispatch_event(WindowEvent::PointerPressed {
         position,
         button: PointerEventButton::Left,
@@ -1589,7 +1593,10 @@ fn echap_abandonne_le_creneau_tape() {
     assert!(champ_existe(&f, "New event title"));
     taper(&f, "Oops");
     echap(&f);
-    assert!(!champ_existe(&f, "New event title"), "Escape drops the line");
+    assert!(
+        !champ_existe(&f, "New event title"),
+        "Escape drops the line"
+    );
     assert_eq!(*crees.borrow(), 0);
 }
 

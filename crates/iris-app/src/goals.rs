@@ -143,7 +143,11 @@ pub fn remplir(
     )));
     f.set_goal_names(ModelRc::new(VecModel::from(
         std::iter::once(SharedString::from("None"))
-            .chain(objectifs.iter().map(|g| SharedString::from(g.goal.title.as_str())))
+            .chain(
+                objectifs
+                    .iter()
+                    .map(|g| SharedString::from(g.goal.title.as_str())),
+            )
             .collect::<Vec<_>>(),
     )));
     f.set_goal_nudges(ModelRc::new(VecModel::from(if sur_today {
@@ -306,7 +310,9 @@ pub fn creer(f: &AppWindow, services: &Services) -> Result<i64, String> {
 /// Opens the window to set time aside for a goal: on the next weekday, at 18:00, an
 /// hour.
 pub fn ouvrir_temps(f: &AppWindow) {
-    let demain = (Local::now().date_naive() + Duration::days(1)).weekday().num_days_from_monday();
+    let demain = (Local::now().date_naive() + Duration::days(1))
+        .weekday()
+        .num_days_from_monday();
     f.set_goal_time_days(ModelRc::new(VecModel::from(
         (0..7).map(|i| i == demain.min(4)).collect::<Vec<_>>(),
     )));
@@ -318,9 +324,7 @@ pub fn ouvrir_temps(f: &AppWindow) {
 
 pub fn basculer_jour(f: &AppWindow, i: i32) {
     let mut jours: Vec<bool> = (0..7)
-        .map(|k| {
-            slint::Model::row_data(&f.get_goal_time_days(), k).unwrap_or(false)
-        })
+        .map(|k| slint::Model::row_data(&f.get_goal_time_days(), k).unwrap_or(false))
         .collect();
     if let Some(j) = jours.get_mut(i as usize) {
         *j = !*j;
@@ -373,7 +377,11 @@ pub fn bloquer(f: &AppWindow, services: &Services, goal: i64) -> Result<String, 
         .find(|c| !c.is_subscription())
         .ok_or("There is no calendar of your own to put it in.")?;
     const JOURS: [&str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
-    let byday = jours.iter().map(|k| JOURS[*k]).collect::<Vec<_>>().join(",");
+    let byday = jours
+        .iter()
+        .map(|k| JOURS[*k])
+        .collect::<Vec<_>>()
+        .join(",");
     let jusqu = fin_objectif.format("%Y%m%dT235959").to_string();
     let a = iris_calendar::time::zoned_millis(premier.and_time(debut), &Local);
     let evenement = NewEvent {
@@ -396,7 +404,11 @@ pub fn bloquer(f: &AppWindow, services: &Services, goal: i64) -> Result<String, 
         .insert_event(calendrier.id, &evenement, now())
         .map_err(|e| e.to_string())?;
     const NOMS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    let noms = jours.iter().map(|k| NOMS[*k]).collect::<Vec<_>>().join(", ");
+    let noms = jours
+        .iter()
+        .map(|k| NOMS[*k])
+        .collect::<Vec<_>>()
+        .join(", ");
     let fin = debut + Duration::minutes(minutes);
     Ok(format!(
         "Blocked {noms} {}–{} until {} in {}.",
@@ -422,11 +434,32 @@ mod tests {
     #[test]
     fn a_goal_well_behind_or_due_this_week_is_pointed_to() {
         let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
-        let loin_et_a_jour = pace(5, 10, d("2026-10-01"), d("2026-12-01"), d("2026-10-31"), false);
+        let loin_et_a_jour = pace(
+            5,
+            10,
+            d("2026-10-01"),
+            d("2026-12-01"),
+            d("2026-10-31"),
+            false,
+        );
         assert!(!a_pousser(&loin_et_a_jour));
-        let bientot = pace(5, 10, d("2026-10-01"), d("2026-10-20"), d("2026-10-15"), false);
+        let bientot = pace(
+            5,
+            10,
+            d("2026-10-01"),
+            d("2026-10-20"),
+            d("2026-10-15"),
+            false,
+        );
         assert!(a_pousser(&bientot));
-        let atteint = pace(10, 10, d("2026-10-01"), d("2026-10-20"), d("2026-10-19"), false);
+        let atteint = pace(
+            10,
+            10,
+            d("2026-10-01"),
+            d("2026-10-20"),
+            d("2026-10-19"),
+            false,
+        );
         assert!(!a_pousser(&atteint));
     }
 

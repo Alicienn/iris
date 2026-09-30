@@ -580,7 +580,11 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     // "September"; the year only when it is not this one.
     fenetre.set_calendar_mini_title(
         etat.mini
-            .format(if etat.mini.year() == aujourd_hui().year() { "%B" } else { "%B %Y" })
+            .format(if etat.mini.year() == aujourd_hui().year() {
+                "%B"
+            } else {
+                "%B %Y"
+            })
             .to_string()
             .into(),
     );
@@ -588,9 +592,8 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     let (debut_vu, n_vu) = periode(etat);
     let dans_la_vue = |date: &str| {
         etat.mode != 0
-            && NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok_and(|d| {
-                d >= debut_vu && d < debut_vu + Duration::days(n_vu as i64)
-            })
+            && NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .is_ok_and(|d| d >= debut_vu && d < debut_vu + Duration::days(n_vu as i64))
     };
     let marquer = |mut cases: Vec<MonthCellData>| {
         for c in &mut cases {
@@ -618,7 +621,9 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
         return;
     };
-    let cases = marquer(cellules(etat, etat.jour, etat.mini, &occ_mini, &couleurs, false));
+    let cases = marquer(cellules(
+        etat, etat.jour, etat.mini, &occ_mini, &couleurs, false,
+    ));
     fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
 }
 
@@ -635,7 +640,11 @@ fn reste_du_jour(services: &Services, maintenant: Timestamp) -> Vec<HomeItemData
             meta: if u.start <= instant {
                 format!("{}, now", u.time)
             } else {
-                format!("{}, {}", u.time, crate::home::in_how_long(u.start - instant))
+                format!(
+                    "{}, {}",
+                    u.time,
+                    crate::home::in_how_long(u.start - instant)
+                )
             }
             .into(),
             color: couleur(&u.color),

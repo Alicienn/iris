@@ -158,7 +158,10 @@ pub fn parse_duration(texte: &str) -> Option<i32> {
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect();
-    let t = t.trim_end_matches("min").trim_end_matches("mn").trim_end_matches('m');
+    let t = t
+        .trim_end_matches("min")
+        .trim_end_matches("mn")
+        .trim_end_matches('m');
     if t.is_empty() {
         return None;
     }
@@ -194,7 +197,14 @@ mod tests {
 
     #[test]
     fn halfway_with_half_done_is_on_track() {
-        let p = pace(5, 10, d("2026-10-01"), d("2026-10-21"), d("2026-10-11"), false);
+        let p = pace(
+            5,
+            10,
+            d("2026-10-01"),
+            d("2026-10-21"),
+            d("2026-10-11"),
+            false,
+        );
         assert_eq!(p.status, PaceStatus::OnTrack);
         assert_eq!(p.expected, 5.0);
         assert_eq!(p.badge(), "On track");
@@ -202,7 +212,14 @@ mod tests {
 
     #[test]
     fn behind_says_by_how_many() {
-        let p = pace(2, 10, d("2026-10-01"), d("2026-10-21"), d("2026-10-11"), false);
+        let p = pace(
+            2,
+            10,
+            d("2026-10-01"),
+            d("2026-10-21"),
+            d("2026-10-11"),
+            false,
+        );
         assert_eq!(p.status, PaceStatus::Behind);
         assert_eq!(p.behind, 3);
         assert_eq!(p.badge(), "3 behind");
@@ -211,22 +228,50 @@ mod tests {
 
     #[test]
     fn reached_is_reached_whatever_the_day() {
-        let p = pace(10, 10, d("2026-10-01"), d("2026-10-21"), d("2026-10-02"), false);
+        let p = pace(
+            10,
+            10,
+            d("2026-10-01"),
+            d("2026-10-21"),
+            d("2026-10-02"),
+            false,
+        );
         assert_eq!(p.status, PaceStatus::Reached);
         assert_eq!(p.text, "Reached.");
     }
 
     #[test]
     fn the_last_day_and_milestones_have_their_own_words() {
-        let p = pace(1, 3, d("2026-10-01"), d("2026-10-05"), d("2026-10-05"), true);
+        let p = pace(
+            1,
+            3,
+            d("2026-10-01"),
+            d("2026-10-05"),
+            d("2026-10-05"),
+            true,
+        );
         assert_eq!(p.text, "Due today, 2 to go.");
-        let p = pace(1, 3, d("2026-10-01"), d("2026-10-21"), d("2026-10-02"), true);
+        let p = pace(
+            1,
+            3,
+            d("2026-10-01"),
+            d("2026-10-21"),
+            d("2026-10-02"),
+            true,
+        );
         assert_eq!(p.text, "2 milestones left in 19 days.");
     }
 
     #[test]
     fn a_slow_pace_is_about_one_a_week() {
-        let p = pace(0, 2, d("2026-10-01"), d("2026-12-01"), d("2026-10-01"), false);
+        let p = pace(
+            0,
+            2,
+            d("2026-10-01"),
+            d("2026-12-01"),
+            d("2026-10-01"),
+            false,
+        );
         assert!(p.text.ends_with("about 1 a week."), "{}", p.text);
     }
 
@@ -241,7 +286,11 @@ mod tests {
     #[test]
     fn the_chart_steps_up_at_each_entry_until_today() {
         let (path, nx, ny) = chart(&[0.5, 0.25, 0.9], 4, 0.6);
-        assert_eq!(path.matches(" V ").count(), 2, "the one after today is not drawn");
+        assert_eq!(
+            path.matches(" V ").count(),
+            2,
+            "the one after today is not drawn"
+        );
         assert_eq!(nx, 6.0 + 0.6 * 508.0);
         assert_eq!(ny, 120.0 - 6.0 - 0.5 * 108.0);
     }

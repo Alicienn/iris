@@ -66,7 +66,8 @@ fn err(quoi: &str) -> impl Fn(rusqlite::Error) -> Error + '_ {
     move |e| Error::store(format!("{quoi} : {e}"))
 }
 
-pub(crate) const COLONNES: &str = "id, list_id, parent_id, title, notes, due_day, due_minute, remind_before, \
+pub(crate) const COLONNES: &str =
+    "id, list_id, parent_id, title, notes, due_day, due_minute, remind_before, \
      remind_at, priority, thread_id, source, done_at, created_at, event_uid, event_start, \
      goal_id, estimate, postponed";
 

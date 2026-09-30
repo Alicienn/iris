@@ -1031,7 +1031,9 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_task_goal_chosen,
         [services, etat, redessiner, f, controller],
         |index| {
-            let Some(id) = etat.borrow().choisie else { return };
+            let Some(id) = etat.borrow().choisie else {
+                return;
+            };
             let objectifs = services.store.goals().unwrap_or_default();
             let choisi = (index > 0)
                 .then(|| objectifs.get(index as usize - 1).map(|g| g.id))
@@ -1083,7 +1085,9 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_goal_time_confirmed,
         [services, etat, redessiner, f, controller],
         || {
-            let Some(g) = objectif_montre(etat) else { return };
+            let Some(g) = objectif_montre(etat) else {
+                return;
+            };
             match crate::goals::bloquer(f, services, g) {
                 Ok(message) => {
                     f.set_goal_time_open(false);
