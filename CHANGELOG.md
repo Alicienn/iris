@@ -3,6 +3,18 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.2.0 — 2026-09-30
+
+### New
+- Click a free hour in the week and type the event's name: Enter adds it, Escape drops it.
+- "Still today" under your calendars: what is left of the day, and when.
+
+### Improved
+- The calendar is redrawn: tinted events with a fine outline, past ones fainter.
+- The small month tints the week you are looking at and shows busy days in bold.
+- Day, Week and Month, from smallest to largest; today in blue.
+- New event is an outlined button.
+
 ## 3.1.0 — 2026-09-30
 
 ### New

@@ -720,6 +720,10 @@ export component AppWindow inherits Window {
     callback calendar-mini-navigate(int);
     callback calendar-event-opened(string);
     callback calendar-new-event(string, int);
+    /// A title typed in a free slot of the grid: (day, minute of the day, title).
+    callback calendar-quick-event(string, int, string);
+    /// What is left of today, under the calendars.
+    in property <[HomeItemData]> calendar-today-left;
     callback calendar-toggled(int);
     callback calendar-refresh(int);
 
@@ -1518,6 +1522,11 @@ export component AppWindow inherits Window {
         }
         event-opened(k) => { root.calendar-event-opened(k); }
         new-event(d, m) => { root.calendar-new-event(d, m); }
+        quick-event(d, m, t) => { root.calendar-quick-event(d, m, t); }
+        // The line typed in the grid is saved or dropped: the keys go back to the
+        // calendar's shortcuts.
+        draft-closed => { shortcuts.focus(); }
+        today-left: root.calendar-today-left;
         calendar-toggled(id) => { root.calendar-toggled(id); }
         calendar-refresh(id) => { root.calendar-refresh(id); }
         // The bin on a row asks first, like the menu.

@@ -113,6 +113,10 @@ Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
 
 - **New event** creates one in your own calendar; it can repeat and remind you before
   it starts.
+- In the week or the day, click a free half hour and type the event's name: `Enter`
+  adds it (an hour long, in your first calendar), `Escape` drops it. Double-click a
+  slot for the full editor.
+- *Still today*, at the foot of the column, lists what is left of the day.
 - **+** next to *Calendars* adds a calendar of your own besides *Personal*; each event
   is put in the one you choose. Right-click a calendar to rename it, change its colour
   or delete it.

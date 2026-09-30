@@ -200,6 +200,15 @@ shows what it understood as tokens before `Enter`.
 **Calendar** opens an event clicked in the grid in a `Popover` beside it: the grid
 reports where the event is (`event-anchored`) before it opens it. Opened from Home or a
 task, the same card comes up in the middle; the anchor is forgotten when the card closes.
+Since 3.2.0 (redrawn after the web edition, the hour 48 px high) a click on a free slot
+of the week opens a draft there: a bare field, focused at once, inside a `FocusScope`
+that takes `Escape`; `Enter` sends `calendar-quick-event(day, minute, title)` and
+`calendar::evenement_rapide` inserts an hour-long event in the first local calendar.
+The draft lives in the grid, not in `modal-open`: while it has the focus the keys are
+the field's, and closing it hands them back (`draft-closed`). Events are their
+calendar's colour at 16 % with a 45 % outline, past ones at 55 % opacity
+(`TimedEventData.past`); the small month tints the days shown (`MonthCellData.in-week`),
+and the column ends on what is left of today (`reste_du_jour`).
 
 **Back and forward** (`nav.rs`, 1.0.0). A place is the workspace plus what each one last
 showed: the mailbox or tag, folder and tab of the mail, the tasks' view, the calendar's

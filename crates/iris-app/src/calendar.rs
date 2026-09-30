@@ -10,8 +10,8 @@ use iris_calendar::{layout, Event, Occurrence};
 use iris_store::{NewEvent, StoredCalendar, StoredEvent};
 use iris_types::{Error, Result, Timestamp};
 use iris_ui::{
-    AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData, TimedEventData,
-    WeekDayData,
+    AppWindow, CalendarChipData, CalendarData, EventDetailData, HomeItemData, MonthCellData,
+    TimedEventData, WeekDayData,
 };
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -435,6 +435,7 @@ fn cellules(
                 in_month: c.in_month,
                 today: c.date == today,
                 selected: c.date == choisi,
+                in_week: false,
                 more: c.items.len().saturating_sub(PAR_CASE) as i32 * avec_evenements as i32,
                 events: ModelRc::new(VecModel::from(puces)),
             }
@@ -550,6 +551,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
                             lanes: b.lanes as i32,
                             top: b.start_min as f32 / 1440.0,
                             height: (b.end_min - b.start_min) as f32 / 1440.0,
+                            past: o.end <= maintenant.millis(),
                         }
                     })
                     .collect::<Vec<_>>(),
@@ -569,8 +571,33 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         }
     }
 
+    // What is left of today, at the foot of the side column.
+    fenetre.set_calendar_today_left(ModelRc::new(VecModel::from(reste_du_jour(
+        services, maintenant,
+    ))));
+
     // Le petit mois, avec ses propres occurrences quand il ne montre pas le même mois.
-    fenetre.set_calendar_mini_title(etat.mini.format("%B %Y").to_string().into());
+    // "September"; the year only when it is not this one.
+    fenetre.set_calendar_mini_title(
+        etat.mini
+            .format(if etat.mini.year() == aujourd_hui().year() { "%B" } else { "%B %Y" })
+            .to_string()
+            .into(),
+    );
+    // The week (or the day) shown, tinted in the small month.
+    let (debut_vu, n_vu) = periode(etat);
+    let dans_la_vue = |date: &str| {
+        etat.mode != 0
+            && NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok_and(|d| {
+                d >= debut_vu && d < debut_vu + Duration::days(n_vu as i64)
+            })
+    };
+    let marquer = |mut cases: Vec<MonthCellData>| {
+        for c in &mut cases {
+            c.in_week = dans_la_vue(&c.date);
+        }
+        cases
+    };
     let occ_mini = if etat.mode == 0 && premier_du_mois(etat.jour) == etat.mini {
         occ
     } else {
@@ -587,12 +614,66 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             ouvert: None,
         };
         let o = charger(services, &mut copie);
-        let cases = cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false);
+        let cases = marquer(cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false));
         fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
         return;
     };
-    let cases = cellules(etat, etat.jour, etat.mini, &occ_mini, &couleurs, false);
+    let cases = marquer(cellules(etat, etat.jour, etat.mini, &occ_mini, &couleurs, false));
     fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
+}
+
+/// The events of today still to come or under way, four at most: "14:30, in 25 min".
+fn reste_du_jour(services: &Services, maintenant: Timestamp) -> Vec<HomeItemData> {
+    let instant = maintenant.millis();
+    upcoming(services, aujourd_hui(), 1)
+        .into_iter()
+        .filter(|u| !u.all_day && u.end > instant)
+        .take(4)
+        .map(|u| HomeItemData {
+            key: u.key.into(),
+            title: u.title.into(),
+            meta: if u.start <= instant {
+                format!("{}, now", u.time)
+            } else {
+                format!("{}, {}", u.time, crate::home::in_how_long(u.start - instant))
+            }
+            .into(),
+            color: couleur(&u.color),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// An event made in one line from the grid: a title, an hour on a day, an hour long,
+/// in the first calendar of one's own.
+fn evenement_rapide(
+    services: &Services,
+    calendrier: i64,
+    jour: NaiveDate,
+    minute: i32,
+    titre: &str,
+) -> Result<()> {
+    let debut = jour.and_time(NaiveTime::MIN) + Duration::minutes(minute.clamp(0, 1439) as i64);
+    let a = iris_calendar::time::zoned_millis(debut, &Local);
+    let evenement = NewEvent {
+        uid: format!("{}-{}@iris", now().millis(), std::process::id()),
+        summary: titre.trim().to_string(),
+        description: String::new(),
+        location: String::new(),
+        start_ms: a,
+        end_ms: a + 3_600_000,
+        all_day: false,
+        tzid: fuseau_local(),
+        rrule: None,
+        exdates: Vec::new(),
+        recurrence_id: None,
+        cancelled: false,
+        reminder_minutes: None,
+    };
+    services
+        .store
+        .insert_event(calendrier, &evenement, now())
+        .map(|_| ())
 }
 
 // --- L'éditeur ---------------------------------------------------------------------
@@ -1398,6 +1479,33 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             let mut e = etat.borrow_mut();
             let jour = lire_date(&d).unwrap_or(e.jour);
             ouvrir_editeur(&f, &mut e, &services, None, jour, minute);
+        });
+    }
+    // A title typed straight into the grid: the event exists at once.
+    {
+        let (services, etat, faible, redessiner) = (
+            services.clone(),
+            Rc::clone(&etat),
+            fenetre.as_weak(),
+            Rc::clone(&redessiner),
+        );
+        fenetre.on_calendar_quick_event(move |d, minute, titre| {
+            let Some(f) = faible.upgrade() else { return };
+            if titre.trim().is_empty() {
+                return;
+            }
+            let (jour, calendrier) = {
+                let e = etat.borrow();
+                (lire_date(&d).unwrap_or(e.jour), e.locaux.first().copied())
+            };
+            let Some(calendrier) = calendrier else {
+                f.set_toast("There is no calendar to put it in.".into());
+                return;
+            };
+            match evenement_rapide(&services, calendrier, jour, minute, &titre) {
+                Ok(()) => redessiner(),
+                Err(e) => f.set_toast(format!("Could not add the event: {e}").into()),
+            }
         });
     }
     {

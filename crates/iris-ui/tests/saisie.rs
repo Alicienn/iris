@@ -1512,6 +1512,96 @@ fn echap_quitte_la_lecture_en_plein_ecran() {
     assert!(!f.get_reading_focus(), "Escape brings the columns back");
 }
 
+// --- An event typed straight into the week ---
+
+fn une_semaine(f: &AppWindow) {
+    un_calendrier(f, false);
+    f.set_calendar_mode(1);
+    f.set_calendar_week_days(ModelRc::new(VecModel::from(
+        (0..7)
+            .map(|i| iris_ui::WeekDayData {
+                name: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i].into(),
+                day: (28 + i).to_string().into(),
+                date: format!("2026-09-{:02}", 28 + i).into(),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
+
+/// A point in Monday's column, in the hours shown when the week opens.
+fn un_creneau_du_lundi(f: &AppWindow) -> slint::LogicalPosition {
+    let precedent = bouton(f, "Previous");
+    // The grid starts under the header, the day names and the all-day row; Monday's
+    // column starts after the side column and the hours' margin.
+    slint::LogicalPosition::new(
+        precedent.absolute_position().x - 620.0 + 80.0,
+        precedent.absolute_position().y + 260.0,
+    )
+}
+
+fn cliquer_a(f: &AppWindow, position: slint::LogicalPosition) {
+    f.window().dispatch_event(WindowEvent::PointerMoved { position });
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+}
+
+fn un_clic_sur_un_creneau_libre_s_ecrit_directement() {
+    let f = fenetre();
+    une_semaine(&f);
+    let crees = Rc::new(RefCell::new(Vec::<(String, i32, String)>::new()));
+    let touches = Rc::new(RefCell::new(0));
+    {
+        let c = Rc::clone(&crees);
+        f.on_calendar_quick_event(move |d, m, t| {
+            c.borrow_mut().push((d.to_string(), m, t.to_string()))
+        });
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |_| *t.borrow_mut() += 1);
+    }
+
+    cliquer_a(&f, un_creneau_du_lundi(&f));
+    // Rule 3: the first key goes to the title, "t" does not jump to today.
+    taper(&f, "Dentist\n");
+    let crees = crees.borrow();
+    assert_eq!(crees.len(), 1, "Enter saves the event");
+    assert_eq!(crees[0].0, "2026-09-28");
+    assert_eq!(crees[0].2, "Dentist");
+    assert_eq!(crees[0].1 % 30, 0, "on a half hour");
+    assert_eq!(*touches.borrow(), 0, "no key reached the shortcuts");
+}
+
+fn echap_abandonne_le_creneau_tape() {
+    let f = fenetre();
+    une_semaine(&f);
+    let crees = Rc::new(RefCell::new(0));
+    {
+        let c = Rc::clone(&crees);
+        f.on_calendar_quick_event(move |_, _, _| *c.borrow_mut() += 1);
+    }
+    cliquer_a(&f, un_creneau_du_lundi(&f));
+    assert!(champ_existe(&f, "New event title"));
+    taper(&f, "Oops");
+    echap(&f);
+    assert!(!champ_existe(&f, "New event title"), "Escape drops the line");
+    assert_eq!(*crees.borrow(), 0);
+}
+
+fn champ_existe(f: &AppWindow, libelle: &str) -> bool {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::TextInput)
+        .find_all()
+        .iter()
+        .any(|c| c.accessible_label().as_deref() == Some(libelle))
+}
+
 fn le_menu_de_report_garde_le_clavier() {
     // An open menu owns the keyboard: "e" does not mark the thread behind it as done,
     // and Escape closes it.
@@ -1545,6 +1635,14 @@ fn main() {
         (
             "le_menu_de_report_garde_le_clavier",
             le_menu_de_report_garde_le_clavier,
+        ),
+        (
+            "un_clic_sur_un_creneau_libre_s_ecrit_directement",
+            un_clic_sur_un_creneau_libre_s_ecrit_directement,
+        ),
+        (
+            "echap_abandonne_le_creneau_tape",
+            echap_abandonne_le_creneau_tape,
         ),
         (
             "une_touche_ne_touche_pas_le_courrier_derriere_la_fenetre",

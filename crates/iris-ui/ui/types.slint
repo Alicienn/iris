@@ -257,6 +257,8 @@ export struct MonthCellData {
     in-month: bool,
     today: bool,
     selected: bool,
+    // In the week (or the day) the calendar shows: the small month tints it.
+    in-week: bool,
     events: [CalendarChipData],
     // Events that did not fit, shown as "+N more".
     more: int,
@@ -286,6 +288,8 @@ export struct TimedEventData {
     // Top and height as fractions of the day.
     top: float,
     height: float,
+    // Over already: drawn fainter.
+    past: bool,
 }
 
 // What the event panel shows.
