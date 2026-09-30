@@ -13,6 +13,17 @@ import { Avatar } from "@iris/base/atoms.slint";
 //
 // Le corps arrive déjà découpé en blocs par le moteur de rendu : l'interface ne voit
 // jamais de HTML, et ne peut donc rien en exécuter.
+// Words of a message: read as text, and selected with the mouse like any text, then
+// copied. Never written into: the keys it has no use for go on to the shortcuts.
+component SelectableText inherits TextInput {
+    read-only: true;
+    single-line: false;
+    wrap: word-wrap;
+    selection-background-color: Tokens.accent.transparentize(0.7);
+    selection-foreground-color: Tokens.text;
+    text-cursor-width: 0px;
+}
+
 component MessageBlock inherits Rectangle {
     in property <MessageBlockData> block;
 
@@ -72,19 +83,18 @@ component MessageBlock inherits Rectangle {
             }
         }
 
-        if root.block.kind == "heading": Text {
+        if root.block.kind == "heading": SelectableText {
             text: root.block.text;
             font-size: Tokens.size-title + (3 - min(root.block.level, 3)) * 2px;
             font-weight: Tokens.weight-bold;
             color: Tokens.text;
-            wrap: word-wrap;
         }
 
         if root.block.kind == "code": Rectangle {
             background: Tokens.surface;
             border-radius: Tokens.radius-small;
             height: code-text.preferred-height + Tokens.space-4;
-            code-text := Text {
+            code-text := SelectableText {
                 x: Tokens.space-2;
                 y: Tokens.space-2;
                 width: parent.width - Tokens.space-4;
@@ -92,7 +102,6 @@ component MessageBlock inherits Rectangle {
                 font-family: Tokens.font-mono;
                 font-size: Tokens.size-small;
                 color: Tokens.text-secondary;
-                wrap: word-wrap;
             }
         }
 
@@ -104,11 +113,10 @@ component MessageBlock inherits Rectangle {
                 width: 2px;
                 background: Tokens.border-strong;
             }
-            Text {
+            SelectableText {
                 text: root.block.text;
                 font-size: Tokens.size-body;
                 color: Tokens.text-muted;
-                wrap: word-wrap;
             }
         }
 
@@ -119,32 +127,29 @@ component MessageBlock inherits Rectangle {
                 text: "•";
                 color: Tokens.text-secondary;
             }
-            Text {
+            SelectableText {
                 text: root.block.text;
                 font-size: Tokens.size-body;
                 color: Tokens.text;
-                wrap: word-wrap;
             }
         }
 
         // Wrapped, like the rest. Unwrapped, a newsletter laid out in one table made a
         // single line tens of thousands of pixels long; the card around it grew as wide,
         // and the renderer stopped the application drawing its rounded corner.
-        if root.block.kind == "table": Text {
+        if root.block.kind == "table": SelectableText {
             text: root.block.text;
             font-family: Tokens.font-mono;
             font-size: Tokens.size-small;
             color: Tokens.text-secondary;
-            wrap: word-wrap;
         }
 
-        if root.block.kind == "paragraph": Text {
+        if root.block.kind == "paragraph": SelectableText {
             text: root.block.text;
             font-size: Tokens.size-body;
             font-weight: root.block.bold ? Tokens.weight-bold : Tokens.weight-body;
             font-italic: root.block.italic;
             color: Tokens.text;
-            wrap: word-wrap;
         }
     }
 }
@@ -232,6 +237,9 @@ component BodyTile inherits Rectangle {
     callback wanted();
     callback released();
     callback resized(length);
+    /// Pressed (0) or dragged to (1), as fractions of the tile across and down; a
+    /// drag past the tile gives fractions beyond 0 and 1.
+    callback select(float, float, int);
 
     // Only once laid out. Before the first layout every tile is zero pixels wide,
     // hence zero high, and they all sit at the top: every one of them looked near,
@@ -280,6 +288,22 @@ component BodyTile inherits Rectangle {
         height: 100%;
         source: root.tile.image;
         image-fit: fill;
+    }
+
+    // Text selected as on a page: pressed, then dragged, even past the tile.
+    TouchArea {
+        mouse-cursor: text;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down
+                && root.width > 0 && root.height > 0) {
+                root.select(self.mouse-x / root.width, self.mouse-y / root.height, 0);
+            }
+        }
+        moved => {
+            if (self.pressed && root.width > 0 && root.height > 0) {
+                root.select(self.mouse-x / root.width, self.mouse-y / root.height, 1);
+            }
+        }
     }
 }
 
@@ -671,6 +695,8 @@ export component ConversationView inherits VerticalLayout {
     /// The folder it is in: "Inbox", "Spam", "Trash", a folder's name; "+1" when some
     /// of its messages are elsewhere.
     in property <string> folder-label;
+    /// Every folder it is in, when there are several ("Inbox, Sent, Clients").
+    in property <string> folder-all;
     /// Its latest message is in the bin or the spam: said in red.
     in property <bool> folder-alarming;
     in property <color> account-tint;
@@ -712,6 +738,11 @@ export component ConversationView inherits VerticalLayout {
     /// shows and whenever it changes: bodies painted by the full engine are painted at
     /// exactly that width, never scaled afterwards.
     callback body-width-changed(length);
+    /// Words chosen with the mouse in a body painted by the full engine: (message id,
+    /// tile, where across and down the tile as fractions, 0 pressed / 1 dragged).
+    callback body-select(int, int, float, float, int);
+    /// A key the message's text had no use for, to hand to the shortcuts.
+    callback keys-left(string);
     /// No tile asks for pixels while this is set: the window is hidden, and what was
     /// painted has been given back.
     in property <bool> bodies-suspended;
@@ -930,22 +961,30 @@ export component ConversationView inherits VerticalLayout {
                         }
                         // Where it is: a small folder mark and its name, quiet; red
                         // only for the places mail goes to be gone.
-                        if root.folder-label != "": HorizontalLayout {
-                            spacing: 4px;
+                        // Over "Inbox +2", every folder the conversation is in.
+                        if root.folder-label != "": Rectangle {
                             horizontal-stretch: 0;
-                            Icon {
-                                y: (parent.height - self.height) / 2;
-                                data: Icons.folder;
-                                size: 13px;
-                                tint: root.folder-alarming ? Tokens.error : Tokens.text-muted;
+                            width: dossier.preferred-width;
+                            dossier := HorizontalLayout {
+                                spacing: 4px;
+                                Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    data: Icons.folder;
+                                    size: 13px;
+                                    tint: root.folder-alarming ? Tokens.error : Tokens.text-muted;
+                                }
+                                Text {
+                                    text: root.folder-label;
+                                    // "Inbox" alone says nothing to a screen reader.
+                                    accessible-label: "In " + (root.folder-all != "" ? root.folder-all : root.folder-label);
+                                    font-size: 12.5px;
+                                    color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
+                                    vertical-alignment: center;
+                                }
                             }
-                            Text {
-                                text: root.folder-label;
-                                // "Inbox" alone says nothing to a screen reader.
-                                accessible-label: "In " + root.folder-label;
-                                font-size: 12.5px;
-                                color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
-                                vertical-alignment: center;
+                            if root.folder-all != "": TouchArea {}
+                            if root.folder-all != "": Tooltip {
+                                text: @markdown("In \{root.folder-all}");
                             }
                         }
                         if root.messages.length > 1: Text {
@@ -1095,6 +1134,7 @@ export component ConversationView inherits VerticalLayout {
                             suspended: root.bodies-suspended;
                             wanted => { root.body-tile-wanted(message.id, t); }
                             released => { root.body-tile-released(message.id, t); }
+                            select(fx, fy, phase) => { root.body-select(message.id, t, fx, fy, phase); }
                             resized(w) => {
                                 if (t == 0) {
                                     root.body-width-changed(w);
@@ -1104,7 +1144,14 @@ export component ConversationView inherits VerticalLayout {
                     }
 
                     // Text bodies sit under the name, clear of the face.
-                    if message.expanded && !message.body-loading && !message.body-is-image: VerticalLayout {
+                    // The words can be selected; what the keyboard does meanwhile that
+                    // text has no use for (e, j, r…) goes on to the shortcuts.
+                    if message.expanded && !message.body-loading && !message.body-is-image: FocusScope {
+                    key-pressed(event) => {
+                        root.keys-left(event.text);
+                        accept
+                    }
+                    VerticalLayout {
                         padding-left: 40px;
                         spacing: 10px;
                         for block in message.blocks: MessageBlock {
@@ -1121,6 +1168,7 @@ export component ConversationView inherits VerticalLayout {
                             font-size: Tokens.size-body;
                             color: Tokens.text-muted;
                         }
+                    }
                     }
 
                     // The attachments of the message being read, as file cards

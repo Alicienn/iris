@@ -92,6 +92,8 @@ struct Etat {
     plus_tard: Option<i64>,
     /// The free stretches offered for the task shown, in minutes since midnight.
     creneaux: Vec<i32>,
+    /// The task just added whose length is asked over the add bar.
+    a_estimer: Option<i64>,
 }
 
 /// A task and its subtasks as they are before a delete, to put them back.
@@ -1289,6 +1291,32 @@ fn ajouter(services: &Services, etat: &mut Etat, texte: &str) -> Option<(i64, St
 }
 
 /// Change une tâche et l'enregistre, rappel recalculé.
+/// Adds what the bar holds, empties it, and asks how long the new task takes.
+fn ajouter_et_demander(f: &AppWindow, services: &Services, etat: &RefCell<Etat>, texte: &str) {
+    let resultat = ajouter(services, &mut etat.borrow_mut(), texte);
+    let Some((id, message)) = resultat else {
+        return;
+    };
+    f.set_task_add_text(SharedString::default());
+    f.set_task_add_tokens(ModelRc::default());
+    f.set_status(message.into());
+    let titre = services
+        .store
+        .task(id)
+        .ok()
+        .flatten()
+        .map(|t| t.task.title)
+        .unwrap_or_default();
+    let court: String = titre.chars().take(40).collect();
+    let court = if titre.chars().count() > 40 {
+        format!("{court}…")
+    } else {
+        court
+    };
+    etat.borrow_mut().a_estimer = Some(id);
+    f.set_task_asking(court.into());
+}
+
 fn modifier(services: &Services, id: i64, change: impl FnOnce(&mut NewTask)) -> bool {
     let Ok(Some(t)) = services.store.task(id) else {
         return false;
@@ -1430,6 +1458,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         supprimees: Vec::new(),
         plus_tard: None,
         creneaux: Vec::new(),
+        a_estimer: None,
     }));
     f.set_task_reminders(ModelRc::new(VecModel::from(
         REMINDERS
@@ -1504,6 +1533,9 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 let mut e = etat.borrow_mut();
                 e.vue = v;
                 e.mois = None;
+                // Elsewhere, the question about the last task added is not asked.
+                e.a_estimer = None;
+                f.set_task_asking(SharedString::default());
             }
             redessiner();
         }
@@ -1714,8 +1746,11 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
             liberer(services, id);
             let change = modifier(services, id, |t| {
                 t.due_day = jour_neuf.map(|j| j.format("%Y-%m-%d").to_string());
-                // Tomorrow keeps its hour; the others start the day free.
-                if quand != iris_tasks::slots::Later::Tomorrow || jour_neuf.is_none() {
+                // Tonight is by 23:59; tomorrow keeps its hour; the others start the
+                // day free.
+                if let Some(minute) = quand.minute() {
+                    t.due_minute = Some(minute);
+                } else if quand != iris_tasks::slots::Later::Tomorrow || jour_neuf.is_none() {
                     t.due_minute = None;
                 }
                 t.postponed += 1;
@@ -1840,13 +1875,46 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_task_add,
         [services, etat, redessiner, f, controller],
         |texte| {
-            let resultat = ajouter(services, &mut etat.borrow_mut(), &texte);
-            if let Some((_, message)) = resultat {
-                f.set_task_add_text(SharedString::default());
-                f.set_task_add_tokens(ModelRc::default());
-                f.set_status(message.into());
+            ajouter_et_demander(f, services, etat, &texte);
+            redessiner();
+        }
+    );
+    // Enter while its length is asked: nothing skips, a length is kept, anything
+    // else is the next task.
+    geste!(
+        on_task_add_answered,
+        [services, etat, redessiner, f, controller],
+        |texte| {
+            let id = etat.borrow_mut().a_estimer.take();
+            f.set_task_asking(SharedString::default());
+            if texte.trim().is_empty() {
+                return;
+            }
+            match (id, iris_tasks::goals::parse_duration(&texte)) {
+                (Some(id), Some(m)) => {
+                    modifier(services, id, |t| t.estimate = Some(m));
+                    f.set_task_add_text(SharedString::default());
+                    f.set_task_add_tokens(ModelRc::default());
+                    f.set_status(format!("Takes {}.", iris_tasks::goals::duration_label(m)).into());
+                }
+                _ => ajouter_et_demander(f, services, etat, &texte),
             }
             redessiner();
+        }
+    );
+    geste!(
+        on_task_asked_estimate,
+        [services, etat, redessiner, f, controller],
+        |minutes| {
+            let id = etat.borrow_mut().a_estimer.take();
+            f.set_task_asking(SharedString::default());
+            if let Some(id) = id {
+                modifier(services, id, |t| t.estimate = Some(minutes));
+                f.set_status(
+                    format!("Takes {}.", iris_tasks::goals::duration_label(minutes)).into(),
+                );
+                redessiner();
+            }
         }
     );
 

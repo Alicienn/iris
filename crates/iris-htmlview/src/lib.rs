@@ -83,6 +83,28 @@ pub trait TiledDocument: std::fmt::Debug {
     /// Rend ce qui ne sert qu'à peindre — le peintre et ses caches — en gardant la
     /// mise en page. La prochaine tuile demandée les reconstruit.
     fn release(&mut self);
+
+    /// Starts a selection of text at a point of the document, in physical pixels from
+    /// its top left; nothing is selected until it is dragged. Whether a selection was
+    /// there before and is gone (the tiles showing it need painting again).
+    fn select_from(&mut self, _x: f32, _y: f32) -> bool {
+        false
+    }
+
+    /// Stretches the selection to a point; whether what is selected changed.
+    fn select_to(&mut self, _x: f32, _y: f32) -> bool {
+        false
+    }
+
+    /// Nothing selected any more; whether something was.
+    fn clear_selection(&mut self) -> bool {
+        false
+    }
+
+    /// The words selected, if any.
+    fn selected_text(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Où un moteur dépose ses pixels.

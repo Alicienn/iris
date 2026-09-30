@@ -31,7 +31,7 @@ the first afternoon, and never forgive".
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris does not.
 
-## Missing, ordered by how soon it hurts (as of 3.12.0)
+## Missing, ordered by how soon it hurts (as of 3.13.0)
 
 ### 1. Signing in to Gmail or Outlook takes a client of one's own
 
@@ -67,4 +67,5 @@ Signatures per account, quick filters over the list, the message source, emptyin
 folder and marking it read, opening an attachment, a calendar with invitations as a
 banner over their message (added, updated, cancelled) and answered from it (Accept,
 Maybe, Decline), sending later, sorting by sender, subject or size, aliases to send as, `mailto:` links,
-system notifications, starting at login.
+system notifications, starting at login, selecting and copying a message's words, a
+list of the keys.

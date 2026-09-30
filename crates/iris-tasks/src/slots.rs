@@ -36,6 +36,8 @@ pub fn free_slots(busy: &[(i32, i32)], length: i32, from: i32, max: usize) -> Ve
 /// Where "later" puts a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Later {
+    /// Still today, by the end of it (23:59).
+    Tonight,
     Tomorrow,
     /// The coming Saturday (a week on, from a Saturday).
     Weekend,
@@ -48,6 +50,7 @@ pub enum Later {
 impl Later {
     pub fn from_word(mot: &str) -> Option<Self> {
         Some(match mot {
+            "tonight" => Later::Tonight,
             "tomorrow" => Later::Tomorrow,
             "weekend" => Later::Weekend,
             "nextweek" => Later::NextWeek,
@@ -64,6 +67,7 @@ impl Later {
                 .find(|d| d.weekday() == jour)
         };
         match self {
+            Later::Tonight => Some(today),
             Later::Tomorrow => Some(today + Duration::days(1)),
             Later::Weekend => prochain(Weekday::Sat),
             Later::NextWeek => prochain(Weekday::Mon),
@@ -71,9 +75,15 @@ impl Later {
         }
     }
 
-    /// "tomorrow", "Saturday", "next Monday", "Someday".
+    /// The time it lands at, in minutes of the day, when it has one of its own.
+    pub fn minute(self) -> Option<i32> {
+        (self == Later::Tonight).then_some(23 * 60 + 59)
+    }
+
+    /// "tonight", "tomorrow", "Saturday", "next Monday", "Someday".
     pub fn label(self) -> &'static str {
         match self {
+            Later::Tonight => "tonight, 23:59",
             Later::Tomorrow => "tomorrow",
             Later::Weekend => "Saturday",
             Later::NextWeek => "next Monday",
@@ -125,6 +135,9 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 10, 5)
         );
         assert_eq!(Later::Someday.day(jeudi), None);
+        assert_eq!(Later::Tonight.day(jeudi), Some(jeudi));
+        assert_eq!(Later::Tonight.minute(), Some(23 * 60 + 59));
+        assert_eq!(Later::Tomorrow.minute(), None);
         let samedi = NaiveDate::from_ymd_opt(2026, 10, 3).unwrap();
         assert_eq!(
             Later::Weekend.day(samedi),

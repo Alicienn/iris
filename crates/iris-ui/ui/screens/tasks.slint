@@ -249,24 +249,25 @@ component TaskRow inherits Rectangle {
     property <length> press-x;
     property <length> press-y;
 
-    height: root.tache ? (root.has-line ? 56px : 44px) : 38px;
+    // Each task a small card of its own, rounded, on the window's ground; the
+    // sections' titles stay plain text between them.
+    height: root.tache ? (root.has-line ? 60px : 48px) : 38px;
+    border-radius: root.tache ? Tokens.radius-medium : 0px;
+    border-width: root.tache ? 1px : 0px;
+    border-color: root.item.selected ? Tokens.accent.transparentize(0.45)
+        : touch.has-hover ? Tokens.border-strong : Tokens.border;
     background: !root.tache ? transparent
-        : root.item.selected ? Tokens.accent-soft
-        : touch.has-hover ? Tokens.surface-hover : transparent;
+        : root.item.selected ? Tokens.surface-high.mix(Tokens.accent, 0.9)
+        : Tokens.surface-high;
     // Picked up, the row fades where it was: it is in the hand.
     opacity: root.carrying ? 0.35 : 1.0;
-    animate background, opacity { duration: Tokens.instant; }
+    animate background, border-color, opacity { duration: Tokens.quick; }
 
     accessible-role: list-item;
     accessible-label: root.item.title;
     accessible-item-selectable: root.tache;
     accessible-item-selected: root.item.selected;
     accessible-action-default => { root.selected(root.item); }
-
-    // A hairline under each task: the list reads as a ledger.
-    if root.tache: Hairline {
-        y: parent.height - 1px;
-    }
 
     touch := TouchArea {
         enabled: root.tache;
@@ -338,8 +339,8 @@ component TaskRow inherits Rectangle {
     }
 
     if root.tache: HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
+        padding-left: 14px;
+        padding-right: 10px;
         spacing: 12px;
 
         Check {
@@ -588,14 +589,11 @@ component TaskDetail inherits DetailPanel {
     in property <[string]> reminders;
     /// "Does not repeat", "Every day"…
     in property <[string]> repeats;
-    /// "None", then the goals.
-    in property <[string]> goal-names;
     in property <bool> picker-open;
     in property <string> picker-title;
     in property <[MonthCellData]> picker-cells;
 
     callback toggled(int);
-    callback goal-chosen(int);
     /// Later, and where its menu goes.
     callback later(length, length);
     /// A free slot of its day, and where the list of them goes.
@@ -625,6 +623,8 @@ component TaskDetail inherits DetailPanel {
 
     property <string> new-step;
     property <string> other-estimate;
+    /// The options one sets now and then (slot, reminder, repeat, list) shown.
+    property <bool> more;
 
     public function focus-step() {
         etape.focus();
@@ -635,12 +635,20 @@ component TaskDetail inherits DetailPanel {
         height: 28px;
         vertical-stretch: 0;
         spacing: 4px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 14px;
+            data: Icons.list;
+            size: 12px;
+            tint: Tokens.text-muted;
+        }
         Text {
             text: root.lists.length > root.detail.list-index ? root.lists[root.detail.list-index] : "";
             font-size: 12px;
             color: Tokens.text-muted;
             vertical-alignment: center;
             horizontal-stretch: 1;
+            overflow: elide;
         }
         if !root.detail.done: Button {
             y: (parent.height - self.height) / 2;
@@ -817,8 +825,19 @@ component TaskDetail inherits DetailPanel {
                 }
             }
         }
-        // A slot for it in the calendar, found among the day's events.
         PropertyRow {
+            name: "Priority";
+            icon: Icons.exclamation;
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["None", "Low", "Medium", "High"];
+                tints: [Tokens.text, Priority.tint(1), Priority.tint(2), Priority.tint(3)];
+                selected: root.detail.priority;
+                chosen(i) => { root.priority-chosen(i); }
+            }
+        }
+        // A slot for it in the calendar, found among the day's events.
+        if root.more || root.detail.slot != "": PropertyRow {
             name: "Slot";
             icon: Icons.clock;
             HorizontalLayout {
@@ -851,7 +870,7 @@ component TaskDetail inherits DetailPanel {
                 Rectangle {}
             }
         }
-        PropertyRow {
+        if root.more || root.detail.reminder-index > 0: PropertyRow {
             name: "Reminder";
             icon: Icons.bell;
             ComboBox {
@@ -867,7 +886,7 @@ component TaskDetail inherits DetailPanel {
         }
         // Done, it comes back on the next day of its rule: a due day is needed to
         // step from.
-        PropertyRow {
+        if root.more || root.detail.repeat-index > 0: PropertyRow {
             name: "Repeats";
             icon: Icons.repeat;
             ComboBox {
@@ -881,7 +900,7 @@ component TaskDetail inherits DetailPanel {
                 selected => { root.repeat-chosen(self.current-index); }
             }
         }
-        PropertyRow {
+        if root.more: PropertyRow {
             name: "List";
             icon: Icons.list;
             ComboBox {
@@ -893,28 +912,16 @@ component TaskDetail inherits DetailPanel {
                 selected => { root.list-chosen(self.current-index); }
             }
         }
-        // The goal it moves forward.
-        if root.goal-names.length > 1: PropertyRow {
-            name: "Goal";
-            icon: Icons.task;
-            ComboBox {
+        // The rest, on demand: what is set shows anyway.
+        HorizontalLayout {
+            height: 32px;
+            alignment: start;
+            Link {
                 y: (parent.height - self.height) / 2;
-                height: 30px;
-                accessible-label: "Goal";
-                model: root.goal-names;
-                current-index: root.detail.goal-index;
-                selected => { root.goal-chosen(self.current-index); }
-            }
-        }
-        PropertyRow {
-            name: "Priority";
-            icon: Icons.exclamation;
-            Segmented {
-                y: (parent.height - self.height) / 2;
-                options: ["None", "Low", "Medium", "High"];
-                tints: [Tokens.text, Priority.tint(1), Priority.tint(2), Priority.tint(3)];
-                selected: root.detail.priority;
-                chosen(i) => { root.priority-chosen(i); }
+                text: root.more ? "Fewer options" : "More options";
+                label: root.more ? "Show fewer options" : "Show more options: slot, reminder, repeat, list";
+                chevron: true;
+                clicked => { root.more = !root.more; }
             }
         }
     }
@@ -1056,8 +1063,12 @@ component AddBar inherits Rectangle {
     in-out property <string> text;
     in property <string> hint;
     in property <[TaskTokenData]> tokens;
+    /// The task just added whose length is asked, over the bar: what Enter then
+    /// sends is an answer (a length, nothing to skip, or the next task).
+    in property <string> asking;
     callback edited(string);
     callback add(string);
+    callback answered(string);
 
     public function focus-field() { champ.focus(); }
 
@@ -1087,7 +1098,9 @@ component AddBar inherits Rectangle {
             text <=> root.text;
             edited(t) => { root.edited(t); }
             accepted(t) => {
-                if (t != "") {
+                if (root.asking != "") {
+                    root.answered(t);
+                } else if (t != "") {
                     root.add(t);
                 }
             }
@@ -1109,7 +1122,79 @@ component AddBar inherits Rectangle {
             label: "Add the task";
             kind: ButtonKind.primary;
             size: ButtonSize.sm;
-            clicked => { root.add(root.text); }
+            clicked => {
+                if (root.asking != "") {
+                    root.answered(root.text);
+                } else {
+                    root.add(root.text);
+                }
+            }
+        }
+    }
+}
+
+// How long the task just added takes, asked in a small bubble over the add bar. It
+// takes nothing from the keyboard: the cursor stays in the bar, Enter skips, a
+// length typed or clicked is kept, and the next task written is simply added.
+component EstimateBubble inherits Rectangle {
+    in property <string> task;
+    callback chosen(int);
+
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.moderate; easing: ease-out; }
+
+    width: min(420px, contenu.preferred-width + 28px);
+    height: contenu.preferred-height + 20px;
+    border-radius: Tokens.radius-large;
+    border-width: 1px;
+    border-color: Tokens.border;
+    background: Tokens.panel;
+    drop-shadow-blur: 18px;
+    drop-shadow-offset-y: 6px;
+    drop-shadow-color: Tokens.shadow;
+    opacity: root.entree;
+
+    accessible-role: groupbox;
+    accessible-label: "How long will " + root.task + " take? Type a length, or press Enter to skip";
+
+    contenu := VerticalLayout {
+        x: 14px;
+        y: 10px;
+        width: parent.width - 28px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 6px;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                width: 14px;
+                data: Icons.hourglass;
+                size: 13px;
+                tint: Tokens.accent;
+            }
+            Text {
+                text: "How long will “" + root.task + "” take?";
+                font-size: 12.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            for m[i] in [15, 30, 60, 120]: Pill {
+                text: ["15 min", "30 min", "1 h", "2 h"][i];
+                toggled => { root.chosen(m); }
+            }
+            Text {
+                text: "or type it · Enter to skip";
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
         }
     }
 }
@@ -1126,6 +1211,12 @@ export component TasksView inherits Rectangle {
     in property <[TaskTokenData]> add-tokens;
     /// Raised to put the cursor in the quick-add line.
     in property <int> focus-add-request;
+    /// The task just added, whose length is asked; empty when nothing is.
+    in property <string> asking;
+    /// What Enter sent while a length was asked: a length, nothing, or a new task.
+    callback add-answered(string);
+    /// A length clicked in the bubble, in minutes.
+    callback asked-estimate(int);
 
     in property <bool> has-detail;
     in property <TaskDetailData> detail;
@@ -1212,7 +1303,8 @@ export component TasksView inherits Rectangle {
     property <length> drop-x;
     property <length> drop-y;
 
-    background: Tokens.surface;
+    // The window's ground, for the tasks' cards to stand on.
+    background: Tokens.background;
 
     changed focus-add-request => { ajout.focus-field(); }
 
@@ -1332,6 +1424,7 @@ export component TasksView inherits Rectangle {
                 mouse-drag-pan-enabled: false;
                 VerticalLayout {
                     alignment: start;
+                    spacing: 6px;
                     for ligne[i] in root.rows: TaskRow {
                         item: ligne;
                         selected(r) => { root.row-selected(r); }
@@ -1357,8 +1450,14 @@ export component TasksView inherits Rectangle {
             new-goal => { root.new-goal(); }
         }
 
-        if root.page == 0: VerticalLayout {
+        // A column of a readable width, centred: a task stretched across a wide
+        // window is a line the eye has to travel.
+        if root.page == 0: HorizontalLayout {
             vertical-stretch: 1;
+            alignment: center;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            max-width: 840px;
 
             // The name of the view, the day beside it on Today, how much is done.
             HorizontalLayout {
@@ -1411,7 +1510,6 @@ export component TasksView inherits Rectangle {
                     }
                 }
             }
-            Hairline {}
 
             if root.nudges.length > 0: HorizontalLayout {
                 padding-left: 32px;
@@ -1437,10 +1535,11 @@ export component TasksView inherits Rectangle {
                 mouse-drag-pan-enabled: false;
                 VerticalLayout {
                     alignment: start;
-                    padding-left: 24px;
-                    padding-right: 24px;
+                    padding-left: 32px;
+                    padding-right: 32px;
                     padding-top: 6px;
                     padding-bottom: 12px;
+                    spacing: 6px;
                         for ligne[i] in root.rows: TaskRow {
                             item: ligne;
                             selected(r) => { root.row-selected(r); }
@@ -1476,22 +1575,28 @@ export component TasksView inherits Rectangle {
                 }
             }
         }
+        }
 
             // The line to add a task, or a step toward the goal shown.
             HorizontalLayout {
                 vertical-stretch: 0;
                 visible: root.page != 2;
+                alignment: center;
                 max-height: root.page == 2 ? 0px : 200px;
                 padding-left: root.page == 1 ? 36px : 32px;
                 padding-right: root.page == 1 ? 36px : 32px;
                 padding-top: root.page == 1 ? 8px : 20px;
                 padding-bottom: 18px;
                 ajout := AddBar {
+                    horizontal-stretch: 1;
+                    max-width: root.page == 0 ? 776px : 100000px;
                     text <=> root.add-text;
                     hint: root.add-hint;
                     tokens: root.add-tokens;
+                    asking: root.asking;
                     edited(t) => { root.add-edited(t); }
                     add(t) => { root.add(t); }
+                    answered(t) => { root.add-answered(t); }
                 }
             }
         }
@@ -1505,8 +1610,6 @@ export component TasksView inherits Rectangle {
             lists: root.lists;
             reminders: root.reminders;
             repeats: root.repeats;
-            goal-names: root.goal-names;
-            goal-chosen(i) => { root.task-goal-chosen(i); }
             later(x, y) => { root.task-later(root.detail.id, x, y); }
             slot-requested(x, y) => { root.slot-requested(x, y); }
             unbook => { root.unbook(); }
@@ -1534,6 +1637,15 @@ export component TasksView inherits Rectangle {
             delete => { root.delete(); }
             closed => { root.detail-closed(); }
         }
+    }
+
+    // Its length, asked over the add bar, centred on the middle column.
+    if root.asking != "" && root.page != 2: EstimateBubble {
+        property <length> milieu: root.width - 232px - (root.has-detail ? 384px : 0px);
+        x: 232px + (self.milieu - self.width) / 2;
+        y: root.height - 18px - 50px - 8px - self.height;
+        task: root.asking;
+        chosen(m) => { root.asked-estimate(m); }
     }
 
     // The task in the hand: a lifted card that follows the pointer, a little off it
@@ -1598,6 +1710,11 @@ export component LaterMenu inherits Rectangle {
         entrees := VerticalLayout {
             padding: 4px;
             MenuHeader { text: "Move “" + root.task + "” to"; }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Tonight, 23:59";
+                activated => { root.chosen("tonight"); root.dismissed(); }
+            }
             MenuEntry {
                 icon: Icons.sun;
                 label: "Tomorrow";

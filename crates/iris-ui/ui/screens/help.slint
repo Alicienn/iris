@@ -1,0 +1,117 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Modal } from "@iris/layout/frames.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// The keys, on one card: "?" opens it from anywhere.
+//
+// Grouped by where they work, each key drawn as a small key cap. The list is written
+// here, beside the handler it describes, and the README's table says the same.
+
+struct HelpRow {
+    // A section's title when `keys` is empty.
+    keys: [string],
+    what: string,
+}
+
+component KeyCap inherits Rectangle {
+    in property <string> text;
+
+    width: max(22px, mot.preferred-width + 12px);
+    height: 22px;
+    border-radius: Tokens.radius-small;
+    border-width: 1px;
+    border-color: Tokens.border-strong;
+    background: Tokens.surface-low;
+
+    mot := Text {
+        text: root.text;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: Tokens.text-secondary;
+    }
+}
+
+export component ShortcutsHelp inherits Modal {
+    title: "Keyboard shortcuts";
+    card-width: 560px;
+    card-height: 600px;
+    close-label: "Close the shortcuts";
+
+    property <[HelpRow]> rows: [
+        { keys: [], what: "Anywhere" },
+        { keys: ["?"], what: "This list" },
+        { keys: ["Ctrl", "0"], what: "Home" },
+        { keys: ["Ctrl", "1 · 2 · 3"], what: "Mail, calendar, tasks" },
+        { keys: ["Ctrl", "K"], what: "Command palette" },
+        { keys: ["Alt", "← →"], what: "Back, forward" },
+        { keys: ["Ctrl", ","], what: "Settings" },
+        { keys: ["F5"], what: "Sync all accounts" },
+        { keys: ["Esc"], what: "Close what is open" },
+        { keys: [], what: "Mail" },
+        { keys: ["J", "K"], what: "Next, previous conversation" },
+        { keys: ["E"], what: "Mark as done" },
+        { keys: ["A"], what: "Archive" },
+        { keys: ["S"], what: "Snooze until tomorrow" },
+        { keys: ["W"], what: "Move to Waiting" },
+        { keys: ["R"], what: "Mark as read or unread" },
+        { keys: ["F"], what: "Star" },
+        { keys: ["T"], what: "Make it a task" },
+        { keys: ["Del"], what: "Delete" },
+        { keys: ["C"], what: "New message" },
+        { keys: ["/"], what: "Search" },
+        { keys: ["Ctrl", "C"], what: "Copy the words selected in a message" },
+        { keys: ["Ctrl", "Z"], what: "Undo" },
+        { keys: [], what: "Calendar" },
+        { keys: ["T"], what: "Today" },
+        { keys: ["N"], what: "New event" },
+        { keys: ["M", "W", "D"], what: "Month, week, day" },
+        { keys: ["← →"], what: "Earlier, later" },
+        { keys: ["Ctrl", "Z"], what: "Undo the last change" },
+        { keys: [], what: "Tasks" },
+        { keys: ["N"], what: "Add a task" },
+        { keys: ["J", "K"], what: "Next, previous task" },
+        { keys: ["Space"], what: "Done" },
+        { keys: ["L"], what: "Later" },
+        { keys: ["D"], what: "Due date" },
+        { keys: ["Del"], what: "Delete" },
+        { keys: ["Ctrl", "Z"], what: "Bring back what was deleted" },
+    ];
+
+    ScrollView {
+        vertical-stretch: 1;
+        viewport-width: self.visible-width;
+        viewport-height: lignes.preferred-height;
+
+        lignes := VerticalLayout {
+            padding-right: 8px;
+            spacing: 2px;
+            for row[i] in root.rows: HorizontalLayout {
+                height: row.keys.length == 0 ? (i == 0 ? 26px : 40px) : 30px;
+                spacing: 10px;
+                if row.keys.length == 0: Text {
+                    text: row.what;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-muted;
+                    vertical-alignment: bottom;
+                }
+                if row.keys.length > 0: HorizontalLayout {
+                    width: 150px;
+                    spacing: 4px;
+                    alignment: start;
+                    for k in row.keys: KeyCap {
+                        y: (parent.height - self.height) / 2;
+                        text: k;
+                    }
+                }
+                if row.keys.length > 0: Text {
+                    text: row.what;
+                    font-size: Tokens.size-body;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+}

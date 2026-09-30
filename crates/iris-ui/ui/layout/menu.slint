@@ -97,8 +97,15 @@ export component MenuSurface inherits Rectangle {
     in property <length> available-height;
 
     // Kept inside the window: a menu opened near an edge must not fall off it.
+    // It drops open: a fade and four pixels, once.
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.quick; easing: ease-out; }
+    opacity: root.entree;
+
     x: max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
-    y: max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px));
+    y: max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px))
+        - (1 - root.entree) * 4px;
     width: root.menu-width;
     height: root.menu-height;
     border-radius: Tokens.radius-large;

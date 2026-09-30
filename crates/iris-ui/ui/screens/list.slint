@@ -917,6 +917,106 @@ export component SearchBar inherits VerticalLayout {
     }
 }
 
+// The inbox emptied: a medal, a few bursts of colour thrown out once, and the days in
+// a row it has been so. Drawn when it happens, still afterwards (nothing loops).
+component InboxZero inherits Rectangle {
+    in property <int> streak;
+
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: 520ms; easing: ease-out; }
+
+    accessible-role: text;
+    accessible-label: "Inbox zero. " + (root.streak > 1 ? root.streak + " days in a row." : "Everything is dealt with.");
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 14px;
+        padding: 24px;
+
+        Rectangle {
+            height: 120px;
+
+            // The bursts: thrown from the medal to where they rest.
+            for c[i] in [
+                { dx: -58, dy: -30, w: 8, h: 8, tint: 0 },
+                { dx: 54, dy: -38, w: 6, h: 14, tint: 1 },
+                { dx: -46, dy: 34, w: 12, h: 6, tint: 2 },
+                { dx: 60, dy: 26, w: 8, h: 8, tint: 3 },
+                { dx: -8, dy: -58, w: 6, h: 6, tint: 1 },
+                { dx: 20, dy: 56, w: 10, h: 5, tint: 0 },
+                { dx: -70, dy: 2, w: 5, h: 5, tint: 3 },
+                { dx: 74, dy: -6, w: 5, h: 10, tint: 2 },
+            ]: Rectangle {
+                x: parent.width / 2 + c.dx * 1px * root.entree - self.width / 2;
+                y: parent.height / 2 + c.dy * 1px * root.entree - self.height / 2;
+                width: c.w * 1px;
+                height: c.h * 1px;
+                border-radius: min(self.width, self.height) / 2;
+                opacity: root.entree;
+                background: c.tint == 0 ? Tokens.accent
+                    : c.tint == 1 ? Tokens.success
+                    : c.tint == 2 ? Tokens.warning
+                    : Tokens.error.transparentize(0.2);
+            }
+
+            // The medal: a soft halo, and the tick on the accent.
+            Rectangle {
+                width: (60px + 28px * root.entree);
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: self.width / 2;
+                background: Tokens.accent.transparentize(0.88);
+            }
+            Rectangle {
+                width: (40px + 20px * root.entree);
+                height: self.width;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                border-radius: self.width / 2;
+                background: Tokens.accent;
+                Icon {
+                    data: Icons.check;
+                    size: 26px;
+                    weight: 3.0;
+                    tint: Tokens.accent-text;
+                }
+            }
+        }
+
+        Text {
+            text: "Inbox zero";
+            font-family: Tokens.font-display;
+            font-size: 20px;
+            font-weight: 600;
+            color: Tokens.text;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: root.streak > 1
+                ? root.streak + " days in a row. Keep it going."
+                : "Everything is dealt with. Enjoy the quiet.";
+            font-size: Tokens.size-body;
+            color: Tokens.text-muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        // The week so far: a dot per day of the streak, up to seven.
+        if root.streak > 1: HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            for j in 7: Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: j < root.streak ? Tokens.success : Tokens.surface-active;
+            }
+        }
+    }
+}
+
 // La liste des conversations.
 export component ThreadListView inherits VerticalLayout {
     in property <[ThreadRowData]> rows;
@@ -932,6 +1032,9 @@ export component ThreadListView inherits VerticalLayout {
     // onglets : « Trash » avec les trois files allumées au-dessus décrirait un écran
     // qui n'existe pas.
     in property <string> folder-name;
+    /// The inbox emptied, and the days in a row (0: it is not): a reward, not a
+    /// sentence.
+    in property <int> inbox-zero-streak;
     in property <string> search-summary;
     in property <string> search-explanation;
     in property <[bool]> search-pills;
@@ -1260,7 +1363,11 @@ export component ThreadListView inherits VerticalLayout {
     Rectangle {
         vertical-stretch: 1;
 
-        if root.rows.length == 0 && !root.loading: VerticalLayout {
+        if root.rows.length == 0 && !root.loading && root.inbox-zero-streak > 0: InboxZero {
+            streak: root.inbox-zero-streak;
+        }
+
+        if root.rows.length == 0 && !root.loading && root.inbox-zero-streak == 0: VerticalLayout {
             alignment: center;
             Text {
                 text: root.searching

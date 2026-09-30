@@ -495,3 +495,8 @@ the application is brought to it screen by screen.
       made a card over 32,767 px wide and the software renderer aborted on its rounded
       corner), the invitation's answer buttons laid out in a row of their own, the
       window opened maximised.
+- [x] **S40.21** Cozier and quicker (3.13.0): words selected and copied in both kinds
+      of body, inbox zero with its streak, a task's length asked after a quick add,
+      Tonight in Later, `?` for the keys, every folder named over "Inbox +2", tasks as
+      cards in a centred column with floating, shorter details (no Goal field), larger
+      radii and one-time entrance animations.

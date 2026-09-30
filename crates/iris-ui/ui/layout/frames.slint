@@ -77,17 +77,37 @@ export component Plate inherits Rectangle {
 export component DetailPanel inherits Rectangle {
     in property <length> panel-width: 372px;
 
-    width: root.panel-width;
-    background: Tokens.surface-low;
+    // A card that floats beside what it is about, off the window's edges: rounded
+    // all round, with a shadow, rather than a strip docked to the side.
+    width: root.panel-width + 12px;
 
-    VHairline { x: 0; }
-    VerticalLayout {
-        padding-left: 20px;
-        padding-right: 20px;
-        padding-top: 16px;
-        padding-bottom: 14px;
-        spacing: 16px;
-        @children
+    // It arrives: a few pixels from the side and a fade, once, when it opens.
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.moderate; easing: ease-out; }
+
+    carte := Rectangle {
+        x: (1 - root.entree) * 14px;
+        y: 12px;
+        opacity: 0.3 + 0.7 * root.entree;
+        width: parent.width - 12px;
+        height: parent.height - 24px;
+        border-radius: Tokens.radius-large;
+        border-width: 1px;
+        border-color: Tokens.border;
+        background: Tokens.panel;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: Tokens.shadow;
+
+        VerticalLayout {
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-top: 14px;
+            padding-bottom: 14px;
+            spacing: 14px;
+            @children
+        }
     }
 }
 
@@ -154,6 +174,13 @@ export component Modal inherits Rectangle {
 
     background: Tokens.scrim;
 
+    // It comes in: the dimming fades up, the card rises a few pixels. Once, on
+    // opening.
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.moderate; easing: ease-out; }
+    opacity: root.entree;
+
     FocusScope {
         enabled: false;
         key-pressed(event) => {
@@ -170,7 +197,7 @@ export component Modal inherits Rectangle {
 
     carte := Rectangle {
         x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        y: (parent.height - self.height) / 2 + (1 - root.entree) * 12px;
         width: min(root.card-width, parent.width - 60px);
         height: min(root.fit ? contenu.preferred-height : root.card-height, parent.height - 60px);
         border-radius: Tokens.radius-large;
@@ -256,6 +283,11 @@ export component Popover inherits Rectangle {
     property <bool> a-gauche: root.anchor-left - root.card-width - 14px >= 8px;
     property <length> hauteur: contenu.preferred-height;
 
+    // A fade, and a few pixels toward its anchor, once.
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.quick; easing: ease-out; }
+
     FocusScope {
         enabled: false;
         key-pressed(event) => {
@@ -271,12 +303,14 @@ export component Popover inherits Rectangle {
     }
 
     carte := Rectangle {
-        x: root.a-gauche
+        x: (root.a-gauche
             ? root.anchor-left - root.card-width - 12px
-            : min(root.anchor-right + 12px, root.width - root.card-width - 8px);
+            : min(root.anchor-right + 12px, root.width - root.card-width - 8px))
+            + (1 - root.entree) * (root.a-gauche ? -8px : 8px);
         y: max(8px, min(root.anchor-top - 24px, root.height - root.hauteur - 8px));
         width: root.card-width;
         height: root.hauteur;
+        opacity: root.entree;
         border-radius: Tokens.radius-large;
         background: Tokens.panel;
         border-width: 1px;

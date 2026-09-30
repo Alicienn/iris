@@ -902,6 +902,7 @@ pub fn apply_snapshot(
     // de la même table que l'arborescence pour qu'un dossier ne porte pas deux noms
     // sur le même écran.
     fenetre.set_folder_name(crate::folders::scope_name(&snapshot.scope).into());
+    fenetre.set_inbox_zero_streak(inbox_zero(services, snapshot) as i32);
 
     // Quel compte est allumé dans la barre latérale.
     //
@@ -933,8 +934,9 @@ pub fn apply_snapshot(
     let (r, g, b) = iris_ui::format::account_tint(&boite);
     fenetre.set_selected_account_email(boite.into());
     fenetre.set_selected_account_tint(slint::Color::from_rgb_u8(r, g, b));
-    let (dossier, alarmant) = dossiers_du_fil(services, &snapshot.messages);
+    let (dossier, tous, alarmant) = dossiers_du_fil(services, &snapshot.messages);
     fenetre.set_selected_folder_label(dossier.into());
+    fenetre.set_selected_folder_all(tous.into());
     fenetre.set_selected_folder_alarming(alarmant);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
 
@@ -1007,11 +1009,47 @@ fn basculer_pastille(requete: &str, (mots, groupe): &(&[&str], &str)) -> String 
     garde.join(" ")
 }
 
+/// The inbox emptied: nothing left to do in the work queue, nothing searched or
+/// filtered, and a mailbox to empty. The days in a row it has been so, counted and
+/// kept in the settings; 0 when it is not.
+fn inbox_zero(services: &Services, snapshot: &Snapshot) -> u32 {
+    let vide = matches!(snapshot.scope, iris_store::Scope::Queue)
+        && snapshot.active_tab == iris_types::WorkflowState::Todo
+        && snapshot.rows.is_empty()
+        && snapshot.counts[0] == 0
+        && snapshot.search.is_none()
+        && snapshot.filters.is_empty();
+    if !vide
+        || services
+            .store
+            .accounts()
+            .map(|a| a.is_empty())
+            .unwrap_or(true)
+    {
+        return 0;
+    }
+    let today = chrono::Local::now().date_naive();
+    let reglages = crate::settings::current();
+    let dernier = chrono::NaiveDate::parse_from_str(&reglages.inbox_zero_day, "%Y-%m-%d").ok();
+    let serie = crate::settings::inbox_zero_streak(today, dernier, reglages.inbox_zero_streak);
+    if dernier != Some(today) || serie != reglages.inbox_zero_streak {
+        crate::settings::update(|s| {
+            s.inbox_zero_day = today.format("%Y-%m-%d").to_string();
+            s.inbox_zero_streak = serie;
+        });
+    }
+    serie
+}
+
 /// Where a conversation is: the folder of its latest message ("Inbox", "Spam", "Trash",
 /// or a folder's own name), and "+1" when other messages of it are elsewhere. Empty
-/// when there is nothing to read. With it, whether that latest one is in the bin or the
-/// spam, which the header says in red.
-fn dossiers_du_fil(services: &Services, messages: &[iris_store::StoredMessage]) -> (String, bool) {
+/// when there is nothing to read. With it, every folder named when there are several
+/// (the label's tooltip), and whether that latest one is in the bin or the spam, which
+/// the header says in red.
+fn dossiers_du_fil(
+    services: &Services,
+    messages: &[iris_store::StoredMessage],
+) -> (String, String, bool) {
     let mut nommes: Vec<String> = Vec::new();
     let mut alarmant = None;
     let mut connus: std::collections::HashMap<iris_types::AccountId, Vec<iris_store::Folder>> =
@@ -1032,12 +1070,17 @@ fn dossiers_du_fil(services: &Services, messages: &[iris_store::StoredMessage]) 
             nommes.push(nom);
         }
     }
+    let tous = if nommes.len() > 1 {
+        nommes.join(", ")
+    } else {
+        String::new()
+    };
     let texte = match nommes.len() {
         0 => String::new(),
         1 => nommes.remove(0),
         n => format!("{} +{}", nommes[0], n - 1),
     };
-    (texte, alarmant.unwrap_or(false))
+    (texte, tous, alarmant.unwrap_or(false))
 }
 
 /// A folder as people call it: its role's word, else the last part of its path.
@@ -1212,6 +1255,67 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
         });
     });
 
+    // Ctrl+C with the keyboard at the shortcuts: the words selected in a painted body.
+    // (Selected in a text body, they are copied by the text itself.)
+    let faible = fenetre.as_weak();
+    fenetre.on_copy_requested(move || {
+        let (Some(f), Some(texte)) = (faible.upgrade(), selected_body_text()) else {
+            return;
+        };
+        f.invoke_copy_text(texte.into());
+        f.set_status("Copied.".into());
+    });
+
+    // A key the text of a message had no use for: sent again once the shortcuts have
+    // the keyboard, a turn of the loop later, so that "e" still marks as done after
+    // a click in the words.
+    let faible = fenetre.as_weak();
+    fenetre.on_key_redispatch(move |texte| {
+        let faible = faible.clone();
+        slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+            if let Some(f) = faible.upgrade() {
+                use slint::platform::WindowEvent;
+                f.window().dispatch_event(WindowEvent::KeyPressed {
+                    text: texte.clone(),
+                });
+                f.window()
+                    .dispatch_event(WindowEvent::KeyReleased { text: texte });
+            }
+        });
+    });
+
+    // Words chosen with the mouse: pressed on a tile, dragged anywhere. The point is
+    // taken in the whole document, so a drag past its tile goes on into the next.
+    fenetre.on_body_select(|message, index, fx, fy, phase| {
+        CORPS.with(|c| {
+            let mut corps = c.borrow_mut();
+            // Pressing starts afresh: what was selected in the other messages goes.
+            if phase == 0 {
+                for (id, autre) in corps.iter_mut() {
+                    if *id != message as i64 && autre.document.clear_selection() {
+                        repeindre(autre);
+                    }
+                }
+            }
+            let Some(ouvert) = corps.get_mut(&(message as i64)) else {
+                return;
+            };
+            let index = index.max(0) as usize;
+            let (largeur, _) = ouvert.document.size();
+            let x = fx * largeur as f32;
+            let y = index as f32 * ouvert.document.tile_height() as f32
+                + fy * ouvert.document.tile_extent(index) as f32;
+            let change = if phase == 0 {
+                ouvert.document.select_from(x, y)
+            } else {
+                ouvert.document.select_to(x, y)
+            };
+            if change {
+                repeindre(ouvert);
+            }
+        });
+    });
+
     fenetre.on_body_tile_released(|message, index| {
         CORPS.with(|c| {
             let corps = c.borrow();
@@ -1228,6 +1332,39 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
             }
         });
     });
+}
+
+/// Paints again the tiles of a body that are on show, after its selection changed.
+fn repeindre(ouvert: &mut CorpsOuvert) {
+    let (largeur, _) = ouvert.document.size();
+    for index in 0..ouvert.tuiles.row_count() {
+        let Some(mut tuile) = ouvert.tuiles.row_data(index) else {
+            continue;
+        };
+        if !tuile.ready {
+            continue;
+        }
+        let hauteur = ouvert.document.tile_extent(index);
+        let mut pixels = bridge::ImageSink::default();
+        match ouvert.document.paint_tile(index, &mut pixels) {
+            Ok(()) => {
+                if let Some(image) = pixels.image(largeur, hauteur) {
+                    tuile.image = image;
+                    ouvert.tuiles.set_row_data(index, tuile);
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, index, "painting a body tile again"),
+        }
+    }
+}
+
+/// The words selected in a body painted by the full engine, if any.
+pub fn selected_body_text() -> Option<String> {
+    CORPS.with(|c| {
+        c.borrow()
+            .values()
+            .find_map(|ouvert| ouvert.document.selected_text())
+    })
 }
 
 /// Rend tout ce que la lecture a peint : tuiles et peintres. Les mises en page

@@ -3,6 +3,24 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.13.0 — 2026-10-01
+
+### New
+- Select a message's words with the mouse and copy them with Ctrl+C.
+- Inbox zero: an empty To do is celebrated, with the days in a row you got there.
+- After adding a task, a small bubble asks how long it takes; Enter skips it.
+- Later offers Tonight, 23:59.
+- Press ? for the list of keyboard shortcuts.
+- Pointing at "Inbox +2" names every folder the conversation is in.
+
+### Improved
+- Tasks are cards in a centred column, and their details float beside them.
+- A task's details show the essentials; More options holds the slot, reminder, repeat and list.
+- Softer corners throughout, and windows, menus and cards ease in.
+
+### Removed
+- The Goal field in a task's details: steps are added from the goal's page.
+
 ## 3.12.1 — 2026-10-01
 
 ### Improved

@@ -46,6 +46,7 @@ import {
     CalendarRenamePanel, CalendarDeletePanel
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
+import { ShortcutsHelp } from "@iris/screens/help.slint";
 import { ListView, Palette } from "std-widgets.slint";
 
 export { Tokens }
@@ -410,6 +411,8 @@ export component AppWindow inherits Window {
     in property <string> selected-account-email;
     /// The folder the conversation shown is in, and whether it is the bin or the spam.
     in property <string> selected-folder-label;
+    /// Every folder it is in, when there are several; the label's tooltip.
+    in property <string> selected-folder-all;
     in property <bool> selected-folder-alarming;
     in property <color> selected-account-tint;
     /// Reading full screen: the accounts and the list step aside.
@@ -433,6 +436,8 @@ export component AppWindow inherits Window {
     in property <string> last-sync;
 
     // --- Changelog and updates ---
+    /// The list of keys, opened with "?".
+    in-out property <bool> shortcuts-help-open;
     in-out property <bool> changelog-open;
     in property <[ChangelogRowData]> changelog;
     /// The newer version on offer. Empty when there is none.
@@ -596,6 +601,8 @@ export component AppWindow inherits Window {
     // Le nom lisible du dossier ouvert, pour la colonne du milieu. Vide dans les
     // files : c'est ce qui décide si on montre les onglets ou un en-tête de dossier.
     in property <string> folder-name;
+    /// The inbox emptied, and how many days in a row (0: it is not).
+    in property <int> inbox-zero-streak;
     in property <int> account-count;
     in property <int> marked-count;
     /// La charge d'un glisser. Opaque ici : construite côté Rust.
@@ -707,6 +714,13 @@ export component AppWindow inherits Window {
     /// A tile of a message body, (message id, tile index), came near the screen or left it.
     callback body-tile-wanted(int, int);
     callback body-tile-released(int, int);
+    /// Words chosen with the mouse in a body painted by the full engine: (message,
+    /// tile, fractions across and down it, 0 pressed / 1 dragged).
+    callback body-select(int, int, float, float, int);
+    /// Ctrl+C with the shortcuts: what is selected in a message goes to the clipboard.
+    callback copy-requested();
+    /// A key to send again, once the shortcuts have the keyboard.
+    callback key-redispatch(string);
     /// The width message bodies are shown at, as the reader reports it.
     callback reader-width(length);
 
@@ -930,6 +944,12 @@ export component AppWindow inherits Window {
     /// What the add line understood so far, and each change to it.
     in property <[TaskTokenData]> task-add-tokens;
     callback task-add-edited(string);
+    /// The task just added whose length is asked over the add bar ("" : none).
+    in property <string> task-asking;
+    /// Enter while it is asked: a length, nothing (skip), or the next task.
+    callback task-add-answered(string);
+    /// A length clicked in the bubble, in minutes.
+    callback task-asked-estimate(int);
     in property <TaskOverviewData> task-overview;
     in-out property <int> task-focus-add;
     in property <bool> task-has-detail;
@@ -1069,6 +1089,24 @@ export component AppWindow inherits Window {
         liste.focus-search();
     }
 
+    // The clipboard, reached through a text field of our own that nobody sees:
+    // Slint gives no other way to it.
+    presse := TextInput {
+        x: -10px;
+        y: -10px;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        read-only: true;
+        enabled: false;
+    }
+    /// Puts `text` on the clipboard.
+    public function copy-text(text: string) {
+        presse.text = text;
+        presse.select-all();
+        presse.copy();
+    }
+
     forward-focus: shortcuts;
 
     /// A window is open over the rest: the mail behind it is out of reach.
@@ -1078,7 +1116,7 @@ export component AppWindow inherits Window {
     property <bool> modal-open: (root.compose-open && !root.compose-minimised)
         || root.settings-open || root.modules-open || root.add-account-open
         || root.problem-open || root.source-open || root.signature-open || root.alias-open
-        || root.changelog-open || root.update-open || root.tags-open
+        || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -1132,6 +1170,23 @@ export component AppWindow inherits Window {
             if (event.text == "k" && event.modifiers.control
                 && (!root.modal-open || root.palette-open)) {
                 root.palette-open = !root.palette-open;
+                return accept;
+            }
+            // Ctrl+C copies what is selected in a message; it used to be taken for
+            // "c" and opened a new message.
+            if (event.text == "c" && event.modifiers.control) {
+                if (!root.modal-open) {
+                    root.copy-requested();
+                }
+                return accept;
+            }
+            // "?" lists the keys.
+            if (event.text == "?" && !root.modal-open) {
+                root.shortcuts-help-open = true;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.shortcuts-help-open) {
+                root.shortcuts-help-open = false;
                 return accept;
             }
             // "c" writes a new message, the convention every mail client shares.
@@ -1573,6 +1628,7 @@ export component AppWindow inherits Window {
                         count-labels: root.count-labels;
                         count-fulls: root.count-fulls;
                         folder-name: root.folder-name;
+                        inbox-zero-streak: root.inbox-zero-streak;
                         folder-left => { root.folder-cleared(); }
                         marked-count: root.marked-count;
                         drag-payload: root.drag-payload;
@@ -1638,6 +1694,7 @@ export component AppWindow inherits Window {
                     starred: root.selected-starred;
                     account-email: root.selected-account-email;
                     folder-label: root.selected-folder-label;
+                    folder-all: root.selected-folder-all;
                     folder-alarming: root.selected-folder-alarming;
                     account-tint: root.selected-account-tint;
                     focused: root.reading-focus;
@@ -1669,6 +1726,13 @@ export component AppWindow inherits Window {
                     invite-answer(id, a) => { root.invite-answer(id, a); }
                     body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
                     body-tile-released(m, t) => { root.body-tile-released(m, t); }
+                    body-select(m, t, x, y, p) => { root.body-select(m, t, x, y, p); }
+                    // The text had no use for the key: the shortcuts get it, and
+                    // the keyboard with it.
+                    keys-left(t) => {
+                        shortcuts.focus();
+                        root.key-redispatch(t);
+                    }
                     bodies-suspended: root.bodies-suspended;
                 }
                 }
@@ -1787,6 +1851,9 @@ export component AppWindow inherits Window {
         add-text <=> root.task-add-text;
         add-hint: root.task-add-hint;
         focus-add-request: root.task-focus-add;
+        asking: root.task-asking;
+        add-answered(t) => { root.task-add-answered(t); }
+        asked-estimate(m) => { root.task-asked-estimate(m); }
         has-detail: root.task-has-detail;
         detail: root.task-detail;
         detail-title <=> root.task-detail-title;
@@ -2513,6 +2580,12 @@ export component AppWindow inherits Window {
             root.command-invoked(id);
         }
         dismissed => { root.palette-open = false; }
+    }
+
+    if root.shortcuts-help-open: ShortcutsHelp {
+        width: 100%;
+        height: 100%;
+        dismissed => { root.shortcuts-help-open = false; }
     }
 
     if root.changelog-open: ChangelogPanel {

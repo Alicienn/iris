@@ -114,7 +114,13 @@ The reading pane's toolbar names its actions with their keys: **Done** `E`, **Sn
 (`Escape` to come back) and **More** (forward, read or unread, the source). Each message
 of the conversation sits in its own frame, up to 900 pixels wide, its attachments under
 it as file cards. Under the subject, beside the mailbox, the folder the conversation is
-in: *Inbox*, a folder's name, or *Spam* and *Trash* in red.
+in: *Inbox*, a folder's name, or *Spam* and *Trash* in red; *Inbox +2* names all of
+them when you point at it.
+
+Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
+
+An empty *To do* is **Inbox zero**: Iris says so, and counts the days in a row you got
+there.
 
 A message carrying an invitation (an `.ics`) shows it as a banner at its top: what,
 when, and **Accept**, **Maybe** or **Decline**. The answer is sent to the organiser
@@ -195,6 +201,12 @@ Open **Tasks** in the rail, or with `Ctrl`+`3`.
   !!`, `vendredi 14h30 Dentiste`, `in 2 weeks Renew the passport`. `!`, `!!`, `!!!` go
   from low to high priority, shown as a coloured tag; a `#List` that does not exist yet
   is created. What Iris understood shows beside the field before you press `Enter`.
+- Once added, a small bubble over the field asks how long it takes: click a length or
+  type one (`45m`, `1h20`) and press `Enter`; `Enter` alone skips it, and typing the
+  next task simply adds it.
+- Tasks are cards in a column of a readable width; a task's details float beside them.
+  They show what matters (due, length, priority, steps, notes); *More options* shows
+  the slot, reminder, repeat and list.
 - **Today** shows what is due or late, under the date and what your calendars hold that
   day, with how many of the day's tasks are done. **Upcoming**, **All tasks** and
   **From mail** show the rest.
@@ -207,8 +219,8 @@ Open **Tasks** in the rail, or with `Ctrl`+`3`.
 - **Find a slot**, in a task's details, lists the free stretches of its day between your
   events and other timed tasks; the one you pick is blocked in your first calendar and
   gives the task its hour. *Remove* takes it back off.
-- **Later** (`L`, or the arrow on the chosen row) puts a task off to tomorrow, this
-  weekend, next week, a date, or someday. Iris counts it: a task put off three times
+- **Later** (`L`, or the arrow on the chosen row) puts a task off to tonight (by
+  23:59), tomorrow, this weekend, next week, a date, or someday. Iris counts it: a task put off three times
   asks whether to split it into steps, give it a slot, or let it go.
 - In the mail, `T` (or *Add to tasks* in a conversation's right-click menu) turns the
   conversation into a task. *Open message* in the task brings it back.
@@ -220,7 +232,7 @@ A goal is something to reach by a day: *Send 10 internship applications by the 1
 milestones. Its page shows where you stand, the pace you need ("6 to go in 18 days:
 about 2 a week") and whether you are on track; **Log one** counts a step (with a word
 on what you did, if you like), or tick the milestones as you reach them. What you add
-on a goal's page is a step toward it; any task can be given a goal in its details.
+on a goal's page is a step toward it.
 **Make time for it** blocks time in your calendar on the days you choose, every week
 until the goal's day. Today points to the goals behind or due this week. Iris counts
 nothing on its own. Click a goal's title to rename it (`Enter` keeps it, `Escape` the
@@ -284,8 +296,10 @@ on school and office networks where many people share one address.
 | `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |
 | `Ctrl`+`,` | Settings |
+| `Ctrl`+`C` | Copy the words selected in a message |
+| `?` | The list of keys |
 
-Hover over any button to see its shortcut.
+Hover over any button to see its shortcut, or press `?` for all of them.
 
 ## Current limits
 

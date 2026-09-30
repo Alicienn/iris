@@ -179,9 +179,9 @@ pub struct RadiusTokens {
 impl Default for RadiusTokens {
     fn default() -> Self {
         Self {
-            small: 5.0,
-            medium: 7.0,
-            large: 9.0,
+            small: 6.0,
+            medium: 9.0,
+            large: 12.0,
             pill: 999.0,
         }
     }
@@ -286,7 +286,7 @@ mod tests {
         // Écrire un thème qui ne change que son nom doit suffire.
         let t = Theme::from_toml("name = \"essai\"").unwrap();
         assert_eq!(t.name, "essai");
-        assert_eq!(t.radius.medium, 7.0);
+        assert_eq!(t.radius.medium, 9.0);
         assert_eq!(t.typography.family, "Segoe UI Variable Text");
         assert_eq!(t.color.background, Color::rgb(0xf7, 0xf7, 0xf6));
     }

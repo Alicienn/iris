@@ -107,7 +107,7 @@ impl Keymap {
         // Divers.
         lier("z", KeyOutcome::Command(CommandKind::Undo));
         lier("/", KeyOutcome::Command(CommandKind::Search));
-        lier("?", KeyOutcome::OpenPalette);
+        // "?" is not here: the window keeps it, for the list of keys.
 
         Self { bindings }
     }

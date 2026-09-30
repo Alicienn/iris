@@ -395,6 +395,37 @@ impl TiledDocument for BlitzDocument {
     fn release(&mut self) {
         self.painter = None;
     }
+
+    fn select_from(&mut self, x: f32, y: f32) -> bool {
+        let avait = self.document.has_text_selection();
+        let (x, y) = (x / self.scale, y / self.scale);
+        match self.document.find_text_position(x, y) {
+            Some((noeud, decalage)) => self
+                .document
+                .set_text_selection(noeud, decalage, noeud, decalage),
+            None => self.document.clear_text_selection(),
+        }
+        avait
+    }
+
+    fn select_to(&mut self, x: f32, y: f32) -> bool {
+        let avant = self.document.get_text_selection_ranges();
+        let (x, y) = (x / self.scale, y / self.scale);
+        if !self.document.extend_text_selection_to_point(x, y) {
+            return false;
+        }
+        self.document.get_text_selection_ranges() != avant
+    }
+
+    fn clear_selection(&mut self) -> bool {
+        let avait = self.document.has_text_selection();
+        self.document.clear_text_selection();
+        avait
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        self.document.get_selected_text()
+    }
 }
 
 /// Compose une image prémultipliée sur du blanc, en place.

@@ -131,6 +131,26 @@ pub struct Settings {
     /// The calendar's view: 0 month, 1 week, 2 day. The last one chosen.
     #[serde(default = "semaine")]
     pub calendar_view: i32,
+    /// The last day the inbox was emptied (`YYYY-MM-DD`), and how many days in a row
+    /// it has been: the inbox zero screen counts them.
+    #[serde(default)]
+    pub inbox_zero_day: String,
+    #[serde(default)]
+    pub inbox_zero_streak: u32,
+}
+
+/// How many days in a row the inbox has been emptied, `today` included: the same
+/// count on a day already counted, one more the day after, one again after a gap.
+pub fn inbox_zero_streak(
+    today: chrono::NaiveDate,
+    last: Option<chrono::NaiveDate>,
+    streak: u32,
+) -> u32 {
+    match last {
+        Some(d) if d == today => streak.max(1),
+        Some(d) if d.succ_opt() == Some(today) => streak + 1,
+        _ => 1,
+    }
 }
 
 /// The calendar opens on the week: what is coming, hour by hour.
@@ -170,6 +190,8 @@ impl Default for Settings {
             folded_tags: Vec::new(),
             home_at_startup: true,
             calendar_view: semaine(),
+            inbox_zero_day: String::new(),
+            inbox_zero_streak: 0,
         }
     }
 }
@@ -297,10 +319,37 @@ mod tests {
             folded_tags: vec![3, 7],
             home_at_startup: false,
             calendar_view: 0,
+            inbox_zero_day: "2026-10-01".into(),
+            inbox_zero_streak: 4,
         };
 
         reglages.save(&chemin).unwrap();
         assert_eq!(Settings::load(&chemin), reglages);
+    }
+
+    #[test]
+    fn inbox_zero_counts_days_in_a_row() {
+        let d = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        assert_eq!(
+            inbox_zero_streak(d("2026-10-01"), None, 0),
+            1,
+            "a first day"
+        );
+        assert_eq!(
+            inbox_zero_streak(d("2026-10-01"), Some(d("2026-10-01")), 3),
+            3,
+            "the same day counts once"
+        );
+        assert_eq!(
+            inbox_zero_streak(d("2026-10-02"), Some(d("2026-10-01")), 3),
+            4,
+            "the day after, one more"
+        );
+        assert_eq!(
+            inbox_zero_streak(d("2026-10-05"), Some(d("2026-10-01")), 3),
+            1,
+            "after a gap, it starts again"
+        );
     }
 
     #[test]

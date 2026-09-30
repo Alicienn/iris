@@ -435,6 +435,18 @@ These rules come from bugs users hit, and each has a scenario in
 - Text fields are `TextField` / `TextArea` from `controls/field.slint`: focus shows on
   the border, never the background, and AltGr characters are accepted. A field inside a
   frame that shows the focus itself (the task add line, the reply) is `bare`.
+- **Selecting a message's words (3.13.0).** Rich-text blocks are read-only
+  `TextInput`s (`SelectableText`), which select and copy on their own; the keys they
+  ignore bubble to a `FocusScope` around the body, which hands the keyboard back to the
+  shortcuts and sends the key again a turn later (`key-redispatch`), so `E` still acts
+  after a click in the words. Bodies painted by Blitz select in the document itself:
+  a press and a drag on a tile go to `TiledDocument::select_from` / `select_to` in
+  document pixels (a drag past its tile goes on into the next), Blitz paints the
+  highlight, and the tiles on show are painted again. `Ctrl`+`C` at the shortcuts asks
+  the document for its words and puts them on the clipboard through a hidden text
+  field (`copy-text`), the only way to it Slint offers. It used to be read as `C`,
+  *New message*.
+- `?` opens the list of keys (`screens/help.slint`), a modal like the others.
 
 ### Rendering
 
@@ -471,6 +483,19 @@ The user's `appearance` is System (the default), Light or Dark. System reads Win
 changes; applying a theme also sets the style's `Palette.color-scheme`, so its own
 controls (check boxes, scroll bars) follow. The font is Segoe UI Variable, Text for
 reading and Display for titles.
+
+Since 3.13.0 the radii are 6, 9 and 12 px (5, 7, 9 before), and what opens eases in once:
+modals, popovers and menus fade and move a few pixels, the task details slide in. Each
+runs on an `entree` property set in `init`, so nothing animates afterwards and the
+software renderer stays idle. Tasks are cards on the window's ground in a column of at
+most 840 px; their details are a floating card rather than a docked strip.
+
+### Inbox zero
+
+When the *To do* queue is empty, with nothing searched or filtered and a mailbox to
+empty, `apply_snapshot` counts the day (`inbox_zero_day` and `inbox_zero_streak` in the
+settings, through `settings::update`) and the list shows a medal and the days in a row
+instead of an empty sentence.
 
 ---
 
@@ -534,6 +559,11 @@ database so a reminder fires once.
 
 A delete keeps the task and its subtasks in memory; `Ctrl`+`Z` puts them back under
 their own identifiers (`Store::restore_tasks`), unless their list has gone since.
+
+After a quick add (3.13.0) the new task's length is asked in a bubble over the add bar
+that takes nothing from the keyboard: while it shows, `Enter` sends the field to
+`task-add-answered`, where nothing skips, a length (`goals::parse_duration`) is kept,
+and anything else is the next task. `Later` has *Tonight* (today, 23:59).
 
 ## Sending, and undoing a send
 
