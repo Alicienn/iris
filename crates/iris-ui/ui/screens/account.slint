@@ -59,6 +59,8 @@ export component AccountSetupPanel inherits Rectangle {
     callback discover();
     callback save-manual();
     callback switch-to-manual();
+    /// Fill the fields in from a configuration profile (.mobileconfig).
+    callback import-profile();
     callback dismissed();
 
     Modal {
@@ -150,6 +152,15 @@ export component AccountSetupPanel inherits Rectangle {
                 text: "Configure manually";
                 kind: ButtonKind.ghost;
                 clicked => { root.switch-to-manual(); }
+            }
+            // The profile a host or an IT department sends for iPhones and Macs: the
+            // servers in one file, without typing them.
+            if !root.editing: Button {
+                text: "Import a profile";
+                label: "Import a configuration profile (.mobileconfig)";
+                kind: ButtonKind.ghost;
+                enabled: !root.busy;
+                clicked => { root.import-profile(); }
             }
             Rectangle { horizontal-stretch: 1; }
             Button {

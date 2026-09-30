@@ -48,6 +48,12 @@
    you where it found them.
 3. Your mail arrives, inbox first.
 
+Your host or IT department sent a configuration profile (`.mobileconfig`, made for
+iPhones and Macs)? **Import a profile** in the same window fills in the servers, and the
+password when the profile carries one; check them and save. Signed profiles are read
+too. A profile with several accounts fills in the first; POP accounts are refused,
+since Iris speaks IMAP.
+
 Passwords are stored in the Windows credential store.
 
 ### Tags for your mailboxes

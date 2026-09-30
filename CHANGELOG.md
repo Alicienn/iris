@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.5.0 — 2026-09-30
+
+### New
+- Add an account from a configuration profile (.mobileconfig): Import a profile fills in its servers.
+
+### Improved
+- The mail list is cut into days: Today, Yesterday, This week, Earlier.
+- On a goal's page, the log moves behind a switch when a task's details are open, leaving the steps their room.
+
 ## 3.4.1 — 2026-09-30
 
 ### Improved

@@ -19,6 +19,41 @@ pub fn relative_date(date: Timestamp, now: Timestamp) -> String {
     relative_date_utc(local(date), local(now))
 }
 
+/// The titles over the mail list: "Today", "Yesterday", "This week", "Earlier", on the
+/// first row of each, empty on the others.
+///
+/// Only when the rows run from newest to oldest. Search results come by relevance, and
+/// a title every few rows would say nothing true about what is under it: then none.
+pub fn day_headers(dates: &[Timestamp], now: Timestamp) -> Vec<&'static str> {
+    let local = |t: Timestamp| Timestamp::from_millis(t.millis() + local_offset_ms(t));
+    let jour = |t: Timestamp| local(t).seconds().div_euclid(86_400);
+    let aujourd_hui = jour(now);
+    let groupes: Vec<usize> = dates
+        .iter()
+        .map(|d| match aujourd_hui - jour(*d) {
+            i64::MIN..=0 => 0,
+            1 => 1,
+            2..=6 => 2,
+            _ => 3,
+        })
+        .collect();
+    if groupes.windows(2).any(|p| p[1] < p[0]) {
+        return vec![""; dates.len()];
+    }
+    const NOMS: [&str; 4] = ["Today", "Yesterday", "This week", "Earlier"];
+    groupes
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            if i == 0 || groupes[i - 1] != *g {
+                NOMS[*g]
+            } else {
+                ""
+            }
+        })
+        .collect()
+}
+
 /// L'écart du fuseau de la machine avec UTC, à un instant donné (l'heure d'été
 /// compte : il dépend de la date).
 fn local_offset_ms(t: Timestamp) -> i64 {
@@ -194,6 +229,26 @@ mod tests {
     /// 14 novembre 2023, 22 h 13 UTC — un mardi.
     fn now() -> Timestamp {
         Timestamp::from_millis(1_700_000_000_000)
+    }
+
+    #[test]
+    fn the_list_is_cut_into_days_newest_first() {
+        let h = |heures: i64| Timestamp::from_millis(now().millis() - heures * 3_600_000);
+        let dates = [h(0), h(0), h(30), h(80), h(81), h(24 * 20)];
+        let titres = day_headers(&dates, now());
+        // Yesterday may be "Today" or "Yesterday" by the machine's zone at 30 h; the
+        // first row always opens "Today", and each title is given once.
+        assert_eq!(titres[0], "Today");
+        assert_eq!(titres[1], "");
+        assert_eq!(titres[5], "Earlier");
+        let donnes: Vec<_> = titres.iter().filter(|t| !t.is_empty()).collect();
+        let mut uniques = donnes.clone();
+        uniques.dedup();
+        assert_eq!(donnes, uniques);
+        // Out of order (search results): no titles at all.
+        assert!(day_headers(&[h(24 * 20), h(0)], now())
+            .iter()
+            .all(|t| t.is_empty()));
     }
 
     #[test]

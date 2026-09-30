@@ -27,6 +27,12 @@ export struct ThreadRowData {
     // left: a list read by faces before names.
     initials: string,
     sender-tint: color,
+    // "Today", "Yesterday", "This week", "Earlier" on the first row of each, drawn
+    // above it; empty on the others.
+    day: string,
+    // How many of those titles stand above this row's content, its own included: with
+    // the index, where the row is in the list.
+    titles: int,
 }
 
 // A line of the Home screen: a task or an event, or a small title over the ones that

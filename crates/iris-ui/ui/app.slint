@@ -963,6 +963,8 @@ export component AppWindow inherits Window {
     callback add-account-discover();
     callback add-account-save();
     callback add-account-manual-requested();
+    /// "Import a profile": pick a .mobileconfig and fill the fields in from it.
+    callback add-account-import();
     callback add-account-dismissed();
     callback rule-toggled(string, bool);
     callback rule-simulated(string);
@@ -2234,6 +2236,7 @@ export component AppWindow inherits Window {
         discover => { root.add-account-discover(); }
         save-manual => { root.add-account-save(); }
         switch-to-manual => { root.add-account-manual-requested(); }
+        import-profile => { root.add-account-import(); }
         dismissed => { root.add-account-dismissed(); }
     }
 

@@ -1263,6 +1263,7 @@ export component TasksView inherits Rectangle {
 
         if root.page == 1: GoalPage {
             vertical-stretch: 1;
+            narrow: root.has-detail;
             goal: root.goal;
             log: root.goal-log;
             chart: root.goal-chart;

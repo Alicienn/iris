@@ -94,40 +94,54 @@ fn main() {
     f.set_group_by_tags(true);
     iris_app::shell::refresh_accounts(&f, &services, &[]);
     f.set_loading(false);
-    f.set_rows(ModelRc::new(VecModel::from(vec![
-        ligne(
-            1,
-            "Jérôme Gauthier",
-            "Devis façade — ajustements",
-            "Bonjour, je joins la version corrigée, avec les quantités",
-            "14:32",
-            true,
-        ),
-        ligne(
-            2,
-            "Agnès Joly",
-            "Réunion de jeudi",
-            "Pouvez-vous confirmer l'horaire ? J'aurai besoin du projecteur",
-            "12:05",
-            false,
-        ),
-        ligne(
-            3,
-            "Banque",
-            "Votre relevé de septembre",
-            "Votre relevé est disponible dans votre espace client, rubrique",
-            "hier",
-            false,
-        ),
-        ligne(
-            4,
-            "Paul Jégou",
-            "Logo — dernière version",
-            "Voilà le logo en SVG, j'ai ajusté l'espacement du jambage",
-            "lun.",
-            true,
-        ),
-    ])));
+    f.set_rows(ModelRc::new(VecModel::from(
+        vec![
+            ligne(
+                1,
+                "Jérôme Gauthier",
+                "Devis façade — ajustements",
+                "Bonjour, je joins la version corrigée, avec les quantités",
+                "14:32",
+                true,
+            ),
+            ligne(
+                2,
+                "Agnès Joly",
+                "Réunion de jeudi",
+                "Pouvez-vous confirmer l'horaire ? J'aurai besoin du projecteur",
+                "12:05",
+                false,
+            ),
+            ligne(
+                3,
+                "Banque",
+                "Votre relevé de septembre",
+                "Votre relevé est disponible dans votre espace client, rubrique",
+                "hier",
+                false,
+            ),
+            ligne(
+                4,
+                "Paul Jégou",
+                "Logo — dernière version",
+                "Voilà le logo en SVG, j'ai ajusté l'espacement du jambage",
+                "lun.",
+                true,
+            ),
+        ]
+        .into_iter()
+        .map(|mut l| {
+            // The day titles, as the list draws them over the first row of each day.
+            (l.day, l.titles) = match l.id {
+                1 => ("Today".into(), 1),
+                2 => ("".into(), 1),
+                3 => ("Yesterday".into(), 2),
+                _ => ("This week".into(), 3),
+            };
+            l
+        })
+        .collect::<Vec<_>>(),
+    )));
     f.set_counts(ModelRc::new(VecModel::from(vec![18, 4, 0])));
     f.set_count_labels(ModelRc::new(VecModel::from(vec![
         slint::SharedString::from("18"),

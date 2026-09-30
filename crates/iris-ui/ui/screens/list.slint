@@ -424,6 +424,55 @@ component ThreadRow inherits Rectangle {
     } // drag
 }
 
+/// How tall the day's title over a row stands: 12 px above, its line, 4 px below.
+global DayTitle {
+    out property <length> height: 32px;
+}
+
+// A row, with the day's title over it when it is the first of its day. The title is
+// part of the row rather than an item of its own, so the list keeps one item per
+// conversation and a row stays what its index says.
+component ThreadEntry inherits Rectangle {
+    in property <ThreadRowData> data;
+    in property <bool> selected;
+    in property <bool> selection-mode;
+    in property <data-transfer> payload;
+
+    callback clicked();
+    callback mark-toggled();
+    callback mark-extended();
+    callback drag-started();
+    callback context-menu(length, length);
+    callback quick(string);
+
+    property <length> head: root.data.day != "" ? DayTitle.height : 0px;
+    height: root.head + row.height;
+
+    if root.data.day != "": Text {
+        x: 16px;
+        y: 12px;
+        text: root.data.day;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: Tokens.text-muted;
+    }
+
+    row := ThreadRow {
+        y: root.head;
+        width: root.width;
+        data: root.data;
+        selected: root.selected;
+        selection-mode: root.selection-mode;
+        payload: root.payload;
+        clicked => { root.clicked(); }
+        mark-toggled => { root.mark-toggled(); }
+        mark-extended => { root.mark-extended(); }
+        drag-started => { root.drag-started(); }
+        context-menu(x, y) => { root.context-menu(x, y); }
+        quick(what) => { root.quick(what); }
+    }
+}
+
 // The menu a right-click opens.
 //
 // It carries the same actions as the reading toolbar and the same shortcuts, because
@@ -879,13 +928,34 @@ export component ThreadListView inherits VerticalLayout {
         let dans-liste = py - list.absolute-position.y + (-list.viewport-y);
         if (px < list.absolute-position.x
             || px > list.absolute-position.x + list.width
-            || dans-liste < 0
-            || dans-liste >= root.rows.length * Tokens.row-height) {
+            || dans-liste < 0) {
             return;
         }
-        let index = floor(dans-liste / Tokens.row-height);
+        // Each row knows how many day titles stand above it. There are four at most
+        // (Today, Yesterday, This week, Earlier), so the row under the point is one of
+        // the five a plain division names, counting back.
+        let g = min(floor(dans-liste / Tokens.row-height), root.rows.length - 1);
+        let index = root.row-under(g, dans-liste) ? g
+            : root.row-under(g - 1, dans-liste) ? g - 1
+            : root.row-under(g - 2, dans-liste) ? g - 2
+            : root.row-under(g - 3, dans-liste) ? g - 3
+            : root.row-under(g - 4, dans-liste) ? g - 4
+            : -1;
+        // On a day's title, or past the last row: nothing.
+        if (index < 0) {
+            return;
+        }
         let ligne = root.rows[index];
         root.row-context-menu(ligne.id, px, py, ligne.unread, ligne.flagged);
+    }
+
+    /// Whether row `i`'s content (its day title left out) covers `y` in the list.
+    pure function row-under(i: int, y: length) -> bool {
+        if (i < 0 || i >= root.rows.length) {
+            return false;
+        }
+        let haut = i * Tokens.row-height + root.rows[i].titles * DayTitle.height;
+        return y >= haut && y < haut + Tokens.row-height;
     }
 
     bar := SearchBar {
@@ -1093,7 +1163,7 @@ export component ThreadListView inherits VerticalLayout {
         }
 
     list := ListView {
-        for entry in root.rows: ThreadRow {
+        for entry in root.rows: ThreadEntry {
             data: entry;
             selected: entry.id == root.selected-id;
             selection-mode: root.marked-count > 0;

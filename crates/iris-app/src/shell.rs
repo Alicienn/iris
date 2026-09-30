@@ -792,12 +792,29 @@ pub fn apply_snapshot(
         comptes.iter().map(|c| (c.id, c.email.clone())).collect();
     let adresse_par_defaut = comptes.first().map(|c| c.email.clone()).unwrap_or_default();
 
+    let jours = iris_ui::format::day_headers(
+        &snapshot
+            .rows
+            .iter()
+            .map(|r| r.last_activity)
+            .collect::<Vec<_>>(),
+        maintenant,
+    );
+    let mut titres = 0;
     let lignes: Vec<_> = snapshot
         .rows
         .iter()
-        .map(|r| {
+        .zip(jours)
+        .map(|(r, jour)| {
             let adresse = adresses.get(&r.account).unwrap_or(&adresse_par_defaut);
-            bridge::thread_row(r, adresse, maintenant, snapshot.marked.contains(&r.id))
+            let mut ligne =
+                bridge::thread_row(r, adresse, maintenant, snapshot.marked.contains(&r.id));
+            if !jour.is_empty() {
+                titres += 1;
+            }
+            ligne.day = jour.into();
+            ligne.titles = titres;
+            ligne
         })
         .collect();
 
@@ -2424,6 +2441,44 @@ pub fn wire_account_setup(
             prefill_manual(&fenetre);
         });
     }
+    // --- A configuration profile (.mobileconfig) ---
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_add_account_import(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(chemin) = rfd::FileDialog::new()
+                .set_title("Import a configuration profile")
+                .add_filter("Configuration profile", &["mobileconfig", "plist", "xml"])
+                .pick_file()
+            else {
+                return;
+            };
+            let octets = match std::fs::read(&chemin) {
+                Ok(o) => o,
+                Err(e) => {
+                    fenetre.set_add_account_error(format!("Could not open it: {e}").into());
+                    return;
+                }
+            };
+            let nom = chemin
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            match iris_discover::mobileconfig::parse(&octets) {
+                Ok(comptes) => fill_from_profile(&fenetre, &comptes, &nom),
+                Err(e) => fenetre.set_add_account_error(
+                    format!(
+                        "{nom} cannot be used: {}.",
+                        e.to_string().trim_end_matches('.')
+                    )
+                    .into(),
+                ),
+            }
+        });
+    }
 
     // --- La découverte ---
     {
@@ -2887,6 +2942,51 @@ fn prefill_manual(fenetre: &AppWindow) {
         fenetre.set_new_smtp_host(defauts.smtp_host.as_str().into());
         fenetre.set_new_smtp_port(defauts.smtp_port.to_string().into());
     }
+}
+
+/// Fills the add-account screen in from a profile's first mail account, on the manual
+/// screen, where the servers can be read before anything is saved.
+///
+/// What the profile does not say stays as typed: an address it leaves to be entered,
+/// a password it does not carry.
+fn fill_from_profile(
+    fenetre: &AppWindow,
+    comptes: &[iris_discover::mobileconfig::ProfileAccount],
+    fichier: &str,
+) {
+    let Some(compte) = comptes.first() else {
+        return;
+    };
+    let c = &compte.config;
+    if !c.email.is_empty() {
+        fenetre.set_new_email(c.email.as_str().into());
+    }
+    if let Some(p) = &compte.password {
+        fenetre.set_new_password(p.as_str().into());
+    }
+    fenetre.set_new_imap_host(c.imap_host.as_str().into());
+    fenetre.set_new_imap_port(c.imap_port.to_string().into());
+    fenetre.set_new_imap_tls(c.imap_transport == iris_discover::Transport::Tls);
+    fenetre.set_new_smtp_host(c.smtp_host.as_str().into());
+    fenetre.set_new_smtp_port(c.smtp_port.to_string().into());
+    fenetre.set_new_smtp_tls(c.smtp_transport == iris_discover::Transport::Tls);
+    fenetre.set_add_account_manual(true);
+    fenetre.set_add_account_error(Default::default());
+
+    let quoi = compte.description.as_deref().unwrap_or(fichier);
+    let mut indice = format!("Filled in from {quoi}. Check it, then save.");
+    if c.email.is_empty() {
+        indice = format!("Filled in from {quoi}. Type your address, then save.");
+    } else if compte.password.is_none() {
+        indice = format!("Filled in from {quoi}. Type your password, then save.");
+    }
+    if comptes.len() > 1 {
+        indice.push_str(&format!(
+            " The profile holds {} accounts: this is the first.",
+            comptes.len()
+        ));
+    }
+    fenetre.set_add_account_hint(indice.into());
 }
 
 /// The account the edit screen is working on, when its address has been changed.

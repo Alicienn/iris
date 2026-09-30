@@ -42,6 +42,8 @@ fn ligne(id: i32, de: &str, sujet: &str, non_lu: bool) -> ThreadRowData {
         account_tint: slint::Color::from_rgb_u8(0, 0, 0),
         initials: "M".into(),
         sender_tint: slint::Color::from_rgb_u8(0, 0, 0),
+        day: Default::default(),
+        titles: 0,
     }
 }
 

@@ -26,6 +26,7 @@ the first afternoon, and never forgive".
 | Home | A start page for the day: one sentence on what waits, the next three events and tasks |
 | Navigation | Back and forward across mailboxes, folders, views and workspaces, mouse buttons included |
 | Many mailboxes | Tags that group, fold, order and filter them |
+| Account setup | Address and password, or a configuration profile (`.mobileconfig`) as Apple Mail takes it |
 
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris did not, when this was written.

@@ -24,6 +24,7 @@
 pub mod autoconfig;
 pub mod builtin;
 mod io;
+pub mod mobileconfig;
 
 pub use io::{
     DnsResolver, Fetcher, HttpFetcher, MockIo, Prober, RealIo, Resolver, SrvRecord, TcpProber,

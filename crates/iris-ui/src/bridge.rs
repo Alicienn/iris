@@ -45,6 +45,8 @@ pub fn thread_row(
             let (r, g, b) = account_tint(&row.from_display);
             Color::from_rgb_u8(r, g, b)
         },
+        day: Default::default(),
+        titles: 0,
     }
 }
 

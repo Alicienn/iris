@@ -138,6 +138,153 @@ export component GoalBar inherits Rectangle {
     }
 }
 
+/// A goal's log (or its milestones), and the way to make time for it: the right-hand
+/// column of its page, or the second tab of the steps' column when the page is narrow.
+component GoalSide inherits VerticalLayout {
+    in property <GoalData> goal;
+    in property <[GoalLogData]> log;
+    /// Its own title over it (the wide page); the narrow page names it in its switch.
+    in property <bool> titled;
+
+    callback entry-removed(int);
+    callback milestone-toggled(int);
+    callback milestone-added(string);
+    callback make-time();
+
+    property <string> new-milestone;
+
+    spacing: 0px;
+
+    if root.titled: Text {
+        height: 24px;
+        text: root.goal.milestones ? "Milestones" : "Log";
+        font-size: 12px;
+        font-weight: 600;
+        color: Tokens.text-secondary;
+        vertical-alignment: center;
+    }
+    if root.titled: Hairline {}
+    ScrollView {
+        vertical-stretch: 1;
+        min-height: 80px;
+        VerticalLayout {
+            alignment: start;
+            for entree in root.log: Rectangle {
+                height: 50px;
+                HorizontalLayout {
+                    padding-left: 2px;
+                    padding-right: 2px;
+                    spacing: 10px;
+                    if !root.goal.milestones: Text {
+                        width: 20px;
+                        text: entree.number;
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    if root.goal.milestones: Check {
+                        y: (parent.height - self.height) / 2;
+                        size: 18px;
+                        done: entree.done;
+                        label: entree.title;
+                        toggled => { root.milestone-toggled(entree.id); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: entree.title;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: entree.done ? Tokens.text-muted : Tokens.text;
+                            overflow: elide;
+                        }
+                        if entree.when != "": Text {
+                            text: entree.when;
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                        }
+                    }
+                    if !root.goal.milestones: IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.window-close;
+                        label: "Remove " + entree.title;
+                        button-size: 24px;
+                        icon-size: 11px;
+                        clicked => { root.entry-removed(entree.id); }
+                    }
+                }
+                Hairline { y: parent.height - 1px; }
+            }
+            if root.log.length == 0 && !root.goal.milestones: Text {
+                height: 44px;
+                text: "Nothing logged yet.";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+    }
+    if root.goal.milestones: HorizontalLayout {
+        padding-top: 6px;
+        TextField {
+            icon: Icons.plus;
+            accessible-label: "Add a milestone";
+            placeholder-text: "Add a milestone";
+            text <=> root.new-milestone;
+            accepted(t) => {
+                if (t != "") {
+                    root.milestone-added(t);
+                    root.new-milestone = "";
+                }
+            }
+        }
+    }
+    Rectangle { height: 12px; }
+    // Time for it, in the calendar: an hour or so on chosen days, every week until its
+    // day.
+    Rectangle {
+        height: 58px;
+        border-radius: Tokens.radius-large;
+        background: Tokens.surface-hover;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 10px;
+            spacing: 10px;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.calendar;
+                size: 16px;
+                tint: Tokens.text-muted;
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                Text {
+                    text: "Make time for it";
+                    font-size: 12.5px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                }
+                Text {
+                    text: "Block time in the calendar each week.";
+                    font-size: 12.5px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+            }
+            Button {
+                y: (parent.height - self.height) / 2;
+                text: "Plan";
+                label: "Make time for it";
+                size: ButtonSize.sm;
+                clicked => { root.make-time(); }
+            }
+        }
+    }
+}
+
 /// A goal's own page: where it stands, the steps toward it, its pace and its log.
 /// The steps (the task rows) are the children, placed in the left column.
 export component GoalPage inherits VerticalLayout {
@@ -158,7 +305,12 @@ export component GoalPage inherits VerticalLayout {
     callback make-time();
     callback delete-goal();
 
-    property <string> new-milestone;
+    /// Too narrow for two columns (a task's details open beside it): the log goes
+    /// behind a switch in the steps' column rather than squeezing them. Said by the
+    /// screen around it: read from the page's own width, it would change the width it
+    /// is read from.
+    in property <bool> narrow;
+    property <bool> side-shown;
 
     padding-left: 36px;
     padding-right: 36px;
@@ -289,21 +441,29 @@ export component GoalPage inherits VerticalLayout {
         spacing: 32px;
         vertical-stretch: 1;
 
-        // Left: the steps (tasks toward it), then the pace.
+        // Left: the steps (tasks toward it), then the pace. When narrow, the log
+        // shares this column, behind a switch.
         VerticalLayout {
             horizontal-stretch: 14;
             spacing: 0px;
             HorizontalLayout {
-                height: 24px;
+                height: root.narrow ? 32px : 24px;
+                padding-bottom: root.narrow ? 4px : 0px;
                 spacing: 7px;
-                Text {
+                if root.narrow: Segmented {
+                    y: (parent.height - self.height) / 2;
+                    options: ["Steps", root.goal.milestones ? "Milestones" : "Log"];
+                    selected: root.side-shown ? 1 : 0;
+                    chosen(i) => { root.side-shown = i == 1; }
+                }
+                if !root.narrow: Text {
                     text: "Steps";
                     font-size: 12px;
                     font-weight: 600;
                     color: Tokens.text-secondary;
                     vertical-alignment: center;
                 }
-                Text {
+                if !root.side-shown || !root.narrow: Text {
                     text: root.goal.open-steps;
                     font-size: 12px;
                     color: Tokens.text-muted;
@@ -312,6 +472,21 @@ export component GoalPage inherits VerticalLayout {
                 Rectangle {}
             }
             Hairline {}
+            if root.narrow && root.side-shown: GoalSide {
+                vertical-stretch: 1;
+                goal: root.goal;
+                log: root.log;
+                entry-removed(id) => { root.entry-removed(id); }
+                milestone-toggled(id) => { root.milestone-toggled(id); }
+                milestone-added(t) => { root.milestone-added(t); }
+                make-time => { root.make-time(); }
+            }
+            // The steps and the pace; folded away while the log takes the column.
+            VerticalLayout {
+                visible: !(root.narrow && root.side-shown);
+                max-height: self.visible ? 100000px : 0px;
+                vertical-stretch: self.visible ? 1 : 0;
+                spacing: 0px;
             @children
             Rectangle { height: 16px; }
             Text {
@@ -375,143 +550,23 @@ export component GoalPage inherits VerticalLayout {
                     color: Tokens.text-muted;
                 }
             }
+            }
         }
 
         // Right: the log (or the milestones), and time set aside for it. Never wider
-        // than it needs: the steps get the room.
-        VerticalLayout {
+        // than it needs: the steps get the room. Not there when narrow: the steps'
+        // column shows it behind its switch.
+        if !root.narrow: GoalSide {
             horizontal-stretch: 10;
             max-width: 320px;
             min-width: 220px;
-            spacing: 0px;
-            Text {
-                height: 24px;
-                text: root.goal.milestones ? "Milestones" : "Log";
-                font-size: 12px;
-                font-weight: 600;
-                color: Tokens.text-secondary;
-                vertical-alignment: center;
-            }
-            Hairline {}
-            ScrollView {
-                vertical-stretch: 1;
-                min-height: 80px;
-                VerticalLayout {
-                    alignment: start;
-                    for entree in root.log: Rectangle {
-                        height: 50px;
-                        HorizontalLayout {
-                            padding-left: 2px;
-                            padding-right: 2px;
-                            spacing: 10px;
-                            if !root.goal.milestones: Text {
-                                width: 20px;
-                                text: entree.number;
-                                font-size: 12px;
-                                color: Tokens.text-muted;
-                                horizontal-alignment: right;
-                                vertical-alignment: center;
-                            }
-                            if root.goal.milestones: Check {
-                                y: (parent.height - self.height) / 2;
-                                size: 18px;
-                                done: entree.done;
-                                label: entree.title;
-                                toggled => { root.milestone-toggled(entree.id); }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                horizontal-stretch: 1;
-                                Text {
-                                    text: entree.title;
-                                    font-size: 13px;
-                                    font-weight: 500;
-                                    color: entree.done ? Tokens.text-muted : Tokens.text;
-                                    overflow: elide;
-                                }
-                                if entree.when != "": Text {
-                                    text: entree.when;
-                                    font-size: 12px;
-                                    color: Tokens.text-muted;
-                                }
-                            }
-                            if !root.goal.milestones: IconButton {
-                                y: (parent.height - self.height) / 2;
-                                icon: Icons.window-close;
-                                label: "Remove " + entree.title;
-                                button-size: 24px;
-                                icon-size: 11px;
-                                clicked => { root.entry-removed(entree.id); }
-                            }
-                        }
-                        Hairline { y: parent.height - 1px; }
-                    }
-                    if root.log.length == 0 && !root.goal.milestones: Text {
-                        height: 44px;
-                        text: "Nothing logged yet.";
-                        font-size: 12.5px;
-                        color: Tokens.text-muted;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-            if root.goal.milestones: HorizontalLayout {
-                padding-top: 6px;
-                TextField {
-                    icon: Icons.plus;
-                    accessible-label: "Add a milestone";
-                    placeholder-text: "Add a milestone";
-                    text <=> root.new-milestone;
-                    accepted(t) => {
-                        if (t != "") {
-                            root.milestone-added(t);
-                            root.new-milestone = "";
-                        }
-                    }
-                }
-            }
-            Rectangle { height: 12px; }
-            // Time for it, in the calendar: an hour or so on chosen days, every week
-            // until its day.
-            Rectangle {
-                height: 58px;
-                border-radius: Tokens.radius-large;
-                background: Tokens.surface-hover;
-                HorizontalLayout {
-                    padding-left: 12px;
-                    padding-right: 10px;
-                    spacing: 10px;
-                    Icon {
-                        y: (parent.height - self.height) / 2;
-                        data: Icons.calendar;
-                        size: 16px;
-                        tint: Tokens.text-muted;
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        horizontal-stretch: 1;
-                        Text {
-                            text: "Make time for it";
-                            font-size: 12.5px;
-                            font-weight: 600;
-                            color: Tokens.text;
-                        }
-                        Text {
-                            text: "Block time in the calendar each week.";
-                            font-size: 12.5px;
-                            color: Tokens.text-muted;
-                            overflow: elide;
-                        }
-                    }
-                    Button {
-                        y: (parent.height - self.height) / 2;
-                        text: "Plan";
-                        label: "Make time for it";
-                        size: ButtonSize.sm;
-                        clicked => { root.make-time(); }
-                    }
-                }
-            }
+            goal: root.goal;
+            log: root.log;
+            titled: true;
+            entry-removed(id) => { root.entry-removed(id); }
+            milestone-toggled(id) => { root.milestone-toggled(id); }
+            milestone-added(t) => { root.milestone-added(t); }
+            make-time => { root.make-time(); }
         }
     }
 }

@@ -1506,6 +1506,91 @@ fn les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir() {
     assert_eq!(*ouverts.borrow(), [7]);
 }
 
+fn clic_droit(f: &AppWindow, point: slint::LogicalPosition) {
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position: point,
+        button: PointerEventButton::Right,
+    });
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position: point,
+        button: PointerEventButton::Right,
+    });
+    slint::platform::update_timers_and_animations();
+}
+
+fn un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne() {
+    let f = fenetre();
+    let ligne = |id: i32, de: &str, jour: &str, titres: i32| iris_ui::ThreadRowData {
+        id,
+        from: de.into(),
+        subject: "Sujet".into(),
+        date: "12:05".into(),
+        day: jour.into(),
+        titles: titres,
+        ..Default::default()
+    };
+    f.set_rows(ModelRc::new(VecModel::from(vec![
+        ligne(7, "Agnès Joly", "Today", 1),
+        ligne(8, "Bruno Petit", "Yesterday", 2),
+        ligne(9, "Carole Roy", "", 2),
+        ligne(10, "Denis Vidal", "Earlier", 3),
+    ])));
+    let rangee = |nom: &str| {
+        testing::ElementQuery::from_root(&f)
+            .match_descendants()
+            .match_accessible_role(testing::AccessibleRole::ListItem)
+            .find_all()
+            .into_iter()
+            .find(|e| e.accessible_label().is_some_and(|l| l.starts_with(nom)))
+            .expect("la ligne")
+    };
+    let bord = |nom: &str| {
+        let r = rangee(nom);
+        let (pos, taille) = (r.absolute_position(), r.size());
+        slint::LogicalPosition::new(pos.x + 40.0, pos.y + taille.height / 2.0)
+    };
+
+    clic_droit(&f, centre(&rangee("Carole Roy")));
+    assert_eq!(f.get_context_menu_thread(), 9);
+
+    // The menu is open: a right click on another row goes through its veil, and the
+    // list finds the row from the point, day titles counted.
+    clic_droit(&f, bord("Denis Vidal"));
+    assert_eq!(
+        f.get_context_menu_thread(),
+        10,
+        "the row under three titles"
+    );
+    clic_droit(&f, bord("Bruno Petit"));
+    assert_eq!(f.get_context_menu_thread(), 8, "the row under two titles");
+}
+
+fn un_profil_s_importe_depuis_l_ajout_de_compte() {
+    let f = fenetre();
+    let demandes = Rc::new(RefCell::new(0));
+    {
+        let d = Rc::clone(&demandes);
+        f.on_add_account_import(move || *d.borrow_mut() += 1);
+    }
+    f.set_add_account_open(true);
+    clic(&bouton(
+        &f,
+        "Import a configuration profile (.mobileconfig)",
+    ));
+    assert_eq!(*demandes.borrow(), 1);
+    assert!(f.get_add_account_open(), "the window stays, to be checked");
+
+    // Not when editing an account: its servers are already known.
+    f.set_add_account_editing(true);
+    assert!(testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .iter()
+        .all(|b| b.accessible_label().as_deref()
+            != Some("Import a configuration profile (.mobileconfig)")));
+}
+
 fn echap_quitte_la_lecture_en_plein_ecran() {
     let f = fenetre();
     f.set_conversation_empty(false);
@@ -1749,6 +1834,14 @@ fn main() {
         (
             "les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir",
             les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir,
+        ),
+        (
+            "un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne",
+            un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne,
+        ),
+        (
+            "un_profil_s_importe_depuis_l_ajout_de_compte",
+            un_profil_s_importe_depuis_l_ajout_de_compte,
         ),
         (
             "echap_quitte_la_lecture_en_plein_ecran",

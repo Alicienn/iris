@@ -50,6 +50,21 @@ An address and a password are enough: discovery chains an embedded table, the do
 autoconfiguration, the Mozilla database, DNS `SRV`, `MX` and probing — and **says where
 the proposed configuration came from**, so that a guess never passes for a certainty.
 
+A configuration profile (`.mobileconfig`) is the other way in: `iris-discover::mobileconfig`
+reads its `com.apple.mail.managed` payloads from the XML property list — taken from
+between `<?xml` and `</plist>`, so a signed profile's PKCS #7 envelope needs no parsing
+and its signature is not checked. It only fills the manual screen, which the user reads
+before saving. The encryption is decided by the port (993 and 465 direct TLS, any other
+STARTTLS), never in the clear whatever the profile says; POP and binary profiles are
+refused by name.
+
+The mail list's day titles (Today, Yesterday, This week, Earlier) are computed in
+`iris_ui::format::day_headers` and ride on the first row of each day, not as items of
+their own: the list keeps one item per conversation. They are given only when the rows
+run newest first (never over search results). Each row carries how many titles stand
+above it, so the right-click that goes through an open menu's veil still finds its row
+by arithmetic.
+
 ---
 
 ## Measurements
