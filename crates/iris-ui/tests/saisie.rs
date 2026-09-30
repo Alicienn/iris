@@ -1565,6 +1565,25 @@ fn un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne() {
     assert_eq!(f.get_context_menu_thread(), 8, "the row under two titles");
 }
 
+fn un_clic_dans_les_taches_n_atteint_pas_le_courrier_dessous() {
+    let f = fenetre();
+    // Where New message is, in the mail.
+    let nouveau = bouton(&f, "Write a new message");
+    let point = centre(&nouveau);
+    for ecran in [2, 1, 3] {
+        f.set_workspace(ecran);
+        cliquer_a(&f, point);
+        assert!(
+            !f.get_compose_open(),
+            "workspace {ecran}: the click reached New message under it"
+        );
+    }
+    // Back in the mail, the button is there and works.
+    f.set_workspace(0);
+    cliquer_a(&f, point);
+    assert!(f.get_compose_open());
+}
+
 fn un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo() {
     let f = fenetre();
     f.set_workspace(2);
@@ -1777,6 +1796,46 @@ fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
     assert_eq!(*ouverts.borrow(), 1);
 }
 
+fn la_fiche_d_un_evenement_s_ouvre_a_cote_de_lui() {
+    let f = fenetre();
+    une_semaine(&f);
+    f.set_calendar_week_events(ModelRc::new(VecModel::from(vec![
+        iris_ui::TimedEventData {
+            key: "5:0".into(),
+            title: "Atelier".into(),
+            time: "09:00 – 10:00".into(),
+            day: 2,
+            lanes: 1,
+            top: 540.0 / 1440.0,
+            height: 60.0 / 1440.0,
+            ..Default::default()
+        },
+    ])));
+    let bloc = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().is_some_and(|l| l.ends_with("Atelier")))
+        .expect("l'événement");
+    let (pos, taille) = (bloc.absolute_position(), bloc.size());
+    cliquer_a(
+        &f,
+        slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + 10.0),
+    );
+    // The card is placed from these: the event where it is on screen, the grid's
+    // scroll counted.
+    assert!(f.get_event_anchored());
+    assert!(
+        (f.get_event_anchor_top() - pos.y).abs() < 2.0,
+        "anchor top {} for an event at {}",
+        f.get_event_anchor_top(),
+        pos.y
+    );
+    assert!((f.get_event_anchor_left() - pos.x).abs() < 2.0);
+    assert!((f.get_event_anchor_right() - (pos.x + taille.width)).abs() < 2.0);
+}
+
 fn une_tache_se_pose_sur_la_semaine() {
     let f = fenetre();
     une_semaine(&f);
@@ -1799,12 +1858,36 @@ fn une_tache_se_pose_sur_la_semaine() {
         .into_iter()
         .find(|e| e.accessible_label().as_deref() == Some("Relire le devis"))
         .expect("la tâche à planifier");
-    glisser(&f, centre(&tache), un_creneau_du_lundi(&f));
+    // A mark at 10:00 on Wednesday, to aim at: let go on its top edge, the task lands
+    // at 10:00 that day, the grid's scroll counted.
+    f.set_calendar_week_events(ModelRc::new(VecModel::from(vec![
+        iris_ui::TimedEventData {
+            key: "1:0".into(),
+            title: "Repère".into(),
+            time: "10:00 – 11:00".into(),
+            day: 2,
+            lanes: 1,
+            top: 600.0 / 1440.0,
+            height: 60.0 / 1440.0,
+            ..Default::default()
+        },
+    ])));
+    let repere = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().is_some_and(|l| l.ends_with("Repère")))
+        .expect("le repère");
+    let pos = repere.absolute_position();
+    glisser(
+        &f,
+        centre(&tache),
+        slint::LogicalPosition::new(pos.x + 10.0, pos.y + 3.0),
+    );
     let poses = poses.borrow();
     assert_eq!(poses.len(), 1, "let go on the week, it is booked there");
-    assert_eq!(poses[0].0, 42);
-    assert_eq!(poses[0].1, "2026-09-28");
-    assert_eq!(poses[0].2 % 15, 0, "on a quarter hour");
+    assert_eq!(poses[0], (42, "2026-09-30".to_string(), 600));
 }
 
 fn un_clic_sur_un_creneau_libre_s_ecrit_directement() {
@@ -2006,12 +2089,20 @@ fn main() {
             un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne,
         ),
         (
+            "un_clic_dans_les_taches_n_atteint_pas_le_courrier_dessous",
+            un_clic_dans_les_taches_n_atteint_pas_le_courrier_dessous,
+        ),
+        (
             "un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo",
             un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo,
         ),
         (
             "un_evenement_se_glisse_et_s_etire_sans_s_ouvrir",
             un_evenement_se_glisse_et_s_etire_sans_s_ouvrir,
+        ),
+        (
+            "la_fiche_d_un_evenement_s_ouvre_a_cote_de_lui",
+            la_fiche_d_un_evenement_s_ouvre_a_cote_de_lui,
         ),
         (
             "une_tache_se_pose_sur_la_semaine",

@@ -3,6 +3,17 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.8.1 — 2026-09-30
+
+### Fixed
+- Clicking an empty spot in Tasks, Calendar or Home no longer reaches the mail underneath (it could open New message).
+- No more stray icons and shapes flickering over Tasks while you carry a task.
+- An event's details open beside the event you clicked, wherever the day is scrolled.
+- A task dropped on the week lands at the hour it was dropped on.
+
+### Removed
+- Still today, at the foot of the calendar's side column.
+
 ## 3.8.0 — 2026-09-30
 
 ### Improved

@@ -10,8 +10,8 @@ use iris_calendar::{layout, Event, Occurrence};
 use iris_store::{NewEvent, StoredCalendar, StoredEvent};
 use iris_types::{Error, Result, Timestamp};
 use iris_ui::{
-    AppWindow, CalendarChipData, CalendarData, EventDetailData, HomeItemData, MonthCellData,
-    TimedEventData, WeekDayData,
+    AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData, TimedEventData,
+    WeekDayData,
 };
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -575,11 +575,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         }
     }
 
-    // What is left of today, at the foot of the side column, and the tasks to give a
-    // time to.
-    fenetre.set_calendar_today_left(ModelRc::new(VecModel::from(reste_du_jour(
-        services, maintenant,
-    ))));
+    // The tasks to give a time to, at the foot of the side column.
     fenetre.set_calendar_to_plan(ModelRc::new(VecModel::from(crate::tasks::to_plan(
         services,
     ))));
@@ -633,32 +629,6 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         etat, etat.jour, etat.mini, &occ_mini, &couleurs, false,
     ));
     fenetre.set_calendar_mini_cells(ModelRc::new(VecModel::from(cases)));
-}
-
-/// The events of today still to come or under way, four at most: "14:30, in 25 min".
-fn reste_du_jour(services: &Services, maintenant: Timestamp) -> Vec<HomeItemData> {
-    let instant = maintenant.millis();
-    upcoming(services, aujourd_hui(), 1)
-        .into_iter()
-        .filter(|u| !u.all_day && u.end > instant)
-        .take(4)
-        .map(|u| HomeItemData {
-            key: u.key.into(),
-            title: u.title.into(),
-            meta: if u.start <= instant {
-                format!("{}, now", u.time)
-            } else {
-                format!(
-                    "{}, {}",
-                    u.time,
-                    crate::home::in_how_long(u.start - instant)
-                )
-            }
-            .into(),
-            color: couleur(&u.color),
-            ..Default::default()
-        })
-        .collect()
 }
 
 /// An event of one's own dragged in the grid: `jours` days and `minutes` later, its

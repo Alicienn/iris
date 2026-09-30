@@ -265,8 +265,17 @@ that takes `Escape`; `Enter` sends `calendar-quick-event(day, minute, title)` an
 The draft lives in the grid, not in `modal-open`: while it has the focus the keys are
 the field's, and closing it hands them back (`draft-closed`). Events are their
 calendar's colour at 16 % with a 45 % outline, past ones at 55 % opacity
-(`TimedEventData.past`); the small month tints the days shown (`MonthCellData.in-week`),
-and the column ends on what is left of today (`reste_du_jour`).
+(`TimedEventData.past`); the small month tints the days shown (`MonthCellData.in-week`).
+The column's *Still today* was removed in 3.8.1: the week in front of it already says
+it.
+
+The mail's columns are hidden (`visible: workspace == 0`) while another workspace is
+shown. The calendar, the tasks and Home are laid over them, and Slint passes a click on
+a part without a `TouchArea` to what lies under it; the software renderer also painted
+bits of the mail through them in the regions it redrew. Inside the week's scrolled
+grid, `absolute-position` is not to be trusted: what needs a place on screen (the
+event card's anchor, a task dropped on the week) counts it from the `ScrollView`'s own
+position plus its `viewport-x`/`viewport-y`.
 
 Since 3.6.0 an event can be dragged. `TimedEventData.movable` is true for a local
 calendar's event that neither repeats nor is an exception to a repeat. A press becomes a

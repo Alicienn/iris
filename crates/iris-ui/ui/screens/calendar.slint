@@ -1,8 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import {
-    CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData, HomeItemData,
-    PlanTaskData
+    CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData, PlanTaskData
 } from "@iris/types.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
@@ -421,11 +420,15 @@ component WeekGrid inherits VerticalLayout {
         && root.carry-x < defil.absolute-position.x + defil.width
         && root.carry-y >= defil.absolute-position.y
         && root.carry-y < defil.absolute-position.y + defil.height;
+    // The grid's top left on screen, its scroll counted (`absolute-position` inside the
+    // scrolled grid does not count it).
+    property <length> grid-x: defil.absolute-position.x + defil.viewport-x;
+    property <length> grid-y: defil.absolute-position.y + defil.viewport-y;
     property <int> carry-day: root.over-grid
-        ? floor((root.carry-x - grille.absolute-position.x - root.gutter) / grille.colonne)
+        ? floor((root.carry-x - root.grid-x - root.gutter) / grille.colonne)
         : -1;
     property <int> carry-minute: clamp(
-        floor((root.carry-y - grille.absolute-position.y) / (root.hour / 4)) * 15,
+        floor((root.carry-y - root.grid-y) / (root.hour / 4)) * 15,
         0, 1440 - root.carry-minutes);
 
     changed drop => {
@@ -675,9 +678,13 @@ component WeekGrid inherits VerticalLayout {
                             return;
                         }
                         root.close-draft();
-                        root.event-anchored(evenement.absolute-position.x,
-                            evenement.absolute-position.x + evenement.width,
-                            evenement.absolute-position.y);
+                        // Where it is on screen, from the grid's own place and scroll.
+                        // `absolute-position` inside the scrolled grid was off, and the
+                        // card opened hundreds of pixels away from the event, further
+                        // the more the day was scrolled.
+                        let gauche = defil.absolute-position.x + defil.viewport-x + evenement.x;
+                        root.event-anchored(gauche, gauche + evenement.width,
+                            defil.absolute-position.y + defil.viewport-y + evenement.y);
                         root.event-opened(e.key);
                     }
                 }
@@ -850,8 +857,6 @@ export component CalendarView inherits Rectangle {
     in property <[TimedEventData]> week-events;
     in property <float> now-fraction: -1;
     in property <int> now-day: -1;
-    /// What is left of today, under the calendars.
-    in property <[HomeItemData]> today-left;
     /// Today's tasks without a time, to drag onto the week.
     in property <[PlanTaskData]> to-plan;
 
@@ -1048,65 +1053,6 @@ export component CalendarView inherits Rectangle {
                             root.carried-minutes = t.minutes;
                         }
                     }
-                }
-            }
-
-            // What is left of today: the next few things, and when.
-            Hairline {}
-            Rectangle { height: 8px; }
-            HorizontalLayout {
-                height: 24px;
-                padding-left: 2px;
-                SectionTitle { text: "Still today"; }
-            }
-            if root.today-left.length == 0: Text {
-                height: 26px;
-                text: " Nothing else today.";
-                font-size: 12.5px;
-                color: Tokens.text-muted;
-                vertical-alignment: center;
-            }
-            for item in root.today-left: Rectangle {
-                height: 42px;
-                border-radius: Tokens.radius-medium;
-                background: ligne.has-hover ? Tokens.surface-hover : transparent;
-
-                accessible-role: button;
-                accessible-label: item.title;
-                accessible-description: item.meta;
-                accessible-action-default => { root.event-opened(item.key); }
-
-                HorizontalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-                    spacing: 9px;
-                    Rectangle {
-                        y: 12px;
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 4px;
-                        background: item.color;
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        horizontal-stretch: 1;
-                        Text {
-                            text: item.title;
-                            font-size: 12.5px;
-                            color: Tokens.text;
-                            overflow: elide;
-                        }
-                        Text {
-                            text: item.meta;
-                            font-size: 12px;
-                            color: Tokens.text-muted;
-                            overflow: elide;
-                        }
-                    }
-                }
-                ligne := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.event-opened(item.key); }
                 }
             }
         }

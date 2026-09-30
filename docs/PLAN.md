@@ -471,3 +471,6 @@ the application is brought to it screen by screen.
 - [x] **S40.12** Signed updates (3.8.0): a manifest signed with the project's Ed25519
       key beside each installer, read from the site instead of the API; the unsigned
       fallbacks removed. Memory remeasured after the redesign: 44 MB, window open.
+- [x] **S40.13** What was seen in use (3.8.1): clicks and paint no longer reach the mail
+      under the other workspaces, the event card and a dropped task placed with the
+      grid's scroll counted, *Still today* removed.

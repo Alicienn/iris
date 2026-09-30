@@ -724,8 +724,6 @@ export component AppWindow inherits Window {
     callback calendar-new-event(string, int);
     /// A title typed in a free slot of the grid: (day, minute of the day, title).
     callback calendar-quick-event(string, int, string);
-    /// What is left of today, under the calendars.
-    in property <[HomeItemData]> calendar-today-left;
     /// Today's tasks without a time, to drag onto the week.
     in property <[PlanTaskData]> calendar-to-plan;
     /// An event dragged to another time: (key, days later, minutes later).
@@ -1357,6 +1355,13 @@ export component AppWindow inherits Window {
             }
 
             HorizontalLayout {
+                // The mail's columns, only while the mail is shown. The calendar, the
+                // tasks and Home are laid over them, and a part of those without a
+                // touch area of its own let the click through to the mail underneath
+                // ("Today" opened New message); the software renderer, redrawing only
+                // what changed, painted bits of the mail through them while a task was
+                // carried. Hidden, the mail is neither drawn nor hit.
+                visible: root.workspace == 0;
                 // Colonne 1 : les comptes.
                 Sidebar {
                     // Reading full screen: the accounts and the list step aside.
@@ -1629,7 +1634,6 @@ export component AppWindow inherits Window {
         // The line typed in the grid is saved or dropped: the keys go back to the
         // calendar's shortcuts.
         draft-closed => { shortcuts.focus(); }
-        today-left: root.calendar-today-left;
         to-plan: root.calendar-to-plan;
         event-moved(k, d, m) => { root.calendar-event-moved(k, d, m); }
         event-resized(k, m) => { root.calendar-event-resized(k, m); }
