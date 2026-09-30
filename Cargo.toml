@@ -43,9 +43,15 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 
 # Le profil de release vise la taille et la prévisibilité des temps de frame :
 # une seule unité de codegen permet l'inlining inter-crate sur les chemins chauds.
+#
+# LTO « thin » plutôt que « fat », mesuré le 2026-09-30 (-j 4 comme le runner Windows,
+# dépendances déjà compilées) : 1 967 s contre 3 415 s pour les caisses du projet,
+# binaire 66,7 Mo contre 65,2, et `mesure` à 41,8–42,1 Mo fenêtre ouverte contre
+# 44,0–44,1. Une autre compilation tournait sur la machine pendant une partie de la
+# mesure : l'écart de temps est indicatif, le sens ne l'est pas.
 [profile.release]
 opt-level = 3
-lto = "fat"
+lto = "thin"
 codegen-units = 1
 panic = "abort"
 # Les symboles restent. « symbols » les retirait, et le crochet de panique n'aurait
