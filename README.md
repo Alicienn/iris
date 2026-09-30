@@ -142,7 +142,8 @@ Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
   kept even for a subscribed calendar; *Use the calendar's colour* gives it back.
 - *To plan* lists today's tasks (and late ones) that have no hour yet. Drag one onto
   the week: it is booked there for as long as it takes (half an hour when not said),
-  and the task gets that day and hour. Moving that slot later moves the task too.
+  and the task gets that day and hour. Moving that slot later moves the task too. The
+  clock on each row does the same without dragging: the first free time today.
 - **+** next to *Calendars* adds a calendar of your own besides *Personal*; each event
   is put in the one you choose. Right-click a calendar to rename it, change its colour
   or delete it.

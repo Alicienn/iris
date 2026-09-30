@@ -620,6 +620,10 @@ component WeekGrid inherits VerticalLayout {
 
                 accessible-role: button;
                 accessible-label: e.time + " " + e.title;
+                // What a mouse can do with it, said; the menu (Edit) does it without one.
+                accessible-description: e.movable
+                    ? "Drag to move it, its lower edge to change its length; right-click for more"
+                    : "Right-click for more";
                 accessible-action-default => { root.event-opened(e.key); }
 
                 VerticalLayout {
@@ -1017,6 +1021,8 @@ export component CalendarView inherits Rectangle {
                 accessible-role: list-item;
                 accessible-label: t.title;
                 accessible-description: t.meta + ", drag onto the week to give it a time";
+                // Without a mouse: the first free time today.
+                accessible-action-default => { root.task-planned(t.id, "", -1); }
 
                 // Pressed and pulled past four pixels, the task is carried; let go over
                 // the week, it is booked there.
@@ -1025,7 +1031,8 @@ export component CalendarView inherits Rectangle {
 
                 HorizontalLayout {
                     padding-left: 4px;
-                    padding-right: 6px;
+                    // Room for the clock button at the end.
+                    padding-right: 32px;
                     spacing: 9px;
                     Rectangle {
                         y: (parent.height - self.height) / 2;
@@ -1079,6 +1086,17 @@ export component CalendarView inherits Rectangle {
                             root.carried-minutes = t.minutes;
                         }
                     }
+                }
+                // The same without dragging: the first free time today, one click.
+                // Over the row's touch area, so the click is its own.
+                IconButton {
+                    x: parent.width - self.width - 2px;
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.clock;
+                    label: "Book the first free time";
+                    button-size: 26px;
+                    icon-size: 14px;
+                    clicked => { root.task-planned(t.id, "", -1); }
                 }
             }
         }

@@ -909,6 +909,8 @@ export component ConversationView inherits VerticalLayout {
                             }
                             Text {
                                 text: root.folder-label;
+                                // "Inbox" alone says nothing to a screen reader.
+                                accessible-label: "In " + root.folder-label;
                                 font-size: 12.5px;
                                 color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
                                 vertical-alignment: center;

@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.10.1 — 2026-09-30
+
+### Improved
+- To plan: a clock button on each task books the first free time today, without dragging.
+- Screen readers name the task details' lists (Reminder, Repeats, List, Goal), read a goal's pace chart, say which folder a conversation is in and how an event can be moved.
+
 ## 3.10.0 — 2026-09-30
 
 ### New

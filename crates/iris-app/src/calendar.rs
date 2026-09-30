@@ -1528,8 +1528,24 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         let (faible, services, redessiner) =
             (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
         fenetre.on_calendar_task_planned(move |id, jour, minute| {
-            let Some(jour) = lire_date(&jour) else {
-                return;
+            // No day and minute -1: the first free time, as Find a slot offers it
+            // first (the row's button, and its action for the keyboard and screen
+            // readers).
+            let (jour, minute) = if minute < 0 {
+                match crate::tasks::first_free(&services, id as i64) {
+                    Some(place) => place,
+                    None => {
+                        if let Some(f) = faible.upgrade() {
+                            f.set_status("No free time left in that day.".into());
+                        }
+                        return;
+                    }
+                }
+            } else {
+                let Some(jour) = lire_date(&jour) else {
+                    return;
+                };
+                (jour, minute)
             };
             let message = match crate::tasks::book(&services, id as i64, jour, minute) {
                 Ok(m) => m,

@@ -577,6 +577,10 @@ export component GoalPage inherits VerticalLayout {
             // the steps are what was logged.
             Rectangle {
                 height: 120px;
+                // A drawing, said in words for those who cannot see it.
+                accessible-role: image;
+                accessible-label: "Pace chart: " + root.goal.done + " " + root.goal.of-label
+                    + ", " + root.goal.badge + ". " + root.goal.pace;
                 Path {
                     width: 100%;
                     height: 100%;

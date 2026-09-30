@@ -858,6 +858,8 @@ component TaskDetail inherits DetailPanel {
                 y: (parent.height - self.height) / 2;
                 height: 30px;
                 enabled: root.detail.has-due;
+                // Named, or a screen reader says "combo box" and nothing of what for.
+                accessible-label: "Reminder";
                 model: root.reminders;
                 current-index: root.detail.reminder-index;
                 selected => { root.reminder-chosen(self.current-index); }
@@ -872,6 +874,8 @@ component TaskDetail inherits DetailPanel {
                 y: (parent.height - self.height) / 2;
                 height: 30px;
                 enabled: root.detail.has-due;
+                accessible-label: "Repeats";
+                accessible-description: root.detail.has-due ? "" : "Give the task a due day first";
                 model: root.repeats;
                 current-index: root.detail.repeat-index;
                 selected => { root.repeat-chosen(self.current-index); }
@@ -883,6 +887,7 @@ component TaskDetail inherits DetailPanel {
             ComboBox {
                 y: (parent.height - self.height) / 2;
                 height: 30px;
+                accessible-label: "List";
                 model: root.lists;
                 current-index: root.detail.list-index;
                 selected => { root.list-chosen(self.current-index); }
@@ -895,6 +900,7 @@ component TaskDetail inherits DetailPanel {
             ComboBox {
                 y: (parent.height - self.height) / 2;
                 height: 30px;
+                accessible-label: "Goal";
                 model: root.goal-names;
                 current-index: root.detail.goal-index;
                 selected => { root.goal-chosen(self.current-index); }

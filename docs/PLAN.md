@@ -481,3 +481,7 @@ the application is brought to it screen by screen.
 - [x] **S40.16** Mail that says where it is (3.10.0): the folder in the reading header,
       invitations as a banner over their message, search pills and results by date, a
       deleted conversation gone from the results.
+- [x] **S40.17** Accessibility of what 3.x added (3.10.1): named combo boxes in the task
+      details, the pace chart and the folder said in words, how an event moves told,
+      and *To plan* usable without a mouse (its clock button and default action book
+      the first free time).

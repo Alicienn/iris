@@ -664,10 +664,84 @@ fn liberer(services: &Services, id: i64) {
 
 /// Fills the slot picker for a task: its day (the due day, or today), what the day
 /// holds, and where its length fits. Returns the starts offered.
+/// What a task's day holds, to find it room: the day (its due day if still ahead, else
+/// today), how long it takes, the stretches already taken (events, and the day's other
+/// tasks with an hour; its own booking does not count), and from which minute to look.
+struct Occupation {
+    jour: NaiveDate,
+    longueur: i32,
+    occupe: Vec<(i32, i32, String)>,
+    depuis: i32,
+}
+
+/// The first free stretch for a task, as *Find a slot* would offer it first: its day,
+/// and the minute it starts. `None` when the day has no room left.
+pub(crate) fn first_free(services: &Services, id: i64) -> Option<(NaiveDate, i32)> {
+    let o = occupation(services, id)?;
+    let libres = iris_tasks::slots::free_slots(
+        &o.occupe
+            .iter()
+            .map(|(a, b, _)| (*a, *b))
+            .collect::<Vec<_>>(),
+        o.longueur,
+        o.depuis,
+        1,
+    );
+    libres.first().map(|m| (o.jour, *m))
+}
+
 fn creneaux(f: &AppWindow, services: &Services, id: i64) -> Vec<i32> {
-    let Some(t) = services.store.task(id).ok().flatten() else {
+    let Some(Occupation {
+        jour: jour_vise,
+        longueur,
+        occupe,
+        depuis,
+    }) = occupation(services, id)
+    else {
         return Vec::new();
     };
+    let today = maintenant_local().date();
+    let libres = iris_tasks::slots::free_slots(
+        &occupe.iter().map(|(a, b, _)| (*a, *b)).collect::<Vec<_>>(),
+        longueur,
+        depuis,
+        9,
+    );
+    f.set_task_slot_day(
+        if jour_vise == today {
+            "today".to_string()
+        } else {
+            jour_vise.format("%A %-d %B").to_string()
+        }
+        .into(),
+    );
+    f.set_task_slot_need(
+        format!(
+            "{} needed · between your events",
+            iris_tasks::goals::duration_label(longueur)
+        )
+        .into(),
+    );
+    f.set_task_slot_busy(ModelRc::new(VecModel::from(
+        occupe
+            .iter()
+            .filter(|(_, b, _)| *b > depuis)
+            .take(4)
+            .map(|(a, b, titre)| SharedString::from(format!("{}–{}  {titre}", hm(*a), hm(*b))))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slots(ModelRc::new(VecModel::from(
+        libres
+            .iter()
+            .map(|m| SharedString::from(format!("{}–{}", hm(*m), hm(m + longueur))))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slot_open(true);
+    libres
+}
+
+fn occupation(services: &Services, id: i64) -> Option<Occupation> {
+    let t = services.store.task(id).ok().flatten()?;
     let maintenant = maintenant_local();
     let today = maintenant.date();
     let jour_vise = jour(&t.task).filter(|j| *j >= today).unwrap_or(today);
@@ -718,43 +792,12 @@ fn creneaux(f: &AppWindow, services: &Services, id: i64) -> Vec<i32> {
     } else {
         0
     };
-    let libres = iris_tasks::slots::free_slots(
-        &occupe.iter().map(|(a, b, _)| (*a, *b)).collect::<Vec<_>>(),
+    Some(Occupation {
+        jour: jour_vise,
         longueur,
+        occupe,
         depuis,
-        9,
-    );
-    f.set_task_slot_day(
-        if jour_vise == today {
-            "today".to_string()
-        } else {
-            jour_vise.format("%A %-d %B").to_string()
-        }
-        .into(),
-    );
-    f.set_task_slot_need(
-        format!(
-            "{} needed · between your events",
-            iris_tasks::goals::duration_label(longueur)
-        )
-        .into(),
-    );
-    f.set_task_slot_busy(ModelRc::new(VecModel::from(
-        occupe
-            .iter()
-            .filter(|(_, b, _)| *b > depuis)
-            .take(4)
-            .map(|(a, b, titre)| SharedString::from(format!("{}–{}  {titre}", hm(*a), hm(*b))))
-            .collect::<Vec<_>>(),
-    )));
-    f.set_task_slots(ModelRc::new(VecModel::from(
-        libres
-            .iter()
-            .map(|m| SharedString::from(format!("{}–{}", hm(*m), hm(m + longueur))))
-            .collect::<Vec<_>>(),
-    )));
-    f.set_task_slot_open(true);
-    libres
+    })
 }
 
 /// The day a slot picker is about: the task's due day from today on, or today.
