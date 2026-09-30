@@ -172,103 +172,55 @@ component DayCard inherits Rectangle {
     in property <TaskOverviewData> day;
     callback open-calendar();
 
-    height: max(date.preferred-height, agenda.preferred-height) + 28px;
-    border-radius: Tokens.radius-large;
-    border-width: 1px;
-    border-color: Tokens.border;
-    background: Tokens.surface-low;
+    // One line: each event of the day, its hour and its colour, past ones faded;
+    // the calendar at the end of it.
+    height: 38px;
 
     HorizontalLayout {
-        padding-left: 18px;
-        padding-right: 14px;
-        padding-top: 14px;
-        padding-bottom: 14px;
+        padding-left: 32px;
+        padding-right: 24px;
         spacing: 22px;
 
-        date := VerticalLayout {
-            width: 84px;
-            alignment: center;
-            Text {
-                text: root.day.weekday;
-                font-size: 12px;
-                font-weight: 600;
-                color: Tokens.error;
-                horizontal-alignment: center;
-            }
-            Text {
-                text: root.day.day;
-                font-family: Tokens.font-display;
-                font-size: 44px;
-                font-weight: 600;
-                color: Tokens.text;
-                horizontal-alignment: center;
-            }
-            Text {
-                text: root.day.month;
-                font-size: 12px;
-                color: Tokens.text-secondary;
-                horizontal-alignment: center;
-            }
+        if root.day.agenda.length == 0: Text {
+            text: "Nothing in the calendar today.";
+            font-size: 12.5px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
         }
-
-        VHairline {}
-
-        agenda := VerticalLayout {
-            alignment: center;
-            spacing: 6px;
-            horizontal-stretch: 1;
-            if root.day.agenda.length == 0: Text {
-                text: "Nothing in the calendar today.";
-                font-size: 13px;
+        for e in root.day.agenda: HorizontalLayout {
+            spacing: 7px;
+            horizontal-stretch: 0;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: e.color;
+                opacity: e.past ? 0.45 : 1.0;
+            }
+            Text {
+                text: e.meta;
+                font-size: 12.5px;
                 color: Tokens.text-muted;
+                vertical-alignment: center;
             }
-            for e in root.day.agenda: HorizontalLayout {
-                height: 22px;
-                spacing: 10px;
-                Text {
-                    width: 40px;
-                    text: e.meta;
-                    font-size: 12px;
-                    color: e.past ? Tokens.text-muted : Tokens.text-secondary;
-                    vertical-alignment: center;
-                }
-                Rectangle {
-                    width: 3px;
-                    Rectangle {
-                        y: (parent.height - self.height) / 2;
-                        height: 16px;
-                        border-radius: 1.5px;
-                        background: e.color;
-                        opacity: e.past ? 0.5 : 1.0;
-                    }
-                }
-                Text {
-                    text: e.title;
-                    font-size: 13px;
-                    font-weight: e.now ? 600 : 400;
-                    color: e.past ? Tokens.text-muted : Tokens.text;
-                    vertical-alignment: center;
-                    overflow: elide;
-                }
-                Text {
-                    text: e.hint;
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                }
+            Text {
+                text: e.title;
+                font-size: 12.5px;
+                font-weight: e.now ? 600 : 400;
+                color: e.past ? Tokens.text-muted : Tokens.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+                max-width: 220px;
             }
         }
-
-        VerticalLayout {
-            alignment: start;
-            Link {
-                text: "Calendar";
-                label: "Open Calendar";
-                chevron: true;
-                clicked => { root.open-calendar(); }
-            }
+        Rectangle { horizontal-stretch: 1; }
+        Link {
+            y: (parent.height - self.height) / 2;
+            text: "Calendar";
+            label: "Open Calendar";
+            chevron: true;
+            clicked => { root.open-calendar(); }
         }
     }
 }
@@ -276,8 +228,6 @@ component DayCard inherits Rectangle {
 // A line of the plate: a task, or the title of a section.
 component TaskRow inherits Rectangle {
     in property <TaskRowData> item;
-    /// A hairline above: a task under another, neither of them chosen.
-    in property <bool> separated;
     callback selected(TaskRowData);
     callback toggled(int);
     callback clear-completed();
@@ -299,10 +249,9 @@ component TaskRow inherits Rectangle {
     property <length> press-x;
     property <length> press-y;
 
-    height: root.tache ? (root.has-line ? 52px : 44px) : 34px;
-    border-radius: Tokens.radius-medium;
+    height: root.tache ? (root.has-line ? 56px : 44px) : 38px;
     background: !root.tache ? transparent
-        : root.item.selected ? Tokens.surface-active
+        : root.item.selected ? Tokens.accent-soft
         : touch.has-hover ? Tokens.surface-hover : transparent;
     // Picked up, the row fades where it was: it is in the hand.
     opacity: root.carrying ? 0.35 : 1.0;
@@ -314,10 +263,9 @@ component TaskRow inherits Rectangle {
     accessible-item-selected: root.item.selected;
     accessible-action-default => { root.selected(root.item); }
 
-    if root.separated: Hairline {
-        x: 44px;
-        y: 0;
-        width: parent.width - 56px;
+    // A hairline under each task: the list reads as a ledger.
+    if root.tache: Hairline {
+        y: parent.height - 1px;
     }
 
     touch := TouchArea {
@@ -363,10 +311,10 @@ component TaskRow inherits Rectangle {
 
     // A section's title, with its count; the completed ones can be cleared from it.
     if !root.tache: HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 6px;
-        padding-top: 6px;
-        spacing: 8px;
+        padding-left: 8px;
+        padding-right: 2px;
+        padding-top: 10px;
+        spacing: 7px;
         Text {
             text: root.item.title;
             font-size: 12px;
@@ -390,8 +338,8 @@ component TaskRow inherits Rectangle {
     }
 
     if root.tache: HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
+        padding-left: 8px;
+        padding-right: 8px;
         spacing: 12px;
 
         Check {
@@ -414,7 +362,7 @@ component TaskRow inherits Rectangle {
                 titre := Text {
                     width: parent.width;
                     text: root.item.title;
-                    font-size: 14px;
+                    font-size: Tokens.size-body;
                     color: root.item.done ? Tokens.text-muted : Tokens.text;
                     overflow: elide;
                 }
@@ -1338,8 +1286,6 @@ export component TasksView inherits Rectangle {
                     alignment: start;
                     for ligne[i] in root.rows: TaskRow {
                         item: ligne;
-                        separated: ligne.kind == 0 && i > 0 && root.rows[i - 1].kind == 0
-                            && !ligne.selected && !root.rows[i - 1].selected;
                         selected(r) => { root.row-selected(r); }
                         toggled(id) => { root.toggled(id); }
                         clear-completed => { root.clear-completed(); }
@@ -1364,64 +1310,91 @@ export component TasksView inherits Rectangle {
         }
 
         if root.page == 0: VerticalLayout {
-            padding-top: 26px;
-            padding-left: 32px;
-            padding-right: 32px;
-            spacing: 20px;
             vertical-stretch: 1;
 
-            PageHeader {
-                title: root.title;
-                subtitle: root.subtitle;
+            // The name of the view, the day beside it on Today, how much is done.
+            HorizontalLayout {
+                height: 66px;
+                padding-left: 32px;
+                padding-right: 32px;
+                padding-top: 22px;
+                padding-bottom: 12px;
+                spacing: 12px;
+                Text {
+                    text: root.title;
+                    font-family: Tokens.font-display;
+                    font-size: 22px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: bottom;
+                }
+                Text {
+                    text: root.subtitle;
+                    font-size: 13px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: bottom;
+                    y: -2px;
+                    horizontal-stretch: 1;
+                }
                 if root.overview.progress != "": HorizontalLayout {
                     horizontal-stretch: 0;
                     spacing: 10px;
                     Text {
                         text: root.overview.progress;
-                        font-size: 12px;
+                        font-size: 12.5px;
                         color: Tokens.text-secondary;
                         vertical-alignment: bottom;
-                        y: -1px;
+                        y: -2px;
                     }
                     Rectangle {
                         width: 120px;
                         Rectangle {
-                            y: parent.height - 7px;
-                            height: 4px;
-                            border-radius: 2px;
-                            background: Tokens.text.transparentize(0.92);
+                            y: parent.height - 8px;
+                            height: 5px;
+                            border-radius: 2.5px;
+                            background: Tokens.surface-active;
                             Rectangle {
                                 x: 0;
                                 width: parent.width * root.overview.fraction;
-                                border-radius: 2px;
+                                border-radius: 2.5px;
                                 background: Tokens.success;
                             }
                         }
                     }
                 }
             }
+            Hairline {}
 
-            if root.nudges.length > 0: GoalNudges {
-                goals: root.nudges;
-                chosen(id) => { root.place-chosen("goal:" + id); }
+            if root.nudges.length > 0: HorizontalLayout {
+                padding-left: 32px;
+                padding-right: 32px;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                GoalNudges {
+                    goals: root.nudges;
+                    chosen(id) => { root.place-chosen("goal:" + id); }
+                }
             }
+            if root.nudges.length > 0: Hairline {}
 
             if root.overview.show-day: DayCard {
                 day: root.overview;
                 open-calendar => { root.open-calendar(); }
             }
+            if root.overview.show-day: Hairline {}
 
-            Plate {
+            ScrollView {
                 vertical-stretch: 1;
-                ScrollView {
-                    // The mouse carries tasks; the wheel scrolls.
-                    mouse-drag-pan-enabled: false;
-                    VerticalLayout {
-                        alignment: start;
+                // The mouse carries tasks; the wheel scrolls.
+                mouse-drag-pan-enabled: false;
+                VerticalLayout {
+                    alignment: start;
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    padding-top: 6px;
+                    padding-bottom: 12px;
                         for ligne[i] in root.rows: TaskRow {
                             item: ligne;
-                            separated: ligne.kind == 0 && i > 0 && root.rows[i - 1].kind == 0
-                                && !ligne.selected && !root.rows[i - 1].selected;
                             selected(r) => { root.row-selected(r); }
                             toggled(id) => { root.toggled(id); }
                             clear-completed => { root.clear-completed(); }
@@ -1452,10 +1425,8 @@ export component TasksView inherits Rectangle {
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
-                    }
                 }
             }
-
         }
 
             // The line to add a task, or a step toward the goal shown.

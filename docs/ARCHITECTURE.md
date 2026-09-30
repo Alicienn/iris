@@ -214,7 +214,9 @@ task's hour. *Later* (`Later::day`) sets the day and counts `tasks.postponed`; a
 the details ask whether to split, book or drop the task; a booked slot goes with the
 old day.
 
-**Tasks** puts above the list, on Today, a date block and the day's calendar
+**Tasks** (the list redrawn in 3.4.1 after the web edition: a flat header over a
+hairline, the day's events on one line, rows as a ledger) puts above the list, on
+Today, the day's calendar
 (`calendar::upcoming`), and in the header the day's progress; all of it travels as one
 `TaskOverviewData`. The rail ends on the tasks done this week, a bar a day, counted from
 `done_at`. The add line parses what is typed at each keystroke (`iris_tasks::parse`) and

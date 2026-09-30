@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.4.1 — 2026-09-30
+
+### Improved
+- The task list is redrawn: a flat list with the day's events in one line above it.
+
 ## 3.4.0 — 2026-09-30
 
 ### New
