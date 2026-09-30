@@ -158,6 +158,16 @@ pub async fn check() -> Result<Option<Available>> {
     if reponse.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
+    // Refused, most often for having asked too much: GitHub allows sixty calls an hour
+    // to each address without an account, and a school or an office shares one address
+    // among everyone in it. The release page answers the same question outside that
+    // count.
+    if matches!(
+        reponse.status(),
+        reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::TOO_MANY_REQUESTS
+    ) {
+        return check_from_pages(&http).await;
+    }
     let reponse = reponse
         .error_for_status()
         .map_err(|e| Error::other(format!("GitHub refused: {e}")))?;
@@ -189,6 +199,63 @@ pub async fn check() -> Result<Option<Available>> {
         installer,
         notes,
     }))
+}
+
+/// The same answer without the API: `releases/latest` on the site redirects to the
+/// latest release's tag, the installer has a name the release workflow fixes
+/// (`iris-setup-X.Y.Z.exe`), and its size is read from its headers. Without the API
+/// there is no published digest; the download is still refused outside this
+/// repository's releases, and its size must match.
+async fn check_from_pages(http: &reqwest::Client) -> Result<Option<Available>> {
+    let page = http
+        .get(format!("https://github.com/{REPOSITORY}/releases/latest"))
+        .send()
+        .await
+        .map_err(|e| Error::other(format!("could not reach GitHub: {e}")))?;
+    let Some(tag) = tag_from_url(page.url().as_str()) else {
+        // No release yet: the page stays on the list of releases.
+        return Ok(None);
+    };
+    let Some(version) = Version::parse(&tag) else {
+        return Ok(None);
+    };
+    if version <= Version::parse(current()).unwrap_or(Version(0, 0, 0)) {
+        return Ok(None);
+    }
+    let name = format!("iris-setup-{version}.exe");
+    let url = format!("https://github.com/{REPOSITORY}/releases/download/{tag}/{name}");
+    let tete = http
+        .head(&url)
+        .send()
+        .await
+        .map_err(|e| Error::other(format!("could not reach GitHub: {e}")))?;
+    if !tete.status().is_success() {
+        // Published, but its installer is not there (yet): nothing to offer.
+        return Ok(None);
+    }
+    let size = tete.content_length().unwrap_or(0);
+    let notes = match changelog_at(http, &tag).await {
+        Some(texte) => changelog::newer_than(&changelog::parse(&texte), current()),
+        None => Vec::new(),
+    };
+    Ok(Some(Available {
+        version,
+        tag,
+        installer: Installer {
+            name,
+            url,
+            size,
+            sha256: None,
+        },
+        notes,
+    }))
+}
+
+/// `…/releases/tag/v3.7.0` → `v3.7.0`.
+fn tag_from_url(url: &str) -> Option<String> {
+    let (_, tag) = url.split_once("/releases/tag/")?;
+    let tag = tag.split(['?', '#', '/']).next()?;
+    (!tag.is_empty()).then(|| tag.to_string())
 }
 
 async fn changelog_at(http: &reqwest::Client, tag: &str) -> Option<String> {
@@ -271,7 +338,8 @@ pub async fn download(
 
 /// Does what arrived match what GitHub announced?
 fn verify(installer: &Installer, received: u64, sha256: &[u8]) -> Result<()> {
-    if received != installer.size {
+    // A size of 0 was not announced (its headers did not say); anything else must match.
+    if installer.size > 0 && received != installer.size {
         return Err(Error::other(format!(
             "the download is {received} bytes, {} were announced",
             installer.size
@@ -385,6 +453,33 @@ mod tests {
         assert!(verify(&installer, 3, bon.as_ref()).is_ok());
         assert!(verify(&installer, 3, mauvais.as_ref()).is_err());
         assert!(verify(&installer, 2, bon.as_ref()).is_err());
+    }
+
+    #[test]
+    fn the_latest_tag_is_read_from_where_the_page_leads() {
+        let base = format!("https://github.com/{REPOSITORY}/releases");
+        assert_eq!(
+            tag_from_url(&format!("{base}/tag/v3.7.0")).as_deref(),
+            Some("v3.7.0")
+        );
+        assert_eq!(
+            tag_from_url(&format!("{base}/tag/v3.7.0?x=1")).as_deref(),
+            Some("v3.7.0")
+        );
+        // No release: the page stays on the list.
+        assert_eq!(tag_from_url(&base), None);
+    }
+
+    #[test]
+    fn a_size_not_announced_is_not_checked_but_a_digest_still_is() {
+        let installer = Installer {
+            name: "iris-setup-0.3.0.exe".into(),
+            url: String::new(),
+            size: 0,
+            sha256: None,
+        };
+        let d = ring::digest::digest(&ring::digest::SHA256, b"abc");
+        assert!(verify(&installer, 3, d.as_ref()).is_ok());
     }
 
     #[tokio::test]

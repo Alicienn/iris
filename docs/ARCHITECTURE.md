@@ -510,7 +510,12 @@ A new table or column always arrives as a new migration.
   it can sit in the tray for weeks, so "at launch" would mean "never". The installer is
   downloaded only from this repository's release URLs, checked against the size and
   SHA-256 GitHub publishes, and run silently; Inno Setup reopens Iris afterwards. A
-  failed automatic check is shown only in Settings — being offline is not news.
+  failed automatic check is shown only in Settings — being offline is not news. When
+  the API refuses (403 or 429: sixty unauthenticated calls an hour per address, shared
+  by everyone behind a school's or an office's address), the check falls back to the
+  site. `releases/latest` redirects to the latest tag, the installer's name is fixed by
+  the release workflow, and a `HEAD` on it gives its size. That route publishes no
+  digest, so only the size and the repository's URL are checked.
 - **CI** (`.github/workflows/ci.yml`): format and clippy with warnings denied, the test
   suite on Windows without the HTML engine (no GPU there), and a Windows release build
   kept as an artifact. The same tests run on macOS in `macos.yml`, a separate workflow

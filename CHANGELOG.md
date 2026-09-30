@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.7.1 — 2026-09-30
+
+### Fixed
+- Checking for updates works when GitHub turns the check away, as it does on busy school or office networks.
+
 ## 3.7.0 — 2026-09-30
 
 ### New

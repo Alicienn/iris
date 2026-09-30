@@ -466,3 +466,5 @@ the application is brought to it screen by screen.
 - [x] **S40.10** Goals changed where they stand, tasks that come back, the week in
       review (3.7.0): a goal renamed by its title and edited with the pencil, repeating
       tasks (migration 15), *This week* in Tasks.
+- [x] **S40.11** Updates behind a shared address (3.7.1): the check falls back to the
+      release page when the API's hourly limit turns it away.
