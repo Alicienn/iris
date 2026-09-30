@@ -4,8 +4,8 @@
 # lints d'abord, parce qu'ils échouent en une minute ; la compilation ensuite ; les
 # tests en dernier, parce qu'ils sont les plus longs.
 #
-# Windows d'abord, macOS ensuite : c'est l'ordre de priorité du produit, et un échec
-# sur la plateforme principale doit se voir sans attendre la seconde.
+# Windows only: it is what ships, and Release follows this workflow. macOS runs the
+# same tests in `macos.yml`, beside it, without holding a release back.
 
 name: CI
 
@@ -50,15 +50,12 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets
 
+  # macOS runs the same tests in `macos.yml`, a workflow of its own: Release waits for
+  # this one, and the installer is Windows-only, so it no longer waits for macOS —
+  # which took up to twenty minutes longer than everything here.
   tests:
-    name: Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      # Un échec sur une plateforme ne doit pas annuler l'autre : savoir si le
-      # problème est propre à un système fait la moitié du diagnostic.
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
+    name: Tests (windows-latest)
+    runs-on: windows-latest
 
     env:
       # No line tables for the workspace crates: nobody steps through a CI build, a

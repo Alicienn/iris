@@ -512,8 +512,10 @@ A new table or column always arrives as a new migration.
   SHA-256 GitHub publishes, and run silently; Inno Setup reopens Iris afterwards. A
   failed automatic check is shown only in Settings — being offline is not news.
 - **CI** (`.github/workflows/ci.yml`): format and clippy with warnings denied, the test
-  suite on Windows and macOS without the HTML engine (no GPU there), and a Windows
-  release build kept as an artifact. The test jobs build unit and integration tests
+  suite on Windows without the HTML engine (no GPU there), and a Windows release build
+  kept as an artifact. The same tests run on macOS in `macos.yml`, a separate workflow
+  so that Release, which follows CI, does not wait for the slowest runner: the
+  installer is Windows-only. The test jobs build unit and integration tests
   only (`--lib --tests`, no examples, no doc-tests, no line tables); a push that only
   touches `docs/`, a README or `CLAUDE.md` runs nothing, and a newer push to a pull
   request cancels the older run.

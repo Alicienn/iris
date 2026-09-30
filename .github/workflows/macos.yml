@@ -1,0 +1,41 @@
+# The test suite on macOS.
+#
+# The same tests as the Windows job of `ci.yml`, in a workflow of its own so that
+# Release, which follows CI, does not wait for it: the installer is Windows-only, and
+# this job was the longest of all. A failure here still shows red on the commit.
+
+name: CI macOS
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore: ["docs/**", "**/README.md", "CLAUDE.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/README.md", "CLAUDE.md"]
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  # See ci.yml.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+
+jobs:
+  tests:
+    name: Tests (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Same flags as ci.yml, and for the same reasons.
+      - name: Compilation
+        run: cargo test --workspace --no-default-features --lib --tests --no-run
+
+      - name: Tests
+        run: cargo test --workspace --no-default-features --lib --tests --no-fail-fast

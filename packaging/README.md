@@ -21,6 +21,9 @@ as notes. The same version twice publishes nothing, and a pushed tag must match
 click; the download is checked against the size and SHA-256 GitHub publishes, and the
 installer runs with `/SILENT /UPDATE`, which reopens Iris afterwards.
 
+Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` beside it
+and do not hold a release back; a failure there still shows red on the commit.
+
 CI itself (`.github/workflows/ci.yml`) skips pushes that only touch `docs/`, a README
 or `CLAUDE.md`, so such a push publishes nothing either. It can be run by hand from the
 Actions tab to measure it; Release ignores those runs.
