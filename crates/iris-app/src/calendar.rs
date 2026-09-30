@@ -1213,8 +1213,6 @@ pub async fn subscribe(services: &Services, lien: &str, nom: &str) -> Result<(i6
 
 // --- Les invitations ---------------------------------------------------------------
 
-/// Ce qu'un fichier d'agenda importé a changé.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
 /// An invitation carried by a message, set against the calendar: what the banner over
 /// the message says and offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1285,6 +1283,8 @@ pub fn invitation(services: &Services, texte: &str) -> Option<Invitation> {
     })
 }
 
+/// Ce qu'un fichier d'agenda importé a changé.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
     pub added: usize,
     pub updated: usize,

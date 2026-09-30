@@ -1090,6 +1090,7 @@ fn message(id: i32, de: &str, deplie: bool) -> MessageData {
         body_is_image: false,
         body_tiles: Default::default(),
         body_loading: false,
+        ..Default::default()
     }
 }
 
