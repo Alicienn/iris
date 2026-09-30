@@ -344,7 +344,9 @@ These rules come from bugs users hit, and each has a scenario in
 
 - **The window is drawn by the CPU.** Measured with the `mesure` example, same window,
   same newsletter: **209.7 MB** with OpenGL (femtovg), **38.5 MB** with Slint's software
-  renderer, for a picture the eye cannot tell apart. The difference is what the graphics
+  renderer, for a picture the eye cannot tell apart. Remeasured after the 3.x redesign
+  (the rail, message cards, goals, the draggable calendar): **44.0 MB** with the window
+  open and the newsletter shown, 9.6 MB at start, 2.0 MB in the notification area. The difference is what the graphics
   driver reserves for a GL context, and it shows in no counter of the application. A
   mail client redraws little, and the software renderer repaints only what changed.
   `SLINT_BACKEND=winit-femtovg` restores the old path, for comparison only.
@@ -507,15 +509,20 @@ A new table or column always arrives as a new migration.
 - **The updater is part of the core, not a module**: the plugin sandbox has no network,
   no file system and no way to start a process, and an updater needs all three. Iris
   asks GitHub for the latest release 8 seconds after launch and then every 6 hours —
-  it can sit in the tray for weeks, so "at launch" would mean "never". The installer is
-  downloaded only from this repository's release URLs, checked against the size and
-  SHA-256 GitHub publishes, and run silently; Inno Setup reopens Iris afterwards. A
-  failed automatic check is shown only in Settings — being offline is not news. When
-  the API refuses (403 or 429: sixty unauthenticated calls an hour per address, shared
-  by everyone behind a school's or an office's address), the check falls back to the
-  site. `releases/latest` redirects to the latest tag, the installer's name is fixed by
-  the release workflow, and a `HEAD` on it gives its size. That route publishes no
-  digest, so only the size and the repository's URL are checked.
+  it can sit in the tray for weeks, so "at launch" would mean "never". Since 3.8.0 it
+  reads no API. Each release carries `latest.json` (version, tag, installer name, size,
+  SHA-256) and `latest.json.sig`, an Ed25519 signature made by the release workflow with
+  the project's key (the `UPDATE_SIGNING_KEY` secret). Iris fetches both from
+  `releases/latest/download/`, which the site serves outside the API's sixty calls an
+  hour per address; a school or an office puts everyone behind one address. Iris checks
+  the signature against the public key compiled in (`update::UPDATE_PUBLIC_KEY`), and
+  then that the manifest holds together (the tag and installer named for its version, a
+  real digest). The installer is downloaded only from this repository's release URLs and
+  must match the manifest's size and digest; it runs silently and Inno Setup reopens
+  Iris afterwards. A manifest that does not verify is an error, never a reason to try a
+  weaker way. A latest release without a manifest can only be older than any build that
+  reads them, so it offers nothing. A failed automatic check is shown only in Settings;
+  being offline is not news.
 - **CI** (`.github/workflows/ci.yml`): format and clippy with warnings denied, the test
   suite on Windows without the HTML engine (no GPU there), and a Windows release build
   kept as an artifact. The same tests run on macOS in `macos.yml`, a separate workflow

@@ -18,8 +18,20 @@ binary CI already built rather than compiling again, runs `build-installer.ps1`,
 `vX.Y.Z` and publishes `iris-setup-X.Y.Z.exe` with that version's `CHANGELOG.md` section
 as notes. The same version twice publishes nothing, and a pushed tag must match
 `Cargo.toml`. Installed copies see the release within six hours and offer it in one
-click; the download is checked against the size and SHA-256 GitHub publishes, and the
-installer runs with `/SILENT /UPDATE`, which reopens Iris afterwards.
+click, and the installer runs with `/SILENT /UPDATE`, which reopens Iris afterwards.
+
+Each release also carries `latest.json` (version, installer, size, SHA-256) and
+`latest.json.sig`. The workflow signs the manifest with `openssl pkeyutl -sign -rawin`
+using the Ed25519 key in the `UPDATE_SIGNING_KEY` repository secret (the key in PEM).
+Iris reads both from `releases/latest/download/`, with no API call. It checks the
+signature against the public key compiled into `crates/iris-app/src/update.rs`, then
+checks the download against the manifest. Without the secret the release fails rather
+than publish an update nobody would accept.
+
+The key's owner keeps a copy of the private key outside the repository, in a password
+manager. Lost, it can be replaced: new pair, new secret, new public key in
+`update.rs`. Copies installed before the change then refuse updates signed with the new
+key, and have to be updated once by hand from the release page.
 
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` beside it
 and do not hold a release back; a failure there still shows red on the commit.

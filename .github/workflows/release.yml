@@ -114,6 +114,33 @@ jobs:
             ./packaging/build-installer.ps1
           }
 
+      # What Iris reads to update, without GitHub's API and its hourly limit: the
+      # version, the installer's name, size and SHA-256, signed with the project's
+      # Ed25519 key. Iris holds the public half and refuses a manifest that does not
+      # verify, then an installer that does not match it.
+      - name: Signed manifest
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if (-not $env:UPDATE_SIGNING_KEY) { throw "UPDATE_SIGNING_KEY is not set" }
+          $exe = "packaging/output/iris-setup-$env:VERSION.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item $exe).Length
+          $json = '{"version":"' + $env:VERSION + '","tag":"' + $env:TAG + '","installer":"iris-setup-' + $env:VERSION + '.exe","size":' + $size + ',"sha256":"' + $hash + '"}'
+          [IO.File]::WriteAllText((Resolve-Path packaging/output).Path + "/latest.json", $json, [Text.UTF8Encoding]::new($false))
+          $cle = Join-Path $env:RUNNER_TEMP "update-key.pem"
+          [IO.File]::WriteAllText($cle, $env:UPDATE_SIGNING_KEY)
+          $openssl = "C:\Program Files\Git\usr\bin\openssl.exe"
+          if (-not (Test-Path $openssl)) { $openssl = "openssl" }
+          & $openssl pkeyutl -sign -rawin -inkey $cle -in packaging/output/latest.json -out packaging/output/latest.json.sig
+          $code = $LASTEXITCODE
+          Remove-Item $cle
+          if ($code -ne 0) { throw "openssl could not sign the manifest" }
+          if ((Get-Item packaging/output/latest.json.sig).Length -ne 64) { throw "The signature is not 64 bytes" }
+          Get-Content packaging/output/latest.json
+
       - name: Release notes
         if: env.PUBLISH == 'true'
         shell: pwsh
@@ -134,6 +161,8 @@ jobs:
           # Creates the tag on the commit that was built, unless it already exists.
           gh release create $env:TAG `
             "packaging/output/iris-setup-$env:VERSION.exe" `
+            packaging/output/latest.json `
+            packaging/output/latest.json.sig `
             --target $env:TARGET `
             --title "Iris $env:VERSION" `
             --notes-file notes.md `

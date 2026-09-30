@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.8.0 — 2026-09-30
+
+### Improved
+- Updates are signed by the project: Iris installs only an update whose signature it can check.
+- Checking for updates no longer runs into GitHub's hourly limit, on any network.
+
 ## 3.7.1 — 2026-09-30
 
 ### Fixed

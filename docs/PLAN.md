@@ -468,3 +468,6 @@ the application is brought to it screen by screen.
       tasks (migration 15), *This week* in Tasks.
 - [x] **S40.11** Updates behind a shared address (3.7.1): the check falls back to the
       release page when the API's hourly limit turns it away.
+- [x] **S40.12** Signed updates (3.8.0): a manifest signed with the project's Ed25519
+      key beside each installer, read from the site instead of the API; the unsigned
+      fallbacks removed. Memory remeasured after the redesign: 44 MB, window open.

@@ -218,6 +218,11 @@ installs it and reopens. You can also check by hand in *Settings › Updates*.
 
 **Changelog**, next to it, lists what changed in each version.
 
+Every update is signed by the project. Iris checks the signature and the installer's
+fingerprint before running anything, and refuses an update that does not match. The
+check reads a small file from the release page rather than GitHub's API, so it works
+on school and office networks where many people share one address.
+
 ## Keyboard shortcuts
 
 | Key | Action |
