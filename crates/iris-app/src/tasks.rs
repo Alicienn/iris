@@ -33,6 +33,10 @@ enum Vue {
     Anytime,
     Mail,
     List(i64),
+    /// A goal's page: where it stands, and the steps toward it.
+    Goal(i64),
+    /// All the goals.
+    Goals,
 }
 
 impl Vue {
@@ -43,6 +47,8 @@ impl Vue {
             Vue::Anytime => "anytime".into(),
             Vue::Mail => "mail".into(),
             Vue::List(id) => format!("list:{id}"),
+            Vue::Goal(id) => format!("goal:{id}"),
+            Vue::Goals => "goals".into(),
         }
     }
 
@@ -52,7 +58,11 @@ impl Vue {
             "upcoming" => Vue::Upcoming,
             "anytime" => Vue::Anytime,
             "mail" => Vue::Mail,
-            autre => Vue::List(autre.strip_prefix("list:")?.parse().ok()?),
+            "goals" => Vue::Goals,
+            autre => match autre.strip_prefix("goal:") {
+                Some(id) => Vue::Goal(id.parse().ok()?),
+                None => Vue::List(autre.strip_prefix("list:")?.parse().ok()?),
+            },
         })
     }
 }
@@ -179,12 +189,15 @@ fn titre_vue(vue: Vue, listes: &[TaskList]) -> String {
             .find(|l| l.id == id)
             .map(|l| l.name.clone())
             .unwrap_or_default(),
+        Vue::Goal(_) => String::new(),
+        Vue::Goals => "Goals".into(),
     }
 }
 
 fn indication(vue: Vue) -> &'static str {
     match vue {
         Vue::Today => "Add a task for today, e.g. “Call Marie at 3pm !!”",
+        Vue::Goal(_) => "Add a step toward this goal",
         _ => "Add a task, e.g. “tomorrow 9am Send the quote #Work”",
     }
 }
@@ -199,6 +212,8 @@ fn dans_la_vue(vue: Vue, t: &StoredTask, today: NaiveDate) -> bool {
         Vue::Anytime => true,
         Vue::Mail => t.task.thread_id.is_some(),
         Vue::List(id) => t.task.list_id == id,
+        Vue::Goal(id) => t.task.goal_id == Some(id),
+        Vue::Goals => false,
     }
 }
 
@@ -432,6 +447,22 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             etat.vue = Vue::Today;
         }
     }
+    if let Vue::Goal(id) = etat.vue {
+        if services.store.goal(id).ok().flatten().is_none() {
+            etat.vue = Vue::Goals;
+        }
+    }
+    // The goals: the side column, a goal's page or all of them, the nudges on Today.
+    crate::goals::remplir(
+        f,
+        services,
+        match etat.vue {
+            Vue::Goal(id) => Some(id),
+            _ => None,
+        },
+        etat.vue == Vue::Goals,
+        etat.vue == Vue::Today,
+    );
 
     let ouvertes = services.store.open_tasks().unwrap_or_default();
     let dessus: Vec<&StoredTask> = ouvertes
@@ -661,6 +692,19 @@ fn remplir_detail(f: &AppWindow, services: &Services, etat: &mut Etat, maintenan
             .position(|(_, m)| *m == t.task.remind_before.map(i64::from))
             .unwrap_or(0) as i32,
         priority: t.task.priority,
+        goal_index: t
+            .task
+            .goal_id
+            .and_then(|g| {
+                services
+                    .store
+                    .goals()
+                    .unwrap_or_default()
+                    .iter()
+                    .position(|x| x.id == g)
+            })
+            .map(|i| i as i32 + 1)
+            .unwrap_or(0),
         source: t.task.source.as_str().into(),
         from_mail: t.task.thread_id.is_some(),
         from_event: t.task.event_uid.is_some(),
@@ -730,6 +774,11 @@ fn ajouter(services: &Services, etat: &mut Etat, texte: &str) -> Option<(i64, St
             _ => etat.listes.first()?.id,
         },
     };
+    // On a goal's page, what is added is a step toward it.
+    let objectif = match etat.vue {
+        Vue::Goal(id) => Some(id),
+        _ => None,
+    };
 
     // Sans date écrite, la vue en donne une : « Today » est aujourd'hui.
     let echeance = q.due.map(|d| (d.day, d.minute)).or(match etat.vue {
@@ -744,6 +793,7 @@ fn ajouter(services: &Services, etat: &mut Etat, texte: &str) -> Option<(i64, St
         // Une heure dite est un rendez-vous : on le rappelle à l'heure.
         remind_before: echeance.and_then(|(_, m)| m).map(|_| 0),
         priority: q.priority as i32,
+        goal_id: objectif,
         ..Default::default()
     };
     recalculer_rappel(&mut t);
@@ -919,6 +969,140 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 e.mois = None;
             }
             redessiner();
+        }
+    );
+
+    // --- Goals ---
+    let objectif_montre = |etat: &Rc<RefCell<Etat>>| match etat.borrow().vue {
+        Vue::Goal(id) => Some(id),
+        _ => None,
+    };
+    geste!(
+        on_goal_logged,
+        [services, etat, redessiner, f, controller],
+        |note| {
+            if let Some(g) = objectif_montre(etat) {
+                let _ = services.store.log_goal(g, note.trim(), now());
+                f.set_goal_note(SharedString::default());
+                redessiner();
+            }
+        }
+    );
+    geste!(
+        on_goal_entry_removed,
+        [services, etat, redessiner, f, controller],
+        |id| {
+            let _ = services.store.delete_goal_entry(id as i64);
+            redessiner();
+        }
+    );
+    geste!(
+        on_milestone_toggled,
+        [services, etat, redessiner, f, controller],
+        |id| {
+            if let Some(g) = objectif_montre(etat) {
+                let fait = services
+                    .store
+                    .milestones(g)
+                    .unwrap_or_default()
+                    .iter()
+                    .find(|m| m.id == id as i64)
+                    .is_some_and(|m| m.done_at.is_some());
+                let _ = services
+                    .store
+                    .set_milestone_done(id as i64, if fait { None } else { Some(now()) });
+                redessiner();
+            }
+        }
+    );
+    geste!(
+        on_milestone_added,
+        [services, etat, redessiner, f, controller],
+        |titre| {
+            if let Some(g) = objectif_montre(etat) {
+                if !titre.trim().is_empty() {
+                    let _ = services.store.add_milestone(g, titre.trim());
+                    redessiner();
+                }
+            }
+        }
+    );
+    geste!(
+        on_task_goal_chosen,
+        [services, etat, redessiner, f, controller],
+        |index| {
+            let Some(id) = etat.borrow().choisie else { return };
+            let objectifs = services.store.goals().unwrap_or_default();
+            let choisi = (index > 0)
+                .then(|| objectifs.get(index as usize - 1).map(|g| g.id))
+                .flatten();
+            if modifier(services, id, |t| t.goal_id = choisi) {
+                redessiner();
+            }
+        }
+    );
+    geste!(
+        on_goal_new_requested,
+        [services, etat, redessiner, f, controller],
+        || crate::goals::ouvrir_nouveau(f)
+    );
+    geste!(
+        on_goal_new_in_days,
+        [services, etat, redessiner, f, controller],
+        |jours| crate::goals::dans_jours(f, jours as i64)
+    );
+    geste!(
+        on_goal_new_confirmed,
+        [services, etat, redessiner, f, controller],
+        || match crate::goals::creer(f, services) {
+            Ok(id) => {
+                f.set_goal_new_open(false);
+                let cle = Vue::Goal(id).cle();
+                {
+                    let mut e = etat.borrow_mut();
+                    e.vue = Vue::Goal(id);
+                    e.choisie = None;
+                }
+                crate::nav::note(f, "tasks", &cle);
+                redessiner();
+            }
+            Err(message) => f.set_goal_new_error(message.into()),
+        }
+    );
+    geste!(
+        on_goal_time_requested,
+        [services, etat, redessiner, f, controller],
+        || crate::goals::ouvrir_temps(f)
+    );
+    geste!(
+        on_goal_time_day_toggled,
+        [services, etat, redessiner, f, controller],
+        |i| crate::goals::basculer_jour(f, i)
+    );
+    geste!(
+        on_goal_time_confirmed,
+        [services, etat, redessiner, f, controller],
+        || {
+            let Some(g) = objectif_montre(etat) else { return };
+            match crate::goals::bloquer(f, services, g) {
+                Ok(message) => {
+                    f.set_goal_time_open(false);
+                    f.set_status(message.into());
+                }
+                Err(message) => f.set_goal_time_error(message.into()),
+            }
+        }
+    );
+    geste!(
+        on_goal_delete_confirmed,
+        [services, etat, redessiner, f, controller],
+        || {
+            if let Some(g) = objectif_montre(etat) {
+                let _ = services.store.delete_goal(g);
+                etat.borrow_mut().vue = Vue::Goals;
+                f.set_status("Goal deleted. Its steps stay in your tasks.".into());
+                redessiner();
+            }
         }
     );
 

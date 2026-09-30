@@ -1313,6 +1313,52 @@ fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
     assert!(par_libelle(&f, "Mark as unread").is_some());
 }
 
+fn un_objectif_se_choisit_et_se_journalise() {
+    let f = fenetre();
+    f.set_workspace(2);
+    f.set_task_places(modele(vec![iris_ui::TaskPlaceData {
+        key: "list:1".into(),
+        name: "My tasks".into(),
+        is_list: true,
+        list_id: 1,
+        ..Default::default()
+    }]));
+    let objectif = iris_ui::GoalData {
+        id: 3,
+        title: "Send 10 applications".into(),
+        done: 4,
+        target: 10,
+        badge: "On track".into(),
+        ..Default::default()
+    };
+    f.set_goals(modele(vec![objectif.clone()]));
+    let lieux = Rc::new(RefCell::new(Vec::<String>::new()));
+    let notes = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let l = Rc::clone(&lieux);
+        f.on_task_place_chosen(move |k| l.borrow_mut().push(k.to_string()));
+        let n = Rc::clone(&notes);
+        f.on_goal_logged(move |t| n.borrow_mut().push(t.to_string()));
+    }
+
+    // The goal in the side column leads to its page.
+    par_libelle(&f, "Send 10 applications")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*lieux.borrow(), ["goal:3"]);
+
+    // On it, "Log one" logs one, with what was written.
+    f.set_task_page(1);
+    f.set_goal(objectif);
+    f.set_goal_note("Studio Nord".into());
+    par_libelle(&f, "Log one")
+        .unwrap()
+        .invoke_accessible_default_action();
+    assert_eq!(*notes.borrow(), ["Studio Nord"]);
+    assert!(par_libelle(&f, "Make time for it").is_some());
+    assert!(par_libelle(&f, "Delete goal").is_some());
+}
+
 fn reporter_demande_jusqu_a_quand() {
     // Later today, tomorrow morning, the weekend, next week: the one asked for goes
     // to the conversation being read.
@@ -1761,6 +1807,10 @@ fn main() {
         (
             "reporter_demande_jusqu_a_quand",
             reporter_demande_jusqu_a_quand as fn(),
+        ),
+        (
+            "un_objectif_se_choisit_et_se_journalise",
+            un_objectif_se_choisit_et_se_journalise as fn(),
         ),
         (
             "lire_en_plein_ecran_ecarte_les_colonnes",

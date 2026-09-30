@@ -11,6 +11,7 @@ pub mod changelog;
 pub mod controller;
 pub mod draft;
 pub mod folders;
+pub mod goals;
 pub mod home;
 pub mod logging;
 pub mod memory;

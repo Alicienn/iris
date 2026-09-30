@@ -16,6 +16,7 @@ mod account_tags;
 mod accounts;
 mod attachments;
 mod calendar;
+mod goals;
 mod journal;
 mod messages;
 mod migrations;
@@ -29,6 +30,7 @@ pub use account_tags::AccountTag;
 pub use accounts::{AccountServers, UnifiedFolder};
 pub use attachments::StoredAttachment;
 pub use calendar::{NewEvent, StoredCalendar, StoredEvent};
+pub use goals::{Goal, GoalEntry, GoalKind, Milestone, NewGoal};
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Contact, Filters, Folder, FolderRole, ListCursor, ListQuery, NewAccount,

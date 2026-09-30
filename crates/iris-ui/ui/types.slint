@@ -402,4 +402,48 @@ export struct TaskDetailData {
     subtasks: [SubtaskData],
     // How many of them are done.
     steps-done: int,
+    // The goal it moves forward: 0 for none, else its place in the goals + 1.
+    goal-index: int,
+}
+
+// A goal: something to reach by a day, and where it stands.
+export struct GoalData {
+    id: int,
+    title: string,
+    // What it is for, in the user's words.
+    why: string,
+    color: color,
+    // Made of milestones rather than counted.
+    milestones: bool,
+    done: int,
+    target: int,
+    // "of 10 applications", "of 5 milestones".
+    of-label: string,
+    // "by Saturday 17 October"; short: "Sat 17 Oct".
+    due-label: string,
+    due-short: string,
+    // 0 on track, 1 behind, 2 reached.
+    status: int,
+    badge: string,
+    // "6 to go in 18 days: about 2 a week."
+    pace: string,
+    // Done and where a steady pace would be, as fractions of the target.
+    fraction: float,
+    expected: float,
+    // The ring of the side column, as path commands on a 16-unit grid.
+    ring: string,
+    open-steps: int,
+    selected: bool,
+}
+
+// A line of a goal's log, or one of its milestones.
+export struct GoalLogData {
+    id: int,
+    // "4", its rank in the log.
+    number: string,
+    title: string,
+    // "Yesterday"; for a milestone "Done Tue 22 Sep" or "Next".
+    when: string,
+    // A milestone: ticked.
+    done: bool,
 }

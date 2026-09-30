@@ -3,6 +3,16 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.3.0 — 2026-09-30
+
+### New
+- Goals in Tasks: something to reach by a day, counted or in milestones.
+- Each goal shows where you stand, the pace you need, and whether you are on track.
+- Log a step with "Log one", or tick a milestone; a chart follows your pace.
+- Tasks can move a goal forward: add steps on its page, or pick its goal in a task.
+- "Make time for it" blocks time for a goal in your calendar, every week until its day.
+- Today points to the goals that are behind or due this week.
+
 ## 3.2.0 — 2026-09-30
 
 ### New

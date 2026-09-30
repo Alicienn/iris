@@ -6,7 +6,7 @@ import {
     AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
-    TaskTokenData, TaskOverviewData
+    TaskTokenData, TaskOverviewData, GoalData, GoalLogData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -38,6 +38,7 @@ import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
 import { CalendarView } from "@iris/screens/calendar.slint";
 import { TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel }
     from "@iris/screens/tasks.slint";
+import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu,
     CalendarRenamePanel, CalendarDeletePanel
@@ -801,6 +802,48 @@ export component AppWindow inherits Window {
     callback task-clear-completed();
     callback task-dropped(int, string);
     in property <[TaskPlaceData]> task-places;
+    // --- Goals ---
+    /// What the middle of Tasks shows: 0 a list, 1 a goal, 2 all the goals.
+    in property <int> task-page;
+    in property <[GoalData]> goals;
+    in property <[GoalData]> goal-nudges;
+    in property <GoalData> goal;
+    in property <[GoalLogData]> goal-log;
+    in property <string> goal-chart;
+    in property <float> goal-now-x;
+    in property <float> goal-now-y;
+    in property <string> goal-start-label;
+    in-out property <string> goal-note;
+    /// "None", then each goal: what a task's Goal can be set to.
+    in property <[string]> goal-names;
+    callback goal-logged(string);
+    callback goal-entry-removed(int);
+    callback milestone-toggled(int);
+    callback milestone-added(string);
+    callback task-goal-chosen(int);
+    /// New goal: Rust fills the window's fields, then opens it.
+    callback goal-new-requested();
+    in-out property <bool> goal-new-open;
+    in-out property <string> goal-new-title;
+    in-out property <int> goal-new-kind;
+    in-out property <string> goal-new-target;
+    in-out property <string> goal-new-unit;
+    in-out property <string> goal-new-due;
+    in-out property <string> goal-new-why;
+    in property <string> goal-new-error;
+    callback goal-new-in-days(int);
+    callback goal-new-confirmed();
+    /// Time for the goal shown, blocked every week in the calendar.
+    callback goal-time-requested();
+    in-out property <bool> goal-time-open;
+    in-out property <[bool]> goal-time-days;
+    in-out property <string> goal-time-start;
+    in-out property <int> goal-time-length;
+    in property <string> goal-time-error;
+    callback goal-time-day-toggled(int);
+    callback goal-time-confirmed();
+    in-out property <bool> goal-delete-open;
+    callback goal-delete-confirmed();
     in property <[TaskRowData]> task-rows;
     in-out property <string> task-add-text;
     in property <string> task-add-hint;
@@ -940,7 +983,8 @@ export component AppWindow inherits Window {
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
-        || root.reader-menu != "";
+        || root.reader-menu != ""
+        || root.goal-new-open || root.goal-time-open || root.goal-delete-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -1584,6 +1628,25 @@ export component AppWindow inherits Window {
         picker-open: root.task-picker-open;
         picker-title: root.task-picker-title;
         picker-cells: root.task-picker-cells;
+        page: root.task-page;
+        goals: root.goals;
+        nudges: root.goal-nudges;
+        goal: root.goal;
+        goal-log: root.goal-log;
+        goal-chart: root.goal-chart;
+        goal-now-x: root.goal-now-x;
+        goal-now-y: root.goal-now-y;
+        goal-start-label: root.goal-start-label;
+        goal-note <=> root.goal-note;
+        goal-names: root.goal-names;
+        new-goal => { root.goal-new-requested(); }
+        goal-logged(t) => { root.goal-logged(t); }
+        goal-entry-removed(id) => { root.goal-entry-removed(id); }
+        milestone-toggled(id) => { root.milestone-toggled(id); }
+        milestone-added(t) => { root.milestone-added(t); }
+        make-time => { root.goal-time-requested(); }
+        goal-delete => { root.goal-delete-open = true; }
+        task-goal-chosen(i) => { root.task-goal-chosen(i); }
         // Picking a place or a task with the mouse hands the keyboard back to the
         // shortcuts: the arrows and the space bar then act on the column.
         place-chosen(k) => {
@@ -1697,6 +1760,46 @@ export component AppWindow inherits Window {
             root.task-list-delete-confirmed(root.task-list-menu-place.list-id);
         }
         dismissed => { root.task-list-delete-open = false; }
+    }
+
+    if root.goal-new-open: NewGoalPanel {
+        width: 100%;
+        height: 100%;
+        title <=> root.goal-new-title;
+        kind <=> root.goal-new-kind;
+        target <=> root.goal-new-target;
+        unit <=> root.goal-new-unit;
+        due <=> root.goal-new-due;
+        why <=> root.goal-new-why;
+        error: root.goal-new-error;
+        in-days(n) => { root.goal-new-in-days(n); }
+        confirmed => { root.goal-new-confirmed(); }
+        dismissed => { root.goal-new-open = false; }
+    }
+
+    if root.goal-time-open: MakeTimePanel {
+        width: 100%;
+        height: 100%;
+        goal: root.goal.title;
+        until: root.goal.due-short;
+        days <=> root.goal-time-days;
+        start <=> root.goal-time-start;
+        length <=> root.goal-time-length;
+        error: root.goal-time-error;
+        day-toggled(i) => { root.goal-time-day-toggled(i); }
+        confirmed => { root.goal-time-confirmed(); }
+        dismissed => { root.goal-time-open = false; }
+    }
+
+    if root.goal-delete-open: GoalDeletePanel {
+        width: 100%;
+        height: 100%;
+        name: root.goal.title;
+        confirmed => {
+            root.goal-delete-open = false;
+            root.goal-delete-confirmed();
+        }
+        dismissed => { root.goal-delete-open = false; }
     }
 
     if root.event-detail-open: EventDetailPanel {

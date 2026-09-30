@@ -1,0 +1,1003 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Hairline } from "@iris/base/atoms.slint";
+import { GoalData, GoalLogData } from "@iris/types.slint";
+import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
+import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
+import { TextField } from "@iris/controls/field.slint";
+import { Nav, SectionTitle } from "@iris/lists/nav.slint";
+import { Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// Goals: something to reach by a day, and where it stands. Counted by hand or ticked
+// milestone by milestone; nothing here counts on the user's behalf.
+
+/// The mark of a goal: a ring filled as far as it has come, in its colour.
+export component GoalRing inherits Rectangle {
+    in property <string> ring;
+    in property <color> tint;
+    in property <length> size: 15px;
+
+    width: root.size;
+    height: root.size;
+
+    // The track, then the part done over it.
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: "M 8 1.5 A 6.5 6.5 0 1 1 8 14.5 A 6.5 6.5 0 1 1 8 1.5";
+        stroke: Tokens.border-strong;
+        stroke-width: 2.2 / 16 * root.size;
+        fill: transparent;
+    }
+    if root.ring != "": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: root.ring;
+        stroke: root.tint;
+        stroke-width: 2.2 / 16 * root.size;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+}
+
+/// A goal in the side column: its ring, its name, how far ("4/10", red when behind).
+export component GoalRow inherits Rectangle {
+    in property <GoalData> goal;
+    callback chosen(int);
+
+    height: Nav.row-height;
+    border-radius: Tokens.radius-medium;
+    background: Nav.background(root.goal.selected, touch.has-hover);
+
+    accessible-role: list-item;
+    accessible-label: root.goal.title;
+    accessible-description: root.goal.done + " of " + root.goal.target + ", " + root.goal.badge;
+    accessible-item-selected: root.goal.selected;
+    accessible-action-default => { root.chosen(root.goal.id); }
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 9px;
+        GoalRing {
+            y: (parent.height - self.height) / 2;
+            ring: root.goal.ring;
+            tint: root.goal.color;
+        }
+        Text {
+            text: root.goal.title;
+            font-size: Nav.label-size;
+            font-weight: root.goal.selected ? 600 : 400;
+            color: root.goal.selected ? Tokens.text : Tokens.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: root.goal.done + "/" + root.goal.target;
+            font-size: 11.5px;
+            color: root.goal.status == 1 ? Tokens.error : Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.chosen(root.goal.id); }
+    }
+}
+
+/// Where a goal stands against its pace: "On track", "2 behind", "Reached".
+export component GoalBadge inherits Rectangle {
+    in property <int> status;
+    in property <string> text;
+
+    width: mot.preferred-width + 14px;
+    height: 20px;
+    border-radius: 4px;
+    background: root.status == 2 ? Tokens.success
+        : root.status == 1 ? Tokens.error.transparentize(0.9)
+        : Tokens.success.transparentize(0.89);
+
+    mot := Text {
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        color: root.status == 2 ? white : root.status == 1 ? Tokens.error : Tokens.success;
+    }
+}
+
+/// How far, in the goal's colour, with a mark where a steady pace would be.
+export component GoalBar inherits Rectangle {
+    in property <float> fraction;
+    in property <float> expected;
+    in property <color> tint;
+
+    height: 8px;
+    border-radius: 4px;
+    background: Tokens.surface-active;
+
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(root.fraction, 0, 1);
+        border-radius: 4px;
+        background: root.tint;
+    }
+    if root.fraction < 1: Rectangle {
+        x: parent.width * clamp(root.expected, 0, 1) - 1px;
+        y: -3px;
+        width: 2px;
+        height: parent.height + 6px;
+        border-radius: 1px;
+        background: Tokens.text-muted;
+    }
+}
+
+/// A goal's own page: where it stands, the steps toward it, its pace and its log.
+/// The steps (the task rows) are the children, placed in the left column.
+export component GoalPage inherits VerticalLayout {
+    in property <GoalData> goal;
+    in property <[GoalLogData]> log;
+    /// The pace chart: the path of what was logged, on a 520 × 120 grid, and where
+    /// today is on it.
+    in property <string> chart;
+    in property <float> now-x;
+    in property <float> now-y;
+    in property <string> start-label;
+    in-out property <string> note;
+
+    callback logged(string);
+    callback entry-removed(int);
+    callback milestone-toggled(int);
+    callback milestone-added(string);
+    callback make-time();
+    callback delete-goal();
+
+    property <string> new-milestone;
+
+    padding-left: 36px;
+    padding-right: 36px;
+    padding-top: 24px;
+    padding-bottom: 10px;
+    spacing: 0px;
+
+    // Goal · by Saturday 17 October, in its colour; and the way to delete it.
+    HorizontalLayout {
+        height: 26px;
+        spacing: 6px;
+        GoalRing {
+            y: (parent.height - self.height) / 2;
+            ring: root.goal.ring;
+            tint: root.goal.color;
+            size: 14px;
+        }
+        Text {
+            text: "Goal · " + root.goal.due-label;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.goal.color;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.trash;
+            label: "Delete goal";
+            button-size: 26px;
+            icon-size: 14px;
+            danger: true;
+            clicked => { root.delete-goal(); }
+        }
+    }
+    Text {
+        text: root.goal.title;
+        font-family: Tokens.font-display;
+        font-size: 24px;
+        font-weight: 600;
+        color: Tokens.text;
+        wrap: word-wrap;
+    }
+    if root.goal.why != "": Text {
+        text: root.goal.why;
+        font-size: 14px;
+        color: Tokens.text-secondary;
+        wrap: word-wrap;
+    }
+    Rectangle { height: 16px; }
+
+    // Where it stands.
+    Rectangle {
+        border-radius: Tokens.radius-large;
+        border-width: 1px;
+        border-color: Tokens.border;
+        height: etat.preferred-height;
+
+        etat := VerticalLayout {
+            padding-left: 18px;
+            padding-right: 18px;
+            padding-top: 14px;
+            padding-bottom: 16px;
+            spacing: 10px;
+
+            HorizontalLayout {
+                spacing: 5px;
+                alignment: start;
+                Text {
+                    text: root.goal.done;
+                    font-family: Tokens.font-display;
+                    font-size: 22px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: bottom;
+                }
+                Text {
+                    text: root.goal.of-label;
+                    font-size: 14px;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: bottom;
+                    y: -2px;
+                }
+            }
+            GoalBar {
+                fraction: root.goal.fraction;
+                expected: root.goal.expected;
+                tint: root.goal.color;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                GoalBadge {
+                    status: root.goal.status;
+                    text: root.goal.badge;
+                }
+                Text {
+                    text: root.goal.pace;
+                    font-size: 13px;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            // Counted by hand: what was done, in a word if one likes, then "Log one".
+            if !root.goal.milestones && root.goal.status != 2: HorizontalLayout {
+                spacing: 8px;
+                height: 30px;
+                TextField {
+                    accessible-label: "What did you do?";
+                    placeholder-text: "What did you do? (optional)";
+                    font-size: 13px;
+                    text <=> root.note;
+                    accepted(t) => { root.logged(t); }
+                }
+                Button {
+                    text: "Log one";
+                    icon: Icons.plus;
+                    kind: ButtonKind.primary;
+                    size: ButtonSize.sm;
+                    clicked => { root.logged(root.note); }
+                }
+            }
+        }
+    }
+    Rectangle { height: 22px; }
+
+    HorizontalLayout {
+        spacing: 32px;
+        vertical-stretch: 1;
+
+        // Left: the steps (tasks toward it), then the pace.
+        VerticalLayout {
+            horizontal-stretch: 14;
+            spacing: 0px;
+            HorizontalLayout {
+                height: 24px;
+                spacing: 7px;
+                Text {
+                    text: "Steps";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.goal.open-steps;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                Rectangle {}
+            }
+            Hairline {}
+            @children
+            Rectangle { height: 16px; }
+            Text {
+                height: 22px;
+                text: "Pace";
+                font-size: 12px;
+                font-weight: 600;
+                color: Tokens.text-secondary;
+            }
+            // The dashed line is a steady pace from the day it was set to its day;
+            // the steps are what was logged.
+            Rectangle {
+                height: 120px;
+                Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 520;
+                    viewbox-height: 120;
+                    commands: "M 6 114 L 514 6";
+                    stroke: Tokens.border-strong;
+                    stroke-width: 1.5px;
+                }
+                Rectangle {
+                    x: parent.width * root.now-x / 520;
+                    y: 6px;
+                    width: 1px;
+                    height: parent.height - 12px;
+                    background: Tokens.border;
+                }
+                Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 520;
+                    viewbox-height: 120;
+                    commands: root.chart;
+                    stroke: root.goal.color;
+                    stroke-width: 2px;
+                    fill: transparent;
+                }
+                Rectangle {
+                    x: parent.width * root.now-x / 520 - 3.5px;
+                    y: parent.height * root.now-y / 120 - 3.5px;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
+                    background: root.goal.color;
+                }
+                Rectangle { y: parent.height - 1px; height: 1px; background: Tokens.border; }
+            }
+            HorizontalLayout {
+                height: 20px;
+                Text {
+                    text: root.start-label;
+                    font-size: 11px;
+                    color: Tokens.text-muted;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.goal.due-short;
+                    font-size: 11px;
+                    color: Tokens.text-muted;
+                }
+            }
+        }
+
+        // Right: the log (or the milestones), and time set aside for it.
+        VerticalLayout {
+            horizontal-stretch: 10;
+            spacing: 0px;
+            Text {
+                height: 24px;
+                text: root.goal.milestones ? "Milestones" : "Log";
+                font-size: 12px;
+                font-weight: 600;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+            }
+            Hairline {}
+            ScrollView {
+                vertical-stretch: 1;
+                min-height: 80px;
+                VerticalLayout {
+                    alignment: start;
+                    for entree in root.log: Rectangle {
+                        height: 50px;
+                        HorizontalLayout {
+                            padding-left: 2px;
+                            padding-right: 2px;
+                            spacing: 10px;
+                            if !root.goal.milestones: Text {
+                                width: 20px;
+                                text: entree.number;
+                                font-size: 12px;
+                                color: Tokens.text-muted;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                            if root.goal.milestones: Check {
+                                y: (parent.height - self.height) / 2;
+                                size: 18px;
+                                done: entree.done;
+                                label: entree.title;
+                                toggled => { root.milestone-toggled(entree.id); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: entree.title;
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    color: entree.done ? Tokens.text-muted : Tokens.text;
+                                    overflow: elide;
+                                }
+                                if entree.when != "": Text {
+                                    text: entree.when;
+                                    font-size: 12px;
+                                    color: Tokens.text-muted;
+                                }
+                            }
+                            if !root.goal.milestones: IconButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.window-close;
+                                label: "Remove " + entree.title;
+                                button-size: 24px;
+                                icon-size: 11px;
+                                clicked => { root.entry-removed(entree.id); }
+                            }
+                        }
+                        Hairline { y: parent.height - 1px; }
+                    }
+                    if root.log.length == 0 && !root.goal.milestones: Text {
+                        height: 44px;
+                        text: "Nothing logged yet.";
+                        font-size: 12.5px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            if root.goal.milestones: HorizontalLayout {
+                padding-top: 6px;
+                TextField {
+                    icon: Icons.plus;
+                    accessible-label: "Add a milestone";
+                    placeholder-text: "Add a milestone";
+                    text <=> root.new-milestone;
+                    accepted(t) => {
+                        if (t != "") {
+                            root.milestone-added(t);
+                            root.new-milestone = "";
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 12px; }
+            // Time for it, in the calendar: an hour or so on chosen days, every week
+            // until its day.
+            Rectangle {
+                height: 58px;
+                border-radius: Tokens.radius-large;
+                background: Tokens.surface-hover;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        data: Icons.calendar;
+                        size: 16px;
+                        tint: Tokens.text-muted;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: "Make time for it";
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                        }
+                        Text {
+                            text: "Block time in the calendar each week.";
+                            font-size: 12.5px;
+                            color: Tokens.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                    Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "Plan";
+                        label: "Make time for it";
+                        size: ButtonSize.sm;
+                        clicked => { root.make-time(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// All the goals, as cards.
+export component GoalsOverview inherits VerticalLayout {
+    in property <[GoalData]> goals;
+    callback chosen(int);
+    callback new-goal();
+
+    padding-left: 32px;
+    padding-right: 32px;
+    padding-top: 22px;
+    spacing: 14px;
+
+    HorizontalLayout {
+        height: 32px;
+        spacing: 12px;
+        Text {
+            text: "Goals";
+            font-family: Tokens.font-display;
+            font-size: 22px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.goals.length == 1 ? "1 goal" : root.goals.length + " goals";
+            font-size: 13px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: "New goal";
+            icon: Icons.plus;
+            size: ButtonSize.sm;
+            clicked => { root.new-goal(); }
+        }
+    }
+    Hairline {}
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            alignment: start;
+            spacing: 12px;
+            padding-top: 6px;
+            for g in root.goals: Rectangle {
+                height: 104px;
+                border-radius: Tokens.radius-large;
+                border-width: 1px;
+                border-color: carte.has-hover ? Tokens.border-strong : Tokens.border;
+                background: Tokens.surface;
+
+                accessible-role: button;
+                accessible-label: g.title;
+                accessible-description: g.badge;
+                accessible-action-default => { root.chosen(g.id); }
+
+                carte := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.chosen(g.id); }
+                }
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 14px;
+                    padding-bottom: 14px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: g.title;
+                            font-size: 13.5px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        GoalBadge {
+                            status: g.status;
+                            text: g.badge;
+                        }
+                    }
+                    GoalBar {
+                        fraction: g.fraction;
+                        expected: g.expected;
+                        tint: g.color;
+                    }
+                    HorizontalLayout {
+                        spacing: 14px;
+                        alignment: start;
+                        Text {
+                            text: g.done + " of " + g.target;
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                        }
+                        Text {
+                            text: "by " + g.due-short;
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                        }
+                        Text {
+                            text: g.open-steps == 1 ? "1 open step" : g.open-steps + " open steps";
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                        }
+                    }
+                }
+            }
+            if root.goals.length == 0: Text {
+                height: 120px;
+                text: "No goals yet. A goal is something to reach by a day: 10 applications by the 17th.";
+                font-size: 13px;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+/// On Today, the goals that need something this week: behind, or due soon.
+export component GoalNudges inherits HorizontalLayout {
+    in property <[GoalData]> goals;
+    callback chosen(int);
+
+    spacing: 8px;
+    alignment: start;
+    height: 34px;
+
+    for g in root.goals: Rectangle {
+        width: min(360px, rang.preferred-width + 22px);
+        border-radius: Tokens.radius-large;
+        border-width: 1px;
+        border-color: pousse.has-hover ? Tokens.border-strong : Tokens.border;
+        background: pousse.has-hover ? Tokens.surface-hover : transparent;
+
+        accessible-role: button;
+        accessible-label: g.title;
+        accessible-description: g.pace;
+        accessible-action-default => { root.chosen(g.id); }
+
+        rang := HorizontalLayout {
+            x: 10px;
+            width: parent.width - 20px;
+            spacing: 8px;
+            GoalRing {
+                y: (parent.height - self.height) / 2;
+                ring: g.ring;
+                tint: g.color;
+                size: 14px;
+            }
+            Text {
+                text: g.title;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+                max-width: self.preferred-width;
+            }
+            Text {
+                text: (g.status == 1 ? g.badge + ". " : "") + g.pace;
+                font-size: 12.5px;
+                color: Tokens.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        pousse := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.chosen(g.id); }
+        }
+    }
+}
+
+/// A new goal: what, measured how, by when, and why.
+export component NewGoalPanel inherits Rectangle {
+    in-out property <string> title;
+    /// 0 a number, 1 milestones.
+    in-out property <int> kind;
+    in-out property <string> target;
+    in-out property <string> unit;
+    /// YYYY-MM-DD.
+    in-out property <string> due;
+    in-out property <string> why;
+    in property <string> error;
+
+    callback in-days(int);
+    callback confirmed();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "New goal";
+        close-label: "Cancel";
+        card-width: 520px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        TextField {
+            accessible-label: "Goal";
+            placeholder-text: "What do you want to reach? Send 10 internship applications";
+            font-size: 15px;
+            text <=> root.title;
+            // Opened to be written: the first key is the goal's.
+            init => { self.focus(); }
+            accepted => { root.confirmed(); }
+        }
+
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                width: 110px;
+                text: "Measured by";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["A number", "Milestones"];
+                selected: root.kind;
+                chosen(i) => { root.kind = i; }
+            }
+            Rectangle {}
+        }
+
+        if root.kind == 0: HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                width: 110px;
+                text: "Target";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 70px;
+                accessible-label: "How many";
+                text <=> root.target;
+            }
+            TextField {
+                width: 180px;
+                accessible-label: "Of what";
+                placeholder-text: "applications";
+                text <=> root.unit;
+            }
+            Rectangle {}
+        }
+
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                width: 110px;
+                text: "By";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 120px;
+                accessible-label: "Due date";
+                placeholder-text: "2026-10-30";
+                text <=> root.due;
+            }
+            Link {
+                y: (parent.height - self.height) / 2;
+                text: "2 weeks";
+                clicked => { root.in-days(14); }
+            }
+            Link {
+                y: (parent.height - self.height) / 2;
+                text: "A month";
+                clicked => { root.in-days(30); }
+            }
+            Link {
+                y: (parent.height - self.height) / 2;
+                text: "3 months";
+                clicked => { root.in-days(91); }
+            }
+            Rectangle {}
+        }
+
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                width: 110px;
+                text: "Why";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                accessible-label: "Why";
+                placeholder-text: "Optional: what it is for";
+                text <=> root.why;
+            }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: 12px;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Iris shows the pace you need, and points to the goal on Today when you fall behind.";
+            font-size: 12px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+
+        ModalFooter {
+            Button {
+                text: "Create goal";
+                kind: ButtonKind.primary;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
+/// Time for a goal, blocked in the calendar every week on the chosen days until its
+/// day.
+export component MakeTimePanel inherits Rectangle {
+    in property <string> goal;
+    in property <string> until;
+    /// Monday first.
+    in-out property <[bool]> days;
+    /// "18:00".
+    in-out property <string> start;
+    /// 0: 30 min, 1: 1 h, 2: 1 h 30, 3: 2 h.
+    in-out property <int> length: 1;
+    in property <string> error;
+
+    callback day-toggled(int);
+    callback confirmed();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Make time for it";
+        close-label: "Cancel";
+        card-width: 460px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: root.goal;
+            font-size: 14px;
+            font-weight: 600;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            height: 34px;
+            spacing: 4px;
+            Text {
+                width: 80px;
+                text: "Every";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            for nom[i] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Rectangle {
+                property <bool> on: root.days.length > i && root.days[i];
+                width: 40px;
+                height: 30px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Tokens.radius-medium;
+                border-width: self.on ? 0px : 1px;
+                border-color: Tokens.border;
+                background: self.on ? Tokens.accent-soft : jour.has-hover ? Tokens.surface-hover : transparent;
+
+                accessible-role: checkbox;
+                accessible-label: nom;
+                accessible-checked: self.on;
+                accessible-action-default => { root.day-toggled(i); }
+
+                Text {
+                    text: nom;
+                    font-size: 12px;
+                    font-weight: parent.on ? 600 : 400;
+                    color: parent.on ? Tokens.accent : Tokens.text-secondary;
+                }
+                jour := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.day-toggled(i); }
+                }
+            }
+            Rectangle {}
+        }
+
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                width: 80px;
+                text: "At";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 80px;
+                accessible-label: "Start time";
+                placeholder-text: "18:00";
+                text <=> root.start;
+                // Opened to be set: the first key is the hour's.
+                init => {
+                    self.focus();
+                    self.select-all();
+                }
+                accepted => { root.confirmed(); }
+            }
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["30 min", "1 h", "1 h 30", "2 h"];
+                selected: root.length;
+                chosen(i) => { root.length = i; }
+            }
+            Rectangle {}
+        }
+
+        Text {
+            text: "In your first calendar, every week until " + root.until + ".";
+            font-size: 12px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: 12px;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+
+        ModalFooter {
+            Button {
+                text: "Block the time";
+                kind: ButtonKind.primary;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
+/// Deleting a goal asks first. Its steps stay, as tasks.
+export component GoalDeletePanel inherits Rectangle {
+    in property <string> name;
+    callback confirmed();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Delete this goal?";
+        close-label: "Cancel";
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: "“" + root.name + "” and its log are deleted. Its steps stay in your tasks.";
+            font-size: 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        ModalFooter {
+            Button {
+                text: "Delete";
+                label: "Delete the goal";
+                kind: ButtonKind.danger;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}

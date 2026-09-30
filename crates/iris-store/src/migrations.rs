@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 13;
+pub const CURRENT_VERSION: i64 = 14;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -83,7 +83,58 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "tags in an order of one's own, tasks of an event",
         sql: SCHEMA_V13,
     },
+    Migration {
+        version: 14,
+        name: "goals, and how long a task takes",
+        sql: SCHEMA_V14,
+    },
 ];
+
+/// Goals, and three things a task learns.
+///
+/// **A goal** is something to reach by a day: a number of something ("10 internship
+/// applications") counted by hand in its log, or a few milestones ticked in order. Its
+/// pace is read from the day it was set, its due day and where it stands.
+///
+/// **A task** can move a goal forward (`goal_id`; the goal deleted, the task stays),
+/// say how long it takes (`estimate`, minutes) and count how many times it was put off
+/// (`postponed`), so that one moved again and again can be asked about.
+const SCHEMA_V14: &str = "
+CREATE TABLE goals (
+    id         INTEGER PRIMARY KEY,
+    title      TEXT NOT NULL,
+    why        TEXT NOT NULL DEFAULT '',
+    kind       TEXT NOT NULL DEFAULT 'count',
+    target     INTEGER NOT NULL DEFAULT 1,
+    unit       TEXT NOT NULL DEFAULT '',
+    due_day    TEXT NOT NULL,
+    color      TEXT NOT NULL,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE goal_entries (
+    id      INTEGER PRIMARY KEY,
+    goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    at      INTEGER NOT NULL,
+    note    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX goal_entries_by_goal ON goal_entries(goal_id, at);
+
+CREATE TABLE goal_milestones (
+    id       INTEGER PRIMARY KEY,
+    goal_id  INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    title    TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    done_at  INTEGER
+);
+CREATE INDEX goal_milestones_by_goal ON goal_milestones(goal_id, position);
+
+ALTER TABLE tasks ADD COLUMN goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN estimate INTEGER;
+ALTER TABLE tasks ADD COLUMN postponed INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX tasks_by_goal ON tasks(goal_id) WHERE goal_id IS NOT NULL;
+";
 
 /// Two additions.
 ///

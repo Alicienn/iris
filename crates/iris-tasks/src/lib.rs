@@ -9,6 +9,7 @@
 //!   range.
 
 pub mod due;
+pub mod goals;
 pub mod quick;
 
 pub use due::{due_label, is_overdue, remind_at, section, Section, REMINDERS};

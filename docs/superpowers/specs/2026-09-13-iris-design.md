@@ -343,3 +343,7 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   material are gone: one look, designed as a whole, in two lights.
 - **Workspaces are chosen from a rail on the left** (3.0.0), not from tabs in the title
   bar; the Iris mark at its top leads Home.
+- **The queues are pills above the list again** (3.1.0), no longer its title, as the
+  web edition that became the reference design has them.
+- **Tasks have goals** (3.3.0): something to reach by a day, with its pace, beyond the
+  spec's lists of things to do. They are counted by hand only.

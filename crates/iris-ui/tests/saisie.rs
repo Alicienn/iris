@@ -1593,6 +1593,61 @@ fn echap_abandonne_le_creneau_tape() {
     assert_eq!(*crees.borrow(), 0);
 }
 
+// --- Goals ---
+
+fn un_nouvel_objectif_s_ecrit_des_l_ouverture() {
+    let f = fenetre();
+    f.set_workspace(2);
+    let touches = Rc::new(RefCell::new(0));
+    let crees = Rc::new(RefCell::new(0));
+    {
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |_| *t.borrow_mut() += 1);
+        let fw = f.as_weak();
+        f.on_goal_new_requested(move || fw.upgrade().unwrap().set_goal_new_open(true));
+        let c = Rc::clone(&crees);
+        f.on_goal_new_confirmed(move || *c.borrow_mut() += 1);
+    }
+    f.invoke_goal_new_requested();
+    // Rule 3: the first key is the goal's; rule 2: none reaches the shortcuts.
+    taper(&f, "Run 100 km\n");
+    assert_eq!(f.get_goal_new_title(), "Run 100 km");
+    assert_eq!(*crees.borrow(), 1, "Enter creates it");
+    assert_eq!(*touches.borrow(), 0);
+    echap(&f);
+    assert!(!f.get_goal_new_open(), "Escape closes the window");
+}
+
+fn faire_du_temps_s_ouvre_dans_l_heure() {
+    let f = fenetre();
+    f.set_workspace(2);
+    f.set_task_page(1);
+    f.set_goal_time_start("18:00".into());
+    f.set_goal_time_open(true);
+    // Opened selected: the first key replaces the hour.
+    taper(&f, "7:30");
+    assert_eq!(f.get_goal_time_start(), "7:30");
+    let jours = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let j = Rc::clone(&jours);
+        f.on_goal_time_day_toggled(move |i| j.borrow_mut().push(i));
+    }
+    clic(&case_a_cocher(&f, "Wed"));
+    assert_eq!(*jours.borrow(), [2], "one click on a day toggles it");
+    echap(&f);
+    assert!(!f.get_goal_time_open());
+}
+
+fn case_a_cocher(f: &AppWindow, libelle: &str) -> testing::ElementHandle {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Checkbox)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().as_deref() == Some(libelle))
+        .unwrap_or_else(|| panic!("aucune case nommée « {libelle} »"))
+}
+
 fn champ_existe(f: &AppWindow, libelle: &str) -> bool {
     testing::ElementQuery::from_root(f)
         .match_descendants()
@@ -1643,6 +1698,14 @@ fn main() {
         (
             "echap_abandonne_le_creneau_tape",
             echap_abandonne_le_creneau_tape,
+        ),
+        (
+            "un_nouvel_objectif_s_ecrit_des_l_ouverture",
+            un_nouvel_objectif_s_ecrit_des_l_ouverture,
+        ),
+        (
+            "faire_du_temps_s_ouvre_dans_l_heure",
+            faire_du_temps_s_ouvre_dans_l_heure,
         ),
         (
             "une_touche_ne_touche_pas_le_courrier_derriere_la_fenetre",

@@ -4,7 +4,9 @@
 //! $env:SLINT_BACKEND="winit-software"; cargo run -p iris-app --example apercu_taches -- <dossier>
 //! ```
 //!
-//! Écrit `taches-aujourdhui.png`, `taches-liste.png` et `taches-date.png`.
+//! Écrit `taches-aujourdhui.png`, `taches-liste.png`, `taches-date.png`, puis les
+//! objectifs : `objectif.png`, `objectif-jalons.png`, `objectifs.png`,
+//! `objectif-nouveau.png` et `objectif-temps.png`.
 
 use chrono::{Duration, Local};
 use iris_app::services::Services;
@@ -163,6 +165,52 @@ fn main() {
     d.thread_id = Some(1);
     services.store.update_task(devis, &d, t).unwrap();
 
+    // Goals: one counted, on track; one in milestones; one behind.
+    let objectif = |titre: &str, jalons: bool, cible: i32, unite: &str, depuis: i64, dans: i64, couleur: &str| {
+        services
+            .store
+            .create_goal(
+                &iris_store::NewGoal {
+                    title: titre.into(),
+                    why: if cible == 10 {
+                        "End-of-studies internship in Lyon, April to September.".into()
+                    } else {
+                        String::new()
+                    },
+                    kind: if jalons {
+                        iris_store::GoalKind::Milestones
+                    } else {
+                        iris_store::GoalKind::Count
+                    },
+                    target: cible,
+                    unit: unite.into(),
+                    due_day: jour(dans).unwrap(),
+                    color: couleur.into(),
+                },
+                a(depuis, 9, 0),
+            )
+            .unwrap()
+    };
+    let stages = objectif("Send 10 internship applications", false, 10, "applications", -13, 18, "#5b7cf0");
+    for (j, note) in [(-11, "Studio Nord"), (-8, "Atelier Martin"), (-4, "Façades Gauthier"), (-1, "Called Bloc Studio, they want a mail")] {
+        services.store.log_goal(stages, note, a(j, 11, 0)).unwrap();
+    }
+    let site = objectif("Launch the new website", true, 1, "", -20, 25, "#e8a45b");
+    for (k, m) in ["Brief", "Wireframes", "Design", "Content", "Launch"].iter().enumerate() {
+        let id = services.store.add_milestone(site, m).unwrap();
+        if k < 2 {
+            services.store.set_milestone_done(id, Some(a(-15 + k as i64 * 6, 10, 0))).unwrap();
+        }
+    }
+    let livres = objectif("Read 4 books this term", false, 4, "books", -40, 30, "#6fb7a4");
+    services.store.log_goal(livres, "The Old Man and the Sea", a(-30, 20, 0)).unwrap();
+    for (titre, j) in [("Find 5 more companies in Lyon", 0), ("Update the CV with the last project", 1), ("Write the application to Bloc Studio", 2)] {
+        let id = ajoute(perso, titre, jour(j), None, 0);
+        let mut t = services.store.task(id).unwrap().unwrap().task;
+        t.goal_id = Some(stages);
+        services.store.update_task(id, &t, iris_types::Timestamp::EPOCH).unwrap();
+    }
+
     let cal = services.store.calendars().unwrap()[0].id;
     let midi =
         iris_calendar::time::zoned_millis(aujourdhui.and_hms_opt(12, 30, 0).unwrap(), &Local);
@@ -227,6 +275,29 @@ fn main() {
                 }
                 4 => {
                     capture(&f, sortie.join("taches-date.png"));
+                    f.invoke_task_detail_closed();
+                    f.invoke_task_place_chosen(format!("goal:{stages}").into());
+                }
+                5 => {
+                    capture(&f, sortie.join("objectif.png"));
+                    f.invoke_task_place_chosen(format!("goal:{site}").into());
+                }
+                6 => {
+                    capture(&f, sortie.join("objectif-jalons.png"));
+                    f.invoke_task_place_chosen("goals".into());
+                }
+                7 => {
+                    capture(&f, sortie.join("objectifs.png"));
+                    f.invoke_goal_new_requested();
+                }
+                8 => {
+                    capture(&f, sortie.join("objectif-nouveau.png"));
+                    f.set_goal_new_open(false);
+                    f.invoke_task_place_chosen(format!("goal:{stages}").into());
+                    f.invoke_goal_time_requested();
+                }
+                9 => {
+                    capture(&f, sortie.join("objectif-temps.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

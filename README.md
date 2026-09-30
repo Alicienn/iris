@@ -155,6 +155,18 @@ Open **Tasks** in the rail, or with `Ctrl`+`3`.
 - In the mail, `T` (or *Add to tasks* in a conversation's right-click menu) turns the
   conversation into a task. *Open message* in the task brings it back.
 
+### Goals
+
+A goal is something to reach by a day: *Send 10 internship applications by the 17th*.
+**+** beside *Goals* in the column on the left creates one, measured by a number or by
+milestones. Its page shows where you stand, the pace you need ("6 to go in 18 days:
+about 2 a week") and whether you are on track; **Log one** counts a step (with a word
+on what you did, if you like), or tick the milestones as you reach them. What you add
+on a goal's page is a step toward it; any task can be given a goal in its details.
+**Make time for it** blocks time in your calendar on the days you choose, every week
+until the goal's day. Today points to the goals behind or due this week. Iris counts
+nothing on its own.
+
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
 `Delete` delete, `Ctrl`+`Z` to bring back what you just deleted.
 

@@ -9,9 +9,10 @@ import { PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { DateButton, DatePicker } from "@iris/screens/calendar-panels.slint";
+import { GoalRow, GoalPage, GoalsOverview, GoalNudges } from "@iris/screens/goals.slint";
 import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData, TaskTokenData,
-    TaskOverviewData
+    TaskOverviewData, GoalData, GoalLogData
 } from "@iris/types.slint";
 import { ComboBox, ScrollView } from "std-widgets.slint";
 
@@ -550,11 +551,14 @@ component TaskDetail inherits DetailPanel {
     in-out property <string> time;
     in property <[string]> lists;
     in property <[string]> reminders;
+    /// "None", then the goals.
+    in property <[string]> goal-names;
     in property <bool> picker-open;
     in property <string> picker-title;
     in property <[MonthCellData]> picker-cells;
 
     callback toggled(int);
+    callback goal-chosen(int);
     callback title-edited(string);
     callback notes-edited(string);
     callback time-edited(string);
@@ -676,6 +680,18 @@ component TaskDetail inherits DetailPanel {
                 model: root.lists;
                 current-index: root.detail.list-index;
                 selected => { root.list-chosen(self.current-index); }
+            }
+        }
+        // The goal it moves forward.
+        if root.goal-names.length > 1: PropertyRow {
+            name: "Goal";
+            icon: Icons.task;
+            ComboBox {
+                y: (parent.height - self.height) / 2;
+                height: 30px;
+                model: root.goal-names;
+                current-index: root.detail.goal-index;
+                selected => { root.goal-chosen(self.current-index); }
             }
         }
         PropertyRow {
@@ -910,6 +926,29 @@ export component TasksView inherits Rectangle {
     in property <string> picker-title;
     in property <[MonthCellData]> picker-cells;
 
+    /// What the middle shows: 0 a list of tasks, 1 a goal, 2 all the goals.
+    in property <int> page;
+    in property <[GoalData]> goals;
+    /// On Today: the goals that need something this week.
+    in property <[GoalData]> nudges;
+    in property <GoalData> goal;
+    in property <[GoalLogData]> goal-log;
+    in property <string> goal-chart;
+    in property <float> goal-now-x;
+    in property <float> goal-now-y;
+    in property <string> goal-start-label;
+    in-out property <string> goal-note;
+    in property <[string]> goal-names;
+
+    callback new-goal();
+    callback goal-logged(string);
+    callback goal-entry-removed(int);
+    callback milestone-toggled(int);
+    callback milestone-added(string);
+    callback make-time();
+    callback goal-delete();
+    callback task-goal-chosen(int);
+
     callback place-chosen(string);
     callback place-menu(TaskPlaceData, length, length);
     callback list-new();
@@ -950,7 +989,7 @@ export component TasksView inherits Rectangle {
     property <length> drop-x;
     property <length> drop-y;
 
-    background: Tokens.background;
+    background: Tokens.surface;
 
     changed focus-add-request => { ajout.focus-field(); }
 
@@ -960,10 +999,48 @@ export component TasksView inherits Rectangle {
             rail-width: 232px;
 
             for place[i] in root.places: VerticalLayout {
+                // Before the lists: the goals, their title leading to all of them.
+                if place.is-list && (i == 0 || !root.places[i - 1].is-list): VerticalLayout {
+                    HorizontalLayout {
+                        height: 38px;
+                        padding-left: 9px;
+                        padding-right: 2px;
+                        padding-top: 12px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            accessible-role: button;
+                            accessible-label: "All goals";
+                            accessible-action-default => { root.place-chosen("goals"); }
+                            SectionTitle {
+                                x: 0;
+                                height: parent.height;
+                                text: "Goals";
+                                color: tous.has-hover || root.page == 2 ? Tokens.text : Tokens.text-muted;
+                            }
+                            tous := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.place-chosen("goals"); }
+                            }
+                        }
+                        IconButton {
+                            y: (parent.height - self.height) / 2;
+                            icon: Icons.plus;
+                            label: "New goal";
+                            button-size: 26px;
+                            icon-size: 15px;
+                            clicked => { root.new-goal(); }
+                        }
+                    }
+                    for g in root.goals: GoalRow {
+                        goal: g;
+                        chosen(id) => { root.place-chosen("goal:" + id); }
+                    }
+                }
                 // A title above the first list, with the way to make another.
                 if place.is-list && (i == 0 || !root.places[i - 1].is-list): HorizontalLayout {
-                    height: 40px;
-                    padding-left: 10px;
+                    height: 38px;
+                    padding-left: 9px;
+                    padding-right: 2px;
                     padding-top: 12px;
                     SectionTitle {
                         text: "Lists";
@@ -973,8 +1050,8 @@ export component TasksView inherits Rectangle {
                         y: (parent.height - self.height) / 2;
                         icon: Icons.plus;
                         label: "New list";
-                        button-size: 24px;
-                        icon-size: 12px;
+                        button-size: 26px;
+                        icon-size: 15px;
                         clicked => { root.list-new(); }
                     }
                 }
@@ -1000,14 +1077,66 @@ export component TasksView inherits Rectangle {
             }
         }
 
-        // --- Middle: the day, what there is to do, and the line to add more ---
+        // --- Middle: the day, what there is to do, and the line to add more; or a
+        // goal; or all of them ---
         VerticalLayout {
+            horizontal-stretch: 1;
+
+        if root.page == 1: GoalPage {
+            vertical-stretch: 1;
+            goal: root.goal;
+            log: root.goal-log;
+            chart: root.goal-chart;
+            now-x: root.goal-now-x;
+            now-y: root.goal-now-y;
+            start-label: root.goal-start-label;
+            note <=> root.goal-note;
+            logged(t) => { root.goal-logged(t); }
+            entry-removed(id) => { root.goal-entry-removed(id); }
+            milestone-toggled(id) => { root.milestone-toggled(id); }
+            milestone-added(t) => { root.milestone-added(t); }
+            make-time => { root.make-time(); }
+            delete-goal => { root.goal-delete(); }
+
+            // The steps: the tasks toward it.
+            ScrollView {
+                vertical-stretch: 1;
+                min-height: 60px;
+                mouse-drag-pan-enabled: false;
+                VerticalLayout {
+                    alignment: start;
+                    for ligne[i] in root.rows: TaskRow {
+                        item: ligne;
+                        separated: ligne.kind == 0 && i > 0 && root.rows[i - 1].kind == 0
+                            && !ligne.selected && !root.rows[i - 1].selected;
+                        selected(r) => { root.row-selected(r); }
+                        toggled(id) => { root.toggled(id); }
+                        clear-completed => { root.clear-completed(); }
+                    }
+                    if root.rows.length == 0: Text {
+                        height: 44px;
+                        text: "No open steps. Add one below.";
+                        font-size: 12.5px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        if root.page == 2: GoalsOverview {
+            vertical-stretch: 1;
+            goals: root.goals;
+            chosen(id) => { root.place-chosen("goal:" + id); }
+            new-goal => { root.new-goal(); }
+        }
+
+        if root.page == 0: VerticalLayout {
             padding-top: 26px;
-            padding-bottom: 18px;
             padding-left: 32px;
             padding-right: 32px;
             spacing: 20px;
-            horizontal-stretch: 1;
+            vertical-stretch: 1;
 
             PageHeader {
                 title: root.title;
@@ -1038,6 +1167,11 @@ export component TasksView inherits Rectangle {
                         }
                     }
                 }
+            }
+
+            if root.nudges.length > 0: GoalNudges {
+                goals: root.nudges;
+                chosen(id) => { root.place-chosen("goal:" + id); }
             }
 
             if root.overview.show-day: DayCard {
@@ -1089,13 +1223,24 @@ export component TasksView inherits Rectangle {
                 }
             }
 
-            ajout := AddBar {
+        }
+
+            // The line to add a task, or a step toward the goal shown.
+            HorizontalLayout {
                 vertical-stretch: 0;
-                text <=> root.add-text;
-                hint: root.add-hint;
-                tokens: root.add-tokens;
-                edited(t) => { root.add-edited(t); }
-                add(t) => { root.add(t); }
+                visible: root.page != 2;
+                max-height: root.page == 2 ? 0px : 200px;
+                padding-left: root.page == 1 ? 36px : 32px;
+                padding-right: root.page == 1 ? 36px : 32px;
+                padding-top: root.page == 1 ? 8px : 20px;
+                padding-bottom: 18px;
+                ajout := AddBar {
+                    text <=> root.add-text;
+                    hint: root.add-hint;
+                    tokens: root.add-tokens;
+                    edited(t) => { root.add-edited(t); }
+                    add(t) => { root.add(t); }
+                }
             }
         }
 
@@ -1107,6 +1252,8 @@ export component TasksView inherits Rectangle {
             time <=> root.detail-time;
             lists: root.lists;
             reminders: root.reminders;
+            goal-names: root.goal-names;
+            goal-chosen(i) => { root.task-goal-chosen(i); }
             picker-open: root.picker-open;
             picker-title: root.picker-title;
             picker-cells: root.picker-cells;

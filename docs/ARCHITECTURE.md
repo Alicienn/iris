@@ -19,8 +19,8 @@ Three stances set it apart:
 
 ## Status
 
-The foundation is complete and exercised: the suite holds about **1,472 tests** (1,337
-tests and 135 interface scenarios, measured for 3.1.0),
+The foundation is complete and exercised: the suite holds about **1,493 tests** (1,353
+tests and 140 interface scenarios, measured for 3.3.0),
 including those that genuinely put synchronisation, the plugin sandbox and the rendering
 engine at fault, and two headless interface suites driven by real pointer and key events.
 
@@ -190,6 +190,18 @@ thing coming, the event under way or next, or the next task with an hour, whiche
 starts first (`home::day`, `upcoming`); what is late is not "next". Three links lead to
 Mail, Tasks and Calendar with their counts, and a line at the foot names `Ctrl`+`K`. It
 opens first unless `home_at_startup` is off.
+
+**Goals** (3.3.0, `iris-store::goals`, `iris-tasks::goals`, `iris-app::goals`). A goal is
+counted (`goal_entries`, logged by hand with *Log one*) or made of milestones
+(`goal_milestones`, ticked in order), due on a day. Its pace is the straight line from
+the day it was set to its day: on track within half a step of it, behind beyond,
+`pace()` saying by how many and at what rate per week. Rust draws the shapes as path
+commands (the ring of the side column on a 16-unit grid, the pace chart on 520 × 120),
+so Slint only strokes them. Tasks point to a goal (`tasks.goal_id`, set to NULL when the
+goal goes); adding on a goal's page adds a step toward it. *Make time for it* writes one
+weekly event (`FREQ=WEEKLY;BYDAY=…;UNTIL=` the goal's day) in the first local calendar.
+Today lists up to three goals behind or due within the week. The Tasks view key is
+`goal:<id>` or `goals`, so Back returns to them. Nothing is counted automatically.
 
 **Tasks** puts above the list, on Today, a date block and the day's calendar
 (`calendar::upcoming`), and in the header the day's progress; all of it travels as one
@@ -403,6 +415,7 @@ Iris is refused rather than misread.
 | 11 | Threads put aside from Done, and event notes (0.6.0) |
 | 12 | Tags on one's own mailboxes, and their links (0.7.0) |
 | 13 | Tags in an order of one's own; tasks tied to an event's UID and occurrence (1.0.0) |
+| 14 | Goals, their log and milestones; a task's goal, estimate and times put off (3.3.0) |
 
 A new table or column always arrives as a new migration.
 
