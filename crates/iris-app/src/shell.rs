@@ -312,10 +312,12 @@ pub fn wire_sync(
                 let faible_progres = faible.clone();
                 let rapport = engine
                     .sync_all(now(), move |done, total, _account| {
+                        // How many are done: several go at once, so there is no
+                        // "the one being synced" to count from.
                         let texte = if done >= total {
                             String::new()
                         } else {
-                            format!("{}/{}", done + 1, total)
+                            format!("{done}/{total}")
                         };
                         let _ = faible_progres.upgrade_in_event_loop(move |fenetre| {
                             fenetre.set_sync_progress(texte.into());

@@ -143,6 +143,16 @@ property**, not by discipline:
 4. **Events are batched.** Coalescing in 16 ms windows, and a batch touching more than
    256 threads degrades into a full refresh — the cost on the interface side stays
    bounded however intense the synchronisation.
+5. **No server holds back another.** Since 3.9.1 the accounts due (`tick`) and *Sync
+   all* run side by side, `concurrency` at a time (4), with the IMAP pool still capping
+   connections per host. Reaching a server and signing in must take less than
+   `connect_timeout` (30 s), and an account's whole pass less than `account_timeout`
+   (10 min). A pass brings at most 5,000 messages per folder and keeps them, so
+   giving up loses only time. Dropping the pass drops its connection and frees its
+   place in the pool. The failure is recorded like any other (the red ! on the
+   account), and the account is tried again at its next turn. Before, the accounts went
+   one after the other with no time limit, and a server that took the connection and
+   then said nothing stopped every account after it and every later pass.
 
 ### Known departures
 

@@ -42,6 +42,12 @@ pub struct EngineConfig {
     /// L'opération coûte une recherche sur tout le dossier : la faire à chaque tour
     /// gaspillerait l'essentiel du budget réseau pour un événement rare.
     pub deletion_scan_every: u32,
+    /// How long reaching a server and signing in may take.
+    pub connect_timeout: std::time::Duration,
+    /// How long one account's whole pass may take before it is given up, to be tried
+    /// again at the next one. A pass brings at most `folder.max_per_pass` messages
+    /// per folder and keeps what it brought, so giving up loses nothing but time.
+    pub account_timeout: std::time::Duration,
 }
 
 impl Default for EngineConfig {
@@ -52,6 +58,8 @@ impl Default for EngineConfig {
             folder: FolderSyncOptions::default(),
             concurrency: 4,
             deletion_scan_every: 10,
+            connect_timeout: std::time::Duration::from_secs(30),
+            account_timeout: std::time::Duration::from_secs(10 * 60),
         }
     }
 }
@@ -445,25 +453,26 @@ impl SyncEngine {
 
         // A manual refresh looks for deletions too: it is the gesture someone makes
         // precisely when they suspect the local copy has drifted.
-        let resultat = self.sync_account(compte.id, now, true).await;
+        let resultat = self.sync_account_bounded(compte.id, now, true).await;
         self.note_failure(account, resultat.as_ref().err());
         let rapport = resultat?;
         self.scheduler.lock().await.resume(account, now);
         Ok(rapport.added)
     }
 
-    /// Synchronises every enabled account, reporting progress as it goes.
+    /// Synchronises every enabled account, reporting progress as it goes: `progress(done,
+    /// total, account)` after each one, and `(0, total, "")` first.
     ///
-    /// Sequential rather than all at once, and that is the point: a hundred mailboxes
-    /// opened simultaneously is a hundred TLS handshakes, and the pool would queue
-    /// them anyway. Going in order means the count shown to the user is the truth
-    /// rather than an estimate, and the first mailbox is refreshed in a second rather
-    /// than everything being refreshed in a minute.
+    /// A few at a time (`concurrency`), each within `account_timeout`. They went one
+    /// after the other, and a server that stopped answering held back every mailbox
+    /// after it, with the count stuck on the one it hung on. Not all at once either: a
+    /// hundred mailboxes is a hundred TLS handshakes, and the pool would queue them.
     pub async fn sync_all(
         &self,
         now: Timestamp,
         mut progress: impl FnMut(usize, usize, &str),
     ) -> SyncAllReport {
+        use futures::stream::{self, StreamExt};
         let comptes: Vec<_> = self
             .store
             .accounts()
@@ -478,12 +487,18 @@ impl SyncEngine {
             ..Default::default()
         };
 
-        for (index, compte) in comptes.into_iter().enumerate() {
-            progress(index, total, &compte.email);
+        progress(0, total, "");
+        let mut en_cours = stream::iter(comptes)
+            .map(|compte| async move {
+                let resultat = self.sync_account_bounded(compte.id, now, true).await;
+                (compte, resultat)
+            })
+            .buffer_unordered(self.config.concurrency.max(1));
 
-            let resultat = self.sync_account(compte.id, now, true).await;
+        let mut faits = 0;
+        while let Some((compte, resultat)) = en_cours.next().await {
+            faits += 1;
             self.note_failure(compte.id, resultat.as_ref().err());
-
             match resultat {
                 Ok(bilan) => {
                     rapport.synced += 1;
@@ -492,13 +507,31 @@ impl SyncEngine {
                 // One unreachable server must not stop the other ninety-nine.
                 Err(e) => {
                     tracing::warn!(account = %compte.email, error = %e, "sync failed");
-                    rapport.failed.push((compte.email, e.to_string()));
+                    rapport.failed.push((compte.email.clone(), e.to_string()));
                 }
             }
+            progress(faits, total, &compte.email);
         }
-
-        progress(total, total, "");
         rapport
+    }
+
+    /// One account's pass, given up after `account_timeout`. Dropping the pass drops
+    /// its connection, and with it the pool's place it held.
+    async fn sync_account_bounded(
+        &self,
+        account: AccountId,
+        now: Timestamp,
+        detect_deletions: bool,
+    ) -> Result<AccountReport> {
+        let limite = self.config.account_timeout;
+        match tokio::time::timeout(limite, self.sync_account(account, now, detect_deletions)).await
+        {
+            Ok(resultat) => resultat,
+            Err(_) => Err(Error::Network(format!(
+                "the server stopped answering (nothing for {} minutes); it will be tried again",
+                limite.as_secs() / 60
+            ))),
+        }
     }
 
     /// Why this account last failed, if it did.
@@ -557,8 +590,22 @@ impl SyncEngine {
 
         let mut rapport = TickReport::default();
 
-        for account in dus.into_iter().take(self.config.concurrency) {
-            let resultat = self.sync_account(account, now, releve_suppressions).await;
+        // The accounts due, side by side rather than one after the other: a server that
+        // hangs holds back only itself, and only until `account_timeout`. The loop that
+        // calls `tick` waits for it, so a pass that never ended stopped every later
+        // pass, and the "syncing" mark with it.
+        use futures::stream::{self, StreamExt};
+        let mut en_cours = stream::iter(dus.into_iter().take(self.config.concurrency))
+            .map(|account| async move {
+                (
+                    account,
+                    self.sync_account_bounded(account, now, releve_suppressions)
+                        .await,
+                )
+            })
+            .buffer_unordered(self.config.concurrency.max(1));
+
+        while let Some((account, resultat)) = en_cours.next().await {
             // The scheduled pass records outcomes too, so an account that only ever
             // fails in the background still has something to show the user.
             self.note_failure(account, resultat.as_ref().err());
@@ -616,13 +663,26 @@ impl SyncEngine {
         let _place = self.pool.acquire(&compte.imap_host).await?;
 
         self.publish_phase(account, SyncPhase::Connecting);
-        let identifiants = self.credentials.credentials(account, &compte.email).await?;
         let endpoint = if compte.imap_tls {
             Endpoint::tls(&compte.imap_host, compte.imap_port)
         } else {
             Endpoint::starttls(&compte.imap_host, compte.imap_port)
         };
-        let mut conn = self.connector.connect(&endpoint, &identifiants).await?;
+        // Reaching the server and signing in, within `connect_timeout`: a server that
+        // takes the connection and then says nothing is the commonest way to hang.
+        let limite = self.config.connect_timeout;
+        let mut conn = tokio::time::timeout(limite, async {
+            let identifiants = self.credentials.credentials(account, &compte.email).await?;
+            self.connector.connect(&endpoint, &identifiants).await
+        })
+        .await
+        .map_err(|_| {
+            Error::Network(format!(
+                "{} did not answer within {} seconds",
+                compte.imap_host,
+                limite.as_secs()
+            ))
+        })??;
 
         let mut bilan = AccountReport::default();
 
@@ -1230,6 +1290,76 @@ mod tests {
             .find_map(|e| e.account())
             .expect("au moins un compte synchronisé");
         assert_eq!(premier, ids[3]);
+    }
+
+    /// A server that takes the connection and never answers, and a working one for
+    /// every other host.
+    #[derive(Debug)]
+    struct Muet(Arc<FakeServer>);
+
+    #[async_trait::async_trait]
+    impl Connector for Muet {
+        async fn connect(
+            &self,
+            endpoint: &iris_imap::Endpoint,
+            credentials: &iris_imap::Credentials,
+        ) -> Result<Box<dyn iris_imap::ImapConnection>> {
+            if endpoint.host == "muet.example.com" {
+                std::future::pending::<()>().await;
+            }
+            self.0.connect(endpoint, credentials).await
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_that_never_answers_holds_back_no_other_account() {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let muet = store
+            .create_account(
+                &NewAccount::new("a@example.com", "muet.example.com", "s"),
+                t(0),
+            )
+            .unwrap();
+        for i in 0..3 {
+            store
+                .create_account(
+                    &NewAccount::new(format!("b{i}@example.com"), "imap.example.com", "s"),
+                    t(0),
+                )
+                .unwrap();
+        }
+        let server = Arc::new(FakeServer::default());
+        let engine = SyncEngine::new(
+            Arc::clone(&store),
+            Arc::new(Muet(Arc::clone(&server))) as Arc<dyn Connector>,
+            Arc::new(StaticCredentials::new("p")),
+            EventBus::new(),
+            EngineConfig {
+                connect_timeout: std::time::Duration::from_millis(200),
+                account_timeout: std::time::Duration::from_secs(5),
+                ..Default::default()
+            },
+        );
+        engine.load_accounts(t(0)).await.unwrap();
+
+        // Everything, by hand: the silent one is given up, the others are done.
+        let rapport = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            engine.sync_all(t(0), |_, _, _| {}),
+        )
+        .await
+        .expect("sync_all came back");
+        assert_eq!(rapport.synced, 3);
+        assert_eq!(rapport.failed.len(), 1);
+        assert!(rapport.failed[0].1.contains("did not answer"));
+        // And it says so where the user looks.
+        assert!(engine.failure(muet).is_some());
+
+        // The background pass comes back too.
+        let tour = tokio::time::timeout(std::time::Duration::from_secs(10), engine.tick(t(0)))
+            .await
+            .expect("tick came back");
+        assert!(tour.failures.iter().all(|(a, _)| *a == muet));
     }
 
     #[tokio::test]

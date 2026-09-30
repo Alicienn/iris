@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.9.1 — 2026-09-30
+
+### Fixed
+- A mailbox whose server stops answering no longer holds up syncing: it is given up after a while, marked with its red !, and tried again later.
+- Several mailboxes sync at once, so one slow server no longer delays all the others.
+
 ## 3.9.0 — 2026-09-30
 
 ### New

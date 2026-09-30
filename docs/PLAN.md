@@ -476,3 +476,5 @@ the application is brought to it screen by screen.
       grid's scroll counted, *Still today* removed.
 - [x] **S40.14** An event's menu (3.9.0): right-click to open, edit, delete, or give it
       a colour of its own that outlives a subscription's refresh (migration 16).
+- [x] **S40.15** Sync that never hangs (3.9.1): a time limit on reaching a server and
+      on each account's pass, and the accounts synced side by side.
