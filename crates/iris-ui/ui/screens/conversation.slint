@@ -68,6 +68,7 @@ component MessageBlock inherits Rectangle {
                 font-size: Tokens.size-small;
                 font-italic: true;
                 vertical-alignment: center;
+                overflow: elide;
             }
         }
 
@@ -126,12 +127,15 @@ component MessageBlock inherits Rectangle {
             }
         }
 
+        // Wrapped, like the rest. Unwrapped, a newsletter laid out in one table made a
+        // single line tens of thousands of pixels long; the card around it grew as wide,
+        // and the renderer stopped the application drawing its rounded corner.
         if root.block.kind == "table": Text {
             text: root.block.text;
             font-family: Tokens.font-mono;
             font-size: Tokens.size-small;
             color: Tokens.text-secondary;
-            wrap: no-wrap;
+            wrap: word-wrap;
         }
 
         if root.block.kind == "paragraph": Text {
@@ -519,16 +523,19 @@ component InviteBanner inherits Rectangle {
         }
         // Answered: sent to the organiser, and the calendar follows. The answer given
         // is the filled button; another click changes it.
-        for mot[i] in ["Accept", "Maybe", "Decline"]: Button {
-            property <string> statut: i == 0 ? "ACCEPTED" : i == 1 ? "TENTATIVE" : "DECLINED";
-            visible: root.repondre;
-            width: root.repondre ? self.preferred-width : 0px;
-            y: (parent.height - self.height) / 2;
-            text: mot;
-            label: mot + " the invitation";
-            kind: root.reply == self.statut ? ButtonKind.primary : ButtonKind.secondary;
-            size: ButtonSize.sm;
-            clicked => { root.answer(i); }
+        // In a row of their own: a width forced on each button read its own preferred
+        // width back and came out at nothing, the three words drawn over each other.
+        if root.repondre: HorizontalLayout {
+            spacing: 6px;
+            horizontal-stretch: 0;
+            for mot[i] in ["Accept", "Maybe", "Decline"]: Button {
+                property <string> statut: i == 0 ? "ACCEPTED" : i == 1 ? "TENTATIVE" : "DECLINED";
+                text: mot;
+                label: mot + " the invitation";
+                kind: root.reply == self.statut ? ButtonKind.primary : ButtonKind.secondary;
+                size: ButtonSize.sm;
+                clicked => { root.answer(i); }
+            }
         }
         if root.state == 1 && !root.repondre: Button {
             y: (parent.height - self.height) / 2;
@@ -963,6 +970,9 @@ export component ConversationView inherits VerticalLayout {
                     background: Tokens.surface;
 
                 carte := VerticalLayout {
+                    // Nothing inside widens the card past the column: a line too long
+                    // to wrap is cut, never a card thousands of pixels wide.
+                    min-width: 0px;
                     padding-left: 16px;
                     padding-right: 16px;
                     padding-top: 4px;

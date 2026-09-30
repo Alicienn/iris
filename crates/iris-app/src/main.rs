@@ -1143,9 +1143,13 @@ fn run_gui(
     // la ferait disparaître au lieu de la ranger. On sort par « Quitter », et par là
     // seulement.
     if !demarre_reduit {
+        // Opened full size: a mail client is where one spends the day, not a small
+        // window to enlarge by hand at every start.
+        fenetre.window().set_maximized(true);
         fenetre
             .show()
             .map_err(|e| iris_types::Error::other(format!("affichage : {e}")))?;
+        fenetre.window().set_maximized(true);
     }
 
     slint::run_event_loop_until_quit()

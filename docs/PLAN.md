@@ -491,3 +491,7 @@ the application is brought to it screen by screen.
 - [x] **S40.19** Accounts (3.12.0): browser sign-in with an OAuth client set in
       Settings (Google's secret sent), aliases to send as (migration 18), a profile's
       account chosen among several, app passwords accepted for Gmail and Outlook.
+- [x] **S40.20** Fixes (3.12.1): table rows in a body wrap (an unwrapped layout table
+      made a card over 32,767 px wide and the software renderer aborted on its rounded
+      corner), the invitation's answer buttons laid out in a row of their own, the
+      window opened maximised.

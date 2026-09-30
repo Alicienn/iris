@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.12.1 — 2026-10-01
+
+### Improved
+- Iris opens full size.
+
+### Fixed
+- Opening some newsletters, often from search, no longer closes Iris.
+- An invitation's Accept, Maybe and Decline no longer overlap.
+
 ## 3.12.0 — 2026-09-30
 
 ### New
