@@ -250,6 +250,22 @@ calendar's colour at 16 % with a 45 % outline, past ones at 55 % opacity
 (`TimedEventData.past`); the small month tints the days shown (`MonthCellData.in-week`),
 and the column ends on what is left of today (`reste_du_jour`).
 
+Since 3.6.0 an event can be dragged. `TimedEventData.movable` is true for a local
+calendar's event that neither repeats nor is an exception to a repeat. A press becomes a
+drag past four pixels, measured in window coordinates (they stay put while the grid
+moves). The event stays in place, faded, and a copy drawn after every other event
+(Slint's `z` takes only literals) shows where it would land, by quarter hours. On release
+the grid sends `calendar-event-moved(key, days, minutes)` or
+`calendar-event-resized(key, minutes)`, and the click the release makes is swallowed.
+`calendar::deplacer` shifts the event on the local clock, so summer time does not move
+its hour, and keeps at least a quarter hour. When the event is a task's slot
+(`task-{id}@iris`), `tasks::slot_moved` gives the task the new day and hour. The side
+column's *To plan* list (`tasks::to_plan`, `PlanTaskData`) holds today's and late tasks
+with no hour, six at most. A task is carried from there as the task list carries tasks:
+a ghost under the pointer and a `drop` counter that the grid watches. The grid answers
+with the day and quarter under the pointer, and `tasks::book` reserves the slot as
+*Find a slot* does.
+
 **Back and forward** (`nav.rs`, 1.0.0). A place is the workspace plus what each one last
 showed: the mailbox or tag, folder and tab of the mail, the tasks' view, the calendar's
 view. The interface reports every choice (`navigated(kind, value)`), and each new place

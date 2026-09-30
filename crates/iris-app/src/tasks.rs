@@ -552,6 +552,94 @@ fn reserver(services: &Services, id: i64, jour: NaiveDate, minute: i32) -> Resul
     ))
 }
 
+/// Books a task's slot from the calendar, where it was dropped on the week.
+pub(crate) fn book(
+    services: &Services,
+    id: i64,
+    jour: NaiveDate,
+    minute: i32,
+) -> Result<String, String> {
+    reserver(services, id, jour, minute)
+}
+
+/// A task's slot was dragged in the calendar: the task's day and hour follow it. The
+/// event's uid names the task (`task-{id}@iris`); any other event is not a slot.
+pub(crate) fn slot_moved(services: &Services, uid: &str, debut_ms: i64) {
+    let Some(id) = uid
+        .strip_prefix("task-")
+        .and_then(|r| r.strip_suffix("@iris"))
+        .and_then(|n| n.parse::<i64>().ok())
+    else {
+        return;
+    };
+    let Some(debut) = Local
+        .timestamp_millis_opt(debut_ms)
+        .earliest()
+        .map(|d| d.naive_local())
+    else {
+        return;
+    };
+    modifier(services, id, |t| {
+        t.due_day = Some(debut.date().format("%Y-%m-%d").to_string());
+        t.due_minute = Some((debut.time() - NaiveTime::MIN).num_minutes() as i32);
+    });
+}
+
+/// Today's tasks (late ones included) with no hour and no slot yet, for the
+/// calendar's side column: the late first, then by priority; six at most.
+pub fn to_plan(services: &Services) -> Vec<iris_ui::PlanTaskData> {
+    let today = maintenant_local().date();
+    let couleurs: std::collections::HashMap<i64, String> = services
+        .store
+        .task_lists()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|l| (l.id, l.color))
+        .collect();
+    let mut taches: Vec<_> = services
+        .store
+        .open_tasks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| {
+            t.task.parent_id.is_none()
+                && t.task.due_minute.is_none()
+                && jour(&t.task).is_some_and(|j| j <= today)
+        })
+        .collect();
+    taches.sort_by_key(|t| (jour(&t.task), -t.task.priority, t.id));
+    taches
+        .into_iter()
+        .take(6)
+        .map(|t| {
+            let en_retard = jour(&t.task).is_some_and(|j| j < today);
+            let longueur = t
+                .task
+                .estimate
+                .map(iris_tasks::goals::duration_label)
+                .unwrap_or_default();
+            iris_ui::PlanTaskData {
+                id: t.id as i32,
+                title: t.task.title.as_str().into(),
+                meta: match (longueur.is_empty(), en_retard) {
+                    (true, false) => String::new(),
+                    (true, true) => "late".into(),
+                    (false, false) => longueur,
+                    (false, true) => format!("{longueur}, late"),
+                }
+                .into(),
+                color: crate::calendar::couleur(
+                    couleurs
+                        .get(&t.task.list_id)
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                ),
+                minutes: t.task.estimate.unwrap_or(30).max(5),
+            }
+        })
+        .collect()
+}
+
 /// Takes a task's booked slot off the calendar. Its day and hour stay.
 fn liberer(services: &Services, id: i64) {
     if let Some((evenement, _, _)) = creneau_reserve(services, id) {

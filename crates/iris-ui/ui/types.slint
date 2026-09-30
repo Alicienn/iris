@@ -296,6 +296,20 @@ export struct TimedEventData {
     height: float,
     // Over already: drawn fainter.
     past: bool,
+    // In a calendar of one's own and not repeating: it can be dragged to another time
+    // and stretched by its lower edge.
+    movable: bool,
+}
+
+// A task waiting for a time, in the calendar's side column, to be dragged onto the week.
+export struct PlanTaskData {
+    id: int,
+    title: string,
+    // "30 min, late", "1 h".
+    meta: string,
+    color: color,
+    // How long it takes, or half an hour when not said: the block it books.
+    minutes: int,
 }
 
 // What the event panel shows.

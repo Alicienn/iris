@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.6.0 — 2026-09-30
+
+### New
+- Drag an event to another hour or day in the week; drag its lower edge to make it longer or shorter.
+- To plan, under the calendars: today's tasks without an hour, to drag onto the week, where they book their length.
+- A task's slot moved in the calendar takes the task's day and hour with it.
+
 ## 3.5.0 — 2026-09-30
 
 ### New

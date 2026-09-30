@@ -6,7 +6,7 @@ import {
     AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
-    TaskTokenData, TaskOverviewData, GoalData, GoalLogData
+    TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -726,6 +726,14 @@ export component AppWindow inherits Window {
     callback calendar-quick-event(string, int, string);
     /// What is left of today, under the calendars.
     in property <[HomeItemData]> calendar-today-left;
+    /// Today's tasks without a time, to drag onto the week.
+    in property <[PlanTaskData]> calendar-to-plan;
+    /// An event dragged to another time: (key, days later, minutes later).
+    callback calendar-event-moved(string, int, int);
+    /// An event stretched by its lower edge: (key, minutes added to its end).
+    callback calendar-event-resized(string, int);
+    /// A task let go on the week: (task, day, minute of the day).
+    callback calendar-task-planned(int, string, int);
     callback calendar-toggled(int);
     callback calendar-refresh(int);
 
@@ -1614,6 +1622,10 @@ export component AppWindow inherits Window {
         // calendar's shortcuts.
         draft-closed => { shortcuts.focus(); }
         today-left: root.calendar-today-left;
+        to-plan: root.calendar-to-plan;
+        event-moved(k, d, m) => { root.calendar-event-moved(k, d, m); }
+        event-resized(k, m) => { root.calendar-event-resized(k, m); }
+        task-planned(id, d, m) => { root.calendar-task-planned(id, d, m); }
         calendar-toggled(id) => { root.calendar-toggled(id); }
         calendar-refresh(id) => { root.calendar-refresh(id); }
         // The bin on a row asks first, like the menu.

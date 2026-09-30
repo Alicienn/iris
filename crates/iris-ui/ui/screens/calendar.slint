@@ -1,7 +1,8 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import {
-    CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData, HomeItemData
+    CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData, HomeItemData,
+    PlanTaskData
 } from "@iris/types.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
@@ -360,8 +361,78 @@ component WeekGrid inherits VerticalLayout {
     callback quick-event(string, int, string);
     /// The typed line was saved or dropped.
     callback draft-closed();
+    /// An event dragged elsewhere: (key, days later, minutes later), by quarter hours.
+    callback event-moved(string, int, int);
+    /// An event stretched by its lower edge: (key, minutes added to its end).
+    callback event-resized(string, int);
 
     property <length> hour: 48px;
+
+    // The event held by the pointer: which (its key), how (1 moved, 2 stretched, 0 not
+    // yet: a press becomes a drag past four pixels, so a click still opens it), and how
+    // far the pointer went since the press, in window coordinates. Those stay put while
+    // the event moves under the pointer; its own would not.
+    property <string> drag-key;
+    property <int> drag-mode;
+    property <bool> drag-stretch;
+    property <length> press-x;
+    property <length> press-y;
+    property <length> drag-dx;
+    property <length> drag-dy;
+    /// A drag just ended: the click its release makes is not an opening.
+    property <bool> dragged;
+
+    /// A distance down the grid, in minutes, to the quarter hour.
+    pure function quarters(dy: length) -> int {
+        return round(dy / (root.hour / 4)) * 15;
+    }
+
+    // The held event, and where it would land: days and minutes later when moved,
+    // minutes added to its end when stretched. Never out of the week or the day, never
+    // shorter than a quarter hour.
+    property <TimedEventData> held;
+    property <int> held-begins: round(root.held.top * 1440);
+    property <int> held-span: round(root.held.height * 1440);
+    property <int> shift-days: root.drag-mode == 1
+        ? clamp(round(root.drag-dx / grille.colonne), -root.held.day, root.days.length - 1 - root.held.day)
+        : 0;
+    property <int> shift-minutes: root.drag-mode == 1
+        ? clamp(root.quarters(root.drag-dy), -root.held-begins, 1440 - root.held-begins - root.held-span)
+        : 0;
+    property <int> stretch: root.drag-mode == 2
+        ? clamp(root.quarters(root.drag-dy), 15 - root.held-span, 1440 - root.held-begins - root.held-span)
+        : 0;
+    property <int> landing-start: root.held-begins + root.shift-minutes;
+    property <int> landing-end: root.landing-start + root.held-span + root.stretch;
+
+    // A task carried from the side column, in window coordinates, and how long the
+    // block it books. `drop` goes up by one when it is let go.
+    in property <bool> carrying;
+    in property <length> carry-x;
+    in property <length> carry-y;
+    in property <int> carry-minutes: 30;
+    in property <int> drop;
+    /// A task let go on the grid: (day, minute of the day).
+    callback task-dropped(string, int);
+
+    /// Where the carried task would land: its column (-1: not over the grid) and its
+    /// minute, by quarter hours, its top at the pointer's quarter.
+    property <bool> over-grid: root.carry-x >= defil.absolute-position.x + root.gutter
+        && root.carry-x < defil.absolute-position.x + defil.width
+        && root.carry-y >= defil.absolute-position.y
+        && root.carry-y < defil.absolute-position.y + defil.height;
+    property <int> carry-day: root.over-grid
+        ? floor((root.carry-x - grille.absolute-position.x - root.gutter) / grille.colonne)
+        : -1;
+    property <int> carry-minute: clamp(
+        floor((root.carry-y - grille.absolute-position.y) / (root.hour / 4)) * 15,
+        0, 1440 - root.carry-minutes);
+
+    changed drop => {
+        if (root.carry-day >= 0 && root.carry-day < root.days.length) {
+            root.task-dropped(root.days[root.carry-day].date, root.carry-minute);
+        }
+    }
     property <length> gutter: 58px;
     // Now, as the clock says it: "16:20".
     property <int> minutes: floor(root.now-fraction * 1440);
@@ -449,6 +520,8 @@ component WeekGrid inherits VerticalLayout {
     defil := ScrollView {
         vertical-stretch: 1;
         viewport-height: root.hour * 24;
+        // The mouse carries events; the wheel scrolls.
+        mouse-drag-pan-enabled: false;
         // Opens on the working day rather than on midnight.
         init => { self.viewport-y = -root.hour * 7.5; }
 
@@ -510,8 +583,13 @@ component WeekGrid inherits VerticalLayout {
             }
 
             // Events: tinted with their calendar's colour, a line of it around; side
-            // by side when they overlap.
+            // by side when they overlap. One of one's own can be dragged to another
+            // time or day, or stretched by its lower edge: it stays where it is,
+            // faded, while a copy drawn over everything follows the pointer by
+            // quarter hours; it lands when let go.
             for e in root.events: evenement := Rectangle {
+                property <bool> held: root.drag-mode != 0 && root.drag-key == e.key;
+
                 x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 2px;
                 y: e.top * grille.height + 1px;
                 width: grille.colonne / max(1, e.lanes) - 4px;
@@ -520,7 +598,7 @@ component WeekGrid inherits VerticalLayout {
                 border-width: 1px;
                 border-color: e.color.transparentize(0.55);
                 background: e.color.transparentize(bloc.has-hover ? 0.76 : 0.84);
-                opacity: e.past ? 0.55 : 1.0;
+                opacity: self.held ? 0.35 : e.past ? 0.55 : 1.0;
                 clip: true;
 
                 accessible-role: button;
@@ -548,14 +626,121 @@ component WeekGrid inherits VerticalLayout {
                     }
                 }
                 bloc := TouchArea {
-                    mouse-cursor: pointer;
+                    // The lower edge stretches; the rest moves.
+                    mouse-cursor: e.movable && self.mouse-y > evenement.height - 6px
+                        ? MouseCursor.ns-resize
+                        : (evenement.held ? MouseCursor.grabbing : MouseCursor.pointer);
+                    pointer-event(ev) => {
+                        if (ev.button != PointerEventButton.left) {
+                            return;
+                        }
+                        if (ev.kind == PointerEventKind.down) {
+                            root.dragged = false;
+                            if (e.movable) {
+                                root.held = e;
+                                root.drag-key = e.key;
+                                root.drag-mode = 0;
+                                root.drag-stretch = self.mouse-y > evenement.height - 6px;
+                                root.press-x = self.absolute-position.x + self.mouse-x;
+                                root.press-y = self.absolute-position.y + self.mouse-y;
+                                root.drag-dx = 0;
+                                root.drag-dy = 0;
+                            }
+                        } else if (ev.kind == PointerEventKind.up && root.drag-key == e.key) {
+                            if (root.drag-mode == 1
+                                && (root.shift-days != 0 || root.shift-minutes != 0)) {
+                                root.event-moved(e.key, root.shift-days, root.shift-minutes);
+                            } else if (root.drag-mode == 2 && root.stretch != 0) {
+                                root.event-resized(e.key, root.stretch);
+                            }
+                            root.dragged = root.drag-mode != 0;
+                            root.drag-mode = 0;
+                            root.drag-key = "";
+                        }
+                    }
+                    moved => {
+                        if (self.pressed && root.drag-key == e.key) {
+                            root.drag-dx = self.absolute-position.x + self.mouse-x - root.press-x;
+                            root.drag-dy = self.absolute-position.y + self.mouse-y - root.press-y;
+                            if (root.drag-mode == 0
+                                && (abs(root.drag-dx) > 4px || abs(root.drag-dy) > 4px)) {
+                                root.close-draft();
+                                root.drag-mode = root.drag-stretch ? 2 : 1;
+                            }
+                        }
+                    }
                     clicked => {
+                        if (root.dragged) {
+                            root.dragged = false;
+                            return;
+                        }
                         root.close-draft();
                         root.event-anchored(evenement.absolute-position.x,
                             evenement.absolute-position.x + evenement.width,
                             evenement.absolute-position.y);
                         root.event-opened(e.key);
                     }
+                }
+            }
+
+            // The held event where it would land, over the others, with its new time.
+            if root.drag-mode != 0: Rectangle {
+                x: root.gutter + (root.held.day + root.shift-days) * grille.colonne + 2px;
+                y: root.landing-start / 1440 * grille.height + 1px;
+                width: grille.colonne - 4px;
+                height: max(22px, (root.landing-end - root.landing-start) / 1440 * grille.height - 3px);
+                border-radius: Tokens.radius-small;
+                border-width: 1.5px;
+                border-color: root.held.color;
+                background: Tokens.surface;
+                drop-shadow-blur: 10px;
+                drop-shadow-offset-y: 3px;
+                drop-shadow-color: Tokens.text.transparentize(0.85);
+                Rectangle {
+                    border-radius: Tokens.radius-small;
+                    background: root.held.color.transparentize(0.72);
+                }
+                VerticalLayout {
+                    padding-left: 7px;
+                    padding-top: 4px;
+                    padding-right: 5px;
+                    spacing: 1px;
+                    alignment: start;
+                    Text {
+                        text: root.held.title;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.hm(root.landing-start) + " – " + root.hm(min(1439, root.landing-end));
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Tokens.text-secondary;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            // Where a carried task would be booked: its length, dashed in the accent.
+            if root.carrying && root.carry-day >= 0 && root.carry-day < root.days.length: Rectangle {
+                x: root.gutter + root.carry-day * grille.colonne + 2px;
+                y: root.carry-minute / 1440 * grille.height + 1px;
+                width: grille.colonne - 4px;
+                height: max(20px, root.carry-minutes / 1440 * grille.height - 3px);
+                border-radius: Tokens.radius-small;
+                border-width: 1.5px;
+                border-color: Tokens.accent;
+                background: Tokens.accent-soft;
+                Text {
+                    x: 7px;
+                    y: 4px;
+                    text: root.hm(root.carry-minute) + " – "
+                        + root.hm(min(1439, root.carry-minute + root.carry-minutes));
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Tokens.accent;
                 }
             }
 
@@ -667,6 +852,26 @@ export component CalendarView inherits Rectangle {
     in property <int> now-day: -1;
     /// What is left of today, under the calendars.
     in property <[HomeItemData]> today-left;
+    /// Today's tasks without a time, to drag onto the week.
+    in property <[PlanTaskData]> to-plan;
+
+    /// An event dragged to another time: (key, days later, minutes later).
+    callback event-moved(string, int, int);
+    /// An event stretched: (key, minutes added to its end).
+    callback event-resized(string, int);
+    /// A task let go on the week: (task, day, minute of the day).
+    callback task-planned(int, string, int);
+
+    // The task being carried from "To plan": which (-1: none), and where the pointer
+    // is, in window coordinates.
+    property <int> carried: -1;
+    property <string> carried-title;
+    property <int> carried-minutes: 30;
+    property <length> carry-x;
+    property <length> carry-y;
+    property <int> drop;
+    /// The task last let go, for the grid's answer to name.
+    property <int> dropped: -1;
 
     callback navigate(int);
     callback today();
@@ -754,6 +959,97 @@ export component CalendarView inherits Rectangle {
             }
 
             Rectangle { vertical-stretch: 1; }
+
+            // Today's tasks that have no time yet: dragged onto the week, each books
+            // its length there.
+            if root.to-plan.length > 0: Hairline {}
+            if root.to-plan.length > 0: Rectangle { height: 8px; }
+            if root.to-plan.length > 0: HorizontalLayout {
+                height: 24px;
+                padding-left: 2px;
+                SectionTitle { text: "To plan"; }
+                Text {
+                    text: root.mode == 0 ? "" : "drag onto the week";
+                    font-size: 11.5px;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+            for t in root.to-plan: Rectangle {
+                height: 34px;
+                border-radius: Tokens.radius-medium;
+                background: prise.has-hover || root.carried == t.id ? Tokens.surface-hover : transparent;
+                opacity: root.carried == t.id ? 0.5 : 1;
+
+                accessible-role: list-item;
+                accessible-label: t.title;
+                accessible-description: t.meta + ", drag onto the week to give it a time";
+
+                // Pressed and pulled past four pixels, the task is carried; let go over
+                // the week, it is booked there.
+                property <length> press-x;
+                property <length> press-y;
+
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 6px;
+                    spacing: 9px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 12px;
+                        height: 12px;
+                        border-radius: 6px;
+                        border-width: 1.5px;
+                        border-color: t.color;
+                    }
+                    Text {
+                        text: t.title;
+                        font-size: 12.5px;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: t.meta;
+                        font-size: 11.5px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+                prise := TouchArea {
+                    mouse-cursor: root.carried == t.id ? MouseCursor.grabbing : MouseCursor.grab;
+                    pointer-event(ev) => {
+                        if (ev.button != PointerEventButton.left) {
+                            return;
+                        }
+                        if (ev.kind == PointerEventKind.down) {
+                            parent.press-x = self.absolute-position.x + self.mouse-x;
+                            parent.press-y = self.absolute-position.y + self.mouse-y;
+                        } else if (ev.kind == PointerEventKind.up && root.carried == t.id) {
+                            root.dropped = t.id;
+                            root.drop += 1;
+                            root.carried = -1;
+                        }
+                    }
+                    moved => {
+                        if (!self.pressed) {
+                            return;
+                        }
+                        root.carry-x = self.absolute-position.x + self.mouse-x;
+                        root.carry-y = self.absolute-position.y + self.mouse-y;
+                        if (root.carried != t.id
+                            && (abs(root.carry-x - parent.press-x) > 4px
+                                || abs(root.carry-y - parent.press-y) > 4px)) {
+                            root.carried = t.id;
+                            root.carried-title = t.title;
+                            root.carried-minutes = t.minutes;
+                        }
+                    }
+                }
+            }
 
             // What is left of today: the next few things, and when.
             Hairline {}
@@ -889,7 +1185,39 @@ export component CalendarView inherits Rectangle {
                 day-opened(d) => { root.day-opened(d); }
                 quick-event(d, m, t) => { root.quick-event(d, m, t); }
                 draft-closed => { root.draft-closed(); }
+                event-moved(k, d, m) => { root.event-moved(k, d, m); }
+                event-resized(k, m) => { root.event-resized(k, m); }
+                carrying: root.carried >= 0;
+                carry-x: root.carry-x;
+                carry-y: root.carry-y;
+                carry-minutes: root.carried-minutes;
+                drop: root.drop;
+                task-dropped(d, m) => { root.task-planned(root.dropped, d, m); }
             }
+        }
+    }
+
+    // The task under the pointer while it is carried.
+    if root.carried >= 0: Rectangle {
+        x: root.carry-x - root.absolute-position.x + 10px;
+        y: root.carry-y - root.absolute-position.y + 8px;
+        width: min(220px, fantome.preferred-width + 24px);
+        height: 28px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.accent;
+        drop-shadow-blur: 12px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Tokens.text.transparentize(0.82);
+        fantome := Text {
+            x: 12px;
+            width: parent.width - 24px;
+            text: root.carried-title;
+            font-size: 12.5px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
         }
     }
 }

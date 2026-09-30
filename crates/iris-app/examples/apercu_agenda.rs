@@ -150,6 +150,27 @@ fn main() {
         )
         .unwrap();
 
+    // Today's tasks with no hour yet, for "To plan".
+    let liste = services.store.task_lists().unwrap()[0].id;
+    for (titre, duree) in [
+        ("Relire le devis façade", Some(45)),
+        ("Rappeler le plombier", None),
+    ] {
+        services
+            .store
+            .insert_task(
+                &iris_store::NewTask {
+                    list_id: liste,
+                    title: titre.into(),
+                    due_day: Some(aujourdhui.format("%Y-%m-%d").to_string()),
+                    estimate: duree,
+                    ..Default::default()
+                },
+                t,
+            )
+            .unwrap();
+    }
+
     let f = iris_ui::AppWindow::new().unwrap();
     f.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
     iris_app::calendar::wire_calendar(&f, &services, runtime.handle().clone());

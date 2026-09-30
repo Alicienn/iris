@@ -122,6 +122,11 @@ Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
 - In the week or the day, click a free half hour and type the event's name: `Enter`
   adds it (an hour long, in your first calendar), `Escape` drops it. Double-click a
   slot for the full editor.
+- Drag an event of your own to another hour or day, by quarter hours; drag its lower
+  edge to change its length. Repeating events and subscribed calendars stay put.
+- *To plan* lists today's tasks (and late ones) that have no hour yet. Drag one onto
+  the week: it is booked there for as long as it takes (half an hour when not said),
+  and the task gets that day and hour. Moving that slot later moves the task too.
 - *Still today*, at the foot of the column, lists what is left of the day.
 - **+** next to *Calendars* adds a calendar of your own besides *Personal*; each event
   is put in the one you choose. Right-click a calendar to rename it, change its colour

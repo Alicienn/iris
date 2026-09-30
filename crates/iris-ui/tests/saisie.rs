@@ -1641,6 +1641,131 @@ fn cliquer_a(f: &AppWindow, position: slint::LogicalPosition) {
     });
 }
 
+/// Presses at `de`, moves the pointer in steps to `a`, lets go there.
+fn glisser(f: &AppWindow, de: slint::LogicalPosition, a: slint::LogicalPosition) {
+    f.window()
+        .dispatch_event(WindowEvent::PointerMoved { position: de });
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position: de,
+        button: PointerEventButton::Left,
+    });
+    for k in 1..=6 {
+        let t = k as f32 / 6.0;
+        f.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(de.x + (a.x - de.x) * t, de.y + (a.y - de.y) * t),
+        });
+    }
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position: a,
+        button: PointerEventButton::Left,
+    });
+    slint::platform::update_timers_and_animations();
+}
+
+fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
+    let f = fenetre();
+    une_semaine(&f);
+    let evenement = |cle: &str, titre: &str, jour: i32, movable: bool| iris_ui::TimedEventData {
+        key: cle.into(),
+        title: titre.into(),
+        time: "09:00 – 10:00".into(),
+        day: jour,
+        lanes: 1,
+        top: 540.0 / 1440.0,
+        height: 60.0 / 1440.0,
+        movable,
+        ..Default::default()
+    };
+    f.set_calendar_week_events(ModelRc::new(VecModel::from(vec![
+        evenement("5:0", "Atelier", 0, true),
+        evenement("6:0", "Match", 1, false),
+    ])));
+    let deplaces = Rc::new(RefCell::new(Vec::<(String, i32, i32)>::new()));
+    let etires = Rc::new(RefCell::new(Vec::<(String, i32)>::new()));
+    let ouverts = Rc::new(RefCell::new(0));
+    {
+        let v = Rc::clone(&deplaces);
+        f.on_calendar_event_moved(move |k, d, m| v.borrow_mut().push((k.to_string(), d, m)));
+        let v = Rc::clone(&etires);
+        f.on_calendar_event_resized(move |k, m| v.borrow_mut().push((k.to_string(), m)));
+        let v = Rc::clone(&ouverts);
+        f.on_calendar_event_opened(move |_| *v.borrow_mut() += 1);
+    }
+    let bloc = |titre: &str| {
+        testing::ElementQuery::from_root(&f)
+            .match_descendants()
+            .match_accessible_role(testing::AccessibleRole::Button)
+            .find_all()
+            .into_iter()
+            .find(|b| b.accessible_label().is_some_and(|l| l.ends_with(titre)))
+            .expect("l'événement")
+    };
+
+    // An hour lower (48 px an hour): moved by 60 minutes, the same day, not opened.
+    let b = bloc("Atelier");
+    let (pos, taille) = (b.absolute_position(), b.size());
+    let milieu = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + 12.0);
+    glisser(
+        &f,
+        milieu,
+        slint::LogicalPosition::new(milieu.x, milieu.y + 48.0),
+    );
+    assert_eq!(*deplaces.borrow(), [("5:0".to_string(), 0, 60)]);
+    assert_eq!(*ouverts.borrow(), 0, "a drag is not a click");
+
+    // By its lower edge, half an hour further: stretched by 30 minutes.
+    let b = bloc("Atelier");
+    let (pos, taille) = (b.absolute_position(), b.size());
+    let bord = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + taille.height - 2.0);
+    glisser(&f, bord, slint::LogicalPosition::new(bord.x, bord.y + 24.0));
+    assert_eq!(*etires.borrow(), [("5:0".to_string(), 30)]);
+
+    // One that cannot move (a subscription, a repeat) stays put.
+    let b = bloc("Match");
+    let (pos, taille) = (b.absolute_position(), b.size());
+    let milieu = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + 12.0);
+    glisser(
+        &f,
+        milieu,
+        slint::LogicalPosition::new(milieu.x, milieu.y + 48.0),
+    );
+    assert_eq!(deplaces.borrow().len(), 1);
+
+    // And a plain click still opens it.
+    clic(&bloc("Atelier"));
+    assert_eq!(*ouverts.borrow(), 1);
+}
+
+fn une_tache_se_pose_sur_la_semaine() {
+    let f = fenetre();
+    une_semaine(&f);
+    f.set_calendar_to_plan(ModelRc::new(VecModel::from(vec![iris_ui::PlanTaskData {
+        id: 42,
+        title: "Relire le devis".into(),
+        meta: "45 min".into(),
+        minutes: 45,
+        ..Default::default()
+    }])));
+    let poses = Rc::new(RefCell::new(Vec::<(i32, String, i32)>::new()));
+    {
+        let v = Rc::clone(&poses);
+        f.on_calendar_task_planned(move |id, d, m| v.borrow_mut().push((id, d.to_string(), m)));
+    }
+    let tache = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some("Relire le devis"))
+        .expect("la tâche à planifier");
+    glisser(&f, centre(&tache), un_creneau_du_lundi(&f));
+    let poses = poses.borrow();
+    assert_eq!(poses.len(), 1, "let go on the week, it is booked there");
+    assert_eq!(poses[0].0, 42);
+    assert_eq!(poses[0].1, "2026-09-28");
+    assert_eq!(poses[0].2 % 15, 0, "on a quarter hour");
+}
+
 fn un_clic_sur_un_creneau_libre_s_ecrit_directement() {
     let f = fenetre();
     une_semaine(&f);
@@ -1838,6 +1963,14 @@ fn main() {
         (
             "un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne",
             un_clic_droit_sous_les_titres_de_jour_vise_la_bonne_ligne,
+        ),
+        (
+            "un_evenement_se_glisse_et_s_etire_sans_s_ouvrir",
+            un_evenement_se_glisse_et_s_etire_sans_s_ouvrir,
+        ),
+        (
+            "une_tache_se_pose_sur_la_semaine",
+            une_tache_se_pose_sur_la_semaine,
         ),
         (
             "un_profil_s_importe_depuis_l_ajout_de_compte",

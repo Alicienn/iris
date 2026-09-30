@@ -460,3 +460,6 @@ the application is brought to it screen by screen.
 - [x] **S40.8** The last gaps with the reference (3.5.0): the mail list cut into days,
       a goal's log behind a switch when the page is narrow; and an account added from a
       configuration profile (`.mobileconfig`).
+- [x] **S40.9** A calendar one can move things in (3.6.0): events dragged and
+      stretched by quarter hours, today's tasks without an hour dragged onto the week,
+      a task's slot carrying the task with it.

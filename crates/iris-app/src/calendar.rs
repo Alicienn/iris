@@ -541,7 +541,11 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
                     .map(|b| {
                         let o = &occ[b.occurrence];
                         let p = puce(etat, o, &couleurs);
+                        let (stocke, domaine) = &etat.evenements[o.event];
                         TimedEventData {
+                            movable: etat.locaux.contains(&stocke.calendar_id)
+                                && domaine.rrule.is_none()
+                                && domaine.recurrence_id.is_none(),
                             key: p.key,
                             title: p.title,
                             time: format!("{} – {}", heure(o.start), heure(o.end)).into(),
@@ -571,9 +575,13 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         }
     }
 
-    // What is left of today, at the foot of the side column.
+    // What is left of today, at the foot of the side column, and the tasks to give a
+    // time to.
     fenetre.set_calendar_today_left(ModelRc::new(VecModel::from(reste_du_jour(
         services, maintenant,
+    ))));
+    fenetre.set_calendar_to_plan(ModelRc::new(VecModel::from(crate::tasks::to_plan(
+        services,
     ))));
 
     // Le petit mois, avec ses propres occurrences quand il ne montre pas le même mois.
@@ -651,6 +659,51 @@ fn reste_du_jour(services: &Services, maintenant: Timestamp) -> Vec<HomeItemData
             ..Default::default()
         })
         .collect()
+}
+
+/// An event of one's own dragged in the grid: `jours` days and `minutes` later, its
+/// length kept; or, with `etirer`, only its end `minutes` later. The shift is made on
+/// the local clock, so an event moved across a change of summer time keeps its hour.
+/// A repeating event, or one in a subscribed calendar, is left alone: the grid does
+/// not offer to drag them.
+fn deplacer(services: &Services, cle: &str, jours: i64, minutes: i64, etirer: bool) -> Result<()> {
+    let (id, _) = ms_depuis_cle(cle).ok_or_else(|| Error::Config("unknown event".into()))?;
+    let stocke = services
+        .store
+        .event(id)?
+        .ok_or_else(|| Error::Config("that event no longer exists".into()))?;
+    let calendrier = services
+        .store
+        .calendar(stocke.calendar_id)?
+        .ok_or_else(|| Error::Config("its calendar no longer exists".into()))?;
+    let e = &stocke.event;
+    if calendrier.is_subscription() || e.rrule.is_some() || e.recurrence_id.is_some() {
+        return Ok(());
+    }
+    let local = |ms: i64| {
+        Local
+            .timestamp_millis_opt(ms)
+            .earliest()
+            .map(|d| d.naive_local())
+            .unwrap_or_default()
+    };
+    let (debut, fin) = (local(e.start_ms), local(e.end_ms));
+    let (debut, fin) = if etirer {
+        let fin = fin + Duration::minutes(minutes);
+        (debut, fin.max(debut + Duration::minutes(15)))
+    } else {
+        let decalage = Duration::days(jours) + Duration::minutes(minutes);
+        (debut + decalage, fin + decalage)
+    };
+    let mut nouveau = e.clone();
+    nouveau.start_ms = iris_calendar::time::zoned_millis(debut, &Local);
+    nouveau.end_ms = iris_calendar::time::zoned_millis(fin, &Local);
+    services
+        .store
+        .update_event(id, stocke.calendar_id, &nouveau, now())?;
+    // A task's slot carries the task's hour with it.
+    crate::tasks::slot_moved(services, &nouveau.uid, nouveau.start_ms);
+    Ok(())
 }
 
 /// An event made in one line from the grid: a title, an hour on a day, an hour long,
@@ -1313,6 +1366,50 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             }
         })
     };
+
+    // An event dragged to another time, or stretched by its lower edge.
+    {
+        let (faible, services, redessiner) =
+            (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_event_moved(move |cle, jours, minutes| {
+            if let Err(e) = deplacer(&services, &cle, jours as i64, minutes as i64, false) {
+                if let Some(f) = faible.upgrade() {
+                    f.set_status(format!("Could not move it: {e}").into());
+                }
+            }
+            redessiner();
+        });
+    }
+    {
+        let (faible, services, redessiner) =
+            (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_event_resized(move |cle, minutes| {
+            if let Err(e) = deplacer(&services, &cle, 0, minutes as i64, true) {
+                if let Some(f) = faible.upgrade() {
+                    f.set_status(format!("Could not change its length: {e}").into());
+                }
+            }
+            redessiner();
+        });
+    }
+    // A task dropped on the week: booked there, for as long as it takes.
+    {
+        let (faible, services, redessiner) =
+            (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_task_planned(move |id, jour, minute| {
+            let Some(jour) = lire_date(&jour) else {
+                return;
+            };
+            let message = match crate::tasks::book(&services, id as i64, jour, minute) {
+                Ok(m) => m,
+                Err(e) => e,
+            };
+            if let Some(f) = faible.upgrade() {
+                f.set_status(message.into());
+            }
+            redessiner();
+        });
+    }
 
     // A new colour for a calendar, from its menu.
     {
@@ -2182,6 +2279,86 @@ END:VCALENDAR
         )
         .unwrap();
         (s, dir)
+    }
+
+    #[test]
+    fn an_event_dragged_moves_or_stretches_and_a_task_slot_takes_its_task_along() {
+        let (s, _dir) = services_de_test();
+        let perso = s.store.calendars().unwrap()[0].id;
+        let lundi = NaiveDate::from_ymd_opt(2026, 10, 5).unwrap();
+        let a = |h: u32, m: u32| {
+            iris_calendar::time::zoned_millis(lundi.and_hms_opt(h, m, 0).unwrap(), &Local)
+        };
+        let nouveau = |uid: &str, rrule: Option<&str>| NewEvent {
+            uid: uid.into(),
+            summary: "Atelier".into(),
+            start_ms: a(9, 0),
+            end_ms: a(10, 0),
+            rrule: rrule.map(str::to_string),
+            ..Default::default()
+        };
+        let id = s
+            .store
+            .insert_event(perso, &nouveau("a@iris", None), now())
+            .unwrap();
+        let cle = format!("{id}:{}", a(9, 0));
+
+        // A day later and half an hour on: the hour kept, its length too.
+        deplacer(&s, &cle, 1, 30, false).unwrap();
+        let e = s.store.event(id).unwrap().unwrap().event;
+        let mardi = |h: u32, m: u32| {
+            iris_calendar::time::zoned_millis(
+                (lundi + Duration::days(1)).and_hms_opt(h, m, 0).unwrap(),
+                &Local,
+            )
+        };
+        assert_eq!((e.start_ms, e.end_ms), (mardi(9, 30), mardi(10, 30)));
+
+        // Stretched by 45 minutes; then pulled up past its start, it keeps 15.
+        deplacer(&s, &cle, 0, 45, true).unwrap();
+        assert_eq!(
+            s.store.event(id).unwrap().unwrap().event.end_ms,
+            mardi(11, 15)
+        );
+        deplacer(&s, &cle, 0, -600, true).unwrap();
+        assert_eq!(
+            s.store.event(id).unwrap().unwrap().event.end_ms,
+            mardi(9, 45)
+        );
+
+        // A repeating one stays where it is.
+        let r = s
+            .store
+            .insert_event(perso, &nouveau("r@iris", Some("FREQ=WEEKLY")), now())
+            .unwrap();
+        deplacer(&s, &format!("{r}:{}", a(9, 0)), 1, 0, false).unwrap();
+        assert_eq!(s.store.event(r).unwrap().unwrap().event.start_ms, a(9, 0));
+
+        // A task's slot moved: the task's day and hour follow.
+        let liste = s.store.task_lists().unwrap()[0].id;
+        let tache = s
+            .store
+            .insert_task(
+                &iris_store::NewTask {
+                    list_id: liste,
+                    title: "Relire le devis".into(),
+                    due_day: Some("2026-10-05".into()),
+                    ..Default::default()
+                },
+                now(),
+            )
+            .unwrap();
+        crate::tasks::book(&s, tache, lundi, 14 * 60).unwrap();
+        let creneau = s
+            .store
+            .find_event(perso, &format!("task-{tache}@iris"), None)
+            .unwrap()
+            .unwrap();
+        let debut = s.store.event(creneau).unwrap().unwrap().event.start_ms;
+        deplacer(&s, &format!("{creneau}:{debut}"), 1, 60, false).unwrap();
+        let t = s.store.task(tache).unwrap().unwrap().task;
+        assert_eq!(t.due_day.as_deref(), Some("2026-10-06"));
+        assert_eq!(t.due_minute, Some(15 * 60));
     }
 
     #[tokio::test]
