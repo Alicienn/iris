@@ -552,3 +552,6 @@ variant, brought into the application.
 - [x] **S41.9** Home tells the truth (4.2.0): To answer counts every To do
       conversation, every mailbox is listed (`home-accounts`, unfolded) with its
       failure in red, faces by sender, tomorrow's first event when today is done.
+- [x] **S41.11** Settings as the mockup's page (4.3.0): beside the side column, groups
+      of rows each led by a coloured tile, switches and pop-ups at the right; an accent
+      colour among eight, over the theme, light and dark.

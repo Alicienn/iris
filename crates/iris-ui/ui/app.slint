@@ -570,6 +570,16 @@ export component AppWindow inherits Window {
     in-out property <bool> new-smtp-tls: true;
 
     in-out property <bool> settings-open;
+    /// The accent colour chosen in Settings, its place among those offered.
+    in-out property <int> accent-index;
+    callback accent-chosen(int);
+    /// How wide the place's side column is: the status bar's foot and the settings
+    /// page line up on it.
+    property <length> cote: root.workspace != 0 ? 232px
+        : root.reading-focus ? 0px
+        : root.sidebar-collapsed ? 64px : 232px;
+    // Another place chosen while the settings are open: the page gives way to it.
+    changed workspace => { root.settings-open = false; }
     /// Where the places drawn over the mail start: the window's left edge, since each
     /// has its own sidebar.
     out property <length> rail-width: 0px;
@@ -1892,9 +1902,7 @@ export component AppWindow inherits Window {
             }
 
             StatusBar {
-                side: root.workspace != 0 ? 232px
-                    : root.reading-focus ? 0px
-                    : root.sidebar-collapsed ? 64px : 232px;
+                side: root.cote;
                 status <=> root.status;
                 version: root.version;
                 vitals: root.vitals;
@@ -2726,10 +2734,20 @@ export component AppWindow inherits Window {
         dismissed => { root.add-account-dismissed(); }
     }
 
+    // A page, as the Mac's: beside the place's side column, which stays (its foot,
+    // with Settings, too), over what the place shows.
     if root.settings-open: SettingsPanel {
-        width: 100%;
-        height: 100%;
+        x: root.cote;
+        y: 0px;
+        width: parent.width - root.cote;
+        height: parent.height - 30px;
         appearance: root.appearance;
+        accent-index: root.accent-index;
+        accent-chosen(i) => { root.accent-chosen(i); }
+        add-account => {
+            root.settings-open = false;
+            root.add-account-open = true;
+        }
         first-name <=> root.first-name;
         first-name-changed(t) => { root.first-name-changed(t); }
         // One window for another: the modules replace the settings.

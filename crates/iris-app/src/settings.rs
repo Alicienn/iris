@@ -141,6 +141,9 @@ pub struct Settings {
     /// off, Windows' three at the top right. Each system's own by default.
     #[serde(default = "boutons_mac")]
     pub mac_window_buttons: bool,
+    /// The accent colour, its place in `shell::ACCENTS`: 0 is the theme's blue.
+    #[serde(default)]
+    pub accent: u8,
 }
 
 /// The Mac's lights on a Mac, Windows' buttons elsewhere.
@@ -202,6 +205,7 @@ impl Default for Settings {
             inbox_zero_day: String::new(),
             inbox_zero_streak: 0,
             mac_window_buttons: boutons_mac(),
+            accent: 0,
         }
     }
 }
@@ -332,6 +336,7 @@ mod tests {
             inbox_zero_day: "2026-10-01".into(),
             inbox_zero_streak: 4,
             mac_window_buttons: true,
+            accent: 4,
         };
 
         reglages.save(&chemin).unwrap();

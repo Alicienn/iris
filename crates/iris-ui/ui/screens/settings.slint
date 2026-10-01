@@ -1,31 +1,50 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Segmented, Toggle } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Modal } from "@iris/layout/frames.slint";
-import { SpinBox } from "@iris/controls/pickers.slint";
+import { ComboBox, SpinBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
+import { WindowToolbar } from "@iris/shell/chrome.slint";
 
-// Un interrupteur avec son explication.
+// Les réglages, comme la Mac les range : une page, une colonne au milieu, des groupes
+// sur fond gris arrondi, et dans chacun une ligne par réglage — sa vignette de couleur,
+// ce qu'il fait (et pourquoi, en petit), son contrôle à droite.
 //
 // L'explication n'est pas décorative : un automatisme qu'on ne comprend pas, on le
 // coupe par précaution, et l'application perd ce qui la rend utile.
-//
-// A row of a group, as the Mac's settings draw them: the words on the left, the
-// switch on the right, a hairline above unless it opens its group.
-component SettingToggle inherits Rectangle {
+
+/// The small coloured square that leads a row: an icon in white on its colour.
+component IconTile inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: root.tint;
+    Icon {
+        data: root.icon;
+        size: 13px;
+        weight: 2;
+        tint: Tokens.accent-text;
+    }
+}
+
+/// A row of a group: its tile, its words, its control at the right (`@children`), a
+/// hairline above unless it opens the group.
+component SettingRow inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
     in property <string> label;
     in property <string> hint;
-    in-out property <bool> value;
     /// The group's first row: no line above it.
     in property <bool> first;
 
-    callback toggled(bool);
-
-    min-height: rang.preferred-height;
+    min-height: max(40px, rang.preferred-height);
     vertical-stretch: 0;
 
     if !root.first: Rectangle {
+        x: 0;
         y: 0;
         height: 1px;
         background: Tokens.border;
@@ -33,10 +52,15 @@ component SettingToggle inherits Rectangle {
     rang := HorizontalLayout {
         padding-top: 9px;
         padding-bottom: 9px;
-        spacing: 12px;
+        spacing: 10px;
+        IconTile {
+            y: (parent.height - self.height) / 2;
+            icon: root.icon;
+            tint: root.tint;
+        }
         VerticalLayout {
             alignment: center;
-            spacing: 2px;
+            spacing: 1px;
             horizontal-stretch: 1;
             Text {
                 text: root.label;
@@ -51,44 +75,84 @@ component SettingToggle inherits Rectangle {
                 wrap: word-wrap;
             }
         }
-        Toggle {
-            y: (parent.height - self.height) / 2;
-            label: root.label;
-            on <=> root.value;
-            toggled => { root.toggled(self.on); }
-        }
+        @children
     }
 }
 
-// A group of rows on its own inset plate.
+/// A row with a switch for its control.
+component ToggleRow inherits SettingRow {
+    in-out property <bool> value;
+    callback toggled(bool);
+    Toggle {
+        y: (parent.height - self.height) / 2;
+        label: root.label;
+        on <=> root.value;
+        toggled => { root.toggled(self.on); }
+    }
+}
+
+/// A group of rows on its own rounded grey plate.
 component Group inherits Rectangle {
     border-radius: 10px;
     background: Tokens.group;
-    border-width: 1px;
-    border-color: Tokens.border.transparentize(0.4);
     vertical-stretch: 0;
     VerticalLayout {
         padding-left: 12px;
         padding-right: 12px;
-        padding-top: 2px;
-        padding-bottom: 2px;
         spacing: 0px;
         @children
     }
 }
 
-// A section's title, with the space above it that separates it from the last.
-component Section inherits VerticalLayout {
-    in property <string> title;
-    padding-top: 10px;
-    padding-left: 4px;
+/// A group's title, above it; or, `note`, a line under one.
+component GroupTitle inherits HorizontalLayout {
+    in property <string> text;
+    in property <bool> note;
+    in property <color> ink: Tokens.text-muted;
+    padding-left: 10px;
+    padding-right: 10px;
+    height: root.note ? self.preferred-height : 26px;
     Text {
-        text: root.title;
-        height: 20px;
+        text: root.text;
         font-size: 12px;
-        font-weight: 600;
-        color: Tokens.text-muted;
-        vertical-alignment: center;
+        font-weight: root.note ? 400 : 600;
+        color: root.ink;
+        vertical-alignment: bottom;
+        wrap: word-wrap;
+    }
+}
+
+/// A colour to pick: a disc, ringed when it is the one.
+component Swatch inherits Rectangle {
+    in property <color> tint;
+    in property <bool> on;
+    in property <string> label;
+    callback chosen();
+
+    width: 20px;
+    height: 20px;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-item-selected: root.on;
+    accessible-action-default => { root.chosen(); }
+
+    // The ring a little outside the disc, with the plate's colour between them.
+    if root.on: Rectangle {
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        border-width: 1.5px;
+        border-color: root.tint;
+    }
+    Rectangle {
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: root.tint;
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.chosen(); }
     }
 }
 
@@ -99,6 +163,8 @@ component Section inherits VerticalLayout {
 export component SettingsPanel inherits Rectangle {
     /// 0 as Windows is set, 1 light, 2 dark.
     in property <int> appearance;
+    /// The accent colour's place among those offered; 0 is the theme's blue.
+    in property <int> accent-index;
     /// The name Home greets.
     in-out property <string> first-name;
     in property <int> density;
@@ -128,11 +194,13 @@ export component SettingsPanel inherits Rectangle {
     callback check-for-updates();
     callback install-update();
     callback appearance-chosen(int);
+    callback accent-chosen(int);
     callback first-name-changed(string);
     callback density-chosen(int);
     callback automation-changed();
     callback system-changed();
     callback sending-changed();
+    callback add-account();
     /// The OAuth clients for signing in with Google or Microsoft.
     in-out property <string> google-client-id;
     in-out property <string> google-client-secret;
@@ -141,301 +209,360 @@ export component SettingsPanel inherits Rectangle {
     callback open-modules();
     callback dismissed();
 
-    Modal {
-        width: 100%;
-        height: 100%;
-        title: "Settings";
-        close-label: "Close settings";
-        card-width: 540px;
-        card-height: 720px;
-        dismissed => { root.dismissed(); }
+    /// The accents offered, as the Mac offers them, and their names.
+    property <[color]> accents: [
+        Tokens.blue, Tokens.purple, Tokens.pink, Tokens.red, Tokens.orange,
+        Tokens.yellow, Tokens.green, Tokens.grey
+    ];
+    property <[string]> accent-names: [
+        "Blue", "Purple", "Pink", "Red", "Orange", "Yellow", "Green", "Graphite"
+    ];
+    /// The undo delays offered, in seconds.
+    property <[int]> delais: [0, 5, 10, 20, 30];
 
-        // The sections scroll: there are more of them than a short window holds,
-        // and a panel that cuts its last setting off hides the one you came for.
-        ScrollView {
+    // A white page, the groups grey on it (lighter than the page in dark).
+    background: Tokens.surface;
+
+    // Over what is behind: no click goes through the page.
+    TouchArea {}
+
+    VerticalLayout {
+        WindowToolbar {
+            Text {
+                text: "Settings";
+                font-family: Tokens.font-display;
+                font-size: 15px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                y: (parent.height - self.height) / 2;
+                text: "Done";
+                label: "Close settings";
+                kind: ButtonKind.primary;
+                size: ButtonSize.sm;
+                clicked => { root.dismissed(); }
+            }
+        }
+
+        // The groups scroll: there are more of them than a short window holds.
+        page := ScrollView {
             vertical-stretch: 1;
             viewport-width: self.visible-width;
-            viewport-height: sections.preferred-height;
+            viewport-height: colonne.preferred-height;
 
-            sections := VerticalLayout {
-                spacing: 10px;
-                padding-right: 8px;
-                padding-bottom: 12px;
+            colonne := VerticalLayout {
+                x: max(16px, (page.visible-width - self.width) / 2);
+                width: min(560px, page.visible-width - 32px);
+                padding-top: 4px;
+                padding-bottom: 32px;
+                spacing: 6px;
 
-                Section { title: "Your first name"; }
-                HorizontalLayout {
-                    TextField {
-                        width: 240px;
-                        accessible-label: "Your first name";
-                        placeholder-text: "Home greets you by it";
-                        text <=> root.first-name;
-                        edited(t) => { root.first-name-changed(t); }
-                    }
-                    Rectangle {}
-                }
-
-                Section { title: "Appearance"; }
-                HorizontalLayout {
-                    Segmented {
-                        options: ["System", "Light", "Dark"];
-                        selected: root.appearance;
-                        chosen(i) => { root.appearance-chosen(i); }
-                    }
-                    Rectangle {}
-                }
-
-                Section { title: "Window buttons"; }
-                HorizontalLayout {
-                    Segmented {
-                        options: ["Mac", "Windows"];
-                        selected: root.mac-buttons ? 0 : 1;
-                        chosen(i) => {
-                            root.mac-buttons = i == 0;
-                            root.system-changed();
+                GroupTitle { text: "General"; }
+                Group {
+                    SettingRow {
+                        first: true;
+                        icon: Icons.sparkle;
+                        tint: Tokens.purple;
+                        label: "Your first name";
+                        hint: "Home greets you by it.";
+                        TextField {
+                            y: (parent.height - self.height) / 2;
+                            width: 180px;
+                            height: 26px;
+                            accessible-label: "Your first name";
+                            placeholder-text: "First name";
+                            text <=> root.first-name;
+                            edited(t) => { root.first-name-changed(t); }
                         }
                     }
-                    Rectangle {}
-                }
-
-                Section { title: "List density"; }
-                HorizontalLayout {
-                    Segmented {
-                        options: ["Compact", "Normal", "Comfortable"];
-                        selected: root.density;
-                        chosen(i) => { root.density-chosen(i); }
-                    }
-                    Rectangle {}
-                }
-
-                Section { title: "Startup"; }
-                Group {
-                    SettingToggle {
-                        first: true;
+                    ToggleRow {
+                        icon: Icons.home;
+                        tint: Tokens.blue;
                         label: "Open Iris on Home";
-                        hint: "Your day at a glance first. Off: Iris opens on your mail, and Home stays one click away at the top of the side column.";
+                        hint: "Your day at a glance first. Off: Iris opens on your mail.";
                         value <=> root.home-at-startup;
                         toggled => { root.system-changed(); }
                     }
                 }
 
-                Section { title: "Automations"; }
+                GroupTitle { text: "Appearance"; }
                 Group {
-                SettingToggle {
-                    first: true;
-                    label: "Replying marks the thread as waiting";
-                    hint: "The thread leaves your queue and waits for the other side.";
-                    value <=> root.reply-marks-waiting;
-                    toggled => { root.automation-changed(); }
-                }
-                SettingToggle {
-                    label: "A new message reopens the thread";
-                    hint: "A finished thread that gets a follow-up comes back to your queue.";
-                    value <=> root.new-message-reopens;
-                    toggled => { root.automation-changed(); }
-                }
-                SettingToggle {
-                    label: "Follow up on unanswered threads";
-                    hint: "A thread waiting too long comes back on its own.";
-                    value <=> root.follow-up-enabled;
-                    toggled => { root.automation-changed(); }
-                }
-
-                // A row, not a block. Inside a vertical layout every child stretches
-                // unless it is told not to, and a spin box given a hundred pixels of
-                // height is a box with a number lost in the middle of it.
-                if root.follow-up-enabled: HorizontalLayout {
-                    spacing: 8px;
-                    vertical-stretch: 0;
-                    height: 30px;
-                    padding-bottom: 6px;
-                    Text {
-                        text: "After";
-                        font-size: 13px;
-                        color: Tokens.text-secondary;
-                        vertical-alignment: center;
+                    SettingRow {
+                        first: true;
+                        icon: Icons.sun;
+                        tint: Tokens.grey;
+                        label: "Appearance";
+                        // Light, dark, or as Windows is set; `appearance` counts the
+                        // other way round (0 is the system's).
+                        Segmented {
+                            y: (parent.height - self.height) / 2;
+                            options: ["Light", "Dark", "System"];
+                            selected: root.appearance == 0 ? 2 : root.appearance - 1;
+                            chosen(i) => { root.appearance-chosen(i == 2 ? 0 : i + 1); }
+                        }
                     }
-                    SpinBox {
-                        width: 92px;
-                        height: 30px;
-                        minimum: 1;
-                        maximum: 365;
-                        value <=> root.follow-up-days;
-                        edited => { root.automation-changed(); }
+                    SettingRow {
+                        icon: Icons.gear;
+                        tint: Tokens.accent;
+                        label: "Accent colour";
+                        HorizontalLayout {
+                            spacing: 4px;
+                            y: (parent.height - self.height) / 2;
+                            for c[i] in root.accents: Swatch {
+                                tint: c;
+                                on: i == root.accent-index;
+                                label: root.accent-names[i] + " accent";
+                                chosen => { root.accent-chosen(i); }
+                            }
+                        }
                     }
-                    Text {
-                        text: "days";
-                        font-size: 13px;
-                        color: Tokens.text-secondary;
-                        vertical-alignment: center;
+                    SettingRow {
+                        icon: Icons.list;
+                        tint: Tokens.teal;
+                        label: "List density";
+                        Segmented {
+                            y: (parent.height - self.height) / 2;
+                            options: ["Compact", "Normal", "Comfortable"];
+                            selected: root.density;
+                            chosen(i) => { root.density-chosen(i); }
+                        }
                     }
-                    Rectangle {}
-                }
-                }
-
-                Section { title: "Sending"; }
-                // The window closes on Send; for this long a notice at the bottom of the
-                // window can still take the message back.
-                HorizontalLayout {
-                    spacing: 8px;
-                    vertical-stretch: 0;
-                    height: 30px;
-                    Text {
-                        text: "Time to undo a send";
-                        font-size: 13px;
-                        color: Tokens.text;
-                        vertical-alignment: center;
-                    }
-                    Rectangle {}
-                    SpinBox {
-                        width: 92px;
-                        height: 30px;
-                        minimum: 0;
-                        maximum: 30;
-                        value <=> root.undo-send-seconds;
-                        edited => { root.sending-changed(); }
-                    }
-                    Text {
-                        text: "seconds";
-                        font-size: 13px;
-                        color: Tokens.text-secondary;
-                        vertical-alignment: center;
+                    SettingRow {
+                        icon: Icons.blocks;
+                        tint: Tokens.grey;
+                        label: "Window buttons";
+                        hint: "Mac traffic lights, or Windows buttons on the right";
+                        Segmented {
+                            y: (parent.height - self.height) / 2;
+                            options: ["Mac", "Windows"];
+                            selected: root.mac-buttons ? 0 : 1;
+                            chosen(i) => {
+                                root.mac-buttons = i == 0;
+                                root.system-changed();
+                            }
+                        }
                     }
                 }
 
-                // Signing in with Google or Microsoft through the browser needs a client
-                // of one's own, registered with them: its ID (and Google's secret) here.
-                Section { title: "Sign in with Google or Microsoft"; }
-                Text {
-                    text: "Gmail and Outlook accounts can sign in through the browser instead of an app password. Create an OAuth client for a desktop app (Google Cloud Console, or Microsoft Entra for Outlook), then paste its details here.";
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                    wrap: word-wrap;
-                }
-                TextField {
-                    accessible-label: "Google client ID";
-                    placeholder-text: "Google client ID (….apps.googleusercontent.com)";
-                    font-size: 12.5px;
-                    text <=> root.google-client-id;
-                    edited(t) => { root.oauth-changed(); }
-                }
-                TextField {
-                    accessible-label: "Google client secret";
-                    placeholder-text: "Google client secret";
-                    font-size: 12.5px;
-                    input-type: InputType.password;
-                    text <=> root.google-client-secret;
-                    edited(t) => { root.oauth-changed(); }
-                }
-                TextField {
-                    accessible-label: "Microsoft client ID";
-                    placeholder-text: "Microsoft application (client) ID";
-                    font-size: 12.5px;
-                    text <=> root.microsoft-client-id;
-                    edited(t) => { root.oauth-changed(); }
-                }
-
-                Section { title: "System"; }
-                // Le premier des trois, parce que c'est celui qui décide de ce que fait le
-                // geste le plus courant : fermer la fenêtre.
+                GroupTitle { text: "Mail"; }
                 Group {
-                SettingToggle {
-                    first: true;
-                    label: "Keep running when I close the window";
-                    hint: "Iris stays in the notification area and keeps syncing. Off: closing quits, and the tray icon goes away.";
-                    value <=> root.keep-running;
-                    toggled => { root.system-changed(); }
+                    ToggleRow {
+                        first: true;
+                        icon: Icons.bell;
+                        tint: Tokens.red;
+                        label: "Notifications";
+                        hint: "One per sync, not one per message.";
+                        value <=> root.notifications;
+                        toggled => { root.system-changed(); }
+                    }
+                    SettingRow {
+                        icon: Icons.send;
+                        tint: Tokens.green;
+                        label: "Undo send";
+                        hint: "Seconds a sent message can be taken back";
+                        ComboBox {
+                            y: (parent.height - self.height) / 2;
+                            width: 92px;
+                            height: 24px;
+                            accessible-label: "Undo send";
+                            model: ["Off", "5 s", "10 s", "20 s", "30 s"];
+                            current-index: root.undo-send-seconds <= 0 ? 0
+                                : root.undo-send-seconds <= 5 ? 1
+                                : root.undo-send-seconds <= 10 ? 2
+                                : root.undo-send-seconds <= 20 ? 3 : 4;
+                            selected => {
+                                root.undo-send-seconds = root.delais[self.current-index];
+                                root.sending-changed();
+                            }
+                        }
+                    }
+                    SettingRow {
+                        icon: Icons.envelope-closed;
+                        tint: Tokens.orange;
+                        label: "Accounts";
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Add an account…";
+                            size: ButtonSize.sm;
+                            clicked => { root.add-account(); }
+                        }
+                    }
+                    SettingRow {
+                        icon: Icons.puzzle;
+                        tint: Tokens.purple;
+                        label: "Rules and plugins";
+                        hint: "Sort mail as it arrives, and extend Iris.";
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Open modules";
+                            label: "Modules: rules and plugins";
+                            size: ButtonSize.sm;
+                            clicked => { root.open-modules(); }
+                        }
+                    }
                 }
-                SettingToggle {
-                    label: "Tell me when mail arrives";
-                    hint: "One notification per sync, not one per message.";
-                    value <=> root.notifications;
-                    toggled => { root.system-changed(); }
+
+                GroupTitle { text: "Automations"; }
+                Group {
+                    ToggleRow {
+                        first: true;
+                        icon: Icons.hourglass;
+                        tint: Tokens.orange;
+                        label: "Replying marks the thread as waiting";
+                        hint: "The thread leaves your queue and waits for the other side.";
+                        value <=> root.reply-marks-waiting;
+                        toggled => { root.automation-changed(); }
+                    }
+                    ToggleRow {
+                        icon: Icons.refresh;
+                        tint: Tokens.blue;
+                        label: "A new message reopens the thread";
+                        hint: "A finished thread that gets a follow-up comes back to your queue.";
+                        value <=> root.new-message-reopens;
+                        toggled => { root.automation-changed(); }
+                    }
+                    ToggleRow {
+                        icon: Icons.clock;
+                        tint: Tokens.teal;
+                        label: "Follow up on unanswered threads";
+                        hint: "A thread waiting too long comes back on its own.";
+                        value <=> root.follow-up-enabled;
+                        toggled => { root.automation-changed(); }
+                    }
+                    if root.follow-up-enabled: SettingRow {
+                        icon: Icons.calendar;
+                        tint: Tokens.teal;
+                        label: "Bring it back after";
+                        hint: "Days without an answer";
+                        SpinBox {
+                            y: (parent.height - self.height) / 2;
+                            width: 80px;
+                            height: 26px;
+                            minimum: 1;
+                            maximum: 365;
+                            value <=> root.follow-up-days;
+                            edited => { root.automation-changed(); }
+                        }
+                    }
                 }
-                SettingToggle {
-                    label: "Start with Windows";
-                    hint: "Iris waits in the notification area rather than opening a window.";
-                    value <=> root.start-at-login;
-                    toggled => { root.system-changed(); }
+
+                GroupTitle { text: "System"; }
+                Group {
+                    // First, because it decides what the commonest gesture does:
+                    // closing the window.
+                    ToggleRow {
+                        first: true;
+                        icon: Icons.layers;
+                        tint: Tokens.grey;
+                        label: "Keep running when I close the window";
+                        hint: "Iris stays in the notification area and keeps syncing.";
+                        value <=> root.keep-running;
+                        toggled => { root.system-changed(); }
+                    }
+                    ToggleRow {
+                        icon: Icons.sun;
+                        tint: Tokens.orange;
+                        label: "Start with Windows";
+                        hint: "Iris waits in the notification area rather than opening a window.";
+                        value <=> root.start-at-login;
+                        toggled => { root.system-changed(); }
+                    }
+                    ToggleRow {
+                        icon: Icons.link;
+                        tint: Tokens.blue;
+                        label: "Offer Iris for mailto: links";
+                        hint: "Windows still decides the default in its own settings.";
+                        value <=> root.handle-mailto;
+                        toggled => { root.system-changed(); }
+                    }
                 }
-                SettingToggle {
-                    label: "Offer Iris for mailto: links";
-                    hint: "Windows still decides the default in its own settings.";
-                    value <=> root.handle-mailto;
-                    toggled => { root.system-changed(); }
-                }
-                }
-                if root.system-note != "": Text {
+                if root.system-note != "": GroupTitle {
+                    note: true;
                     text: root.system-note;
-                    font-size: 12px;
-                    color: Tokens.warning;
-                    wrap: word-wrap;
+                    ink: Tokens.warning;
                 }
 
-                // What acts on mail without you: sorting rules, and plugins.
-                Section { title: "Rules and plugins"; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    vertical-stretch: 0;
-                    min-height: 28px;
-                    Text {
-                        text: "Sort mail as it arrives, and extend Iris.";
-                        font-size: 13px;
-                        color: Tokens.text-secondary;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
+                // Signing in with Google or Microsoft through the browser needs a
+                // client of one's own, registered with them.
+                GroupTitle { text: "Sign in with Google or Microsoft"; }
+                Group {
+                    SettingRow {
+                        first: true;
+                        icon: Icons.key;
+                        tint: Tokens.blue;
+                        label: "Google client";
+                        hint: "A desktop OAuth client from Google Cloud Console: Gmail signs in through the browser.";
                     }
-                    Button {
-                        y: (parent.height - self.height) / 2;
-                        text: "Open modules";
-                        label: "Modules: rules and plugins";
-                        size: ButtonSize.sm;
-                        clicked => { root.open-modules(); }
-                    }
-                }
-
-                Section { title: "Updates"; }
-                // Checked at every launch and every few hours after; this is for whoever
-                // wants to know now. Two lines of text: a fixed height of one button cut
-                // the second off below the end of the scroll area, out of reach.
-                HorizontalLayout {
-                    spacing: 8px;
-                    vertical-stretch: 0;
-                    min-height: 28px;
-                    VerticalLayout {
-                        alignment: center;
-                        horizontal-stretch: 1;
-                        Text {
-                            text: root.version;
-                            font-size: 13px;
-                            color: Tokens.text-secondary;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        padding-bottom: 10px;
+                        TextField {
+                            accessible-label: "Google client ID";
+                            placeholder-text: "Client ID (….apps.googleusercontent.com)";
+                            font-size: 12.5px;
+                            text <=> root.google-client-id;
+                            edited(t) => { root.oauth-changed(); }
                         }
-                        Text {
-                            text: root.update-status;
-                            font-size: 12px;
-                            color: Tokens.text-muted;
-                            overflow: elide;
+                        TextField {
+                            accessible-label: "Google client secret";
+                            placeholder-text: "Client secret";
+                            font-size: 12.5px;
+                            input-type: InputType.password;
+                            text <=> root.google-client-secret;
+                            edited(t) => { root.oauth-changed(); }
                         }
                     }
-                    if root.update-version != "": Button {
-                        y: (parent.height - self.height) / 2;
-                        text: "Install " + root.update-version;
-                        kind: ButtonKind.primary;
-                        size: ButtonSize.sm;
-                        clicked => { root.install-update(); }
-                    }
-                    Button {
-                        y: (parent.height - self.height) / 2;
-                        text: root.update-checking ? "Checking…" : "Check for updates";
-                        size: ButtonSize.sm;
-                        enabled: !root.update-checking;
-                        clicked => { root.check-for-updates(); }
+                    SettingRow {
+                        icon: Icons.key;
+                        tint: Tokens.teal;
+                        label: "Microsoft client";
+                        hint: "An application registered in Microsoft Entra, for Outlook.";
+                        TextField {
+                            y: (parent.height - self.height) / 2;
+                            width: 200px;
+                            height: 26px;
+                            accessible-label: "Microsoft client ID";
+                            placeholder-text: "Application (client) ID";
+                            font-size: 12.5px;
+                            text <=> root.microsoft-client-id;
+                            edited(t) => { root.oauth-changed(); }
+                        }
                     }
                 }
 
-                Text {
+                // Checked at every launch and every few hours after; this is for
+                // whoever wants to know now.
+                GroupTitle { text: "Updates"; }
+                Group {
+                    SettingRow {
+                        first: true;
+                        icon: Icons.download;
+                        tint: Tokens.green;
+                        label: root.version;
+                        hint: root.update-status;
+                        if root.update-version != "": Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Install " + root.update-version;
+                            kind: ButtonKind.primary;
+                            size: ButtonSize.sm;
+                            clicked => { root.install-update(); }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: root.update-checking ? "Checking…" : "Check for updates";
+                            size: ButtonSize.sm;
+                            enabled: !root.update-checking;
+                            clicked => { root.check-for-updates(); }
+                        }
+                    }
+                }
+
+                GroupTitle {
+                    note: true;
                     text: "Settings are saved as you change them.";
-                    font-size: 12px;
-                    color: Tokens.text-muted;
                 }
             }
         }

@@ -3,6 +3,14 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.3.0 — 2026-10-01
+
+### New
+- Choose an accent colour in Settings: blue, purple, pink, red, orange, yellow, green or graphite.
+
+### Improved
+- Settings is a page beside the side column, its settings grouped with a coloured icon each, as on a Mac.
+
 ## 4.2.0 — 2026-10-01
 
 ### Improved

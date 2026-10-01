@@ -255,6 +255,11 @@ The window chrome lives in `shell/chrome.slint`:
   buttons unless the Mac's lights are chosen (*Settings › Window buttons*,
   `mac_window_buttons`, by system by default). With no side column (a conversation
   read full screen) it takes the lights at its left end.
+- Settings (4.3.0) is a page over the place's content, beside its side column
+  (`cote`, the same width the status bar's foot uses), closed by Done, `Escape` or a
+  change of place. The accent colour is a setting (`accent`, a place in
+  `shell::ACCENTS`) laid over the theme's tokens by `appliquer_accent` after each
+  `appliquer_apparence`; the theme's own blue is the first.
 - The window is frameless; on Windows 11 its corners are rounded by the system
   (`DwmSetWindowAttribute`, corner preference *round*, set in `main.rs` once the
   window exists), which also gives it its shadow and keeps it square when maximised.

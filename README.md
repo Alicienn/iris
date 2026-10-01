@@ -90,10 +90,13 @@ Each place has its side column, and at its top four buttons go from one to anoth
 forward sit just above them. At the column's foot, the settings (`Ctrl`+`,`) and search
 and commands (`Ctrl`+`K`: every command at once, narrowed as you type).
 
-Iris is light or dark: *Settings › Appearance* follows Windows (the default), or keeps
-one of the two. *Settings › Window buttons* draws the window's close, minimise and
-maximise buttons as the Mac's three lights at the top left, or as Windows' at the top
-right (the default on Windows).
+*Settings* opens as a page beside the side column, its settings in groups; **Done**
+or `Escape` closes it. Iris is light or dark: *Settings › Appearance* follows Windows
+(*System*, the default), or keeps one of the two. *Accent colour* tints selections,
+buttons and links: blue (the default), purple, pink, red, orange, yellow, green or
+graphite. *Window buttons* draws the window's close, minimise and maximise buttons as
+the Mac's three lights at the top left, or as Windows' at the top right (the default
+on Windows).
 
 ## Home
 
@@ -288,7 +291,7 @@ In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due d
 
 Sending closes the message window at once. For a few seconds, a notice at the bottom
 offers **Undo**, which brings the message back exactly as it was. Choose how long in
-*Settings* (5 seconds by default, 0 to turn it off).
+*Settings › Undo send* (5 seconds by default; up to 30, or off).
 
 **Save draft** puts an unfinished message in the account's *Drafts* folder. Closing a
 message you have started asks whether to keep it as a draft or discard it.

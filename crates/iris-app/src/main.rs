@@ -639,7 +639,9 @@ fn run_gui(
 
     let fenetre = shell::build(&services)?;
     iris_app::memory::mark("fenêtre construite");
-    shell::appliquer_apparence(&fenetre, &services.themes.active(), reglages.density);
+    let theme = services.themes.active();
+    shell::appliquer_apparence(&fenetre, &theme, reglages.density);
+    shell::appliquer_accent(&fenetre, reglages.accent, theme.dark);
     services.engine.set_automation(reglages.automation);
     services.workflow.set_settings(reglages.automation);
     // Les identifiants clients OAuth passent aux services : c'est le fournisseur

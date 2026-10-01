@@ -189,6 +189,14 @@ fn main() {
                 }
                 4 => {
                     capture(&f, sortie.join("evenement-taches.png"));
+                    f.set_workspace(3);
+                    f.invoke_workspace_changed(3);
+                }
+                // The settings, as a page beside the side column: opened once the
+                // change of place has gone through (it closes them).
+                5 => f.set_settings_open(true),
+                6 => {
+                    capture(&f, sortie.join("reglages.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

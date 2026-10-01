@@ -2312,6 +2312,7 @@ pub fn wire_settings(
         fenetre.set_group_by_tags(reglages.accounts_by_tag);
         fenetre.set_home_at_startup(reglages.home_at_startup);
         fenetre.set_window_mac_buttons(reglages.mac_window_buttons);
+        fenetre.set_accent_index(reglages.accent as i32);
         fenetre.set_oauth_google_id(reglages.oauth.google_client_id.as_str().into());
         fenetre.set_oauth_google_secret(reglages.oauth.google_client_secret.as_str().into());
         fenetre.set_oauth_microsoft_id(reglages.oauth.microsoft_client_id.as_str().into());
@@ -2352,7 +2353,30 @@ pub fn wire_settings(
             reglages.appearance = apparence;
             let theme = themes.apply(apparence, crate::platform::system_dark());
             appliquer_apparence(&fenetre, &theme, reglages.density);
+            appliquer_accent(&fenetre, reglages.accent, theme.dark);
             fenetre.set_appearance(index);
+            enregistrer(&reglages);
+        });
+    }
+
+    // --- The accent colour: over the theme, light or dark ---
+    {
+        let themes = Arc::clone(&services.themes);
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_accent_chosen(move |index| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let index = (index.max(0) as usize).min(ACCENTS.len() - 1) as u8;
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.accent = index;
+            // From the theme again, so blue gives the theme's own accent back.
+            let theme = themes.active();
+            appliquer_apparence(&fenetre, &theme, reglages.density);
+            appliquer_accent(&fenetre, index, theme.dark);
+            fenetre.set_accent_index(index as i32);
             enregistrer(&reglages);
         });
     }
@@ -2382,6 +2406,7 @@ pub fn wire_settings(
                 if reglages.appearance == iris_theme::Appearance::System {
                     let theme = themes.apply(reglages.appearance, sombre);
                     appliquer_apparence(&fenetre, &theme, reglages.density);
+                    appliquer_accent(&fenetre, reglages.accent, theme.dark);
                 }
             },
         );
@@ -2445,7 +2470,9 @@ pub fn wire_settings(
 
             let mut reglages = courant.lock().expect("réglages empoisonnés");
             reglages.density = densite;
-            appliquer_apparence(&fenetre, &themes.active(), densite);
+            let theme = themes.active();
+            appliquer_apparence(&fenetre, &theme, densite);
+            appliquer_accent(&fenetre, reglages.accent, theme.dark);
             fenetre.set_density(index);
             enregistrer(&reglages);
         });
@@ -2800,6 +2827,40 @@ pub fn appliquer_apparence(fenetre: &AppWindow, theme: &iris_theme::Theme, densi
     // La densité multiplie la hauteur du thème au lieu de la remplacer : un thème
     // aux lignes hautes reste plus aéré que les autres à densité égale.
     tokens.set_row_height(theme.density.row_height * densite.factor());
+}
+
+/// The accents offered in Settings, as the Mac offers them: blue, purple, pink, red,
+/// orange, yellow, green, graphite; each in its light and its dark shade.
+pub const ACCENTS: [((u8, u8, u8), (u8, u8, u8)); 8] = [
+    ((0x00, 0x7a, 0xff), (0x0a, 0x84, 0xff)),
+    ((0xaf, 0x52, 0xde), (0xbf, 0x5a, 0xf2)),
+    ((0xff, 0x2d, 0x55), (0xff, 0x37, 0x5f)),
+    ((0xff, 0x3b, 0x30), (0xff, 0x45, 0x3a)),
+    ((0xff, 0x95, 0x00), (0xff, 0x9f, 0x0a)),
+    ((0xff, 0xcc, 0x00), (0xff, 0xd6, 0x0a)),
+    ((0x34, 0xc7, 0x59), (0x30, 0xd1, 0x58)),
+    ((0x8e, 0x8e, 0x93), (0x98, 0x98, 0x9d)),
+];
+
+/// Lays the accent chosen in Settings over the theme's (blue, the first, leaves the
+/// theme's own). Its soft ground keeps the theme's opacity; words on yellow are dark,
+/// white not reading on it.
+pub fn appliquer_accent(fenetre: &AppWindow, accent: u8, sombre: bool) {
+    let i = accent as usize;
+    if i == 0 || i >= ACCENTS.len() {
+        return;
+    }
+    let (clair, fonce) = ACCENTS[i];
+    let (r, g, b) = if sombre { fonce } else { clair };
+    let tokens = fenetre.global::<Tokens>();
+    let doux = tokens.get_accent_soft().alpha();
+    tokens.set_accent(slint::Color::from_rgb_u8(r, g, b));
+    tokens.set_accent_soft(slint::Color::from_argb_u8(doux, r, g, b));
+    tokens.set_accent_text(if i == 5 {
+        slint::Color::from_rgb_u8(0x1d, 0x1d, 0x1f)
+    } else {
+        slint::Color::from_rgb_u8(0xff, 0xff, 0xff)
+    });
 }
 
 /// Branche l'écran d'ajout de compte.
