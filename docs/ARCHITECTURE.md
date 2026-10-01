@@ -241,15 +241,29 @@ Stated here so they are decided rather than discovered:
 
 ## Interface
 
-Four workspaces share one window, switched from the rail on the left (`shell/rail.slint`,
-3.0.0) or with `Ctrl`+`0` to `Ctrl`+`3`: **Home** (behind the Iris mark at the top of the
-rail), **Mail**, **Calendar**, **Tasks**, each with its count (the mail's To do, the tasks
-due or late). The palette and the settings sit at the rail's foot. To the right of the
-rail a thin strip moves the window and holds back, forward and the window's buttons;
-the status bar stays at the bottom. `app.slint` holds a `workspace` property (3 is Home)
-and renders the matching view over the mail, after the rail (`rail-width`);
-`workspace.rs` fans the change out to every Rust follower, because Slint keeps only one
-handler per callback.
+Four workspaces share one window, switched with `Ctrl`+`0` to `Ctrl`+`3` or from the
+switcher at the top of each place's side column: **Home**, **Mail**, **Calendar**,
+**Tasks** (4.0.0, after Apple's own apps; the rail and title strip of 3.x are gone).
+The window chrome lives in `shell/chrome.slint`:
+
+- `SidebarFrame` is a place's side column: `SidebarHead` (the window's lights on a Mac
+  setting, else the Iris badge; back and forward; the four-place switcher), the
+  place's own rows, then `SidebarFoot` (settings, the palette).
+- `WindowToolbar` is the 52 px bar over a place's content: it moves the window
+  (double click maximises), holds the place's actions, and ends on Windows' three
+  buttons unless the Mac's lights are chosen (*Settings › Window buttons*,
+  `mac_window_buttons`, by system by default). With no side column (a conversation
+  read full screen) it takes the lights at its left end.
+- The parts talk to the window through the `Chrome` global. Slint does not let a
+  `.slint` component handle a global's callback, so a button calls `Chrome.ask(what,
+  arg)`, which bumps a request counter; `app.slint` aliases that counter and acts in a
+  `changed` handler. Dragging the window goes the same way (`drag-start-id`,
+  `drag-id`).
+
+`app.slint` holds a `workspace` property (3 is Home), aliased to `Chrome.workspace`, and
+renders the matching view over the mail; `workspace.rs` fans the change out to every
+Rust follower, because Slint keeps only one handler per callback. The status bar stays
+at the bottom.
 
 ### Components in layers (2.0.0)
 
@@ -261,10 +275,10 @@ same wherever it lives. A layer only imports the ones above it in this list:
 |---|---|
 | `theme/` | `Tokens` (colours, sizes, radii, fonts), `Type` (the named text styles and tones) |
 | `base/` | icons, surfaces (`Glass`, `Floating`, `Backdrop`, flat since 3.0.0), spinner, and the atoms: `Label`, `Dot`, `Kbd`, `Hairline`, `Avatar` |
-| `controls/` | `Button` (primary, secondary, ghost, danger; two sizes; its key), `Link`, `Segmented`, `QueueTabs`, `Pill`, `Check`, `Toggle`, `PriorityTag`, the text fields |
-| `lists/` | `NavItem`, `SectionTitle` (the side columns), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
+| `controls/` | `Button` (primary, secondary, ghost, danger; two sizes; its key), `Link`, `Segmented`, `QueueTabs`, `Pill`, `Check`, `Toggle`, `PriorityTag`, the text fields, and `pickers.slint`: `CheckBox`, `ComboBox` (a pop-up button) and `SpinBox` with the standard widgets' API, so no screen uses the style's Fluent ones (4.0.0) |
+| `lists/` | `NavItem`, `SectionTitle` and `SectionRow` (the side columns, one title row for all), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
 | `layout/` | `Rail`, `PageHeader`, `Plate`, `DetailPanel`, `Toolbar`, `EmptyState`, `Modal` + `ModalFooter`, `Popover`, menus |
-| `shell/` | the rail, the title strip, toast |
+| `shell/` | the window chrome (`Chrome`, `SidebarFrame`, `WindowToolbar`), toast |
 | `screens/` | one file per screen, and its panels |
 
 `types.slint` (the data crossing from Rust) and `app.slint` (the window) stay at the root.
@@ -279,14 +293,18 @@ round caps and joins.
 The screens were redrawn in 2.0.0 from HTML mockups kept outside the repository, each
 port captured with its `apercu_*` example and compared with its mockup side by side.
 
-**Home** (`home.rs`, `screens/home.slint`, 1.0.0, redrawn in 1.1.0, 2.0.0 and 3.0.0) is
-read from the base when it shows, after each sync and each minute while it stays. It
-holds the date, a greeting with the first name from the settings, a sentence built from
-the To do count, the tasks due (and late) and the events left, then **Next**: the one
-thing coming, the event under way or next, or the next task with an hour, whichever
-starts first (`home::day`, `upcoming`); what is late is not "next". Three links lead to
-Mail, Tasks and Calendar with their counts, and a line at the foot names `Ctrl`+`K`. It
-opens first unless `home_at_startup` is off.
+**Home** (`home.rs`, `screens/home.slint`, 1.0.0, redrawn in 1.1.0, 2.0.0, 3.0.0 and
+4.0.0) is read from the base when it shows, after each sync and each minute while it
+stays. It holds the date, a greeting with the first name from the settings, a sentence
+built from the To do count, the tasks due (and late) and the events left, then widgets
+(4.0.0): **Up next**, the one thing coming, the event under way or next, or the next
+task with an hour, whichever starts first (`home::day`, `upcoming`; what is late is not
+"next"), and the two events after it; a **Goal**, the first not reached
+(`goals::for_home`); **Today**, the first four tasks due or late; **To answer**, the
+first three conversations of To do (`list_threads`, initials on the mailbox's tint) and
+how many are in Waiting; **This week**, the tasks done a bar a day (`tasks::week`) and
+the inbox zero streak. Its side column lists the places with their counts and the
+mailboxes. It opens first unless `home_at_startup` is off.
 
 **Goals** (3.3.0, `iris-store::goals`, `iris-tasks::goals`, `iris-app::goals`). A goal is
 counted (`goal_entries`, logged by hand with *Log one*) or made of milestones
@@ -331,8 +349,8 @@ old day.
 hairline, the day's events on one line, rows as a ledger) puts above the list, on
 Today, the day's calendar
 (`calendar::upcoming`), and in the header the day's progress; all of it travels as one
-`TaskOverviewData`. The rail ends on the tasks done this week, a bar a day, counted from
-`done_at`. The add line parses what is typed at each keystroke (`iris_tasks::parse`) and
+`TaskOverviewData`. The side column ends on the tasks done this week, a bar a day,
+counted from `done_at` (`tasks::week`, shared with Home). The add line parses what is typed at each keystroke (`iris_tasks::parse`) and
 shows what it understood as tokens before `Enter`.
 
 **Calendar** opens an event clicked in the grid in a `Popover` beside it: the grid
@@ -387,7 +405,7 @@ with the day and quarter under the pointer, and `tasks::book` reserves the slot 
 showed: the mailbox or tag, folder and tab of the mail, the tasks' view, the calendar's
 view. The interface reports every choice (`navigated(kind, value)`), and each new place
 is a step; Back and Forward replay a place through the window's own callbacks, with the
-recording off. The mouse's buttons, two arrows beside the window buttons, `Alt`+`←` and
+recording off. The mouse's buttons, two arrows at the top of the side column, `Alt`+`←` and
 `Alt`+`→`, 100 steps kept.
 
 Mail is three columns (236, 380 and the rest, redrawn in 3.1.0 after the web design):

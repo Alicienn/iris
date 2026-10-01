@@ -137,6 +137,15 @@ pub struct Settings {
     pub inbox_zero_day: String,
     #[serde(default)]
     pub inbox_zero_streak: u32,
+    /// The window's buttons as three coloured lights at the top left, as on a Mac;
+    /// off, Windows' three at the top right. Each system's own by default.
+    #[serde(default = "boutons_mac")]
+    pub mac_window_buttons: bool,
+}
+
+/// The Mac's lights on a Mac, Windows' buttons elsewhere.
+fn boutons_mac() -> bool {
+    cfg!(target_os = "macos")
 }
 
 /// How many days in a row the inbox has been emptied, `today` included: the same
@@ -192,6 +201,7 @@ impl Default for Settings {
             calendar_view: semaine(),
             inbox_zero_day: String::new(),
             inbox_zero_streak: 0,
+            mac_window_buttons: boutons_mac(),
         }
     }
 }
@@ -321,6 +331,7 @@ mod tests {
             calendar_view: 0,
             inbox_zero_day: "2026-10-01".into(),
             inbox_zero_streak: 4,
+            mac_window_buttons: true,
         };
 
         reglages.save(&chemin).unwrap();

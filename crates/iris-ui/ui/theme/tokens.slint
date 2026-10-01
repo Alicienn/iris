@@ -6,38 +6,58 @@
 export global Tokens {
     // --- Colours ---
     /// The window's ground.
-    in-out property <color> background: #f7f7f6;
-    /// The side columns: the rail, accounts, calendars, task lists.
-    in-out property <color> surface-low: #f0f0ee;
+    in-out property <color> background: #f2f2f4;
+    /// The side columns: accounts, calendars, task lists.
+    in-out property <color> surface-low: #ebebed;
     /// Lists, the reader, cards.
     in-out property <color> surface: #ffffff;
     /// Raised above the rest.
     in-out property <color> surface-high: #ffffff;
     /// What floats: menus, popovers, windows, tooltips.
     in-out property <color> panel: #ffffff;
-    in-out property <color> surface-hover: #14141e0b;
-    in-out property <color> surface-active: #14141e13;
-    in-out property <color> border: #e4e4e2;
-    in-out property <color> border-strong: #d3d3d0;
-    in-out property <color> text: #18181b;
-    in-out property <color> text-secondary: #4a4a52;
-    in-out property <color> text-muted: #6e6e77;
+    in-out property <color> surface-hover: #0000000a;
+    in-out property <color> surface-active: #00000012;
+    in-out property <color> border: #e3e3e6;
+    in-out property <color> border-strong: #d1d1d6;
+    in-out property <color> text: #1d1d1f;
+    in-out property <color> text-secondary: #424245;
+    in-out property <color> text-muted: #6e6e73;
     /// Placeholders, what is past, what cannot be used.
-    in-out property <color> text-faint: #a9a9b0;
+    in-out property <color> text-faint: #a1a1a6;
     /// The one colour for what to act on.
-    in-out property <color> accent: #2c62e8;
+    in-out property <color> accent: #007aff;
     /// The accent as a ground: the chosen row, a filter that is on.
-    in-out property <color> accent-soft: #2c62e817;
+    in-out property <color> accent-soft: #007aff1f;
     in-out property <color> accent-text: #ffffff;
-    in-out property <color> error: #cc3527;
-    in-out property <color> warning: #a8660c;
-    in-out property <color> success: #1d8a4e;
+    in-out property <color> error: #ff3b30;
+    in-out property <color> warning: #ff9500;
+    in-out property <color> success: #34c759;
     in-out property <bool> dark: false;
+
+    // --- Apple's system colours, for what is told by colour: today in red, the
+    // calendars, the lists, the services. Lighter in the dark, as Apple has them. ---
+    out property <color> red: dark ? #ff453a : #ff3b30;
+    out property <color> orange: dark ? #ff9f0a : #ff9500;
+    out property <color> yellow: dark ? #ffd60a : #ffcc00;
+    out property <color> green: dark ? #30d158 : #34c759;
+    out property <color> teal: dark ? #40c8e0 : #30b0c7;
+    out property <color> blue: dark ? #0a84ff : #007aff;
+    out property <color> purple: dark ? #bf5af2 : #af52de;
+    out property <color> pink: dark ? #ff375f : #ff2d55;
+    out property <color> grey: dark ? #98989d : #8e8e93;
+    /// A segmented control's well, and the search field's.
+    out property <color> well: dark ? #1c1c1e : #e4e4e8;
+    /// A control raised in it: the chosen segment, a push button.
+    out property <color> control: dark ? #3a3a3c : #ffffff;
+    /// The sidebar's selection when the window has not the keyboard.
+    out property <color> select-quiet: dark ? #3a3a3c : #dcdce0;
 
     // --- Shapes ---
     in-out property <length> radius-small: 6px;
-    in-out property <length> radius-medium: 9px;
+    in-out property <length> radius-medium: 8px;
     in-out property <length> radius-large: 12px;
+    /// Home's widgets, and the window itself.
+    out property <length> radius-widget: 18px;
 
     // --- Spacing ---
     // Every margin of the interface is a multiple of this unit.
@@ -65,7 +85,10 @@ export global Tokens {
     in-out property <duration> moderate: 220ms;
 
     /// Behind a window over the others: a light dimming, darker on the dark theme.
-    out property <color> scrim: dark ? #00000080 : #0a0a0f47;
+    out property <color> scrim: dark ? #00000059 : #00000026;
+    /// An inset group on a page (settings' groups, the weekend, an invitation): lighter
+    /// than the ground in dark, the ground's own grey in light.
+    out property <color> group: dark ? #252527 : #f2f2f4;
     /// The shadow under what floats.
     out property <color> shadow: dark ? #00000073 : #0f0f191f;
 

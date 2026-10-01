@@ -77,14 +77,14 @@ component FolderRow inherits Rectangle {
             y: (parent.height - self.height) / 2;
             data: root.icon-for-role;
             size: 15px;
-            tint: root.selected ? Tokens.text : Tokens.text-muted;
+            tint: Nav.icon-ink(root.selected, Tokens.accent);
         }
 
         Text {
             text: root.node.name;
             font-size: Nav.label-size;
             font-weight: root.selected ? Tokens.weight-bold : Tokens.weight-body;
-            color: root.selected ? Tokens.text : Tokens.text-secondary;
+            color: Nav.ink(root.selected, false);
             vertical-alignment: center;
             overflow: elide;
         }
@@ -109,7 +109,7 @@ component FolderRow inherits Rectangle {
         if root.node.count > 0: Text {
             text: root.node.count-label;
             font-size: 11.5px;
-            color: Tokens.text-muted;
+            color: Nav.count-ink(root.selected);
             vertical-alignment: center;
         }
     }
@@ -176,7 +176,9 @@ export component FolderTree inherits VerticalLayout {
         vertical-stretch: 0;
         height: Nav.row-height;
         border-radius: Tokens.radius-medium;
-        background: Nav.background(root.selected-path == "", tout-touch.has-hover);
+        // Never the accent plate: the account above already carries the selection, and
+        // two blue rows read as two places at once.
+        background: Nav.background(false, tout-touch.has-hover);
 
         accessible-role: list-item;
         accessible-label: "All folders";
@@ -193,15 +195,13 @@ export component FolderTree inherits VerticalLayout {
                 y: (parent.height - self.height) / 2;
                 data: Icons.folder;
                 size: 15px;
-                tint: root.selected-path == "" ? Tokens.text : Tokens.text-muted;
+                tint: Tokens.accent;
             }
             Text {
                 text: "All folders";
                 font-size: Nav.label-size;
-                font-weight: root.selected-path == ""
-                    ? Tokens.weight-bold
-                    : Tokens.weight-body;
-                color: root.selected-path == "" ? Tokens.text : Tokens.text-secondary;
+                font-weight: Tokens.weight-body;
+                color: Tokens.text;
                 vertical-alignment: center;
             }
             Rectangle {}

@@ -1,45 +1,84 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Kbd, Dot } from "@iris/base/atoms.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Avatar } from "@iris/base/atoms.slint";
 import { Check } from "@iris/controls/choice.slint";
-import { HomeItemData } from "@iris/types.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { HomeItemData, GoalData, AccountRowData } from "@iris/types.slint";
 import { JoinButton } from "@iris/controls/video.slint";
+import { Nav, NavItem, SectionRow } from "@iris/lists/nav.slint";
+import { Chrome, SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { GoalRing } from "@iris/screens/goals.slint";
 
-// Home: the day in a sentence, the one thing next, three ways in. Nothing else.
-//
-// A start page earns its place by being read in two seconds; each thing added to it
-// is read less. What is not here is one click away.
+// Home: the day in a sentence, then a handful of widgets as the Mac draws them — what
+// is next, a goal, today's tasks, the mail to answer, the week. Each one is a way in:
+// its title opens the place it summarises, each line opens what it names.
 
-component WayIn inherits Rectangle {
-    in property <string> text;
-    in property <string> count;
+/// A widget: a white card, its title in its colour (a button to the place it sums
+/// up), a figure on the right, what it holds below.
+component Widget inherits Rectangle {
+    in property <string> title;
+    in property <color> tint;
+    /// What its title says to a screen reader: "Open Mail".
     in property <string> label;
-    callback clicked();
+    in property <string> figure;
+    in property <color> figure-tint: Tokens.text;
+    callback opened();
 
-    width: rang.preferred-width;
-    height: 24px;
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-action-default => { root.clicked(); }
+    border-radius: Tokens.radius-widget;
+    // The raised surface: white in light, a lighter grey than the page in dark.
+    background: Tokens.surface-high;
+    border-width: 1px;
+    border-color: Tokens.border.transparentize(0.5);
+    drop-shadow-blur: Tokens.shadow-card-blur;
+    drop-shadow-offset-y: Tokens.shadow-card-y;
+    drop-shadow-color: Tokens.shadow-card;
 
-    rang := HorizontalLayout {
-        spacing: 6px;
-        Text {
-            text: root.text;
-            font-size: 13.5px;
-            color: touch.has-hover ? Tokens.text : Tokens.text-secondary;
-            vertical-alignment: center;
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 13px;
+        padding-bottom: 14px;
+        spacing: 8px;
+        HorizontalLayout {
+            // Only as tall as the title when no figure stands beside it.
+            height: root.figure != "" ? 26px : 16px;
+            Rectangle {
+                horizontal-stretch: 0;
+                width: titre.preferred-width;
+                accessible-role: button;
+                accessible-label: root.label;
+                accessible-action-default => { root.opened(); }
+                titre := Text {
+                    text: root.title;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: root.tint;
+                    vertical-alignment: top;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.opened(); }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if root.figure != "": Text {
+                text: root.figure;
+                font-family: Tokens.font-display;
+                font-size: 28px;
+                font-weight: 700;
+                color: root.figure-tint;
+                vertical-alignment: center;
+            }
         }
-        if root.count != "": Text {
-            text: root.count;
-            font-size: 12.5px;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
-        }
+        @children
     }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
-    }
+}
+
+/// A line at the foot of a widget: "+ 1 more", "3 waiting for an answer".
+component Foot inherits Text {
+    font-size: 12px;
+    color: Tokens.text-muted;
+    vertical-alignment: bottom;
 }
 
 export component HomeView inherits Rectangle {
@@ -51,173 +90,599 @@ export component HomeView inherits Rectangle {
     in property <string> mail-count;
     in property <string> tasks-count;
     in property <string> events-count;
+    in property <[HomeItemData]> later;
+    in property <[HomeItemData]> tasks;
+    in property <int> tasks-more;
+    in property <[HomeItemData]> threads;
+    in property <int> waiting;
+    in property <GoalData> goal;
+    in property <bool> has-goal;
+    in property <int> week-done;
+    in property <[float]> week-bars;
+    in property <int> week-today;
+    in property <int> streak;
+    /// The mailboxes, as the mail's column lists them (tag titles are skipped).
+    in property <[AccountRowData]> pinned;
+    in property <[AccountRowData]> accounts;
+    in property <string> last-sync;
 
     callback opened(string);
     callback task-opened(int);
     callback task-toggled(int);
     callback event-opened(string);
+    callback thread-opened(int);
+    callback goal-opened(int);
     /// An event's video call joined: its link.
     callback join(string);
+    /// New message, from the toolbar.
+    callback compose();
 
     property <bool> has-next: root.next.length > 0;
     property <HomeItemData> first: root.has-next ? root.next[0] : { };
+    property <[string]> initiales: ["M", "T", "W", "T", "F", "S", "S"];
 
     background: Tokens.background;
 
-    // A little above the middle, where the eye rests.
-    bloc := Rectangle {
-        width: min(560px, root.width - 64px);
-        height: colonne.preferred-height;
-        x: (root.width - self.width) / 2;
-        y: max(24px, root.height * 0.42 - self.height / 2);
-
-        colonne := VerticalLayout {
-            width: bloc.width;
-            spacing: 0px;
-
-            Text {
-                text: root.date;
-                font-size: 13px;
-                color: Tokens.text-muted;
-            }
-            Rectangle { height: 6px; }
-            Text {
-                text: root.greeting;
-                font-family: Tokens.font-display;
-                font-size: 30px;
-                font-weight: 600;
-                letter-spacing: -0.3px;
-                color: Tokens.text;
-                wrap: word-wrap;
-            }
-            Rectangle { height: 8px; }
-            Text {
-                text: root.summary;
-                font-size: 15px;
-                color: Tokens.text-secondary;
-                wrap: word-wrap;
-            }
-
-            // The one thing next, between two hairlines.
-            if root.has-next: VerticalLayout {
-                padding-top: 34px;
-                Rectangle { height: 1px; background: Tokens.border; }
-                prochain := Rectangle {
-                    height: 46px;
-                    accessible-role: button;
-                    accessible-label: "Next: " + root.first.title;
-                    accessible-description: root.first.meta;
-                    accessible-action-default => {
-                        if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
-                    }
-                    ligne := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
-                        }
-                    }
-                    // Clear of the hairlines by a few pixels: what the hover repaints
-                    // (the title's new colour) must not reach them, or a line is lost
-                    // under the repainted ground at fractional scales.
-                    HorizontalLayout {
-                        padding-top: 4px;
-                        padding-bottom: 4px;
-                        spacing: 10px;
-                        Text {
-                            width: 44px;
-                            text: "Next";
-                            font-size: 12px;
-                            font-weight: 600;
-                            color: Tokens.text-muted;
-                            vertical-alignment: center;
-                        }
-                        Rectangle {
-                            width: 14px;
-                            if root.first.id > 0: Check {
-                                animated: true;
-                                size: 14px;
-                                label: root.first.title;
-                                toggled => { root.task-toggled(root.first.id); }
-                            }
-                            if root.first.id <= 0: Dot {
-                                tint: root.first.color;
-                                size: 9px;
-                            }
-                        }
-                        Text {
-                            text: root.first.title;
-                            font-size: 13.5px;
-                            font-weight: 500;
-                            color: ligne.has-hover ? Tokens.accent : Tokens.text;
-                            vertical-alignment: center;
-                            overflow: elide;
-                            horizontal-stretch: 1;
-                        }
-                        Text {
-                            text: root.first.meta;
-                            font-size: 12.5px;
-                            color: Tokens.text-muted;
-                            vertical-alignment: center;
-                        }
-                        // Held on a video call: the service's button, one click in.
-                        if root.first.video-url != "": JoinButton {
-                            y: (parent.height - self.height) / 2;
-                            compact: true;
-                            kind: root.first.video-kind;
-                            text: root.first.video-label;
-                            clicked => { root.join(root.first.video-url); }
-                        }
-                    }
-                }
-                Rectangle { height: 1px; background: Tokens.border; }
-            }
-
-            HorizontalLayout {
-                padding-top: 22px;
-                spacing: 22px;
-                alignment: start;
-                WayIn {
-                    text: "Mail";
-                    count: root.mail-count;
-                    label: "Open Mail";
-                    clicked => { root.opened("mail"); }
-                }
-                WayIn {
-                    text: "Tasks";
-                    count: root.tasks-count;
-                    label: "Open Tasks";
-                    clicked => { root.opened("tasks"); }
-                }
-                WayIn {
-                    text: "Calendar";
-                    label: "Open Calendar";
-                    clicked => { root.opened("calendar"); }
-                }
-            }
-        }
-    }
-
-    // What reaches everything else, said once and quietly.
     HorizontalLayout {
-        y: root.height - 44px;
-        height: 22px;
-        alignment: center;
-        spacing: 6px;
-        Text {
-            text: "Press";
-            font-size: 12px;
-            color: Tokens.text-faint;
-            vertical-alignment: center;
+        SidebarFrame {
+            SectionRow { text: "Today"; }
+            NavItem {
+                label: "Overview";
+                icon: Icons.home;
+                selected: true;
+            }
+            NavItem {
+                label: "To answer";
+                icon: Icons.inbox;
+                count: root.mail-count;
+                clicked => { root.opened("mail"); }
+            }
+            NavItem {
+                label: "Meetings";
+                icon: Icons.calendar;
+                count: root.events-count;
+                clicked => { root.opened("calendar"); }
+            }
+            NavItem {
+                label: "Tasks";
+                icon: Icons.check;
+                count: root.tasks-count;
+                clicked => { root.opened("tasks"); }
+            }
+            NavItem {
+                label: "Goals";
+                icon: Icons.sparkle;
+                clicked => { root.opened("goals"); }
+            }
+            if root.pinned.length + root.accounts.length > 0: SectionRow { text: "Mailboxes"; }
+            // However many there are, the column's foot stays where it is.
+            boites := ScrollView {
+                vertical-stretch: 1;
+                mouse-drag-pan-enabled: false;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    width: boites.visible-width;
+                    alignment: start;
+                    spacing: 0px;
+                    for a in root.pinned: NavItem {
+                        label: a.label;
+                        has-dot: true;
+                        dot: a.tint;
+                        count: a.needs-attention ? "!" : "";
+                        clicked => { root.opened("mail"); }
+                    }
+                    for a in root.accounts: NavItem {
+                        visible: !a.header;
+                        row-height: a.header ? 0px : Nav.row-height;
+                        label: a.label;
+                        has-dot: true;
+                        dot: a.tint;
+                        count: a.needs-attention ? "!" : "";
+                        clicked => { root.opened("mail"); }
+                    }
+                    if root.last-sync != "": HorizontalLayout {
+                        height: 26px;
+                        padding-left: 8px;
+                        Text {
+                            text: root.last-sync;
+                            font-size: 11.5px;
+                            color: Tokens.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
         }
-        Kbd {
-            y: (parent.height - self.height) / 2;
-            keys: "Ctrl K";
-        }
-        Text {
-            text: "to find or do anything";
-            font-size: 12px;
-            color: Tokens.text-faint;
-            vertical-alignment: center;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            WindowToolbar {
+                hairline: false;
+                background: Tokens.background;
+                Rectangle { horizontal-stretch: 1; }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.pencil;
+                    label: "Write a new message";
+                    button-size: 28px;
+                    icon-size: 17px;
+                    clicked => { root.compose(); }
+                }
+                // Search everything: the palette, which finds mail, tasks, events and
+                // commands alike.
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 210px;
+                    height: 28px;
+                    border-radius: 7px;
+                    background: Tokens.well;
+                    accessible-role: button;
+                    accessible-label: "Search everything";
+                    accessible-description: "Ctrl+K";
+                    accessible-action-default => { Chrome.palette(); }
+                    HorizontalLayout {
+                        padding-left: 9px;
+                        spacing: 7px;
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.search;
+                            size: 13px;
+                            tint: Tokens.text-muted;
+                        }
+                        Text {
+                            text: "Search everything";
+                            font-size: 12.5px;
+                            color: Tokens.text-faint;
+                            vertical-alignment: center;
+                        }
+                    }
+                    TouchArea {
+                        mouse-cursor: text;
+                        clicked => { Chrome.palette(); }
+                    }
+                }
+            }
+
+            page := ScrollView {
+                vertical-stretch: 1;
+                mouse-drag-pan-enabled: false;
+                viewport-width: self.visible-width;
+                // A readable width, centred; three columns of widgets in it.
+                property <length> largeur: min(980px, self.visible-width - 96px);
+                property <length> colonne: (self.largeur - 32px) / 3;
+
+                VerticalLayout {
+                    x: (page.visible-width - page.largeur) / 2;
+                    width: page.largeur;
+                    padding-top: 4px;
+                    padding-bottom: 32px;
+                    spacing: 0px;
+                    alignment: start;
+
+                    Text {
+                        text: root.date;
+                        font-size: 12px;
+                        font-weight: 600;
+                        letter-spacing: 0.4px;
+                        color: Tokens.red;
+                    }
+                    Rectangle { height: 4px; }
+                    Text {
+                        text: root.greeting;
+                        font-family: Tokens.font-display;
+                        font-size: 34px;
+                        font-weight: 700;
+                        letter-spacing: -0.4px;
+                        color: Tokens.text;
+                        wrap: word-wrap;
+                    }
+                    Rectangle { height: 4px; }
+                    Text {
+                        text: root.summary;
+                        font-size: 15px;
+                        color: Tokens.text-muted;
+                        wrap: word-wrap;
+                    }
+                    Rectangle { height: 22px; }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+                        height: 190px;
+
+                        // What is next: the event under way or coming (or the next
+                        // task with an hour), large, then the ones after it.
+                        Widget {
+                            width: page.colonne * 2 + 16px;
+                            title: "Up next";
+                            tint: Tokens.red;
+                            label: "Open Calendar";
+                            opened => { root.opened("calendar"); }
+
+                            if root.has-next: prochain := Rectangle {
+                                height: 62px;
+                                accessible-role: button;
+                                accessible-label: "Next: " + root.first.title;
+                                accessible-description: root.first.meta;
+                                accessible-action-default => {
+                                    if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
+                                }
+                                ligne := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        if (root.first.id > 0) { root.task-opened(root.first.id); } else { root.event-opened(root.first.key); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    Rectangle {
+                                        width: 4px;
+                                        border-radius: 2px;
+                                        background: root.first.id > 0 ? Tokens.accent : root.first.color;
+                                    }
+                                    if root.first.id > 0: Check {
+                                        y: (parent.height - self.height) / 2;
+                                        animated: true;
+                                        size: 18px;
+                                        label: root.first.title;
+                                        toggled => { root.task-toggled(root.first.id); }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 1px;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: root.first.meta;
+                                            font-size: 12.5px;
+                                            color: Tokens.text-muted;
+                                        }
+                                        Text {
+                                            text: root.first.title;
+                                            font-family: Tokens.font-display;
+                                            font-size: 22px;
+                                            font-weight: 700;
+                                            color: ligne.has-hover ? Tokens.accent : Tokens.text;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    // Held on a video call: the service's button, one click in.
+                                    if root.first.video-url != "": JoinButton {
+                                        y: (parent.height - self.height) / 2;
+                                        kind: root.first.video-kind;
+                                        text: root.first.video-label;
+                                        clicked => { root.join(root.first.video-url); }
+                                    }
+                                }
+                            }
+                            if root.has-next && root.later.length > 0: Rectangle {
+                                height: 1px;
+                                background: Tokens.border;
+                            }
+                            for e in root.later: Rectangle {
+                                height: 26px;
+                                accessible-role: button;
+                                accessible-label: e.title;
+                                accessible-description: e.meta;
+                                accessible-action-default => { root.event-opened(e.key); }
+                                suite := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.event-opened(e.key); }
+                                }
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 4px;
+                                        height: 20px;
+                                        border-radius: 2px;
+                                        background: e.color;
+                                    }
+                                    Text {
+                                        width: 42px;
+                                        text: e.meta;
+                                        font-size: 12.5px;
+                                        font-weight: 600;
+                                        color: Tokens.text-muted;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: e.title;
+                                        font-size: 13px;
+                                        color: suite.has-hover ? Tokens.accent : Tokens.text;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                            }
+                            if !root.has-next: Text {
+                                text: "Nothing else in the calendar today.";
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+
+                        // A goal under way: its ring, its name, where it stands.
+                        Widget {
+                            width: page.colonne;
+                            title: "Goal";
+                            tint: Tokens.purple;
+                            label: "Open Goals";
+                            opened => {
+                                if (root.has-goal) { root.goal-opened(root.goal.id); } else { root.opened("goals"); }
+                            }
+                            if root.has-goal: HorizontalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 84px;
+                                    height: 84px;
+                                    accessible-role: button;
+                                    accessible-label: root.goal.title;
+                                    accessible-description: root.goal.done + " of " + root.goal.target + ", " + root.goal.badge;
+                                    accessible-action-default => { root.goal-opened(root.goal.id); }
+                                    GoalRing {
+                                        size: 84px;
+                                        ring: root.goal.ring;
+                                        tint: root.goal.color;
+                                    }
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        Text {
+                                            text: root.goal.done;
+                                            font-family: Tokens.font-display;
+                                            font-size: 22px;
+                                            font-weight: 700;
+                                            color: Tokens.text;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: "/" + root.goal.target;
+                                            font-size: 12px;
+                                            color: Tokens.text-muted;
+                                            vertical-alignment: center;
+                                            y: 3px;
+                                        }
+                                    }
+                                    TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.goal-opened(root.goal.id); }
+                                    }
+                                }
+                            }
+                            if root.has-goal: Text {
+                                text: root.goal.title;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Tokens.text;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+                            if root.has-goal: HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+                                Rectangle {
+                                    width: badge.preferred-width + 14px;
+                                    height: 18px;
+                                    border-radius: self.height / 2;
+                                    background: (root.goal.status == 1 ? Tokens.orange : Tokens.green).transparentize(0.84);
+                                    badge := Text {
+                                        text: root.goal.badge;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: root.goal.status == 1 ? Tokens.orange : Tokens.green;
+                                    }
+                                }
+                                Text {
+                                    text: root.goal.due-short;
+                                    font-size: 12px;
+                                    color: Tokens.text-muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            if !root.has-goal: Text {
+                                text: "No goal under way.";
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+                    }
+
+                    Rectangle { height: 16px; }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+                        height: 226px;
+
+                        // Today's tasks: late first, then by the hour.
+                        Widget {
+                            width: page.colonne;
+                            title: "Today";
+                            tint: Tokens.accent;
+                            label: "Open Tasks";
+                            figure: root.tasks-count == "" ? "0" : root.tasks-count;
+                            figure-tint: Tokens.accent;
+                            opened => { root.opened("tasks"); }
+
+                            VerticalLayout {
+                                spacing: 0px;
+                                for t in root.tasks: Rectangle {
+                                    height: 33px;
+                                    HorizontalLayout {
+                                        spacing: 10px;
+                                        Check {
+                                            y: (parent.height - self.height) / 2;
+                                            animated: true;
+                                            size: 16px;
+                                            late: t.overdue;
+                                            label: t.title;
+                                            toggled => { root.task-toggled(t.id); }
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                            accessible-role: button;
+                                            accessible-label: t.title;
+                                            accessible-action-default => { root.task-opened(t.id); }
+                                            nom := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { root.task-opened(t.id); }
+                                            }
+                                            Text {
+                                                width: 100%;
+                                                text: t.title;
+                                                font-size: 13px;
+                                                color: nom.has-hover ? Tokens.accent : Tokens.text;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                        }
+                                        Text {
+                                            text: t.overdue ? "late" : t.meta;
+                                            font-size: 12px;
+                                            color: t.overdue ? Tokens.red : Tokens.text-muted;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    Rectangle {
+                                        y: parent.height - 1px;
+                                        width: parent.width;
+                                        height: 1px;
+                                        background: Tokens.border;
+                                    }
+                                }
+                                if root.tasks.length == 0: Text {
+                                    text: "Nothing due today.";
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            if root.tasks-more > 0: Foot { text: "+ " + root.tasks-more + " more"; }
+                        }
+
+                        // The mail to answer: the first conversations of To do.
+                        Widget {
+                            width: page.colonne;
+                            title: "To answer";
+                            tint: Tokens.accent;
+                            label: "Open Mail";
+                            figure: root.mail-count == "" ? "0" : root.mail-count;
+                            opened => { root.opened("mail"); }
+
+                            VerticalLayout {
+                                spacing: 2px;
+                                for m in root.threads: Rectangle {
+                                    height: 44px;
+                                    accessible-role: button;
+                                    accessible-label: m.title;
+                                    accessible-description: m.hint;
+                                    accessible-action-default => { root.thread-opened(m.id); }
+                                    fil := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.thread-opened(m.id); }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 10px;
+                                        Avatar {
+                                            y: (parent.height - self.height) / 2;
+                                            size: 28px;
+                                            initials: m.meta;
+                                            tint: m.color;
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 1px;
+                                            horizontal-stretch: 1;
+                                            Text {
+                                                text: m.title;
+                                                font-size: 12.5px;
+                                                font-weight: 600;
+                                                color: fil.has-hover ? Tokens.accent : Tokens.text;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: m.hint;
+                                                font-size: 12px;
+                                                color: Tokens.text-muted;
+                                                overflow: elide;
+                                            }
+                                        }
+                                    }
+                                }
+                                if root.threads.length == 0: Text {
+                                    text: "Nothing to answer.";
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            if root.waiting > 0: Foot {
+                                text: root.waiting + " waiting for an answer";
+                            }
+                        }
+
+                        // The week: tasks done, a bar a day.
+                        Widget {
+                            width: page.colonne;
+                            title: "This week";
+                            tint: Tokens.green;
+                            label: "Open the week in Tasks";
+                            opened => { root.opened("tasks"); }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 6px;
+                                Text {
+                                    text: root.week-done;
+                                    font-family: Tokens.font-display;
+                                    font-size: 28px;
+                                    font-weight: 700;
+                                    color: Tokens.text;
+                                    vertical-alignment: bottom;
+                                }
+                                Text {
+                                    text: "done";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Tokens.text-muted;
+                                    vertical-alignment: bottom;
+                                    y: -4px;
+                                }
+                            }
+                            HorizontalLayout {
+                                height: 66px;
+                                spacing: 6px;
+                                accessible-role: text;
+                                accessible-label: root.week-done + " done this week";
+                                for part[i] in root.week-bars: VerticalLayout {
+                                    spacing: 5px;
+                                    Rectangle {
+                                        Rectangle {
+                                            x: (parent.width - self.width) / 2;
+                                            y: parent.height - self.height;
+                                            width: 14px;
+                                            height: max(4px, parent.height * part);
+                                            border-radius: 4px;
+                                            background: i <= root.week-today && part > 0 ? Tokens.green : Tokens.border;
+                                        }
+                                    }
+                                    Text {
+                                        text: root.initiales[i];
+                                        font-size: 10px;
+                                        font-weight: i == root.week-today ? 700 : 400;
+                                        color: i == root.week-today ? Tokens.green : Tokens.text-faint;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            if root.streak > 0: Foot {
+                                text: root.streak == 1 ? "Inbox zero today" : "Inbox zero " + root.streak + " days in a row";
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -9,7 +9,9 @@
 use crate::controller::Controller;
 use crate::services::{now, Services};
 use chrono::{Local, NaiveDate, Timelike};
+use iris_store::ListQuery;
 use iris_tasks::is_overdue;
+use iris_types::WorkflowState;
 use iris_ui::{AppWindow, HomeItemData};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::rc::Rc;
@@ -119,6 +121,10 @@ pub struct Journee {
     /// Today's events, and those still to come.
     pub events: usize,
     pub events_left: usize,
+    /// The events after the next one, at their hour: Up next's lower lines.
+    pub later: Vec<HomeItemData>,
+    /// The tasks due today or late, late first, then by the hour.
+    pub tasks: Vec<HomeItemData>,
 }
 
 /// An empty row but for the video call it is held on, if any: its link, its service,
@@ -248,14 +254,85 @@ pub fn day(services: &Services, max: usize) -> Journee {
     let late = tout.iter().filter(|p| p.ligne.overdue).count();
     // Late first, then by the hour, those without one last.
     tout.sort_by_key(|p| p.rang);
+    let upcoming = suivant.map(|(_, l)| l);
+    let later = evenements
+        .iter()
+        .filter(|u| !u.all_day && u.start > instant)
+        .filter(|u| upcoming.as_ref().is_none_or(|n| n.key.as_str() != u.key))
+        .take(2)
+        .map(|u| HomeItemData {
+            key: u.key.as_str().into(),
+            title: u.title.as_str().into(),
+            meta: chrono::DateTime::from_timestamp_millis(u.start)
+                .map(|d| d.with_timezone(&Local).format("%H:%M").to_string())
+                .unwrap_or_default()
+                .into(),
+            color: crate::calendar::couleur(&u.color),
+            ..Default::default()
+        })
+        .collect();
+    let tasks = tout
+        .iter()
+        .filter(|p| p.ligne.id > 0)
+        .map(|p| p.ligne.clone())
+        .collect();
     Journee {
         next: tout.into_iter().take(max).map(|p| p.ligne).collect(),
-        upcoming: suivant.map(|(_, l)| l),
+        upcoming,
         due: dues.len(),
         late,
         events: evenements.len(),
         events_left: restants,
+        later,
+        tasks,
     }
+}
+
+/// The conversations at the top of To do, as Home lists them: who, about what, their
+/// initials on their mailbox's colour.
+fn a_repondre(services: &Services, combien: u32) -> Vec<HomeItemData> {
+    let mut q = ListQuery::new(WorkflowState::Todo, combien);
+    q.hide_snoozed_until = Some(now());
+    services
+        .store
+        .list_threads(&q)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|t| {
+            let boite = services
+                .store
+                .account(t.account)
+                .ok()
+                .flatten()
+                .map(|a| a.email)
+                .unwrap_or_default();
+            let (r, g, b) = iris_ui::format::account_tint(&boite);
+            let nom = t.from_display.split('<').next().unwrap_or("").trim();
+            HomeItemData {
+                id: t.id.0 as i32,
+                title: if nom.is_empty() {
+                    t.from_display.as_str().into()
+                } else {
+                    nom.trim_matches('"').into()
+                },
+                hint: t.subject.as_str().into(),
+                meta: iris_ui::format::initials(&t.from_display).into(),
+                color: slint::Color::from_rgb_u8(r, g, b),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// The conversations in Waiting, up to a hundred.
+fn en_attente(services: &Services) -> usize {
+    let mut q = ListQuery::new(WorkflowState::Waiting, 100);
+    q.hide_snoozed_until = Some(now());
+    services
+        .store
+        .list_threads(&q)
+        .map(|l| l.len())
+        .unwrap_or(0)
 }
 
 /// Fills the Home screen.
@@ -263,7 +340,14 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     let maintenant = Local::now();
     let nom = crate::settings::current().first_name;
     f.set_home_greeting(greeting_for(maintenant.hour(), &nom).into());
-    f.set_home_date(maintenant.format("%A %-d %B").to_string().into());
+    // In red capitals above the greeting, as the Mac's widgets date themselves.
+    f.set_home_date(
+        maintenant
+            .format("%A %-d %B")
+            .to_string()
+            .to_uppercase()
+            .into(),
+    );
 
     let j = day(services, 3);
     let a_traiter = to_answer(services);
@@ -278,6 +362,29 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     f.set_home_events_count(compte(j.events).into());
     f.set_home_summary(summary(a_traiter, j.due, j.late, j.events_left).into());
     f.set_tasks_badge(j.due as i32);
+
+    // The widgets: the events after the next, today's tasks, the mail to answer, a
+    // goal, the week.
+    f.set_home_later(ModelRc::new(VecModel::from(j.later)));
+    let plus = j.tasks.len().saturating_sub(4);
+    f.set_home_tasks(ModelRc::new(VecModel::from(
+        j.tasks.into_iter().take(4).collect::<Vec<_>>(),
+    )));
+    f.set_home_tasks_more(plus as i32);
+    f.set_home_threads(ModelRc::new(VecModel::from(a_repondre(services, 3))));
+    f.set_home_answer_total(a_traiter as i32);
+    f.set_home_waiting(en_attente(services) as i32);
+    match crate::goals::for_home(services) {
+        Some(g) => {
+            f.set_home_goal(g);
+            f.set_home_has_goal(true);
+        }
+        None => f.set_home_has_goal(false),
+    }
+    let semaine = crate::tasks::week(services, maintenant.date_naive());
+    f.set_home_week_done(semaine.done);
+    f.set_home_week_bars(ModelRc::new(VecModel::from(semaine.bars)));
+    f.set_home_week_today(semaine.today);
 }
 
 /// The conversations in the To do queue, over every mailbox.
@@ -329,7 +436,7 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-pub fn wire_home(f: &AppWindow, services: &Services, _controller: Arc<Controller>) {
+pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>) {
     let redessiner = {
         let (faible, services) = (f.as_weak(), services.clone());
         Rc::new(move || {
@@ -356,9 +463,32 @@ pub fn wire_home(f: &AppWindow, services: &Services, _controller: Arc<Controller
                     vers(&f, 2);
                     f.invoke_task_place_chosen("today".into());
                 }
+                "goals" => {
+                    crate::nav::note(&f, "tasks", "goals");
+                    vers(&f, 2);
+                    f.invoke_task_place_chosen("goals".into());
+                }
                 "calendar" => vers(&f, 1),
                 _ => vers(&f, 0),
             }
+        });
+    }
+    {
+        let (faible, services) = (f.as_weak(), services.clone());
+        f.on_home_thread_opened(move |id| {
+            if let Some(f) = faible.upgrade() {
+                crate::tasks::open_thread(&f, &services, &controller, id as i64);
+            }
+        });
+    }
+    {
+        let faible = f.as_weak();
+        f.on_home_goal_opened(move |id| {
+            let Some(f) = faible.upgrade() else { return };
+            let place = format!("goal:{id}");
+            crate::nav::note(&f, "tasks", &place);
+            vers(&f, 2);
+            f.invoke_task_place_chosen(place.into());
         });
     }
     {

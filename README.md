@@ -85,41 +85,51 @@ beside *Accounts* shows them all in one list instead.
 
 ## Getting around
 
-The rail on the left goes from one part of Iris to another: the **Iris mark** at the top
-for Home, then **Mail**, **Calendar** and **Tasks**, each with what waits there. At its
-foot, search and commands (`Ctrl`+`K`: every command at once, narrowed as you type)
-and the settings (`Ctrl`+`,`).
+Each place has its side column, and at its top four buttons go from one to another:
+**Home**, **Mail**, **Calendar** and **Tasks** (a dot when tasks are due). Back and
+forward sit just above them. At the column's foot, the settings (`Ctrl`+`,`) and search
+and commands (`Ctrl`+`K`: every command at once, narrowed as you type).
 
 Iris is light or dark: *Settings › Appearance* follows Windows (the default), or keeps
-one of the two.
+one of the two. *Settings › Window buttons* draws the window's close, minimise and
+maximise buttons as the Mac's three lights at the top left, or as Windows' at the top
+right (the default on Windows).
 
 ## Home
 
 Iris opens on **Home**: the date, a greeting with your first name (set it in
-*Settings › Your first name*), one sentence on what is waiting, and **Next**: the coming
-event or the next task with an hour. It opens where it lives; a task's circle ticks it
-off. Below, **Mail**, **Tasks** and **Calendar** lead to each with what waits there.
+*Settings › Your first name*), one sentence on what is waiting, then widgets:
 
-Click the Iris mark at the top left, or press `Ctrl`+`0`, to come back to it. To open on
-your mail instead, switch off *Open Iris on Home* in *Settings*.
+- **Up next**: the coming event or the next task with an hour, with its Join button
+  when it is held on a video call, and the events after it.
+- **Goal**: the first goal under way, its ring and whether it is on track.
+- **Today**: the tasks due today or late; a circle ticks one off.
+- **To answer**: the first conversations of To do, and how many wait for an answer.
+- **This week**: the tasks done, a bar a day, and your inbox zero streak.
+
+Each widget's title opens its place, each line what it names. Click **Home** at the top
+of the side column, or press `Ctrl`+`0`, to come back to it. To open on your mail
+instead, switch off *Open Iris on Home* in *Settings*.
 
 ## Mail
 
-One column on the left holds **New message**, your accounts (grouped by tag, each tag
-with its colour and what its mailboxes have to do) and, under them, the folders. Its
-foot says when the mail last synced.
+The side column holds your accounts (grouped by tag, each tag with its colour and what
+its mailboxes have to do) and, under them, the folders. Its foot says when the mail last
+synced.
 
-The list shows two lines per conversation, under the search box, the queues (**To do**,
-**Waiting**, **Done**) and the **Unread**, **Attachments** and **Starred** filters.
+One toolbar runs above the list and the reader: where you are and how much is to do,
+the queues (**To do**, **Waiting**, **Done**), **New message** (`C`), what acts on the
+open conversation, and search (`/`). The list shows two lines per conversation, under
+the **Unread**, **Attachments** and **Starred** filters.
 Point at a conversation for **Done**, **Snooze** and **Archive** without opening it.
 Choose how tight the list is in *Settings › Density*.
 
-The reading pane's toolbar names its actions with their keys: **Done** `E`, **Snooze**
+The toolbar names its actions with their keys: **Done** `E`, **Snooze**
 `S` (which asks until when: later today, tomorrow morning, this weekend, next week),
 **Waiting** `W`, **To task** `T`; then star, archive, delete, **Read full screen**
-(`Escape` to come back) and **More** (forward, read or unread, the source). Each message
-of the conversation sits in its own frame, up to 900 pixels wide, its attachments under
-it as file cards. Under the subject, beside the mailbox, the folder the conversation is
+(`Escape` to come back) and **More** (forward, read or unread, the source). The messages
+of the conversation follow one another, a hairline between them, up to 900 pixels wide,
+their attachments under them as file cards. Under the subject, beside the mailbox, the folder the conversation is
 in: *Inbox*, a folder's name, or *Spam* and *Trash* in red; *Inbox +2* names all of
 them when you point at it.
 
@@ -160,13 +170,13 @@ A conversation deleted from the results leaves them.
 
 ## Back and forward
 
-The back and forward buttons of your mouse, the two arrows next to the window buttons,
+The back and forward buttons of your mouse, the two arrows at the top of the side column,
 or `Alt`+`←` and `Alt`+`→` go back to the places you visited (a mailbox, a folder, a tab,
 a list of tasks, the calendar) and forward again, as in a browser.
 
 ## Calendar
 
-Switch between **Mail** and **Calendar** in the rail, or with `Ctrl`+`1` and
+Switch between **Mail** and **Calendar** at the top of the side column, or with `Ctrl`+`1` and
 `Ctrl`+`2`. The calendar opens on the week, then on the view you chose last.
 
 - **New event** creates one in your own calendar; it can repeat and remind you before
@@ -209,7 +219,9 @@ arrow keys move to the previous or next period.
 
 ## Tasks
 
-Open **Tasks** in the rail, or with `Ctrl`+`3`.
+Open **Tasks** at the top of the side column, or with `Ctrl`+`3`. Four tiles open
+**Today**, **Upcoming**, **All tasks** and **From mail**, each with its count; your
+lists and goals follow.
 
 - Type a task in one line in the field at the bottom and press `Enter`. Iris reads the
   date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work

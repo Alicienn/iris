@@ -1,0 +1,454 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+
+// The window's frame, in the manner of Apple's own apps: no title bar of its own.
+// Each place of Iris has a sidebar and a toolbar; the sidebar's head holds the window's
+// buttons (Mac) or the Iris mark (Windows), back and forward, and the four places; the
+// toolbar holds what acts on the place, and on Windows the window's three buttons at
+// its right end. Both move the window when dragged.
+//
+// What they share lives in this global, set by the window and read by every place.
+export global Chrome {
+    /// Which place shows: 0 mail, 1 calendar, 2 tasks, 3 Home.
+    in-out property <int> workspace: 0;
+    /// The window's buttons as on a Mac (the three lights, top left), or as on
+    /// Windows (minimise, maximise, close at the right of the toolbar).
+    in-out property <bool> mac-buttons;
+    in-out property <bool> maximised;
+    in-out property <bool> can-go-back;
+    in-out property <bool> can-go-forward;
+    in-out property <int> mail-badge;
+    in-out property <int> tasks-badge;
+
+    // What the frame asks of the window. A global's callbacks can only be answered
+    // from Rust, so the frame posts a request (its word, a number with it) and raises
+    // a counter, which the window watches: "workspace", "minimise", "maximise",
+    // "close", "back", "forward", "settings", "palette".
+    in-out property <string> request;
+    in-out property <int> request-arg;
+    in-out property <int> request-id;
+    // The window dragged: pressed (its own counter, so a press is never lost under the
+    // first move), then moved by so much since the press.
+    in-out property <int> drag-start-id;
+    in-out property <int> drag-id;
+    in-out property <length> drag-dx;
+    in-out property <length> drag-dy;
+
+    public function ask(what: string, arg: int) {
+        root.request = what;
+        root.request-arg = arg;
+        root.request-id += 1;
+    }
+    public function workspace-chosen(place: int) { root.ask("workspace", place); }
+    public function minimise() { root.ask("minimise", 0); }
+    public function toggle-maximise() { root.ask("maximise", 0); }
+    public function close() { root.ask("close", 0); }
+    public function back() { root.ask("back", 0); }
+    public function forward() { root.ask("forward", 0); }
+    public function settings() { root.ask("settings", 0); }
+    public function palette() { root.ask("palette", 0); }
+    public function drag-started() { root.drag-start-id += 1; }
+    public function drag(dx: length, dy: length) {
+        root.drag-dx = dx;
+        root.drag-dy = dy;
+        root.drag-id += 1;
+    }
+}
+
+/// What moves the window: a press and a drag anywhere nothing else claims, a double
+/// click maximises.
+export component DragArea inherits TouchArea {
+    moved => {
+        if (self.pressed) {
+            Chrome.drag(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+        }
+    }
+    pointer-event(event) => {
+        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+            Chrome.drag-started();
+        }
+    }
+    double-clicked => { Chrome.toggle-maximise(); }
+}
+
+// A Mac window's button: a small disc, its glyph showing when the group is pointed at.
+component Light inherits Rectangle {
+    in property <color> tint;
+    in property <string> label;
+    in property <string> glyph;
+    in property <bool> shown;
+    callback clicked();
+
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: root.tint;
+    border-width: 0.5px;
+    border-color: #00000026;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    if root.shown: Icon {
+        data: root.glyph;
+        size: 8px;
+        weight: 2.2;
+        tint: #00000099;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A Windows window's button: flat, the toolbar's height, close turning red.
+component WinButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <bool> closes;
+    callback clicked();
+
+    width: 46px;
+    background: touch.has-hover
+        ? (root.closes ? #c42b1c : Tokens.surface-hover)
+        : transparent;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    Icon {
+        data: root.glyph;
+        size: 17px;
+        weight: 1.4;
+        tint: root.closes && touch.has-hover ? #ffffff : Tokens.text;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+/// Windows' three buttons, at the right end of a toolbar; nothing on a Mac.
+export component WindowButtons inherits HorizontalLayout {
+    if !Chrome.mac-buttons: WinButton {
+        glyph: Icons.window-minimise;
+        label: "Minimise";
+        clicked => { Chrome.minimise(); }
+    }
+    if !Chrome.mac-buttons: WinButton {
+        // Two icons: "restore" and "maximise" are different actions.
+        glyph: Chrome.maximised ? Icons.window-restore : Icons.window-maximise;
+        label: Chrome.maximised ? "Restore" : "Maximise";
+        clicked => { Chrome.toggle-maximise(); }
+    }
+    if !Chrome.mac-buttons: WinButton {
+        glyph: Icons.window-close;
+        label: "Close";
+        closes: true;
+        clicked => { Chrome.close(); }
+    }
+}
+
+// Back or forward through the places visited: a small chevron, dimmed when there is
+// nowhere to go.
+component NavArrow inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <bool> enabled;
+    callback clicked();
+
+    width: 26px;
+    height: 24px;
+    border-radius: Tokens.radius-small;
+    background: root.enabled && touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    Icon {
+        data: root.glyph;
+        size: 14px;
+        weight: 1.8;
+        tint: root.enabled ? Tokens.text-muted : Tokens.text-faint;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    Tooltip {
+        text: @markdown("\{root.label}  \{root.shortcut}");
+    }
+}
+
+/// The Iris mark in its square: Windows' answer to the lights, where a Mac has them.
+export component IrisBadge inherits Rectangle {
+    in property <length> size: 18px;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size * 0.28;
+    // Solid: the software renderer paints a gradient square, past the rounded corners.
+    background: #2f7dff;
+    Rectangle {
+        width: root.size * 0.5;
+        height: self.width;
+        border-radius: self.width / 2;
+        border-width: root.size / 11;
+        border-color: #ffffff;
+        Rectangle {
+            width: root.size * 0.16;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: #ffffff;
+        }
+    }
+}
+
+// One of the four places, as a segment of the switcher.
+component PlaceTab inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <int> place;
+    in property <int> badge;
+    property <bool> on: Chrome.workspace == root.place;
+
+    height: 26px;
+    border-radius: 6px;
+    background: root.on ? Tokens.control : touch.has-hover ? Tokens.surface-hover : transparent;
+    drop-shadow-blur: root.on ? 2px : 0px;
+    drop-shadow-offset-y: 1px;
+    drop-shadow-color: root.on ? #0000001f : transparent;
+    // The half-pixel ring the Mac draws round a chosen segment.
+    border-width: root.on ? 1px : 0px;
+    border-color: #0000000d;
+    animate background { duration: Tokens.quick; }
+
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-item-selected: root.on;
+    accessible-action-default => { Chrome.workspace-chosen(root.place); }
+
+    Icon {
+        data: root.icon;
+        size: 15px;
+        tint: root.on || touch.has-hover ? Tokens.text : Tokens.text-muted;
+    }
+    if root.badge > 0: Rectangle {
+        // Inside the segment, beside its icon, clear of the well's rounded edge.
+        x: parent.width / 2 + 6px;
+        y: 4px;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: Tokens.accent;
+    }
+    touch := TouchArea {
+        clicked => { Chrome.workspace-chosen(root.place); }
+    }
+    Tooltip {
+        text: @markdown("\{root.label}  \{root.shortcut}");
+    }
+}
+
+/// The head of every sidebar: the window's lights or the Iris mark, back and forward,
+/// then the four places as one segmented control.
+/// The Mac's three lights: close, minimise, maximise.
+component Lights inherits HorizontalLayout {
+    spacing: 8px;
+    horizontal-stretch: 0;
+    Light {
+        y: (parent.height - self.height) / 2;
+        tint: #ff5f57;
+        label: "Close";
+        glyph: Icons.window-close;
+        clicked => { Chrome.close(); }
+    }
+    Light {
+        y: (parent.height - self.height) / 2;
+        tint: #febc2e;
+        label: "Minimise";
+        glyph: Icons.window-minimise;
+        clicked => { Chrome.minimise(); }
+    }
+    Light {
+        y: (parent.height - self.height) / 2;
+        tint: #28c840;
+        label: Chrome.maximised ? "Restore" : "Maximise";
+        glyph: Icons.window-maximise;
+        clicked => { Chrome.toggle-maximise(); }
+    }
+}
+
+export component SidebarHead inherits VerticalLayout {
+    spacing: 0px;
+
+    Rectangle {
+        height: 52px;
+        DragArea {}
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 0px;
+            spacing: 8px;
+            alignment: stretch;
+            if Chrome.mac-buttons: Lights {}
+            if !Chrome.mac-buttons: HorizontalLayout {
+                spacing: 8px;
+                horizontal-stretch: 0;
+                IrisBadge { y: (parent.height - self.height) / 2; }
+                Text {
+                    text: "Iris";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            NavArrow {
+                y: (parent.height - self.height) / 2;
+                glyph: Icons.chevron-left;
+                label: "Back";
+                shortcut: "Alt+←";
+                enabled: Chrome.can-go-back;
+                clicked => { Chrome.back(); }
+            }
+            NavArrow {
+                y: (parent.height - self.height) / 2;
+                glyph: Icons.chevron-right;
+                label: "Forward";
+                shortcut: "Alt+→";
+                enabled: Chrome.can-go-forward;
+                clicked => { Chrome.forward(); }
+            }
+        }
+    }
+
+    // The four places: Home, Mail, Calendar, Tasks.
+    Rectangle {
+        height: 30px;
+        border-radius: 8px;
+        background: Tokens.well;
+        HorizontalLayout {
+            padding: 2px;
+            spacing: 0px;
+            PlaceTab { icon: Icons.home; label: "Home"; shortcut: "Ctrl+0"; place: 3; }
+            PlaceTab { icon: Icons.envelope-closed; label: "Mail"; shortcut: "Ctrl+1"; place: 0; badge: Chrome.mail-badge; }
+            PlaceTab { icon: Icons.calendar; label: "Calendar"; shortcut: "Ctrl+2"; place: 1; }
+            PlaceTab { icon: Icons.list; label: "Tasks"; shortcut: "Ctrl+3"; place: 2; badge: Chrome.tasks-badge; }
+        }
+    }
+    Rectangle { height: 12px; }
+}
+
+component FootButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> shortcut;
+    in property <string> text: root.label;
+    callback clicked();
+
+    width: rang.preferred-width + 16px;
+    height: 28px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.shortcut;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 8px;
+        width: self.preferred-width;
+        spacing: 8px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 15px;
+            tint: Tokens.text-muted;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            font-size: 13px;
+            color: Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    Tooltip {
+        text: @markdown("\{root.label}  \{root.shortcut}");
+    }
+}
+
+/// The foot of every sidebar: the settings, and search and commands.
+export component SidebarFoot inherits HorizontalLayout {
+    height: 32px;
+    spacing: 2px;
+    padding-top: 4px;
+    FootButton { icon: Icons.gear; label: "Settings"; shortcut: "Ctrl+,"; clicked => { Chrome.settings(); } }
+    Rectangle { horizontal-stretch: 1; }
+    FootButton { icon: Icons.search; label: "Search and commands"; shortcut: "Ctrl+K"; text: ""; clicked => { Chrome.palette(); } }
+}
+
+/// A sidebar: the head, what the place lists, the foot. Grey, with a hairline on its
+/// right.
+export component SidebarFrame inherits Rectangle {
+    in property <length> sidebar-width: 232px;
+    width: root.sidebar-width;
+    background: Tokens.surface-low;
+
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Tokens.border;
+    }
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 11px;
+        padding-bottom: 10px;
+        spacing: 0px;
+        SidebarHead {}
+        @children
+        SidebarFoot {}
+    }
+}
+
+/// A place's toolbar: what acts on it, the window moving behind, and on Windows the
+/// window's buttons at its right end.
+export component WindowToolbar inherits Rectangle {
+    in property <bool> hairline: true;
+    /// No side column beside it (a conversation read full screen): the Mac's lights,
+    /// when chosen, come to its left end.
+    in property <bool> lights;
+    height: 52px;
+    background: Tokens.surface;
+
+    DragArea {}
+    if root.hairline: Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Tokens.border;
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: Chrome.mac-buttons ? 14px : 0px;
+        spacing: 6px;
+        if root.lights && Chrome.mac-buttons: Lights {}
+        if root.lights && Chrome.mac-buttons: Rectangle { width: 10px; }
+        HorizontalLayout {
+            spacing: 6px;
+            horizontal-stretch: 1;
+            @children
+        }
+        if !Chrome.mac-buttons: Rectangle { width: 8px; }
+        WindowButtons {}
+    }
+}

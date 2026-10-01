@@ -347,3 +347,7 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   web edition that became the reference design has them.
 - **Tasks have goals** (3.3.0): something to reach by a day, with its pace, beyond the
   spec's lists of things to do. They are counted by hand only.
+- **Apple's apps are the model** (4.0.0): the rail gave way to a side column per place
+  with a switcher at its top, the queues moved into a toolbar shared by the list and the
+  reader, and Home became widgets. The window's buttons are the Mac's lights or
+  Windows', as the user chooses.

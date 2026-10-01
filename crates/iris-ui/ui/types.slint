@@ -449,6 +449,10 @@ export struct TaskOverviewData {
     week-done: int,
     week-bars: [float],
     week-today: int,
+    // The view's big title, as Reminders writes it: in its list's colour (fully
+    // transparent: the accent), with how many are open beside it.
+    tint: color,
+    open: int,
 }
 
 // A step of a task.

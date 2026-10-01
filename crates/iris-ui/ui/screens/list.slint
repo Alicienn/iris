@@ -44,10 +44,16 @@ component ThreadRow inherits Rectangle {
     /// Short rows (compact density): no initials, the tick box alone leads.
     property <bool> compact: root.height < 44px;
     /// Tall rows (comfortable): the excerpt gets a line of its own.
-    property <bool> airy: root.height >= 60px;
-    property <length> lead: root.compact ? 15px : 30px;
+    // The excerpt's own line needs 64 px: at Normal's 56 its descenders were cut.
+    property <bool> airy: root.height >= 64px;
+    /// The unread dot, or the tick box in its place: no face, as Apple Mail has it.
+    property <length> lead: 14px;
     /// Rows run edge to edge; the text starts this far in.
     property <length> inset: 0px;
+    /// Chosen: the accent's plate, the words white on it.
+    property <bool> plein: root.selected || root.data.marked;
+    property <color> encre: root.plein ? Tokens.accent-text : Tokens.text;
+    property <color> encre-douce: root.plein ? Tokens.accent-text.transparentize(0.18) : Tokens.text-muted;
     // Whatever happens inside, nothing is drawn over the next row.
     clip: true;
 
@@ -66,17 +72,25 @@ component ThreadRow inherits Rectangle {
     }
     property <int> action-hovered: root.action-at(row-touch.mouse-x, row-touch.mouse-y);
 
-    // The chosen row takes the accent's soft ground, as a chosen chip does.
+    // The chosen row is a rounded plate of the accent, inset in the column, as Apple
+    // Mail draws it.
     fond := Rectangle {
-        background: root.selected || root.data.marked
-            ? Tokens.accent-soft
+        x: 8px;
+        y: 1px;
+        width: parent.width - 16px;
+        height: parent.height - 2px;
+        border-radius: 8px;
+        background: root.plein
+            ? Tokens.accent
             : (row-touch.has-hover ? Tokens.surface-hover : transparent);
         animate background { duration: Tokens.instant; }
     }
 
-    // A hairline under each row: the list reads as a ledger, not as floating cards.
-    Rectangle {
+    // A hairline under each row, from where the words start.
+    if !root.plein: Rectangle {
+        x: 30px;
         y: parent.height - 1px;
+        width: parent.width - 48px;
         height: 1px;
         background: Tokens.border;
     }
@@ -91,14 +105,15 @@ component ThreadRow inherits Rectangle {
     accessible-item-selectable: true;
     accessible-action-default => { root.clicked(); }
 
-    // Unread: a dot of the accent in the margin, where the eye runs down the list.
-    if root.data.unread: Rectangle {
-        x: 5px;
+    // Unread: a dot of the accent in the margin, where the eye runs down the list
+    // (white on the chosen row); the tick box takes its place under the pointer.
+    if root.data.unread && !row-touch.has-hover && !root.selection-mode && !root.data.marked: Rectangle {
+        x: 16px;
         y: root.compact ? (parent.height - self.height) / 2 : 15px;
-        width: 6px;
-        height: 6px;
-        border-radius: 3px;
-        background: Tokens.accent;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: root.plein ? Tokens.accent-text : Tokens.accent;
     }
 
     // Le glisser vers un dossier.
@@ -200,44 +215,25 @@ component ThreadRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: Tokens.row-padding-x;
-        spacing: 10px;
+        padding-left: 14px;
+        padding-right: 18px;
+        spacing: 8px;
 
-        // What leads the row: the sender's face, and in its place the tick box when
-        // the pointer is over the row or a batch is being made. One column, always
-        // there: nothing moves when the box appears (a box that entered the layout
-        // pushed the whole row sideways at every hover).
+        // What leads the row: the unread dot (drawn above), and in its place the tick
+        // box when the pointer is over the row or a batch is being made. One column,
+        // always there: nothing moves when the box appears.
         Rectangle {
             width: root.lead;
 
-            // The sender's mark: initials on a circle of their own colour. A list is
-            // read by faces before names, and the same sender keeps the same mark.
-            if !root.compact && root.data.initials != "": Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: 30px;
-                height: 30px;
-                border-radius: 15px;
-                background: root.data.sender-tint.transparentize(0.84);
-                opacity: root.data.marked || root.selection-mode || row-touch.has-hover ? 0 : 1;
-
-                Text {
-                    text: root.data.initials;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: root.data.sender-tint;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
             Rectangle {
-                width: 16px;
-                height: 16px;
+                y: root.compact ? (parent.height - self.height) / 2 : 12px;
+                width: 14px;
+                height: 14px;
                 border-radius: 4px;
                 border-width: 1.5px;
-                border-color: root.data.marked ? Tokens.accent : Tokens.border-strong;
-                background: root.data.marked ? Tokens.accent : transparent;
+                border-color: root.data.marked ? Tokens.accent-text
+                    : root.plein ? Tokens.accent-text : Tokens.border-strong;
+                background: root.data.marked ? Tokens.accent-text.transparentize(0.75) : transparent;
                 opacity: root.data.marked || root.selection-mode || row-touch.has-hover
                     ? 1.0
                     : 0.0;
@@ -250,7 +246,7 @@ component ThreadRow inherits Rectangle {
 
                 if root.data.marked: Icon {
                     data: Icons.check;
-                    size: 11px;
+                    size: 10px;
                     weight: 3.0;
                     tint: Tokens.accent-text;
                 }
@@ -282,14 +278,14 @@ component ThreadRow inherits Rectangle {
                     width: 6px;
                     height: 6px;
                     border-radius: 3px;
-                    background: root.data.account-tint;
+                    background: root.plein ? Tokens.accent-text : root.data.account-tint;
                 }
 
                 Text {
                     text: root.data.from;
                     font-size: 13px;
-                    font-weight: root.data.unread ? 600 : 500;
-                    color: root.data.unread ? Tokens.text : Tokens.text-secondary;
+                    font-weight: 600;
+                    color: root.encre;
                     overflow: elide;
                     horizontal-stretch: 0;
                     max-width: self.preferred-width;
@@ -299,7 +295,7 @@ component ThreadRow inherits Rectangle {
                 if root.data.message-count > 1: Text {
                     text: root.data.message-count;
                     font-size: 11px;
-                    color: Tokens.text-muted;
+                    color: root.encre-douce;
                     vertical-alignment: center;
                 }
 
@@ -308,7 +304,7 @@ component ThreadRow inherits Rectangle {
                     data: Icons.star;
                     size: 12px;
                     filled: true;
-                    tint: Tokens.warning;
+                    tint: root.plein ? Tokens.accent-text : Tokens.orange;
                 }
 
                 Rectangle { horizontal-stretch: 1; }
@@ -316,7 +312,7 @@ component ThreadRow inherits Rectangle {
                 Text {
                     text: root.data.date;
                     font-size: 12px;
-                    color: Tokens.text-muted;
+                    color: root.encre-douce;
                     vertical-alignment: center;
                 }
             }
@@ -327,9 +323,9 @@ component ThreadRow inherits Rectangle {
                 spacing: 6px;
                 Text {
                     text: root.data.subject;
-                    font-size: Tokens.size-body;
+                    font-size: 13px;
                     font-weight: root.data.unread ? 600 : 400;
-                    color: root.data.unread ? Tokens.text : Tokens.text-secondary;
+                    color: root.encre;
                     overflow: elide;
                     horizontal-stretch: root.airy ? 1 : 0;
                     max-width: root.airy ? 10000px : self.preferred-width;
@@ -337,7 +333,7 @@ component ThreadRow inherits Rectangle {
                 if !root.airy: Text {
                     text: root.data.preview;
                     font-size: 12.5px;
-                    color: Tokens.text-muted;
+                    color: root.encre-douce;
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
@@ -373,7 +369,7 @@ component ThreadRow inherits Rectangle {
             if root.airy: Text {
                 text: root.data.preview;
                 font-size: 12.5px;
-                color: Tokens.text-muted;
+                color: root.encre-douce;
                 overflow: elide;
             }
         }
@@ -452,7 +448,7 @@ component ThreadEntry inherits Rectangle {
         x: 16px;
         y: 12px;
         text: root.data.day;
-        font-size: 11.5px;
+        font-size: 11px;
         font-weight: 600;
         color: Tokens.text-muted;
     }
@@ -798,6 +794,8 @@ export component SearchBar inherits VerticalLayout {
     /// Which of the pills under the field are on: Unread, Attachments, 7 days,
     /// 30 days, Best match. Read from the query by Rust.
     in property <[bool]> pills;
+    /// The field itself here; off where the toolbar has it, as Apple Mail's.
+    in property <bool> show-field: true;
 
     callback submitted(string);
     callback cleared();
@@ -812,7 +810,7 @@ export component SearchBar inherits VerticalLayout {
 
     padding-left: 14px;
     padding-right: 14px;
-    padding-top: 12px;
+    padding-top: root.show-field || root.active ? 10px : 0px;
     spacing: 4px;
 
     // Take the height it needs and no more. Inside a vertical layout every child
@@ -821,9 +819,10 @@ export component SearchBar inherits VerticalLayout {
     vertical-stretch: 0;
 
     HorizontalLayout {
+        visible: root.show-field;
         spacing: 4px;
         vertical-stretch: 0;
-        height: 32px;
+        height: root.show-field ? 32px : 0px;
 
         field := TextField {
             accessible-label: "Search";
@@ -1078,6 +1077,10 @@ export component ThreadListView inherits VerticalLayout {
     callback bulk-select-all();
     callback bulk-clear();
 
+    /// The list's own search field, when it shows one (not in the window, where the
+    /// toolbar has it).
+    in property <bool> search-field;
+
     public function focus-search() {
         bar.focus-field();
     }
@@ -1135,6 +1138,7 @@ export component ThreadListView inherits VerticalLayout {
     }
 
     bar := SearchBar {
+        show-field: root.search-field;
         active: root.searching;
         summary: root.search-summary;
         explanation: root.search-explanation;
@@ -1226,27 +1230,11 @@ export component ThreadListView inherits VerticalLayout {
         }
     }
 
-    // The three queues, as pills: the chosen one on a plate, each with what it holds.
-    if !root.searching && root.marked-count == 0 && root.folder-name == "": HorizontalLayout {
+    // The three queues are in the window's toolbar, as a segmented control; the list
+    // starts with its filters.
+    if !root.searching && root.marked-count == 0 && root.folder-name == "": Rectangle {
+        height: 8px;
         vertical-stretch: 0;
-        height: 50px;
-        padding-left: 14px;
-        padding-right: 14px;
-        padding-top: 12px;
-        padding-bottom: 10px;
-
-        QueueTabs {
-            names: ["To do", "Waiting", "Done"];
-            counts: root.count-labels;
-            descriptions: [
-                (root.counts.length > 0 ? root.counts[0] : 0) + " conversations",
-                (root.counts.length > 1 ? root.counts[1] : 0) + " conversations",
-                (root.counts.length > 2 ? root.counts[2] : 0) + " conversations",
-            ];
-            selected: root.active-tab;
-            chosen(i) => { root.tab-selected(i); }
-        }
-        Rectangle { horizontal-stretch: 1; }
     }
 
     // Les filtres rapides.

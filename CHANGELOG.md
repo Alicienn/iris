@@ -3,6 +3,25 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.0.0 — 2026-10-01
+
+### New
+- A new look inspired by Apple's own apps: light grey side columns, white pages, blue selections.
+- Home shows widgets: what's next with its Join button, a goal's ring, today's tasks, mail to answer and your week.
+- Each place has its side column, with Home, Mail, Calendar and Tasks switched at its top, Back and Forward beside them.
+- Choose Mac or Windows window buttons in Settings.
+- Tasks open on big tiles: Today, Upcoming, All tasks and From mail, each with its count.
+
+### Improved
+- Mail's actions, the To do, Waiting and Done tabs and search now sit in one toolbar above the list and the reader.
+- Conversations read like Apple Mail: no frames around messages, a larger subject, the selected row in blue.
+- The calendar marks today with a red disc and the current time in a red capsule; events are softer, with a coloured edge.
+- A list of tasks has its title in its colour, with how many are left beside it.
+- While a folder is open, it carries the selection instead of the account.
+- Buttons, fields, check boxes and pop-up menus look like the Mac's; settings are grouped, with switches.
+- Scroll bars show only while you scroll or point at them.
+- The status bar no longer cuts the side column short.
+
 ## 3.15.0 — 2026-10-01
 
 ### New

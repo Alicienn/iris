@@ -1,34 +1,35 @@
-# Iris, light. White panels on a light grey ground, one blue for what to act on.
+# Iris, light, in the manner of Apple's own apps: white panes, a sidebar a shade of
+# grey, the system blue for what to act on, red for today.
 
 name = "light"
 label = "Light"
 dark = false
 
 [color]
-# The window's ground, and the side columns a shade darker.
-background     = "#f7f7f6"
-surface_low    = "#f0f0ee"
-# Lists, the reader, cards: white.
+# The ground behind cards (Home's widgets, grouped settings), and the sidebar.
+background     = "#f2f2f4"
+surface_low    = "#ebebed"
+# Lists, the reader, the calendar's grid: white.
 surface        = "#ffffff"
-# What floats over the rest: menus, popovers, windows.
+# Cards and what floats over the rest: menus, popovers, windows.
 surface_high   = "#ffffff"
 panel          = "#ffffff"
-surface_hover  = "#14141e0b"
-surface_active = "#14141e13"
+surface_hover  = "#0000000a"
+surface_active = "#00000012"
 
-border         = "#e4e4e2"
-border_strong  = "#d3d3d0"
+border         = "#e3e3e6"
+border_strong  = "#d1d1d6"
 
-text           = "#18181b"
-text_secondary = "#4a4a52"
-text_muted     = "#6e6e77"
-text_faint     = "#a9a9b0"
+text           = "#1d1d1f"
+text_secondary = "#424245"
+text_muted     = "#6e6e73"
+text_faint     = "#a1a1a6"
 text_inverse   = "#ffffff"
 
-accent         = "#2c62e8"
-accent_soft    = "#2c62e817"
+accent         = "#007aff"
+accent_soft    = "#007aff1f"
 accent_text    = "#ffffff"
 
-error          = "#cc3527"
-warning        = "#a8660c"
-success        = "#1d8a4e"
+error          = "#ff3b30"
+warning        = "#ff9500"
+success        = "#34c759"

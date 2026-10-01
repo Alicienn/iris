@@ -1,0 +1,241 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+
+// Iris's own check box, pop-up button and number stepper, in the Mac's look. They keep
+// the standard widgets' names and properties, so a screen swaps its import and nothing
+// else: the style's versions were Fluent's, grey and large among Apple's controls.
+
+/// A square check and its words, the accent filling it when ticked.
+export component CheckBox inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+
+    function basculer() {
+        if (!root.enabled) { return; }
+        root.checked = !root.checked;
+        root.toggled();
+    }
+
+    height: 22px;
+    min-width: rang.preferred-width;
+    preferred-width: rang.preferred-width;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    accessible-role: checkbox;
+    accessible-label: root.text;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.basculer(); }
+
+    rang := HorizontalLayout {
+        spacing: 8px;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            background: root.checked ? Tokens.accent : Tokens.control;
+            border-width: root.checked ? 0px : 1px;
+            border-color: Tokens.border-strong;
+            animate background { duration: Tokens.instant; }
+            if root.checked: Icon {
+                data: Icons.check;
+                size: 12px;
+                weight: 2;
+                tint: Tokens.accent-text;
+            }
+        }
+        if root.text != "": Text {
+            text: root.text;
+            font-size: 13px;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.basculer(); }
+    }
+}
+
+/// The Mac's pop-up button: a raised key with the value and a chevron, its choices in
+/// a card under it.
+export component ComboBox inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    out property <string> current-value: root.current-index >= 0 && root.current-index < root.model.length
+        ? root.model[root.current-index] : "";
+    in property <bool> enabled: true;
+    callback selected(string);
+
+    min-width: 64px;
+    preferred-width: max(120px, valeur.preferred-width + 38px);
+    preferred-height: 26px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover && root.enabled ? Tokens.surface-hover : Tokens.control;
+    drop-shadow-blur: 2px;
+    drop-shadow-offset-y: 1px;
+    drop-shadow-color: Tokens.shadow-card.with-alpha(0.18);
+    opacity: root.enabled ? 1.0 : 0.45;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: combobox;
+    accessible-value: root.current-value;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { choix.show(); } }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 6px;
+        valeur := Text {
+            text: root.current-value;
+            font-size: 13px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-down;
+            size: 11px;
+            weight: 2;
+            tint: Tokens.text-muted;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { choix.show(); }
+    }
+
+    choix := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: max(root.width, 160px);
+        height: root.model.length * 26px + 10px;
+
+        Rectangle {
+            border-radius: Tokens.radius-medium;
+            background: Tokens.surface-high;
+            border-width: 1px;
+            border-color: Tokens.border;
+            drop-shadow-blur: Tokens.shadow-float-blur;
+            drop-shadow-offset-y: Tokens.shadow-float-y;
+            drop-shadow-color: Tokens.shadow-float;
+
+            VerticalLayout {
+                padding: 5px;
+                spacing: 0px;
+                for option[i] in root.model: Rectangle {
+                    height: 26px;
+                    border-radius: 5px;
+                    background: ligne.has-hover ? Tokens.accent : transparent;
+                    accessible-role: list-item;
+                    accessible-item-selected: i == root.current-index;
+                    accessible-label: option;
+                    accessible-action-default => {
+                        root.current-index = i;
+                        root.selected(option);
+                    }
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        Rectangle {
+                            width: 14px;
+                            if i == root.current-index: Icon {
+                                data: Icons.check;
+                                size: 12px;
+                                weight: 2;
+                                tint: ligne.has-hover ? Tokens.accent-text : Tokens.text;
+                            }
+                        }
+                        Text {
+                            text: option;
+                            font-size: 13px;
+                            color: ligne.has-hover ? Tokens.accent-text : Tokens.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    ligne := TouchArea {
+                        clicked => {
+                            root.current-index = i;
+                            root.selected(option);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A number, and two small arrows to step it within its bounds.
+export component SpinBox inherits Rectangle {
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in-out property <int> value;
+    in property <bool> enabled: true;
+    callback edited(int);
+
+    function pas(d: int) {
+        if (!root.enabled) { return; }
+        root.value = max(root.minimum, min(root.maximum, root.value + d));
+        root.edited(root.value);
+    }
+
+    preferred-height: 28px;
+    min-width: 64px;
+    preferred-width: 92px;
+    border-radius: Tokens.radius-small;
+    background: Tokens.surface;
+    border-width: 1px;
+    border-color: Tokens.border-strong;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    accessible-role: spinbox;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-enabled: root.enabled;
+    accessible-action-increment => { root.pas(1); }
+    accessible-action-decrement => { root.pas(-1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        Text {
+            text: root.value;
+            font-size: 13px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        VerticalLayout {
+            width: 22px;
+            Rectangle {
+                background: haut.has-hover ? Tokens.surface-hover : transparent;
+                Icon {
+                    data: Icons.chevron-up;
+                    size: 10px;
+                    weight: 2;
+                    tint: Tokens.text-muted;
+                }
+                haut := TouchArea { clicked => { root.pas(1); } }
+            }
+            Rectangle {
+                background: bas.has-hover ? Tokens.surface-hover : transparent;
+                Icon {
+                    data: Icons.chevron-down;
+                    size: 10px;
+                    weight: 2;
+                    tint: Tokens.text-muted;
+                }
+                bas := TouchArea { clicked => { root.pas(-1); } }
+            }
+        }
+    }
+}

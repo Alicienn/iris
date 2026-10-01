@@ -213,8 +213,8 @@ export component Modal inherits Rectangle {
         TouchArea {}
 
         contenu := VerticalLayout {
-            padding: 18px;
-            padding-top: 16px;
+            padding: 20px;
+            padding-top: 18px;
             spacing: 14px;
 
             HorizontalLayout {
@@ -224,8 +224,8 @@ export component Modal inherits Rectangle {
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
-                    font-size: 17px;
-                    font-weight: 600;
+                    font-size: 16px;
+                    font-weight: 700;
                     color: Tokens.text;
                     vertical-alignment: root.wrap-title ? top : center;
                     wrap: root.wrap-title ? word-wrap : no-wrap;

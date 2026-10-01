@@ -70,6 +70,26 @@ fn main() {
     tache("Prepare Thursday's review", jour(1), Some(9 * 60), 1);
     tache("Book the train to Lyon", jour(3), None, 0);
 
+    // A goal under way, for its widget.
+    let objectif = services
+        .store
+        .create_goal(
+            &iris_store::NewGoal {
+                title: "Internship applications".into(),
+                kind: iris_store::GoalKind::Count,
+                target: 10,
+                unit: "applications".into(),
+                due_day: jour(30).unwrap(),
+                color: "#af52de".into(),
+                ..Default::default()
+            },
+            now(),
+        )
+        .unwrap();
+    for _ in 0..6 {
+        services.store.log_goal(objectif, "", now()).unwrap();
+    }
+
     let cal = services.store.calendars().unwrap()[0].id;
     let a = |j: i64, h: u32, m: u32| {
         iris_calendar::time::zoned_millis(

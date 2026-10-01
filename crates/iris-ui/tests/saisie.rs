@@ -1164,8 +1164,8 @@ fn le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri() {
         let e = Rc::clone(&espaces);
         f.on_workspace_changed(move |w| e.borrow_mut().push(w));
     }
-    clic(&bouton(&f, "Home"));
-    assert_eq!(f.get_workspace(), 3, "the name opens Home");
+    clic(&par_role(&f, testing::AccessibleRole::Tab, "Home"));
+    assert_eq!(f.get_workspace(), 3, "the switcher opens Home");
     assert_eq!(*espaces.borrow(), [3]);
 
     taper(&f, "e#");
@@ -1840,14 +1840,14 @@ fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
             .expect("l'événement")
     };
 
-    // An hour lower (48 px an hour): moved by 60 minutes, the same day, not opened.
+    // An hour lower (52 px an hour): moved by 60 minutes, the same day, not opened.
     let b = bloc("Atelier");
     let (pos, taille) = (b.absolute_position(), b.size());
     let milieu = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + 12.0);
     glisser(
         &f,
         milieu,
-        slint::LogicalPosition::new(milieu.x, milieu.y + 48.0),
+        slint::LogicalPosition::new(milieu.x, milieu.y + 52.0),
     );
     assert_eq!(*deplaces.borrow(), [("5:0".to_string(), 0, 60)]);
     assert_eq!(*ouverts.borrow(), 0, "a drag is not a click");
@@ -1856,7 +1856,7 @@ fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
     let b = bloc("Atelier");
     let (pos, taille) = (b.absolute_position(), b.size());
     let bord = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + taille.height - 2.0);
-    glisser(&f, bord, slint::LogicalPosition::new(bord.x, bord.y + 24.0));
+    glisser(&f, bord, slint::LogicalPosition::new(bord.x, bord.y + 26.0));
     assert_eq!(*etires.borrow(), [("5:0".to_string(), 30)]);
     // While it was stretched, the week was asked to follow it, not only at the end.
     assert!(
@@ -1872,7 +1872,7 @@ fn un_evenement_se_glisse_et_s_etire_sans_s_ouvrir() {
     glisser(
         &f,
         milieu,
-        slint::LogicalPosition::new(milieu.x, milieu.y + 48.0),
+        slint::LogicalPosition::new(milieu.x, milieu.y + 52.0),
     );
     assert_eq!(deplaces.borrow().len(), 1);
 

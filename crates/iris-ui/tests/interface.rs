@@ -206,12 +206,12 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
 
 // --- Les onglets ---
 
-/// Les onglets des files, sans ceux de la barre de titre (Mail, Calendar), qui ont
-/// le même rôle et désignent autre chose.
+/// Les onglets des files, sans ceux du sélecteur de lieux (Home, Mail, Calendar,
+/// Tasks), qui ont le même rôle et désignent autre chose.
 fn onglets_des_files(f: &AppWindow) -> Vec<String> {
     libelles(f, testing::AccessibleRole::Tab)
         .into_iter()
-        .filter(|l| l != "Mail" && l != "Calendar" && l != "Tasks")
+        .filter(|l| l != "Home" && l != "Mail" && l != "Calendar" && l != "Tasks")
         .collect()
 }
 

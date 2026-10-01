@@ -58,7 +58,23 @@ export component ScrollView inherits Rectangle {
         }
     }
 
+    // Shown while it moves and a moment after, or while pointed at, as the Mac does:
+    // a bar always there was a dark stroke over every list.
+    property <length> position: f.content-y;
+    property <bool> bouge;
+    changed position => {
+        root.bouge = true;
+        repos.restart();
+    }
+    repos := Timer {
+        interval: 900ms;
+        running: root.bouge;
+        triggered => { root.bouge = false; }
+    }
+
     if root.montre: Rectangle {
+        opacity: root.bouge || root.saisie || barre.has-hover ? 1 : 0;
+        animate opacity { duration: 250ms; }
         width: root.saisie ? 6px : 3px;
         animate width { duration: 150ms; easing: ease-out; }
         x: parent.width - self.width - 2px;

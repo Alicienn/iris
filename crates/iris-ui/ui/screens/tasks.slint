@@ -4,7 +4,7 @@ import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
 import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
 import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
-import { Nav, SectionTitle } from "@iris/lists/nav.slint";
+import { Nav, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
@@ -14,8 +14,9 @@ import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData, TaskTokenData,
     TaskOverviewData, GoalData, GoalLogData
 } from "@iris/types.slint";
-import { ComboBox } from "std-widgets.slint";
+import { ComboBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
+import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 
 // The tasks workspace: where things are to do (the rail), what there is to do (a plate
 // of rows, under the day when it is Today), the line to add more, and the task chosen.
@@ -52,7 +53,7 @@ component PlaceRow inherits Rectangle {
     }
 
     height: Nav.row-height;
-    border-radius: Tokens.radius-medium;
+    border-radius: Tokens.radius-small;
     border-width: root.targeted ? 1.5px : 0px;
     border-color: Tokens.accent;
     background: root.targeted ? Tokens.accent.transparentize(0.8)
@@ -76,35 +77,132 @@ component PlaceRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 10px;
+        padding-left: 6px;
         padding-right: 8px;
-        spacing: 10px;
+        spacing: 9px;
 
-        if root.place.is-list: Dot {
+        // A list: its round icon in its colour, as Reminders' lists have.
+        if root.place.is-list: Rectangle {
             y: (parent.height - self.height) / 2;
-            tint: root.place.color;
-            size: 9px;
+            width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            background: root.place.color;
+            border-width: root.place.selected ? 1.5px : 0px;
+            border-color: Tokens.accent-text;
+            Icon {
+                data: Icons.list;
+                size: 12px;
+                tint: Tokens.accent-text;
+            }
         }
         if !root.place.is-list: Icon {
             y: (parent.height - self.height) / 2;
             data: root.place.icon;
-            size: 15px;
-            tint: root.place.selected ? Tokens.text : Tokens.text-secondary;
+            size: 16px;
+            tint: Nav.icon-ink(root.place.selected, Tokens.accent);
         }
         Text {
             text: root.place.name;
             font-size: Nav.label-size;
-            font-weight: root.place.selected ? 600 : 400;
-            color: root.place.selected || root.targeted ? Tokens.text : Tokens.text-secondary;
+            color: Nav.ink(root.place.selected, false);
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
         }
         if root.place.count > 0: Text {
             text: root.place.count;
-            font-size: 11px;
-            color: root.place.selected ? Tokens.text-secondary : Tokens.text-muted;
+            font-size: 12px;
+            color: Nav.count-ink(root.place.selected);
             vertical-alignment: center;
+        }
+    }
+}
+
+// A smart view as Reminders shows it: a tile, its round icon in its colour, how many
+// there are in large, its name under. Today takes a task let go on it.
+component PlaceTile inherits Rectangle {
+    in property <TaskPlaceData> place;
+    in property <color> tint;
+    in property <bool> carrying;
+    in property <length> carry-x;
+    in property <length> carry-y;
+    in property <int> drop;
+    in property <length> drop-x;
+    in property <length> drop-y;
+    callback chosen(string);
+    callback dropped(string);
+
+    property <bool> droppable: root.place.key == "today";
+    pure function inside(x: length, y: length) -> bool {
+        return x >= root.absolute-position.x && x < root.absolute-position.x + root.width
+            && y >= root.absolute-position.y && y < root.absolute-position.y + root.height;
+    }
+    property <bool> targeted: root.carrying && root.droppable && root.inside(root.carry-x, root.carry-y);
+    changed drop => {
+        if (root.droppable && root.inside(root.drop-x, root.drop-y)) {
+            root.dropped(root.place.key);
+        }
+    }
+    property <bool> on: root.place.selected;
+
+    // Equal halves of the row whatever their words: the stretch shares only what is
+    // left above each one's preferred width.
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    height: 64px;
+    border-radius: 10px;
+    border-width: root.targeted ? 2px : 0px;
+    border-color: Tokens.accent;
+    background: root.on ? Tokens.accent : touch.has-hover ? Tokens.surface-high.mix(Tokens.text, 0.96) : Tokens.surface-high;
+    drop-shadow-blur: Tokens.shadow-card-blur;
+    drop-shadow-offset-y: Tokens.shadow-card-y;
+    drop-shadow-color: Tokens.shadow-card;
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: button;
+    accessible-label: root.place.name;
+    accessible-item-selected: root.on;
+    accessible-action-default => { root.chosen(root.place.key); }
+
+    touch := TouchArea {
+        clicked => { root.chosen(root.place.key); }
+    }
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 4px;
+        HorizontalLayout {
+            Rectangle {
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                background: root.on ? Tokens.accent-text : root.tint;
+                Icon {
+                    data: root.place.icon;
+                    size: 14px;
+                    tint: root.on ? Tokens.accent : Tokens.accent-text;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: root.place.count;
+                font-family: Tokens.font-display;
+                font-size: 20px;
+                font-weight: 700;
+                color: root.on ? Tokens.accent-text : Tokens.text;
+                vertical-alignment: top;
+            }
+        }
+        Text {
+            text: root.place.name;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: root.on ? Tokens.accent-text : Tokens.text-muted;
+            overflow: elide;
         }
     }
 }
@@ -115,11 +213,13 @@ component WeekCard inherits Rectangle {
     in property <[float]> bars;
     in property <int> today;
 
+    // A card like the tiles above it, its bars green as on Home.
     height: 112px;
-    border-radius: Tokens.radius-medium;
-    border-width: 1px;
-    border-color: Tokens.border;
-    background: Tokens.surface-low;
+    border-radius: 10px;
+    background: Tokens.surface-high;
+    drop-shadow-blur: Tokens.shadow-card-blur;
+    drop-shadow-offset-y: Tokens.shadow-card-y;
+    drop-shadow-color: Tokens.shadow-card;
 
     accessible-role: text;
     accessible-label: root.done + " done this week";
@@ -134,14 +234,14 @@ component WeekCard inherits Rectangle {
                 text: root.done;
                 font-family: Tokens.font-display;
                 font-size: 24px;
-                font-weight: 300;
+                font-weight: 700;
                 color: Tokens.text;
                 vertical-alignment: bottom;
             }
             Text {
                 text: "done this week";
                 font-size: 13px;
-                color: Tokens.text-secondary;
+                color: Tokens.text-muted;
                 vertical-alignment: bottom;
                 y: -3px;
             }
@@ -153,9 +253,9 @@ component WeekCard inherits Rectangle {
             for part[i] in root.bars: Rectangle {
                 Rectangle {
                     y: parent.height - self.height;
-                    height: max(2px, parent.height * part);
-                    border-radius: 2px;
-                    background: i == root.today ? Tokens.text : Tokens.text.transparentize(0.89);
+                    height: max(3px, parent.height * part);
+                    border-radius: 3px;
+                    background: i <= root.today && part > 0 ? Tokens.green : Tokens.border;
                 }
             }
         }
@@ -309,19 +409,25 @@ component TaskRow inherits Rectangle {
         }
     }
 
-    height: root.tache ? (root.has-line ? 60px : 48px) : 38px;
+    // A row as Reminders draws it: no card, a circle, the words, a hairline under them;
+    // the chosen one on a soft plate of the accent.
+    height: root.tache ? (root.has-line ? 54px : 42px) : 40px;
     border-radius: root.tache ? Tokens.radius-medium : 0px;
-    // Just off the page: the lowest of the shadows.
-    drop-shadow-blur: root.tache ? Tokens.shadow-card-blur : 0px;
-    drop-shadow-offset-y: Tokens.shadow-card-y;
-    drop-shadow-color: root.tache ? Tokens.shadow-card : transparent;
-    border-width: root.tache ? (root.halo > 0.02 ? 1.5px : 1px) : 0px;
-    border-color: root.halo > 0.02 ? Tokens.accent.transparentize(1 - 0.8 * root.halo)
-        : root.item.selected ? Tokens.accent.transparentize(0.45)
-        : touch.has-hover ? Tokens.border-strong : Tokens.border;
+    border-width: root.halo > 0.02 ? 1.5px : 0px;
+    border-color: Tokens.accent.transparentize(1 - 0.8 * root.halo);
     background: !root.tache ? transparent
-        : root.item.selected ? Tokens.surface-high.mix(Tokens.accent, 0.9)
-        : Tokens.surface-high.mix(Tokens.accent, 1 - 0.12 * root.halo);
+        : root.item.selected ? Tokens.accent-soft
+        : root.halo > 0.02 ? Tokens.accent.transparentize(1 - 0.12 * root.halo)
+        : touch.has-hover ? Tokens.surface-hover : transparent;
+
+    // The hairline, from where the words start to the end.
+    if root.tache && !root.item.selected: Rectangle {
+        x: 48px;
+        y: parent.height - 1px;
+        width: parent.width - 48px;
+        height: 1px;
+        background: Tokens.border;
+    }
     // Picked up, the row fades where it was: it is in the hand.
     opacity: (root.carrying ? 0.35 : 1.0) * (0.2 + 0.8 * root.arrivee);
     animate background, border-color { duration: Tokens.quick; }
@@ -375,15 +481,15 @@ component TaskRow inherits Rectangle {
 
     // A section's title, with its count; the completed ones can be cleared from it.
     if !root.tache: HorizontalLayout {
-        padding-left: 8px;
+        padding-left: 12px;
         padding-right: 2px;
-        padding-top: 10px;
+        padding-top: 14px;
         spacing: 7px;
         Text {
             text: root.item.title;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 600;
-            color: root.item.overdue ? Tokens.error : Tokens.text-secondary;
+            color: root.item.overdue ? Tokens.red : Tokens.text-muted;
             vertical-alignment: center;
         }
         Text {
@@ -403,7 +509,7 @@ component TaskRow inherits Rectangle {
 
     if root.tache: HorizontalLayout {
         x: (1 - root.arrivee) * -16px;
-        padding-left: 14px;
+        padding-left: 12px;
         padding-right: 10px;
         spacing: 12px;
 
@@ -1142,21 +1248,23 @@ component AddBar inherits Rectangle {
 
     public function focus-field() { champ.focus(); }
 
-    height: 50px;
-    border-radius: Tokens.radius-large;
-    border-width: 1px;
-    border-color: champ.has-focus ? Tokens.border-strong.mix(Tokens.text, 0.6) : Tokens.border-strong;
-    background: Tokens.surface;
+    // As Reminders' "New reminder": no box, the accent's plus where a circle would be,
+    // a hairline over it; a soft plate while it is typed in.
+    height: 46px;
+    border-radius: Tokens.radius-medium;
+    background: champ.has-focus ? Tokens.surface-hover : transparent;
 
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 8px;
-        spacing: 10px;
+        spacing: 12px;
         Icon {
             y: (parent.height - self.height) / 2;
+            width: 20px;
             data: Icons.plus;
-            size: 15px;
-            tint: Tokens.text-muted;
+            size: 18px;
+            weight: 2.0;
+            tint: Tokens.accent;
         }
         champ := TextField {
             y: (parent.height - self.height) / 2;
@@ -1375,24 +1483,62 @@ export component TasksView inherits Rectangle {
     property <length> drop-x;
     property <length> drop-y;
 
-    // The window's ground, for the tasks' cards to stand on.
-    background: Tokens.background;
+    // A list is a white page, as in Reminders; a goal's cards stand on the grey ground.
+    background: root.page == 0 ? Tokens.surface : Tokens.background;
 
     changed focus-add-request => { ajout.focus-field(); }
 
     HorizontalLayout {
-        // --- Left: the views, the lists, and the week ---
-        Rail {
-            rail-width: 232px;
+        // --- Left: the window's sidebar: the smart views as tiles, then the lists,
+        // the goals, and the week ---
+        SidebarFrame {
+            // Today, Upcoming, All tasks, From mail: four tiles, two by two, as
+            // Reminders has them.
+            if root.places.length >= 4: VerticalLayout {
+                spacing: 8px;
+                padding-bottom: 6px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    for k in [0, 1]: PlaceTile {
+                        place: root.places[k];
+                        tint: k == 0 ? Tokens.blue : Tokens.red;
+                        carrying: root.carried >= 0;
+                        carry-x: root.carry-x;
+                        carry-y: root.carry-y;
+                        drop: root.drop;
+                        drop-x: root.drop-x;
+                        drop-y: root.drop-y;
+                        chosen(c) => { root.place-chosen(c); }
+                        dropped(c) => { root.task-dropped(root.dropped-id, c); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    for k in [2, 3]: PlaceTile {
+                        place: root.places[k];
+                        tint: k == 2 ? Tokens.grey : Tokens.orange;
+                        carrying: root.carried >= 0;
+                        carry-x: root.carry-x;
+                        carry-y: root.carry-y;
+                        drop: root.drop;
+                        drop-x: root.drop-x;
+                        drop-y: root.drop-y;
+                        chosen(c) => { root.place-chosen(c); }
+                        dropped(c) => { root.task-dropped(root.dropped-id, c); }
+                    }
+                }
+            }
 
             for place[i] in root.places: VerticalLayout {
                 // Before the lists: the goals, their title leading to all of them.
                 if place.is-list && (i == 0 || !root.places[i - 1].is-list): VerticalLayout {
+                    // As SectionRow, its title a button to all the goals.
                     HorizontalLayout {
-                        height: 38px;
-                        padding-left: 9px;
-                        padding-right: 2px;
+                        height: 31px;
+                        padding-left: 8px;
+                        padding-right: 0px;
                         padding-top: 12px;
+                        padding-bottom: 4px;
                         Rectangle {
                             horizontal-stretch: 1;
                             accessible-role: button;
@@ -1413,8 +1559,8 @@ export component TasksView inherits Rectangle {
                             y: (parent.height - self.height) / 2;
                             icon: Icons.plus;
                             label: "New goal";
-                            button-size: 26px;
-                            icon-size: 15px;
+                            button-size: 20px;
+                            icon-size: 14px;
                             clicked => { root.new-goal(); }
                         }
                     }
@@ -1424,25 +1570,19 @@ export component TasksView inherits Rectangle {
                     }
                 }
                 // A title above the first list, with the way to make another.
-                if place.is-list && (i == 0 || !root.places[i - 1].is-list): HorizontalLayout {
-                    height: 38px;
-                    padding-left: 9px;
-                    padding-right: 2px;
-                    padding-top: 12px;
-                    SectionTitle {
-                        text: "Lists";
-                        horizontal-stretch: 1;
-                    }
+                if place.is-list && (i == 0 || !root.places[i - 1].is-list): SectionRow {
+                    text: "My Lists";
                     IconButton {
                         y: (parent.height - self.height) / 2;
                         icon: Icons.plus;
                         label: "New list";
-                        button-size: 26px;
-                        icon-size: 15px;
+                        button-size: 20px;
+                        icon-size: 14px;
                         clicked => { root.list-new(); }
                     }
                 }
-                PlaceRow {
+                // The four first are the tiles above.
+                if i >= 4: PlaceRow {
                     place: place;
                     carrying: root.carried >= 0;
                     carry-x: root.carry-x;
@@ -1466,6 +1606,32 @@ export component TasksView inherits Rectangle {
 
         // --- Middle: the day, what there is to do, and the line to add more; or a
         // goal; or all of them ---
+        // The toolbar runs over the page and the task's panel alike: the window's
+        // buttons stay in its corner.
+        VerticalLayout {
+            horizontal-stretch: 1;
+
+            // The window's toolbar: a new task. Over a goal's grey page, the page's
+            // own grey and no line.
+            WindowToolbar {
+                hairline: root.page == 0;
+                background: root.page == 0 ? Tokens.surface : Tokens.background;
+                Rectangle { horizontal-stretch: 1; }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.plus;
+                    label: "New task";
+                    shortcut: "N";
+                    button-size: 30px;
+                    icon-size: 18px;
+                    tint: Tokens.accent;
+                    tinted: true;
+                    clicked => { ajout.focus-field(); }
+                }
+            }
+
+        HorizontalLayout {
+            vertical-stretch: 1;
         VerticalLayout {
             horizontal-stretch: 1;
 
@@ -1532,32 +1698,48 @@ export component TasksView inherits Rectangle {
         if root.page == 0: HorizontalLayout {
             vertical-stretch: 1;
         Rectangle { horizontal-stretch: 1; }
-        VerticalLayout {
+        colonne-page := VerticalLayout {
             horizontal-stretch: 1000;
             max-width: 840px;
 
-            // The name of the view, the day beside it on Today, how much is done.
+            // The name of the view in large, in its list's colour, and how many are open
+            // beside it, as Reminders writes them; the day and how much is done under.
+            property <color> encre: root.overview.tint.alpha == 0 ? Tokens.accent : root.overview.tint;
             HorizontalLayout {
-                height: 66px;
-                padding-left: 32px;
+                height: 52px;
+                padding-left: 40px;
                 padding-right: 32px;
-                padding-top: 22px;
-                padding-bottom: 12px;
+                padding-top: 8px;
                 spacing: 12px;
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
-                    font-size: 22px;
+                    font-size: 30px;
+                    font-weight: 700;
+                    color: colonne-page.encre;
+                    vertical-alignment: bottom;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                if root.overview.open > 0: Text {
+                    text: root.overview.open;
+                    font-family: Tokens.font-display;
+                    font-size: 28px;
                     font-weight: 600;
-                    color: Tokens.text;
+                    color: colonne-page.encre;
                     vertical-alignment: bottom;
                 }
+            }
+            HorizontalLayout {
+                height: 30px;
+                padding-left: 40px;
+                padding-right: 32px;
+                spacing: 12px;
                 Text {
                     text: root.subtitle;
                     font-size: 13px;
                     color: Tokens.text-muted;
-                    vertical-alignment: bottom;
-                    y: -2px;
+                    vertical-alignment: center;
                     horizontal-stretch: 1;
                 }
                 if root.overview.progress != "": HorizontalLayout {
@@ -1566,14 +1748,13 @@ export component TasksView inherits Rectangle {
                     Text {
                         text: root.overview.progress;
                         font-size: 12.5px;
-                        color: Tokens.text-secondary;
-                        vertical-alignment: bottom;
-                        y: -2px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
                     }
                     Rectangle {
                         width: 120px;
                         Rectangle {
-                            y: parent.height - 8px;
+                            y: (parent.height - self.height) / 2;
                             height: 5px;
                             border-radius: 2.5px;
                             background: Tokens.surface-active;
@@ -1618,11 +1799,12 @@ export component TasksView inherits Rectangle {
                 VerticalLayout {
                     width: liste-taches.visible-width;
                     alignment: start;
-                    padding-left: 32px;
+                    // The rows' own 12 px inset brings their circles to the title's 40.
+                    padding-left: 28px;
                     padding-right: 32px;
                     padding-top: 6px;
                     padding-bottom: 12px;
-                    spacing: 6px;
+                    spacing: 0px;
                         for ligne[i] in root.rows: TaskRow {
                             item: ligne;
                             selected(r) => { root.row-selected(r); }
@@ -1729,6 +1911,8 @@ export component TasksView inherits Rectangle {
             open-mail => { root.open-mail(); }
             delete => { root.delete(); }
             closed => { root.detail-closed(); }
+        }
+        }
         }
     }
 

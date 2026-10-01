@@ -1,0 +1,257 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { TextField } from "@iris/controls/field.slint";
+import { QueueTabs } from "@iris/controls/choice.slint";
+import { WindowToolbar } from "@iris/shell/chrome.slint";
+
+// The search field as Apple puts it in a toolbar: a grey capsule, the magnifier in it.
+export component SearchCapsule inherits Rectangle {
+    in property <bool> active;
+    in-out property <string> query;
+    in property <string> placeholder: "Search";
+    callback submitted(string);
+    callback cleared();
+
+    public function focus-field() {
+        champ.focus();
+        champ.select-all();
+    }
+
+    height: 28px;
+    border-radius: 7px;
+    background: Tokens.well;
+    border-width: champ.has-focus ? 2px : 0px;
+    border-color: Tokens.accent.transparentize(0.5);
+
+    HorizontalLayout {
+        padding-right: 2px;
+        champ := TextField {
+            bare: true;
+            icon: Icons.search;
+            font-size: 12.5px;
+            accessible-label: "Search";
+            placeholder-text: root.placeholder;
+            shortcut: "/";
+            text <=> root.query;
+            accepted(t) => { root.submitted(t); }
+            // Emptying the field is enough to leave the search.
+            edited(t) => {
+                if (t == "" && root.active) { root.cleared(); }
+            }
+        }
+        if root.active: Rectangle {
+            width: 24px;
+            accessible-role: button;
+            accessible-label: "Leave search";
+            accessible-action-default => {
+                root.query = "";
+                root.cleared();
+            }
+            Icon {
+                data: Icons.window-close;
+                size: 11px;
+                tint: fermer.has-hover ? Tokens.text : Tokens.text-muted;
+            }
+            fermer := TouchArea {
+                clicked => {
+                    root.query = "";
+                    root.cleared();
+                }
+            }
+        }
+    }
+}
+
+// The mail's toolbar, across the list and the reader: where one is and how much is to
+// do, the three queues, then writing, what acts on the open conversation, and search.
+export component MailToolbar inherits WindowToolbar {
+    in property <string> title;
+    in property <string> subtitle;
+    /// The three queues show (not in a folder, not while searching).
+    in property <bool> queues;
+    in property <[string]> count-labels;
+    in property <[int]> counts;
+    in property <int> active-tab;
+    /// A conversation is open: what acts on it shows.
+    in property <bool> has-thread;
+    in property <bool> starred;
+    in property <bool> focused;
+    in property <bool> searching;
+    in-out property <string> search-query;
+
+    callback tab-selected(int);
+    callback compose();
+    callback mark-done();
+    callback waiting();
+    callback to-task();
+    callback archive();
+    callback delete-thread();
+    callback toggle-star();
+    callback toggle-focus();
+    callback snooze-menu(length, length);
+    callback more-menu(length, length);
+    callback search-submitted(string);
+    callback search-cleared();
+
+    public function focus-search() {
+        recherche.focus-field();
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        min-width: 0px;
+        horizontal-stretch: 1;
+        Text {
+            text: root.title;
+            font-family: Tokens.font-display;
+            font-size: 15px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 0;
+            // Its whole name, up to a point: squeezed by the buttons, it read "All …".
+            min-width: min(self.preferred-width, 160px);
+            max-width: 220px;
+        }
+        Text {
+            text: root.subtitle;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 0;
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+
+    // The three queues, in the middle, as Apple's segmented control.
+    if root.queues: QueueTabs {
+        y: (parent.height - self.height) / 2;
+        names: ["To do", "Waiting", "Done"];
+        counts: root.count-labels;
+        descriptions: [
+            (root.counts.length > 0 ? root.counts[0] : 0) + " conversations",
+            (root.counts.length > 1 ? root.counts[1] : 0) + " conversations",
+            (root.counts.length > 2 ? root.counts[2] : 0) + " conversations",
+        ];
+        selected: root.active-tab;
+        chosen(i) => { root.tab-selected(i); }
+    }
+    Rectangle { horizontal-stretch: 1; }
+
+    // The actions side by side, no gap between them, as a Mac toolbar groups them.
+    HorizontalLayout {
+    spacing: 0px;
+    horizontal-stretch: 0;
+    IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.pencil;
+        label: "Write a new message";
+        shortcut: "C";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => { root.compose(); }
+    }
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.check;
+        label: "Mark as done";
+        shortcut: "E";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => { root.mark-done(); }
+    }
+    // Snooze asks until when; "S" goes straight to tomorrow morning.
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.clock;
+        label: "Snooze…";
+        shortcut: "S";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => {
+            root.snooze-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px);
+        }
+    }
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.hourglass;
+        label: "Move to Waiting";
+        shortcut: "W";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => { root.waiting(); }
+    }
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.task;
+        label: "Make it a task";
+        shortcut: "T";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => { root.to-task(); }
+    }
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.archive;
+        label: "Archive";
+        shortcut: "A";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => { root.archive(); }
+    }
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.trash;
+        label: "Delete";
+        shortcut: "Del";
+        button-size: 28px;
+        icon-size: 17px;
+        danger: true;
+        clicked => { root.delete-thread(); }
+    }
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.star;
+        label: root.starred ? "Remove star" : "Star";
+        shortcut: "F";
+        button-size: 28px;
+        icon-size: 17px;
+        filled: root.starred;
+        bounce: true;
+        tinted: true;
+        tint: root.starred ? Tokens.orange : Tokens.text-muted;
+        clicked => { root.toggle-star(); }
+    }
+    // The conversation alone on screen: the accounts and the list step aside.
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: root.focused ? Icons.collapse : Icons.expand;
+        label: root.focused ? "Leave full screen" : "Read full screen";
+        button-size: 28px;
+        icon-size: 16px;
+        active: root.focused;
+        clicked => { root.toggle-focus(); }
+    }
+    // The rest, less often: forward, read or unread, the source.
+    if root.has-thread: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.more;
+        label: "More actions";
+        button-size: 28px;
+        icon-size: 17px;
+        clicked => {
+            root.more-menu(self.absolute-position.x + self.width, self.absolute-position.y + self.height + 6px);
+        }
+    }
+    }
+    Rectangle { width: 4px; }
+    recherche := SearchCapsule {
+        y: (parent.height - self.height) / 2;
+        width: 210px;
+        active: root.searching;
+        query <=> root.search-query;
+        submitted(q) => { root.search-submitted(q); }
+        cleared => { root.search-cleared(); }
+    }
+}

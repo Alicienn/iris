@@ -2286,6 +2286,7 @@ pub fn wire_settings(
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
         fenetre.set_group_by_tags(reglages.accounts_by_tag);
         fenetre.set_home_at_startup(reglages.home_at_startup);
+        fenetre.set_window_mac_buttons(reglages.mac_window_buttons);
         fenetre.set_oauth_google_id(reglages.oauth.google_client_id.as_str().into());
         fenetre.set_oauth_google_secret(reglages.oauth.google_client_secret.as_str().into());
         fenetre.set_oauth_microsoft_id(reglages.oauth.microsoft_client_id.as_str().into());
@@ -2489,6 +2490,7 @@ pub fn wire_settings(
             // fait la fermeture de la fenêtre, et de l'icône qui va avec.
             reglages.keep_running = fenetre.get_keep_running();
             reglages.home_at_startup = fenetre.get_home_at_startup();
+            reglages.mac_window_buttons = fenetre.get_window_mac_buttons();
 
             let mut plaintes: Vec<String> = Vec::new();
 

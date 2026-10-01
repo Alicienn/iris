@@ -323,24 +323,7 @@ fn apercu(
         Vec::new()
     };
 
-    // Done this week, Monday to Sunday.
-    let lundi = today - Duration::days(today.weekday().num_days_from_monday() as i64);
-    let mut jours = [0usize; 7];
-    for t in services.store.done_tasks(None, 500).unwrap_or_default() {
-        let Some(fait) = t.done_at else { continue };
-        let Some(j) = Local
-            .timestamp_millis_opt(fait.0)
-            .single()
-            .map(|d| d.date_naive())
-        else {
-            continue;
-        };
-        let ecart = (j - lundi).num_days();
-        if (0..7).contains(&ecart) {
-            jours[ecart as usize] += 1;
-        }
-    }
-    let plus = jours.iter().copied().max().unwrap_or(0).max(1) as f32;
+    let semaine = week(services, today);
 
     TaskOverviewData {
         progress: if total > 0 {
@@ -358,11 +341,44 @@ fn apercu(
         day: today.format("%-d").to_string().into(),
         month: today.format("%B").to_string().into(),
         agenda: ModelRc::new(VecModel::from(agenda)),
-        week_done: jours.iter().sum::<usize>() as i32,
-        week_bars: ModelRc::new(VecModel::from(
-            jours.iter().map(|&n| n as f32 / plus).collect::<Vec<_>>(),
-        )),
-        week_today: today.weekday().num_days_from_monday() as i32,
+        week_done: semaine.done,
+        week_bars: ModelRc::new(VecModel::from(semaine.bars)),
+        week_today: semaine.today,
+        tint: Default::default(),
+        open: 0,
+    }
+}
+
+/// What was done this week: how many tasks, each day from Monday as a share of the
+/// busiest, and which day is today.
+pub struct Week {
+    pub done: i32,
+    pub bars: Vec<f32>,
+    pub today: i32,
+}
+
+pub fn week(services: &Services, today: NaiveDate) -> Week {
+    let lundi = today - Duration::days(today.weekday().num_days_from_monday() as i64);
+    let mut jours = [0usize; 7];
+    for t in services.store.done_tasks(None, 500).unwrap_or_default() {
+        let Some(fait) = t.done_at else { continue };
+        let Some(j) = Local
+            .timestamp_millis_opt(fait.0)
+            .single()
+            .map(|d| d.date_naive())
+        else {
+            continue;
+        };
+        let ecart = (j - lundi).num_days();
+        if (0..7).contains(&ecart) {
+            jours[ecart as usize] += 1;
+        }
+    }
+    let plus = jours.iter().copied().max().unwrap_or(0).max(1) as f32;
+    Week {
+        done: jours.iter().sum::<usize>() as i32,
+        bars: jours.iter().map(|&n| n as f32 / plus).collect(),
+        today: today.weekday().num_days_from_monday() as i32,
     }
 }
 
@@ -1013,13 +1029,26 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         .filter(|l| l.kind == 0)
         .map(|l| l.id as i64)
         .collect();
-    f.set_task_overview(apercu(
+    let mut vue_d_ensemble = apercu(
         services,
         etat.vue,
         a_faire + faites.len(),
         faites.len(),
         maintenant,
-    ));
+    );
+    // The big title in its list's colour (the accent for the other views), with how
+    // many are open, as Reminders writes it.
+    vue_d_ensemble.open = a_faire as i32;
+    vue_d_ensemble.tint = match etat.vue {
+        Vue::List(id) => etat
+            .listes
+            .iter()
+            .find(|l| l.id == id)
+            .map(|l| crate::calendar::couleur(&l.color))
+            .unwrap_or_default(),
+        _ => slint::Color::default(),
+    };
+    f.set_task_overview(vue_d_ensemble);
     f.set_tasks_title(titre_vue(etat.vue, &etat.listes).into());
     f.set_tasks_subtitle(match etat.vue {
         Vue::Today => today.format("%A %-d %B").to_string().into(),

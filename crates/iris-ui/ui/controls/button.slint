@@ -1,6 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
-import { Kbd } from "@iris/base/atoms.slint";
 
 export { IconButton }
 
@@ -40,17 +39,21 @@ export component Button inherits Rectangle {
         : root.kind == ButtonKind.ghost && !touch.has-hover ? Tokens.text-secondary
         : Tokens.text;
 
-    height: root.size == ButtonSize.sm ? 28px : 30px;
-    width: rang.preferred-width + (root.size == ButtonSize.sm ? 18px : 22px);
-    border-radius: Tokens.radius-medium;
-    border-width: root.kind == ButtonKind.secondary ? 1px : 0px;
-    border-color: Tokens.border-strong;
+    // The Mac's push button: low, a small radius, a raised white key when secondary.
+    height: root.size == ButtonSize.sm ? 24px : 28px;
+    width: rang.preferred-width + (root.size == ButtonSize.sm ? 20px : 24px);
+    border-radius: Tokens.radius-small;
+    border-width: 0px;
     background: root.kind == ButtonKind.primary
         ? (touch.pressed ? Tokens.accent.darker(0.18) : touch.has-hover ? Tokens.accent.darker(0.07) : Tokens.accent)
         : root.kind == ButtonKind.danger
         ? (touch.pressed ? Tokens.error.darker(0.2) : touch.has-hover ? Tokens.error.darker(0.08) : Tokens.error)
         : (touch.pressed ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover
-            : root.kind == ButtonKind.secondary ? Tokens.surface : transparent);
+            : root.kind == ButtonKind.secondary ? Tokens.control : transparent);
+    property <bool> releve: root.kind != ButtonKind.ghost;
+    drop-shadow-blur: root.releve ? 2px : 0px;
+    drop-shadow-offset-y: root.releve ? 1px : 0px;
+    drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.18) : transparent;
     opacity: root.enabled ? 1.0 : 0.45;
     animate background, border-color { duration: Tokens.instant; }
 
@@ -77,16 +80,12 @@ export component Button inherits Rectangle {
         if root.text != "": Text {
             text: root.text;
             font-size: root.size == ButtonSize.sm ? 12.5px : 13px;
-            font-weight: root.plein ? 600 : 500;
+            font-weight: root.plein ? 500 : 400;
             color: root.encre;
             vertical-alignment: center;
         }
-        if root.shortcut != "": Kbd {
-            y: (parent.height - self.height) / 2;
-            keys: root.shortcut;
-            on-accent: root.plein;
-            ink: root.encre;
-        }
+        // The key is said to a screen reader and in the shortcuts' help, not drawn: a
+        // keycap widened every button past the Mac's.
     }
 
     touch := TouchArea {

@@ -517,3 +517,25 @@ the application is brought to it screen by screen.
       three shadow heights; our own thin scroll bar; tasks reordered by dragging
       (`set_task_positions`, the order given after the hour within a day); Send and
       Reply all laid out again.
+
+## E41 — After Apple's own apps (4.0.0)
+
+An HTML mockup in the style of Apple's Mail, Calendar and Reminders, with a Windows
+variant, brought into the application.
+
+- [x] **S41.1** The window chrome: each place's side column with the four-place
+      switcher, back and forward at its top, settings and the palette at its foot; a
+      52 px toolbar over the content; the Mac's lights or Windows' buttons, chosen in
+      the settings. The rail and the title strip removed.
+- [x] **S41.2** Apple's palette in both themes, segmented controls on a grey well,
+      round blue checks, blue selections with white text in every side column.
+- [x] **S41.3** Mail: one toolbar for the queues, the actions and search; rows with a
+      blue plate when selected and an inset hairline; messages without frames.
+- [x] **S41.4** Calendar: today on a red disc, the time in a red capsule, events pale
+      with a coloured edge. Tasks: tiles for the four views, the title in the list's
+      colour with its count, a white page.
+- [x] **S41.5** Home as widgets: up next, a goal, today's tasks, mail to answer, the week.
+- [x] **S41.6** A pass against the mockup, screen by screen and in both themes: one
+      section title row, Mac push buttons, white fields, our own check box, pop-up
+      button and stepper in place of the style's, grouped settings with switches,
+      scroll bars that fade, a `group` colour for inset plates.

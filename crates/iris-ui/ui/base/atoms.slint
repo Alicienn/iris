@@ -81,13 +81,15 @@ export component Avatar inherits Rectangle {
     width: root.size;
     height: root.size;
     border-radius: root.size / 2;
-    background: root.tint.transparentize(0.84);
+    // Solid, white initials on it, as Contacts draws them. Not a gradient: the
+    // software renderer paints one square, past the rounded edge.
+    background: root.tint.darker(0.12);
 
     Text {
         text: root.initials;
         font-size: root.size * 0.36;
         font-weight: 600;
-        color: root.tint;
+        color: Tokens.accent-text;
         horizontal-alignment: center;
         vertical-alignment: center;
     }

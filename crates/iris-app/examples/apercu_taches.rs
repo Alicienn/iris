@@ -286,6 +286,17 @@ fn main() {
 
     let f = iris_ui::AppWindow::new().unwrap();
     f.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
+    // IRIS_THEME=dark captures the dark theme.
+    let sombre = std::env::var("IRIS_THEME").as_deref() == Ok("dark");
+    let theme = services.themes.apply(
+        if sombre {
+            iris_theme::Appearance::Dark
+        } else {
+            iris_theme::Appearance::Light
+        },
+        false,
+    );
+    iris_app::shell::appliquer_apparence(&f, &theme, iris_app::settings::Density::Normal);
     iris_app::calendar::wire_calendar(&f, &services, runtime.handle().clone());
     iris_app::tasks::wire_tasks(&f, &services, controller);
     f.set_workspace(2);

@@ -13,29 +13,32 @@ export component Segmented inherits Rectangle {
     in property <[color]> tints;
     callback chosen(int);
 
-    height: 28px;
+    // Apple's segmented control: a grey well, the chosen segment a white key raised in
+    // it with a small shadow.
+    height: 26px;
     width: rang.preferred-width + 4px;
-    border-radius: Tokens.radius-medium;
-    background: Tokens.surface-active;
+    border-radius: 7px;
+    background: Tokens.well;
 
     rang := HorizontalLayout {
         x: 2px;
         y: 2px;
         height: parent.height - 4px;
         width: self.preferred-width;
-        spacing: 2px;
+        spacing: 0px;
         for option[i] in root.options: Rectangle {
             property <bool> on: i == root.selected;
             property <color> teinte: root.tints.length > i ? root.tints[i] : Tokens.text;
-            width: mot.preferred-width + 22px;
-            border-radius: Tokens.radius-small;
-            // The chosen one is a raised key: the plain surface with a small shadow.
+            width: mot.preferred-width + 24px;
+            border-radius: 5px;
             background: self.on
-                ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.surface)
+                ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.control)
                 : transparent;
             drop-shadow-blur: self.on && root.tints.length <= i ? 2px : 0px;
             drop-shadow-color: #0000001f;
             drop-shadow-offset-y: 1px;
+            border-width: self.on && root.tints.length <= i ? 1px : 0px;
+            border-color: #0000000d;
             animate background { duration: Tokens.instant; }
 
             accessible-role: button;
@@ -45,10 +48,10 @@ export component Segmented inherits Rectangle {
 
             mot := Text {
                 text: option;
-                font-size: 12.5px;
-                font-weight: parent.on ? 600 : 400;
+                font-size: 12px;
+                font-weight: parent.on ? 500 : 400;
                 color: parent.on ? (root.tints.length > i ? parent.teinte : Tokens.text)
-                    : touch.has-hover ? Tokens.text : Tokens.text-secondary;
+                    : Tokens.text;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
@@ -69,33 +72,45 @@ export component QueueTabs inherits Rectangle {
     in property <int> selected;
     callback chosen(int);
 
-    height: 28px;
-    min-width: onglets.min-width;
-    preferred-width: onglets.preferred-width;
+    // Apple's segmented control: a grey well, the chosen queue a white key raised in it.
+    height: 26px;
+    width: onglets.preferred-width + 4px;
+    border-radius: 7px;
+    background: Tokens.well;
 
-    // Where the chosen tab is: its plate slides there rather than jumping, each tab
+    // Where the chosen tab is: its key slides there rather than jumping, each tab
     // saying its place when it is the one.
     property <length> plaque-x;
     property <length> plaque-w;
     animate plaque-x, plaque-w { duration: 180ms; easing: cubic-bezier(0.2, 0, 0, 1); }
 
     Rectangle {
-        x: root.plaque-x;
+        x: 2px + root.plaque-x;
+        y: 2px;
         width: root.plaque-w;
-        border-radius: Tokens.radius-medium;
-        background: Tokens.surface-active;
+        height: parent.height - 4px;
+        border-radius: 5px;
+        background: Tokens.control;
+        drop-shadow-blur: 2px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #0000001f;
+        border-width: 1px;
+        border-color: #0000000d;
     }
 
     onglets := HorizontalLayout {
+    x: 2px;
+    y: 2px;
+    width: self.preferred-width;
+    height: parent.height - 4px;
     alignment: start;
-    spacing: 2px;
+    spacing: 0px;
 
     for nom[i] in root.names: onglet := Rectangle {
         property <bool> on: i == root.selected;
-        width: rang.preferred-width + 20px;
-        border-radius: Tokens.radius-medium;
-        background: !self.on && touch.has-hover ? Tokens.surface-hover : transparent;
-        animate background { duration: Tokens.instant; }
+        width: rang.preferred-width + 24px;
+        border-radius: 5px;
+        background: transparent;
 
         init => {
             if (self.on) {
@@ -127,20 +142,14 @@ export component QueueTabs inherits Rectangle {
         accessible-action-default => { root.chosen(i); }
 
         rang := HorizontalLayout {
-            x: 10px;
+            x: 12px;
             width: self.preferred-width;
-            spacing: 6px;
+            spacing: 5px;
             Text {
                 text: nom;
-                font-size: 13px;
-                font-weight: onglet.on ? 600 : 400;
-                color: onglet.on || touch.has-hover ? Tokens.text : Tokens.text-secondary;
-                vertical-alignment: center;
-            }
-            if root.counts.length > i && root.counts[i] != "0" && root.counts[i] != "": Text {
-                text: root.counts[i];
                 font-size: 12px;
-                color: Tokens.text-muted;
+                font-weight: onglet.on ? 500 : 400;
+                color: Tokens.text;
                 vertical-alignment: center;
             }
         }
@@ -178,16 +187,20 @@ export component Pill inherits Rectangle {
         : root.on ? Tokens.accent
         : touch.has-hover ? Tokens.text : Tokens.text-secondary;
 
-    // A chip: a small outlined key, the accent's soft ground when on.
-    height: 26px;
+    // A chip: a small raised key as the Mac draws its push buttons, the accent's soft
+    // ground when on.
+    height: 24px;
     width: rang.preferred-width + 18px;
-    border-radius: Tokens.radius-medium;
-    border-width: root.jeton || root.on || root.tinted ? 0px : 1px;
-    border-color: touch.has-hover ? Tokens.border-strong : Tokens.border;
+    border-radius: Tokens.radius-small;
+    border-width: 0px;
     background: root.tinted ? root.tint.transparentize(0.88)
         : root.on ? Tokens.accent-soft
         : root.jeton ? Tokens.surface-active
-        : Tokens.surface;
+        : touch.has-hover ? Tokens.surface-hover : Tokens.control;
+    property <bool> releve: !root.jeton && !root.on && !root.tinted;
+    drop-shadow-blur: root.releve ? Tokens.shadow-card-blur / 2 : 0px;
+    drop-shadow-offset-y: root.releve ? 1px : 0px;
+    drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.15) : transparent;
     animate background { duration: Tokens.instant; }
 
     accessible-role: checkbox;
@@ -246,7 +259,8 @@ export component Check inherits Rectangle {
     callback toggled();
 
     property <bool> rond: root.shape == CheckShape.round;
-    property <color> plein: root.rond ? Tokens.success : root.tint;
+    // A round one fills with the accent, as Reminders' circles do.
+    property <color> plein: root.rond ? Tokens.accent : root.tint;
 
     /// Ticked by a click, not yet told: the tick is drawn first, and said once drawn.
     /// Told at once, the list was redrawn before anything moved, and the box simply
@@ -279,7 +293,7 @@ export component Check inherits Rectangle {
         border-color: root.shown-done ? root.plein
             : !root.rond ? root.tint
             : touch.has-hover ? Tokens.text-secondary
-            : root.late ? Tokens.error : Tokens.text-muted;
+            : root.late ? Tokens.error : Tokens.text-faint;
         background: root.shown-done ? root.plein : touch.has-hover && root.rond ? Tokens.surface-hover : transparent;
         animate background, border-color { duration: Tokens.quick; }
     }
@@ -356,10 +370,11 @@ export component Toggle inherits Rectangle {
     in property <string> label;
     callback toggled();
 
-    width: 34px;
-    height: 20px;
-    border-radius: 10px;
-    background: root.on ? Tokens.accent : Tokens.text.transparentize(0.9);
+    // The Mac's switch: green when on, a white knob with a small shadow.
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
+    background: root.on ? Tokens.green : Tokens.text.transparentize(0.86);
     animate background { duration: Tokens.quick; }
 
     accessible-role: switch;
@@ -368,12 +383,15 @@ export component Toggle inherits Rectangle {
     accessible-action-default => { root.on = !root.on; root.toggled(); }
 
     Rectangle {
-        x: root.on ? 17px : 3px;
-        y: 3px;
-        width: 14px;
-        height: 14px;
-        border-radius: 7px;
-        background: root.on ? Tokens.accent-text : Tokens.text-secondary;
+        x: root.on ? 18px : 2px;
+        y: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: #ffffff;
+        drop-shadow-blur: 2px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #00000033;
         animate x { duration: Tokens.quick; easing: cubic-bezier(0.2, 0, 0, 1); }
     }
 

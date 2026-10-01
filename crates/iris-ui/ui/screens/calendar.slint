@@ -4,12 +4,12 @@ import {
     CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData, PlanTaskData
 } from "@iris/types.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
-import { Nav, SectionTitle } from "@iris/lists/nav.slint";
+import { Nav, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Rail } from "@iris/layout/frames.slint";
 import { Hairline } from "@iris/base/atoms.slint";
+import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 
 // The panels' buttons, in the words they were written with: the shared `Button`,
 // small, its kind read from `primary` and `danger`.
@@ -105,7 +105,7 @@ export component MiniMonth inherits VerticalLayout {
         padding-left: 6px;
         Text {
             text: root.title;
-            font-size: 13px;
+            font-size: 12.5px;
             font-weight: 600;
             color: Tokens.text;
             vertical-alignment: center;
@@ -133,25 +133,33 @@ export component MiniMonth inherits VerticalLayout {
         height: 22px;
         for initiale in ["M", "T", "W", "T", "F", "S", "S"]: Text {
             text: initiale;
-            font-size: 10.5px;
-            color: Tokens.text-muted;
+            font-size: 10px;
+            color: Tokens.text-faint;
             horizontal-alignment: center;
             vertical-alignment: center;
             horizontal-stretch: 1;
         }
     }
 
+    // Rows of 24, no gap between days: the week's band runs on unbroken.
     for semaine in 6: HorizontalLayout {
-        height: 28px;
-        spacing: 1px;
+        height: 24px;
+        spacing: 0px;
         for colonne in 7: Rectangle {
             property <MonthCellData> cell: root.cells[semaine * 7 + colonne];
             horizontal-stretch: 1;
-            border-radius: Tokens.radius-small;
-            background: self.cell.today ? Tokens.accent
-                : toucher.has-hover || self.cell.in-week ? Tokens.surface-hover
-                : self.cell.selected ? Tokens.surface-active
-                : transparent;
+            // The week shown is a band across; today a red disc in it.
+            background: self.cell.in-week ? Tokens.select-quiet : transparent;
+            border-radius: 0px;
+
+            Rectangle {
+                width: min(parent.width, 22px);
+                height: 22px;
+                border-radius: 11px;
+                background: cell.today ? Tokens.red
+                    : cell.selected ? Tokens.surface-active
+                    : toucher.has-hover ? Tokens.surface-hover : transparent;
+            }
 
             accessible-role: button;
             accessible-label: self.cell.date;
@@ -159,7 +167,7 @@ export component MiniMonth inherits VerticalLayout {
 
             Text {
                 text: cell.day;
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: cell.today || cell.events.length > 0 ? 600 : 400;
                 color: cell.today ? Tokens.accent-text
                     : !cell.in-month ? Tokens.text-faint
@@ -185,7 +193,7 @@ component CalendarRow inherits Rectangle {
     callback menu(CalendarData, length, length);
 
     height: Nav.row-height;
-    border-radius: Tokens.radius-medium;
+    border-radius: Tokens.radius-small;
     background: Nav.background(false, touch.has-hover);
 
     accessible-role: checkbox;
@@ -206,9 +214,9 @@ component CalendarRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 9px;
+        padding-left: 8px;
         padding-right: 6px;
-        spacing: 9px;
+        spacing: 8px;
 
         // The row answers the click; the check is its picture.
         Check {
@@ -323,8 +331,8 @@ component MonthGrid inherits VerticalLayout {
                         // "1 Oct" on the first of a month is wider than a number.
                         width: max(22px, numero.preferred-width + 10px);
                         height: 22px;
-                        border-radius: Tokens.radius-small;
-                        background: cell.today ? Tokens.accent : transparent;
+                        border-radius: 11px;
+                        background: cell.today ? Tokens.red : transparent;
                         numero := Text {
                             text: cell.day;
                             font-size: 12px;
@@ -378,7 +386,7 @@ component WeekGrid inherits VerticalLayout {
     /// An event stretched by its lower edge: (key, minutes added to its end).
     callback event-resized(string, int);
 
-    property <length> hour: 48px;
+    property <length> hour: 52px;
 
     // The event held by the pointer: which (its key), how (1 moved, 2 stretched, 0 not
     // yet: a press becomes a drag past four pixels, so a click still opens it), and how
@@ -455,7 +463,7 @@ component WeekGrid inherits VerticalLayout {
             root.task-dropped(root.days[root.carry-day].date, root.carry-minute);
         }
     }
-    property <length> gutter: 58px;
+    property <length> gutter: 56px;
     // Now, as the clock says it: "16:20".
     property <int> minutes: floor(root.now-fraction * 1440);
     property <string> now-label: root.hm(self.minutes);
@@ -494,26 +502,26 @@ component WeekGrid inherits VerticalLayout {
                     text: d.name;
                     font-size: 12.5px;
                     font-weight: d.today ? 600 : 400;
-                    color: d.today ? Tokens.accent : Tokens.text-muted;
+                    color: d.today ? Tokens.red : Tokens.text-muted;
                     vertical-alignment: center;
                 }
-                // Today's number on a round of the accent: never narrower than it is
-                // tall, so "1" is a disc and not a squeezed bar.
+                // Today's number on a red disc, as Calendar has it: never narrower than
+                // it is tall, so "1" is a disc and not a squeezed bar.
                 Rectangle {
                     y: (parent.height - self.height) / 2;
-                    width: d.today ? max(26px, numero.preferred-width + 14px) : numero.preferred-width;
-                    height: 26px;
-                    border-radius: 13px;
-                    background: d.today ? Tokens.accent : transparent;
+                    width: d.today ? max(28px, numero.preferred-width + 14px) : numero.preferred-width;
+                    height: 28px;
+                    border-radius: 14px;
+                    background: d.today ? Tokens.red : transparent;
                     numero := Text {
                         width: parent.width;
                         height: parent.height;
                         text: d.day;
-                        font-size: 16px;
+                        font-size: 18px;
                         font-weight: d.today ? 600 : 500;
                         horizontal-alignment: center;
                         vertical-alignment: center;
-                        color: d.today ? Tokens.accent-text : jour.repos ? Tokens.text-muted : Tokens.text;
+                        color: d.today ? Tokens.accent-text : Tokens.text;
                     }
                 }
             }
@@ -567,8 +575,9 @@ component WeekGrid inherits VerticalLayout {
                 x: root.gutter + i * grille.colonne;
                 width: grille.colonne;
                 height: grille.height;
+                // The weekend on the window's grey, as Calendar shades it.
                 background: d.name == "Sat" || d.name == "Sun"
-                    ? Tokens.text.transparentize(0.985) : transparent;
+                    ? Tokens.group : transparent;
                 Rectangle { x: 0; width: 1px; background: Tokens.border; }
                 TouchArea {
                     clicked => {
@@ -603,7 +612,7 @@ component WeekGrid inherits VerticalLayout {
                     height: 14px;
                     text: h == 0 ? "" : root.hm(h * 60);
                     font-size: 11px;
-                    color: Tokens.text-muted;
+                    color: Tokens.text-faint;
                     horizontal-alignment: right;
                     // The hour of now takes the place of the one it is near.
                     opacity: root.now-day >= 0 && root.now-fraction >= 0
@@ -625,16 +634,21 @@ component WeekGrid inherits VerticalLayout {
                 animate chute { duration: 420ms; easing: ease-out-bounce; }
                 init => { if (e.landed) { self.chute = 0; } }
 
-                x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 2px;
+                x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 3px;
                 y: e.top * grille.height + 1px - 10px * self.chute;
-                width: grille.colonne / max(1, e.lanes) - 4px;
-                height: max(22px, e.height * grille.height - 3px);
+                width: grille.colonne / max(1, e.lanes) - 7px;
+                height: max(22px, e.height * grille.height - 2px);
+                // As Calendar draws them: a pale block of the calendar's colour, a bar
+                // of it down the left, the words in a deeper shade of it.
                 border-radius: Tokens.radius-small;
-                border-width: 1px;
-                border-color: e.color.transparentize(0.55);
-                background: e.color.transparentize(bloc.has-hover ? 0.76 : 0.84);
+                background: e.color.transparentize(bloc.has-hover ? 0.75 : 0.83);
                 opacity: self.held ? 0.35 : e.past ? 0.55 : 1.0;
                 clip: true;
+                Rectangle {
+                    x: 0;
+                    width: 3px;
+                    background: e.color;
+                }
 
                 accessible-role: button;
                 accessible-label: e.time + " " + e.title;
@@ -645,22 +659,24 @@ component WeekGrid inherits VerticalLayout {
                 accessible-action-default => { root.event-opened(e.key); }
 
                 VerticalLayout {
-                    padding-left: 7px;
+                    padding-left: 9px;
                     padding-top: 4px;
                     padding-right: 5px;
                     spacing: 1px;
                     alignment: start;
+                    // The calendar's colour, taken towards the text's: darker on
+                    // white, lighter on graphite.
                     Text {
                         text: e.title;
                         font-size: 12px;
                         font-weight: 600;
-                        color: Tokens.text;
+                        color: e.color.mix(Tokens.text, 0.55);
                         overflow: elide;
                     }
                     if evenement.height > 34px: Text {
                         text: e.time;
                         font-size: 11px;
-                        color: Tokens.text-secondary;
+                        color: e.color.mix(Tokens.text, 0.55).transparentize(0.2);
                         overflow: elide;
                     }
                 }
@@ -862,15 +878,22 @@ component WeekGrid inherits VerticalLayout {
             }
 
             // Now: its hour in the margin, and a line across today's column.
-            if root.now-day >= 0 && root.now-fraction >= 0: Text {
-                x: 0;
-                y: root.now-fraction * grille.height - 7px;
+            // The time of now in a red capsule in the margin, as Calendar has it.
+            if root.now-day >= 0 && root.now-fraction >= 0: Rectangle {
+                x: 4px;
+                y: root.now-fraction * grille.height - 9px;
                 width: root.gutter - 8px;
-                text: root.now-label;
-                font-size: 11px;
-                font-weight: 600;
-                color: Tokens.error;
-                horizontal-alignment: right;
+                height: 18px;
+                border-radius: 9px;
+                background: Tokens.red;
+                Text {
+                    text: root.now-label;
+                    font-size: 10.5px;
+                    font-weight: 600;
+                    color: Tokens.accent-text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
             if root.now-day >= 0 && root.now-fraction >= 0: Rectangle {
                 x: root.gutter + root.now-day * grille.colonne - 4px;
@@ -968,46 +991,24 @@ export component CalendarView inherits Rectangle {
     background: Tokens.surface;
 
     HorizontalLayout {
-        // --- Left: create, jump, choose what shows, what is left today ---
-        Rail {
-            rail-width: 252px;
-
-            // Outlined: the accent is kept for what is chosen (today, the week).
-            Button {
-                // The rail's width, less its padding.
-                width: 228px;
-                height: 34px;
-                text: "New event";
-                icon: Icons.plus;
-                shortcut: "N";
-                kind: ButtonKind.secondary;
-                clicked => { root.new-event("", -1); }
-            }
-            Rectangle { height: 14px; }
-
+        // --- Left: the window's sidebar: the small month, the calendars, what is
+        // left today ---
+        SidebarFrame {
             MiniMonth {
                 title: root.mini-title;
                 cells: root.mini-cells;
                 day-chosen(d) => { root.day-chosen(d); }
                 navigate(n) => { root.mini-navigate(n); }
             }
-            Rectangle { height: 12px; }
-
             // The section's title, with the + that adds to it.
-            HorizontalLayout {
-                height: 26px;
-                padding-left: 9px;
-                padding-right: 2px;
-                SectionTitle {
-                    text: "Calendars";
-                    horizontal-stretch: 1;
-                }
+            SectionRow {
+                text: "Calendars";
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.plus;
                     label: "New calendar";
-                    button-size: 26px;
-                    icon-size: 15px;
+                    button-size: 20px;
+                    icon-size: 14px;
                     clicked => { root.calendar-new(); }
                 }
             }
@@ -1036,23 +1037,19 @@ export component CalendarView inherits Rectangle {
             // Today's tasks that have no time yet: dragged onto the week, each books
             // its length there.
             if root.to-plan.length > 0: Hairline {}
-            if root.to-plan.length > 0: Rectangle { height: 8px; }
-            if root.to-plan.length > 0: HorizontalLayout {
-                height: 24px;
-                padding-left: 2px;
-                SectionTitle { text: "To plan"; }
+            if root.to-plan.length > 0: SectionRow {
+                text: "To plan";
                 Text {
                     text: root.mode == 0 ? "" : "drag onto the week";
-                    font-size: 11.5px;
-                    color: Tokens.text-muted;
+                    font-size: 11px;
+                    color: Tokens.text-faint;
                     horizontal-alignment: right;
                     vertical-alignment: center;
-                    horizontal-stretch: 1;
                 }
             }
             for t in root.to-plan: Rectangle {
                 height: 34px;
-                border-radius: Tokens.radius-medium;
+                border-radius: Tokens.radius-small;
                 background: prise.has-hover || root.carried == t.id ? Tokens.surface-hover : transparent;
                 opacity: root.carried == t.id ? 0.5 : 1;
 
@@ -1068,10 +1065,10 @@ export component CalendarView inherits Rectangle {
                 property <length> press-y;
 
                 HorizontalLayout {
-                    padding-left: 4px;
+                    padding-left: 8px;
                     // Room for the clock button at the end.
                     padding-right: 32px;
-                    spacing: 9px;
+                    spacing: 8px;
                     Rectangle {
                         y: (parent.height - self.height) / 2;
                         width: 12px;
@@ -1139,23 +1136,36 @@ export component CalendarView inherits Rectangle {
             }
         }
 
-        // --- Right: the period ---
+        // --- Right: the period, under the window's toolbar ---
         VerticalLayout {
-            HorizontalLayout {
-                height: 56px;
-                padding-left: 16px;
-                padding-right: 16px;
-                spacing: 8px;
-
+            WindowToolbar {
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
-                    font-size: 18px;
+                    font-size: 15px;
                     font-weight: 600;
                     color: Tokens.text;
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                }
+                // Smallest to largest, as Calendar has it; `mode` counts the other way
+                // (0 is the month).
+                Segmented {
+                    y: (parent.height - self.height) / 2;
+                    options: ["Day", "Week", "Month"];
+                    selected: 2 - root.mode;
+                    chosen(i) => { root.mode-chosen(2 - i); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.chevron-left;
+                    label: "Previous";
+                    shortcut: "←";
+                    button-size: 28px;
+                    clicked => { root.navigate(-1); }
                 }
                 Button {
                     y: (parent.height - self.height) / 2;
@@ -1166,31 +1176,23 @@ export component CalendarView inherits Rectangle {
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
-                    icon: Icons.chevron-left;
-                    label: "Previous";
-                    shortcut: "←";
-                    button-size: 30px;
-                    clicked => { root.navigate(-1); }
-                }
-                IconButton {
-                    y: (parent.height - self.height) / 2;
                     icon: Icons.chevron-right;
                     label: "Next";
                     shortcut: "→";
-                    button-size: 30px;
+                    button-size: 28px;
                     clicked => { root.navigate(1); }
                 }
-                Rectangle { width: 4px; }
-                // Smallest to largest, as the web edition has it; `mode` counts the
-                // other way (0 is the month).
-                Segmented {
+                Rectangle { width: 6px; }
+                Button {
                     y: (parent.height - self.height) / 2;
-                    options: ["Day", "Week", "Month"];
-                    selected: 2 - root.mode;
-                    chosen(i) => { root.mode-chosen(2 - i); }
+                    text: "New event";
+                    icon: Icons.plus;
+                    shortcut: "N";
+                    kind: ButtonKind.primary;
+                    size: ButtonSize.sm;
+                    clicked => { root.new-event("", -1); }
                 }
             }
-            Hairline {}
 
             if root.mode == 0: MonthGrid {
                 vertical-stretch: 1;

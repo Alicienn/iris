@@ -19,12 +19,12 @@ component FieldFrame inherits Rectangle {
     /// itself (the line to add a task).
     in property <bool> bare;
 
-    // A faint tint of the text colour rather than a plate and a line: a field reads
-    // as a place to type on any ground, and the border is left free to say "focused".
-    background: root.bare ? transparent : Tokens.surface-hover;
-    border-radius: Tokens.radius-medium;
+    // The Mac's field: white, a fine line round it, the accent on that line when it
+    // has the focus. The background never changes.
+    background: root.bare ? transparent : Tokens.surface;
+    border-radius: Tokens.radius-small;
     border-width: root.bare ? 0px : 1px;
-    border-color: root.focused ? Tokens.accent : transparent;
+    border-color: root.focused ? Tokens.accent : Tokens.border-strong;
     opacity: root.enabled ? 1.0 : 0.6;
     animate border-color { duration: Tokens.instant; }
 }
@@ -60,7 +60,7 @@ export component TextField inherits FieldFrame {
     forward-focus: input;
     focused: input.has-focus;
     min-height: 26px;
-    preferred-height: max(30px, root.font-size * 2.3);
+    preferred-height: max(28px, root.font-size * 2.15);
     // One line of text never grows with the space around it: in a column with room
     // to spare, the address and password fields of Add account stood 80 px tall.
     max-height: max(40px, root.font-size * 2.6);

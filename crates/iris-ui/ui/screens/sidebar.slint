@@ -6,7 +6,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ListView } from "std-widgets.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
-import { Nav, SectionTitle } from "@iris/lists/nav.slint";
+import { Nav, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
 import { Button, ButtonKind } from "@iris/controls/button.slint";
 
 component SectionLabel inherits SectionTitle {}
@@ -17,6 +17,9 @@ component AccountRow inherits Rectangle {
     in property <bool> compact;
     /// Listed under a tag's title.
     in property <bool> nested;
+    /// A folder below holds the accent: the account it is in stays marked, in grey.
+    in property <bool> quiet;
+    property <bool> plate: root.selected && !root.quiet;
 
     callback clicked();
     callback resume();
@@ -64,8 +67,10 @@ component AccountRow inherits Rectangle {
     }
 
     height: Nav.row-height;
-    border-radius: Tokens.radius-medium;
-    background: Nav.background(root.selected, touch.has-hover);
+    border-radius: Tokens.radius-small;
+    background: root.selected && root.quiet
+        ? Tokens.select-quiet
+        : Nav.background(root.plate, touch.has-hover);
     animate background { duration: Tokens.instant; }
 
     // A tag's title, when the accounts are grouped by tag. Read like a folder that
@@ -92,24 +97,25 @@ component AccountRow inherits Rectangle {
 
             Icon {
                 data: root.account.folded ? Icons.chevron-right : Icons.chevron-down;
-                size: 13px;
-                tint: Tokens.text-muted;
+                size: 12px;
+                tint: Nav.count-ink(root.plate);
             }
         }
-        // The tag's colour, as a small square: a tag is a label, not a mailbox, and
-        // the mailboxes under it carry round dots.
-        Rectangle {
+        // Folded, the tag's colour stands for it, a small square: a tag is a label, not
+        // a mailbox, and the mailboxes under it carry round dots.
+        if root.compact: Rectangle {
             y: (parent.height - self.height) / 2;
             width: 9px;
             height: 9px;
             border-radius: 3px;
             background: root.account.tag-id == 0 ? Tokens.text-faint : root.account.tint;
         }
+        // A section of the source list: the tag's name, small and grey.
         if !root.compact: Text {
             text: root.account.label;
-            font-size: Nav.label-size;
-            font-weight: Tokens.weight-bold;
-            color: Tokens.text;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.plate ? Tokens.accent-text : Tokens.text-muted;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
@@ -129,7 +135,7 @@ component AccountRow inherits Rectangle {
         if !root.compact && root.account.count > 0: Text {
             text: root.account.count-label;
             font-size: 11.5px;
-            color: Tokens.text-muted;
+            color: Nav.count-ink(root.plate);
             vertical-alignment: center;
         }
     }
@@ -150,18 +156,18 @@ component AccountRow inherits Rectangle {
         // Under a tag, a step in: the tag reads as the folder that holds them.
         // Folded, nothing but the mark, centred: a padding and a stretching gap left
         // "All accounts"' stack off the middle of its square.
-        padding-left: root.compact ? 0px : root.nested ? 28px : 9px;
-        padding-right: root.compact ? 0px : 9px;
-        spacing: 9px;
+        padding-left: root.compact ? 0px : root.nested ? 26px : 8px;
+        padding-right: root.compact ? 0px : 8px;
+        spacing: 8px;
         alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
 
         // The mailbox's colour, as a dot like the calendars' and the lists'.
         // "All accounts" leads with the stack instead.
         if root.account.id == 0: Icon {
             y: (parent.height - self.height) / 2;
-            data: Icons.layers;
-            size: 15px;
-            tint: root.selected ? Tokens.text : Tokens.text-muted;
+            data: Icons.inbox;
+            size: 16px;
+            tint: Nav.icon-ink(root.plate, Tokens.accent);
         }
         if root.account.id != 0: Rectangle {
             width: 8px;
@@ -181,8 +187,7 @@ component AccountRow inherits Rectangle {
         if !root.compact: Text {
             text: root.account.label;
             font-size: Nav.label-size;
-            font-weight: root.selected ? Tokens.weight-bold : Tokens.weight-body;
-            color: root.selected ? Tokens.text : Tokens.text-secondary;
+            color: Nav.ink(root.plate, false);
             vertical-alignment: center;
             overflow: elide;
 
@@ -238,8 +243,8 @@ component AccountRow inherits Rectangle {
                 : "Sync " + root.account.label;
             icon-size: 13px;
             button-size: 20px;
-            tint: Tokens.accent;
-            tinted: root.just-synced;
+            tint: root.plate ? Tokens.accent-text : Tokens.accent;
+            tinted: root.just-synced || root.plate;
             active: root.just-synced;
             clicked => {
                 root.just-synced = true;
@@ -250,8 +255,8 @@ component AccountRow inherits Rectangle {
         if !root.compact && root.account.count > 0
             && !touch.has-hover && !root.just-synced: Text {
             text: root.account.count-label;
-            font-size: 11.5px;
-            color: Tokens.text-muted;
+            font-size: 12px;
+            color: Nav.count-ink(root.plate);
             vertical-alignment: center;
         }
     }
@@ -294,7 +299,7 @@ component AccountRow inherits Rectangle {
 // It collapses to a strip of colour bars. On a laptop the accounts column is the
 // least useful two hundred pixels on screen once you know which mailbox you are in,
 // and it is the obvious thing to give back to the message list.
-export component Sidebar inherits Glass {
+export component Sidebar inherits Rectangle {
     in property <[AccountRowData]> pinned;
     in property <[AccountRowData]> others;
     in property <int> selected-id;
@@ -309,6 +314,8 @@ export component Sidebar inherits Glass {
     in property <bool> grouped;
     /// The tag whose accounts' mail is shown, -1 for none (0 is "No tag").
     in property <int> selected-tag: -1;
+    /// A folder is open: it holds the accent, the account steps back to grey.
+    in property <bool> folder-open;
     in property <int> probe;
     in property <length> probe-x;
     in property <length> probe-y;
@@ -335,43 +342,18 @@ export component Sidebar inherits Glass {
     /// only once there are enough to need it.
     in property <int> account-total;
 
-    radius: 0px;
-    border-width: 0px;
     // No clipping here, deliberately. It would contain the row above, but it would
     // also cut every tooltip these buttons raise, and a tooltip that stops at the
     // panel edge is worse than the overflow it prevents.
+    //
+    // It sits in the window's sidebar frame, under the places' switcher; New message
+    // is in the toolbar, as Apple Mail has it.
 
     VerticalLayout {
-        padding: 10px;
-        padding-top: 12px;
-        spacing: 1px;
+        padding: 0px;
+        spacing: 0px;
 
-        // Writing a message: the one thing here that makes something new rather than
-        // acting on what is there, first in the column as every mail client has it.
-        // Outlined, not filled: the filled accent belongs to the one thing to act on
-        // in the conversation (Done). Folded, its pencil alone.
-        if !root.collapsed: Button {
-            // The column, less its padding.
-            width: root.width - 20px;
-            height: 34px;
-            text: "New message";
-            label: "Write a new message";
-            icon: Icons.pencil;
-            shortcut: "C";
-            kind: ButtonKind.secondary;
-            clicked => { root.compose(); }
-        }
-        if root.collapsed: HorizontalLayout {
-            alignment: center;
-            IconButton {
-                icon: Icons.pencil;
-                label: "Write a new message";
-                shortcut: "C";
-                button-size: 30px;
-                clicked => { root.compose(); }
-            }
-        }
-        Rectangle { height: 11px; }
+        if !root.collapsed: SectionRow { text: "Favourites"; }
 
         AccountRow {
             compact: root.collapsed;
@@ -386,21 +368,18 @@ export component Sidebar inherits Glass {
                 tint: Tokens.text-muted,
             };
             selected: root.selected-tag < 0 && root.selected-id == 0;
+            quiet: root.folder-open;
             clicked => { root.unified-selected(); }
             sync => { root.sync-all(); }
         }
 
-        if !root.collapsed && root.pinned.length > 0: HorizontalLayout {
-            height: 26px;
-            padding-left: 9px;
-            padding-top: 6px;
-            SectionLabel { text: "Pinned"; }
-        }
+        if !root.collapsed && root.pinned.length > 0: SectionRow { text: "Pinned"; }
 
         for account in root.pinned: AccountRow {
             account: account;
             compact: root.collapsed;
             selected: root.selected-tag < 0 && account.id == root.selected-id;
+            quiet: root.folder-open;
             probe: root.probe;
             probe-x: root.probe-x;
             probe-y: root.probe-y;
@@ -412,23 +391,14 @@ export component Sidebar inherits Glass {
 
         // The title of the list, and beside it what acts on the list: grouping it by
         // tag (the choice sits where its effect shows), adding an account.
-        if !root.collapsed: Rectangle { height: 12px; }
-        if !root.collapsed: HorizontalLayout {
-            height: 26px;
-            padding-left: 9px;
-            padding-right: 2px;
-            vertical-stretch: 0;
-            SectionLabel {
-                text: "Accounts";
-                vertical-alignment: center;
-            }
-            Rectangle {}
+        if !root.collapsed: SectionRow {
+            text: "Accounts";
             IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.tag;
                 label: root.grouped ? "Show accounts in one list" : "Group accounts by tag";
-                button-size: 26px;
-                icon-size: 14px;
+                button-size: 20px;
+                icon-size: 13px;
                 active: root.grouped;
                 clicked => { root.group-toggled(); }
             }
@@ -436,8 +406,8 @@ export component Sidebar inherits Glass {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.plus;
                 label: "Add an account";
-                button-size: 26px;
-                icon-size: 15px;
+                button-size: 20px;
+                icon-size: 14px;
                 clicked => { root.add-account(); }
             }
         }
@@ -458,6 +428,12 @@ export component Sidebar inherits Glass {
         // coûter cent éléments vivants.
         ListView {
             vertical-stretch: 1;
+            // No taller than its rows: the room left goes to the folders under it,
+            // not to a gap between the two.
+            // (Counted from the rows, every one a row high: the viewport's own height
+            // depends on this one.)
+            min-height: min(root.others.length, 3) * Nav.row-height;
+            max-height: max(root.others.length, 1) * Nav.row-height;
             for account in root.others: AccountRow {
                 account: account;
                 compact: root.collapsed;
@@ -465,6 +441,7 @@ export component Sidebar inherits Glass {
                 selected: account.header
                     ? account.tag-id == root.selected-tag
                     : root.selected-tag < 0 && account.id == root.selected-id;
+                quiet: root.folder-open;
                 probe: root.probe;
                 probe-x: root.probe-x;
                 probe-y: root.probe-y;
@@ -542,7 +519,7 @@ export component Sidebar inherits Glass {
             spacing: 6px;
             vertical-stretch: 0;
             height: 26px;
-            padding-left: 5px;
+            padding-left: 8px;
 
             // A green dot while the mail is current, the accent while it is being
             // fetched: the one mark here that says the column is alive.

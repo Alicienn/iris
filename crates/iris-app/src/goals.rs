@@ -115,6 +115,18 @@ fn donnees(services: &Services, g: &Goal, today: NaiveDate, choisi: bool) -> Goa
     }
 }
 
+/// The goal Home shows: the first still under way, in the goals' order.
+pub fn for_home(services: &Services) -> Option<GoalData> {
+    let today = Local::now().date_naive();
+    services
+        .store
+        .goals()
+        .unwrap_or_default()
+        .iter()
+        .map(|g| donnees(services, g, today, false))
+        .find(|g| g.status != 2)
+}
+
 /// Should Today point to this goal? Behind and near its day or well behind, or due
 /// within the week.
 fn a_pousser(p: &Pace) -> bool {

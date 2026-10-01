@@ -18,8 +18,8 @@ import { NavItem } from "@iris/lists/nav.slint";
 import { SectionHeader, ListRow, RowLead, TimeRow, NowLine, PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Toolbar, EmptyState, Modal, ModalFooter, Popover }
     from "@iris/layout/frames.slint";
-import { TitleBar } from "@iris/shell/titlebar.slint";
-import { Rail } from "@iris/shell/rail.slint";
+import { Chrome, SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { MailToolbar } from "@iris/screens/mail-toolbar.slint";
 import { Toast, SendNotice } from "@iris/shell/toast.slint";
 import { HomeView } from "@iris/screens/home.slint";
 import { TagsPanel } from "@iris/screens/tags.slint";
@@ -229,8 +229,31 @@ component StatusBar inherits Rectangle {
     callback open-changelog();
     callback open-update();
 
+    /// How wide the side column above it is: it runs on down to the window's edge.
+    in property <length> side;
+
     height: 24px;
-    background: Tokens.surface-low;
+    // The page's own white: a footnote, not a second toolbar.
+    background: Tokens.surface;
+
+    Rectangle {
+        x: 0;
+        width: root.side;
+        background: Tokens.surface-low;
+        Rectangle {
+            x: parent.width - 1px;
+            width: 1px;
+            background: Tokens.border;
+        }
+    }
+    // The line over it, beside the side column only.
+    Rectangle {
+        x: root.side;
+        y: 0;
+        width: root.width - root.side;
+        height: 1px;
+        background: Tokens.border;
+    }
 
     // Un message d'état a une durée de vie.
     //
@@ -257,7 +280,7 @@ component StatusBar inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: Tokens.space-3;
+        padding-left: root.side + Tokens.space-3;
         padding-right: Tokens.space-3;
         spacing: Tokens.space-2;
 
@@ -374,7 +397,7 @@ export component AppWindow inherits Window {
     in property <int> selected-thread: -1;
     in property <int> selected-account: 0;
     in property <int> active-tab: 0;
-    in property <int> unified-count;
+    in-out property <int> unified-count <=> Chrome.mail-badge;
     in property <string> unified-label;
     in property <string> unified-full;
     in property <bool> account-menu-open;
@@ -422,7 +445,10 @@ export component AppWindow inherits Window {
     in property <string> sync-progress;
     in-out property <bool> sidebar-collapsed;
     in property <bool> conversation-empty: true;
-    in property <bool> window-maximised;
+    in-out property <bool> window-maximised <=> Chrome.maximised;
+    /// The window's buttons as on a Mac (the three lights at the top left) rather
+    /// than as on Windows (at the right of the toolbar).
+    in-out property <bool> window-mac-buttons <=> Chrome.mac-buttons;
     in property <bool> selected-unread;
     in property <bool> selected-starred;
     /// The mailbox the open conversation came to: its address and its colour.
@@ -536,10 +562,11 @@ export component AppWindow inherits Window {
     in-out property <bool> new-smtp-tls: true;
 
     in-out property <bool> settings-open;
-    /// The rail's width: the screens drawn over the mail start after it.
-    out property <length> rail-width: 56px;
-    /// Open tasks due today or late, on the rail.
-    in property <int> tasks-badge;
+    /// Where the places drawn over the mail start: the window's left edge, since each
+    /// has its own sidebar.
+    out property <length> rail-width: 0px;
+    /// Open tasks due today or late, on the places' switcher.
+    in-out property <int> tasks-badge <=> Chrome.tasks-badge;
     /// 0 as Windows is set, 1 light, 2 dark.
     in property <int> appearance;
     /// The name Home greets.
@@ -761,7 +788,7 @@ export component AppWindow inherits Window {
     // --- The calendar ---
     /// Which workspace fills the window: 0 mail, 1 calendar, 2 tasks.
     /// 0 mail, 1 calendar, 2 tasks, 3 Home.
-    in-out property <int> workspace;
+    in-out property <int> workspace <=> Chrome.workspace;
     callback workspace-changed(int);
 
     // --- Home ---
@@ -773,15 +800,31 @@ export component AppWindow inherits Window {
     in property <string> home-mail-count;
     in property <string> home-events-count;
     in property <string> home-tasks-count;
-    /// A way out: "mail", "tasks", "calendar".
+    /// The widgets: the events after the next, today's first tasks and how many more,
+    /// the first conversations to answer (sender, subject, initials, mailbox colour)
+    /// and how many in all, how many wait for an answer, a goal, the week.
+    in property <[HomeItemData]> home-later;
+    in property <[HomeItemData]> home-tasks;
+    in property <int> home-tasks-more;
+    in property <[HomeItemData]> home-threads;
+    in property <int> home-answer-total;
+    in property <int> home-waiting;
+    in property <GoalData> home-goal;
+    in property <bool> home-has-goal;
+    in property <int> home-week-done;
+    in property <[float]> home-week-bars;
+    in property <int> home-week-today;
+    /// A way out: "mail", "tasks", "calendar", "goals".
     callback home-open(string);
+    callback home-thread-opened(int);
+    callback home-goal-opened(int);
     callback home-task-opened(int);
     callback home-task-toggled(int);
     callback home-event-opened(string);
 
     // --- Back and forward, between the places visited ---
-    in property <bool> can-go-back;
-    in property <bool> can-go-forward;
+    in-out property <bool> can-go-back <=> Chrome.can-go-back;
+    in-out property <bool> can-go-forward <=> Chrome.can-go-forward;
     callback nav-back();
     callback nav-forward();
     /// A place chosen in the interface: what it is ("account", "tag", "folder", "tab",
@@ -1128,7 +1171,7 @@ export component AppWindow inherits Window {
     // Appelée depuis Rust par Ctrl+F et par la palette : donner le focus est un
     // geste d'interface, il n'a pas à faire l'aller-retour par le vue-modèle.
     public function focus-search() {
-        liste.focus-search();
+        mail-toolbar.focus-search();
     }
 
     // The clipboard, reached through a text field of our own that nobody sees:
@@ -1486,6 +1529,36 @@ export component AppWindow inherits Window {
         }
     }
 
+    // The window's frame, shared by every place: what its buttons and its switcher ask.
+    property <int> chrome-request <=> Chrome.request-id;
+    changed chrome-request => {
+        if (Chrome.request == "workspace") {
+            root.workspace = Chrome.request-arg;
+            root.workspace-changed(Chrome.request-arg);
+            shortcuts.focus();
+        } else if (Chrome.request == "minimise") {
+            root.window-minimise();
+        } else if (Chrome.request == "maximise") {
+            root.window-toggle-maximise();
+        } else if (Chrome.request == "close") {
+            root.window-close();
+        } else if (Chrome.request == "back") {
+            root.nav-back();
+            shortcuts.focus();
+        } else if (Chrome.request == "forward") {
+            root.nav-forward();
+            shortcuts.focus();
+        } else if (Chrome.request == "settings") {
+            root.settings-open = true;
+        } else if (Chrome.request == "palette") {
+            root.palette-open = true;
+        }
+    }
+    property <int> chrome-drag-start <=> Chrome.drag-start-id;
+    changed chrome-drag-start => { root.window-drag-started(); }
+    property <int> chrome-drag <=> Chrome.drag-id;
+    changed chrome-drag => { root.window-drag(Chrome.drag-dx, Chrome.drag-dy); }
+
     Backdrop {
         width: 100%;
         height: 100%;
@@ -1501,35 +1574,7 @@ export component AppWindow inherits Window {
             background: transparent;
         }
 
-        HorizontalLayout {
-        // The rail: Home behind the mark, Mail, Calendar and Tasks under it.
-        Rail {
-            workspace: root.workspace;
-            mail-badge: root.unified-count;
-            tasks-badge: root.tasks-badge;
-            workspace-chosen(i) => {
-                root.workspace = i;
-                root.workspace-changed(i);
-                shortcuts.focus();
-            }
-            palette => { root.palette-open = true; }
-            settings => { root.settings-open = true; }
-        }
-
         VerticalLayout {
-            TitleBar {
-                maximised: root.window-maximised;
-                can-go-back: root.can-go-back;
-                can-go-forward: root.can-go-forward;
-                back => { root.nav-back(); shortcuts.focus(); }
-                forward => { root.nav-forward(); shortcuts.focus(); }
-                minimise => { root.window-minimise(); }
-                toggle-maximise => { root.window-toggle-maximise(); }
-                close => { root.window-close(); }
-                drag(dx, dy) => { root.window-drag(dx, dy); }
-                drag-started => { root.window-drag-started(); }
-            }
-
             HorizontalLayout {
                 // The mail's columns, only while the mail is shown. The calendar, the
                 // tasks and Home are laid over them, and a part of those without a
@@ -1538,12 +1583,15 @@ export component AppWindow inherits Window {
                 // what changed, painted bits of the mail through them while a task was
                 // carried. Hidden, the mail is neither drawn nor hit.
                 visible: root.workspace == 0;
-                // Colonne 1 : les comptes.
+                // Colonne 1 : les comptes, in the window's sidebar under the places.
+                SidebarFrame {
+                // Reading full screen: the accounts and the list step aside.
+                visible: !root.reading-focus;
+                sidebar-width: root.reading-focus ? 0px : root.sidebar-collapsed ? 64px : 232px;
+                animate sidebar-width { duration: Tokens.quick; easing: ease-in-out; }
                 Sidebar {
-                    // Reading full screen: the accounts and the list step aside.
-                    visible: !root.reading-focus;
-                    width: root.reading-focus ? 0px : root.sidebar-collapsed ? 50px : 236px;
-                    animate width { duration: Tokens.quick; easing: ease-in-out; }
+                    vertical-stretch: 1;
+                    folder-open: root.selected-folder != "";
                     pinned: root.pinned-accounts;
                     others: root.other-accounts;
                     selected-id: root.selected-account;
@@ -1626,15 +1674,59 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                }
 
-                Rectangle { width: root.reading-focus ? 0px : 1px; background: Tokens.border; }
-
+                VerticalLayout {
+                horizontal-stretch: 1;
+                mail-toolbar := MailToolbar {
+                    lights: root.reading-focus;
+                    title: root.folder-name != "" ? root.folder-name : "All accounts";
+                    subtitle: root.folder-name != "" ? ""
+                        : (root.counts.length > 0 ? root.counts[0] : 0) + " to do";
+                    queues: root.folder-name == "" && !root.searching;
+                    count-labels: root.count-labels;
+                    counts: root.counts;
+                    active-tab: root.active-tab;
+                    has-thread: !root.conversation-empty;
+                    starred: root.selected-starred;
+                    focused: root.reading-focus;
+                    searching: root.searching;
+                    search-query <=> root.search-query;
+                    tab-selected(i) => {
+                        root.tab-selected(i);
+                        root.navigated("tab", "\{i}");
+                        shortcuts.focus();
+                    }
+                    compose => {
+                        root.compose-minimised = false;
+                        root.compose-open = true;
+                    }
+                    mark-done => { root.thread-done(); }
+                    waiting => { root.thread-waiting(); }
+                    to-task => { root.thread-to-task(root.selected-thread); }
+                    archive => { root.thread-archive(); }
+                    delete-thread => { root.thread-delete(); }
+                    toggle-star => { root.thread-toggle-star(); }
+                    toggle-focus => { root.reading-focus = !root.reading-focus; }
+                    snooze-menu(mx, my) => {
+                        root.reader-menu-x = mx;
+                        root.reader-menu-y = my;
+                        root.reader-menu = "snooze";
+                    }
+                    more-menu(mx, my) => {
+                        root.reader-menu-x = mx;
+                        root.reader-menu-y = my;
+                        root.reader-menu = "more";
+                    }
+                    search-submitted(q) => { root.search-submitted(q); }
+                    search-cleared => { root.search-cleared(); }
+                }
+                HorizontalLayout {
                 // Colonne 2 : la file de travail.
-                Glass {
+                Rectangle {
                     visible: !root.reading-focus;
-                    width: root.reading-focus ? 0px : 380px;
-                    radius: 0px;
-                    border-width: 0px;
+                    width: root.reading-focus ? 0px : 360px;
+                    background: Tokens.surface;
 
                     liste := ThreadListView {
                         width: 100%;
@@ -1785,11 +1877,14 @@ export component AppWindow inherits Window {
                     bodies-suspended: root.bodies-suspended;
                 }
                 }
+                }
+                }
             }
 
-            Rectangle { height: 1px; background: Tokens.border; }
-
             StatusBar {
+                side: root.workspace != 0 ? 232px
+                    : root.reading-focus ? 0px
+                    : root.sidebar-collapsed ? 64px : 232px;
                 status <=> root.status;
                 version: root.version;
                 vitals: root.vitals;
@@ -1800,17 +1895,16 @@ export component AppWindow inherits Window {
                 open-update => { root.update-open = true; }
             }
         }
-        }
     }
 
     // The calendar covers everything between the title bar and the status bar. Over
     // the mail rather than instead of it: coming back to the mail finds it exactly as
     // it was left - same list, same scroll, same open thread.
     if root.workspace == 1: CalendarView {
-        x: root.rail-width;
-        y: 32px;
-        width: parent.width - root.rail-width - 1px;
-        height: parent.height - 32px - 23px;
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 1px - 24px;
         title: root.calendar-title;
         mode: root.calendar-mode;
         calendars: root.calendars;
@@ -1880,10 +1974,10 @@ export component AppWindow inherits Window {
     }
 
     if root.workspace == 2: TasksView {
-        x: root.rail-width;
-        y: 32px;
-        width: parent.width - root.rail-width - 1px;
-        height: parent.height - 32px - 23px;
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 1px - 24px;
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
         overview: root.task-overview;
@@ -2006,10 +2100,10 @@ export component AppWindow inherits Window {
 
     // Home, over everything like the other workspaces.
     if root.workspace == 3: HomeView {
-        x: root.rail-width;
-        y: 32px;
-        width: parent.width - root.rail-width - 1px;
-        height: parent.height - 32px - 23px;
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 1px - 24px;
         greeting: root.home-greeting;
         date: root.home-date;
         summary: root.home-summary;
@@ -2017,6 +2111,26 @@ export component AppWindow inherits Window {
         mail-count: root.home-mail-count;
         events-count: root.home-events-count;
         tasks-count: root.home-tasks-count;
+        later: root.home-later;
+        tasks: root.home-tasks;
+        tasks-more: root.home-tasks-more;
+        threads: root.home-threads;
+        waiting: root.home-waiting;
+        goal: root.home-goal;
+        has-goal: root.home-has-goal;
+        week-done: root.home-week-done;
+        week-bars: root.home-week-bars;
+        week-today: root.home-week-today;
+        streak: root.inbox-zero-streak;
+        pinned: root.pinned-accounts;
+        accounts: root.other-accounts;
+        last-sync: root.last-sync;
+        thread-opened(id) => { root.home-thread-opened(id); shortcuts.focus(); }
+        goal-opened(id) => { root.home-goal-opened(id); shortcuts.focus(); }
+        compose => {
+            root.compose-minimised = false;
+            root.compose-open = true;
+        }
         opened(t) => { root.home-open(t); shortcuts.focus(); }
         task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
         task-toggled(id) => { root.home-task-toggled(id); }
@@ -2622,6 +2736,7 @@ export component AppWindow inherits Window {
         handle-mailto <=> root.handle-mailto;
         keep-running <=> root.keep-running;
         home-at-startup <=> root.home-at-startup;
+        mac-buttons <=> root.window-mac-buttons;
         undo-send-seconds <=> root.undo-send-seconds;
         sending-changed => { root.sending-changed(); }
         google-client-id <=> root.oauth-google-id;

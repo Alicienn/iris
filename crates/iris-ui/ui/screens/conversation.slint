@@ -540,10 +540,11 @@ component InviteBanner inherits Rectangle {
     property <bool> repondre: root.can-reply && root.state <= 3;
 
     height: rang.preferred-height;
-    border-radius: Tokens.radius-large;
-    border-width: 1px;
-    border-color: root.annule ? Tokens.error.transparentize(0.6) : Tokens.accent.transparentize(0.6);
-    background: root.annule ? Tokens.error.transparentize(0.94) : Tokens.accent-soft;
+    // An inset grey plate, as Mail shows an invitation; red only once it is cancelled.
+    border-radius: 10px;
+    border-width: root.annule ? 1px : 0px;
+    border-color: Tokens.error.transparentize(0.6);
+    background: root.annule ? Tokens.error.transparentize(0.94) : Tokens.group;
 
     accessible-role: groupbox;
     accessible-label: "Invitation: " + root.title + ", " + root.when;
@@ -839,113 +840,6 @@ export component ConversationView inherits VerticalLayout {
         }
     }
 
-    // The toolbar, across the top of the reader: what moves the conversation on, in
-    // words with their keys, then what marks it, as icons. Every one of these was
-    // once reachable only from the palette or a key nobody had been told about.
-    // What moves the conversation on, in words with their keys; then what marks it,
-    // as icons. Every one of these was once reachable only from the palette or a key
-    // nobody had been told about.
-    if !root.empty: Toolbar {
-        vertical-stretch: 0;
-        Button {
-            y: (parent.height - self.height) / 2;
-            text: "Done";
-            label: "Mark as done";
-            icon: Icons.check;
-            shortcut: "E";
-            kind: ButtonKind.primary;
-            size: ButtonSize.sm;
-            clicked => { root.mark-done(); }
-        }
-        Rectangle { width: 4px; }
-        // Snooze asks until when: later today, tomorrow morning, the weekend, next
-        // week. "S" goes straight to tomorrow morning.
-        snooze-button := Button {
-            y: (parent.height - self.height) / 2;
-            text: "Snooze";
-            label: "Snooze…";
-            icon: Icons.clock;
-            shortcut: "S";
-            kind: ButtonKind.ghost;
-            size: ButtonSize.sm;
-            clicked => {
-                root.snooze-menu(self.absolute-position.x,
-                    self.absolute-position.y + self.height + 6px);
-            }
-        }
-        Button {
-            y: (parent.height - self.height) / 2;
-            text: "Waiting";
-            label: "Move to Waiting";
-            icon: Icons.hourglass;
-            shortcut: "W";
-            kind: ButtonKind.ghost;
-            size: ButtonSize.sm;
-            clicked => { root.waiting(); }
-        }
-        Button {
-            y: (parent.height - self.height) / 2;
-            text: "To task";
-            label: "Make it a task";
-            icon: Icons.task;
-            shortcut: "T";
-            kind: ButtonKind.ghost;
-            size: ButtonSize.sm;
-            clicked => { root.to-task(); }
-        }
-
-        Rectangle { horizontal-stretch: 1; }
-
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: Icons.star;
-            label: root.starred ? "Remove star" : "Star";
-            shortcut: "F";
-            button-size: 30px;
-            filled: root.starred;
-            bounce: true;
-            tinted: root.starred;
-            tint: Tokens.warning;
-            clicked => { root.toggle-star(); }
-        }
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: Icons.archive;
-            label: "Archive";
-            shortcut: "A";
-            button-size: 30px;
-            clicked => { root.archive(); }
-        }
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: Icons.trash;
-            label: "Delete";
-            shortcut: "Del";
-            button-size: 30px;
-            danger: true;
-            clicked => { root.delete-thread(); }
-        }
-        // The conversation alone on screen: the accounts and the list step aside.
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: root.focused ? Icons.collapse : Icons.expand;
-            label: root.focused ? "Leave full screen" : "Read full screen";
-            button-size: 30px;
-            active: root.focused;
-            clicked => { root.toggle-focus(); }
-        }
-        // The rest, less often: forward, read or unread, the source.
-        IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: Icons.more;
-            label: "More actions";
-            button-size: 30px;
-            clicked => {
-                root.more-menu(self.absolute-position.x + self.width,
-                    self.absolute-position.y + self.height + 6px);
-            }
-        }
-    }
 
     if !root.empty: VerticalLayout {
         padding-top: 0px;
@@ -970,9 +864,9 @@ export component ConversationView inherits VerticalLayout {
             viewport-height: fil.preferred-height + 26px + 20px;
 
             fil := VerticalLayout {
-                x: max(40px, (defil.visible-width - root.column) / 2);
+                x: max(32px, (defil.visible-width - root.column) / 2);
                 y: 26px + (1 - root.entree) * 10px;
-                width: min(root.column, defil.visible-width - 80px);
+                width: min(root.column, defil.visible-width - 64px);
                 // Its own height: given the viewport's, the layout spread the extra
                 // room between the subject and the first card.
                 height: self.preferred-height;
@@ -990,8 +884,8 @@ export component ConversationView inherits VerticalLayout {
                     Text {
                         text: root.message.subject;
                         font-family: Tokens.font-display;
-                        font-size: 22px;
-                        font-weight: 600;
+                        font-size: 20px;
+                        font-weight: 700;
                         color: Tokens.text;
                         wrap: word-wrap;
                     }
@@ -1010,7 +904,7 @@ export component ConversationView inherits VerticalLayout {
                             Text {
                                 text: root.account-email;
                                 font-size: 12.5px;
-                                color: Tokens.text-secondary;
+                                color: Tokens.text-muted;
                                 vertical-alignment: center;
                                 overflow: elide;
                                 max-width: self.preferred-width;
@@ -1035,7 +929,7 @@ export component ConversationView inherits VerticalLayout {
                                     // "Inbox" alone says nothing to a screen reader.
                                     accessible-label: "In " + (root.folder-all != "" ? root.folder-all : root.folder-label);
                                     font-size: 12.5px;
-                                    color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
+                                    color: root.folder-alarming ? Tokens.error : Tokens.text-muted;
                                     vertical-alignment: center;
                                 }
                             }
@@ -1058,21 +952,23 @@ export component ConversationView inherits VerticalLayout {
                 // Each message on a card of its own, framed: the folded ones a single
                 // line, the open one with its header and body, so the change of author
                 // reads at a glance.
+                // As Apple Mail: no frame, a hairline between one message and the next.
                 for message[i] in root.messages: Rectangle {
                     height: carte.preferred-height;
-                    border-radius: Tokens.radius-large;
-                    border-width: 1px;
-                    border-color: message.expanded ? Tokens.border-strong : Tokens.border;
-                    background: Tokens.surface;
+                    if i > 0: Rectangle {
+                        y: 0;
+                        height: 1px;
+                        background: Tokens.border;
+                    }
 
                 carte := VerticalLayout {
                     // Nothing inside widens the card past the column: a line too long
                     // to wrap is cut, never a card thousands of pixels wide.
                     min-width: 0px;
-                    padding-left: 16px;
-                    padding-right: 16px;
-                    padding-top: 4px;
-                    padding-bottom: message.expanded ? 20px : 4px;
+                    padding-left: 0px;
+                    padding-right: 0px;
+                    padding-top: 6px;
+                    padding-bottom: message.expanded ? 16px : 6px;
                     spacing: 10px;
 
                     // L'en-tête, et la poignée qui déplie et replie — sauf quand il n'y
@@ -1087,7 +983,7 @@ export component ConversationView inherits VerticalLayout {
                     // The sender's face and name, their address when open, the date.
                     // A click folds or unfolds it, when there is more than one.
                     Rectangle {
-                        height: 48px;
+                        height: 56px;
 
                         HorizontalLayout {
                             spacing: 10px;
@@ -1096,7 +992,7 @@ export component ConversationView inherits VerticalLayout {
                                 y: (parent.height - self.height) / 2;
                                 initials: message.initials;
                                 tint: message.tint;
-                                size: 30px;
+                                size: 38px;
                             }
 
                             Text {
@@ -1209,7 +1105,7 @@ export component ConversationView inherits VerticalLayout {
                         accept
                     }
                     VerticalLayout {
-                        padding-left: 40px;
+                        padding-left: 0px;
                         spacing: 10px;
                         for block in message.blocks: MessageBlock {
                             block: block;
@@ -1232,7 +1128,7 @@ export component ConversationView inherits VerticalLayout {
                     // under its body: what it is, how big.
                     if message.expanded && message.id == root.message.id
                         && root.message.attachments.length > 0: Attachments {
-                        padding-left: message.body-is-image ? 0px : 40px;
+                        padding-left: 0px;
                         padding-top: 6px;
                         files: root.message.attachments;
                         expanded <=> root.attachments-expanded;
@@ -1254,16 +1150,18 @@ export component ConversationView inherits VerticalLayout {
             height: root.reply-text == "" ? 84px : 160px;
 
             Rectangle {
-                x: max(40px, (root.width - root.column) / 2);
-                width: min(root.column, root.width - 80px);
-                border-radius: Tokens.radius-large;
+                x: max(32px, (root.width - root.column) / 2);
+                width: min(root.column, root.width - 64px);
+                border-radius: 10px;
                 border-width: 1px;
                 border-color: champ.has-focus ? Tokens.accent : Tokens.border-strong;
                 background: Tokens.surface;
 
+                // The buttons clear of the rounded border: 10 px all round.
                 VerticalLayout {
-                    padding: 4px;
-                    padding-bottom: 6px;
+                    padding: 10px;
+                    padding-left: 12px;
+                    padding-top: 4px;
                     spacing: 0px;
 
                     champ := TextArea {
@@ -1283,7 +1181,7 @@ export component ConversationView inherits VerticalLayout {
                         RecipientsButton {
                             text: "Reply all";
                             icon: Icons.reply-all;
-                            kind: ButtonKind.ghost;
+                            kind: ButtonKind.secondary;
                             enabled: root.reply-text != "";
                             to: root.reply-all-to;
                             cc: root.reply-all-cc;
@@ -1295,7 +1193,7 @@ export component ConversationView inherits VerticalLayout {
                         RecipientsButton {
                             text: "Send";
                             icon: Icons.send;
-                            kind: ButtonKind.secondary;
+                            kind: ButtonKind.primary;
                             enabled: root.reply-text != "";
                             to: root.reply-to;
                             cc: root.reply-cc;

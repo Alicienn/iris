@@ -143,26 +143,26 @@ impl Default for ColorTokens {
     /// The light theme's values.
     fn default() -> Self {
         Self {
-            background: Color::rgb(0xf7, 0xf7, 0xf6),
-            surface_low: Color::rgb(0xf0, 0xf0, 0xee),
+            background: Color::rgb(0xf2, 0xf2, 0xf4),
+            surface_low: Color::rgb(0xeb, 0xeb, 0xed),
             surface: Color::rgb(0xff, 0xff, 0xff),
             surface_high: Color::rgb(0xff, 0xff, 0xff),
             panel: Color::rgb(0xff, 0xff, 0xff),
-            surface_hover: Color::rgba(0x14, 0x14, 0x1e, 0x0b),
-            surface_active: Color::rgba(0x14, 0x14, 0x1e, 0x13),
-            border: Color::rgb(0xe4, 0xe4, 0xe2),
-            border_strong: Color::rgb(0xd3, 0xd3, 0xd0),
-            text: Color::rgb(0x18, 0x18, 0x1b),
-            text_secondary: Color::rgb(0x4a, 0x4a, 0x52),
-            text_muted: Color::rgb(0x6e, 0x6e, 0x77),
-            text_faint: Color::rgb(0xa9, 0xa9, 0xb0),
+            surface_hover: Color::rgba(0x00, 0x00, 0x00, 0x0a),
+            surface_active: Color::rgba(0x00, 0x00, 0x00, 0x12),
+            border: Color::rgb(0xe3, 0xe3, 0xe6),
+            border_strong: Color::rgb(0xd1, 0xd1, 0xd6),
+            text: Color::rgb(0x1d, 0x1d, 0x1f),
+            text_secondary: Color::rgb(0x42, 0x42, 0x45),
+            text_muted: Color::rgb(0x6e, 0x6e, 0x73),
+            text_faint: Color::rgb(0xa1, 0xa1, 0xa6),
             text_inverse: Color::rgb(0xff, 0xff, 0xff),
-            accent: Color::rgb(0x2c, 0x62, 0xe8),
-            accent_soft: Color::rgba(0x2c, 0x62, 0xe8, 0x17),
+            accent: Color::rgb(0x00, 0x7a, 0xff),
+            accent_soft: Color::rgba(0x00, 0x7a, 0xff, 0x1f),
             accent_text: Color::rgb(0xff, 0xff, 0xff),
-            error: Color::rgb(0xcc, 0x35, 0x27),
-            warning: Color::rgb(0xa8, 0x66, 0x0c),
-            success: Color::rgb(0x1d, 0x8a, 0x4e),
+            error: Color::rgb(0xff, 0x3b, 0x30),
+            warning: Color::rgb(0xff, 0x95, 0x00),
+            success: Color::rgb(0x34, 0xc7, 0x59),
         }
     }
 }
@@ -180,7 +180,7 @@ impl Default for RadiusTokens {
     fn default() -> Self {
         Self {
             small: 6.0,
-            medium: 9.0,
+            medium: 8.0,
             large: 12.0,
             pill: 999.0,
         }
@@ -286,9 +286,9 @@ mod tests {
         // Écrire un thème qui ne change que son nom doit suffire.
         let t = Theme::from_toml("name = \"essai\"").unwrap();
         assert_eq!(t.name, "essai");
-        assert_eq!(t.radius.medium, 9.0);
+        assert_eq!(t.radius.medium, 8.0);
         assert_eq!(t.typography.family, "Segoe UI Variable Text");
-        assert_eq!(t.color.background, Color::rgb(0xf7, 0xf7, 0xf6));
+        assert_eq!(t.color.background, Color::rgb(0xf2, 0xf2, 0xf4));
     }
 
     #[test]
