@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.4.0 — 2026-10-01
+
+### New
+- A new icon: mail, calendar and tasks as three arcs of one iris, in the app, the taskbar, the notification area and the installer.
+
 ## 4.3.0 — 2026-10-01
 
 ### New

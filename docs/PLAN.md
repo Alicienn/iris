@@ -555,3 +555,7 @@ variant, brought into the application.
 - [x] **S41.11** Settings as the mockup's page (4.3.0): beside the side column, groups
       of rows each led by a coloured tile, switches and pop-ups at the right; an accent
       colour among eight, over the theme, light and dark.
+- [x] **S41.12** A new mark (4.4.0), chosen among six proposals: "Trio", three arcs
+      (mail blue, calendar red, tasks orange) round a pupil, on a white plate; in
+      `iris.ico` (16 to 256 px: the executable, the installer, the notification
+      area), the README and the side column's badge.

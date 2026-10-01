@@ -185,26 +185,58 @@ component NavArrow inherits Rectangle {
     }
 }
 
-/// The Iris mark in its square: Windows' answer to the lights, where a Mac has them.
+/// The Iris mark, Windows' answer to the lights where a Mac has them: mail, calendar
+/// and tasks as three arcs of one iris (blue, red, orange) around its pupil, on a
+/// white plate. Flat colours: the software renderer paints a gradient square.
 export component IrisBadge inherits Rectangle {
     in property <length> size: 18px;
     width: root.size;
     height: root.size;
-    border-radius: root.size * 0.28;
-    // Solid: the software renderer paints a gradient square, past the rounded corners.
-    background: #2f7dff;
+    border-radius: root.size * 0.29;
+    background: #ffffff;
+    border-width: 1px;
+    border-color: #0000001a;
+
+    // The three arcs, on the logo's 1024 grid.
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 1024;
+        viewbox-height: 1024;
+        commands: "M 351.3 320.5 A 250 250 0 0 1 672.7 320.5";
+        stroke: #1a85ff;
+        stroke-width: 112 / 1024 * root.size;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 1024;
+        viewbox-height: 1024;
+        commands: "M 758.2 468.6 A 250 250 0 0 1 597.5 746.9";
+        stroke: #f73c32;
+        stroke-width: 112 / 1024 * root.size;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 1024;
+        viewbox-height: 1024;
+        commands: "M 426.5 746.9 A 250 250 0 0 1 265.8 468.6";
+        stroke: #ff9a17;
+        stroke-width: 112 / 1024 * root.size;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+    // The pupil.
     Rectangle {
-        width: root.size * 0.5;
+        width: root.size * 208 / 1024;
         height: self.width;
         border-radius: self.width / 2;
-        border-width: root.size / 11;
-        border-color: #ffffff;
-        Rectangle {
-            width: root.size * 0.16;
-            height: self.width;
-            border-radius: self.width / 2;
-            background: #ffffff;
-        }
+        background: #111e35;
     }
 }
 

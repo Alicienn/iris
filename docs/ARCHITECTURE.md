@@ -247,7 +247,8 @@ switcher at the top of each place's side column: **Home**, **Mail**, **Calendar*
 The window chrome lives in `shell/chrome.slint`:
 
 - `SidebarFrame` is a place's side column: `SidebarHead` (the window's lights on a Mac
-  setting, else the Iris badge; back and forward; the four-place switcher), the
+  setting, else the Iris badge, the "Trio" mark of `assets/iris.ico` drawn in paths;
+  back and forward; the four-place switcher), the
   place's own rows. Its foot, `SidebarFoot` (settings, the palette), is drawn by the
   status bar in its stretch under the column (`side`), on the window's bottom edge.
 - `WindowToolbar` is the 52 px bar over a place's content: it moves the window
