@@ -2829,9 +2829,12 @@ pub fn appliquer_apparence(fenetre: &AppWindow, theme: &iris_theme::Theme, densi
     tokens.set_row_height(theme.density.row_height * densite.factor());
 }
 
+/// A colour as three channels.
+pub type Rgb = (u8, u8, u8);
+
 /// The accents offered in Settings, as the Mac offers them: blue, purple, pink, red,
 /// orange, yellow, green, graphite; each in its light and its dark shade.
-pub const ACCENTS: [((u8, u8, u8), (u8, u8, u8)); 8] = [
+pub const ACCENTS: [(Rgb, Rgb); 8] = [
     ((0x00, 0x7a, 0xff), (0x0a, 0x84, 0xff)),
     ((0xaf, 0x52, 0xde), (0xbf, 0x5a, 0xf2)),
     ((0xff, 0x2d, 0x55), (0xff, 0x37, 0x5f)),
