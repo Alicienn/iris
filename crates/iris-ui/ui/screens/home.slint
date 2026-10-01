@@ -6,7 +6,7 @@ import { ScrollView } from "@iris/controls/scroll.slint";
 import { HomeItemData, GoalData, AccountRowData } from "@iris/types.slint";
 import { JoinButton } from "@iris/controls/video.slint";
 import { Nav, NavItem, SectionRow } from "@iris/lists/nav.slint";
-import { Chrome, SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import { GoalRing } from "@iris/screens/goals.slint";
 
 // Home: the day in a sentence, then a handful of widgets as the Mac draws them — what
@@ -101,8 +101,7 @@ export component HomeView inherits Rectangle {
     in property <[float]> week-bars;
     in property <int> week-today;
     in property <int> streak;
-    /// The mailboxes, as the mail's column lists them (tag titles are skipped).
-    in property <[AccountRowData]> pinned;
+    /// Every mailbox; for one that stopped syncing, `problem` is the sentence to show.
     in property <[AccountRowData]> accounts;
     in property <string> last-sync;
 
@@ -154,7 +153,7 @@ export component HomeView inherits Rectangle {
                 icon: Icons.sparkle;
                 clicked => { root.opened("goals"); }
             }
-            if root.pinned.length + root.accounts.length > 0: SectionRow { text: "Mailboxes"; }
+            if root.accounts.length > 0: SectionRow { text: "Mailboxes"; }
             // However many there are, the column's foot stays where it is.
             boites := ScrollView {
                 vertical-stretch: 1;
@@ -164,21 +163,25 @@ export component HomeView inherits Rectangle {
                     width: boites.visible-width;
                     alignment: start;
                     spacing: 0px;
-                    for a in root.pinned: NavItem {
-                        label: a.label;
-                        has-dot: true;
-                        dot: a.tint;
-                        count: a.needs-attention ? "!" : "";
-                        clicked => { root.opened("mail"); }
-                    }
                     for a in root.accounts: NavItem {
-                        visible: !a.header;
-                        row-height: a.header ? 0px : Nav.row-height;
                         label: a.label;
                         has-dot: true;
                         dot: a.tint;
-                        count: a.needs-attention ? "!" : "";
                         clicked => { root.opened("mail"); }
+                        // A mailbox that stopped syncing says so in red, and why when
+                        // pointed at, as in the mail's column.
+                        if a.needs-attention: Rectangle {
+                            width: 14px;
+                            Icon {
+                                data: Icons.exclamation;
+                                size: 14px;
+                                tint: Tokens.error;
+                            }
+                            // The whole sentence comes from Rust.
+                            Tooltip {
+                                text: @markdown("\{a.problem}");
+                            }
+                        }
                     }
                     if root.last-sync != "": HorizontalLayout {
                         height: 26px;
@@ -207,39 +210,6 @@ export component HomeView inherits Rectangle {
                     button-size: 28px;
                     icon-size: 17px;
                     clicked => { root.compose(); }
-                }
-                // Search everything: the palette, which finds mail, tasks, events and
-                // commands alike.
-                Rectangle {
-                    y: (parent.height - self.height) / 2;
-                    width: 210px;
-                    height: 28px;
-                    border-radius: 7px;
-                    background: Tokens.well;
-                    accessible-role: button;
-                    accessible-label: "Search everything";
-                    accessible-description: "Ctrl+K";
-                    accessible-action-default => { Chrome.palette(); }
-                    HorizontalLayout {
-                        padding-left: 9px;
-                        spacing: 7px;
-                        Icon {
-                            y: (parent.height - self.height) / 2;
-                            data: Icons.search;
-                            size: 13px;
-                            tint: Tokens.text-muted;
-                        }
-                        Text {
-                            text: "Search everything";
-                            font-size: 12.5px;
-                            color: Tokens.text-faint;
-                            vertical-alignment: center;
-                        }
-                    }
-                    TouchArea {
-                        mouse-cursor: text;
-                        clicked => { Chrome.palette(); }
-                    }
                 }
             }
 

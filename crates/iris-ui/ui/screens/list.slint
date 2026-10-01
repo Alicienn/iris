@@ -324,7 +324,9 @@ component ThreadRow inherits Rectangle {
                 Text {
                     text: root.data.subject;
                     font-size: 13px;
-                    font-weight: root.data.unread ? 600 : 400;
+                    // Regular, unread or not, as Mail sets it: the blue dot says
+                    // unread, and the sender's name is the line in bold.
+                    font-weight: 400;
                     color: root.encre;
                     overflow: elide;
                     horizontal-stretch: root.airy ? 1 : 0;

@@ -646,9 +646,15 @@ component WeekGrid inherits VerticalLayout {
                 background: e.color.transparentize(bloc.has-hover ? 0.75 : 0.83);
                 opacity: self.held ? 0.35 : e.past ? 0.55 : 1.0;
                 clip: true;
+                // The bar of its colour, inset from the top and bottom with round
+                // ends: drawn full height, it squared the block's left corners (the
+                // software renderer's clip ignores the radius).
                 Rectangle {
-                    x: 0;
+                    x: 2px;
+                    y: 3px;
                     width: 3px;
+                    height: max(0px, parent.height - 6px);
+                    border-radius: 1.5px;
                     background: e.color;
                 }
 

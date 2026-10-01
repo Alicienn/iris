@@ -18,7 +18,7 @@ import { NavItem } from "@iris/lists/nav.slint";
 import { SectionHeader, ListRow, RowLead, TimeRow, NowLine, PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Toolbar, EmptyState, Modal, ModalFooter, Popover }
     from "@iris/layout/frames.slint";
-import { Chrome, SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { Chrome, SidebarFrame, SidebarFoot, WindowToolbar } from "@iris/shell/chrome.slint";
 import { MailToolbar } from "@iris/screens/mail-toolbar.slint";
 import { Toast, SendNotice } from "@iris/shell/toast.slint";
 import { HomeView } from "@iris/screens/home.slint";
@@ -232,7 +232,8 @@ component StatusBar inherits Rectangle {
     /// How wide the side column above it is: it runs on down to the window's edge.
     in property <length> side;
 
-    height: 24px;
+    // Room for the side column's foot, whose buttons are 24 high.
+    height: 30px;
     // The page's own white: a footnote, not a second toolbar.
     background: Tokens.surface;
 
@@ -244,6 +245,13 @@ component StatusBar inherits Rectangle {
             x: parent.width - 1px;
             width: 1px;
             background: Tokens.border;
+        }
+        // The column's foot, on the window's bottom edge: the settings, search.
+        if root.side > 0: SidebarFoot {
+            x: 10px;
+            width: parent.width - 21px;
+            height: parent.height;
+            compact: root.side < 150px;
         }
     }
     // The line over it, beside the side column only.
@@ -803,6 +811,8 @@ export component AppWindow inherits Window {
     /// The widgets: the events after the next, today's first tasks and how many more,
     /// the first conversations to answer (sender, subject, initials, mailbox colour)
     /// and how many in all, how many wait for an answer, a goal, the week.
+    /// Every mailbox, unfiltered and unfolded, for Home's side column.
+    in property <[AccountRowData]> home-accounts;
     in property <[HomeItemData]> home-later;
     in property <[HomeItemData]> home-tasks;
     in property <int> home-tasks-more;
@@ -1906,7 +1916,7 @@ export component AppWindow inherits Window {
         x: 0px;
         y: 0px;
         width: parent.width;
-        height: parent.height - 24px;
+        height: parent.height - 30px;
         title: root.calendar-title;
         mode: root.calendar-mode;
         calendars: root.calendars;
@@ -1979,7 +1989,7 @@ export component AppWindow inherits Window {
         x: 0px;
         y: 0px;
         width: parent.width;
-        height: parent.height - 24px;
+        height: parent.height - 30px;
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
         overview: root.task-overview;
@@ -2105,7 +2115,7 @@ export component AppWindow inherits Window {
         x: 0px;
         y: 0px;
         width: parent.width;
-        height: parent.height - 24px;
+        height: parent.height - 30px;
         greeting: root.home-greeting;
         date: root.home-date;
         summary: root.home-summary;
@@ -2124,8 +2134,7 @@ export component AppWindow inherits Window {
         week-bars: root.home-week-bars;
         week-today: root.home-week-today;
         streak: root.inbox-zero-streak;
-        pinned: root.pinned-accounts;
-        accounts: root.other-accounts;
+        accounts: root.home-accounts;
         last-sync: root.last-sync;
         thread-opened(id) => { root.home-thread-opened(id); shortcuts.focus(); }
         goal-opened(id) => { root.home-goal-opened(id); shortcuts.focus(); }

@@ -354,7 +354,7 @@ component FootButton inherits Rectangle {
     callback clicked();
 
     width: rang.preferred-width + 16px;
-    height: 28px;
+    height: 24px;
     border-radius: Tokens.radius-small;
     background: touch.has-hover ? Tokens.surface-hover : transparent;
 
@@ -388,18 +388,34 @@ component FootButton inherits Rectangle {
     }
 }
 
-/// The foot of every sidebar: the settings, and search and commands.
+/// The foot of every side column: the settings, and search and commands. Drawn in the
+/// status bar's stretch under the column, flush with the window's bottom edge; in a
+/// folded column, the gear alone.
 export component SidebarFoot inherits HorizontalLayout {
-    height: 32px;
+    in property <bool> compact;
     spacing: 2px;
-    padding-top: 4px;
-    FootButton { icon: Icons.gear; label: "Settings"; shortcut: "Ctrl+,"; clicked => { Chrome.settings(); } }
+    FootButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.gear;
+        label: "Settings";
+        shortcut: "Ctrl+,";
+        text: root.compact ? "" : "Settings";
+        clicked => { Chrome.settings(); }
+    }
     Rectangle { horizontal-stretch: 1; }
-    FootButton { icon: Icons.search; label: "Search and commands"; shortcut: "Ctrl+K"; text: ""; clicked => { Chrome.palette(); } }
+    if !root.compact: FootButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.search;
+        label: "Search and commands";
+        shortcut: "Ctrl+K";
+        text: "";
+        clicked => { Chrome.palette(); }
+    }
 }
 
-/// A sidebar: the head, what the place lists, the foot. Grey, with a hairline on its
-/// right.
+/// A sidebar: the head, then what the place lists. Grey, with a hairline on its
+/// right. Its foot (settings, search) runs on below it, in the status bar's stretch
+/// under the column, at the window's bottom edge.
 export component SidebarFrame inherits Rectangle {
     in property <length> sidebar-width: 232px;
     width: root.sidebar-width;
@@ -413,11 +429,10 @@ export component SidebarFrame inherits Rectangle {
     VerticalLayout {
         padding-left: 10px;
         padding-right: 11px;
-        padding-bottom: 10px;
+        padding-bottom: 2px;
         spacing: 0px;
         SidebarHead {}
         @children
-        SidebarFoot {}
     }
 }
 

@@ -186,6 +186,24 @@ pub fn refresh_accounts(
         autres.iter().map(|c| ligne(c)).collect()
     };
     fenetre.set_other_accounts(ModelRc::new(VecModel::from(lignes)));
+    // Home lists every mailbox, whatever the mail's column filters or folds: a tag
+    // folded there hid its accounts on Home too.
+    fenetre.set_home_accounts(ModelRc::new(VecModel::from(
+        comptes
+            .iter()
+            .map(|c| {
+                let mut l = ligne(c);
+                if l.needs_attention {
+                    l.problem = if l.problem.is_empty() {
+                        "Paused after repeated failures".into()
+                    } else {
+                        format!("Sync failed: {}", l.problem).into()
+                    };
+                }
+                l
+            })
+            .collect::<Vec<_>>(),
+    )));
     let total: u32 = a_traiter.values().sum();
     fenetre.set_unified_count(total as i32);
     fenetre.set_unified_label(iris_ui::format::short_count(total as u64).into());

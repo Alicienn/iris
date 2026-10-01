@@ -248,7 +248,8 @@ The window chrome lives in `shell/chrome.slint`:
 
 - `SidebarFrame` is a place's side column: `SidebarHead` (the window's lights on a Mac
   setting, else the Iris badge; back and forward; the four-place switcher), the
-  place's own rows, then `SidebarFoot` (settings, the palette).
+  place's own rows. Its foot, `SidebarFoot` (settings, the palette), is drawn by the
+  status bar in its stretch under the column (`side`), on the window's bottom edge.
 - `WindowToolbar` is the 52 px bar over a place's content: it moves the window
   (double click maximises), holds the place's actions, and ends on Windows' three
   buttons unless the Mac's lights are chosen (*Settings › Window buttons*,
@@ -304,8 +305,10 @@ built from the To do count, the tasks due (and late) and the events left, then w
 task with an hour, whichever starts first (`home::day`, `upcoming`; what is late is not
 "next"), and the two events after it; a **Goal**, the first not reached
 (`goals::for_home`); **Today**, the first four tasks due or late; **To answer**, the
-first three conversations of To do (`list_threads`, initials on the mailbox's tint) and
-how many are in Waiting; **This week**, the tasks done a bar a day (`tasks::week`) and
+first three conversations of To do (`list_threads`, initials on the sender's tint), how
+many there are in all, read or not (unlike the mail's badges, which count the unread),
+and how many are in Waiting; with nothing more today, Up next takes tomorrow's first
+event; **This week**, the tasks done a bar a day (`tasks::week`) and
 the inbox zero streak. Its side column lists the places with their counts and the
 mailboxes. It opens first unless `home_at_startup` is off.
 

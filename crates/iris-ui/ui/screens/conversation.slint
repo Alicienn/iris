@@ -1071,9 +1071,13 @@ export component ConversationView inherits VerticalLayout {
                             }
                         }
 
-                        // Open, a hairline under the header, between it and the body.
+                        // Open, a hairline under the header, between it and the body,
+                        // across the whole pane: from the list's edge to the window's,
+                        // as Mail draws it, not just the reading column's width.
                         if message.expanded: Rectangle {
+                            x: -fil.x;
                             y: parent.height + 4px;
+                            width: defil.visible-width;
                             height: 1px;
                             background: Tokens.border;
                         }

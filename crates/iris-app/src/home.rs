@@ -288,6 +288,21 @@ pub fn day(services: &Services, max: usize) -> Journee {
     }
 }
 
+/// Tomorrow's first event with an hour, said as such: "Tomorrow, 09:30".
+fn demain(services: &Services, today: NaiveDate) -> Option<HomeItemData> {
+    let lendemain = today.succ_opt()?;
+    crate::calendar::upcoming(services, lendemain, 1)
+        .into_iter()
+        .find(|u| u.day == lendemain && !u.all_day)
+        .map(|u| HomeItemData {
+            key: u.key.as_str().into(),
+            title: u.title.as_str().into(),
+            meta: format!("Tomorrow, {}", u.time).into(),
+            color: crate::calendar::couleur(&u.color),
+            ..avec_visio(u.video.as_deref())
+        })
+}
+
 /// The conversations at the top of To do, as Home lists them: who, about what, their
 /// initials on their mailbox's colour.
 fn a_repondre(services: &Services, combien: u32) -> Vec<HomeItemData> {
@@ -299,14 +314,9 @@ fn a_repondre(services: &Services, combien: u32) -> Vec<HomeItemData> {
         .unwrap_or_default()
         .into_iter()
         .map(|t| {
-            let boite = services
-                .store
-                .account(t.account)
-                .ok()
-                .flatten()
-                .map(|a| a.email)
-                .unwrap_or_default();
-            let (r, g, b) = iris_ui::format::account_tint(&boite);
+            // Each sender its own colour, as the list's faces: by the mailbox, every
+            // face of one account came out the same.
+            let (r, g, b) = iris_ui::format::account_tint(&t.from_display);
             let nom = t.from_display.split('<').next().unwrap_or("").trim();
             HomeItemData {
                 id: t.id.0 as i32,
@@ -354,8 +364,12 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     // Beside each way in, what waits there; nothing when nothing does.
     let compte = |n: usize| if n == 0 { String::new() } else { nombre(n) };
 
+    // Nothing more today: tomorrow's first event, rather than an empty card.
+    let suivant = j
+        .upcoming
+        .or_else(|| demain(services, maintenant.date_naive()));
     f.set_home_next(ModelRc::new(VecModel::from(
-        j.upcoming.into_iter().collect::<Vec<_>>(),
+        suivant.into_iter().collect::<Vec<_>>(),
     )));
     f.set_home_mail_count(compte(a_traiter).into());
     f.set_home_tasks_count(compte(j.due).into());
@@ -387,12 +401,15 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     f.set_home_week_today(semaine.today);
 }
 
-/// The conversations in the To do queue, over every mailbox.
+/// The conversations in the To do queue, over every mailbox, read or not: what the
+/// To answer widget lists. Counting only the unread ones said "0" over three of them.
 fn to_answer(services: &Services) -> usize {
+    let mut q = ListQuery::new(WorkflowState::Todo, 1000);
+    q.hide_snoozed_until = Some(now());
     services
         .store
-        .todo_counts_by_account(now())
-        .map(|c| c.values().map(|n| *n as usize).sum())
+        .list_threads(&q)
+        .map(|l| l.len())
         .unwrap_or(0)
 }
 

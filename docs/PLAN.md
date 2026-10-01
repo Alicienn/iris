@@ -546,3 +546,9 @@ variant, brought into the application.
       the open message (its signature ignores the read, star and answered flags).
 - [x] **S41.8** Home, Calendar and Tasks laid flush with the window as the mail is
       (4.1.1): the pixel's inset kept from the old frame showed as a pale border.
+- [x] **S41.10** The column's foot (settings, search) in the status bar's stretch under
+      it, on the window's edge (4.2.0); the header's line across the pane; events
+      rounded all round (their bar inset); subjects regular; no search on Home.
+- [x] **S41.9** Home tells the truth (4.2.0): To answer counts every To do
+      conversation, every mailbox is listed (`home-accounts`, unfolded) with its
+      failure in red, faces by sender, tomorrow's first event when today is done.
