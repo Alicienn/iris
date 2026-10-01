@@ -1454,11 +1454,14 @@ export component TasksView inherits Rectangle {
 
         // A column of a readable width, centred: a task stretched across a wide
         // window is a line the eye has to travel.
+        // Two margins that take what the column leaves: `alignment: center` gave the
+        // column its preferred width (a few hundred pixels), not the room up to its
+        // limit, and the end of each line fell outside the list.
         if root.page == 0: HorizontalLayout {
             vertical-stretch: 1;
-            alignment: center;
+        Rectangle { horizontal-stretch: 1; }
         VerticalLayout {
-            horizontal-stretch: 1;
+            horizontal-stretch: 1000;
             max-width: 840px;
 
             // The name of the view, the day beside it on Today, how much is done.
@@ -1581,20 +1584,21 @@ export component TasksView inherits Rectangle {
                 }
             }
         }
+        Rectangle { horizontal-stretch: 1; }
         }
 
             // The line to add a task, or a step toward the goal shown.
             HorizontalLayout {
                 vertical-stretch: 0;
                 visible: root.page != 2;
-                alignment: center;
                 max-height: root.page == 2 ? 0px : 200px;
                 padding-left: root.page == 1 ? 36px : 32px;
                 padding-right: root.page == 1 ? 36px : 32px;
                 padding-top: root.page == 1 ? 8px : 20px;
                 padding-bottom: 18px;
+                Rectangle { horizontal-stretch: 1; }
                 ajout := AddBar {
-                    horizontal-stretch: 1;
+                    horizontal-stretch: 1000;
                     max-width: root.page == 0 ? 776px : 100000px;
                     text <=> root.add-text;
                     hint: root.add-hint;
@@ -1604,6 +1608,7 @@ export component TasksView inherits Rectangle {
                     add(t) => { root.add(t); }
                     answered(t) => { root.add-answered(t); }
                 }
+                Rectangle { horizontal-stretch: 1; }
             }
         }
 

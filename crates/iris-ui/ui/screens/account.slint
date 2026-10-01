@@ -4,6 +4,7 @@ import { Button, ButtonKind } from "@iris/controls/button.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { CheckBox, ComboBox } from "std-widgets.slint";
+import { GoogleMark } from "@iris/controls/video.slint";
 
 // Un champ avec son intitulé.
 component Field inherits VerticalLayout {
@@ -29,40 +30,6 @@ component Field inherits VerticalLayout {
         input-type: root.password ? InputType.password : InputType.text;
         text <=> root.value;
         accepted => { root.accepted(); }
-    }
-}
-
-// L'ajout d'un compte.
-//
-// Deux temps. D'abord l'adresse et le mot de passe, parce que c'est tout ce qu'il
-// faut dans la grande majorité des cas : la découverte trouve les serveurs seule.
-// Ensuite, seulement si elle échoue, les champs de serveur — parce qu'aucune chaîne
-// de découverte ne couvre tout, et qu'un utilisateur bloqué doit garder une porte.
-// Google's "G", in its four colours, as stroked arcs.
-component GoogleMark inherits Rectangle {
-    width: 18px;
-    height: 18px;
-    in property <float> alpha: 1.0;
-    opacity: root.alpha;
-    Path {
-        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
-        commands: "M 9 9 L 15.5 9 M 15.5 9 A 6.5 6.5 0 0 1 13.6 13.6";
-        stroke: #4285f4; stroke-width: 3px; fill: transparent;
-    }
-    Path {
-        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
-        commands: "M 13.6 13.6 A 6.5 6.5 0 0 1 4.4 13.6";
-        stroke: #34a853; stroke-width: 3px; fill: transparent;
-    }
-    Path {
-        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
-        commands: "M 4.4 13.6 A 6.5 6.5 0 0 1 2.5 9";
-        stroke: #fbbc05; stroke-width: 3px; fill: transparent;
-    }
-    Path {
-        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
-        commands: "M 2.5 9 A 6.5 6.5 0 0 1 13.6 4.4";
-        stroke: #ea4335; stroke-width: 3px; fill: transparent;
     }
 }
 
@@ -107,6 +74,12 @@ component GoogleButton inherits Rectangle {
     }
 }
 
+// L'ajout d'un compte.
+//
+// Deux temps. D'abord l'adresse et le mot de passe, parce que c'est tout ce qu'il
+// faut dans la grande majorité des cas : la découverte trouve les serveurs seule.
+// Ensuite, seulement si elle échoue, les champs de serveur — parce qu'aucune chaîne
+// de découverte ne couvre tout, et qu'un utilisateur bloqué doit garder une porte.
 export component AccountSetupPanel inherits Rectangle {
     // The same screen serves adding and editing. They ask for the same nine things,
     // and two panels that ask for the same nine things drift apart until one of them

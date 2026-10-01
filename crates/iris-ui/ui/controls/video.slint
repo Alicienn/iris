@@ -32,6 +32,33 @@ export component VideoMark inherits Rectangle {
     }
 }
 
+// Google's "G", in its four colours, as stroked arcs: the mark of Continue with Google.
+// Here with the other services' marks, whose colours are theirs and not the theme's.
+export component GoogleMark inherits Rectangle {
+    width: 18px;
+    height: 18px;
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 9 9 L 15.5 9 M 15.5 9 A 6.5 6.5 0 0 1 13.6 13.6";
+        stroke: #4285f4; stroke-width: 3px; fill: transparent;
+    }
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 13.6 13.6 A 6.5 6.5 0 0 1 4.4 13.6";
+        stroke: #34a853; stroke-width: 3px; fill: transparent;
+    }
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 4.4 13.6 A 6.5 6.5 0 0 1 2.5 9";
+        stroke: #fbbc05; stroke-width: 3px; fill: transparent;
+    }
+    Path {
+        width: 18px; height: 18px; viewbox-width: 18; viewbox-height: 18;
+        commands: "M 2.5 9 A 6.5 6.5 0 0 1 13.6 4.4";
+        stroke: #ea4335; stroke-width: 3px; fill: transparent;
+    }
+}
+
 // "Join on Meet": the service's mark and the words, one click to the call.
 export component JoinButton inherits Rectangle {
     in property <string> kind;
