@@ -6534,13 +6534,24 @@ mod tests {
             reference
         );
 
-        // Un drapeau qui change.
-        let relu = [
-            message(1, iris_types::Flags::NONE),
+        // A flag the column draws: the tracker warning.
+        let traque = [
+            message(1, iris_types::Flags::SEEN | iris_types::Flags::HAS_TRACKER),
             message(2, iris_types::Flags::SEEN),
         ];
         assert_ne!(
-            signature_conversation(&relu, dernier, &vide, &vide),
+            signature_conversation(&traque, dernier, &vide, &vide),
+            reference
+        );
+
+        // The star and the read mark are not drawn in the column: changing them
+        // must not lay out and paint the bodies again (the freeze at the star).
+        let etoile = [
+            message(1, iris_types::Flags::NONE),
+            message(2, iris_types::Flags::SEEN | iris_types::Flags::FLAGGED),
+        ];
+        assert_eq!(
+            signature_conversation(&etoile, dernier, &vide, &vide),
             reference
         );
 
