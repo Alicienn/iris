@@ -114,8 +114,8 @@ instead, switch off *Open Iris on Home* in *Settings*.
 ## Mail
 
 The side column holds your accounts (grouped by tag, each tag with its colour and what
-its mailboxes have to do) and, under them, the folders. Its foot says when the mail last
-synced.
+its mailboxes have to do) and, under them, the folders. The magnifier beside *Accounts*
+opens a field to find one by its address. Its foot says when the mail last synced.
 
 One toolbar runs above the list and the reader: where you are and how much is to do,
 the queues (**To do**, **Waiting**, **Done**), **New message** (`C`), what acts on the
@@ -198,7 +198,8 @@ Switch between **Mail** and **Calendar** at the top of the side column, or with 
 - *To plan* lists today's tasks (and late ones) that have no hour yet. Drag one onto
   the week: it is booked there for as long as it takes (half an hour when not said),
   and the task gets that day and hour. Moving that slot later moves the task too. The
-  clock on each row does the same without dragging: the first free time today.
+  clock that shows on a row when you point at it does the same without dragging: the
+  first free time today.
 - **+** next to *Calendars* adds a calendar of your own besides *Personal*; each event
   is put in the one you choose. Right-click a calendar to rename it, change its colour
   or delete it.
@@ -206,7 +207,7 @@ Switch between **Mail** and **Calendar** at the top of the side column, or with 
   in the middle of the window.
 - Open an event to add **tasks** for it. They appear in *Tasks*, due when the event
   starts, and stay there if the calendar is hidden or removed.
-- **Subscribe to a calendar…** follows a calendar published as a link: the `webcal://`
+- **Subscribe to a calendar…** (the link next to *Calendars*) follows a calendar published as a link: the `webcal://`
   or `.ics` address that Google Calendar, Outlook, iCloud, a school or a club gives out.
   Iris reads it every half hour; subscribed calendars are read-only.
 

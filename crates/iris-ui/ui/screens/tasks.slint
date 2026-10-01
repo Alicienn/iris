@@ -77,9 +77,9 @@ component PlaceRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 6px;
+        padding-left: 8px;
         padding-right: 8px;
-        spacing: 9px;
+        spacing: 8px;
 
         // A list: its round icon in its colour, as Reminders' lists have.
         if root.place.is-list: Rectangle {
@@ -203,125 +203,6 @@ component PlaceTile inherits Rectangle {
             font-weight: 600;
             color: root.on ? Tokens.accent-text : Tokens.text-muted;
             overflow: elide;
-        }
-    }
-}
-
-// What was done this week: the rail's one piece of news, with a bar a day.
-component WeekCard inherits Rectangle {
-    in property <int> done;
-    in property <[float]> bars;
-    in property <int> today;
-
-    // A card like the tiles above it, its bars green as on Home.
-    height: 112px;
-    border-radius: 10px;
-    background: Tokens.surface-high;
-    drop-shadow-blur: Tokens.shadow-card-blur;
-    drop-shadow-offset-y: Tokens.shadow-card-y;
-    drop-shadow-color: Tokens.shadow-card;
-
-    accessible-role: text;
-    accessible-label: root.done + " done this week";
-
-    VerticalLayout {
-        padding: 12px;
-        spacing: 0px;
-        HorizontalLayout {
-            spacing: 6px;
-            alignment: start;
-            Text {
-                text: root.done;
-                font-family: Tokens.font-display;
-                font-size: 24px;
-                font-weight: 700;
-                color: Tokens.text;
-                vertical-alignment: bottom;
-            }
-            Text {
-                text: "done this week";
-                font-size: 13px;
-                color: Tokens.text-muted;
-                vertical-alignment: bottom;
-                y: -3px;
-            }
-        }
-        Rectangle { height: 10px; }
-        HorizontalLayout {
-            height: 30px;
-            spacing: 5px;
-            for part[i] in root.bars: Rectangle {
-                Rectangle {
-                    y: parent.height - self.height;
-                    height: max(3px, parent.height * part);
-                    border-radius: 3px;
-                    background: i <= root.today && part > 0 ? Tokens.green : Tokens.border;
-                }
-            }
-        }
-        Rectangle { height: 4px; }
-        Text {
-            text: "Mon to Sun";
-            font-size: 12px;
-            color: Tokens.text-muted;
-        }
-    }
-}
-
-// The day, on Today: its date as a block, and beside it what the calendars hold.
-component DayCard inherits Rectangle {
-    in property <TaskOverviewData> day;
-    callback open-calendar();
-
-    // One line: each event of the day, its hour and its colour, past ones faded;
-    // the calendar at the end of it.
-    height: 38px;
-
-    HorizontalLayout {
-        padding-left: 32px;
-        padding-right: 24px;
-        spacing: 22px;
-
-        if root.day.agenda.length == 0: Text {
-            text: "Nothing in the calendar today.";
-            font-size: 12.5px;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
-        }
-        for e in root.day.agenda: HorizontalLayout {
-            spacing: 7px;
-            horizontal-stretch: 0;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: 8px;
-                height: 8px;
-                border-radius: 4px;
-                background: e.color;
-                opacity: e.past ? 0.45 : 1.0;
-            }
-            Text {
-                text: e.meta;
-                font-size: 12.5px;
-                color: Tokens.text-muted;
-                vertical-alignment: center;
-            }
-            Text {
-                text: e.title;
-                font-size: 12.5px;
-                font-weight: e.now ? 600 : 400;
-                color: e.past ? Tokens.text-muted : Tokens.text-secondary;
-                vertical-alignment: center;
-                overflow: elide;
-                max-width: 220px;
-            }
-        }
-        Rectangle { horizontal-stretch: 1; }
-        Link {
-            y: (parent.height - self.height) / 2;
-            text: "Calendar";
-            label: "Open Calendar";
-            chevron: true;
-            clicked => { root.open-calendar(); }
         }
     }
 }
@@ -1597,11 +1478,6 @@ export component TasksView inherits Rectangle {
             }
 
             Rectangle { vertical-stretch: 1; }
-            WeekCard {
-                done: root.overview.week-done;
-                bars: root.overview.week-bars;
-                today: root.overview.week-today;
-            }
         }
 
         // --- Middle: the day, what there is to do, and the line to add more; or a
@@ -1782,12 +1658,6 @@ export component TasksView inherits Rectangle {
                 }
             }
             if root.nudges.length > 0: Hairline {}
-
-            if root.overview.show-day: DayCard {
-                day: root.overview;
-                open-calendar => { root.open-calendar(); }
-            }
-            if root.overview.show-day: Hairline {}
 
             liste-taches := ScrollView {
                 vertical-stretch: 1;

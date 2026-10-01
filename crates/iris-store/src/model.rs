@@ -494,6 +494,9 @@ pub struct StoredMessage {
     pub flags: Flags,
     pub preview: String,
     pub body_blob: Option<String>,
+    /// To whom it was written, as stored (`[{"name":…,"addr":…}]`): its header
+    /// says it.
+    pub recipients_json: String,
 }
 
 #[cfg(test)]

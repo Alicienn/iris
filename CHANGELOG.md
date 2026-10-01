@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.1.0 — 2026-10-01
+
+### Improved
+- The window has rounded corners when it is not maximised.
+- A message's header says whom it was written to, with a line under it.
+- Calendars and the tasks to plan are listed with a dot of their colour.
+- Goals have a round flag icon in their colour, like lists.
+- The magnifier beside Accounts finds an account; no filter field shows until then.
+
+### Fixed
+- Starring a conversation no longer freezes the window for a moment.
+
+### Removed
+- The "done this week" card at the foot of the task lists.
+- The line of the day's events under Today in Tasks.
+
 ## 4.0.0 — 2026-10-01
 
 ### New

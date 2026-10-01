@@ -1150,6 +1150,7 @@ fn run_gui(
             .show()
             .map_err(|e| iris_types::Error::other(format!("affichage : {e}")))?;
         fenetre.window().set_maximized(true);
+        arrondir_les_coins(&fenetre);
     }
 
     slint::run_event_loop_until_quit()
@@ -1157,6 +1158,42 @@ fn run_gui(
 
     controller.shutdown();
     Ok(())
+}
+
+/// Rounded corners when the window is not maximised, as the mockup draws it.
+///
+/// We draw the frame ourselves, so the system's rounding has to be asked for: Windows
+/// 11 rounds a frameless window, and gives it its shadow and hairline, once its corner
+/// preference says so. It keeps maximised windows square on its own. Earlier versions
+/// of Windows ignore the attribute. Called once the window exists (after `show`).
+fn arrondir_les_coins(fenetre: &iris_ui::AppWindow) {
+    #[cfg(windows)]
+    {
+        use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use slint::winit_030::WinitWindowAccessor;
+        use windows_sys::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+        };
+        fenetre.window().with_winit_window(|w| {
+            let Ok(poignee) = w.window_handle() else {
+                return;
+            };
+            if let RawWindowHandle::Win32(h) = poignee.as_raw() {
+                let preference = DWMWCP_ROUND;
+                // SAFETY: a live window handle, and a pointer to a value of the size given.
+                unsafe {
+                    DwmSetWindowAttribute(
+                        h.hwnd.get() as _,
+                        DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                        &preference as *const _ as *const core::ffi::c_void,
+                        std::mem::size_of_val(&preference) as u32,
+                    );
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = fenetre;
 }
 
 /// The mouse's back and forward buttons walk the history of places.
@@ -1199,6 +1236,8 @@ fn montre_la_fenetre(fenetre: &iris_ui::AppWindow) {
     // tâches. La restaurer d'abord est ce qui la ramène sous les yeux.
     fenetre.window().set_minimized(false);
     let _ = fenetre.show();
+    // Started in the notification area, the window is created only now.
+    arrondir_les_coins(fenetre);
     shell::came_back(fenetre);
     fenetre.window().set_fullscreen(false);
     iris_app::single::bring_to_front();

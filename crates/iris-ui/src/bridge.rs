@@ -335,6 +335,20 @@ fn sender(message: &StoredMessage) -> &str {
     }
 }
 
+/// To whom it was written, as its header says it: "Alex, Paul Martin". Names where
+/// the message gives them, addresses otherwise; empty when none was kept.
+pub fn recipients(message: &StoredMessage) -> String {
+    serde_json::from_str::<Vec<iris_types::Address>>(&message.recipients_json)
+        .unwrap_or_default()
+        .iter()
+        .map(|a| match a.name.as_deref().map(str::trim) {
+            Some(nom) if !nom.is_empty() => nom.to_string(),
+            _ => a.addr.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// The sender's face, the same one their row in the list shows.
 fn face(message: &StoredMessage) -> (SharedString, Color) {
     let nom = sender(message);
@@ -362,7 +376,7 @@ pub fn message_view(
         from_address: message.from_addr.as_str().into(),
         initials,
         tint,
-        to: SharedString::default(),
+        to: recipients(message).into(),
         date: relative_date(message.received, now).into(),
         subject: display_subject(&message.subject).into(),
         blocks: ModelRc::new(VecModel::from(message_blocks(body))),
@@ -673,6 +687,7 @@ mod tests {
             flags: Flags::HAS_TRACKER,
             preview: String::new(),
             body_blob: None,
+            recipients_json: r#"[{"name":"Alex","addr":"alex@example.com"},{"name":null,"addr":"paul@example.com"}]"#.into(),
         };
         let vue = message_view(
             &message,
@@ -689,6 +704,8 @@ mod tests {
         assert_eq!(vue.from.as_str(), "Marie");
         assert_eq!(vue.from_address.as_str(), "marie@example.com");
         assert!(vue.has_tracker);
+        // To whom, as the header says it: names where given, addresses otherwise.
+        assert_eq!(vue.to.as_str(), "Alex, paul@example.com");
     }
 
     #[test]
@@ -709,6 +726,7 @@ mod tests {
             flags: Flags::NONE,
             preview: String::new(),
             body_blob: None,
+            recipients_json: "[]".into(),
         };
         #[derive(Debug)]
         struct Doc;
@@ -776,6 +794,7 @@ mod tests {
             flags: Flags::NONE,
             preview: String::new(),
             body_blob: None,
+            recipients_json: "[]".into(),
         };
         let vue =
             message_view_rendered(&message, &Rendered::Blocks(RichText::default()), &[], now());

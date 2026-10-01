@@ -218,14 +218,16 @@ component CalendarRow inherits Rectangle {
         padding-right: 6px;
         spacing: 8px;
 
-        // The row answers the click; the check is its picture.
-        Check {
+        // Its colour as a dot, as Calendar lists them: filled when it shows, a ring
+        // when hidden. The row answers the click.
+        Rectangle {
             y: (parent.height - self.height) / 2;
-            shape: CheckShape.square;
-            size: 14px;
-            tint: root.cal.color;
-            done: root.cal.visible;
-            interactive: false;
+            width: 9px;
+            height: 9px;
+            border-radius: 4.5px;
+            background: root.cal.visible ? root.cal.color : transparent;
+            border-width: root.cal.visible ? 0px : 1.5px;
+            border-color: root.cal.color;
         }
 
         Text {
@@ -1000,9 +1002,18 @@ export component CalendarView inherits Rectangle {
                 day-chosen(d) => { root.day-chosen(d); }
                 navigate(n) => { root.mini-navigate(n); }
             }
-            // The section's title, with the + that adds to it.
+            // The section's title, and what adds to it: a calendar of one's own, or
+            // one subscribed to by its link.
             SectionRow {
                 text: "Calendars";
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.link;
+                    label: "Subscribe to a calendar…";
+                    button-size: 20px;
+                    icon-size: 13px;
+                    clicked => { root.subscribe-requested(); }
+                }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.plus;
@@ -1019,36 +1030,12 @@ export component CalendarView inherits Rectangle {
                 remove(c) => { root.calendar-remove(c); }
                 menu(c, x, y) => { root.calendar-menu(c, x, y); }
             }
-            Rectangle { height: 4px; }
-            HorizontalLayout {
-                alignment: start;
-                Button {
-                    text: "Subscribe to a calendar";
-                    label: "Subscribe to a calendar…";
-                    icon: Icons.plus;
-                    kind: ButtonKind.ghost;
-                    size: ButtonSize.sm;
-                    clicked => { root.subscribe-requested(); }
-                }
-            }
 
-            Rectangle { vertical-stretch: 1; }
-
-            // Today's tasks that have no time yet: dragged onto the week, each books
-            // its length there.
-            if root.to-plan.length > 0: Hairline {}
-            if root.to-plan.length > 0: SectionRow {
-                text: "To plan";
-                Text {
-                    text: root.mode == 0 ? "" : "drag onto the week";
-                    font-size: 11px;
-                    color: Tokens.text-faint;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                }
-            }
+            // Today's tasks that have no time yet, right under the calendars: dragged
+            // onto the week, each books its length there.
+            if root.to-plan.length > 0: SectionRow { text: "To plan"; }
             for t in root.to-plan: Rectangle {
-                height: 34px;
+                height: Nav.row-height;
                 border-radius: Tokens.radius-small;
                 background: prise.has-hover || root.carried == t.id ? Tokens.surface-hover : transparent;
                 opacity: root.carried == t.id ? 0.5 : 1;
@@ -1066,20 +1053,19 @@ export component CalendarView inherits Rectangle {
 
                 HorizontalLayout {
                     padding-left: 8px;
-                    // Room for the clock button at the end.
-                    padding-right: 32px;
+                    // Room for the clock button, when it shows.
+                    padding-right: prise.has-hover ? 30px : 8px;
                     spacing: 8px;
                     Rectangle {
                         y: (parent.height - self.height) / 2;
-                        width: 12px;
-                        height: 12px;
-                        border-radius: 6px;
-                        border-width: 1.5px;
-                        border-color: t.color;
+                        width: 9px;
+                        height: 9px;
+                        border-radius: 4.5px;
+                        background: Tokens.orange;
                     }
                     Text {
                         text: t.title;
-                        font-size: 12.5px;
+                        font-size: Nav.label-size;
                         color: Tokens.text;
                         vertical-alignment: center;
                         overflow: elide;
@@ -1087,7 +1073,7 @@ export component CalendarView inherits Rectangle {
                     }
                     Text {
                         text: t.meta;
-                        font-size: 11.5px;
+                        font-size: 12px;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }
@@ -1123,8 +1109,9 @@ export component CalendarView inherits Rectangle {
                     }
                 }
                 // The same without dragging: the first free time today, one click.
-                // Over the row's touch area, so the click is its own.
-                IconButton {
+                // Over the row's touch area, so the click is its own; shown when the
+                // row is pointed at.
+                if prise.has-hover: IconButton {
                     x: parent.width - self.width - 2px;
                     y: (parent.height - self.height) / 2;
                     icon: Icons.clock;
@@ -1134,6 +1121,7 @@ export component CalendarView inherits Rectangle {
                     clicked => { root.task-planned(t.id, "", -1); }
                 }
             }
+            Rectangle { vertical-stretch: 1; }
         }
 
         // --- Right: the period, under the window's toolbar ---

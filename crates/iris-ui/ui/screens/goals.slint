@@ -64,10 +64,22 @@ export component GoalRow inherits Rectangle {
         padding-left: 8px;
         padding-right: 8px;
         spacing: 8px;
-        GoalRing {
+        // Its round icon in its colour, a flag on it, as the lists have theirs; how far
+        // it has come is the count at the end.
+        Rectangle {
             y: (parent.height - self.height) / 2;
-            ring: root.goal.ring;
-            tint: root.goal.selected ? Tokens.accent-text : root.goal.color;
+            width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            background: root.goal.color;
+            border-width: root.goal.selected ? 1.5px : 0px;
+            border-color: Tokens.accent-text;
+            Icon {
+                data: Icons.flag;
+                size: 12px;
+                weight: 2;
+                tint: Tokens.accent-text;
+            }
         }
         Text {
             text: root.goal.title;

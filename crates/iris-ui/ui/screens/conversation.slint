@@ -995,7 +995,43 @@ export component ConversationView inherits VerticalLayout {
                                 size: 38px;
                             }
 
-                            Text {
+                            // Open, as Mail heads a message: the name and the address
+                            // it came from, then to whom on a line of its own.
+                            if message.expanded: VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    Text {
+                                        text: message.from;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        color: Tokens.text;
+                                        overflow: elide;
+                                        horizontal-stretch: 0;
+                                        max-width: self.preferred-width;
+                                    }
+                                    Text {
+                                        text: message.from-address != message.from ? message.from-address : "";
+                                        font-size: 12px;
+                                        color: Tokens.text-muted;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                        y: 1px;
+                                    }
+                                }
+                                if message.to != "": Text {
+                                    text: "To: " + message.to;
+                                    font-size: 12px;
+                                    color: Tokens.text-muted;
+                                    overflow: elide;
+                                }
+                            }
+
+                            // Folded, the name, then the preview in the room left: it
+                            // is what finds a message in a thread without opening four.
+                            if !message.expanded: Text {
                                 text: message.from;
                                 font-size: Tokens.size-body;
                                 font-weight: Tokens.weight-bold;
@@ -1004,18 +1040,6 @@ export component ConversationView inherits VerticalLayout {
                                 overflow: elide;
                                 horizontal-stretch: 0;
                                 max-width: self.preferred-width;
-                            }
-
-                            // Open: the address, and to whom. Folded, the preview
-                            // takes the room left: it is what finds a message in a
-                            // thread without opening four.
-                            if message.expanded: Text {
-                                text: message.from-address + (message.to != "" ? " · to " + message.to : "");
-                                font-size: 12px;
-                                color: Tokens.text-muted;
-                                vertical-alignment: center;
-                                overflow: elide;
-                                horizontal-stretch: 1;
                             }
                             if !message.expanded: Text {
                                 text: message.preview;
@@ -1045,6 +1069,13 @@ export component ConversationView inherits VerticalLayout {
                                 mouse-cursor: pointer;
                                 clicked => { root.toggle-message(message.id); }
                             }
+                        }
+
+                        // Open, a hairline under the header, between it and the body.
+                        if message.expanded: Rectangle {
+                            y: parent.height + 4px;
+                            height: 1px;
+                            background: Tokens.border;
                         }
                     }
 

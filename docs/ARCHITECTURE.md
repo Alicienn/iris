@@ -254,6 +254,9 @@ The window chrome lives in `shell/chrome.slint`:
   buttons unless the Mac's lights are chosen (*Settings › Window buttons*,
   `mac_window_buttons`, by system by default). With no side column (a conversation
   read full screen) it takes the lights at its left end.
+- The window is frameless; on Windows 11 its corners are rounded by the system
+  (`DwmSetWindowAttribute`, corner preference *round*, set in `main.rs` once the
+  window exists), which also gives it its shadow and keeps it square when maximised.
 - The parts talk to the window through the `Chrome` global. Slint does not let a
   `.slint` component handle a global's callback, so a button calls `Chrome.ask(what,
   arg)`, which bumps a request counter; `app.slint` aliases that counter and acts in a
@@ -345,13 +348,12 @@ task's hour. *Later* (`Later::day`) sets the day and counts `tasks.postponed`; a
 the details ask whether to split, book or drop the task; a booked slot goes with the
 old day.
 
-**Tasks** (the list redrawn in 3.4.1 after the web edition: a flat header over a
-hairline, the day's events on one line, rows as a ledger) puts above the list, on
-Today, the day's calendar
-(`calendar::upcoming`), and in the header the day's progress; all of it travels as one
-`TaskOverviewData`. The side column ends on the tasks done this week, a bar a day,
-counted from `done_at` (`tasks::week`, shared with Home). The add line parses what is typed at each keystroke (`iris_tasks::parse`) and
-shows what it understood as tokens before `Enter`.
+**Tasks** (the list redrawn in 3.4.1 after the web edition, then in 4.0.0 after
+Reminders: a large title in the list's colour, rows as a ledger) puts in the header the
+day's progress; it travels as one `TaskOverviewData`. Since 4.1.0 neither the day's
+events nor the week's bars show there: Home has them (`tasks::week` counts the tasks
+done from `done_at`). The add line parses what is typed at each keystroke
+(`iris_tasks::parse`) and shows what it understood as tokens before `Enter`.
 
 **Calendar** opens an event clicked in the grid in a `Popover` beside it: the grid
 reports where the event is (`event-anchored`) before it opens it. Opened from Home or a

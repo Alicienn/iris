@@ -539,3 +539,8 @@ variant, brought into the application.
       section title row, Mac push buttons, white fields, our own check box, pop-up
       button and stepper in place of the style's, grouped settings with switches,
       scroll bars that fade, a `group` colour for inset plates.
+- [x] **S41.7** Closer still (4.1.0): rounded window corners on Windows 11, a
+      message's recipients in its header (`StoredMessage::recipients_json`), calendars
+      and lists as the mockup draws them, the account filter behind a magnifier, the
+      week card and the day strip removed from Tasks; starring no longer re-renders
+      the open message (its signature ignores the read, star and answered flags).

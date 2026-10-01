@@ -124,7 +124,8 @@ impl Store {
             let mut stmt = c
                 .prepare_cached(
                     "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
-                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                            from_name, from_addr, date, received, size, flags, preview, body_blob,
+                            recipients
                      FROM messages ORDER BY received DESC, id DESC LIMIT ?1",
                 )
                 .map_err(|e| sql_err("préparation", e))?;
@@ -143,7 +144,8 @@ impl Store {
             let mut stmt = c
                 .prepare(
                     "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
-                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                            from_name, from_addr, date, received, size, flags, preview, body_blob,
+                            recipients
                      FROM messages WHERE thread_id = ?1 ORDER BY received ASC, id ASC",
                 )
                 .map_err(|e| sql_err("préparation", e))?;
@@ -188,7 +190,8 @@ impl Store {
             let mut stmt = c
                 .prepare_cached(
                     "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
-                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                            from_name, from_addr, date, received, size, flags, preview, body_blob,
+                            recipients
                      FROM messages WHERE id = ?1",
                 )
                 .map_err(|e| sql_err("préparation", e))?;
@@ -213,7 +216,8 @@ impl Store {
             let mut stmt = c
                 .prepare_cached(
                     "SELECT id, account_id, folder_id, thread_id, uid, rfc_message_id, subject,
-                            from_name, from_addr, date, received, size, flags, preview, body_blob
+                            from_name, from_addr, date, received, size, flags, preview, body_blob,
+                            recipients
                      FROM messages WHERE folder_id = ?1 AND body_blob IS NULL
                      ORDER BY received DESC LIMIT ?2",
                 )
@@ -514,6 +518,7 @@ fn stored_message_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMess
         flags: Flags(r.get::<_, i64>(12)? as u32),
         preview: r.get(13)?,
         body_blob: r.get(14)?,
+        recipients_json: r.get(15)?,
     })
 }
 

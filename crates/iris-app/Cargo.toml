@@ -81,6 +81,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_UI_Shell",
     "Win32_Security",
     "Win32_System_Threading",
+    "Win32_Graphics_Dwm",
 ] }
 
 [target.'cfg(windows)'.build-dependencies]

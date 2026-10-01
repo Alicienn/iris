@@ -1516,7 +1516,14 @@ fn signature_conversation(
         .iter()
         .map(|m| EtatRendu {
             id: m.id.get(),
-            flags: m.flags.0,
+            // Only what the column draws. The star, read and answered marks do not
+            // show in a message's body, and counting them laid out and painted the
+            // whole body again on each star: the freeze at the click.
+            flags: m.flags.0
+                & !(iris_types::Flags::FLAGGED.0
+                    | iris_types::Flags::SEEN.0
+                    | iris_types::Flags::ANSWERED.0
+                    | iris_types::Flags::RECENT.0),
             // Le dernier est toujours déplié, la même règle qu'au dessin.
             deplie: m.id == dernier || ouverts.contains(&m.id.get()),
             images: images.contains(&m.id.get()),
@@ -6379,6 +6386,7 @@ mod tests {
             flags,
             preview: "aperçu".into(),
             body_blob: None,
+            recipients_json: "[]".into(),
         }
     }
 
