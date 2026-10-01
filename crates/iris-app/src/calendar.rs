@@ -704,6 +704,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             note: None,
             ouvert: None,
             teintes: etat.teintes.clone(),
+            atterri: None,
         };
         let o = charger(services, &mut copie);
         let cases = marquer(cellules(&copie, etat.jour, etat.mini, &o, &couleurs, false));
