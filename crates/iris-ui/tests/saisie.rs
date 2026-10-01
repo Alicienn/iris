@@ -44,7 +44,7 @@ fn champ(f: &AppWindow, libelle: &str) -> testing::ElementHandle {
 
 /// The time a tick takes to be drawn before the box says it was ticked.
 fn cocher_le_temps() {
-    testing::mock_elapsed_time(400);
+    testing::mock_elapsed_time(std::time::Duration::from_millis(400));
 }
 
 fn clic(e: &testing::ElementHandle) {
