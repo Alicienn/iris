@@ -11,15 +11,15 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Calendar events are rounded on all four corners.
 - A conversation's subject is no longer bold in the list; the blue dot says it is unread.
 
-### Removed
-- The search field at the top of Home; search stays a click away at the foot of the side column.
-
 ### Fixed
 - Home's To answer counts the conversations it lists, read or not, instead of saying 0.
 - Home lists every mailbox, including those under a folded tag.
 - A mailbox that stopped syncing shows a red mark on Home, and why when pointed at.
 - The faces in To answer each take their sender's colour.
 - With nothing more today, Up next shows tomorrow's first event.
+
+### Removed
+- The search field at the top of Home; search stays a click away at the foot of the side column.
 
 ## 4.1.1 — 2026-10-01
 
