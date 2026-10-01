@@ -544,3 +544,5 @@ variant, brought into the application.
       and lists as the mockup draws them, the account filter behind a magnifier, the
       week card and the day strip removed from Tasks; starring no longer re-renders
       the open message (its signature ignores the read, star and answered flags).
+- [x] **S41.8** Home, Calendar and Tasks laid flush with the window as the mail is
+      (4.1.1): the pixel's inset kept from the old frame showed as a pale border.

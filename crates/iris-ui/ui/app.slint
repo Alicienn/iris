@@ -1900,11 +1900,13 @@ export component AppWindow inherits Window {
     // The calendar covers everything between the title bar and the status bar. Over
     // the mail rather than instead of it: coming back to the mail finds it exactly as
     // it was left - same list, same scroll, same open thread.
+    // Flush with the window, as the mail is: a pixel's inset, kept from the old
+    // frame, showed as a pale line all round.
     if root.workspace == 1: CalendarView {
-        x: 1px;
-        y: 1px;
-        width: parent.width - 2px;
-        height: parent.height - 1px - 24px;
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height - 24px;
         title: root.calendar-title;
         mode: root.calendar-mode;
         calendars: root.calendars;
@@ -1974,10 +1976,10 @@ export component AppWindow inherits Window {
     }
 
     if root.workspace == 2: TasksView {
-        x: 1px;
-        y: 1px;
-        width: parent.width - 2px;
-        height: parent.height - 1px - 24px;
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height - 24px;
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
         overview: root.task-overview;
@@ -2100,10 +2102,10 @@ export component AppWindow inherits Window {
 
     // Home, over everything like the other workspaces.
     if root.workspace == 3: HomeView {
-        x: 1px;
-        y: 1px;
-        width: parent.width - 2px;
-        height: parent.height - 1px - 24px;
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height - 24px;
         greeting: root.home-greeting;
         date: root.home-date;
         summary: root.home-summary;

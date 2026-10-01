@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.1.1 — 2026-10-01
+
+### Fixed
+- Home, Calendar and Tasks no longer show a pale line around the window's edge.
+
 ## 4.1.0 — 2026-10-01
 
 ### Improved
