@@ -1075,6 +1075,9 @@ fn fermer_la_fenetre_est_rapporte() {
     par_libelle(&f, "Close")
         .unwrap()
         .invoke_accessible_default_action();
+    // The window's buttons ask through the chrome's global, answered by a `changed`
+    // handler, which Slint runs with the timers.
+    slint::platform::update_timers_and_animations();
     assert_eq!(*fermetures.borrow(), 1);
 }
 
