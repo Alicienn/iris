@@ -3,6 +3,25 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 3.15.0 — 2026-10-01
+
+### New
+- Drag a task onto another to reorder the list; dropped in another day, it moves to that day.
+
+### Improved
+- Ticking a task draws the tick and strikes its title through, instead of flipping at once.
+- A new task slides into the list with a short glow.
+- The star bounces when you star a conversation.
+- The To do, Waiting and Done marker slides from tab to tab.
+- The day's and goals' progress bars fill smoothly.
+- The calendar's now point pulses once when it opens.
+- A dropped event lands with a small bounce.
+- Softer shadows, deeper the higher things float.
+- Thin scroll bars that widen when pointed at.
+
+### Fixed
+- Send and Reply all no longer overlap in the reply box.
+
 ## 3.14.0 — 2026-10-01
 
 ### New

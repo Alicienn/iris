@@ -96,9 +96,9 @@ export component DetailPanel inherits Rectangle {
         border-width: 1px;
         border-color: Tokens.border;
         background: Tokens.panel;
-        drop-shadow-blur: 24px;
-        drop-shadow-offset-y: 6px;
-        drop-shadow-color: Tokens.shadow;
+        drop-shadow-blur: Tokens.shadow-float-blur;
+        drop-shadow-offset-y: Tokens.shadow-float-y;
+        drop-shadow-color: Tokens.shadow-float;
 
         VerticalLayout {
             padding-left: 20px;
@@ -204,9 +204,9 @@ export component Modal inherits Rectangle {
         background: Tokens.panel;
         border-width: 1px;
         border-color: Tokens.border-strong;
-        drop-shadow-blur: 40px;
-        drop-shadow-color: #000000b0;
-        drop-shadow-offset-y: 14px;
+        drop-shadow-blur: Tokens.shadow-window-blur;
+        drop-shadow-color: Tokens.shadow-window;
+        drop-shadow-offset-y: Tokens.shadow-window-y;
         clip: true;
 
         // Clicks inside the card stay inside it.
@@ -315,9 +315,9 @@ export component Popover inherits Rectangle {
         background: Tokens.panel;
         border-width: 1px;
         border-color: Tokens.border-strong;
-        drop-shadow-blur: 40px;
-        drop-shadow-color: #000000c0;
-        drop-shadow-offset-y: 14px;
+        drop-shadow-blur: Tokens.shadow-float-blur;
+        drop-shadow-color: Tokens.shadow-float;
+        drop-shadow-offset-y: Tokens.shadow-float-y;
 
         TouchArea {}
 

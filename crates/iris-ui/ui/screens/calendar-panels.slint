@@ -48,6 +48,7 @@ component EventTaskRow inherits Rectangle {
         spacing: Tokens.space-2;
         Check {
             y: (parent.height - self.height) / 2;
+            animated: true;
             size: 16px;
             done: root.task.done;
             label: root.task.title;
@@ -359,9 +360,9 @@ export component EventDetailPanel inherits Rectangle {
             background: Tokens.panel;
             border-width: 1px;
             border-color: Tokens.border-strong;
-            drop-shadow-blur: 40px;
-            drop-shadow-color: #000000b0;
-            drop-shadow-offset-y: 14px;
+            drop-shadow-blur: Tokens.shadow-window-blur;
+            drop-shadow-color: Tokens.shadow-window;
+            drop-shadow-offset-y: Tokens.shadow-window-y;
             TouchArea {}
             corps := EventBody {
                 x: 16px;

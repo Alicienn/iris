@@ -499,6 +499,14 @@ runs on an `entree` property set in `init`, so nothing animates afterwards and t
 software renderer stays idle. Tasks are cards on the window's ground in a column of at
 most 840 px; their details are a floating card rather than a docked strip.
 
+3.15.0 adds the small motions, each played once: a tick is drawn before the box says
+it was ticked (`Check.animated`, 300 ms, so the list is not redrawn under it), a new
+task (`fresh`) and a dropped event (`landed`) are flagged by Rust for one drawing and
+animate from `init`, the queue tabs' plate slides, the star bounces, the now point
+pulses. Shadows come in three heights (`shadow-card`, `shadow-float`,
+`shadow-window` in the tokens). Scroll areas use `controls/scroll.slint`, a Flickable
+with a thin thumb of our own; list views keep the style's.
+
 ### Inbox zero
 
 When the *To do* queue is empty, with nothing searched or filtered and a mailbox to
@@ -578,6 +586,11 @@ database so a reminder fires once.
 
 A delete keeps the task and its subtasks in memory; `Ctrl`+`Z` puts them back under
 their own identifiers (`Store::restore_tasks`), unless their list has gone since.
+
+Since 3.15.0 a list's order within a day is the hour first (timed tasks by time), then
+the order given by hand: a task dropped on another goes above or below it (and takes
+its day), and that day's tasks without an hour are renumbered as shown
+(`Store::set_task_positions`). Priority no longer reorders; its tag says it.
 
 After a quick add (3.14.0) the new task's length is asked in a bubble over the add bar
 that takes nothing from the keyboard: while it shows, `Enter` sends the field to

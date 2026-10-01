@@ -142,8 +142,27 @@ export component IconButton inherits Rectangle {
     in property <bool> tinted;
     in property <length> icon-size: 16px;
     in property <length> button-size: 28px;
+    /// Filled by a click (a star): the icon gives a little bounce.
+    in property <bool> bounce;
 
     callback clicked();
+
+    property <float> bond;
+    animate bond { duration: 120ms; easing: ease-out; }
+    changed filled => {
+        if (root.bounce && root.filled) {
+            root.bond = 1;
+            retombe.running = true;
+        }
+    }
+    retombe := Timer {
+        interval: 120ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.bond = 0;
+        }
+    }
 
     width: root.button-size;
     height: root.button-size;
@@ -165,7 +184,7 @@ export component IconButton inherits Rectangle {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         data: root.icon;
-        size: root.icon-size;
+        size: root.icon-size * (1 + 0.35 * root.bond);
         filled: root.filled;
         tint: root.tinted
             ? root.tint

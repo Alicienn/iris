@@ -3,7 +3,7 @@ import { TextArea } from "@iris/controls/field.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MessageData, MessageBlockData, BodyTileData, AttachmentData } from "@iris/types.slint";
 import { LoadingLine } from "@iris/base/spinner.slint";
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Toolbar } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
@@ -487,10 +487,14 @@ component RecipientsButton inherits Rectangle {
     in property <string> bcc;
     callback clicked();
 
-    width: bouton.preferred-width;
+    // The button sizes itself; the frame follows it. Given the frame's width back,
+    // the button read its own width through it and both came out at nothing, Send
+    // and Reply all drawn over each other.
+    width: bouton.width;
+    height: bouton.height;
     bouton := Button {
-        width: parent.width;
-        height: parent.height;
+        x: 0;
+        y: 0;
         text: root.text;
         icon: root.icon;
         kind: root.kind;
@@ -899,6 +903,7 @@ export component ConversationView inherits VerticalLayout {
             shortcut: "F";
             button-size: 30px;
             filled: root.starred;
+            bounce: true;
             tinted: root.starred;
             tint: Tokens.warning;
             clicked => { root.toggle-star(); }

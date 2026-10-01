@@ -134,6 +134,7 @@ export component HomeView inherits Rectangle {
                         Rectangle {
                             width: 14px;
                             if root.first.id > 0: Check {
+                                animated: true;
                                 size: 14px;
                                 label: root.first.title;
                                 toggled => { root.task-toggled(root.first.id); }

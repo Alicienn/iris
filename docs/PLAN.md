@@ -510,3 +510,10 @@ the application is brought to it screen by screen.
       IPv4 first, 8 s an address, for Gmail on networks with dead IPv6; Slint 1.18;
       visual fixes (today's disc, key caps, the folded column, Home's line, the
       changelog's wrapping).
+- [x] **S40.23** Motion and order (3.15.0): the tick drawn before it is said (300 ms,
+      tasks, steps, milestones), the title struck through as it goes, a new task
+      sliding in with a halo, the star's bounce, the queue tabs' sliding plate, the
+      progress bars filling, the now point's single pulse, a dropped event's bounce;
+      three shadow heights; our own thin scroll bar; tasks reordered by dragging
+      (`set_task_positions`, the order given after the hour within a day); Send and
+      Reply all laid out again.

@@ -42,6 +42,11 @@ fn champ(f: &AppWindow, libelle: &str) -> testing::ElementHandle {
         .unwrap_or_else(|| panic!("aucun champ nommé « {libelle} »"))
 }
 
+/// The time a tick takes to be drawn before the box says it was ticked.
+fn cocher_le_temps() {
+    testing::mock_elapsed_time(400);
+}
+
 fn clic(e: &testing::ElementHandle) {
     e.mock_single_click(PointerEventButton::Left);
 }
@@ -703,6 +708,8 @@ fn la_case_d_une_tache_la_coche_sans_la_choisir() {
         testing::AccessibleRole::Checkbox,
         "Payer le loyer",
     ));
+    assert!(cochees.borrow().is_empty(), "the tick is drawn first");
+    cocher_le_temps();
     assert_eq!(*cochees.borrow(), [5]);
     assert_eq!(*choisies.borrow(), 0, "cocher n'ouvre pas la tâche");
 }
@@ -776,6 +783,33 @@ fn une_tache_portee_sur_une_liste_y_va() {
         "Payer le loyer",
     ));
     assert_eq!(*choisies.borrow(), 1);
+}
+
+fn une_tache_se_reordonne_en_la_glissant() {
+    let f = fenetre();
+    f.set_workspace(2);
+    let tache = |id: i32, titre: &str| iris_ui::TaskRowData {
+        kind: 0,
+        id,
+        title: titre.into(),
+        ..Default::default()
+    };
+    f.set_task_rows(ModelRc::new(VecModel::from(vec![
+        tache(5, "Payer le loyer"),
+        tache(6, "Appeler Marie"),
+    ])));
+    let places = Rc::new(RefCell::new(Vec::<(i32, i32, bool)>::new()));
+    {
+        let p = Rc::clone(&places);
+        f.on_task_reordered(move |a, b, dessus| p.borrow_mut().push((a, b, dessus)));
+    }
+    let premiere = par_role(&f, testing::AccessibleRole::ListItem, "Payer le loyer");
+    let seconde = par_role(&f, testing::AccessibleRole::ListItem, "Appeler Marie");
+    let (pos, taille) = (seconde.absolute_position(), seconde.size());
+    // Let go on the lower half of the second: the first goes below it.
+    let bas = slint::LogicalPosition::new(pos.x + taille.width / 2.0, pos.y + taille.height - 6.0);
+    porter(&f, centre(&premiere), bas);
+    assert_eq!(*places.borrow(), [(5, 6, false)]);
 }
 
 fn les_taches_terminees_se_suppriment_d_un_clic() {
@@ -1190,6 +1224,7 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
         testing::AccessibleRole::Checkbox,
         "Call the plumber",
     ));
+    cocher_le_temps();
     assert_eq!(*cochees.borrow(), [9], "the box ticks the task");
     assert!(taches.borrow().is_empty(), "ticking does not open it");
     clic(&bouton(&f, "Next: Call the plumber"));
@@ -1437,6 +1472,7 @@ fn une_tache_s_ajoute_a_un_evenement() {
         testing::AccessibleRole::Checkbox,
         "Print the slides",
     ));
+    cocher_le_temps();
     assert_eq!(*cochees.borrow(), [4]);
 }
 
@@ -2343,6 +2379,10 @@ fn main() {
         (
             "une_tache_portee_sur_une_liste_y_va",
             une_tache_portee_sur_une_liste_y_va,
+        ),
+        (
+            "une_tache_se_reordonne_en_la_glissant",
+            une_tache_se_reordonne_en_la_glissant,
         ),
         (
             "la_palette_montre_tout_puis_filtre_a_chaque_touche",

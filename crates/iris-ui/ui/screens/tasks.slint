@@ -14,7 +14,8 @@ import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData, TaskTokenData,
     TaskOverviewData, GoalData, GoalLogData
 } from "@iris/types.slint";
-import { ComboBox, ScrollView } from "std-widgets.slint";
+import { ComboBox } from "std-widgets.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
 
 // The tasks workspace: where things are to do (the rail), what there is to do (a plate
 // of rows, under the day when it is Today), the line to add more, and the task chosen.
@@ -237,8 +238,44 @@ component TaskRow inherits Rectangle {
     callback carry-ended();
     /// Later: the task, and where the menu goes (under the button).
     callback later(TaskRowData, length, length);
+    /// Another task carried over this one, and where the pointer is (window
+    /// coordinates); then let go, and where.
+    in property <int> carried-id: -1;
+    in property <length> carry-x;
+    in property <length> carry-y;
+    in property <int> drop;
+    in property <int> dropped-id: -1;
+    in property <length> drop-x;
+    in property <length> drop-y;
+    /// A task let go on this one: (that task, this one, above it rather than below).
+    callback reordered(int, int, bool);
 
     property <bool> tache: root.item.kind == 0;
+    pure function dessus-de(px: length, py: length) -> bool {
+        return px >= root.absolute-position.x && px < root.absolute-position.x + root.width
+            && py >= root.absolute-position.y && py < root.absolute-position.y + root.height;
+    }
+    /// A task is carried over this one: a line of the accent where it would go.
+    property <bool> vise: root.tache && root.carried-id >= 0 && root.carried-id != root.item.id
+        && root.dessus-de(root.carry-x, root.carry-y);
+    property <bool> vise-haut: root.carry-y < root.absolute-position.y + root.height / 2;
+    changed drop => {
+        if (root.tache && root.dropped-id >= 0 && root.dropped-id != root.item.id
+            && root.dessus-de(root.drop-x, root.drop-y)) {
+            root.reordered(root.dropped-id, root.item.id,
+                root.drop-y < root.absolute-position.y + root.height / 2);
+        }
+    }
+
+    // Where the carried task would go: a line of the accent above or below.
+    if root.vise: Rectangle {
+        x: 4px;
+        width: parent.width - 8px;
+        y: root.vise-haut ? -4px : parent.height + 2px;
+        height: 2px;
+        border-radius: 1px;
+        background: Tokens.accent;
+    }
     property <bool> has-line: root.item.list != "" || root.item.from-mail
         || root.item.progress != "" || root.item.has-notes || root.item.goal != ""
         || root.item.estimate != "" || root.item.postponed >= 2 || root.item.repeats != "";
@@ -251,17 +288,43 @@ component TaskRow inherits Rectangle {
 
     // Each task a small card of its own, rounded, on the window's ground; the
     // sections' titles stay plain text between them.
+    // Just added: it slides in from the left and fades up, ringed in the accent for
+    // a moment. Once: the next drawing has it in place.
+    property <float> arrivee: root.item.fresh ? 0 : 1;
+    animate arrivee { duration: 300ms; easing: ease-out; }
+    property <float> halo: root.item.fresh ? 1 : 0;
+    animate halo { duration: 900ms; easing: ease-in; }
+    init => {
+        if (root.item.fresh) {
+            root.arrivee = 1;
+            eteindre.running = true;
+        }
+    }
+    eteindre := Timer {
+        interval: 350ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.halo = 0;
+        }
+    }
+
     height: root.tache ? (root.has-line ? 60px : 48px) : 38px;
     border-radius: root.tache ? Tokens.radius-medium : 0px;
-    border-width: root.tache ? 1px : 0px;
-    border-color: root.item.selected ? Tokens.accent.transparentize(0.45)
+    // Just off the page: the lowest of the shadows.
+    drop-shadow-blur: root.tache ? Tokens.shadow-card-blur : 0px;
+    drop-shadow-offset-y: Tokens.shadow-card-y;
+    drop-shadow-color: root.tache ? Tokens.shadow-card : transparent;
+    border-width: root.tache ? (root.halo > 0.02 ? 1.5px : 1px) : 0px;
+    border-color: root.halo > 0.02 ? Tokens.accent.transparentize(1 - 0.8 * root.halo)
+        : root.item.selected ? Tokens.accent.transparentize(0.45)
         : touch.has-hover ? Tokens.border-strong : Tokens.border;
     background: !root.tache ? transparent
         : root.item.selected ? Tokens.surface-high.mix(Tokens.accent, 0.9)
-        : Tokens.surface-high;
+        : Tokens.surface-high.mix(Tokens.accent, 1 - 0.12 * root.halo);
     // Picked up, the row fades where it was: it is in the hand.
-    opacity: root.carrying ? 0.35 : 1.0;
-    animate background, border-color, opacity { duration: Tokens.quick; }
+    opacity: (root.carrying ? 0.35 : 1.0) * (0.2 + 0.8 * root.arrivee);
+    animate background, border-color { duration: Tokens.quick; }
 
     accessible-role: list-item;
     accessible-label: root.item.title;
@@ -339,12 +402,14 @@ component TaskRow inherits Rectangle {
     }
 
     if root.tache: HorizontalLayout {
+        x: (1 - root.arrivee) * -16px;
         padding-left: 14px;
         padding-right: 10px;
         spacing: 12px;
 
-        Check {
+        tick := Check {
             y: (parent.height - self.height) / 2;
+            animated: true;
             done: root.item.done;
             late: root.item.overdue;
             label: root.item.title;
@@ -364,13 +429,16 @@ component TaskRow inherits Rectangle {
                     width: parent.width;
                     text: root.item.title;
                     font-size: Tokens.size-body;
-                    color: root.item.done ? Tokens.text-muted : Tokens.text;
+                    color: tick.shown-done ? Tokens.text-muted : Tokens.text;
+                    animate color { duration: 240ms; }
                     overflow: elide;
                 }
-                if root.item.done: Rectangle {
+                // Struck through from the left as the tick is drawn.
+                Rectangle {
                     x: 0;
                     y: parent.height / 2;
-                    width: min(titre.preferred-width, parent.width);
+                    width: tick.shown-done ? min(titre.preferred-width, parent.width) : 0px;
+                    animate width { duration: 260ms; easing: ease-out; }
                     height: 1px;
                     background: Tokens.text-muted;
                 }
@@ -544,6 +612,7 @@ component SubtaskRow inherits Rectangle {
         spacing: 10px;
         Check {
             y: (parent.height - self.height) / 2;
+            animated: true;
             size: 16px;
             done: root.step.done;
             label: root.step.title;
@@ -677,6 +746,7 @@ component TaskDetail inherits DetailPanel {
         vertical-stretch: 0;
         Check {
             y: (parent.height - self.height) / 2;
+            animated: true;
             size: 22px;
             done: root.detail.done;
             late: root.detail.overdue;
@@ -1150,9 +1220,9 @@ component EstimateBubble inherits Rectangle {
     border-width: 1px;
     border-color: Tokens.border;
     background: Tokens.panel;
-    drop-shadow-blur: 18px;
-    drop-shadow-offset-y: 6px;
-    drop-shadow-color: Tokens.shadow;
+    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-offset-y: Tokens.shadow-float-y;
+    drop-shadow-color: Tokens.shadow-float;
     opacity: root.entree;
 
     accessible-role: groupbox;
@@ -1273,6 +1343,8 @@ export component TasksView inherits Rectangle {
     callback open-calendar();
     /// A task let go on a list, or on Today.
     callback task-dropped(int, string);
+    /// A task let go on another in the column: (it, that one, above rather than below).
+    callback task-reordered(int, int, bool);
 
     callback title-edited(string);
     callback notes-edited(string);
@@ -1508,6 +1580,8 @@ export component TasksView inherits Rectangle {
                             Rectangle {
                                 x: 0;
                                 width: parent.width * root.overview.fraction;
+                                // It fills, rather than jumping, as tasks are done.
+                                animate width { duration: 450ms; easing: ease-out; }
                                 border-radius: 2.5px;
                                 background: Tokens.success;
                             }
@@ -1555,6 +1629,14 @@ export component TasksView inherits Rectangle {
                             toggled(id) => { root.toggled(id); }
                             clear-completed => { root.clear-completed(); }
                             later(r, x, y) => { root.task-later(r.id, x, y); }
+                            carried-id: root.carried;
+                            carry-x: root.carry-x;
+                            carry-y: root.carry-y;
+                            drop: root.drop;
+                            dropped-id: root.dropped-id;
+                            drop-x: root.drop-x;
+                            drop-y: root.drop-y;
+                            reordered(porte, cible, dessus) => { root.task-reordered(porte, cible, dessus); }
                             carry-started(r, x, y) => {
                                 root.carried = r.id;
                                 root.carried-title = r.title;
@@ -1670,9 +1752,10 @@ export component TasksView inherits Rectangle {
         border-width: 1px;
         border-color: Tokens.border-strong;
         background: Tokens.panel;
-        drop-shadow-blur: 18px;
-        drop-shadow-offset-y: 8px;
-        drop-shadow-color: #00000090;
+        // In the hand: the highest of all, the shadow of a window.
+        drop-shadow-blur: Tokens.shadow-window-blur;
+        drop-shadow-offset-y: Tokens.shadow-window-y;
+        drop-shadow-color: Tokens.shadow-window;
 
         HorizontalLayout {
             padding-left: 12px;

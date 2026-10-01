@@ -7,7 +7,7 @@ import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
 import { Modal, ModalFooter } from "@iris/layout/frames.slint";
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
 
 // Goals: something to reach by a day, and where it stands. Counted by hand or ticked
 // milestone by milestone; nothing here counts on the user's behalf.
@@ -125,6 +125,7 @@ export component GoalBar inherits Rectangle {
     Rectangle {
         x: 0;
         width: parent.width * clamp(root.fraction, 0, 1);
+        animate width { duration: 450ms; easing: ease-out; }
         border-radius: 4px;
         background: root.tint;
     }
@@ -185,6 +186,7 @@ component GoalSide inherits VerticalLayout {
                     }
                     if root.goal.milestones: Check {
                         y: (parent.height - self.height) / 2;
+                        animated: true;
                         size: 18px;
                         done: entree.done;
                         label: entree.title;

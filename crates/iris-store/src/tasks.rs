@@ -101,10 +101,11 @@ pub(crate) fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
     })
 }
 
-/// L'ordre d'une liste : ce qui est dû d'abord, les plus urgentes en tête, puis
-/// l'ordre de création.
-const ORDRE: &str = "due_day IS NULL, due_day, due_minute IS NULL, due_minute, priority DESC, \
-     position, id";
+/// L'ordre d'une liste : ce qui est dû d'abord, à l'heure dite pour celles qui en ont
+/// une, puis l'ordre choisi à la main (glissé), qui est celui de la création tant
+/// qu'on n'y a pas touché.
+const ORDRE: &str = "due_day IS NULL, due_day, due_minute IS NULL, due_minute, position, \
+     priority DESC, id";
 
 impl Store {
     pub fn task_lists(&self) -> Result<Vec<TaskList>> {
@@ -356,6 +357,32 @@ impl Store {
     }
 
     /// Réécrit une tâche. Un rappel déplacé sera redonné.
+    /// Puts tasks in the order given, among themselves: their places are renumbered
+    /// from the first of them, one after the other.
+    pub fn set_task_positions(&self, ids: &[i64]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        self.with_conn(|c| {
+            let liste = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let debut: i64 = c
+                .query_row(
+                    &format!("SELECT COALESCE(MIN(position), 0) FROM tasks WHERE id IN ({liste})"),
+                    rusqlite::params_from_iter(ids.iter()),
+                    |r| r.get(0),
+                )
+                .map_err(|e| Error::store(format!("ordre des tâches : {e}")))?;
+            for (i, id) in ids.iter().enumerate() {
+                c.execute(
+                    "UPDATE tasks SET position = ?1 WHERE id = ?2",
+                    rusqlite::params![debut + i as i64, id],
+                )
+                .map_err(|e| Error::store(format!("ordre des tâches : {e}")))?;
+            }
+            Ok(())
+        })
+    }
+
     pub fn update_task(&self, id: i64, t: &NewTask, now: Timestamp) -> Result<()> {
         self.with_tx(|tx| {
             tx.execute(
@@ -475,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn open_tasks_come_due_first_most_urgent_first() {
+    fn open_tasks_come_due_first_then_in_the_order_given() {
         let s = store();
         let l = s.task_lists().unwrap()[0].id;
         let sans = s.insert_task(&nouvelle(l, "sans date"), t(1)).unwrap();
@@ -491,6 +518,11 @@ mod tests {
         urgent.priority = 3;
         let urgent = s.insert_task(&urgent, t(4)).unwrap();
 
+        let ordre: Vec<i64> = s.open_tasks().unwrap().iter().map(|x| x.id).collect();
+        assert_eq!(ordre, [tot, tard, urgent, sans], "the same day: as created");
+
+        // Dragged above: the order given is kept.
+        s.set_task_positions(&[urgent, tard]).unwrap();
         let ordre: Vec<i64> = s.open_tasks().unwrap().iter().map(|x| x.id).collect();
         assert_eq!(ordre, [tot, urgent, tard, sans]);
     }

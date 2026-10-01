@@ -3,7 +3,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import {
     CalendarData, CalendarChipData, MonthCellData, WeekDayData, TimedEventData, PlanTaskData
 } from "@iris/types.slint";
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
@@ -620,9 +620,13 @@ component WeekGrid inherits VerticalLayout {
                 // Moved, it fades where it was under the copy that follows the
                 // pointer; stretched, it is drawn itself, at its new length.
                 property <bool> held: root.drag-mode == 1 && root.drag-key == e.key;
+                // Just dropped: it lands from a few pixels above, with a bounce.
+                property <float> chute: e.landed ? 1 : 0;
+                animate chute { duration: 420ms; easing: ease-out-bounce; }
+                init => { if (e.landed) { self.chute = 0; } }
 
                 x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 2px;
-                y: e.top * grille.height + 1px;
+                y: e.top * grille.height + 1px - 10px * self.chute;
                 width: grille.colonne / max(1, e.lanes) - 4px;
                 height: max(22px, e.height * grille.height - 3px);
                 border-radius: Tokens.radius-small;
@@ -747,9 +751,9 @@ component WeekGrid inherits VerticalLayout {
                 border-width: 1.5px;
                 border-color: root.held.color;
                 background: Tokens.surface;
-                drop-shadow-blur: 10px;
-                drop-shadow-offset-y: 3px;
-                drop-shadow-color: Tokens.text.transparentize(0.85);
+                drop-shadow-blur: Tokens.shadow-float-blur;
+                drop-shadow-offset-y: Tokens.shadow-float-y;
+                drop-shadow-color: Tokens.shadow-float;
                 Rectangle {
                     border-radius: Tokens.radius-small;
                     background: root.held.color.transparentize(0.72);
@@ -873,6 +877,19 @@ component WeekGrid inherits VerticalLayout {
                 y: root.now-fraction * grille.height - 4px;
                 width: grille.colonne + 4px;
                 height: 8px;
+                // One pulse when the calendar opens: a ring that widens and fades
+                // from the point, then nothing.
+                property <float> pouls: 0;
+                animate pouls { duration: 800ms; easing: ease-out; }
+                init => { self.pouls = 1; }
+                Rectangle {
+                    width: 8px + 18px * parent.pouls;
+                    height: self.width;
+                    x: 4px - self.width / 2;
+                    y: 4px - self.height / 2;
+                    border-radius: self.width / 2;
+                    background: Tokens.error.transparentize(0.55 + 0.45 * parent.pouls);
+                }
                 Rectangle {
                     x: 0;
                     width: 8px;
@@ -1221,9 +1238,9 @@ export component CalendarView inherits Rectangle {
         background: Tokens.surface;
         border-width: 1px;
         border-color: Tokens.accent;
-        drop-shadow-blur: 12px;
-        drop-shadow-offset-y: 4px;
-        drop-shadow-color: Tokens.text.transparentize(0.82);
+        drop-shadow-blur: Tokens.shadow-float-blur;
+        drop-shadow-offset-y: Tokens.shadow-float-y;
+        drop-shadow-color: Tokens.shadow-float;
         fantome := Text {
             x: 12px;
             width: parent.width - 24px;

@@ -227,6 +227,9 @@ Open **Tasks** in the rail, or with `Ctrl`+`3`.
   **From mail** show the rest.
 - The foot of the column counts what you finished this week, a bar a day.
 - Drag a task onto a list or onto **Today** in the column on the left to move it there.
+  Drag it onto another task to put it above or below; a line shows where. Dropped in
+  another day, it takes that day. Within a day, tasks with an hour come first, by
+  time, then the others in the order you gave them.
 - A checked task stays, struck through, in the view it was checked from; **Clear**
   beside *Done* removes them.
 - A task can hold subtasks, a note and a reminder, and say how long it takes (*Takes*:

@@ -1,0 +1,71 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+
+// A scrolling area with a thin bar: a rounded thumb three pixels wide at the edge,
+// six when pointed at or held, and nothing else — no arrows, no track drawn. It is the
+// style's ScrollView in what it offers (the viewport, what shows of it, the drag pan),
+// so a screen changes only its import.
+export component ScrollView inherits Rectangle {
+    in property <bool> enabled: true;
+    out property <length> visible-width <=> f.width;
+    out property <length> visible-height <=> f.height;
+    in-out property <length> viewport-width <=> f.content-width;
+    in-out property <length> viewport-height <=> f.content-height;
+    in-out property <length> viewport-x <=> f.content-x;
+    in-out property <length> viewport-y <=> f.content-y;
+    in property <bool> mouse-drag-pan-enabled <=> f.mouse-drag-pan-enabled;
+    callback scrolled <=> f.flicked;
+
+    min-height: 50px;
+    min-width: 50px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    preferred-height: 100%;
+    preferred-width: 100%;
+
+    f := Flickable {
+        mouse-drag-pan-enabled: false;
+        width: parent.width;
+        height: parent.height;
+        @children
+    }
+
+    /// How far it scrolls; nothing to scroll, no bar.
+    property <length> course: f.content-height - f.height;
+    property <bool> montre: root.enabled && root.course > 0.5px;
+    property <bool> saisie: barre.has-hover || barre.pressed;
+    property <length> piste: root.height - 4px;
+    property <length> poignee-h: max(28px, root.piste * root.height / max(1px, f.content-height));
+
+    barre := TouchArea {
+        x: parent.width - 10px;
+        width: 10px;
+        height: parent.height;
+        enabled: root.montre;
+        property <length> depart;
+        property <length> depart-y;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                self.depart = -f.content-y;
+                self.depart-y = self.mouse-y;
+            }
+        }
+        moved => {
+            if (self.pressed && root.piste > root.poignee-h) {
+                f.content-y = -max(0px, min(root.course,
+                    self.depart + (self.mouse-y - self.depart-y) * root.course / (root.piste - root.poignee-h)));
+                root.scrolled();
+            }
+        }
+    }
+
+    if root.montre: Rectangle {
+        width: root.saisie ? 6px : 3px;
+        animate width { duration: 150ms; easing: ease-out; }
+        x: parent.width - self.width - 2px;
+        height: root.poignee-h;
+        y: 2px + (root.piste - self.height) * (-f.content-y / root.course);
+        border-radius: self.width / 2;
+        background: Tokens.text.transparentize(root.saisie ? 0.55 : 0.78);
+        animate background { duration: 150ms; }
+    }
+}

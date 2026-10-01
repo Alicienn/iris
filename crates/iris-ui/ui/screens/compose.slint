@@ -286,9 +286,9 @@ export component ParkedDraft inherits Rectangle {
     border-width: 1px;
     border-color: touche.has-hover ? Tokens.border-strong : Tokens.border;
     background: Tokens.panel;
-    drop-shadow-blur: 18px;
-    drop-shadow-offset-y: 6px;
-    drop-shadow-color: Tokens.shadow;
+    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-offset-y: Tokens.shadow-float-y;
+    drop-shadow-color: Tokens.shadow-float;
 
     accessible-role: button;
     accessible-label: "Open the draft " + root.text;

@@ -61,7 +61,7 @@ export component Segmented inherits Rectangle {
 }
 
 /// The queue's tabs over the list: words on a plate when chosen, each with its count.
-export component QueueTabs inherits HorizontalLayout {
+export component QueueTabs inherits Rectangle {
     in property <[string]> names;
     in property <[string]> counts;
     /// What a screen reader says of each: "1250 conversations".
@@ -69,16 +69,56 @@ export component QueueTabs inherits HorizontalLayout {
     in property <int> selected;
     callback chosen(int);
 
-    spacing: 2px;
     height: 28px;
+    min-width: onglets.min-width;
+    preferred-width: onglets.preferred-width;
+
+    // Where the chosen tab is: its plate slides there rather than jumping, each tab
+    // saying its place when it is the one.
+    property <length> plaque-x;
+    property <length> plaque-w;
+    animate plaque-x, plaque-w { duration: 180ms; easing: cubic-bezier(0.2, 0, 0, 1); }
+
+    Rectangle {
+        x: root.plaque-x;
+        width: root.plaque-w;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface-active;
+    }
+
+    onglets := HorizontalLayout {
+    alignment: start;
+    spacing: 2px;
 
     for nom[i] in root.names: onglet := Rectangle {
         property <bool> on: i == root.selected;
         width: rang.preferred-width + 20px;
         border-radius: Tokens.radius-medium;
-        background: self.on ? Tokens.surface-active
-            : touch.has-hover ? Tokens.surface-hover : transparent;
+        background: !self.on && touch.has-hover ? Tokens.surface-hover : transparent;
         animate background { duration: Tokens.instant; }
+
+        init => {
+            if (self.on) {
+                root.plaque-x = self.x;
+                root.plaque-w = self.width;
+            }
+        }
+        changed on => {
+            if (self.on) {
+                root.plaque-x = self.x;
+                root.plaque-w = self.width;
+            }
+        }
+        changed x => {
+            if (self.on) {
+                root.plaque-x = self.x;
+            }
+        }
+        changed width => {
+            if (self.on) {
+                root.plaque-w = self.width;
+            }
+        }
 
         accessible-role: tab;
         accessible-label: nom;
@@ -108,6 +148,7 @@ export component QueueTabs inherits HorizontalLayout {
             mouse-cursor: pointer;
             clicked => { root.chosen(i); }
         }
+    }
     }
 }
 
@@ -199,38 +240,113 @@ export component Check inherits Rectangle {
     in property <length> size: 20px;
     /// Off: a picture of a check, the row around it takes the click.
     in property <bool> interactive: true;
+    /// A thing done (a task, a step): the tick is drawn before it is said. Off for a
+    /// setting (a calendar shown, a tag), which answers at once.
+    in property <bool> animated;
     callback toggled();
 
     property <bool> rond: root.shape == CheckShape.round;
     property <color> plein: root.rond ? Tokens.success : root.tint;
 
+    /// Ticked by a click, not yet told: the tick is drawn first, and said once drawn.
+    /// Told at once, the list was redrawn before anything moved, and the box simply
+    /// appeared full.
+    property <bool> en-cours;
+    /// What shows: ticked, or being ticked.
+    out property <bool> shown-done: root.done || root.en-cours;
+    /// How much of the tick is drawn, left to right.
+    property <float> trace: root.shown-done ? 1 : 0;
+    animate trace { duration: 240ms; easing: ease-out; }
+    /// The little bump of the box as it fills.
+    property <float> bond;
+    animate bond { duration: 110ms; easing: ease-out; }
+
     width: root.size;
     height: root.size;
-    border-radius: root.rond ? root.size / 2 : 4px;
-    border-width: 1.5px;
-    border-color: root.done ? root.plein
-        : !root.rond ? root.tint
-        : touch.has-hover ? Tokens.text-secondary
-        : root.late ? Tokens.error : Tokens.text-muted;
-    background: root.done ? root.plein : touch.has-hover && root.rond ? Tokens.surface-hover : transparent;
-    animate background, border-color { duration: Tokens.quick; }
 
     accessible-role: checkbox;
     accessible-label: root.label;
     accessible-checked: root.done;
     accessible-action-default => { root.toggled(); }
 
-    if root.done || (touch.has-hover && root.rond): Icon {
+    boite := Rectangle {
+        width: root.size * (1 + 0.16 * root.bond);
+        height: self.width;
+        x: (root.size - self.width) / 2;
+        y: (root.size - self.height) / 2;
+        border-radius: root.rond ? self.width / 2 : 4px;
+        border-width: 1.5px;
+        border-color: root.shown-done ? root.plein
+            : !root.rond ? root.tint
+            : touch.has-hover ? Tokens.text-secondary
+            : root.late ? Tokens.error : Tokens.text-muted;
+        background: root.shown-done ? root.plein : touch.has-hover && root.rond ? Tokens.surface-hover : transparent;
+        animate background, border-color { duration: Tokens.quick; }
+    }
+
+    // Pointed at, the tick it would make, in grey.
+    if !root.shown-done && touch.has-hover && root.rond: Icon {
         data: Icons.check;
         size: root.size * 0.62;
         weight: 3.0;
-        tint: root.done ? white : Tokens.text-secondary;
+        tint: Tokens.text-secondary;
+    }
+    // Ticked: drawn from the left, as a pen would.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.size * root.trace;
+        height: root.size;
+        clip: true;
+        Icon {
+            x: (root.size - self.width) / 2;
+            y: (root.size - self.height) / 2;
+            data: Icons.check;
+            size: root.size * 0.62;
+            weight: 3.0;
+            tint: white;
+        }
+    }
+
+    retombe := Timer {
+        interval: 110ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.bond = 0;
+        }
+    }
+    dit := Timer {
+        interval: 300ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.en-cours = false;
+            root.toggled();
+        }
     }
 
     touch := TouchArea {
         enabled: root.interactive;
         mouse-cursor: pointer;
-        clicked => { root.toggled(); }
+        clicked => {
+            if (!root.animated) {
+                root.toggled();
+                return;
+            }
+            if (root.done || root.en-cours) {
+                // Unticking needs no show; a second click while it is drawn is the
+                // same click.
+                if (!root.en-cours) {
+                    root.toggled();
+                }
+                return;
+            }
+            root.en-cours = true;
+            root.bond = 1;
+            retombe.running = true;
+            dit.running = true;
+        }
     }
 }
 

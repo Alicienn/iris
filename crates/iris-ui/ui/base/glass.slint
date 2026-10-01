@@ -25,9 +25,9 @@ export component Glass inherits Rectangle {
 export component Floating inherits Rectangle {
     in property <length> radius: Tokens.radius-large;
 
-    drop-shadow-blur: 28px;
-    drop-shadow-color: Tokens.shadow;
-    drop-shadow-offset-y: 10px;
+    drop-shadow-blur: Tokens.shadow-window-blur;
+    drop-shadow-color: Tokens.shadow-window;
+    drop-shadow-offset-y: Tokens.shadow-window-y;
     border-radius: root.radius;
     background: Tokens.panel;
     border-width: 1px;

@@ -94,6 +94,8 @@ struct Etat {
     creneaux: Vec<i32>,
     /// The task just added whose length is asked over the add bar.
     a_estimer: Option<i64>,
+    /// The task just added, to slide in once at the next drawing of the column.
+    nouvelle: Option<i64>,
 }
 
 /// A task and its subtasks as they are before a delete, to put them back.
@@ -470,6 +472,7 @@ fn ligne_tache(
             .unwrap_or_default(),
         postponed: t.task.postponed,
         repeats: iris_tasks::repeat::label(t.task.repeat.as_deref()).into(),
+        fresh: etat.nouvelle == Some(t.id),
     }
 }
 
@@ -1033,6 +1036,8 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
     });
     f.set_task_add_hint(indication(etat.vue).into());
     f.set_task_rows(ModelRc::new(VecModel::from(lignes)));
+    // Shown once as new; the next drawing has it in place.
+    etat.nouvelle = None;
     remplir_detail(f, services, etat, maintenant);
 }
 
@@ -1313,7 +1318,11 @@ fn ajouter_et_demander(f: &AppWindow, services: &Services, etat: &RefCell<Etat>,
     } else {
         court
     };
-    etat.borrow_mut().a_estimer = Some(id);
+    {
+        let mut e = etat.borrow_mut();
+        e.a_estimer = Some(id);
+        e.nouvelle = Some(id);
+    }
     f.set_task_asking(court.into());
 }
 
@@ -1459,6 +1468,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         plus_tard: None,
         creneaux: Vec::new(),
         a_estimer: None,
+        nouvelle: None,
     }));
     f.set_task_reminders(ModelRc::new(VecModel::from(
         REMINDERS
@@ -1898,6 +1908,48 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                     f.set_status(format!("Takes {}.", iris_tasks::goals::duration_label(m)).into());
                 }
                 _ => ajouter_et_demander(f, services, etat, &texte),
+            }
+            redessiner();
+        }
+    );
+    // A task dropped on another in the column: placed just above or below it. Dropped
+    // in another day's section, it takes that day. Its day's tasks without an hour are
+    // then numbered in the order shown.
+    geste!(
+        on_task_reordered,
+        [services, etat, redessiner, f, controller],
+        |porte, cible, dessus| {
+            let (porte, cible) = (porte as i64, cible as i64);
+            if porte == cible {
+                return;
+            }
+            let Ok(Some(c)) = services.store.task(cible) else {
+                return;
+            };
+            let (jour_cible, minute_cible) = (c.task.due_day.clone(), c.task.due_minute);
+            modifier(services, porte, |t| {
+                t.due_day = jour_cible.clone();
+                if minute_cible.is_none() {
+                    t.due_minute = None;
+                }
+            });
+            let mut ordre: Vec<i64> = etat.borrow().ordre.clone();
+            ordre.retain(|&id| id != porte);
+            let Some(i) = ordre.iter().position(|&id| id == cible) else {
+                return;
+            };
+            ordre.insert(if dessus { i } else { i + 1 }, porte);
+            // The tasks of that day without an hour, as they now stand.
+            let groupe: Vec<i64> = ordre
+                .into_iter()
+                .filter(|&id| {
+                    services.store.task(id).ok().flatten().is_some_and(|t| {
+                        t.task.due_day == jour_cible && t.task.due_minute.is_none()
+                    })
+                })
+                .collect();
+            if let Err(e) = services.store.set_task_positions(&groupe) {
+                f.set_status(format!("Could not move it: {e}").into());
             }
             redessiner();
         }

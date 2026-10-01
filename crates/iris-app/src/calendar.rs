@@ -79,6 +79,9 @@ struct Etat {
     ouvert: Option<Ouvert>,
     /// The colours events wear instead of their calendar's, by calendar and UID.
     teintes: HashMap<(i64, String), String>,
+    /// The event just dropped somewhere, by its identifier: it lands with a bounce at
+    /// the next drawing of the grid, once.
+    atterri: Option<i64>,
 }
 
 /// The event open in the panel, as its tasks need it.
@@ -474,6 +477,7 @@ pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellDat
         note: None,
         ouvert: None,
         teintes: HashMap::new(),
+        atterri: None,
     };
     cellules(
         &vide,
@@ -513,6 +517,7 @@ fn blocs_de_semaine(
                 top: b.start_min as f32 / 1440.0,
                 height: (b.end_min - b.start_min) as f32 / 1440.0,
                 past: o.end <= maintenant.millis(),
+                landed: etat.atterri == Some(stocke.id),
             }
         })
         .collect()
@@ -637,6 +642,8 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             fenetre.set_calendar_week_events(ModelRc::new(VecModel::from(blocs_de_semaine(
                 etat, &occ, &blocs, &couleurs, maintenant,
             ))));
+            // Landed once; the next drawing has it in place.
+            etat.atterri = None;
             match jours.iter().position(|d| *d == today) {
                 Some(i) => {
                     fenetre.set_calendar_now_day(i as i32);
@@ -1681,6 +1688,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         note: None,
         ouvert: None,
         teintes: HashMap::new(),
+        atterri: None,
     }));
 
     fenetre.set_calendar_palette(ModelRc::new(VecModel::from(
@@ -1724,12 +1732,19 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
     }
     // An event dragged to another time, or stretched by its lower edge.
     {
-        let (faible, services, redessiner) =
-            (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
+        let (faible, services, redessiner, etat) = (
+            fenetre.as_weak(),
+            services.clone(),
+            Rc::clone(&redessiner),
+            Rc::clone(&etat),
+        );
         fenetre.on_calendar_event_moved(move |cle, jours, minutes| {
-            if let Err(e) = deplacer(&services, &cle, jours as i64, minutes as i64, false) {
-                if let Some(f) = faible.upgrade() {
-                    f.set_status(format!("Could not move it: {e}").into());
+            match deplacer(&services, &cle, jours as i64, minutes as i64, false) {
+                Ok(()) => etat.borrow_mut().atterri = ms_depuis_cle(&cle).map(|(id, _)| id),
+                Err(e) => {
+                    if let Some(f) = faible.upgrade() {
+                        f.set_status(format!("Could not move it: {e}").into());
+                    }
                 }
             }
             redessiner();

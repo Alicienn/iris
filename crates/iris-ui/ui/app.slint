@@ -906,6 +906,8 @@ export component AppWindow inherits Window {
     in property <string> tasks-subtitle;
     callback task-clear-completed();
     callback task-dropped(int, string);
+    /// A task let go on another in the column: (it, that one, above rather than below).
+    callback task-reordered(int, int, bool);
     in property <[TaskPlaceData]> task-places;
     // --- Goals ---
     /// What the middle of Tasks shows: 0 a list, 1 a goal, 2 all the goals.
@@ -1894,6 +1896,7 @@ export component AppWindow inherits Window {
         }
         clear-completed => { root.task-clear-completed(); }
         task-dropped(id, cle) => { root.task-dropped(id, cle); }
+        task-reordered(porte, cible, dessus) => { root.task-reordered(porte, cible, dessus); }
         places: root.task-places;
         rows: root.task-rows;
         add-text <=> root.task-add-text;

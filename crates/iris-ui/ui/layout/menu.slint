@@ -112,9 +112,9 @@ export component MenuSurface inherits Rectangle {
     background: Tokens.panel;
     border-width: 1px;
     border-color: Tokens.border-strong;
-    drop-shadow-blur: 28px;
-    drop-shadow-color: Tokens.shadow;
-    drop-shadow-offset-y: 10px;
+    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-color: Tokens.shadow-float;
+    drop-shadow-offset-y: Tokens.shadow-float-y;
 
     // Swallows clicks, so choosing an item does not also hit the veil behind it.
     TouchArea {}
