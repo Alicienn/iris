@@ -1166,6 +1166,7 @@ fn run_gui(
 /// 11 rounds a frameless window, and gives it its shadow and hairline, once its corner
 /// preference says so. It keeps maximised windows square on its own. Earlier versions
 /// of Windows ignore the attribute. Called once the window exists (after `show`).
+#[allow(unsafe_code)]
 fn arrondir_les_coins(fenetre: &iris_ui::AppWindow) {
     #[cfg(windows)]
     {
