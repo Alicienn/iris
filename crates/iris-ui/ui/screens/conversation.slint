@@ -501,17 +501,19 @@ component RecipientsButton inherits Rectangle {
             + (root.bcc == "" ? "" : ", blind copy to " + root.bcc);
         clicked => { root.clicked(); }
     }
-    if root.to != "" && root.cc == "" && root.bcc == "": Tooltip {
-        text: @markdown("To: \{root.to}");
+    // One tooltip per element: each case on a clear layer of its own over the button
+    // (no touch area, so the click still reaches it).
+    if root.to != "" && root.cc == "" && root.bcc == "": Rectangle {
+        Tooltip { text: @markdown("To: \{root.to}"); }
     }
-    if root.to != "" && root.cc != "" && root.bcc == "": Tooltip {
-        text: @markdown("To: \{root.to}\n\nCc: \{root.cc}");
+    if root.to != "" && root.cc != "" && root.bcc == "": Rectangle {
+        Tooltip { text: @markdown("To: \{root.to}\n\nCc: \{root.cc}"); }
     }
-    if root.to != "" && root.cc == "" && root.bcc != "": Tooltip {
-        text: @markdown("To: \{root.to}\n\nBcc: \{root.bcc}");
+    if root.to != "" && root.cc == "" && root.bcc != "": Rectangle {
+        Tooltip { text: @markdown("To: \{root.to}\n\nBcc: \{root.bcc}"); }
     }
-    if root.to != "" && root.cc != "" && root.bcc != "": Tooltip {
-        text: @markdown("To: \{root.to}\n\nCc: \{root.cc}\n\nBcc: \{root.bcc}");
+    if root.to != "" && root.cc != "" && root.bcc != "": Rectangle {
+        Tooltip { text: @markdown("To: \{root.to}\n\nCc: \{root.cc}\n\nBcc: \{root.bcc}"); }
     }
 }
 
