@@ -374,6 +374,12 @@ export component ComposePanel inherits Rectangle {
     callback recipient-typed(string, string);
     callback recipient-picked(string, string);
 
+    // The two shapes, fixed: the corners are worked out from these and not from the
+    // size being animated, so the window rises and grows at once instead of growing
+    // where it was, then travelling.
+    property <length> grand-w: min(720px, root.width - 80px);
+    property <length> grand-h: min(600px, root.height - 80px);
+
     // The veil fades out as the window shrinks: a minimised draft must not keep the
     // rest of the application behind glass.
     background: root.minimised ? transparent : Tokens.scrim;
@@ -402,12 +408,6 @@ export component ComposePanel inherits Rectangle {
     if !root.minimised: TouchArea {
         clicked => { root.park(); }
     }
-
-    // The two shapes, fixed: the corners are worked out from these and not from the
-    // size being animated, so the window rises and grows at once instead of growing
-    // where it was, then travelling.
-    property <length> grand-w: min(720px, root.width - 80px);
-    property <length> grand-h: min(600px, root.height - 80px);
 
     frame := Floating {
         // The morph. One element, four animated properties — nothing is created or
