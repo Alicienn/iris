@@ -3750,13 +3750,16 @@ fn fill_from_profile_account(
     fenetre.set_add_account_hint(indice.into());
 }
 
+/// What a profile says of sending: `(address, SMTP login, SMTP password)`.
+type EnvoiDuProfil = (String, Option<String>, Option<String>);
+
 thread_local! {
     /// The account the setup screen is editing, set when it opens on one.
     static EDITION: std::cell::Cell<Option<iris_types::AccountId>> =
         const { std::cell::Cell::new(None) };
     /// What the profile account chosen says of sending that the screen does not show,
     /// for the address it was for: `(address, SMTP login, SMTP password)`.
-    static ENVOI_DU_PROFIL: std::cell::RefCell<Option<(String, Option<String>, Option<String>)>> =
+    static ENVOI_DU_PROFIL: std::cell::RefCell<Option<EnvoiDuProfil>> =
         const { std::cell::RefCell::new(None) };
 }
 
