@@ -1,0 +1,13 @@
+[package]
+name = "iris-notes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Les notes, sans entrée-sortie : découper une note en blocs sans perdre un octet, lire
+# les marques d'une ligne, les liens, les étiquettes et les dates, transformer une
+# saisie. Tout se teste sans fichier et sans fenêtre.
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
