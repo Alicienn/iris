@@ -971,6 +971,8 @@ export component AppWindow inherits Window {
     callback event-delete();
     /// A video call link given to the event shown; empty takes it away.
     callback event-video-set(string);
+    /// The note of the event shown (a lecture's, a meeting's), made or opened.
+    callback event-take-notes();
     /// A link opened in the browser (or the app it belongs to): a video call.
     callback open-link(string);
 
@@ -2603,6 +2605,10 @@ export component AppWindow inherits Window {
         dismissed => { root.event-detail-open = false; }
         join(u) => { root.open-link(u); }
         video-set(u) => { root.event-video-set(u); }
+        take-notes => {
+            root.event-detail-open = false;
+            root.event-take-notes();
+        }
     }
 
     if root.event-editor-open: EventEditorPanel {

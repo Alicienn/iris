@@ -114,6 +114,7 @@ component EventBody inherits VerticalLayout {
     callback join(string);
     /// A video call link given to it; empty takes it away.
     callback video-set(string);
+    callback take-notes();
 
     /// The link being typed or changed.
     property <bool> video-editing;
@@ -276,6 +277,13 @@ component EventBody inherits VerticalLayout {
             clicked => { root.delete(); }
         }
         Rectangle { horizontal-stretch: 1; }
+        // A note for this event: a lecture's, a meeting's; opened again later.
+        Button {
+            text: "Notes";
+            icon: Icons.notes;
+            size: ButtonSize.sm;
+            clicked => { root.take-notes(); }
+        }
         if root.detail.editable: Button {
             text: "Edit";
             icon: Icons.pencil;
@@ -309,6 +317,7 @@ export component EventDetailPanel inherits Rectangle {
     callback dismissed();
     callback join(string);
     callback video-set(string);
+    callback take-notes();
 
     if root.anchored: Popover {
         width: 100%;
@@ -332,6 +341,7 @@ export component EventDetailPanel inherits Rectangle {
             dismissed => { root.dismissed(); }
             join(u) => { root.join(u); }
             video-set(u) => { root.video-set(u); }
+            take-notes => { root.take-notes(); }
         }
     }
 
@@ -382,6 +392,7 @@ export component EventDetailPanel inherits Rectangle {
                 dismissed => { root.dismissed(); }
                 join(u) => { root.join(u); }
                 video-set(u) => { root.video-set(u); }
+                take-notes => { root.take-notes(); }
             }
         }
     }

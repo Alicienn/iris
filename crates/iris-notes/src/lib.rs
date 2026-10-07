@@ -13,10 +13,12 @@ pub mod block;
 pub mod complete;
 pub mod edit;
 pub mod fuzzy;
+pub mod html;
 pub mod inline;
 pub mod links;
 pub mod math;
 pub mod meta;
+pub mod review;
 pub mod template;
 
 pub use block::{join, parse, Block, BlockKind};

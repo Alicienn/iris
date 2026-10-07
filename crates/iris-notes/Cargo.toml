@@ -10,4 +10,5 @@ license.workspace = true
 # saisie. Tout se teste sans fichier et sans fenêtre.
 
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+serde = { workspace = true }

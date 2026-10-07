@@ -2098,6 +2098,35 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             }
         });
     }
+    // The event's note: a lecture's, a meeting's. Made from the space's Cours template
+    // the first time, opened again after.
+    {
+        let (services, faible) = (services.clone(), fenetre.as_weak());
+        fenetre.on_event_take_notes(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let detail = f.get_event_detail();
+            let Some((id, debut)) = ms_depuis_cle(&detail.key) else {
+                return;
+            };
+            let Ok(Some(ev)) = services.store.event(id) else {
+                return;
+            };
+            let jour = Local
+                .timestamp_millis_opt(debut)
+                .single()
+                .map(|t| t.date_naive())
+                .unwrap_or_else(aujourd_hui);
+            crate::notes::lecture_note(
+                &f,
+                &crate::notes::Lecture {
+                    title: ev.event.summary.clone(),
+                    day: jour,
+                    place: ev.event.location.clone(),
+                    uid: ev.event.uid.clone(),
+                },
+            );
+        });
+    }
     // A video call link given to the event shown, kept beside it (a subscribed one
     // included); its card then offers to join.
     {

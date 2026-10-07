@@ -517,7 +517,8 @@ component NoteBlock inherits Rectangle {
                     // the page, never from this layout, so nothing loops.
                     Image {
                         source: root.block.picture;
-                        width: min(self.source.width * 1px, root.available - root.retrait);
+                        width: min(self.source.width * 1px / max(1.0, root.block.ratio),
+                            root.available - root.retrait);
                         height: self.width * self.source.height / max(1, self.source.width);
                     }
                 }

@@ -603,9 +603,11 @@ export struct NoteBlockData {
     title: string,
     // A callout's colour.
     tint: color,
-    // An image or a drawn formula.
+    // An image or a drawn formula, and how many of its pixels make a logical one (a
+    // formula is drawn at the screen's scale, to stay sharp).
     picture: image,
     has-picture: bool,
+    ratio: float,
     // A table's cells, row by row, and how many rows and columns.
     cells: [string],
     rows: int,

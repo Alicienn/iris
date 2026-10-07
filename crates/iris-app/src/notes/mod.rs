@@ -255,6 +255,10 @@ fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
 fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
     let dir = e.espace().map(|s| s.dir().to_path_buf());
     let dir = dir.as_deref();
+    // Formulas in the text's own colour, at the screen's scale.
+    let encre = f.global::<iris_ui::Tokens>().get_text();
+    let echelle = f.window().scale_factor();
+    let formule = move |latex: &str| render::formula_picture(latex, encre, echelle);
     let Some(note) = &e.note else {
         e.model.set_vec(Vec::new());
         e.signatures.clear();
@@ -272,14 +276,14 @@ fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
             .blocks
             .iter()
             .zip(&numeros)
-            .map(|(b, n)| render::render(b, n, &e.palette, dir))
+            .map(|(b, n)| render::render(b, n, &e.palette, dir, &formule))
             .collect();
         e.model.set_vec(lignes);
     } else {
         for (i, (b, n)) in note.blocks.iter().zip(&numeros).enumerate() {
             if e.signatures.get(i) != Some(&sigs[i]) {
                 e.model
-                    .set_row_data(i, render::render(b, n, &e.palette, dir));
+                    .set_row_data(i, render::render(b, n, &e.palette, dir, &formule));
             }
         }
     }
@@ -1060,7 +1064,24 @@ fn carte(f: &AppWindow, e: &mut Etat, texte: &str, cursor: usize, selection: boo
             let source = &texte[plage.start + 1..plage.end - 1];
             f.set_note_card("math".into());
             f.set_note_card_title(SharedString::default());
-            f.set_note_card_text(iris_notes::math::to_unicode(source).into());
+            let encre = f.global::<iris_ui::Tokens>().get_text();
+            // At one pixel a point: the card shows it at its own size.
+            match render::formula_picture(source, encre, 1.0) {
+                Some((image, _)) => {
+                    f.set_note_card_picture(image);
+                    f.set_note_card_text(SharedString::default());
+                }
+                None => {
+                    f.set_note_card_picture(slint::Image::default());
+                    f.set_note_card_text(
+                        format!(
+                            "Not read as LaTeX: {}",
+                            iris_notes::math::to_unicode(source)
+                        )
+                        .into(),
+                    );
+                }
+            }
         }
         _ => vide(f),
     }
@@ -1361,6 +1382,102 @@ fn veiller(f: &AppWindow, e: &mut Etat) {
         None => {}
     }
     montrer_arbre(f, e);
+}
+
+/// What an event's note is made from.
+#[derive(Debug, Clone)]
+pub struct Lecture {
+    pub title: String,
+    pub day: chrono::NaiveDate,
+    pub place: String,
+    pub uid: String,
+}
+
+/// A name as the vault makes it safe for Windows.
+fn nom_sur(nom: &str) -> String {
+    let propre: String = nom
+        .trim()
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            c if c.is_control() => ' ',
+            c => c,
+        })
+        .collect();
+    propre.trim().trim_end_matches(['.', ' ']).to_string()
+}
+
+/// An event's note, in Notes: in a folder named after the event ("Analyse"), named
+/// after it and its day ("Analyse — 7 Oct"), made from the space's *Cours* template
+/// the first time (with the day, the place and the event), opened again after.
+pub fn lecture_note(f: &AppWindow, l: &Lecture) {
+    let Some(etat) = ETAT.with(|e| e.borrow().as_ref().cloned()) else {
+        return;
+    };
+    let Ok(mut guard) = etat.try_borrow_mut() else {
+        return;
+    };
+    let e: &mut Etat = &mut guard;
+    let titre = if l.title.trim().is_empty() {
+        "Event".to_string()
+    } else {
+        l.title.trim().to_string()
+    };
+    let dossier = nom_sur(&titre);
+    let nom = nom_sur(&format!("{titre} — {}", l.day.format("%-d %b %Y")));
+    let rel = format!("{dossier}/{nom}.md");
+    f.set_workspace(4);
+    f.invoke_workspace_changed(4);
+    let Some(espace) = e.espace() else { return };
+    if espace.modified(&rel).is_some() {
+        ouvrir(f, e, &rel);
+        montrer_arbre(f, e);
+        return;
+    }
+    let modele = espace
+        .templates()
+        .into_iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case("cours"))
+        .and_then(|(_, r)| espace.read(&r).ok())
+        .map(|(t, _)| t)
+        .unwrap_or_else(|| "# {{title}}\n\n{{cursor}}\n".into());
+    let (mut texte, mut curseur) = iris_notes::template::expand(
+        &modele,
+        &iris_notes::template::Values {
+            title: nom.clone(),
+            date: l.day.format("%Y-%m-%d").to_string(),
+            time: chrono::Local::now().format("%H:%M").to_string(),
+            course: titre.clone(),
+        },
+    );
+    // The event and its place, among the properties.
+    let mut ajout = format!("event: {}\n", l.uid);
+    if !l.place.trim().is_empty() {
+        ajout.push_str(&format!("place: {}\n", l.place.trim()));
+    }
+    if let Some(reste) = texte.strip_prefix("---\n") {
+        texte = format!("---\n{ajout}{reste}");
+    } else {
+        texte = format!("---\n{ajout}---\n{texte}");
+    }
+    curseur += if texte.starts_with(&format!("---\n{ajout}---\n")) {
+        ajout.len() + 8
+    } else {
+        ajout.len()
+    };
+    match espace.create_note(&dossier, &nom, &texte) {
+        Ok(rel) => {
+            e.expanded.insert(parent_of(&rel));
+            ouvrir(f, e, &rel);
+            if let Some(note) = &e.note {
+                let (bloc, local) = block::locate(&note.blocks, curseur.min(note.text.len()));
+                focaliser(f, e, bloc, local, local);
+                rendre(f, e, false);
+            }
+            montrer_arbre(f, e);
+        }
+        Err(err) => f.set_status(format!("Could not make the note: {err}").into()),
+    }
 }
 
 /// The place: its spaces, its tree, the note open, and what every key does.

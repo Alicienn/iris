@@ -241,13 +241,44 @@ pub fn is_picture(nom: &str) -> bool {
         .any(|e| n.ends_with(e))
 }
 
+/// How a display formula is drawn: its LaTeX in, a picture and its pixels per logical
+/// pixel out (`None`: shown as text).
+pub type Formula<'a> = &'a dyn Fn(&str) -> Option<(slint::Image, f32)>;
+
+/// A formula drawn with `iris-math` in `colour`, at the screen's `scale`.
+pub fn formula_picture(
+    latex: &str,
+    colour: slint::Color,
+    scale: f32,
+) -> Option<(slint::Image, f32)> {
+    let p = iris_math::render(
+        latex,
+        iris_math::Style {
+            display: true,
+            size: 16.0,
+            scale,
+            colour: [colour.red(), colour.green(), colour.blue()],
+        },
+    )
+    .ok()?;
+    Some((
+        slint::Image::from_rgba8(
+            slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                &p.rgba, p.width, p.height,
+            ),
+        ),
+        scale.max(1.0),
+    ))
+}
+
 /// A block as the editor shows it. `number`: what [`numbering`] gave it; `dir`: the
-/// space, for the pictures it embeds.
+/// space, for the pictures it embeds; `formula` draws display maths.
 pub fn render(
     block: &Block,
     number: &str,
     palette: &Palette,
     dir: Option<&std::path::Path>,
+    formula: Formula<'_>,
 ) -> NoteBlockData {
     let content = block.content();
     let mut d = NoteBlockData {
@@ -282,10 +313,12 @@ pub fn render(
             d.indent = *indent as i32;
             d.done = *done;
             let w = words_of(&block.kind, content);
-            d.rich = mots(&if *done { format!("--{w}--") } else { w });
-            if *done && w.trim().is_empty() {
-                d.rich = mots("");
-            }
+            // Done: struck through, unless there is nothing to strike.
+            d.rich = if *done && !w.trim().is_empty() {
+                mots(&format!("--{w}--"))
+            } else {
+                mots(&w)
+            };
         }
         BlockKind::Quote => {
             d.kind = "quote".into();
@@ -305,7 +338,13 @@ pub fn render(
         }
         BlockKind::Math => {
             d.kind = "math".into();
-            d.title = interieur(content).into();
+            let latex = interieur(content);
+            if let Some((image, ratio)) = formula(&latex) {
+                d.picture = image;
+                d.has_picture = true;
+                d.ratio = ratio;
+            }
+            d.title = latex.into();
         }
         BlockKind::Code { lang } => {
             d.kind = "code".into();
