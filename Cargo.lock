@@ -3534,7 +3534,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "iris-app"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-trait",
  "backtrace",
@@ -3586,7 +3586,7 @@ dependencies = [
 
 [[package]]
 name = "iris-blobs"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "blake3",
  "iris-types",
@@ -3597,7 +3597,7 @@ dependencies = [
 
 [[package]]
 name = "iris-calendar"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3608,7 +3608,7 @@ dependencies = [
 
 [[package]]
 name = "iris-discover"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-trait",
  "hickory-resolver",
@@ -3621,7 +3621,7 @@ dependencies = [
 
 [[package]]
 name = "iris-htmlview"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -3637,7 +3637,7 @@ dependencies = [
 
 [[package]]
 name = "iris-imap"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-imap",
  "async-trait",
@@ -3653,7 +3653,7 @@ dependencies = [
 
 [[package]]
 name = "iris-index"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-types",
  "tantivy",
@@ -3663,7 +3663,7 @@ dependencies = [
 
 [[package]]
 name = "iris-kernel"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-trait",
  "iris-types",
@@ -3677,7 +3677,7 @@ dependencies = [
 
 [[package]]
 name = "iris-mime"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "ammonia",
  "iris-types",
@@ -3687,7 +3687,7 @@ dependencies = [
 
 [[package]]
 name = "iris-oauth"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-trait",
  "iris-types",
@@ -3700,32 +3700,32 @@ dependencies = [
 
 [[package]]
 name = "iris-plugin-filer"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-plugin-sdk",
 ]
 
 [[package]]
 name = "iris-plugin-office-hours"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-plugin-sdk",
 ]
 
 [[package]]
 name = "iris-plugin-sdk"
-version = "4.7.1"
+version = "4.7.2"
 
 [[package]]
 name = "iris-plugin-vip"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-plugin-sdk",
 ]
 
 [[package]]
 name = "iris-plugins"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-kernel",
  "iris-types",
@@ -3740,7 +3740,7 @@ dependencies = [
 
 [[package]]
 name = "iris-rules"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-types",
  "serde",
@@ -3749,7 +3749,7 @@ dependencies = [
 
 [[package]]
 name = "iris-search"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-types",
  "serde",
@@ -3758,7 +3758,7 @@ dependencies = [
 
 [[package]]
 name = "iris-secrets"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "iris-smtp"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3783,7 +3783,7 @@ dependencies = [
 
 [[package]]
 name = "iris-store"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-types",
  "rusqlite",
@@ -3795,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "iris-sync"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -3819,14 +3819,14 @@ dependencies = [
 
 [[package]]
 name = "iris-tasks"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "iris-theme"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-types",
  "serde",
@@ -3836,14 +3836,14 @@ dependencies = [
 
 [[package]]
 name = "iris-thread"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-types",
 ]
 
 [[package]]
 name = "iris-types"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -3851,7 +3851,7 @@ dependencies = [
 
 [[package]]
 name = "iris-ui"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "chrono",
  "i-slint-backend-testing",
@@ -3868,7 +3868,7 @@ dependencies = [
 
 [[package]]
 name = "iris-viewmodel"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-index",
  "iris-kernel",
@@ -3883,7 +3883,7 @@ dependencies = [
 
 [[package]]
 name = "iris-workflow"
-version = "4.7.1"
+version = "4.7.2"
 dependencies = [
  "iris-kernel",
  "iris-store",

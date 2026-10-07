@@ -301,6 +301,9 @@ The window chrome lives in `shell/chrome.slint`:
 - The window is frameless; on Windows 11 its corners are rounded by the system
   (`DwmSetWindowAttribute`, corner preference *round*, set in `main.rs` once the
   window exists), which also gives it its shadow and keeps it square when maximised.
+  "Once the window exists" is awaited (`WinitWindowAccessor::winit_window`, 4.7.2):
+  before the event loop runs, `show` creates no system window, and a preference set
+  then left a window opened maximised square once restored.
 - The parts talk to the window through the `Chrome` global. Slint does not let a
   `.slint` component handle a global's callback, so a button calls `Chrome.ask(what,
   arg)`, which bumps a request counter; `app.slint` aliases that counter and acts in a

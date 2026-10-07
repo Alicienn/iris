@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.7.2 — 2026-10-07
+
+### Fixed
+- The window keeps its rounded corners when restored from full size.
+
 ## 4.7.1 — 2026-10-07
 
 ### Improved

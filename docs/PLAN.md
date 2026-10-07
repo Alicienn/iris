@@ -612,3 +612,5 @@ variant, brought into the application.
       English and local time, attachments weighed together, Bcc kept in the Sent copy,
       a removed account gone from search, credentials never printed, a folder named
       `dovecot` shown.
+- [x] **S41.21** Rounded corners after restoring a window opened maximised (4.7.2):
+      the corner preference waits for the system window to exist.

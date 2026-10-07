@@ -1197,7 +1197,12 @@ fn run_gui(
 /// We draw the frame ourselves, so the system's rounding has to be asked for: Windows
 /// 11 rounds a frameless window, and gives it its shadow and hairline, once its corner
 /// preference says so. It keeps maximised windows square on its own. Earlier versions
-/// of Windows ignore the attribute. Called once the window exists (after `show`).
+/// of Windows ignore the attribute.
+///
+/// Asked once the system window exists, which `show` does not mean: before the event
+/// loop runs, Slint only notes the window is to be shown and creates it later. Asked
+/// then, the preference reached no window, and a window opened maximised came back
+/// square when restored.
 #[allow(unsafe_code)]
 fn arrondir_les_coins(fenetre: &iris_ui::AppWindow) {
     #[cfg(windows)]
@@ -1207,7 +1212,14 @@ fn arrondir_les_coins(fenetre: &iris_ui::AppWindow) {
         use windows_sys::Win32::Graphics::Dwm::{
             DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
         };
-        fenetre.window().with_winit_window(|w| {
+        let faible = fenetre.as_weak();
+        let tache = slint::spawn_local(async move {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Ok(w) = fenetre.window().winit_window().await else {
+                return;
+            };
             let Ok(poignee) = w.window_handle() else {
                 return;
             };
@@ -1224,6 +1236,9 @@ fn arrondir_les_coins(fenetre: &iris_ui::AppWindow) {
                 }
             }
         });
+        if let Err(e) = tache {
+            tracing::warn!(error = %e, "rounding the window's corners");
+        }
     }
     #[cfg(not(windows))]
     let _ = fenetre;
