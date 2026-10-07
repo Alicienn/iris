@@ -113,6 +113,57 @@ fn with_no_delay_nothing_is_offered_back() {
 }
 
 #[test]
+fn a_message_that_did_not_leave_comes_back() {
+    // The countdown used to end on "Message sent." whatever the server said: a refused
+    // password left the window announcing a message that never left, its text gone.
+    i_slint_backend_testing::init_no_event_loop();
+
+    let dir = tempfile::tempdir().unwrap();
+    let services = Services::open(
+        iris_app::paths::Paths::under(dir.path()),
+        Some(iris_secrets::Secret::new("test")),
+    )
+    .unwrap();
+    let runtime = iris_app::services::runtime().unwrap();
+    let mailer = Arc::new(FakeMailer::new());
+    let (outbox, _evenements) = Outbox::new(
+        Arc::clone(&mailer) as Arc<dyn Mailer>,
+        Duration::from_secs(10),
+        runtime.handle().clone(),
+    );
+    let envoi = Arc::new(iris_sync::SendService::new(
+        Arc::clone(&services.engine),
+        Arc::new(outbox),
+        services.bus.clone(),
+    ));
+
+    let f = iris_ui::AppWindow::new().unwrap();
+    let avis = iris_app::shell::wire_send_notice(&f, Arc::clone(&envoi));
+    f.set_undo_send_seconds(0);
+
+    avis.envoyer(&f, message("Devis"), "Sending “Devis”".into(), |f| {
+        f.set_compose_subject("Devis".into());
+        f.set_compose_open(true);
+    })
+    .unwrap();
+    assert!(!f.get_compose_open());
+
+    // The first message of an outbox is its first handle.
+    iris_app::shell::envoi_termine(
+        &f,
+        iris_smtp::SendHandle(1),
+        iris_app::shell::IssueEnvoi::Echec("authentication refused".into()),
+    );
+    assert!(f.get_compose_open(), "the message is back");
+    assert_eq!(f.get_compose_subject().as_str(), "Devis");
+    assert!(
+        f.get_status().as_str().starts_with("Not sent"),
+        "said: {}",
+        f.get_status()
+    );
+}
+
+#[test]
 fn a_sent_message_leaves_new_message_empty() {
     i_slint_backend_testing::init_no_event_loop();
 

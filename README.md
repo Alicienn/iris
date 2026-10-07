@@ -295,6 +295,13 @@ Sending closes the message window at once. For a few seconds, a notice at the bo
 offers **Undo**, which brings the message back exactly as it was. Choose how long in
 *Settings › Undo send* (5 seconds by default; up to 30, or off).
 
+*Message sent.* appears once the server has taken the message. If it refuses it, or
+cannot be reached, Iris says why and puts the message back: in the window it was
+written in, or, if that window now holds another message, at the bottom right. A
+scheduled message stays under *Scheduled* until it has left, and one that could not
+leave is tried again five minutes later. Quitting Iris waits for messages already sent
+to leave.
+
 **Save draft** puts an unfinished message in the account's *Drafts* folder. Closing a
 message you have started asks whether to keep it as a draft or discard it.
 

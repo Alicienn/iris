@@ -577,3 +577,13 @@ variant, brought into the application.
       `+m.account_id` keeps SQLite off `messages_by_account` in the scope's correlated
       subquery. Measured on a 21,000-message Gmail: one page 3.1 s → 1 ms, the tab
       counts over two minutes → 39 ms.
+- [x] **S41.17** The critical findings of an audit of sending, receiving, folders and
+      message state, fixed (4.5.3). Sending: a failure is said and the message put
+      back (it was announced as sent), a scheduled message leaves the list only once
+      gone, quitting waits for queued mail, Undo decided under the outbox's lock, the
+      sender kept as an address, a reply after one's own message goes to the
+      correspondent. Journal: repeated intentions reach the server, a dropped
+      connection is retried, each account replays its own queue, a vanished folder
+      no longer blocks it. Folders: deletion empties what the server holds first,
+      roles guessed only at the top and never over a `SPECIAL-USE` one, the menu acts
+      on the exact path. A body is not fetched across a `UIDVALIDITY` change.

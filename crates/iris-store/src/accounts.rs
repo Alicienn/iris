@@ -310,8 +310,15 @@ impl Store {
 
     /// Supprime un compte et, en cascade, ses dossiers et ses messages.
     pub fn delete_account(&self, id: AccountId) -> Result<bool> {
-        self.with_conn(|c| {
-            let n = c
+        self.with_tx(|tx| {
+            // Le journal n'a pas de clé étrangère vers les comptes : ses opérations
+            // resteraient en attente pour toujours, au compteur comme au rejeu.
+            tx.execute(
+                "DELETE FROM op_journal WHERE account_id = ?1",
+                params![id.get()],
+            )
+            .map_err(|e| sql_err("journal du compte", e))?;
+            let n = tx
                 .execute("DELETE FROM accounts WHERE id = ?1", params![id.get()])
                 .map_err(|e| sql_err("suppression du compte", e))?;
             Ok(n > 0)

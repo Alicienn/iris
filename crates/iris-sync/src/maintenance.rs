@@ -48,6 +48,12 @@ impl SyncEngine {
     /// empty report: the caller is a background loop that must not fail because an
     /// optional collaborator is missing.
     pub fn run_maintenance(&self, now: Timestamp) -> Result<MaintenanceReport> {
+        // Acknowledged operations only serve diagnosis; a week is plenty, and without
+        // a purge the journal grows for ever.
+        const WEEK_MS: i64 = 7 * 24 * 3600 * 1000;
+        self.store()
+            .purge_completed_ops(Timestamp::from_millis(now.millis() - WEEK_MS))?;
+
         let Some(workflow) = self.workflow() else {
             return Ok(MaintenanceReport::default());
         };

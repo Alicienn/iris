@@ -105,6 +105,18 @@ impl Store {
                 .map_err(err("envoi différé"))
         })
     }
+
+    /// Moves a waiting message to a later time: it did not leave, and is tried again.
+    pub fn postpone_scheduled_mail(&self, id: i64, send_at: Timestamp) -> Result<bool> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE scheduled_mail SET send_at = ?1 WHERE id = ?2",
+                rusqlite::params![send_at.millis(), id],
+            )
+            .map(|n| n > 0)
+            .map_err(err("envoi différé"))
+        })
+    }
 }
 
 impl Store {
@@ -243,5 +255,20 @@ mod tests {
         assert!(s.unschedule_mail(tot).unwrap());
         assert!(!s.unschedule_mail(tot).unwrap(), "only once");
         assert_eq!(s.scheduled_mail().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_message_that_did_not_leave_waits_again() {
+        let s = Store::in_memory().unwrap();
+        let t = |ms: i64| Timestamp::from_millis(ms);
+        let compte = s
+            .create_account(&NewAccount::new("a@example.com", "i", "s"), t(0))
+            .unwrap();
+        let id = s
+            .schedule_mail(compte, t(5_000), "b@example.com", "Devis", "{}", t(1))
+            .unwrap();
+        assert!(s.postpone_scheduled_mail(id, t(8_000)).unwrap());
+        assert!(s.due_scheduled_mail(t(5_000)).unwrap().is_empty());
+        assert_eq!(s.due_scheduled_mail(t(8_000)).unwrap()[0].id, id);
     }
 }

@@ -351,3 +351,7 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   with a switcher at its top, the queues moved into a toolbar shared by the list and the
   reader, and Home became widgets. The window's buttons are the Mac's lights or
   Windows', as the user chooses.
+- **The journal's idempotency key holds only while its operation waits** (4.5.3): the
+  same intention twice in a row is one operation, but once acknowledged, or once
+  another intention came after it, the same key is a new step. Kept for ever, it made
+  "read, unread, read" leave the server unread. Each account replays its own queue.

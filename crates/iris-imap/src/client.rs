@@ -288,10 +288,35 @@ impl ImapClient {
     }
 }
 
+/// Traduit une erreur de la bibliothèque en disant si elle vaut d'être retentée.
+///
+/// Tout devenait `Protocol`, que rien ne retente : une connexion coupée au milieu du
+/// rejeu faisait abandonner pour de bon l'action de l'utilisateur. Un flux rompu, et
+/// les refus que la RFC 5530 déclare passagers, sont donc des pannes réseau.
 fn protocol_error(quoi: &str, e: async_imap::error::Error) -> Error {
-    Error::Protocol {
-        protocol: "IMAP",
-        message: format!("{quoi} : {e}"),
+    use async_imap::error::Error as E;
+    let message = format!("{quoi} : {e}");
+    match &e {
+        E::Io(_) | E::ConnectionLost => Error::Network(message),
+        E::No(texte) | E::Bad(texte) => {
+            let code = texte.to_ascii_uppercase();
+            if code.contains("[THROTTLED]") || code.contains("[LIMIT]") {
+                Error::Throttled {
+                    retry_after_secs: 60,
+                }
+            } else if code.contains("[UNAVAILABLE]") || code.contains("[INUSE]") {
+                Error::Network(message)
+            } else {
+                Error::Protocol {
+                    protocol: "IMAP",
+                    message,
+                }
+            }
+        }
+        _ => Error::Protocol {
+            protocol: "IMAP",
+            message,
+        },
     }
 }
 
@@ -351,42 +376,105 @@ fn is_server_internal(name: &str) -> bool {
 }
 
 /// Déduit le rôle d'un dossier de ses attributs spéciaux, avec repli sur son nom.
+#[cfg(test)]
 fn folder_kind(name: &str, attributes: &[async_imap::types::NameAttribute<'_>]) -> FolderKind {
+    special_use(attributes).unwrap_or_else(|| kind_by_name(name, None))
+}
+
+/// Le rôle que le serveur annonce lui-même, s'il en annonce un.
+fn special_use(attributes: &[async_imap::types::NameAttribute<'_>]) -> Option<FolderKind> {
     use async_imap::types::NameAttribute as A;
 
     // Les attributs du RFC 6154 sont la source la plus fiable : le serveur dit
     // lui-même à quoi sert le dossier.
     for a in attributes {
         match a {
-            A::NoSelect => return FolderKind::NoSelect,
+            A::NoSelect => return Some(FolderKind::NoSelect),
             // RFC 5258 : un nom qui n'existe que parce qu'il a des enfants. Aussi
             // impossible à sélectionner qu'un `\Noselect`, et Dovecot l'emploie à sa
             // place pour les branches de son arborescence.
             A::Extension(s) if s.eq_ignore_ascii_case("\\NonExistent") => {
-                return FolderKind::NoSelect
+                return Some(FolderKind::NoSelect)
             }
-            A::Sent => return FolderKind::Sent,
-            A::Drafts => return FolderKind::Drafts,
-            A::Trash => return FolderKind::Trash,
-            A::Junk => return FolderKind::Junk,
-            A::Archive | A::All => return FolderKind::Archive,
+            A::Sent => return Some(FolderKind::Sent),
+            A::Drafts => return Some(FolderKind::Drafts),
+            A::Trash => return Some(FolderKind::Trash),
+            A::Junk => return Some(FolderKind::Junk),
+            A::Archive | A::All => return Some(FolderKind::Archive),
             _ => {}
         }
     }
+    None
+}
 
-    // Repli sur le nom : de nombreux serveurs n'annoncent aucun attribut spécial, et
-    // les noms sont localisés.
+/// Repli sur le nom : de nombreux serveurs n'annoncent aucun attribut spécial, et les
+/// noms sont localisés.
+///
+/// Seul un dossier à la racine, ou juste sous le préfixe personnel (`INBOX.`) ou sous
+/// `[Gmail]/`, peut recevoir un rôle ainsi. Le dernier segment suffisait : un libellé
+/// `Clients/Trash` devenait la corbeille (Supprimer y rangeait le courrier), un
+/// `X/Spam` voyait tout son contenu caché comme indésirable, un `Archives/Inbox`
+/// rejoignait la boîte de réception.
+fn kind_by_name(name: &str, delimiter: Option<&str>) -> FolderKind {
     let n = name.to_lowercase();
-    let dernier = n.rsplit(['/', '.']).next().unwrap_or(&n);
-    match dernier {
-        "inbox" => FolderKind::Inbox,
-        "sent" | "sent items" | "envoyés" | "éléments envoyés" => FolderKind::Sent,
-        "drafts" | "brouillons" => FolderKind::Drafts,
-        "trash" | "deleted items" | "corbeille" => FolderKind::Trash,
-        "junk" | "spam" | "indésirables" => FolderKind::Junk,
+    if n == "inbox" {
+        return FolderKind::Inbox;
+    }
+    let separateurs: Vec<char> = match delimiter.and_then(|d| d.chars().next()) {
+        Some(c) => vec![c],
+        None => vec!['/', '.'],
+    };
+    let mut parties: Vec<&str> = n.split(separateurs.as_slice()).collect();
+    if parties.len() == 2 && matches!(parties[0], "inbox" | "[gmail]" | "[google mail]") {
+        parties.remove(0);
+    }
+    let [seul] = parties.as_slice() else {
+        return FolderKind::Other;
+    };
+    match *seul {
+        "sent"
+        | "sent items"
+        | "sent messages"
+        | "sent mail"
+        | "envoyés"
+        | "éléments envoyés"
+        | "messages envoyés" => FolderKind::Sent,
+        "drafts" | "draft" | "brouillons" => FolderKind::Drafts,
+        "trash"
+        | "deleted items"
+        | "deleted messages"
+        | "deleted"
+        | "bin"
+        | "corbeille"
+        | "éléments supprimés" => FolderKind::Trash,
+        "junk"
+        | "spam"
+        | "junk e-mail"
+        | "junk email"
+        | "indésirables"
+        | "courrier indésirable" => FolderKind::Junk,
         "archive" | "archives" => FolderKind::Archive,
         _ => FolderKind::Other,
     }
+}
+
+/// Les rôles des dossiers d'une liste.
+///
+/// Un rôle que le serveur annonce par attribut n'est deviné pour aucun autre dossier :
+/// sur Gmail, un libellé personnel « Trash » à la racine passait, par l'ordre
+/// alphabétique, devant `[Gmail]/Trash`.
+fn assign_kinds(listed: &[(String, Option<FolderKind>, Option<String>)]) -> Vec<FolderKind> {
+    let annonces: Vec<FolderKind> = listed.iter().filter_map(|(_, k, _)| *k).collect();
+    listed
+        .iter()
+        .map(|(nom, special, delim)| match special {
+            Some(k) => *k,
+            None => match kind_by_name(nom, delim.as_deref()) {
+                k if k != FolderKind::Inbox && annonces.contains(&k) => FolderKind::Other,
+                k => k,
+            },
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -402,19 +490,25 @@ impl ImapConnection for ImapClient {
             .await
             .map_err(|e| protocol_error("liste des dossiers", e))?;
 
-        let mut out = Vec::new();
+        let mut listes = Vec::new();
         while let Some(nom) = flux.next().await {
             let nom = nom.map_err(|e| protocol_error("liste des dossiers", e))?;
-            let kind = folder_kind(nom.name(), nom.attributes());
-            if kind == FolderKind::NoSelect || is_server_internal(nom.name()) {
+            let special = special_use(nom.attributes());
+            if special == Some(FolderKind::NoSelect) || is_server_internal(nom.name()) {
                 continue;
             }
-            out.push(RemoteFolder {
-                path: nom.name().to_string(),
-                kind,
-            });
+            listes.push((
+                nom.name().to_string(),
+                special,
+                nom.delimiter().map(str::to_string),
+            ));
         }
-        Ok(out)
+        let roles = assign_kinds(&listes);
+        Ok(listes
+            .into_iter()
+            .zip(roles)
+            .map(|((path, _, _), kind)| RemoteFolder { path, kind })
+            .collect())
     }
 
     async fn select(&mut self, path: &str) -> Result<SelectedFolder> {
@@ -770,6 +864,47 @@ mod tests {
         assert_eq!(folder_kind("INBOX.Corbeille", &[]), FolderKind::Trash);
         assert_eq!(folder_kind("Éléments envoyés", &[]), FolderKind::Sent);
         assert_eq!(folder_kind("Clients/2024", &[]), FolderKind::Other);
+        assert_eq!(folder_kind("Sent Messages", &[]), FolderKind::Sent);
+        assert_eq!(folder_kind("Deleted Messages", &[]), FolderKind::Trash);
+        assert_eq!(folder_kind("[Gmail]/Spam", &[]), FolderKind::Junk);
+    }
+
+    #[test]
+    fn un_dossier_range_dans_un_autre_ne_prend_pas_de_role() {
+        // Un libellé « Clients/Trash » devenait la corbeille : Supprimer y rangeait le
+        // courrier. « X/Spam » cachait tout son contenu, « Archives/Inbox » rejoignait
+        // la boîte de réception.
+        assert_eq!(folder_kind("Clients/Trash", &[]), FolderKind::Other);
+        assert_eq!(folder_kind("Factures.Spam", &[]), FolderKind::Other);
+        assert_eq!(folder_kind("Archives/Inbox", &[]), FolderKind::Other);
+        assert_eq!(folder_kind("INBOX.Clients.Archive", &[]), FolderKind::Other);
+        // Le séparateur du serveur décide : sur Gmail, un point est une lettre.
+        assert_eq!(kind_by_name("john.doe", Some("/")), FolderKind::Other);
+        assert_eq!(kind_by_name("INBOX.Trash", Some(".")), FolderKind::Trash);
+    }
+
+    #[test]
+    fn un_role_annonce_par_le_serveur_n_est_devine_pour_aucun_autre() {
+        // Sur Gmail, un libellé « Trash » à la racine passait devant [Gmail]/Trash.
+        let liste = vec![
+            ("INBOX".to_string(), None, Some("/".to_string())),
+            ("Trash".to_string(), None, Some("/".to_string())),
+            (
+                "[Gmail]/Trash".to_string(),
+                Some(FolderKind::Trash),
+                Some("/".to_string()),
+            ),
+            ("Spam".to_string(), None, Some("/".to_string())),
+        ];
+        assert_eq!(
+            assign_kinds(&liste),
+            [
+                FolderKind::Inbox,
+                FolderKind::Other,
+                FolderKind::Trash,
+                FolderKind::Junk
+            ]
+        );
     }
 
     #[test]
@@ -798,6 +933,29 @@ mod tests {
             "a@x.fr",
         );
         assert!(reseau.is_transient());
+    }
+
+    #[test]
+    fn une_connexion_coupee_se_retente_un_refus_definitif_non() {
+        // Le rejeu abandonne pour de bon ce qui n'est pas passager : une coupure
+        // réseau classée « protocole » perdait l'action de l'utilisateur.
+        use async_imap::error::Error as E;
+        let coupe = protocol_error("déplacement", E::ConnectionLost);
+        assert!(coupe.is_transient(), "{coupe}");
+        let io = protocol_error(
+            "déplacement",
+            E::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+        );
+        assert!(io.is_transient(), "{io}");
+        let occupe = protocol_error("déplacement", E::No("[INUSE] mailbox locked".into()));
+        assert!(occupe.is_transient(), "{occupe}");
+        let freine = protocol_error("déplacement", E::No("[THROTTLED] slow down".into()));
+        assert!(freine.is_transient(), "{freine}");
+
+        let absent = protocol_error("sélection", E::No("[NONEXISTENT] no such".into()));
+        assert!(!absent.is_transient());
+        // Le moteur reconnaît un dossier disparu à ce code : il doit survivre.
+        assert!(absent.to_string().contains("[NONEXISTENT]"));
     }
 
     #[test]

@@ -2002,28 +2002,64 @@ fn remplace_dernier_destinataire(champ: &str, choix: &str) -> String {
     }
 }
 
-/// A message waiting to leave, and how to put it back where it was written.
-struct EnvoiEnAttente {
-    handle: iris_smtp::SendHandle,
-    remettre: Box<dyn FnOnce(&AppWindow)>,
+/// How a message handed to the outbox ended, as the sending side tells the window.
+#[derive(Debug, Clone)]
+pub enum IssueEnvoi {
+    Parti,
+    Echec(String),
 }
 
-/// The notice at the bottom of the window while a message waits to leave.
+/// What follows once a message's fate is known.
+enum Suite {
+    /// Written in a window: put back if undone, or if it does not leave.
+    Remettre(Box<dyn FnOnce(&AppWindow)>),
+    /// A scheduled message: taken off the list once gone, tried again if not.
+    Programme { id: i64, services: Box<Services> },
+}
+
+/// A message handed to the outbox whose fate is not known yet.
+struct EnVol {
+    libelle: String,
+    suite: Suite,
+}
+
+/// The notice at the bottom of the window while a message waits to leave, and what
+/// becomes of every message until it has left.
 ///
 /// Send closes what the message was written in — the new-message window, or empties
 /// the reply field — and hands the message to the outbox with the delay chosen in the
 /// settings. For that long the notice counts down and offers Undo, which stops the
 /// message and puts it back exactly as it was. One notice at a time: a second send
 /// takes the place of the first, which then simply leaves.
+///
+/// The end of the countdown is not the end of the message. "Message sent." used to be
+/// said then, whatever happened next: a refused password or a lost connection left the
+/// window announcing a message that never left, its text already gone. Each message
+/// is now kept here until the outbox says how it ended; a failure puts it back.
 pub struct AvisEnvoi {
     send: Arc<SendService>,
-    en_attente: std::cell::RefCell<Option<EnvoiEnAttente>>,
+    /// The message whose notice is showing.
+    en_attente: std::cell::Cell<Option<iris_smtp::SendHandle>>,
+    en_vol: std::cell::RefCell<HashMap<iris_smtp::SendHandle, EnVol>>,
     minuterie: slint::Timer,
+}
+
+thread_local! {
+    /// The notice, for the outcomes that arrive from the sending side.
+    static AVIS: std::cell::RefCell<std::rc::Weak<AvisEnvoi>> =
+        const { std::cell::RefCell::new(std::rc::Weak::new()) };
+}
+
+/// Tells the window how a message ended. Called on the window's thread.
+pub fn envoi_termine(fenetre: &AppWindow, handle: iris_smtp::SendHandle, issue: IssueEnvoi) {
+    if let Some(avis) = AVIS.with(|a| a.borrow().upgrade()) {
+        avis.terminer(fenetre, handle, issue);
+    }
 }
 
 impl AvisEnvoi {
     /// Puts a message in the outbox, with the delay from the settings, and shows the
-    /// notice. `remettre` puts it back if it is undone.
+    /// notice. `remettre` puts it back if it is undone or does not leave.
     pub fn envoyer(
         self: &Rc<Self>,
         fenetre: &AppWindow,
@@ -2037,6 +2073,13 @@ impl AvisEnvoi {
         self.send
             .set_delay(std::time::Duration::from_secs(secondes as u64));
         let handle = self.send.queue(message)?;
+        self.en_vol.borrow_mut().insert(
+            handle,
+            EnVol {
+                libelle: libelle.clone(),
+                suite: Suite::Remettre(Box::new(remettre)),
+            },
+        );
 
         if secondes == 0 {
             // Nothing to take back: it is already leaving.
@@ -2045,10 +2088,7 @@ impl AvisEnvoi {
             return Ok(());
         }
 
-        *self.en_attente.borrow_mut() = Some(EnvoiEnAttente {
-            handle,
-            remettre: Box::new(remettre),
-        });
+        self.en_attente.set(Some(handle));
         fenetre.set_send_notice_text(libelle.into());
         fenetre.set_send_notice_seconds(secondes as i32);
         fenetre.set_send_notice_open(true);
@@ -2063,9 +2103,15 @@ impl AvisEnvoi {
                 };
                 let reste = fenetre.get_send_notice_seconds() - 1;
                 if reste <= 0 {
-                    // Gone: there is nothing left to undo.
+                    // Nothing left to undo. Whether it left is for the outbox to say.
+                    let libelle = avis
+                        .en_attente
+                        .get()
+                        .and_then(|h| avis.en_vol.borrow().get(&h).map(|e| e.libelle.clone()));
                     avis.fermer(&fenetre);
-                    fenetre.set_status("Message sent.".into());
+                    if let Some(libelle) = libelle {
+                        fenetre.set_status(format!("{libelle}…").into());
+                    }
                 } else {
                     fenetre.set_send_notice_seconds(reste);
                 }
@@ -2074,25 +2120,111 @@ impl AvisEnvoi {
         Ok(())
     }
 
+    /// Hands a scheduled message to the outbox, at once. It leaves the list only once
+    /// it has gone: taken off when queued, it was lost whenever the send then failed.
+    pub fn programmer(
+        &self,
+        message: iris_smtp::Outgoing,
+        id: i64,
+        sujet: String,
+        services: Services,
+    ) -> iris_types::Result<()> {
+        self.send.set_delay(std::time::Duration::ZERO);
+        let handle = self.send.queue(message)?;
+        self.en_vol.borrow_mut().insert(
+            handle,
+            EnVol {
+                libelle: sujet,
+                suite: Suite::Programme {
+                    id,
+                    services: Box::new(services),
+                },
+            },
+        );
+        Ok(())
+    }
+
+    /// The scheduled messages on their way, not to be sent a second time meanwhile.
+    pub fn programmes_en_vol(&self) -> Vec<i64> {
+        self.en_vol
+            .borrow()
+            .values()
+            .filter_map(|e| match e.suite {
+                Suite::Programme { id, .. } => Some(id),
+                Suite::Remettre(_) => None,
+            })
+            .collect()
+    }
+
     fn fermer(&self, fenetre: &AppWindow) {
         self.minuterie.stop();
-        self.en_attente.borrow_mut().take();
+        self.en_attente.set(None);
         fenetre.set_send_notice_open(false);
     }
 
     /// Undo: stops the message if it has not left, and puts it back.
     fn annuler(&self, fenetre: &AppWindow) {
-        let pris = self.en_attente.borrow_mut().take();
+        let pris = self.en_attente.take();
         self.fermer(fenetre);
-        let Some(envoi) = pris else {
+        let Some(handle) = pris else {
             return;
         };
-        if self.send.cancel(envoi.handle) {
-            (envoi.remettre)(fenetre);
+        if self.send.cancel(handle) {
+            let envol = self.en_vol.borrow_mut().remove(&handle);
+            if let Some(EnVol {
+                suite: Suite::Remettre(remettre),
+                ..
+            }) = envol
+            {
+                remettre(fenetre);
+            }
             fenetre.set_status("Send cancelled: your message is back.".into());
         } else {
             // Already gone: say so plainly rather than pretend.
             fenetre.set_status("Too late, the message has gone.".into());
+        }
+    }
+
+    /// How a message ended: said, and put back when it did not leave.
+    fn terminer(&self, fenetre: &AppWindow, handle: iris_smtp::SendHandle, issue: IssueEnvoi) {
+        if self.en_attente.get() == Some(handle) {
+            self.fermer(fenetre);
+        }
+        let envol = self.en_vol.borrow_mut().remove(&handle);
+        let Some(EnVol { libelle, suite }) = envol else {
+            // Not written here (an answer to an invitation): a failure is still said.
+            if let IssueEnvoi::Echec(e) = issue {
+                fenetre.set_status(format!("A message could not be sent: {e}").into());
+            }
+            return;
+        };
+        match (suite, issue) {
+            (Suite::Remettre(_), IssueEnvoi::Parti) => {
+                fenetre.set_status("Message sent.".into());
+            }
+            (Suite::Remettre(remettre), IssueEnvoi::Echec(e)) => {
+                remettre(fenetre);
+                fenetre.set_status(
+                    format!("Not sent: {e}. Your message is back, to send again.").into(),
+                );
+            }
+            (Suite::Programme { id, services }, IssueEnvoi::Parti) => {
+                let _ = services.store.unschedule_mail(id);
+                fenetre.set_status("A scheduled message was sent.".into());
+                rafraichir_plus_tard(fenetre, &services);
+            }
+            (Suite::Programme { id, services }, IssueEnvoi::Echec(e)) => {
+                // Kept, and tried again a little later; it can be taken back meanwhile.
+                let plus_tard = iris_types::Timestamp::from_millis(now().millis() + 5 * 60 * 1000);
+                let _ = services.store.postpone_scheduled_mail(id, plus_tard);
+                fenetre.set_status(
+                    format!(
+                        "“{libelle}” could not be sent: {e}. Iris will try again in five minutes."
+                    )
+                    .into(),
+                );
+                rafraichir_plus_tard(fenetre, &services);
+            }
         }
     }
 }
@@ -2101,9 +2233,11 @@ impl AvisEnvoi {
 pub fn wire_send_notice(fenetre: &AppWindow, send: Arc<SendService>) -> Rc<AvisEnvoi> {
     let avis = Rc::new(AvisEnvoi {
         send,
-        en_attente: std::cell::RefCell::new(None),
+        en_attente: std::cell::Cell::new(None),
+        en_vol: Default::default(),
         minuterie: slint::Timer::default(),
     });
+    AVIS.with(|a| *a.borrow_mut() = Rc::downgrade(&avis));
     let (faible, a) = (fenetre.as_weak(), Rc::clone(&avis));
     fenetre.on_send_undone(move || {
         if let Some(fenetre) = faible.upgrade() {
@@ -2122,7 +2256,7 @@ fn envoyer_reponse(
     fenetre: &AppWindow,
     send: &iris_sync::SendService,
     avis: &Rc<AvisEnvoi>,
-    selection: &std::sync::Mutex<Option<iris_types::ThreadId>>,
+    selection: &Arc<std::sync::Mutex<Option<iris_types::ThreadId>>>,
     portee: iris_smtp::ReplyScope,
 ) {
     let texte = fenetre.get_reply_text().to_string();
@@ -2142,13 +2276,48 @@ fn envoyer_reponse(
         }
     };
 
-    // Le champ se vide ; « Undo » remet le texte, pour le fil qui est alors ouvert.
-    let retour = texte.clone();
-    let remettre = move |fenetre: &AppWindow| fenetre.set_reply_text(retour.into());
-    match avis.envoyer(fenetre, message, "Sending your reply".into(), remettre) {
+    // Le champ se vide. Le texte revient s'il est annulé ou n'est pas parti : dans le
+    // champ si ce fil est encore ouvert et le champ vide ; sinon en bas à droite,
+    // adressé, plutôt que dans la réponse d'un autre fil, qui l'enverrait à d'autres.
+    let retour = {
+        let selection = Arc::clone(selection);
+        let garde = crate::draft::Draft {
+            to: liste_adresses(&message.to),
+            cc: liste_adresses(&message.cc),
+            bcc: String::new(),
+            subject: message.subject.clone(),
+            body: texte.clone(),
+            lost_attachments: 0,
+            sender: message.from.addr.clone(),
+        };
+        move |fenetre: &AppWindow| {
+            let meme_fil = *selection.lock().expect("sélection") == Some(thread);
+            if meme_fil && fenetre.get_reply_text().trim().is_empty() {
+                fenetre.set_reply_text(garde.body.into());
+            } else {
+                garder_en_bas(
+                    fenetre,
+                    Reduit {
+                        brouillon: garde,
+                        pieces: Vec::new(),
+                    },
+                );
+            }
+        }
+    };
+    match avis.envoyer(fenetre, message, "Sending your reply".into(), retour) {
         Ok(()) => fenetre.set_reply_text(Default::default()),
         Err(e) => fenetre.set_status(format!("Send refused: {e}").into()),
     }
+}
+
+/// Addresses as the composer's fields take them: plain addresses, comma separated.
+fn liste_adresses(adresses: &[iris_types::Address]) -> String {
+    adresses
+        .iter()
+        .map(|a| a.addr.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Branche la zone de réponse.
@@ -4209,25 +4378,23 @@ pub fn scope_depuis(choix: &str) -> iris_store::Scope {
     }
 }
 
-/// Le chemin que le serveur connaît, depuis le nom que l'arborescence affiche.
+/// Le chemin que le serveur connaît, pour le dossier dont le menu est ouvert.
 ///
-/// L'arborescence montre « Devis » là où le serveur a `INBOX.Devis` : le préfixe est
-/// une vérité de protocole qu'on n'affiche pas. La retrouver ici plutôt que la
-/// transporter dans l'interface garde une seule source — le magasin — pour ce que les
-/// dossiers s'appellent vraiment.
-fn chemin_reel(services: &Services, affiche: &str) -> Option<String> {
+/// C'est la clé de la ligne, qui est déjà ce chemin (`INBOX.Devis` là où l'arborescence
+/// montre « Devis »), vérifiée dans le magasin. Il était retrouvé depuis le nom
+/// affiché, c'est-à-dire le dernier segment : avec `Clients/2024` et
+/// `Fournisseurs/2024`, supprimer le second supprimait le premier, sur toutes les
+/// boîtes.
+fn chemin_du_menu(services: &Services, clef: &str) -> Option<String> {
+    if clef.is_empty() || clef.starts_with("role:") {
+        return None;
+    }
     services
         .store
         .unified_folders()
         .ok()?
         .into_iter()
-        .find(|f| {
-            f.role == iris_store::FolderRole::Other
-                && f.path
-                    .rsplit(['.', '/'])
-                    .next()
-                    .is_some_and(|dernier| dernier == affiche)
-        })
+        .find(|f| f.role == iris_store::FolderRole::Other && f.path == clef)
         .map(|f| f.path)
 }
 
@@ -4368,7 +4535,7 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             };
             // Le chemin réel, pas le nom affiché : l'arborescence montre « Devis » là
             // où le serveur connaît « INBOX.Devis ».
-            let Some(chemin) = chemin_reel(&services, fenetre.get_folder_menu_path().as_str())
+            let Some(chemin) = chemin_du_menu(&services, fenetre.get_folder_menu_key().as_str())
             else {
                 fenetre.set_rename_folder_error("That folder no longer exists.".into());
                 return;
@@ -4399,8 +4566,9 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             };
             fenetre.set_folder_menu_open(false);
 
-            let Some(chemin) = chemin_reel(&services, fenetre.get_folder_menu_path().as_str())
+            let Some(chemin) = chemin_du_menu(&services, fenetre.get_folder_menu_key().as_str())
             else {
+                fenetre.set_status("That folder no longer exists.".into());
                 return;
             };
 
@@ -5351,6 +5519,7 @@ pub fn wire_compose(
         fenetre.set_compose_show_cc(
             !fenetre.get_compose_cc().is_empty() || !fenetre.get_compose_bcc().is_empty(),
         );
+        choisir_expediteur(fenetre, &garde.sender);
         fenetre.set_status("An unsent message was restored: see New message.".into());
     }
 
@@ -5369,13 +5538,13 @@ pub fn wire_compose(
     // writes another one. A click on a bar brings its message back, rising and
     // growing into the window at once.
     let chemin_reduits = services.paths.minimised_drafts();
+    CHEMIN_REDUITS.with(|c| *c.borrow_mut() = Some(chemin_reduits.clone()));
     REDUITS.with(|r| {
         *r.borrow_mut() = crate::draft::Draft::load_all(&chemin_reduits)
             .into_iter()
             .map(|brouillon| Reduit {
                 brouillon,
                 pieces: Vec::new(),
-                expediteur: 0,
             })
             .collect();
     });
@@ -5421,7 +5590,8 @@ pub fn wire_compose(
             fenetre.set_compose_subject(b.subject.as_str().into());
             fenetre.set_compose_body(b.body.as_str().into());
             fenetre.set_compose_show_cc(!b.cc.is_empty() || !b.bcc.is_empty());
-            fenetre.set_compose_sender_index(reduit.expediteur);
+            fenetre.set_compose_error(Default::default());
+            choisir_expediteur(&fenetre, &b.sender);
             show_attachments(&fenetre, &reduit.pieces);
             *pieces.lock().expect("poisoned attachments") = reduit.pieces;
             // From where its bar was, small, then up into the window.
@@ -5478,6 +5648,7 @@ pub fn wire_compose(
                 body: fenetre.get_compose_body().to_string(),
                 attachments: pieces.lock().expect("poisoned attachments").clone(),
             };
+            let adresse = exp.address.clone();
             vider_redaction(&fenetre, &pieces);
             fenetre.set_compose_open(false);
             fenetre.set_status("Saving the draft…".into());
@@ -5505,6 +5676,7 @@ pub fn wire_compose(
                             subject: brouillon.subject.clone(),
                             body: brouillon.body.clone(),
                             lost_attachments: brouillon.attachments.len() as u32,
+                            sender: adresse.clone(),
                         };
                         if let Err(e) = garde.save(&chemin) {
                             tracing::warn!(error = %e, "saving the draft here");
@@ -5514,6 +5686,7 @@ pub fn wire_compose(
                         fenetre.set_compose_bcc(brouillon.bcc.into());
                         fenetre.set_compose_subject(brouillon.subject.into());
                         fenetre.set_compose_body(brouillon.body.into());
+                        choisir_expediteur(&fenetre, &adresse);
                         show_attachments(&fenetre, &brouillon.attachments);
                         *pieces.lock().expect("poisoned attachments") = brouillon.attachments;
                         fenetre.set_status(
@@ -5679,20 +5852,45 @@ pub fn wire_compose(
                     brouillon.body.clone(),
                     brouillon.attachments.clone(),
                     fenetre.get_compose_show_cc(),
-                    index,
+                    exp.address.clone(),
                 );
                 move |fenetre: &AppWindow| {
                     let (a, cc, cci, objet, corps, jointes, copies, expediteur) = ecrit;
+                    // It can come back seconds later, when it did not leave: by then
+                    // the window may hold another message, which must not be written
+                    // over. It then goes to a bar of its own.
+                    let occupee = fenetre.get_compose_open()
+                        && !(fenetre.get_compose_to().trim().is_empty()
+                            && fenetre.get_compose_subject().trim().is_empty()
+                            && fenetre.get_compose_body().trim().is_empty());
+                    if occupee {
+                        garder_en_bas(
+                            fenetre,
+                            Reduit {
+                                brouillon: crate::draft::Draft {
+                                    to: a,
+                                    cc,
+                                    bcc: cci,
+                                    subject: objet,
+                                    body: corps,
+                                    lost_attachments: jointes.len() as u32,
+                                    sender: expediteur,
+                                },
+                                pieces: jointes,
+                            },
+                        );
+                        return;
+                    }
                     fenetre.set_compose_to(a.into());
                     fenetre.set_compose_cc(cc.into());
                     fenetre.set_compose_bcc(cci.into());
                     fenetre.set_compose_subject(objet.into());
                     fenetre.set_compose_body(corps.into());
                     fenetre.set_compose_show_cc(copies);
-                    fenetre.set_compose_sender_index(expediteur);
+                    fenetre.set_compose_error(Default::default());
+                    choisir_expediteur(fenetre, &expediteur);
                     show_attachments(fenetre, &jointes);
                     *pieces.lock().expect("poisoned attachments") = jointes;
-                    fenetre.set_compose_error(Default::default());
                     fenetre.set_compose_minimised(false);
                     fenetre.set_compose_open(true);
                 }
@@ -5779,9 +5977,11 @@ pub fn wire_compose(
             }
         });
     }
-    // Every half minute, what is due leaves.
+    // Every half minute, what is due leaves. Whether it left is said when the outbox
+    // knows (`AvisEnvoi::terminer`).
     {
         let (services, send, faible) = (services.clone(), Arc::clone(&send), fenetre.as_weak());
+        let avis = Rc::clone(&avis);
         let minuterie = slint::Timer::default();
         minuterie.start(
             slint::TimerMode::Repeated,
@@ -5790,13 +5990,13 @@ pub fn wire_compose(
                 let Some(fenetre) = faible.upgrade() else {
                     return;
                 };
-                let (partis, echecs) = crate::later::send_due(&services, &send, None);
+                let (partis, echecs) = crate::later::send_due(&services, &send, &avis, None);
                 if partis > 0 {
                     fenetre.set_status(
                         if partis == 1 {
-                            "A scheduled message was sent.".to_string()
+                            "Sending a scheduled message…".to_string()
                         } else {
-                            format!("{partis} scheduled messages were sent.")
+                            format!("Sending {partis} scheduled messages…")
                         }
                         .into(),
                     );
@@ -5821,13 +6021,14 @@ pub fn wire_compose(
     }
     {
         let (services, send, faible) = (services.clone(), Arc::clone(&send), fenetre.as_weak());
+        let avis = Rc::clone(&avis);
         fenetre.on_scheduled_send_now(move |id| {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let (partis, echecs) = crate::later::send_due(&services, &send, Some(id as i64));
+            let (partis, echecs) = crate::later::send_due(&services, &send, &avis, Some(id as i64));
             if partis > 0 {
-                fenetre.set_status("Sent.".into());
+                fenetre.set_status("Sending…".into());
             }
             if let Some(e) = echecs.first() {
                 fenetre.set_status(format!("Could not send {e}").into());
@@ -5918,6 +6119,9 @@ struct Expediteur {
     account: iris_types::AccountId,
     /// The alias it goes out as; `None` for the mailbox's own address.
     alias: Option<iris_types::Address>,
+    /// The address it goes out from: the alias's, else the mailbox's. What a kept
+    /// message remembers, since its place in the list moves.
+    address: String,
 }
 
 thread_local! {
@@ -5929,6 +6133,9 @@ thread_local! {
 
 /// Reads the senders again, and gives the composer their labels.
 pub fn charger_expediteurs(fenetre: &AppWindow, services: &Services) {
+    // The message being written keeps its sender, wherever the list now puts it: an
+    // alias added above it used to move it onto another mailbox.
+    let avant = adresse_expediteur(fenetre);
     let comptes: Vec<_> = services
         .store
         .accounts()
@@ -5943,6 +6150,7 @@ pub fn charger_expediteurs(fenetre: &AppWindow, services: &Services) {
         liste.push(Expediteur {
             account: c.id,
             alias: None,
+            address: c.email.clone(),
         });
         libelles.push(slint::SharedString::from(c.email.as_str()));
         for a in alias.iter().filter(|a| a.account == c.id) {
@@ -5958,16 +6166,52 @@ pub fn charger_expediteurs(fenetre: &AppWindow, services: &Services) {
                 } else {
                     iris_types::Address::named(nom.to_string(), a.address.clone())
                 }),
+                address: a.address.clone(),
             });
             libelles.push(format!("{} (via {})", a.address, c.email).into());
         }
     }
     EXPEDITEURS.with(|e| *e.borrow_mut() = liste);
     fenetre.set_compose_senders(ModelRc::new(VecModel::from(libelles)));
+    choisir_expediteur(fenetre, &avant);
 }
 
 fn expediteur(index: i32) -> Option<Expediteur> {
     EXPEDITEURS.with(|e| e.borrow().get(index.max(0) as usize).cloned())
+}
+
+/// The address the composer is set to send from; empty when no mailbox can send.
+fn adresse_expediteur(fenetre: &AppWindow) -> String {
+    expediteur(fenetre.get_compose_sender_index())
+        .map(|e| e.address)
+        .unwrap_or_default()
+}
+
+/// Sets the composer to send from `adresse`, found by address rather than by place.
+///
+/// An empty address (a draft kept before senders were remembered) gives the first
+/// mailbox, as before. One that can no longer send is said, not silently replaced:
+/// the message would otherwise leave from a mailbox nobody chose.
+fn choisir_expediteur(fenetre: &AppWindow, adresse: &str) {
+    let adresse = adresse.trim();
+    if adresse.is_empty() {
+        fenetre.set_compose_sender_index(0);
+        return;
+    }
+    let rang = EXPEDITEURS.with(|e| {
+        e.borrow()
+            .iter()
+            .position(|x| x.address.eq_ignore_ascii_case(adresse))
+    });
+    match rang {
+        Some(i) => fenetre.set_compose_sender_index(i as i32),
+        None => {
+            fenetre.set_compose_sender_index(0);
+            fenetre.set_compose_error(
+                format!("{adresse} can no longer send: check who this goes from.").into(),
+            );
+        }
+    }
 }
 
 /// A composed message sent as the alias chosen, if one was.
@@ -6111,14 +6355,28 @@ pub fn apply_markup(body: &str, what: &str) -> String {
 /// Empties the new-message window entirely: fields, copies and attachments.
 /// A message minimised to the foot of the window.
 struct Reduit {
+    /// With its sender's address, which the file keeps too.
     brouillon: crate::draft::Draft,
     /// Its attachments, for as long as Iris runs (the file keeps only their count).
     pieces: Vec<iris_smtp::Attachment>,
-    expediteur: i32,
 }
 
 thread_local! {
     static REDUITS: std::cell::RefCell<Vec<Reduit>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Where the minimised messages are kept, once the composer is wired.
+    static CHEMIN_REDUITS: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Puts a message down as a bar of its own at the foot of the window, kept on this
+/// computer. Where a message that came back goes when the window it was written in
+/// now holds another.
+fn garder_en_bas(fenetre: &AppWindow, reduit: Reduit) {
+    REDUITS.with(|r| r.borrow_mut().push(reduit));
+    if let Some(chemin) = CHEMIN_REDUITS.with(|c| c.borrow().clone()) {
+        enregistrer_reduits(&chemin);
+    }
+    montrer_reduits(fenetre);
 }
 
 /// The bars at the foot of the window, one per minimised message.
@@ -6155,13 +6413,13 @@ fn ranger(
         subject: fenetre.get_compose_subject().to_string(),
         body: fenetre.get_compose_body().to_string(),
         lost_attachments: jointes.len() as u32,
+        sender: adresse_expediteur(fenetre),
     };
     if !brouillon.is_empty() || !jointes.is_empty() {
         REDUITS.with(|r| {
             r.borrow_mut().push(Reduit {
                 brouillon,
                 pieces: jointes,
-                expediteur: fenetre.get_compose_sender_index(),
             })
         });
         enregistrer_reduits(chemin);

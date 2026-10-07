@@ -35,6 +35,12 @@ pub struct Draft {
     pub body: String,
     /// Combien de pièces jointes ont été perdues en chemin. Zéro le plus souvent.
     pub lost_attachments: u32,
+    /// The address it is to leave from: a mailbox's own, or one of its aliases.
+    ///
+    /// Kept as an address, not as a place in the sender list: that place was forgotten
+    /// on restart and shifted when an alias came or went, and the message then left
+    /// from another mailbox. Empty in drafts kept before it existed.
+    pub sender: String,
 }
 
 impl Draft {
@@ -203,6 +209,22 @@ mod tests {
         assert_eq!(second.title(), "To paul@example.com");
         Draft::save_all(&[], &chemin).unwrap();
         assert!(!chemin.exists(), "none left, no file");
+    }
+
+    #[test]
+    fn the_sender_survives_a_restart() {
+        // Lost, the message left from the first mailbox instead of the chosen one.
+        let (_d, chemin) = fichier();
+        let depuis_b = Draft {
+            sender: "contact@example.com".into(),
+            ..brouillon()
+        };
+        Draft::save_all(std::slice::from_ref(&depuis_b), &chemin).unwrap();
+        assert_eq!(Draft::load_all(&chemin)[0].sender, "contact@example.com");
+
+        // A draft kept before the field existed still opens, with no sender.
+        std::fs::write(&chemin, r#"[{"to":"marie@x.fr","subject":"Devis"}]"#).unwrap();
+        assert_eq!(Draft::load_all(&chemin)[0].sender, "");
     }
 
     #[test]

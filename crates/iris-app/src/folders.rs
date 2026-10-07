@@ -422,21 +422,13 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
             ));
         };
 
-        // Un déplacement par lot de cinquante : une opération par message ferait
-        // autant d'entrées de journal que le dossier a de courrier, et un dossier de
-        // huit cents messages produirait huit cents allers-retours là où seize
-        // suffisent.
-        for lot in store.folder_uids(source.id)?.chunks(50) {
-            let charge = iris_store::OpPayload::Move {
-                folder: path.to_string(),
-                uids: lot.to_vec(),
-                target: refuge.path.clone(),
-            };
-            iris_sync::enqueue(store, *compte, &charge, now)?;
-        }
-
+        // Le courrier part avec la suppression, au rejeu : tout ce que le serveur tient
+        // dans le dossier, pas seulement ce que la copie locale en connaît. Le reste
+        // (livré depuis la dernière synchronisation, pas encore lu par une première)
+        // était détruit avec le dossier.
         let charge = iris_store::OpPayload::DeleteFolder {
             folder: path.to_string(),
+            rescue: Some(refuge.path.clone()),
         };
         iris_sync::enqueue(store, *compte, &charge, now)?;
 

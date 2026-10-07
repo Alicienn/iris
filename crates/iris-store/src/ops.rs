@@ -53,12 +53,19 @@ pub enum OpPayload {
     },
     /// Supprimer un dossier sur ce compte.
     ///
-    /// **Vide.** Ce que le dossier contenait a été déplacé avant, par des opérations
-    /// de déplacement enfilées devant celle-ci : `DELETE` sur un dossier plein détruit
-    /// son contenu sur le serveur, et personne ne s'attend à perdre du courrier en
-    /// rangeant ses dossiers.
+    /// **Vide.** `DELETE` sur un dossier plein détruit son contenu sur le serveur, et
+    /// personne ne s'attend à perdre du courrier en rangeant ses dossiers. Avec
+    /// `rescue`, le rejeu déplace d'abord tout ce que le serveur y tient vers ce
+    /// dossier, vérifie qu'il est vide, et ne supprime qu'alors. Déplacer seulement ce
+    /// que la copie locale connaissait détruisait le reste : ce qu'un filtre y avait
+    /// livré depuis, ce qu'une première synchronisation n'avait pas encore lu.
+    ///
+    /// Sans `rescue` (opérations enregistrées par une version antérieure), les
+    /// déplacements ont été enfilés devant celle-ci.
     DeleteFolder {
         folder: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rescue: Option<String>,
     },
 }
 
@@ -98,7 +105,7 @@ impl OpPayload {
             Self::RenameFolder { folder, target } => {
                 format!("{account}:mvdir:{folder}:{target}")
             }
-            Self::DeleteFolder { folder } => format!("{account}:rmdir:{folder}"),
+            Self::DeleteFolder { folder, .. } => format!("{account}:rmdir:{folder}"),
         }
     }
 
@@ -121,7 +128,7 @@ impl OpPayload {
             | Self::Delete { folder, .. }
             | Self::CreateFolder { folder }
             | Self::RenameFolder { folder, .. }
-            | Self::DeleteFolder { folder } => folder,
+            | Self::DeleteFolder { folder, .. } => folder,
         }
     }
 
@@ -185,6 +192,10 @@ mod tests {
             OpPayload::CreateFolder {
                 folder: "INBOX.Devis".into(),
             },
+            OpPayload::DeleteFolder {
+                folder: "INBOX.Devis".into(),
+                rescue: Some("INBOX".into()),
+            },
         ] {
             let json = charge.to_json();
             assert_eq!(
@@ -239,6 +250,18 @@ mod tests {
     fn creer_un_dossier_ne_le_selectionne_pas() {
         assert!(!OpPayload::CreateFolder { folder: "X".into() }.needs_selection());
         assert!(deplacement().needs_selection());
+    }
+
+    #[test]
+    fn une_suppression_enregistree_avant_le_refuge_se_relit() {
+        let ancienne = OpPayload::parse(r#"{"op":"delete_folder","folder":"INBOX.Devis"}"#);
+        assert_eq!(
+            ancienne.unwrap(),
+            OpPayload::DeleteFolder {
+                folder: "INBOX.Devis".into(),
+                rescue: None,
+            }
+        );
     }
 
     #[test]

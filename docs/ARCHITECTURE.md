@@ -98,8 +98,11 @@ refused by name.
 - **Sending later** keeps the draft, not a composed message, as JSON in
   `scheduled_mail` (attachments included), with its To and subject beside it for the
   list. A UI timer checks every thirty seconds: what is due is composed then (with that
-  date), queued with no undo delay, and taken out of the table. A message that fails
-  stays and is said. The times offered are computed by `later::options` from the local
+  date) and queued with no undo delay through `AvisEnvoi::programmer`. It leaves the
+  table only once the outbox says it has gone; one that failed is moved five minutes
+  on (`postpone_scheduled_mail`) and said, and one on its way is not queued twice
+  (`programmes_en_vol`). Until 4.5.3 it was taken out when queued, and a send that
+  then failed (a laptop waking before its network) lost it. The times offered are computed by `later::options` from the local
   clock. *Scheduled* in the folder column lists what waits; *Edit* takes a draft out and
   back into the composer.
 - **Sorting.** `ListQuery` carries a `Sort` (date, sender, subject, size). By date
@@ -207,6 +210,23 @@ property**, not by discipline:
    follows what is shown, never what is stored.
 3. **Every local action is instant, then reconciled.** Immediate write, idempotent
    operation journal, replay to the server. No hourglass for a user's gesture.
+   Since 4.5.3 (`journal.rs`, `replay.rs`):
+   - the same intention queued twice in a row is one operation, but one that comes
+     back after another (read, unread, read) is a new step. The key was kept for
+     ever once acknowledged, and the third gesture never reached the server;
+     acknowledged operations are purged after a week (`run_maintenance`);
+   - each account replays its own queue (`pending_ops_for`). The hundred oldest of
+     every account, filtered afterwards, let a removed or failing account hold back
+     all the others; removing an account empties its journal;
+   - a dropped connection, and the `NO` answers RFC 5530 calls passing (`INUSE`,
+     `UNAVAILABLE`, `THROTTLED`, `LIMIT`), are network errors and retried
+     (`protocol_error` in `iris-imap/src/client.rs`). Every IMAP failure was a
+     protocol error, and replay dropped the action for good;
+   - an operation whose folder can no longer be selected (deleted or renamed
+     elsewhere) is dropped, not retried at every pass ahead of everything else;
+   - deleting a folder (`DeleteFolder { rescue }`) moves everything the **server**
+     holds in it to the inbox, checks it is empty, and only then deletes it. Moving
+     what the local copy knew destroyed the rest.
 4. **Events are batched.** Coalescing in 16 ms windows, and a batch touching more than
    256 threads degrades into a full refresh — the cost on the interface side stays
    bounded however intense the synchronisation. Since 4.5.1 the view model also takes
@@ -671,6 +691,39 @@ bottom of the window counts down; **Undo** cancels the queued message and reopen
 compose window from what was captured at Send time — recipients, subject, body,
 attachments, sender. A second send replaces the notice, and the first message simply
 goes out. `crates/iris-app/tests/envoi.rs` covers both paths on a headless window.
+
+How each message ended reaches the window (4.5.3). `AvisEnvoi` keeps every message it
+queued (`en_vol`) with what puts it back, until `pump_outbox` hands the outcome to the
+`SendTracker` in `main.rs`, which passes it to the window's thread
+(`shell::envoi_termine`). *Message sent.* is said then, not when the countdown ends; a
+failure is said and puts the message back — in the compose window, or as a bar at the
+foot of the window when the compose window holds another message, and a reply into
+its box only if its conversation is still the one open. Until then the failure was
+only logged, under a window saying *Message sent.* over a text already cleared.
+
+Cancelling is decided under the outbox's lock: the send goes only if it still finds
+its message in the pending map, which `cancel` empties. The timer and the cancel
+signal only wake the task. With both ready, `select!` used to pick at random, and a
+message the window called cancelled could still leave.
+
+The sender is remembered as an address (`Draft::sender`, `Expediteur::address`), not
+as a place in the sender list, which was forgotten on restart and shifted when an alias
+came or went. Quitting waits for queued messages to settle (`SendService::wait_idle`,
+at most the longest undo delay plus 90 s): the outbox lives in memory.
+
+A reply goes to the thread's last message's sender, unless that message is the user's
+own (their Sent copy joins the thread): it then goes to whom they had written to
+(`reply_recipients`). Reply all adds the message's other recipients, without the
+user's addresses and aliases.
+
+A body is fetched only if the folder's `UIDVALIDITY` is still the one stored
+(`fetch_body`): after a server rebuilds a folder the same UID names another message.
+
+Folder roles (`iris-imap/src/client.rs`, 4.5.3): a role announced by `SPECIAL-USE` is
+never also guessed from a name, and a name gives a role only at the top, under
+`INBOX.` or under `[Gmail]/`, split on the server's own delimiter. The last segment
+used to be enough: a label `Clients/Trash` became the bin. The folder menu acts on the
+row's exact path, not on the first folder whose last segment matched its name.
 
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside

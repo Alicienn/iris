@@ -15,9 +15,9 @@
 //! les drapeaux — il est la référence, d'autres clients y écrivent — et le local
 //! l'emporte sur l'état de workflow, qui n'existe que chez nous.
 
-use iris_imap::ImapConnection;
+use iris_imap::{ImapConnection, UidRange};
 use iris_store::{PendingOp, Store};
-use iris_types::{Flags, Result, Timestamp};
+use iris_types::{Error, Flags, Result, Timestamp};
 
 /// La charge utile d'une opération journalisée.
 ///
@@ -66,15 +66,32 @@ pub async fn replay_account(
         // On ne sélectionne le dossier que lorsqu'il change : une sélection IMAP
         // coûte un aller-retour complet.
         if charge.needs_selection() && dossier_courant.as_deref() != Some(charge.folder()) {
-            if let Err(e) = conn.select(charge.folder()).await {
-                store.fail_op(op.id, &e.to_string(), now)?;
-                rapport.failed += 1;
-                break;
+            match conn.select(charge.folder()).await {
+                Ok(_) => dossier_courant = Some(charge.folder().to_string()),
+                Err(e) if e.is_transient() => {
+                    store.fail_op(op.id, &e.to_string(), now)?;
+                    rapport.failed += 1;
+                    break;
+                }
+                Err(e) => {
+                    // Le dossier n'existe plus (supprimé ailleurs, renommé) : le
+                    // retenter à chaque passe bloquait toute la file du compte, et
+                    // plus aucune action n'atteignait le serveur.
+                    tracing::warn!(op = %op.id, error = %e, "dossier introuvable, opération abandonnée");
+                    store.complete_op(op.id)?;
+                    rapport.dropped += 1;
+                    dossier_courant = None;
+                    continue;
+                }
             }
-            dossier_courant = Some(charge.folder().to_string());
         }
 
-        match apply(conn, &charge).await {
+        let resultat = apply(conn, &charge).await;
+        if !charge.needs_selection() {
+            // Supprimer un dossier en sélectionne d'autres : ne plus rien supposer.
+            dossier_courant = None;
+        }
+        match resultat {
             Ok(()) => {
                 store.complete_op(op.id)?;
                 rapport.applied += 1;
@@ -111,8 +128,50 @@ async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> 
         }
         OpPayload::CreateFolder { folder } => conn.create_folder(folder).await,
         OpPayload::RenameFolder { folder, target } => conn.rename_folder(folder, target).await,
-        OpPayload::DeleteFolder { folder } => conn.delete_folder(folder).await,
+        OpPayload::DeleteFolder {
+            folder,
+            rescue: None,
+        } => conn.delete_folder(folder).await,
+        OpPayload::DeleteFolder {
+            folder,
+            rescue: Some(refuge),
+        } => delete_emptied_folder(conn, folder, refuge).await,
     }
+}
+
+/// Supprime un dossier après avoir déplacé vers `refuge` tout ce que le **serveur** y
+/// tient, et seulement s'il est vide ensuite.
+///
+/// `DELETE` détruit le contenu. Déplacer ce que la copie locale connaissait laissait
+/// détruire le reste : ce qu'un filtre y avait livré depuis la dernière
+/// synchronisation, ce qu'une première synchronisation n'avait pas encore lu, ce qu'un
+/// déplacement refusé (quota) n'avait pas emporté.
+async fn delete_emptied_folder(
+    conn: &mut dyn ImapConnection,
+    folder: &str,
+    refuge: &str,
+) -> Result<()> {
+    let etat = conn.select(folder).await?;
+    if etat.exists > 0 {
+        let uids = conn.existing_uids(UidRange::ALL).await?;
+        for lot in uids.chunks(500) {
+            conn.move_messages(lot, refuge).await?;
+        }
+        // Ce qui y serait encore serait détruit avec lui : le dossier est gardé.
+        let reste = conn.select(folder).await?;
+        if reste.exists > 0 {
+            return Err(Error::Protocol {
+                protocol: "IMAP",
+                message: format!(
+                    "« {folder} » still holds {} message(s) after moving its mail: kept",
+                    reste.exists
+                ),
+            });
+        }
+    }
+    // Un dossier qu'on tient ouvert se supprime mal : on en sort d'abord.
+    conn.select(refuge).await?;
+    conn.delete_folder(folder).await
 }
 
 /// Journalise une opération pour rejeu ultérieur.
@@ -290,25 +349,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn une_operation_acquittee_n_est_pas_reintroduite_par_sa_clef() {
-        // C'est la protection inverse : apres succes, la clef reste connue le temps
-        // qu'un rejeu tardif ne renvoie pas ce qui est deja parti.
+    async fn lu_non_lu_puis_lu_finit_lu_sur_le_serveur() {
+        // La clef gardée après succès faisait ignorer le troisième geste : l'écran
+        // disait « lu », le serveur gardait « non lu ».
         let f = fixture();
-        let charge = OpPayload::SetFlags {
+        let lu = OpPayload::SetFlags {
             folder: "INBOX".into(),
             uids: vec![1],
             flags: Flags::SEEN.0,
             add: true,
         };
-        enqueue(&f.store, f.account, &charge, t(0)).unwrap();
+        let non_lu = OpPayload::SetFlags {
+            folder: "INBOX".into(),
+            uids: vec![1],
+            flags: Flags::SEEN.0,
+            add: false,
+        };
+        enqueue(&f.store, f.account, &lu, t(0)).unwrap();
+        assert_eq!(f.rejouer().await.applied, 1);
+        enqueue(&f.store, f.account, &non_lu, t(10)).unwrap();
+        assert_eq!(f.rejouer().await.applied, 1);
+        enqueue(&f.store, f.account, &lu, t(20)).unwrap();
         assert_eq!(f.rejouer().await.applied, 1);
 
-        enqueue(&f.store, f.account, &charge, t(50)).unwrap();
-        assert_eq!(
-            f.store.pending_op_count().unwrap(),
-            0,
-            "la clef deja acquittee ne doit pas reintroduire l'operation"
-        );
+        let mut c = f.conn().await;
+        c.select("INBOX").await.unwrap();
+        let messages = c.fetch_envelopes(UidRange::ALL).await.unwrap();
+        assert!(messages[0].flags.contains(Flags::SEEN));
     }
 
     #[tokio::test]
@@ -402,6 +469,79 @@ mod tests {
         let r = f.rejouer().await;
         assert_eq!(r.dropped, 1);
         assert_eq!(f.store.pending_op_count().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn un_dossier_disparu_ne_bloque_pas_la_file() {
+        // Le dossier a été supprimé ou renommé ailleurs : l'opération ne réussira
+        // jamais, et la retenter à chaque passe gelait toutes les suivantes.
+        let f = fixture();
+        enqueue(
+            &f.store,
+            f.account,
+            &OpPayload::SetFlags {
+                folder: "Devis".into(),
+                uids: vec![1],
+                flags: Flags::SEEN.0,
+                add: true,
+            },
+            t(0),
+        )
+        .unwrap();
+        enqueue(
+            &f.store,
+            f.account,
+            &OpPayload::SetFlags {
+                folder: "INBOX".into(),
+                uids: vec![1],
+                flags: Flags::SEEN.0,
+                add: true,
+            },
+            t(1),
+        )
+        .unwrap();
+
+        let r = f.rejouer().await;
+        assert_eq!(r.dropped, 1);
+        assert_eq!(r.applied, 1, "l'action suivante doit atteindre le serveur");
+        assert_eq!(f.store.pending_op_count().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn supprimer_un_dossier_sauve_ce_que_la_copie_locale_ignore() {
+        // Deux messages livrés dans « Devis » depuis la dernière synchronisation : la
+        // copie locale n'en sait rien. Ils étaient détruits avec le dossier.
+        let f = fixture();
+        f.server.add_folder("Devis", FolderKind::Other);
+        for i in 0..2 {
+            f.server.deliver(
+                "Devis",
+                format!("Subject: d{i}\r\nMessage-ID: <d{i}@x>\r\n\r\nDevis.\r\n").as_bytes(),
+                Flags::NONE,
+            );
+        }
+        enqueue(
+            &f.store,
+            f.account,
+            &OpPayload::DeleteFolder {
+                folder: "Devis".into(),
+                rescue: Some("INBOX".into()),
+            },
+            t(0),
+        )
+        .unwrap();
+
+        assert_eq!(f.rejouer().await.applied, 1);
+        assert_eq!(f.server.message_count("INBOX"), 5, "rien n'est perdu");
+        let mut c = f.conn().await;
+        let restants: Vec<_> = c
+            .list_folders()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|d| d.path)
+            .collect();
+        assert!(!restants.contains(&"Devis".to_string()));
     }
 
     #[tokio::test]

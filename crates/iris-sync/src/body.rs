@@ -73,7 +73,20 @@ impl SyncEngine {
         let point = self.endpoint_for(&compte);
         let mut conn = self.connector().connect(&point, &identifiants).await?;
 
-        conn.select(&dossier.path).await?;
+        let selection = conn.select(&dossier.path).await?;
+        // Un dossier reconstruit par le serveur donne à ses UID un autre sens : le
+        // même numéro désigne alors un autre message, dont le corps aurait été
+        // affiché, mis en cache et cité à la place. La prochaine synchronisation
+        // relit le dossier ; d'ici là, on ne télécharge rien.
+        if dossier.uid_validity != 0
+            && selection.uid_validity != 0
+            && selection.uid_validity != dossier.uid_validity
+        {
+            let _ = conn.logout().await;
+            return Err(Error::ResyncRequired {
+                reason: format!("UIDVALIDITY of « {} » changed", dossier.path),
+            });
+        }
         let brut = conn.fetch_body(stocke.uid).await?;
         let _ = conn.logout().await;
 
@@ -335,6 +348,21 @@ mod tests {
         f.index.commit().unwrap();
 
         assert_eq!(f.index.search("forfait", 10).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn un_dossier_reconstruit_ne_donne_pas_le_corps_d_un_autre_message() {
+        // Après un changement d'UIDVALIDITY, l'UID stocké peut désigner un autre
+        // message : rien ne doit être téléchargé avant la relecture du dossier.
+        let f = fixture();
+        f.server
+            .deliver("INBOX", &message("devis", "Contenu."), Flags::NONE);
+        f.synchroniser().await;
+        let id = f.premier_message();
+
+        f.server.bump_uid_validity("INBOX");
+        let e = f.engine.fetch_body(id).await.unwrap_err();
+        assert!(matches!(e, Error::ResyncRequired { .. }), "{e}");
     }
 
     #[tokio::test]

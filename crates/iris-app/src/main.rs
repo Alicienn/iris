@@ -520,8 +520,7 @@ fn build_send_service(
     ))
 }
 
-/// Relie chaque envoi au fil dont il est issu.
-#[derive(Debug, Default)]
+/// Relie chaque envoi au fil dont il est issu, et dit à la fenêtre comment il a fini.
 struct SendTracker {
     entries: std::sync::Mutex<
         std::collections::BTreeMap<
@@ -529,6 +528,30 @@ struct SendTracker {
             (iris_types::ThreadId, iris_types::AccountId),
         >,
     >,
+    /// Where the outcome is told. An outcome only written to the log left the window
+    /// saying "Message sent." over a message that never left.
+    fenetre: slint::Weak<iris_ui::AppWindow>,
+}
+
+impl std::fmt::Debug for SendTracker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SendTracker").finish_non_exhaustive()
+    }
+}
+
+impl SendTracker {
+    fn new(fenetre: slint::Weak<iris_ui::AppWindow>) -> Self {
+        Self {
+            entries: Default::default(),
+            fenetre,
+        }
+    }
+
+    fn tell(&self, handle: iris_smtp::SendHandle, issue: shell::IssueEnvoi) {
+        let _ = self.fenetre.upgrade_in_event_loop(move |fenetre| {
+            shell::envoi_termine(&fenetre, handle, issue);
+        });
+    }
 }
 
 impl iris_sync::SendContext for SendTracker {
@@ -540,18 +563,25 @@ impl iris_sync::SendContext for SendTracker {
     }
 
     fn finished(&self, handle: iris_smtp::SendHandle, outcome: Result<iris_sync::SentOutcome>) {
-        match outcome {
-            Ok(bilan) => tracing::info!(
-                send = handle.0,
-                archived = bilan.archived,
-                waiting = bilan.moved_to_waiting,
-                "message sent"
-            ),
-            Err(e) => tracing::warn!(send = handle.0, error = %e, "send failed"),
-        }
+        let issue = match outcome {
+            Ok(bilan) => {
+                tracing::info!(
+                    send = handle.0,
+                    archived = bilan.archived,
+                    waiting = bilan.moved_to_waiting,
+                    "message sent"
+                );
+                shell::IssueEnvoi::Parti
+            }
+            Err(e) => {
+                tracing::warn!(send = handle.0, error = %e, "send failed");
+                shell::IssueEnvoi::Echec(e.to_string())
+            }
+        };
         if let Ok(mut e) = self.entries.lock() {
             e.remove(&handle);
         }
+        self.tell(handle, issue);
     }
 
     fn cancelled(&self, handle: iris_smtp::SendHandle) {
@@ -712,6 +742,7 @@ fn run_gui(
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui
     // doit arriver après un envoi arrive même si la fenêtre se ferme entre-temps.
+    let mut envoi_a_finir: Option<Arc<iris_sync::SendService>> = None;
     match build_send_service(&services, runtime.handle().clone()) {
         Ok((envoi, evenements)) => {
             // One notice to take a message back, whatever it was written in.
@@ -739,7 +770,9 @@ fn run_gui(
                 Arc::clone(&envoi),
                 Arc::clone(&controller),
             );
-            let contexte: Arc<dyn iris_sync::SendContext> = Arc::new(SendTracker::default());
+            let contexte: Arc<dyn iris_sync::SendContext> =
+                Arc::new(SendTracker::new(fenetre.as_weak()));
+            envoi_a_finir = Some(Arc::clone(&envoi));
             runtime.spawn(iris_sync::pump_outbox(envoi, evenements, contexte));
         }
         // Sans compte configuré, il n'y a rien à envoyer : l'application reste
@@ -1139,6 +1172,21 @@ fn run_gui(
 
     slint::run_event_loop_until_quit()
         .map_err(|e| iris_types::Error::other(format!("boucle d'interface : {e}")))?;
+
+    // A message sent before quitting still leaves. The outbox lives in memory, and
+    // dropping the runtime dropped whatever waited out its undo delay or was on its
+    // way, although its window had already been emptied.
+    if let Some(envoi) = envoi_a_finir {
+        if envoi.in_flight() > 0 {
+            tracing::info!(count = envoi.in_flight(), "finishing sends before quitting");
+            let limite = std::time::Duration::from_secs(
+                u64::from(*iris_app::settings::UNDO_SEND_RANGE.end()) + 90,
+            );
+            if !runtime.block_on(envoi.wait_idle(limite)) {
+                tracing::warn!(count = envoi.in_flight(), "quit with messages still unsent");
+            }
+        }
+    }
 
     controller.shutdown();
     Ok(())

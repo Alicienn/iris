@@ -697,11 +697,7 @@ impl SyncEngine {
 
         // Le journal d'abord. Dans l'ordre inverse, une action locale non encore
         // transmise serait écrasée par l'état distant.
-        let en_attente = self.store.pending_ops(now, 100)?;
-        let a_traiter: Vec<_> = en_attente
-            .into_iter()
-            .filter(|o| o.account == account)
-            .collect();
+        let a_traiter = self.store.pending_ops_for(account, now, 100)?;
         if !a_traiter.is_empty() {
             let r = replay_account(conn.as_mut(), &self.store, &a_traiter, now).await?;
             bilan.ops_replayed = r.applied;

@@ -3,6 +3,26 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.5.3 — 2026-10-07
+
+### Fixed
+- A message that could not be sent says why and comes back, instead of "Message sent."
+- A scheduled message stays scheduled until it has really left.
+- Quitting Iris no longer loses a message you have just sent.
+- Undo at the last second no longer lets the message leave anyway.
+- A message keeps the mailbox it was written from after a restart.
+- Replying after your own last message goes to your correspondent, not to you.
+- Reply all includes the other people the message was sent to.
+- Marking a message read, unread, then read again always reaches the server.
+- Actions taken during a network drop are retried instead of lost.
+- A folder deleted elsewhere no longer stops your other actions from reaching the server.
+- A removed or failing mailbox no longer holds back the others' actions.
+- Deleting a folder moves all its mail to the inbox, even mail not yet downloaded.
+- Renaming or deleting a folder acts on that folder, not another with the same name.
+- A folder named "Trash" or "Spam" inside another folder is no longer taken for the bin.
+- iCloud's "Sent Messages" and "Deleted Messages" folders are recognised.
+- A message can no longer show another message's text after the server rebuilds a folder.
+
 ## 4.5.2 — 2026-10-07
 
 ### Fixed

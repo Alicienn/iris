@@ -127,15 +127,23 @@ impl Outbox {
         let delay = self.delay();
 
         self.runtime.spawn(async move {
-            // Course entre l'échéance et l'annulation. Le premier qui arrive gagne.
-            let annule = tokio::select! {
-                _ = tokio::time::sleep(delay) => false,
-                _ = annuler_rx => true,
-            };
+            // L'annulation réveille plus tôt, l'échéance à l'heure. Ni l'un ni l'autre
+            // ne décide : quand les deux étaient prêts ensemble, `select!` tirait au
+            // sort, et un message déclaré « annulé » à l'écran partait quand même.
+            tokio::select! {
+                biased;
+                _ = annuler_rx => {}
+                _ = tokio::time::sleep(delay) => {}
+            }
 
-            // Dans les deux cas, le message quitte la file des annulables : passé ce
+            // Ce qui décide, c'est qui retire le message de la file, sous le verrou
+            // que `cancel` prend aussi : exactement l'un des deux le trouve. Passé ce
             // point, plus rien ne peut être retenu.
-            pending.lock().expect("file empoisonnée").remove(&handle);
+            let annule = pending
+                .lock()
+                .expect("file empoisonnée")
+                .remove(&handle)
+                .is_none();
 
             if annule {
                 let _ = events.send(OutboxEvent::Cancelled { handle });
@@ -159,6 +167,9 @@ impl Outbox {
     ///
     /// Retourne `false` s'il est déjà parti — auquel cas il faut le dire à
     /// l'utilisateur, et non faire semblant.
+    ///
+    /// L'avoir retiré de la file suffit : l'envoi ne part que s'il l'y trouve encore.
+    /// Le signal ne sert qu'à réveiller la tâche avant l'échéance.
     pub fn cancel(&self, handle: SendHandle) -> bool {
         let envoyeur = self
             .pending
@@ -166,7 +177,10 @@ impl Outbox {
             .expect("file empoisonnée")
             .remove(&handle);
         match envoyeur {
-            Some(tx) => tx.send(()).is_ok(),
+            Some(tx) => {
+                let _ = tx.send(());
+                true
+            }
             None => false,
         }
     }
@@ -250,6 +264,38 @@ mod tests {
 
         tokio::time::advance(Duration::from_secs(60)).await;
         assert_eq!(mailer.count(), 0, "le message ne doit jamais partir");
+    }
+
+    #[test]
+    fn une_annulation_acceptee_retient_le_message_meme_a_l_echeance() {
+        // Le délai est nul : l'échéance est prête avant même que la tâche ne
+        // démarre. L'annulation passe avant qu'elle ne s'exécute, sur un exécuteur
+        // qui ne tourne pas encore. L'écran dira « annulé » : rien ne doit partir.
+        let executeur = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        let mailer = Arc::new(FakeMailer::new());
+        let (outbox, mut evenements) = Outbox::new(
+            Arc::clone(&mailer) as Arc<dyn Mailer>,
+            Duration::ZERO,
+            executeur.handle().clone(),
+        );
+
+        let h = outbox.queue(message("Devis"));
+        assert!(outbox.cancel(h));
+
+        executeur.block_on(async {
+            assert!(matches!(
+                evenements.recv().await,
+                Some(OutboxEvent::Queued { .. })
+            ));
+            match evenements.recv().await {
+                Some(OutboxEvent::Cancelled { handle }) => assert_eq!(handle, h),
+                autre => panic!("attendu une annulation, obtenu {autre:?}"),
+            }
+        });
+        assert_eq!(mailer.count(), 0, "un message déclaré annulé ne part pas");
     }
 
     #[tokio::test(start_paused = true)]

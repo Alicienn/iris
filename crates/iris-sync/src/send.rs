@@ -33,6 +33,9 @@ pub struct SendService {
     /// The mailbox each queued message is from, to file it in that mailbox's Sent
     /// folder once it has gone.
     senders: std::sync::Mutex<std::collections::HashMap<SendHandle, iris_types::AccountId>>,
+    /// Messages queued and not yet settled: still in their undo delay, being sent, or
+    /// being filed in Sent. Quitting waits for them (`wait_idle`).
+    in_flight: std::sync::atomic::AtomicUsize,
 }
 
 impl SendService {
@@ -42,7 +45,38 @@ impl SendService {
             outbox,
             bus,
             senders: Default::default(),
+            in_flight: Default::default(),
         }
+    }
+
+    /// How many queued messages have not settled yet.
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn settled(&self) {
+        let _ = self.in_flight.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |n| n.checked_sub(1),
+        );
+    }
+
+    /// Waits, at most `limit`, for every queued message to settle.
+    ///
+    /// The outbox lives in memory: quitting while a message waited out its undo delay,
+    /// or was on its way, dropped it, although its window had already been emptied.
+    /// Pressing Send means it goes; quitting does not take it back. Says whether
+    /// everything settled.
+    pub async fn wait_idle(&self, limit: std::time::Duration) -> bool {
+        let fin = tokio::time::Instant::now() + limit;
+        while self.in_flight() > 0 {
+            if tokio::time::Instant::now() >= fin {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        true
     }
 
     pub fn outbox(&self) -> &Arc<Outbox> {
@@ -204,6 +238,7 @@ impl SendService {
         // réseau au moment où l'utilisateur veut écrire.
         let corps_original = self.original_body(dernier);
 
+        let (to, reply_to) = reply_recipients(self.engine.store(), &messages)?;
         let cible = ReplyTarget {
             message_id: dernier.rfc_message_id.clone().map(RfcMessageId),
             references: self.reference_chain(dernier),
@@ -212,9 +247,9 @@ impl SendService {
                 name: none_if_empty(&dernier.from_name),
                 addr: dernier.from_addr.clone(),
             }],
-            to: vec![],
+            to,
             cc: vec![],
-            reply_to: vec![],
+            reply_to,
             date: dernier.received,
             text_body: corps_original,
         };
@@ -292,6 +327,9 @@ impl SendService {
         // Held across the queueing: with no delay the message can be gone, and
         // `pump_outbox` asking whose it was, before the answer is written down.
         let mut expediteurs = self.senders.lock().expect("senders poisoned");
+        // Counted before it can settle, for the same reason.
+        self.in_flight
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let handle = self.outbox.queue(message);
         if let Some(compte) = compte {
             expediteurs.insert(handle, compte);
@@ -534,18 +572,23 @@ pub async fn pump_outbox(
                             .await
                     }
                     (None, Some(account)) => service.file_sent(account, &outcome.raw).await,
-                    (None, None) => continue,
+                    // Gone, with no mailbox to file it in: still gone, and the window
+                    // must hear so.
+                    (None, None) => SentOutcome::default(),
                 };
                 context.finished(handle, Ok(bilan));
+                service.settled();
             }
             OutboxEvent::Failed { handle, error } => {
                 service.take_sender(handle);
                 tracing::warn!(error = %error, "envoi en échec");
                 context.finished(handle, Err(error));
+                service.settled();
             }
             OutboxEvent::Cancelled { handle } => {
                 service.take_sender(handle);
                 context.cancelled(handle);
+                service.settled();
             }
             OutboxEvent::Queued { .. } => {}
         }
@@ -641,6 +684,68 @@ pub fn sender_account(store: &iris_store::Store, address: &str) -> Result<iris_s
     proprietaire
         .and_then(|id| comptes.into_iter().find(|c| c.id == id))
         .ok_or_else(|| Error::Config(format!("no mailbox sends as {adresse}")))
+}
+
+/// Every address the user writes from: their mailboxes and their aliases, as keys.
+fn own_addresses(store: &iris_store::Store) -> Result<std::collections::BTreeSet<String>> {
+    let mut miennes: std::collections::BTreeSet<String> = store
+        .accounts()?
+        .into_iter()
+        .map(|c| Address::new(c.email).key())
+        .collect();
+    miennes.extend(
+        store
+            .aliases()?
+            .into_iter()
+            .map(|a| Address::new(a.address).key()),
+    );
+    Ok(miennes)
+}
+
+/// Who a reply to the thread's last message goes to: `(to, reply_to)` for its
+/// [`ReplyTarget`].
+///
+/// When that last message is the user's own (their Sent copy joins the thread), its
+/// sender is the user: the reply then went back to them, and the correspondent never
+/// got the follow-up. It goes instead to those the user had written to, or failing
+/// that to the last person who wrote. The other recipients of a received message are
+/// kept for Reply all, without the user's own addresses.
+fn reply_recipients(
+    store: &iris_store::Store,
+    messages: &[iris_store::StoredMessage],
+) -> Result<(Vec<Address>, Vec<Address>)> {
+    let miennes = own_addresses(store)?;
+    let est_moi = |a: &str| miennes.contains(&Address::new(a.to_string()).key());
+    let destinataires = |m: &iris_store::StoredMessage| -> Vec<Address> {
+        serde_json::from_str::<Vec<Address>>(&m.recipients_json)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|a| !est_moi(&a.addr))
+            .collect()
+    };
+
+    let Some(dernier) = messages.last() else {
+        return Ok((vec![], vec![]));
+    };
+    if !est_moi(&dernier.from_addr) {
+        return Ok((destinataires(dernier), vec![]));
+    }
+
+    let mut a_qui = destinataires(dernier);
+    if a_qui.is_empty() {
+        a_qui = messages
+            .iter()
+            .rev()
+            .find(|m| !est_moi(&m.from_addr))
+            .map(|m| {
+                vec![Address {
+                    name: none_if_empty(&m.from_name),
+                    addr: m.from_addr.clone(),
+                }]
+            })
+            .unwrap_or_default();
+    }
+    Ok((vec![], a_qui))
 }
 
 /// Whether the mailbox on `imap_host` keeps a copy of what is sent without being given
@@ -871,6 +976,49 @@ mod tests {
             reponse.text_body.contains("> "),
             "le message d'origine doit être cité"
         );
+    }
+
+    #[tokio::test]
+    async fn relancer_apres_son_propre_message_ecrit_au_correspondant() {
+        // La copie envoyée rejoint le fil : répondre à ce dernier message renvoyait
+        // la relance à soi-même, et Marie ne la recevait jamais.
+        let f = fixture();
+        f.server.deliver(
+            "Sent",
+            b"Subject: Re: Devis refonte\r\nFrom: Moi <moi@example.com>\r\n\
+              To: Marie <marie@example.com>\r\nMessage-ID: <reponse@x>\r\n\
+              In-Reply-To: <origine@x>\r\nReferences: <origine@x>\r\n\r\nMerci.\r\n",
+            Flags::SEEN,
+        );
+        f.ouvrir_le_fil().await;
+
+        let relance = f
+            .service
+            .compose_reply(ThreadId(1), "Des nouvelles ?", ReplyScope::Sender)
+            .unwrap();
+        let a_qui: Vec<_> = relance.to.iter().map(|a| a.addr.as_str()).collect();
+        assert_eq!(a_qui, ["marie@example.com"]);
+    }
+
+    #[tokio::test]
+    async fn repondre_a_tous_garde_les_autres_destinataires_sans_moi() {
+        let f = fixture();
+        f.server.deliver(
+            "INBOX",
+            b"Subject: Re: Devis refonte\r\nFrom: Marie <marie@example.com>\r\n\
+              To: moi@example.com, Luc <luc@example.com>\r\nMessage-ID: <suite@x>\r\n\
+              In-Reply-To: <origine@x>\r\nReferences: <origine@x>\r\n\r\nEt Luc ?\r\n",
+            Flags::NONE,
+        );
+        f.ouvrir_le_fil().await;
+
+        let reponse = f
+            .service
+            .compose_reply(ThreadId(1), "Oui.", ReplyScope::All)
+            .unwrap();
+        assert_eq!(reponse.to[0].addr, "marie@example.com");
+        let copie: Vec<_> = reponse.cc.iter().map(|a| a.addr.as_str()).collect();
+        assert_eq!(copie, ["luc@example.com"]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -1137,6 +1285,35 @@ mod tests {
         assert_eq!(context.finished_count(), 1);
         assert!(context.last_outcome().unwrap().unwrap().archived);
         assert_eq!(f.server.message_count("Sent"), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_send_is_reported_and_settles() {
+        // It was only written to the log: the window said "Message sent." and the
+        // text, already cleared, was lost.
+        let f = fixture();
+        f.synchroniser().await;
+        f.mailer.fail_next(Error::AuthFailed {
+            account: "moi@example.com".into(),
+        });
+
+        let context = Arc::new(InMemorySendContext::default());
+        let message = Outgoing::new(
+            Address::new("moi@example.com"),
+            vec![Address::new("someone@example.net")],
+            "Hello",
+        );
+        f.service.queue(message).unwrap();
+        assert_eq!(f.service.in_flight(), 1);
+
+        let service = Arc::clone(&f.service);
+        let ctx = Arc::clone(&context) as Arc<dyn SendContext>;
+        tokio::spawn(pump_outbox(service, f.events, ctx));
+        assert!(f.service.wait_idle(Duration::from_secs(60)).await);
+
+        assert_eq!(context.finished_count(), 1);
+        assert!(context.last_outcome().unwrap().is_err());
+        assert_eq!(f.service.in_flight(), 0);
     }
 
     #[test]

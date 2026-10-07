@@ -239,11 +239,10 @@ pub struct FakeConnection {
 
 impl FakeConnection {
     fn take_error(&self) -> Result<()> {
+        // Une panne passagère, comme un serveur occupé ou une connexion coupée : un
+        // refus définitif se simule par un dossier ou un message absent.
         if let Some(message) = self.state.lock().unwrap().next_error.take() {
-            return Err(Error::Protocol {
-                protocol: "IMAP",
-                message,
-            });
+            return Err(Error::Network(message));
         }
         Ok(())
     }

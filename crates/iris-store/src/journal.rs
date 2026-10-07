@@ -14,7 +14,7 @@
 use crate::model::{OpKind, PendingOp};
 use crate::{sql_err, Store};
 use iris_types::{AccountId, OpId, Result, Timestamp};
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 /// Délai avant nouvelle tentative, en secondes, selon le nombre d'échecs.
 ///
@@ -31,7 +31,11 @@ pub fn backoff_secs(attempts: u32) -> i64 {
 impl Store {
     /// Enregistre une opération à réconcilier.
     ///
-    /// Retourne l'identifiant existant si la clé d'idempotence est déjà connue.
+    /// La même intention enregistrée deux fois de suite n'est qu'une opération : la
+    /// dernière en attente du compte est retournée. Mais une intention qui revient
+    /// après une autre (lu, non lu, puis lu) est une nouvelle étape : la clé ne
+    /// décrit que l'effet visé, et la garder pour toujours faisait ignorer en silence
+    /// le troisième geste, que le serveur ne recevait jamais.
     pub fn enqueue_op(
         &self,
         account: AccountId,
@@ -40,9 +44,34 @@ impl Store {
         idempotency_key: &str,
         now: Timestamp,
     ) -> Result<OpId> {
-        self.with_conn(|c| {
-            c.execute(
-                "INSERT OR IGNORE INTO op_journal
+        self.with_tx(|tx| {
+            let derniere: Option<(i64, String)> = tx
+                .query_row(
+                    "SELECT id, idempotency_key FROM op_journal
+                     WHERE account_id = ?1 AND done = 0
+                     ORDER BY id DESC LIMIT 1",
+                    params![account.get()],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| sql_err("dernière opération", e))?;
+            if let Some((id, clef)) = derniere {
+                if clef == idempotency_key {
+                    return Ok(OpId(id));
+                }
+            }
+
+            // Toute autre ligne qui porte la clé (acquittée, ou suivie d'une autre
+            // intention) la cède : la colonne est unique.
+            tx.execute(
+                "UPDATE op_journal SET idempotency_key = idempotency_key || '#' || id
+                 WHERE idempotency_key = ?1",
+                params![idempotency_key],
+            )
+            .map_err(|e| sql_err("libération de la clé", e))?;
+
+            tx.execute(
+                "INSERT INTO op_journal
                    (account_id, kind, payload, idempotency_key, created_at, next_attempt_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
                 params![
@@ -54,19 +83,36 @@ impl Store {
                 ],
             )
             .map_err(|e| sql_err("enregistrement de l'opération", e))?;
-
-            c.query_row(
-                "SELECT id FROM op_journal WHERE idempotency_key = ?1",
-                params![idempotency_key],
-                |r| r.get::<_, i64>(0),
-            )
-            .map(OpId)
-            .map_err(|e| sql_err("relecture de l'opération", e))
+            Ok(OpId(tx.last_insert_rowid()))
         })
     }
 
-    /// Les opérations prêtes à être rejouées, dans l'ordre d'enregistrement.
+    /// Les opérations prêtes à être rejouées, tous comptes confondus, dans l'ordre
+    /// d'enregistrement.
     pub fn pending_ops(&self, now: Timestamp, limit: u32) -> Result<Vec<PendingOp>> {
+        self.pending_ops_where(None, now, limit)
+    }
+
+    /// Les opérations d'un compte prêtes à être rejouées.
+    ///
+    /// Filtrer après coup les cent plus anciennes de tous les comptes laissait un
+    /// compte retiré, éteint ou refusé occuper la fenêtre : les actions des autres
+    /// n'atteignaient plus jamais leur serveur.
+    pub fn pending_ops_for(
+        &self,
+        account: AccountId,
+        now: Timestamp,
+        limit: u32,
+    ) -> Result<Vec<PendingOp>> {
+        self.pending_ops_where(Some(account), now, limit)
+    }
+
+    fn pending_ops_where(
+        &self,
+        account: Option<AccountId>,
+        now: Timestamp,
+        limit: u32,
+    ) -> Result<Vec<PendingOp>> {
         self.with_conn(|c| {
             let mut stmt = c
                 .prepare_cached(
@@ -74,23 +120,28 @@ impl Store {
                             attempts, next_attempt_at, last_error
                      FROM op_journal
                      WHERE done = 0 AND next_attempt_at <= ?1
+                       AND (?3 IS NULL OR account_id = ?3)
                      ORDER BY id ASC LIMIT ?2",
                 )
                 .map_err(|e| sql_err("préparation", e))?;
             let rows = stmt
-                .query_map(params![now.millis(), limit as i64], |r| {
-                    Ok(PendingOp {
-                        id: OpId(r.get(0)?),
-                        account: AccountId(r.get(1)?),
-                        kind: OpKind::parse(&r.get::<_, String>(2)?).unwrap_or(OpKind::SetFlags),
-                        payload: r.get(3)?,
-                        idempotency_key: r.get(4)?,
-                        created_at: Timestamp::from_millis(r.get(5)?),
-                        attempts: r.get::<_, i64>(6)? as u32,
-                        next_attempt_at: Timestamp::from_millis(r.get(7)?),
-                        last_error: r.get(8)?,
-                    })
-                })
+                .query_map(
+                    params![now.millis(), limit as i64, account.map(|a| a.get())],
+                    |r| {
+                        Ok(PendingOp {
+                            id: OpId(r.get(0)?),
+                            account: AccountId(r.get(1)?),
+                            kind: OpKind::parse(&r.get::<_, String>(2)?)
+                                .unwrap_or(OpKind::SetFlags),
+                            payload: r.get(3)?,
+                            idempotency_key: r.get(4)?,
+                            created_at: Timestamp::from_millis(r.get(5)?),
+                            attempts: r.get::<_, i64>(6)? as u32,
+                            next_attempt_at: Timestamp::from_millis(r.get(7)?),
+                            last_error: r.get(8)?,
+                        })
+                    },
+                )
                 .map_err(|e| sql_err("opérations en attente", e))?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("opérations en attente", e))
@@ -147,9 +198,8 @@ impl Store {
 
     /// Purge les opérations réconciliées plus anciennes que la date donnée.
     ///
-    /// Les clés d'idempotence sont conservées un temps après succès : sans cela, un
-    /// rejeu tardif provoqué par une reprise du réseau pourrait renvoyer un message
-    /// déjà parti.
+    /// Elles ne servent plus qu'au diagnostic : sans purge, le journal grossit sans
+    /// fin.
     pub fn purge_completed_ops(&self, before: Timestamp) -> Result<usize> {
         self.with_conn(|c| {
             c.execute(
@@ -283,11 +333,65 @@ mod tests {
         s.complete_op(recente).unwrap();
 
         assert_eq!(s.purge_completed_ops(t(5_000)).unwrap(), 1);
-        // La clef récente subsiste : un rejeu tardif ne doit pas renvoyer le message.
-        let reste = s
-            .enqueue_op(a, OpKind::SetFlags, "{}", "récente", t(10_000))
+        assert_eq!(s.purge_completed_ops(t(5_000)).unwrap(), 0);
+    }
+
+    #[test]
+    fn une_intention_acquittee_peut_etre_refaite() {
+        // Lu, non lu, puis lu : le troisième geste doit atteindre le serveur. La clé
+        // gardée après succès le faisait ignorer en silence.
+        let (s, a) = setup();
+        let lu = s.enqueue_op(a, OpKind::SetFlags, "{}", "lu", t(0)).unwrap();
+        s.complete_op(lu).unwrap();
+        let non_lu = s
+            .enqueue_op(a, OpKind::SetFlags, "{}", "non-lu", t(1))
             .unwrap();
-        assert_eq!(reste, recente);
+        s.complete_op(non_lu).unwrap();
+
+        let encore = s.enqueue_op(a, OpKind::SetFlags, "{}", "lu", t(2)).unwrap();
+        assert_ne!(encore, lu);
+        assert_eq!(s.pending_op_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn une_intention_qui_revient_apres_une_autre_est_une_nouvelle_etape() {
+        // Toutes en attente : lu, non lu, lu. Fusionner le troisième avec le premier
+        // laisserait le serveur sur « non lu » alors que l'écran dit « lu ».
+        let (s, a) = setup();
+        s.enqueue_op(a, OpKind::SetFlags, "{}", "lu", t(0)).unwrap();
+        s.enqueue_op(a, OpKind::SetFlags, "{}", "non-lu", t(1))
+            .unwrap();
+        s.enqueue_op(a, OpKind::SetFlags, "{}", "lu", t(2)).unwrap();
+
+        let ops = s.pending_ops(t(10), 10).unwrap();
+        assert_eq!(ops.len(), 3);
+        assert_eq!(ops.last().unwrap().idempotency_key, "lu");
+    }
+
+    #[test]
+    fn la_file_d_un_compte_ignore_celle_des_autres() {
+        // Cent opérations d'un compte bloqué ne doivent pas cacher celles d'un autre.
+        let (s, a) = setup();
+        let b = s
+            .create_account(&NewAccount::new("b@x.fr", "i", "s"), t(0))
+            .unwrap();
+        for i in 0..5 {
+            s.enqueue_op(a, OpKind::SetFlags, "{}", &format!("a{i}"), t(0))
+                .unwrap();
+        }
+        s.enqueue_op(b, OpKind::SetFlags, "{}", "b0", t(0)).unwrap();
+
+        let de_b = s.pending_ops_for(b, t(0), 3).unwrap();
+        assert_eq!(de_b.len(), 1);
+        assert_eq!(de_b[0].idempotency_key, "b0");
+    }
+
+    #[test]
+    fn retirer_un_compte_vide_son_journal() {
+        let (s, a) = setup();
+        s.enqueue_op(a, OpKind::SetFlags, "{}", "k", t(0)).unwrap();
+        s.delete_account(a).unwrap();
+        assert_eq!(s.pending_op_count().unwrap(), 0);
     }
 
     #[test]

@@ -165,15 +165,18 @@ pub fn take(services: &Services, id: i64) -> Option<(iris_sync::Draft, Option<St
     Some((d, alias.map(|a| a.addr)))
 }
 
-/// Sends every message whose time has come (or `seulement` that one, now): composed
-/// and handed to the outbox without an undo delay. What could not be sent stays, and
-/// is said.
+/// Hands every message whose time has come (or `seulement` that one, now) to the
+/// outbox, without an undo delay. Each stays on the list until it has actually left:
+/// `avis` takes it off then, or keeps it for another try if it did not. Messages
+/// already on their way are not sent twice. Gives how many went to the outbox, and
+/// what could not even be composed.
 pub fn send_due(
     services: &Services,
     send: &iris_sync::SendService,
+    avis: &crate::shell::AvisEnvoi,
     seulement: Option<i64>,
 ) -> (usize, Vec<String>) {
-    let prets = match seulement {
+    let prets: Vec<_> = match seulement {
         Some(id) => services
             .store
             .scheduled_mail_by_id(id)
@@ -183,9 +186,10 @@ pub fn send_due(
             .collect(),
         None => services.store.due_scheduled_mail(now()).unwrap_or_default(),
     };
+    let en_route = avis.programmes_en_vol();
     let mut partis = 0;
     let mut echecs = Vec::new();
-    for m in prets {
+    for m in prets.into_iter().filter(|m| !en_route.contains(&m.id)) {
         let Some((brouillon, alias)) = unpack(m.account, &m.payload) else {
             echecs.push(format!("“{}” could not be read back", m.subject));
             let _ = services.store.unschedule_mail(m.id);
@@ -195,14 +199,10 @@ pub fn send_due(
             if let Some(a) = alias {
                 message.from = a;
             }
-            send.set_delay(std::time::Duration::ZERO);
-            send.queue(message)
+            avis.programmer(message, m.id, m.subject.clone(), services.clone())
         });
         match envoye {
-            Ok(_) => {
-                let _ = services.store.unschedule_mail(m.id);
-                partis += 1;
-            }
+            Ok(()) => partis += 1,
             Err(e) => echecs.push(format!("“{}”: {e}", m.subject)),
         }
     }
