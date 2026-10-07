@@ -120,11 +120,11 @@ pub fn valid_access_token(
         return Ok(None);
     };
 
-    // Les coffres d'avant ce format contiennent le jeton nu. On l'accepte plutôt
-    // que d'obliger l'utilisateur à réautoriser : il sera renouvelé au premier
-    // échec, et réécrit au bon format.
+    // Les coffres d'avant ce format contiennent le jeton nu, sans échéance. Rien ne le
+    // renouvelait une fois périmé : il est tenu pour expiré, et le jeton de
+    // rafraîchissement en donne un neuf, réécrit au bon format.
     let Ok(acces) = serde_json::from_str::<StoredAccess>(brut.expose()) else {
-        return Ok(Some(brut.expose().to_string()));
+        return Ok(None);
     };
 
     if acces.expires_at - now.millis() < MARGE_SECONDES * 1000 {
@@ -238,8 +238,23 @@ pub async fn authorize(
         );
     }
 
+    // Signed in as someone else in the browser: said, and nothing kept. The tokens
+    // were stored under the address typed, and every sync then failed as a refused
+    // password.
+    signed_in_as(email, jetons.email.as_deref())?;
+
     store_tokens(secrets.as_ref(), email, &jetons)?;
     Ok(jetons)
+}
+
+/// Checks the identity the provider vouched for against the address typed.
+fn signed_in_as(typed: &str, vouched: Option<&str>) -> Result<()> {
+    match vouched {
+        Some(qui) if !qui.trim().eq_ignore_ascii_case(typed.trim()) => Err(Error::Config(format!(
+            "you signed in as {qui} in the browser, not as {typed}: sign in again as {typed}"
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// De l'aléa pour le vérificateur PKCE et le jeton anti-rejeu.
@@ -329,16 +344,25 @@ mod tests {
     }
 
     #[test]
-    fn un_jeton_nu_de_l_ancien_format_reste_utilisable() {
-        // Obliger à réautoriser pour un changement de format serait une punition
-        // gratuite.
+    fn a_bare_token_of_the_old_format_is_renewed() {
+        // With no expiry it was used for ever, and the account failed for good once
+        // it lapsed. Taken as expired, the refresh token gives a fresh one, with no
+        // sign-in asked of the user.
         let (coffre, _d) = coffre();
         coffre
             .set("a@x.fr", SecretKind::AccessToken, &Secret::new("jeton-nu"))
             .unwrap();
 
         let lu = valid_access_token(coffre.as_ref(), "a@x.fr", Timestamp::EPOCH).unwrap();
-        assert_eq!(lu.as_deref(), Some("jeton-nu"));
+        assert_eq!(lu, None);
+    }
+
+    #[test]
+    fn signing_in_as_someone_else_is_refused() {
+        assert!(signed_in_as("alice@gmail.com", Some("Alice@Gmail.com")).is_ok());
+        assert!(signed_in_as("alice@gmail.com", None).is_ok());
+        let e = signed_in_as("alice@gmail.com", Some("bob@gmail.com")).unwrap_err();
+        assert!(e.to_string().contains("bob@gmail.com"), "{e}");
     }
 
     #[test]

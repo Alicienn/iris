@@ -207,9 +207,32 @@ impl<T: DiscoveryIo> Discovery<T> {
 
         // 4. Enregistrements DNS SRV, la réponse normalisée à cette question.
         attempts.push(format!("_imaps._tcp.{domain}"));
-        let imaps = self.io.srv(&format!("_imaps._tcp.{domain}")).await;
-        let submissions = self.io.srv(&format!("_submissions._tcp.{domain}")).await;
-        let submission = self.io.srv(&format!("_submission._tcp.{domain}")).await;
+        // DNS answers come unauthenticated: on a hostile network they can name any
+        // host, which would be sent the password at once. Only a host in the
+        // address's own domain, or a provider's known one, is taken from them.
+        let domaine_srv = domain.clone();
+        let fiable = move |r: &SrvRecord| srv_target_trusted(&domaine_srv, &r.target);
+        let imaps: Vec<SrvRecord> = self
+            .io
+            .srv(&format!("_imaps._tcp.{domain}"))
+            .await
+            .into_iter()
+            .filter(&fiable)
+            .collect();
+        let submissions: Vec<SrvRecord> = self
+            .io
+            .srv(&format!("_submissions._tcp.{domain}"))
+            .await
+            .into_iter()
+            .filter(&fiable)
+            .collect();
+        let submission: Vec<SrvRecord> = self
+            .io
+            .srv(&format!("_submission._tcp.{domain}"))
+            .await
+            .into_iter()
+            .filter(&fiable)
+            .collect();
 
         if let Some(imap) = best(&imaps) {
             let (smtp_host, smtp_port, smtp_transport) =
@@ -336,6 +359,18 @@ impl<T: DiscoveryIo> Discovery<T> {
 }
 
 /// Le meilleur enregistrement `SRV` : priorité la plus basse, puis poids le plus fort.
+/// Whether a host a DNS service record names may be sent the password: in the
+/// address's own domain, or a known provider's. A parent domain is not enough: without
+/// the list of public suffixes, `co.uk` cannot be told from `example.com`.
+fn srv_target_trusted(domain: &str, target: &str) -> bool {
+    let cible = target.trim_end_matches('.').to_ascii_lowercase();
+    if cible.is_empty() {
+        return true; // "." means "no such service": `best` drops it.
+    }
+    let domaine = domain.trim_end_matches('.').to_ascii_lowercase();
+    cible == domaine || cible.ends_with(&format!(".{domaine}")) || builtin::lookup(&cible).is_some()
+}
+
 fn best(records: &[SrvRecord]) -> Option<&SrvRecord> {
     records
         .iter()
@@ -415,19 +450,40 @@ mod tests {
         let mut io = MockIo::default();
         io.add_srv(
             "_imaps._tcp.mondomaine.fr",
-            SrvRecord::new("imap.serveur.fr", 993, 10, 5),
+            SrvRecord::new("imap.mondomaine.fr", 993, 10, 5),
         );
         io.add_srv(
             "_submissions._tcp.mondomaine.fr",
-            SrvRecord::new("smtp.serveur.fr", 465, 10, 5),
+            SrvRecord::new("smtp.mondomaine.fr", 465, 10, 5),
         );
         let d = Discovery::new(io);
 
         let r = d.discover("moi@mondomaine.fr").await.unwrap();
         assert_eq!(r.source, Source::DnsSrv);
-        assert_eq!(r.config.imap_host, "imap.serveur.fr");
+        assert_eq!(r.config.imap_host, "imap.mondomaine.fr");
         assert_eq!(r.config.smtp_port, 465);
         assert_eq!(r.config.smtp_transport, Transport::Tls);
+    }
+
+    #[tokio::test]
+    async fn a_srv_record_naming_a_host_elsewhere_is_not_believed() {
+        // Unauthenticated DNS on a hostile network could name any host, and it would
+        // have been sent the password at once.
+        let mut io = MockIo::default();
+        io.add_srv(
+            "_imaps._tcp.mondomaine.fr",
+            SrvRecord::new("imap.attaquant.example", 993, 10, 5),
+        );
+        let d = Discovery::new(io);
+
+        let r = d.discover("moi@mondomaine.fr").await;
+        assert!(r
+            .map(|r| r.config.imap_host != "imap.attaquant.example")
+            .unwrap_or(true));
+        // A known provider's host is fine.
+        assert!(srv_target_trusted("mondomaine.fr", "imap.gmail.com."));
+        assert!(srv_target_trusted("mondomaine.fr", "IMAP.mondomaine.fr."));
+        assert!(!srv_target_trusted("example.co.uk", "mail.co.uk"));
     }
 
     #[tokio::test]

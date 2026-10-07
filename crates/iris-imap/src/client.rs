@@ -7,9 +7,9 @@
 //!
 //! Trois décisions méritent d'être signalées :
 //!
-//! - **les racines de confiance sont embarquées** plutôt que lues dans le magasin du
-//!   système. Sur cent comptes, une machine mal configurée produirait cent échecs
-//!   inexplicables ;
+//! - **la confiance est celle du système**, comme pour l'envoi, avec les racines
+//!   embarquées pour repli : une autorité d'entreprise installée sur le poste servait
+//!   à envoyer et était refusée à la lecture ;
 //! - **`STARTTLS` est géré**, car quelques hébergeurs n'exposent encore que le port
 //!   143 ; un serveur qui refuse de chiffrer est refusé, rien n'est dit en clair
 //!   au-delà de l'accueil et de `STARTTLS` ;
@@ -34,9 +34,15 @@ use tokio::net::TcpStream;
 /// `ENVELOPE` fournirait déjà l'essentiel, mais pas `References`, sans lequel le
 /// regroupement en fils est impossible. On demande donc explicitement les en-têtes
 /// utiles, et eux seuls.
+///
+/// The spam filter's headers are asked for too (they were not, and the check that
+/// reads them never ran), and the first two kilobytes of the text: the list's preview
+/// is made from them, and the structure they show keeps an HTML newsletter from
+/// looking as if it carried a file.
 const HEADER_FIELDS: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE \
      BODY.PEEK[HEADER.FIELDS (DATE FROM TO CC REPLY-TO SUBJECT MESSAGE-ID \
-     IN-REPLY-TO REFERENCES LIST-UNSUBSCRIBE LIST-UNSUBSCRIBE-POST CONTENT-TYPE)])";
+     IN-REPLY-TO REFERENCES LIST-UNSUBSCRIBE LIST-UNSUBSCRIBE-POST CONTENT-TYPE \
+     X-SPAM-FLAG X-SPAM-STATUS X-SPAM)] BODY.PEEK[TEXT]<0.2048>)";
 
 // Avec la variante tokio d'async-imap, les flux tokio sont attendus tels quels :
 // aucun adaptateur n'est nécessaire.
@@ -50,13 +56,24 @@ pub struct RustlsConnector {
 }
 
 impl RustlsConnector {
+    /// Trusts what the system trusts, as sending does (`lettre` with the platform
+    /// verifier): a company's own authority, installed with its profile, was trusted
+    /// to send mail and refused for reading it. The embedded roots remain the fallback
+    /// when the system's store cannot be used.
     pub fn new() -> Self {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        use rustls_platform_verifier::BuilderVerifierExt;
 
         let config = rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+            .with_platform_verifier()
+            .map(|b| b.with_no_client_auth())
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "system certificate store unusable, embedded roots used");
+                let mut roots = rustls::RootCertStore::empty();
+                roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(roots)
+                    .with_no_client_auth()
+            });
 
         Self {
             config: Arc::new(config),
@@ -404,6 +421,18 @@ fn protocol_error(quoi: &str, e: async_imap::error::Error) -> Error {
     }
 }
 
+/// The headers, a blank line, and the start of the text, as one message to parse.
+fn headers_and_start(headers: Option<&[u8]>, text: Option<&[u8]>) -> Vec<u8> {
+    let mut sortie = headers.map(<[u8]>::to_vec).unwrap_or_default();
+    if let Some(debut) = text.filter(|t| !t.is_empty()) {
+        if !sortie.ends_with(b"\r\n\r\n") && !sortie.ends_with(b"\n\n") {
+            sortie.extend_from_slice(b"\r\n");
+        }
+        sortie.extend_from_slice(debut);
+    }
+    sortie
+}
+
 /// Traduit les drapeaux du protocole vers les nôtres.
 fn translate_flags<'a>(flags: impl Iterator<Item = async_imap::types::Flag<'a>>) -> Flags {
     use async_imap::types::Flag as F;
@@ -657,7 +686,7 @@ impl ImapConnection for ImapClient {
                     .map(|d| Timestamp::from_millis(d.timestamp_millis()))
                     .unwrap_or(Timestamp::EPOCH),
                 size: f.size.unwrap_or(0) as u64,
-                content: f.header().map(<[u8]>::to_vec).unwrap_or_default(),
+                content: headers_and_start(f.header(), f.text()),
             });
         }
         Ok(out)
@@ -825,7 +854,7 @@ impl ImapConnection for ImapClient {
     async fn create_folder(&mut self, path: &str) -> Result<()> {
         let nom = crate::utf7::encode(path);
         let session = self.session()?;
-        match session.create(&nom).await {
+        let resultat = match session.create(&nom).await {
             Ok(()) => Ok(()),
             // « ALREADYEXISTS », ou n'importe laquelle des formulations que les
             // serveurs emploient pour la même chose. Le but est atteint : le dossier
@@ -838,14 +867,26 @@ impl ImapConnection for ImapClient {
                     Err(protocol_error("création du dossier", e))
                 }
             }
+        };
+        // Subscribed too: clients that show only subscribed folders (many phones,
+        // Thunderbird by default) never showed one created here. A refusal is not
+        // worth failing for.
+        if resultat.is_ok() {
+            let _ = session.subscribe(&nom).await;
         }
+        resultat
     }
 
     async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()> {
         let (de, vers) = (crate::utf7::encode(from), crate::utf7::encode(to));
         let session = self.session()?;
         match session.rename(&de, &vers).await {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                // The subscription follows the name.
+                let _ = session.unsubscribe(&de).await;
+                let _ = session.subscribe(&vers).await;
+                Ok(())
+            }
             Err(e) => {
                 // Déjà renommé — le rejeu repasse — ou la source a disparu sous ce
                 // nom-là. Dans les deux cas le but est atteint et échouer ferait

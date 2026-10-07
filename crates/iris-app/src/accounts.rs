@@ -145,7 +145,14 @@ pub async fn add_account(
     }
 
     let decouverte = Discovery::new(RealIo::new()).discover(&email).await?;
-    let config = decouverte.config.clone();
+    let mut config = decouverte.config.clone();
+
+    // The command line has no browser to sign in with: given a password, a Gmail or
+    // Outlook account signs in with it (an app password), as the window does without a
+    // client set. Made a Google account with a password stored, it could never sign
+    // in. And the password is tried before anything is kept, as the window does.
+    config.auth = Auth::Password;
+    verify_login(&config, password).await?;
 
     // Le mot de passe est enregistré **avant** le compte : si le trousseau refuse,
     // mieux vaut n'avoir rien créé qu'un compte inutilisable.

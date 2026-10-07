@@ -48,6 +48,24 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Mutex;
 
+/// A folder's path without the `INBOX.` or `INBOX/` some hosts put in front of the
+/// user's folders: the name it is shown, and matched across mailboxes, under.
+pub fn display_path(path: &str) -> &str {
+    let prefixe = path.get(..6);
+    match prefixe {
+        Some(p) if p.eq_ignore_ascii_case("INBOX.") || p.eq_ignore_ascii_case("INBOX/") => {
+            &path[6..]
+        }
+        _ => path,
+    }
+}
+
+/// Whether two paths name the same folder as shown: `Devis` at one host,
+/// `INBOX.Devis` at another.
+pub fn same_folder(a: &str, b: &str) -> bool {
+    a == b || display_path(a) == display_path(b)
+}
+
 /// Poignée sur la base locale.
 #[derive(Debug)]
 pub struct Store {
@@ -171,6 +189,17 @@ pub(crate) fn sql_err(context: &str, e: rusqlite::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_is_one_name_whatever_the_host_puts_in_front() {
+        assert_eq!(display_path("INBOX.Devis"), "Devis");
+        assert_eq!(display_path("inbox/Devis"), "Devis");
+        assert_eq!(display_path("Devis"), "Devis");
+        assert_eq!(display_path("INBOX"), "INBOX");
+        assert_eq!(display_path("Réunions"), "Réunions");
+        assert!(same_folder("Devis", "INBOX.Devis"));
+        assert!(!same_folder("Devis", "INBOX.Offres"));
+    }
 
     #[test]
     fn une_base_neuve_est_migree() {

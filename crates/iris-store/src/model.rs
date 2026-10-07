@@ -499,10 +499,14 @@ pub struct Contact {
 impl Contact {
     /// Ce qu'on écrit dans un champ de destinataire.
     pub fn to_header(&self) -> String {
-        if self.display.trim().is_empty() {
+        let nom = self.display.trim();
+        if nom.is_empty() {
             self.address.clone()
+        } else if nom.contains([',', ';', '"', '<', '>', '@']) {
+            // Quoted, or "Dupont, Marie" was read as two recipients and refused.
+            format!("\"{}\" <{}>", nom.replace('"', ""), self.address)
         } else {
-            format!("{} <{}>", self.display.trim(), self.address)
+            format!("{nom} <{}>", self.address)
         }
     }
 }

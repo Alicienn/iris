@@ -207,6 +207,9 @@ impl ViewModel {
             self.now,
         )?;
         self.search = Some(etat);
+        // Like a change of folder: what was checked is no longer on screen, and a
+        // bulk action would act on threads nobody sees.
+        self.selection.clear_marks();
         self.select_first();
 
         Ok(ViewUpdate {
@@ -225,6 +228,7 @@ impl ViewModel {
         if self.search.take().is_none() {
             return ViewUpdate::default();
         }
+        self.selection.clear_marks();
         self.select_first();
         ViewUpdate {
             list: ListUpdate {
@@ -301,6 +305,7 @@ impl ViewModel {
         // rangés par file, et les garder afficherait la mauvaise chose sous le
         // mauvais titre.
         let recherche = self.search.take().is_some();
+        self.selection.clear_marks();
 
         let store = Arc::clone(&self.store);
         self.list_mut(state).ensure_loaded(&store, 0)?;
@@ -406,6 +411,7 @@ impl ViewModel {
             return Ok(ViewUpdate::default());
         }
 
+        self.selection.clear_marks();
         self.select_first();
         self.refresh_counts()?;
 
@@ -466,6 +472,7 @@ impl ViewModel {
         // Le filtre par compte s'applique aussi aux résultats : rejouer la recherche
         // vaut mieux que la fermer sans prévenir.
         self.refresh_search()?;
+        self.selection.clear_marks();
         self.select_first();
         self.refresh_counts()?;
 

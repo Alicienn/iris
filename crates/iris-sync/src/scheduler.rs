@@ -58,7 +58,9 @@ impl Default for ScheduleConfig {
     fn default() -> Self {
         Self {
             min_interval: Duration::from_secs(60),
-            max_interval: Duration::from_secs(3600),
+            // A quiet mailbox is still looked at every quarter of an hour: at an
+            // hour, new mail could take that long to show.
+            max_interval: Duration::from_secs(900),
             initial_interval: Duration::from_secs(300),
             recent_window: Duration::from_secs(6 * 3600),
             failure_threshold: 5,
@@ -249,7 +251,13 @@ impl Scheduler {
                 // vers l'intervalle maximal en une dizaine de tours à vide, ce qui
                 // laisse le temps de réagir à une reprise d'activité.
                 let elargi = e.interval.saturating_add(e.interval / 2);
-                e.interval = elargi.min(config.max_interval);
+                // The mailbox on screen stays close: someone is looking at it.
+                let plafond = if e.priority == Priority::Active {
+                    (config.min_interval * 2).min(config.max_interval)
+                } else {
+                    config.max_interval
+                };
+                e.interval = elargi.min(plafond);
             }
             SyncOutcome::TransientFailure => {
                 e.consecutive_failures += 1;
@@ -258,10 +266,10 @@ impl Scheduler {
                 let facteur = 2u32.saturating_pow(e.consecutive_failures.min(6));
                 e.interval = (config.min_interval * facteur).min(config.max_interval);
                 // Marked as in trouble, for the user to see, but tried again on its
-                // own an hour on: a network that comes back, a server out for half an
-                // hour, a long first sync that ran out of time are not the user's to
-                // fix. Suspended for good, an account stopped after about thirty
-                // minutes offline until someone clicked it.
+                // own at the longest interval: a network that comes back, a server out
+                // for half an hour, a long first sync that ran out of time are not the
+                // user's to fix. Suspended for good, an account stopped after about
+                // thirty minutes offline until someone clicked it.
                 if e.consecutive_failures >= config.failure_threshold {
                     e.suspended = true;
                     e.interval = config.max_interval;
@@ -444,11 +452,15 @@ mod tests {
         s.record(AccountId(1), SyncOutcome::TransientFailure, t(10_000));
         assert!(s.get(AccountId(1)).unwrap().suspended);
         assert_eq!(s.suspended(), [AccountId(1)]);
-        assert!(s.due(t(10_000 + 3599)).is_empty(), "left alone for an hour");
+        let pause = ScheduleConfig::default().max_interval.as_secs() as i64;
+        assert!(
+            s.due(t(10_000 + pause - 1)).is_empty(),
+            "left alone for a while"
+        );
         // Then tried again on its own: a network back or a server up again is not
         // the user's to fix. It stayed stopped until someone clicked it.
-        assert_eq!(s.due(t(10_000 + 3600)), [AccountId(1)]);
-        s.record(AccountId(1), SyncOutcome::Unchanged, t(10_000 + 3600));
+        assert_eq!(s.due(t(10_000 + pause)), [AccountId(1)]);
+        s.record(AccountId(1), SyncOutcome::Unchanged, t(10_000 + pause));
         assert!(
             s.suspended().is_empty(),
             "working again, no longer in trouble"

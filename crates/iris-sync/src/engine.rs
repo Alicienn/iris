@@ -383,6 +383,14 @@ impl SyncEngine {
         {
             tracing::warn!(message = %message.id, error = %e, "recording attachments");
         }
+        // What the headers alone could only guess (attachment, tracker), and the
+        // preview, from the whole message now that it is here.
+        if let Err(e) =
+            self.store()
+                .set_body_facts(message.id, &analyse.preview, analyse.derived_flags)
+        {
+            tracing::warn!(message = %message.id, error = %e, "recording what the body says");
+        }
     }
 
     /// Remplace l'entrée d'index d'un message par une entrée incluant son corps.

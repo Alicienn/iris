@@ -148,6 +148,44 @@ impl Store {
         })
     }
 
+    /// Where the latest move journalled for this message sent it, if one did: the
+    /// target folder of a `Move` from `folder` naming `uid`, waiting or carried out.
+    pub fn moved_to(&self, account: AccountId, folder: &str, uid: u32) -> Result<Option<String>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT payload FROM op_journal
+                     WHERE account_id = ?1 AND kind IN (?2, ?3)
+                     ORDER BY id DESC LIMIT 200",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+            let lignes = stmt
+                .query_map(
+                    params![
+                        account.get(),
+                        OpKind::MoveMessage.as_str(),
+                        OpKind::DeleteMessage.as_str()
+                    ],
+                    |r| r.get::<_, String>(0),
+                )
+                .map_err(|e| sql_err("déplacements", e))?;
+            for ligne in lignes {
+                let charge = ligne.map_err(|e| sql_err("déplacements", e))?;
+                if let Ok(crate::OpPayload::Move {
+                    folder: source,
+                    uids,
+                    target,
+                }) = crate::OpPayload::parse(&charge)
+                {
+                    if source == folder && uids.contains(&uid) {
+                        return Ok(Some(target));
+                    }
+                }
+            }
+            Ok(None)
+        })
+    }
+
     /// Takes back an operation the server has not been told of yet. Says whether it
     /// was still waiting: once replayed, it can only be reversed by another.
     pub fn withdraw_op(&self, id: OpId) -> Result<bool> {

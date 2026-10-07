@@ -3293,6 +3293,8 @@ pub fn wire_account_setup(
                             announce(&fenetre, format!("{adresse} added and working."));
                             fenetre.set_status(format!("{adresse} ajouté ({source}).").into());
                             refresh_accounts(&fenetre, &services_ui, &[]);
+                            // Offered as a sender at once, not after a restart.
+                            charger_expediteurs(&fenetre, &services_ui);
                             controller.send(Request::Bootstrap);
                         }
                         // Le serveur a répondu, et il a dit non. Les champs de
@@ -3489,6 +3491,7 @@ pub fn wire_account_setup(
                             announce(&fenetre, format!("{adresse} added and working."));
                             fenetre.set_status(format!("{adresse} added.").into());
                             refresh_accounts(&fenetre, &services_ui, &[]);
+                            charger_expediteurs(&fenetre, &services_ui);
                             controller.send(Request::Bootstrap);
                         }
                         Err((refuse, message)) => {
@@ -3561,6 +3564,15 @@ async fn ajouter(
                 )));
             }
 
+            // Before the browser: signing in again for an address already set up
+            // overwrote its tokens, perhaps with another identity's, before failing
+            // with "already exists".
+            if store.account_by_email(&config.email)?.is_some() {
+                return Err(iris_types::Error::Config(format!(
+                    "{} is already set up: use Sign in again from its menu instead",
+                    config.email
+                )));
+            }
             etape("Autorisation dans le navigateur…");
             crate::oauth::authorize(
                 Arc::clone(&secrets),
@@ -4427,6 +4439,14 @@ pub fn scope_depuis(choix: &str) -> iris_store::Scope {
     }
 }
 
+/// The mailbox the view is filtered to, if it is filtered to one.
+fn compte_regarde(fenetre: &AppWindow) -> Option<iris_types::AccountId> {
+    match fenetre.get_selected_account() {
+        0 => None,
+        id => Some(iris_types::AccountId(id as i64)),
+    }
+}
+
 /// Le chemin que le serveur connaît, pour le dossier dont le menu est ouvert.
 ///
 /// C'est la clé de la ligne, qui est déjà ce chemin (`INBOX.Devis` là où l'arborescence
@@ -4652,7 +4672,12 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             fenetre.set_folder_menu_open(false);
             let portee = scope_depuis(fenetre.get_folder_menu_key().as_str());
 
-            match crate::folders::mark_read_everywhere(&services.store, &portee, now()) {
+            match crate::folders::mark_read_everywhere(
+                &services.store,
+                &portee,
+                compte_regarde(&fenetre),
+                now(),
+            ) {
                 Ok(0) => fenetre.set_status("Nothing unread there.".into()),
                 Ok(n) => {
                     controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
@@ -4683,7 +4708,12 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             fenetre.set_folder_menu_open(false);
             let portee = scope_depuis(fenetre.get_folder_menu_key().as_str());
 
-            match crate::folders::empty_everywhere(&services.store, &portee, now()) {
+            match crate::folders::empty_everywhere(
+                &services.store,
+                &portee,
+                compte_regarde(&fenetre),
+                now(),
+            ) {
                 Ok(0) => fenetre.set_status("It is already empty.".into()),
                 Ok(n) => {
                     controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
@@ -5264,6 +5294,7 @@ pub fn wire_account_menu(
                     fenetre.set_status(format!("{} {mot}.", details.email).into());
                     refresh_accounts(&fenetre, &services, &[]);
                     recharger_les_comptes(&services, &runtime);
+                    charger_expediteurs(&fenetre, &services);
                 }
                 Err(e) => fenetre.set_status(format!("Could not change it: {e}").into()),
             }
@@ -5283,13 +5314,26 @@ pub fn wire_account_menu(
                 return;
             };
 
+            // Its scheduled messages go with it: said, not silently dropped.
+            let programmes = services.store.scheduled_mail_count(details.id).unwrap_or(0);
             match crate::accounts::remove_account(
                 &services.store,
                 services.secrets.as_ref(),
                 details.id,
             ) {
                 Ok(_) => {
-                    fenetre.set_status(format!("{} removed.", details.email).into());
+                    fenetre.set_status(
+                        if programmes == 0 {
+                            format!("{} removed.", details.email)
+                        } else {
+                            format!(
+                                "{} removed, with {} that waited to be sent.",
+                                details.email,
+                                iris_ui::format::plural(programmes as u64, "scheduled message")
+                            )
+                        }
+                        .into(),
+                    );
                     refresh_accounts(&fenetre, &services, &[]);
                     controller.send(Request::Bootstrap);
                     recharger_les_comptes(&services, &runtime);
@@ -5814,6 +5858,7 @@ pub fn wire_compose(
                 attachments: pieces.lock().expect("poisoned attachments").clone(),
             };
             let adresse = exp.address.clone();
+            let alias = exp.alias.clone();
             vider_redaction(&fenetre, &pieces);
             fenetre.set_compose_open(false);
             fenetre.set_status("Saving the draft…".into());
@@ -5821,7 +5866,7 @@ pub fn wire_compose(
             let (send, chemin, pieces, faible) =
                 (Arc::clone(&send), chemin.clone(), Arc::clone(&pieces), faible.clone());
             runtime.spawn(async move {
-                let resultat = send.save_draft(&brouillon).await;
+                let resultat = send.save_draft_as(&brouillon, alias.as_ref()).await;
                 let _ = faible.upgrade_in_event_loop(move |fenetre| match resultat {
                     Ok(true) => {
                         let _ = crate::draft::Draft::clear(&chemin);

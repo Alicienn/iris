@@ -68,11 +68,19 @@ impl Store {
 
     /// Every message waiting, the soonest first.
     pub fn scheduled_mail(&self) -> Result<Vec<ScheduledMail>> {
+        self.scheduled_where("1", params![])
+    }
+
+    /// Every message waiting, without its draft: what their list shows. Read every
+    /// half minute on the window's thread, the drafts (attachments included) made it
+    /// stall.
+    pub fn scheduled_mail_list(&self) -> Result<Vec<ScheduledMail>> {
         self.with_conn(|c| {
             let mut stmt = c
-                .prepare(&format!(
-                    "SELECT {COLONNES} FROM scheduled_mail ORDER BY send_at, id"
-                ))
+                .prepare(
+                    "SELECT id, account_id, send_at, to_line, subject, '' FROM scheduled_mail
+                     ORDER BY send_at, id",
+                )
                 .map_err(err("envois différés"))?;
             let lignes = stmt
                 .query_map([], ligne)
@@ -85,16 +93,45 @@ impl Store {
 
     /// The messages whose time has come.
     pub fn due_scheduled_mail(&self, now: Timestamp) -> Result<Vec<ScheduledMail>> {
-        Ok(self
-            .scheduled_mail()?
-            .into_iter()
-            .filter(|m| m.send_at.millis() <= now.millis())
-            .collect())
+        self.scheduled_where("send_at <= ?1", [now.millis()])
     }
 
     /// One of them, by its identifier.
     pub fn scheduled_mail_by_id(&self, id: i64) -> Result<Option<ScheduledMail>> {
-        Ok(self.scheduled_mail()?.into_iter().find(|m| m.id == id))
+        Ok(self.scheduled_where("id = ?1", [id])?.into_iter().next())
+    }
+
+    /// How many messages of a mailbox wait to be sent: what removing it throws away.
+    pub fn scheduled_mail_count(&self, account: AccountId) -> Result<usize> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT count(*) FROM scheduled_mail WHERE account_id = ?1",
+                [account.get()],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as usize)
+            .map_err(err("envois différés"))
+        })
+    }
+
+    fn scheduled_where<P: rusqlite::Params>(
+        &self,
+        condition: &str,
+        args: P,
+    ) -> Result<Vec<ScheduledMail>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare(&format!(
+                    "SELECT {COLONNES} FROM scheduled_mail WHERE {condition} ORDER BY send_at, id"
+                ))
+                .map_err(err("envois différés"))?;
+            let lignes = stmt
+                .query_map(args, ligne)
+                .map_err(err("envois différés"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err("envois différés"));
+            lignes
+        })
     }
 
     /// Takes a message out of the waiting ones: sent, or taken back.

@@ -28,7 +28,64 @@ struct Enveloppe {
 struct Piece {
     filename: String,
     mime_type: String,
+    /// Base64: as a list of numbers, a 10 MB attachment took about 40 MB of JSON.
+    /// Drafts kept before read either way.
+    #[serde(with = "contenu")]
     content: Vec<u8>,
+}
+
+/// An attachment's bytes in the kept draft: written as base64, read as base64 or as
+/// the list of numbers older versions wrote.
+mod contenu {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    pub fn serialize<S: Serializer>(octets: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        let mut sortie = String::with_capacity(octets.len().div_ceil(3) * 4);
+        for bloc in octets.chunks(3) {
+            let n = (u32::from(bloc[0]) << 16)
+                | (u32::from(*bloc.get(1).unwrap_or(&0)) << 8)
+                | u32::from(*bloc.get(2).unwrap_or(&0));
+            for i in 0..4 {
+                if i <= bloc.len() {
+                    sortie.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
+                } else {
+                    sortie.push('=');
+                }
+            }
+        }
+        s.serialize_str(&sortie)
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Forme {
+        Texte(String),
+        Nombres(Vec<u8>),
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        match Forme::deserialize(d)? {
+            Forme::Nombres(n) => Ok(n),
+            Forme::Texte(t) => decode(&t).ok_or_else(|| serde::de::Error::custom("bad base64")),
+        }
+    }
+
+    fn decode(texte: &str) -> Option<Vec<u8>> {
+        let mut sortie = Vec::with_capacity(texte.len() / 4 * 3);
+        let (mut bits, mut nombre) = (0u32, 0);
+        for b in texte.bytes().filter(|b| *b != b'=') {
+            let v = ALPHABET.iter().position(|a| *a == b)? as u32;
+            bits = (bits << 6) | v;
+            nombre += 6;
+            if nombre >= 8 {
+                nombre -= 8;
+                sortie.push(((bits >> nombre) & 0xff) as u8);
+            }
+        }
+        Some(sortie)
+    }
 }
 
 fn pack(d: &iris_sync::Draft, alias: Option<&iris_types::Address>) -> String {
@@ -144,7 +201,7 @@ pub fn rows(services: &Services) -> Vec<iris_ui::ScheduledMailData> {
     let maintenant = Local::now().naive_local();
     services
         .store
-        .scheduled_mail()
+        .scheduled_mail_list()
         .unwrap_or_default()
         .into_iter()
         .map(|m| iris_ui::ScheduledMailData {
@@ -233,6 +290,36 @@ mod tests {
         assert!(options(a("2026-10-04 10:00"))
             .iter()
             .all(|(l, _)| !l.starts_with("Monday")));
+    }
+
+    #[test]
+    fn attachments_are_kept_as_base64_and_old_drafts_still_read() {
+        let d = iris_sync::Draft {
+            account: AccountId(1),
+            to: "b@example.com".into(),
+            cc: String::new(),
+            bcc: String::new(),
+            subject: "Devis".into(),
+            body: String::new(),
+            attachments: vec![iris_smtp::Attachment {
+                filename: "a.bin".into(),
+                mime_type: "application/octet-stream".into(),
+                content: (0..=255u8).collect(),
+            }],
+        };
+        let paquet = pack(&d, None);
+        assert!(
+            !paquet.contains("[0,1,2"),
+            "not a list of numbers: {paquet}"
+        );
+        assert_eq!(unpack(AccountId(1), &paquet).unwrap().0, d);
+
+        let ancien = r#"{"to":"b@example.com","cc":"","bcc":"","subject":"S","body":"",
+            "pieces":[{"filename":"x","mime_type":"text/plain","content":[104,105]}]}"#;
+        assert_eq!(
+            unpack(AccountId(1), ancien).unwrap().0.attachments[0].content,
+            b"hi"
+        );
     }
 
     #[test]

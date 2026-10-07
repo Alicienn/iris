@@ -599,3 +599,12 @@ variant, brought into the application.
       duplicate without MOVE. Folders: modified UTF-7, the server's delimiter and
       prefix, Gmail's Starred and Important left out, unread counted once. Sending:
       Reply-To and Cc, invitation answers as a calendar part.
+- [x] **S41.19** The medium findings of the same audit, fixed (4.7.0). Previews and
+      attachment marks at arrival from the start of the text, spam headers read, an
+      unreadable batch fetched one by one, first syncs newest first, polling every
+      15 minutes at most. System certificates for IMAP, DNS records outside the
+      domain refused, Google identity checked, old tokens renewed. Flags after a move
+      by `Message-ID`, UID operations dropped after a rebuild, rescues to the inbox,
+      snoozes, stars, checks and bulk errors put right; folders matched by their shown
+      name and subscribed. Replies from the alias written to, drafts with Bcc and
+      alias, Reply-To-safe recipient lists, lighter scheduled sends.

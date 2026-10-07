@@ -49,6 +49,9 @@ pub async fn replay_account(
 ) -> Result<ReplayReport> {
     let mut rapport = ReplayReport::default();
     let mut dossier_courant: Option<String> = None;
+    // The folder selected was rebuilt by the server since the actions were queued:
+    // their UIDs now name other messages.
+    let mut uid_perimes = false;
 
     for op in ops {
         let charge = match OpPayload::parse(&op.payload) {
@@ -67,7 +70,18 @@ pub async fn replay_account(
         // coûte un aller-retour complet.
         if charge.needs_selection() && dossier_courant.as_deref() != Some(charge.folder()) {
             match conn.select(charge.folder()).await {
-                Ok(_) => dossier_courant = Some(charge.folder().to_string()),
+                Ok(selection) => {
+                    dossier_courant = Some(charge.folder().to_string());
+                    let connue = store
+                        .folders(op.account)?
+                        .into_iter()
+                        .find(|f| f.path == charge.folder())
+                        .map(|f| f.uid_validity)
+                        .unwrap_or(0);
+                    uid_perimes = connue != 0
+                        && selection.uid_validity != 0
+                        && connue != selection.uid_validity;
+                }
                 Err(e) if e.is_transient() => {
                     store.fail_op(op.id, &e.to_string(), now)?;
                     rapport.failed += 1;
@@ -84,6 +98,16 @@ pub async fn replay_account(
                     continue;
                 }
             }
+        }
+
+        // Its UIDs were given by a folder the server has rebuilt since: they would
+        // land on other messages (a flag, a move, a deletion on mail nobody chose).
+        // Dropped; the next sync reads the folder again.
+        if uid_perimes && charge.uses_uids() {
+            tracing::warn!(op = %op.id, folder = %charge.folder(), "folder rebuilt since: operation dropped");
+            store.complete_op(op.id)?;
+            rapport.dropped += 1;
+            continue;
         }
 
         let resultat = apply(conn, &charge).await;
@@ -121,6 +145,18 @@ async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> 
             uids, flags, add, ..
         } => conn.store_flags(uids, Flags(*flags), *add).await,
         OpPayload::Move { uids, target, .. } => conn.move_messages(uids, target).await,
+        OpPayload::SetFlagsByMessageId {
+            message_ids,
+            flags,
+            add,
+            ..
+        } => {
+            let mut uids = Vec::new();
+            for id in message_ids {
+                uids.extend(conn.find_message_id(id).await?);
+            }
+            conn.store_flags(&uids, Flags(*flags), *add).await
+        }
         OpPayload::MoveByMessageId {
             message_ids,
             target,

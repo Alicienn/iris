@@ -762,13 +762,43 @@ Since 4.6.0:
 - **Deleting for good.** Emptying the bin or the junk folder sets `\Deleted` and
   expunges (`expunge`: `UID EXPUNGE`, or `EXPUNGE` without UIDPLUS, which the move
   fallback without MOVE uses too).
-- **Scheduling.** Transient failures put an account aside for an hour, not for good;
-  only a refusal waits for the user (`AccountSchedule::needs_user`). *Sync all*
-  resumes what it synced, accounts switched off or removed leave the schedule
-  (`load_accounts`), and a body download is bounded by `account_timeout`.
+- **Scheduling.** Transient failures put an account aside for the longest interval,
+  not for good; only a refusal waits for the user (`AccountSchedule::needs_user`).
+  *Sync all* resumes what it synced, accounts switched off or removed leave the
+  schedule (`load_accounts`), and a body download is bounded by `account_timeout`.
 - **Replies** go to `Reply-To` when there is one, and Reply all adds `Cc`
   (`message_extras`). Invitation answers are the message's own
   `text/calendar; method=REPLY` part (`Outgoing::calendar_reply`), unsigned.
+
+Since 4.7.0:
+
+- **Fetching.** Headers come with the first 2 KB of the text
+  (`BODY.PEEK[TEXT]<0.2048>`) and the spam filter's headers: the preview is made at
+  arrival, and only a top-level type that can hold a file (`may_carry_files`) is
+  marked as having an attachment; the whole body settles both once downloaded
+  (`Store::set_body_facts`). A batch the library cannot read is fetched again one
+  message at a time. A first sync (a folder whose `UIDNEXT` is not kept yet) goes from
+  the newest UID down, and reads every flag once at its end. Accounts are polled at
+  most every 15 minutes (`max_interval`), the one on screen every 2.
+- **Trust.** IMAP verifies certificates with the system's store
+  (`rustls-platform-verifier`, as `lettre` does for SMTP), the embedded roots as
+  fallback. DNS service records are believed only for hosts in the address's domain
+  or a known provider's (`srv_target_trusted`). A Google sign-in is refused when the
+  identity it vouches for is not the address typed; a stored access token without an
+  expiry is taken as expired.
+- **Acting.** Flags set on a message a journalled move has sent elsewhere go where it
+  went, by `Message-ID` (`OpPayload::SetFlagsByMessageId`, `Store::moved_to`); UID
+  operations on a folder whose `UIDVALIDITY` changed since are dropped
+  (`OpPayload::uses_uids`). Moving back to the inbox gives *To do*, any move clears a
+  snooze, unstarring clears every star of the thread, and checked threads are
+  unchecked with any change of list. A folder's view, its counts and the moves to it
+  match it by its shown name (`display_path`: `Devis` and `INBOX.Devis` are one).
+  Folders created or renamed are subscribed.
+- **Sending.** A reply leaves from the alias the conversation was addressed to
+  (`reply_identity`); drafts keep their Bcc (`keep_bcc`) and their alias; References
+  list each message once; Microsoft 365 is left to file its own Sent copy. Scheduled
+  drafts keep attachments as base64, and the half-minute check reads only what is
+  due.
 
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside

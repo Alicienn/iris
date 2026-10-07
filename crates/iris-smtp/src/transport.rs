@@ -115,15 +115,27 @@ impl Mailer for LettreMailer {
 
 /// Le message tel qu'il s'écrit dans un dossier : pour un brouillon, déposé plutôt
 /// qu'envoyé. Accepte un message sans destinataire.
+///
+/// Bcc is kept: a draft is not sent, and reopened without it the blind copies were
+/// gone.
 pub fn message_bytes(message: &Outgoing) -> Result<Vec<u8>> {
     let domaine = domain_of(&message.from.addr);
-    build_lettre_message(message, &domaine).map(|(m, _)| m.formatted())
+    build_lettre_message_with(message, &domaine, true).map(|(m, _)| m.formatted())
 }
 
-/// Traduit notre message vers celui de `lettre`.
+/// Traduit notre message vers celui de `lettre`, sans `Bcc` : il ne sert qu'à
+/// l'enveloppe, et l'écrire le montrerait à tous les destinataires.
 fn build_lettre_message(
     message: &Outgoing,
     domain: &str,
+) -> Result<(lettre::Message, RfcMessageId)> {
+    build_lettre_message_with(message, domain, false)
+}
+
+fn build_lettre_message_with(
+    message: &Outgoing,
+    domain: &str,
+    keep_bcc: bool,
 ) -> Result<(lettre::Message, RfcMessageId)> {
     use lettre::message::{header, Mailbox, MultiPart, SinglePart};
 
@@ -137,6 +149,9 @@ fn build_lettre_message(
 
     let expediteur = vers_mailbox(&message.from)?;
     let mut builder = lettre::Message::builder().from(expediteur.clone());
+    if keep_bcc {
+        builder = builder.keep_bcc();
+    }
 
     // A draft may have nobody to send to yet. `lettre` derives its envelope from the
     // recipients and refuses a message without one; given an envelope of its own —
@@ -312,6 +327,17 @@ mod tests {
             "Devis",
         )
         .body("Bonjour Marie")
+    }
+
+    #[test]
+    fn a_draft_keeps_its_blind_copies_a_sent_message_does_not() {
+        let mut m = message();
+        m.bcc = vec![Address::new("secret@example.com")];
+        let brouillon = String::from_utf8(message_bytes(&m).unwrap()).unwrap();
+        assert!(brouillon.contains("secret@example.com"), "{brouillon}");
+        let (envoi, _) = build_lettre_message(&m, "example.com").unwrap();
+        let envoi = String::from_utf8(envoi.formatted()).unwrap();
+        assert!(!envoi.contains("secret@example.com"), "{envoi}");
     }
 
     #[test]

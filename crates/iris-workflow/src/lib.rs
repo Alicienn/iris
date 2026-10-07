@@ -226,6 +226,10 @@ impl Workflow {
                 at: now,
             };
             self.store.set_thread_state(thread, to)?;
+            // Done is done: a snooze left on it woke later and brought it back.
+            if to == WorkflowState::Done && row.snoozed_until.is_some() {
+                self.store.clear_snooze(thread)?;
+            }
             if recorded {
                 self.record_undo(before);
             }
@@ -341,20 +345,35 @@ impl Workflow {
             return Ok(false);
         };
 
-        let updated = last.flags.set(Flags::FLAGGED, flagged);
-        if updated == last.flags {
+        // Starring marks the newest message. Unstarring takes the star off every
+        // message that has one: the thread shows starred if any is, and unstarring
+        // the newest alone left a star on an older one, so it could not be undone.
+        let cibles: Vec<&iris_store::StoredMessage> = if flagged {
+            vec![last]
+        } else {
+            messages
+                .iter()
+                .filter(|m| m.flags.contains(Flags::FLAGGED))
+                .collect()
+        };
+        let mut par_dossier: BTreeMap<(AccountId, FolderId), Vec<u32>> = BTreeMap::new();
+        for m in &cibles {
+            let updated = m.flags.set(Flags::FLAGGED, flagged);
+            if updated == m.flags {
+                continue;
+            }
+            self.store.set_message_flags(m.id, updated)?;
+            par_dossier
+                .entry((m.account, m.folder))
+                .or_default()
+                .push(m.uid);
+        }
+        if par_dossier.is_empty() {
             return Ok(false);
         }
-
-        self.store.set_message_flags(last.id, updated)?;
-        self.journal_flags(
-            last.account,
-            last.folder,
-            &[last.uid],
-            Flags::FLAGGED,
-            flagged,
-            now,
-        )?;
+        for ((account, folder), uids) in par_dossier {
+            self.journal_flags(account, folder, &uids, Flags::FLAGGED, flagged, now)?;
+        }
 
         self.record_undo(before);
         self.bus.publish(Event::FlagsChanged {
@@ -445,10 +464,17 @@ impl Workflow {
                 Destination::Role(role) => dossiers.iter().find(|f| f.role == role).cloned(),
                 // Un compte sans ce dossier est ignoré, pas fatal : le fil est peut-être
                 // à cheval sur deux boîtes dont une seule a « Devis ».
-                Destination::Path(chemin) => match dossiers.iter().find(|f| f.path == chemin) {
-                    Some(f) => Some(f.clone()),
-                    None => continue,
-                },
+                // By the name it is shown under: `Devis` here, `INBOX.Devis` there.
+                Destination::Path(chemin) => {
+                    match dossiers.iter().find(|f| f.path == chemin).or_else(|| {
+                        dossiers
+                            .iter()
+                            .find(|f| iris_store::same_folder(&f.path, chemin))
+                    }) {
+                        Some(f) => Some(f.clone()),
+                        None => continue,
+                    }
+                }
             };
 
             let Some(target) = trouve else {
@@ -490,6 +516,14 @@ impl Workflow {
             plans.push((account, target, choisis));
         }
 
+        // Moved back to the inbox (out of the bin or the junk folder, most often): a
+        // rescue, not a filing. It went to Done, and a thread deleted before kept its
+        // mark, so it never came back to the queue.
+        let vers_la_boite = matches!(destination, Destination::Path(_))
+            && plans
+                .iter()
+                .any(|(_, cible, _)| cible.role == FolderRole::Inbox);
+
         for (account, target, choisis) in plans {
             for (folder, uid, message_id) in choisis {
                 let (op, from) =
@@ -519,20 +553,36 @@ impl Workflow {
             destination,
             Destination::Role(iris_store::FolderRole::Trash)
         ) && self.store.set_thread_put_aside(thread, Some(now))?;
+        // Out of the bin to anywhere else: no longer set aside.
+        if !matches!(
+            destination,
+            Destination::Role(iris_store::FolderRole::Trash)
+        ) {
+            self.store.set_thread_put_aside(thread, None)?;
+        }
 
-        if moved == 0 && before.state == WorkflowState::Done && !mis_de_cote {
+        let etat = if vers_la_boite {
+            WorkflowState::Todo
+        } else {
+            WorkflowState::Done
+        };
+        if moved == 0 && before.state == etat && !mis_de_cote {
             return Ok(false);
         }
+
+        // A snooze does not outlive the thread leaving: it woke up later and brought
+        // an archived or deleted thread back into To do.
+        self.store.clear_snooze(thread)?;
 
         // Locally the thread leaves the queue at once; the server hears about it when
         // the journal replays. That is invariant 3: nothing waits for the network.
         let previous = before.state;
-        self.store.set_thread_state(thread, WorkflowState::Done)?;
+        self.store.set_thread_state(thread, etat)?;
         self.record_undo(before);
         self.bus.publish(Event::ThreadStateChanged {
             thread,
             from: previous,
-            to: WorkflowState::Done,
+            to: etat,
             cause: TransitionCause::Manual,
         });
         Ok(true)
@@ -939,12 +989,50 @@ impl Workflow {
             .map(|f| f.path)
             .unwrap_or_default();
 
+        // A message a journalled move has sent elsewhere keeps its old UID here until
+        // the next sync: the change goes to where it went, by its Message-ID.
+        let mut restants = Vec::new();
+        let mut ailleurs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for &uid in uids {
+            let parti = match self.store.moved_to(account, &path, uid)? {
+                Some(cible) => self
+                    .store
+                    .message_by_uid(folder, uid)?
+                    .and_then(|id| self.store.message_by_id(id).ok().flatten())
+                    .and_then(|m| m.rfc_message_id)
+                    .map(|mid| (cible, mid)),
+                None => None,
+            };
+            match parti {
+                Some((cible, mid)) => ailleurs.entry(cible).or_default().push(mid),
+                None => restants.push(uid),
+            }
+        }
+        for (cible, message_ids) in ailleurs {
+            let charge = iris_store::OpPayload::SetFlagsByMessageId {
+                folder: cible,
+                message_ids,
+                flags: flags.0,
+                add,
+            };
+            self.store.enqueue_op(
+                account,
+                OpKind::SetFlags,
+                &charge.to_json(),
+                &charge.idempotency_key(account),
+                now,
+            )?;
+        }
+        if restants.is_empty() {
+            return Ok(());
+        }
+
         // Construite comme le déplacement, et pour la même raison : celle-ci se
         // trouvait correcte, l'autre non, et rien dans le code ne disait laquelle des
         // deux formes écrites à la main était la bonne.
         let charge = iris_store::OpPayload::SetFlags {
             folder: path,
-            uids: uids.to_vec(),
+            uids: restants,
             flags: flags.0,
             add,
         };

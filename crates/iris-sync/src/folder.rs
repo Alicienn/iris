@@ -131,11 +131,17 @@ pub async fn sync_folder(
     // repart complète, et tout le dossier redescend. C'est le `added=88` qui suivait
     // chaque `apres=0` dans le journal.
     if etat.uid_validity != 0 && folder.uid_validity != etat.uid_validity {
+        // A rebuilt folder starts its first sync again: its `UIDNEXT` is forgotten
+        // until that sync is done, which is how the next passes know to go on down.
         store.update_folder_sync_state(
             folder.id,
             etat.uid_validity,
-            folder.uid_next,
-            folder.highest_modseq,
+            if validite_changee { 0 } else { folder.uid_next },
+            if validite_changee {
+                0
+            } else {
+                folder.highest_modseq
+            },
         )?;
     }
 
@@ -160,14 +166,58 @@ pub async fn sync_folder(
         UidRange::since(depuis)
     };
 
+    // A first sync not finished yet (the folder's `UIDNEXT` is only kept once one is):
+    // the newest mail first, then down. Oldest first, a large mailbox showed mail from
+    // years ago for its first passes, today's last.
+    let premiere_synchro = folder.uid_next == 0 || validite_changee;
+    let tranches = if premiere_synchro {
+        let mut t = Vec::new();
+        if depuis > 0 {
+            t.extend(plan_chunks(intervalle, etat.uid_next, options.chunk_size));
+        }
+        let bas = store.min_uid(folder.id)?;
+        let plafond = if bas > 0 {
+            bas - 1
+        } else {
+            etat.uid_next.saturating_sub(1)
+        };
+        if plafond >= 1 {
+            let mut vers_le_bas = UidRange::new(1, plafond).chunks(options.chunk_size);
+            vers_le_bas.reverse();
+            t.extend(vers_le_bas);
+        }
+        t
+    } else {
+        plan_chunks(intervalle, etat.uid_next, options.chunk_size)
+    };
+
     let mut ramenes = 0usize;
-    for tranche in plan_chunks(intervalle, etat.uid_next, options.chunk_size) {
+    for tranche in tranches {
         if ramenes >= options.max_per_pass {
             rapport.more_available = true;
             break;
         }
 
-        let bruts = conn.fetch_envelopes(tranche).await?;
+        let bruts = match conn.fetch_envelopes(tranche).await {
+            Ok(b) => b,
+            Err(e) if e.is_transient() => return Err(e),
+            // One answer the library cannot read failed the whole batch, the next
+            // pass started from the same place and failed the same way: nothing later
+            // in the folder ever arrived. The batch is asked for again one message at
+            // a time, and only the unreadable one is left out.
+            Err(e) => {
+                tracing::warn!(folder = %folder.path, error = %e, "batch unreadable, one at a time");
+                let mut un_par_un = Vec::new();
+                for uid in conn.existing_uids(tranche).await? {
+                    match conn.fetch_envelopes(UidRange::new(uid, uid)).await {
+                        Ok(mut b) => un_par_un.append(&mut b),
+                        Err(e) if e.is_transient() => return Err(e),
+                        Err(e) => tracing::warn!(uid, error = %e, "message left out: unreadable"),
+                    }
+                }
+                un_par_un
+            }
+        };
         if bruts.is_empty() {
             continue;
         }
@@ -196,7 +246,7 @@ pub async fn sync_folder(
         // Not on a first visit: everything there is old news, not an arrival. The
         // inbox only: mail filed into a folder of one's own is often mail Iris moved
         // there, whose old copy may already be gone, and that is not an answer.
-        if !premiere_visite && folder.role == iris_store::FolderRole::Inbox {
+        if !premiere_synchro && folder.role == iris_store::FolderRole::Inbox {
             for i in inseres.iter().filter(|i| !i.was_known && !i.thread_created) {
                 if !store.has_other_copy(i.message)? && !rapport.arrivals.contains(&i.thread) {
                     rapport.arrivals.push(i.thread);
@@ -212,6 +262,17 @@ pub async fn sync_folder(
     // ever. Its flags are read again, all of them, each pass for a folder of a
     // reasonable size and on the deletion scan for a large one.
     let deja_connu = !(validite_changee || premiere_visite);
+    // A first sync that has just finished reads every flag once: changed elsewhere
+    // while its passes went on, a flag on mail already fetched was otherwise never
+    // seen (the change counter's baseline is only taken at the end).
+    let premiere_finie = premiere_synchro && !rapport.more_available && !premiere_visite;
+    if premiere_finie && capacites.condstore && etat.highest_modseq > 0 {
+        let connus = store.max_uid(folder.id)?;
+        if connus > 0 {
+            let tous = conn.fetch_flags(UidRange::new(1, connus)).await?;
+            rapport.flags_updated += store.apply_flag_changes(folder.id, &tous)?;
+        }
+    }
     if deja_connu && !(capacites.condstore && etat.highest_modseq > 0) {
         let connus = store.max_uid(folder.id)?;
         let taille = store.folder_uids(folder.id)?.len();
@@ -322,6 +383,26 @@ fn is_spam(folder: &Folder, raw: &[u8], subject: &str) -> bool {
     iris_mime::headers_say_spam(&headers)
 }
 
+/// Whether a message's top-level type can hold an attachment: `multipart/mixed`, or a
+/// single part that is itself a file. Text and `multipart/alternative` cannot.
+fn may_carry_files(raw: &[u8]) -> bool {
+    let fin = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .unwrap_or(raw.len().min(16 * 1024));
+    let entetes = String::from_utf8_lossy(&raw[..fin]).to_ascii_lowercase();
+    // The header, unfolded enough to read its first value.
+    let Some(debut) = entetes.lines().position(|l| l.starts_with("content-type:")) else {
+        return false; // No type: text/plain.
+    };
+    let ligne = entetes.lines().nth(debut).unwrap_or_default();
+    let valeur = ligne["content-type:".len()..].trim();
+    !(valeur.starts_with("text/")
+        || valeur.starts_with("multipart/alternative")
+        || valeur.starts_with("multipart/related")
+        || valeur.starts_with("multipart/report"))
+}
+
 /// Traduit un message brut du serveur en message à insérer, avec ses copies (`Cc`)
 /// et son adresse de réponse (`Reply-To`) en listes JSON.
 fn to_new_message(
@@ -340,6 +421,12 @@ fn to_new_message(
     // Les drapeaux du serveur et ceux déduits du contenu se combinent : le serveur
     // sait ce qui est lu, nous savons ce qui contient une pièce jointe.
     let mut flags = brut.flags.with(analyse.derived_flags);
+    // Only the start of the text is here: a message whose structure cannot carry a
+    // file (text, or an HTML newsletter's alternative) is not said to have one. The
+    // whole body settles it once downloaded (`set_body_facts`).
+    if !may_carry_files(&brut.content) {
+        flags = flags.without(iris_types::Flags::HAS_ATTACHMENT);
+    }
 
     // Whether this is spam is the server's judgement, read back rather than
     // recomputed: from the folder it filed the message in, from the headers its
@@ -922,6 +1009,19 @@ List-Unsubscribe: <https://x.fr/unsub>\r\nMessage-ID: <n@x>\r\n\r\nCorps.\r\n";
     fn un_dossier_vide_ne_produit_aucune_tranche() {
         assert!(plan_chunks(UidRange::ALL, 1, 100).is_empty());
         assert!(plan_chunks(UidRange::since(50), 40, 100).is_empty());
+    }
+
+    #[test]
+    fn only_a_message_built_to_carry_files_is_said_to_have_one() {
+        // From the headers alone every HTML newsletter looked as if it carried a file.
+        assert!(!may_carry_files(
+            b"Subject: x\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n--b\r\n"
+        ));
+        assert!(!may_carry_files(b"Subject: x\r\n\r\nBonjour"));
+        assert!(may_carry_files(
+            b"Content-Type: multipart/mixed; boundary=b\r\nSubject: x\r\n\r\n"
+        ));
+        assert!(may_carry_files(b"Content-Type: application/pdf\r\n\r\n"));
     }
 
     #[test]

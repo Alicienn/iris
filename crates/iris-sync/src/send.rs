@@ -173,7 +173,16 @@ impl SendService {
     /// found again there from any device. `Ok(false)` when the account has no such
     /// folder.
     pub async fn save_draft(&self, draft: &Draft) -> Result<bool> {
-        let message = self.compose_draft(draft)?;
+        self.save_draft_as(draft, None).await
+    }
+
+    /// [`save_draft`](Self::save_draft), from the alias chosen when it is one: kept
+    /// from the mailbox's own address, a draft reopened elsewhere left from there.
+    pub async fn save_draft_as(&self, draft: &Draft, alias: Option<&Address>) -> Result<bool> {
+        let mut message = self.compose_draft(draft)?;
+        if let Some(a) = alias {
+            message.from = a.clone();
+        }
         let brut = iris_smtp::message_bytes(&message)?;
         self.append_to(
             draft.account,
@@ -259,10 +268,7 @@ impl SendService {
             text_body: corps_original,
         };
 
-        let identite = Address {
-            name: none_if_empty(&compte.display_name),
-            addr: compte.email.clone(),
-        };
+        let identite = reply_identity(self.engine.store(), &compte, &messages)?;
 
         let mut reponse = iris_smtp::reply(&cible, &identite, scope);
         // Le texte de l'utilisateur passe devant la citation, qui suit. La signature
@@ -507,10 +513,19 @@ impl SendService {
         let Ok(messages) = self.engine.store().thread_messages(dernier.thread) else {
             return Vec::new();
         };
+        // Each message once. Every copy was listed (Gmail's inbox and All Mail), so
+        // the chain carried each identifier twice, the parent's other copy among them,
+        // and its twenty places ran out twice as fast.
+        let mut vus = std::collections::HashSet::new();
+        if let Some(parent) = &dernier.rfc_message_id {
+            vus.insert(parent.clone());
+        }
         messages
             .iter()
             .filter(|m| m.id != dernier.id)
-            .filter_map(|m| m.rfc_message_id.clone().map(RfcMessageId))
+            .filter_map(|m| m.rfc_message_id.clone())
+            .filter(|id| vus.insert(id.clone()))
+            .map(RfcMessageId)
             .collect()
     }
 }
@@ -767,6 +782,49 @@ fn reply_recipients(
     })
 }
 
+/// Who a reply is from: the alias of the mailbox the conversation was written to, when
+/// it was written to one, else the mailbox. Mail received on `ventes@` was answered
+/// from the main address.
+fn reply_identity(
+    store: &iris_store::Store,
+    compte: &iris_store::Account,
+    messages: &[iris_store::StoredMessage],
+) -> Result<Address> {
+    let alias: Vec<_> = store
+        .aliases()?
+        .into_iter()
+        .filter(|a| a.account == compte.id)
+        .collect();
+    if !alias.is_empty() {
+        for m in messages.iter().rev() {
+            let (copies, _) = store.message_extras(m.id)?;
+            let mut destinataires =
+                serde_json::from_str::<Vec<Address>>(&m.recipients_json).unwrap_or_default();
+            destinataires.extend(serde_json::from_str::<Vec<Address>>(&copies).unwrap_or_default());
+            for d in &destinataires {
+                if let Some(a) = alias
+                    .iter()
+                    .find(|a| a.address.eq_ignore_ascii_case(&d.addr))
+                {
+                    let nom = if a.name.trim().is_empty() {
+                        &compte.display_name
+                    } else {
+                        &a.name
+                    };
+                    return Ok(Address {
+                        name: none_if_empty(nom),
+                        addr: a.address.clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(Address {
+        name: none_if_empty(&compte.display_name),
+        addr: compte.email.clone(),
+    })
+}
+
 /// Who a reply goes to, for its [`ReplyTarget`].
 #[derive(Debug, Default)]
 struct ReplyRecipients {
@@ -777,9 +835,18 @@ struct ReplyRecipients {
 
 /// Whether the mailbox on `imap_host` keeps a copy of what is sent without being given
 /// one. Gmail does, for every message its SMTP server takes.
+/// Microsoft 365 and Outlook.com do too: Exchange files what SMTP submission sends in
+/// Sent Items, and a copy of ours made two.
 fn server_files_sent_mail(imap_host: &str) -> bool {
     let hote = imap_host.trim_end_matches('.').to_ascii_lowercase();
-    hote == "imap.gmail.com" || hote == "imap.googlemail.com"
+    matches!(
+        hote.as_str(),
+        "imap.gmail.com"
+            | "imap.googlemail.com"
+            | "outlook.office365.com"
+            | "imap-mail.outlook.com"
+            | "outlook.office.com"
+    )
 }
 
 /// A message being written.
@@ -818,7 +885,7 @@ pub fn parse_recipients(input: &str) -> (Vec<iris_types::Address>, Vec<String>) 
     let mut good = Vec::new();
     let mut bad = Vec::new();
 
-    for piece in input.split([',', ';']) {
+    for piece in split_outside_quotes(input) {
         let piece = piece.trim();
         if piece.is_empty() {
             continue;
@@ -843,9 +910,41 @@ pub fn parse_recipients(input: &str) -> (Vec<iris_types::Address>, Vec<String>) 
     (good, bad)
 }
 
+/// A recipients field cut at its commas and semicolons, but not inside a quoted name
+/// or angle brackets: `"Dupont, Marie" <m@example.com>` is one recipient. Cut at every
+/// comma, a contact whose name holds one could not be sent to.
+fn split_outside_quotes(input: &str) -> Vec<&str> {
+    let mut pieces = Vec::new();
+    let (mut debut, mut guillemets, mut chevrons) = (0, false, false);
+    for (i, c) in input.char_indices() {
+        match c {
+            '"' => guillemets = !guillemets,
+            '<' if !guillemets => chevrons = true,
+            '>' if !guillemets => chevrons = false,
+            ',' | ';' if !guillemets && !chevrons => {
+                pieces.push(&input[debut..i]);
+                debut = i + 1;
+            }
+            _ => {}
+        }
+    }
+    pieces.push(&input[debut..]);
+    pieces
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_with_a_comma_is_one_recipient() {
+        let (bons, mauvais) =
+            parse_recipients(r#""Dupont, Marie" <marie@example.com>, luc@example.com"#);
+        assert!(mauvais.is_empty(), "{mauvais:?}");
+        assert_eq!(bons.len(), 2);
+        assert_eq!(bons[0].name.as_deref(), Some("Dupont, Marie"));
+        assert_eq!(bons[0].addr, "marie@example.com");
+    }
 
     #[test]
     fn gmail_keeps_its_own_sent_copy() {

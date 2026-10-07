@@ -113,16 +113,23 @@ fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
 
         Scope::Path(chemin) => {
             let filtre_compte = compte_dans(args);
+            // The folder by the name it is shown under: `Devis` at Gmail and
+            // `INBOX.Devis` at a host that files under the inbox are one row of the
+            // tree, and the row showed only one of them.
             sql.push_str(&format!(
                 " AND EXISTS (SELECT 1 FROM messages m
                               JOIN folders f ON f.id = m.folder_id
                               WHERE m.thread_id = threads.id
-                                AND f.path = ?{filtre_compte})"
+                                AND (f.path = ? OR f.path = 'INBOX.' || ?
+                                     OR f.path = 'INBOX/' || ?){filtre_compte})"
             ));
             // Le chemin est un paramètre lié, lui, parce qu'il vient de l'utilisateur.
             // Il est inséré avant les identifiants de comptes ajoutés ci-dessus.
+            let nom = crate::display_path(chemin).to_string();
             let position = args.len() - q.accounts.len();
-            args.insert(position, SqlValue::Text(chemin.clone()));
+            for _ in 0..3 {
+                args.insert(position, SqlValue::Text(nom.clone()));
+            }
         }
     }
 

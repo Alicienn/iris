@@ -146,6 +146,10 @@ their attachments under them as file cards. Under the subject, beside the mailbo
 in: *Inbox*, a folder's name, or *Spam* and *Trash* in red; *Inbox +2* names all of
 them when you point at it.
 
+Iris looks for new mail at least every quarter of an hour, every two minutes for the
+mailbox on screen; **Sync** (`F5` for all) asks at once. A mailbox added for the
+first time brings its newest mail first.
+
 **Archive** takes a conversation out of the inbox and leaves your sent replies in
 *Sent*; on Gmail it removes the *Inbox* label only, so labels and stars stay. **Delete**
 moves it to the bin. Undo (`Ctrl`+`Z`) puts it back on the server too, and a

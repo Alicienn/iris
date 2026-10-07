@@ -171,9 +171,12 @@ pub fn tree(folders: &[UnifiedFolder]) -> Vec<FolderNode> {
             // Seule la feuille porte les chiffres du dossier : les additionner sur
             // les parents ferait compter deux fois un message rangé dans une
             // sous-branche.
+            // Two mailboxes may show the same name under different paths (`Devis`,
+            // `INBOX.Devis`): the row adds them up, as its view shows them both. It
+            // showed the counts of whichever was read last.
             if feuille {
-                noeud.accounts = dossier.accounts;
-                noeud.threads = dossier.threads;
+                noeud.accounts += dossier.accounts;
+                noeud.threads += dossier.threads;
             }
         }
     }
@@ -334,10 +337,22 @@ pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) 
 ///
 /// Comme le reste, par le journal : le drapeau est posé localement et l'ordre part vers
 /// le serveur, en un lot par cinquante plutôt qu'un par message.
-pub fn mark_read_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Result<usize> {
+///
+/// `only`: the mailbox the view is filtered to, when it is. Every mailbox was touched
+/// even while one was being looked at.
+pub fn mark_read_everywhere(
+    store: &Store,
+    scope: &Scope,
+    only: Option<iris_types::AccountId>,
+    now: Timestamp,
+) -> Result<usize> {
     let mut touches = 0usize;
 
-    for compte in store.accounts()? {
+    for compte in store
+        .accounts()?
+        .into_iter()
+        .filter(|c| only.is_none_or(|seul| seul == c.id))
+    {
         for dossier in store.folders(compte.id)? {
             if !concerne(scope, &dossier) {
                 continue;
@@ -373,7 +388,15 @@ pub fn mark_read_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Res
 /// Seulement la corbeille et les indésirables. « Vider la boîte de réception » n'est pas
 /// une commande, c'est un accident : ces deux dossiers-là sont les seuls dont le contenu
 /// a déjà été décidé, et vider ailleurs supprimerait du courrier que personne n'a jugé.
-pub fn empty_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Result<usize> {
+///
+/// `only`: the mailbox the view is filtered to, when it is. Emptying the bin while
+/// looking at one mailbox emptied every mailbox's.
+pub fn empty_everywhere(
+    store: &Store,
+    scope: &Scope,
+    only: Option<iris_types::AccountId>,
+    now: Timestamp,
+) -> Result<usize> {
     if !videable(scope) {
         return Err(Error::Config(
             "only the bin and the junk folder can be emptied".into(),
@@ -382,7 +405,11 @@ pub fn empty_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Result<
 
     let mut jetes = 0usize;
 
-    for compte in store.accounts()? {
+    for compte in store
+        .accounts()?
+        .into_iter()
+        .filter(|c| only.is_none_or(|seul| seul == c.id))
+    {
         for dossier in store.folders(compte.id)? {
             if !concerne(scope, &dossier) {
                 continue;
@@ -415,7 +442,7 @@ pub fn empty_everywhere(store: &Store, scope: &Scope, now: Timestamp) -> Result<
 fn concerne(scope: &Scope, dossier: &iris_store::Folder) -> bool {
     match scope {
         Scope::Role(role) => dossier.role == *role,
-        Scope::Path(chemin) => dossier.path == *chemin,
+        Scope::Path(chemin) => iris_store::same_folder(&dossier.path, chemin),
         // « Toutes les files » ne désigne aucun dossier, et un geste qui viderait tout
         // parce qu'on n'a rien choisi serait le pire de cet écran.
         Scope::Queue => false,
@@ -440,6 +467,30 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         return Err(Error::Config(
             "this folder only groups the ones inside it; delete those instead".into(),
         ));
+    }
+
+    // Every mailbox is checked before any is touched: one where the folder belongs to
+    // the server, or that has no inbox, used to stop the deletion halfway, after the
+    // earlier mailboxes had already lost the folder.
+    for compte in &comptes {
+        let dossiers = store.folders(*compte)?;
+        if dossiers
+            .iter()
+            .any(|f| f.path == path && f.role != iris_store::FolderRole::Other)
+        {
+            return Err(Error::Config(
+                "that folder belongs to the server and cannot be removed".into(),
+            ));
+        }
+        if dossiers.iter().any(|f| f.path == path)
+            && !dossiers
+                .iter()
+                .any(|f| f.role == iris_store::FolderRole::Inbox)
+        {
+            return Err(Error::Config(
+                "this account has no inbox to move the mail into".into(),
+            ));
+        }
     }
 
     for compte in &comptes {

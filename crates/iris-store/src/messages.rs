@@ -127,6 +127,35 @@ impl Store {
         })
     }
 
+    /// What a message's whole body says, once downloaded: its preview, and whether it
+    /// has an attachment, a tracker, a way to unsubscribe. The headers alone gave
+    /// guesses (every HTML newsletter looked as if it carried a file).
+    pub fn set_body_facts(&self, id: MessageId, preview: &str, derived: Flags) -> Result<()> {
+        const DU_CORPS: u32 =
+            Flags::HAS_ATTACHMENT.0 | Flags::HAS_TRACKER.0 | Flags::UNSUBSCRIBABLE.0;
+        self.with_tx(|tx| {
+            let ligne: Option<(i64, i64)> = tx
+                .query_row(
+                    "SELECT thread_id, flags FROM messages WHERE id = ?1",
+                    params![id.get()],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .ok();
+            let Some((fil, drapeaux)) = ligne else {
+                return Ok(());
+            };
+            let nouveaux = (drapeaux as u32 & !DU_CORPS) | (derived.0 & DU_CORPS);
+            tx.execute(
+                "UPDATE messages SET flags = ?1,
+                        preview = CASE WHEN ?2 = '' THEN preview ELSE ?2 END
+                 WHERE id = ?3",
+                params![nouveaux as i64, preview, id.get()],
+            )
+            .map_err(|e| sql_err("ce que dit le corps", e))?;
+            refresh_thread(tx, ThreadId(fil))
+        })
+    }
+
     /// Change les drapeaux d'un message et met le fil à jour.
     pub fn set_message_flags(&self, id: MessageId, flags: Flags) -> Result<Option<ThreadId>> {
         self.with_tx(|tx| {
@@ -338,6 +367,19 @@ impl Store {
                 |r| Ok(r.get::<_, i64>(0)? as u32),
             )
             .map_err(|e| sql_err("UID maximal", e))
+        })
+    }
+
+    /// The lowest UID stored for a folder, 0 when it holds none: where a first sync,
+    /// which goes from the newest down, carries on.
+    pub fn min_uid(&self, folder: FolderId) -> Result<u32> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT coalesce(min(uid), 0) FROM messages WHERE folder_id = ?1",
+                params![folder.get()],
+                |r| Ok(r.get::<_, i64>(0)? as u32),
+            )
+            .map_err(|e| sql_err("UID minimal", e))
         })
     }
 
@@ -771,11 +813,16 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
     // 0. Another copy of this very message. Gmail shows each message in two folders
     //    at least (the inbox and All Mail), and a copy in each mailbox it was sent to
     //    is the same message too: one conversation, not two rows saying the same.
+    //    The same sender too: two different messages given one identifier (a mailer
+    //    that reuses them) were made one, and one of them vanished from the reader.
     if let Some(mine) = &m.rfc_message_id {
         let mut stmt = tx
-            .prepare_cached("SELECT thread_id FROM messages WHERE rfc_message_id = ?1 LIMIT 1")
+            .prepare_cached(
+                "SELECT thread_id FROM messages
+                 WHERE rfc_message_id = ?1 AND lower(from_addr) = lower(?2) LIMIT 1",
+            )
             .map_err(|e| sql_err("preparation", e))?;
-        if let Ok(t) = stmt.query_row(params![mine], |r| r.get::<_, i64>(0)) {
+        if let Ok(t) = stmt.query_row(params![mine, m.from_addr], |r| r.get::<_, i64>(0)) {
             return Ok((ThreadId(t), false));
         }
     }
@@ -893,7 +940,14 @@ fn one_copy_each(messages: Vec<StoredMessage>) -> Vec<StoredMessage> {
         };
         match rang.get(&cle) {
             Some(&i) => {
-                if sortie[i].body_blob.is_none() && m.body_blob.is_some() {
+                // The sent message rather than its draft, which shares its identifier;
+                // then the copy whose body is here.
+                let brouillon = |x: &StoredMessage| x.flags.contains(Flags::DRAFT);
+                let mieux = (brouillon(&sortie[i]) && !brouillon(&m))
+                    || (brouillon(&sortie[i]) == brouillon(&m)
+                        && sortie[i].body_blob.is_none()
+                        && m.body_blob.is_some());
+                if mieux {
                     sortie[i] = m;
                 }
             }

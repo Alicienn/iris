@@ -3,6 +3,39 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.7.0 — 2026-10-07
+
+### Improved
+- The list shows a preview of each message as soon as it arrives.
+- A first sync brings the newest mail first.
+- New mail is looked for at least every 15 minutes, every 2 for the mailbox on screen.
+- Replies to mail sent to an alias leave from that alias.
+- Folders of the same name on different mailboxes show together.
+- Folders created in Iris show in other mail apps too.
+
+### Fixed
+- HTML newsletters no longer look as if they carried an attachment.
+- Mail the server marks as spam in its headers goes to Spam.
+- One unreadable message no longer stops a folder from syncing.
+- Marking read or starring right after archiving reaches the server.
+- A conversation moved back to the inbox returns to To do.
+- An archived or deleted conversation no longer comes back from a snooze.
+- Unstarring a conversation removes every star in it.
+- Checked conversations are unchecked when you change tab, search or mailbox.
+- A bulk action that cannot be done says why.
+- Empty and Mark all as read act only on the mailbox you are looking at.
+- Deleting a folder no longer stops halfway across mailboxes.
+- Signing in to Google as someone other than the address typed is refused.
+- An old Google or Microsoft sign-in is renewed instead of failing.
+- A company certificate installed on Windows is trusted for reading mail too.
+- A DNS answer can no longer send your password to a server outside your domain.
+- Microsoft 365 no longer gets two copies of what you send.
+- Contacts whose name contains a comma can be picked as recipients.
+- Drafts keep their Bcc and the alias you chose.
+- Scheduled messages with large attachments no longer slow the window.
+- Removing a mailbox says how many scheduled messages go with it.
+- Two different messages sharing an identifier no longer merge.
+
 ## 4.6.0 — 2026-10-07
 
 ### New

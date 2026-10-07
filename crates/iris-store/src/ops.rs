@@ -49,6 +49,16 @@ pub enum OpPayload {
         message_ids: Vec<String>,
         target: String,
     },
+    /// Set or clear flags on messages found by their `Message-ID` in `folder`: where a
+    /// move journalled since sent them, their old UIDs no longer meaning anything.
+    /// Marked unread or starred right after Archive, the change went to the old UID,
+    /// did nothing, and was undone at the next sync.
+    SetFlagsByMessageId {
+        folder: String,
+        message_ids: Vec<String>,
+        flags: u32,
+        add: bool,
+    },
     /// Créer un dossier sur ce compte.
     ///
     /// Passe par le journal comme tout le reste : créer un dossier sur cent boîtes est
@@ -83,7 +93,7 @@ pub enum OpPayload {
 impl OpPayload {
     pub fn kind(&self) -> crate::OpKind {
         match self {
-            Self::SetFlags { .. } => crate::OpKind::SetFlags,
+            Self::SetFlags { .. } | Self::SetFlagsByMessageId { .. } => crate::OpKind::SetFlags,
             Self::Move { .. } | Self::MoveByMessageId { .. } => crate::OpKind::MoveMessage,
             Self::Delete { .. } => crate::OpKind::DeleteMessage,
             Self::CreateFolder { .. } | Self::RenameFolder { .. } | Self::DeleteFolder { .. } => {
@@ -121,6 +131,19 @@ impl OpPayload {
                 ids.sort();
                 format!("{account}:move-id:{folder}:{}:{target}", ids.join(","))
             }
+            Self::SetFlagsByMessageId {
+                folder,
+                message_ids,
+                flags,
+                add,
+            } => {
+                let mut ids = message_ids.clone();
+                ids.sort();
+                format!(
+                    "{account}:flags-id:{folder}:{}:{flags}:{add}",
+                    ids.join(",")
+                )
+            }
             Self::CreateFolder { folder } => format!("{account}:mkdir:{folder}"),
             Self::RenameFolder { folder, target } => {
                 format!("{account}:mvdir:{folder}:{target}")
@@ -147,10 +170,20 @@ impl OpPayload {
             | Self::Move { folder, .. }
             | Self::Delete { folder, .. }
             | Self::MoveByMessageId { folder, .. }
+            | Self::SetFlagsByMessageId { folder, .. }
             | Self::CreateFolder { folder }
             | Self::RenameFolder { folder, .. }
             | Self::DeleteFolder { folder, .. } => folder,
         }
+    }
+
+    /// Does it name messages by their UIDs, which only mean something for the
+    /// `UIDVALIDITY` they were read under?
+    pub fn uses_uids(&self) -> bool {
+        matches!(
+            self,
+            Self::SetFlags { .. } | Self::Move { .. } | Self::Delete { .. }
+        )
     }
 
     /// L'opération exige-t-elle que son dossier soit sélectionné d'abord ?

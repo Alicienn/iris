@@ -185,15 +185,24 @@ impl Actions {
         now: Timestamp,
     ) -> Result<usize> {
         let mut changes = 0;
+        let mut premiere_erreur = None;
         for thread in threads {
             // A thread that vanished must not stop the others being processed.
             match self.apply(*thread, action, now) {
                 Ok(outcome) if outcome.changed => changes += 1,
                 Ok(_) => {}
-                Err(e) => tracing::warn!(thread = %thread, error = %e, "action skipped"),
+                Err(e) => {
+                    tracing::warn!(thread = %thread, error = %e, "action skipped");
+                    premiere_erreur.get_or_insert(e);
+                }
             }
         }
-        Ok(changes)
+        // Nothing done, and why: a bulk Archive on a mailbox with no archive folder
+        // did nothing at all, without a word.
+        match premiere_erreur {
+            Some(e) if changes == 0 => Err(e),
+            _ => Ok(changes),
+        }
     }
 }
 
