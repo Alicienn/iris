@@ -343,7 +343,10 @@ fn rappel(minutes: Option<i32>) -> String {
     }
 }
 
-fn statut(c: &StoredCalendar, maintenant: Timestamp) -> (String, bool) {
+fn statut(services: &Services, c: &StoredCalendar, maintenant: Timestamp) -> (String, bool) {
+    if let Some(compte) = c.account_id {
+        return crate::caldav::status(services, compte, maintenant);
+    }
     if !c.is_subscription() {
         return (String::new(), false);
     }
@@ -585,12 +588,12 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         .map(|c| (c.id, c.color.clone()))
         .collect();
 
-    let nb_locaux = calendriers.iter().filter(|c| !c.is_subscription()).count();
+    let nb_locaux = calendriers.iter().filter(|c| c.is_local()).count();
     fenetre.set_calendars(ModelRc::new(VecModel::from(
         calendriers
             .iter()
             .map(|c| {
-                let (texte, echec) = statut(c, maintenant);
+                let (texte, echec) = statut(services, c, maintenant);
                 CalendarData {
                     id: c.id as i32,
                     name: c.name.as_str().into(),
@@ -599,15 +602,21 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
                     subscribed: c.is_subscription(),
                     status: texte.into(),
                     failed: echec,
-                    // The last calendar of one's own stays: a new event needs one.
-                    deletable: c.is_subscription() || nb_locaux > 1,
+                    // The last calendar on this computer stays: a new event needs one.
+                    deletable: !c.is_local() || nb_locaux > 1,
+                    remote: c.is_remote(),
+                    account: c
+                        .account_id
+                        .map(|a| crate::caldav::account_name(services, a))
+                        .unwrap_or_default()
+                        .into(),
                 }
             })
             .collect::<Vec<_>>(),
     )));
     etat.locaux = calendriers
         .iter()
-        .filter(|c| !c.is_subscription())
+        .filter(|c| c.is_writable())
         .map(|c| c.id)
         .collect();
 
@@ -877,7 +886,7 @@ fn choisir(f: &AppWindow, services: &Services, etat: &Rc<RefCell<Etat>>, k: Shar
         description: s.event.description.as_str().into(),
         reminder: rappel(s.event.reminder_minutes).into(),
         repeats: repetition(s.event.rrule.as_deref()).into(),
-        editable: cal.is_some_and(|c| !c.is_subscription()),
+        editable: cal.is_some_and(|c| c.is_writable()),
         video_url: video.clone().unwrap_or_default().into(),
         video_kind: video
             .as_deref()
@@ -924,7 +933,7 @@ fn deplacer(services: &Services, cle: &str, jours: i64, minutes: i64, etirer: bo
         .calendar(stocke.calendar_id)?
         .ok_or_else(|| Error::Config("its calendar no longer exists".into()))?;
     let e = &stocke.event;
-    if calendrier.is_subscription() || e.rrule.is_some() || e.recurrence_id.is_some() {
+    if !calendrier.is_writable() || e.rrule.is_some() || e.recurrence_id.is_some() {
         return Ok(());
     }
     let local = |ms: i64| {
@@ -1136,10 +1145,7 @@ fn ouvrir_editeur(
     minute: i32,
 ) {
     let calendriers = services.store.calendars().unwrap_or_default();
-    let locaux: Vec<&StoredCalendar> = calendriers
-        .iter()
-        .filter(|c| !c.is_subscription())
-        .collect();
+    let locaux: Vec<&StoredCalendar> = calendriers.iter().filter(|c| c.is_writable()).collect();
     etat.locaux = locaux.iter().map(|c| c.id).collect();
     f.set_editor_calendars(ModelRc::new(VecModel::from(
         locaux
@@ -1427,14 +1433,40 @@ pub struct Invitation {
     pub reply: String,
 }
 
-/// Takes an invitation declined out of the calendar it went into, if it is there.
-pub fn remove_invited(services: &Services, uid: &str) {
-    let Some(calendrier) = services
+/// The calendar new things go to when none is chosen (invitations, tasks' slots,
+/// goals' time): the first on this computer, else the first that can be written.
+pub(crate) fn own_calendar(services: &Services) -> Option<StoredCalendar> {
+    let tous = services.store.calendars().ok()?;
+    tous.iter()
+        .find(|c| c.is_local())
+        .or_else(|| tous.iter().find(|c| c.is_writable()))
+        .cloned()
+}
+
+/// The first colour of the palette no calendar wears yet.
+pub(crate) fn free_color(services: &Services) -> &'static str {
+    let prises: Vec<String> = services
         .store
         .calendars()
-        .ok()
-        .and_then(|c| c.into_iter().find(|c| !c.is_subscription()))
-    else {
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.color)
+        .collect();
+    COULEURS
+        .iter()
+        .find(|c| !prises.iter().any(|p| p.eq_ignore_ascii_case(c)))
+        .copied()
+        .unwrap_or(COULEURS[prises.len() % COULEURS.len()])
+}
+
+/// An event of the calendar crate, as the store writes it.
+pub(crate) fn from_domain(e: &Event) -> NewEvent {
+    depuis_domaine(e)
+}
+
+/// Takes an invitation declined out of the calendar it went into, if it is there.
+pub fn remove_invited(services: &Services, uid: &str) {
+    let Some(calendrier) = own_calendar(services) else {
         return;
     };
     if let Ok(Some(id)) = services.store.find_event(calendrier.id, uid, None) {
@@ -1449,12 +1481,7 @@ pub fn remove_invited(services: &Services, uid: &str) {
 pub fn invitation(services: &Services, texte: &str, moi: &str) -> Option<Invitation> {
     let lu = iris_calendar::ics::parse(texte).ok()?;
     let e = lu.events.first()?;
-    let calendrier = services
-        .store
-        .calendars()
-        .ok()?
-        .into_iter()
-        .find(|c| !c.is_subscription())?;
+    let calendrier = own_calendar(services)?;
     let dans = services
         .store
         .find_event(calendrier.id, &e.uid, e.recurrence_id)
@@ -1538,12 +1565,8 @@ impl ImportReport {
 /// modifiée. Une annulation efface l'événement de l'agenda.
 pub fn import_ics(services: &Services, texte: &str) -> Result<ImportReport> {
     let lu = iris_calendar::ics::parse(texte).map_err(Error::other)?;
-    let calendrier = services
-        .store
-        .calendars()?
-        .into_iter()
-        .find(|c| !c.is_subscription())
-        .ok_or_else(|| Error::other("there is no local calendar"))?;
+    let calendrier =
+        own_calendar(services).ok_or_else(|| Error::other("there is no calendar of your own"))?;
 
     let mut bilan = ImportReport::default();
     for e in &lu.events {
@@ -2256,6 +2279,18 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         let (services, faible, runtime) = (services.clone(), fenetre.as_weak(), runtime.clone());
         fenetre.on_calendar_refresh(move |id| {
             let Some(f) = faible.upgrade() else { return };
+            // Kept with a server: its account is synced.
+            if let Some(compte) = services
+                .store
+                .calendar(id as i64)
+                .ok()
+                .flatten()
+                .and_then(|c| c.account_id)
+            {
+                f.set_status("Syncing the calendars…".into());
+                crate::caldav::sync_now(&f, &services, &runtime, compte);
+                return;
+            }
             f.set_status("Updating the calendar…".into());
             let (services, faible) = (services.clone(), faible.clone());
             runtime.spawn(async move {
@@ -2280,15 +2315,29 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             (services.clone(), Rc::clone(&redessiner), fenetre.as_weak());
         fenetre.on_calendar_delete_confirmed(move |id| {
             let calendrier = services.store.calendar(id as i64).ok().flatten();
+            // A calendar kept with a server: its account is disconnected, and all its
+            // calendars leave this computer. The server keeps them.
+            if let Some(compte) = calendrier.as_ref().and_then(|c| c.account_id) {
+                let nom = crate::caldav::account_name(&services, compte);
+                let message = match crate::caldav::disconnect(&services, compte) {
+                    Ok(()) => format!("{nom} disconnected. Its calendars stay on its server."),
+                    Err(e) => format!("Could not disconnect {nom}: {e}"),
+                };
+                if let Some(f) = faible.upgrade() {
+                    f.set_status(message.into());
+                }
+                redessiner();
+                return;
+            }
             // The menu does not offer it; refused here too, whatever asks.
             let locaux = services
                 .store
                 .calendars()
                 .unwrap_or_default()
                 .iter()
-                .filter(|c| !c.is_subscription())
+                .filter(|c| c.is_local())
                 .count();
-            if calendrier.as_ref().is_some_and(|c| !c.is_subscription()) && locaux <= 1 {
+            if calendrier.as_ref().is_some_and(|c| c.is_local()) && locaux <= 1 {
                 return;
             }
             let message = match (&calendrier, services.store.delete_calendar(id as i64)) {
@@ -2315,18 +2364,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
             }
             // A new calendar of one's own, in the first colour nobody has yet.
             if id < 0 {
-                let prises: Vec<String> = services
-                    .store
-                    .calendars()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|c| c.color)
-                    .collect();
-                let teinte = COULEURS
-                    .iter()
-                    .find(|c| !prises.iter().any(|p| p.eq_ignore_ascii_case(c)))
-                    .copied()
-                    .unwrap_or(COULEURS[prises.len() % COULEURS.len()]);
+                let teinte = free_color(&services);
                 match services.store.create_calendar(nom, teinte, None, now()) {
                     Ok(_) => {
                         f.set_calendar_rename_error(SharedString::default());

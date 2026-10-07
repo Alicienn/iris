@@ -132,33 +132,46 @@ fn entete(name: &str) -> Vec<String> {
 }
 
 fn vevent(e: &Event, stamp_ms: i64) -> Vec<String> {
-    let zone = e.tzid.as_deref().and_then(resolve_tz);
-    // How a moment of this event is written, after the property's name.
-    let moment = |ms: i64| -> String {
-        if e.all_day {
-            let jour = DateTime::<Utc>::from_timestamp_millis(ms)
-                .map(|t| t.date_naive())
-                .unwrap_or_default();
-            format!(";VALUE=DATE:{}", jour.format("%Y%m%d"))
-        } else if let Some(tz) = zone {
-            let local = tz.timestamp_millis_opt(ms).single();
-            match local {
-                Some(t) => format!(";TZID={}:{}", tz.name(), t.format("%Y%m%dT%H%M%S")),
-                None => format!(":{}", utc(ms)),
-            }
-        } else {
-            format!(":{}", utc(ms))
-        }
-    };
-
     let mut l = vec!["BEGIN:VEVENT".to_string(), format!("UID:{}", texte(&e.uid))];
     l.push(format!("DTSTAMP:{}", utc(stamp_ms)));
     if let Some(id) = e.recurrence_id {
-        l.push(format!("RECURRENCE-ID{}", moment(id)));
+        l.push(format!("RECURRENCE-ID{}", moment(e, id)));
     }
-    l.push(format!("DTSTART{}", moment(e.start)));
+    l.extend(proprietes(e));
+    l.extend(alarme(e));
+    l.push("END:VEVENT".into());
+    l
+}
+
+/// How a moment of this event is written, after the property's name: a date for a
+/// day, the local time in its named zone, else UTC.
+fn moment(e: &Event, ms: i64) -> String {
+    if e.all_day {
+        let jour = DateTime::<Utc>::from_timestamp_millis(ms)
+            .map(|t| t.date_naive())
+            .unwrap_or_default();
+        return format!(";VALUE=DATE:{}", jour.format("%Y%m%d"));
+    }
+    match e
+        .tzid
+        .as_deref()
+        .and_then(resolve_tz)
+        .and_then(|tz| tz.timestamp_millis_opt(ms).single())
+    {
+        Some(t) => format!(
+            ";TZID={}:{}",
+            t.timezone().name(),
+            t.format("%Y%m%dT%H%M%S")
+        ),
+        None => format!(":{}", utc(ms)),
+    }
+}
+
+/// The properties Iris keeps of an event, as lines: its time, its words, its rule.
+fn proprietes(e: &Event) -> Vec<String> {
+    let mut l = vec![format!("DTSTART{}", moment(e, e.start))];
     if e.end > e.start {
-        l.push(format!("DTEND{}", moment(e.end)));
+        l.push(format!("DTEND{}", moment(e, e.end)));
     }
     l.push(format!("SUMMARY:{}", texte(&e.summary)));
     if !e.description.trim().is_empty() {
@@ -171,20 +184,235 @@ fn vevent(e: &Event, stamp_ms: i64) -> Vec<String> {
         l.push(format!("RRULE:{}", regle.trim()));
     }
     for x in &e.exdates {
-        l.push(format!("EXDATE{}", moment(*x)));
+        l.push(format!("EXDATE{}", moment(e, *x)));
     }
     if e.cancelled {
         l.push("STATUS:CANCELLED".into());
     }
-    if let Some(minutes) = e.reminder_minutes {
-        l.push("BEGIN:VALARM".into());
-        l.push("ACTION:DISPLAY".into());
-        l.push(format!("DESCRIPTION:{}", texte(&e.summary)));
-        l.push(format!("TRIGGER:-PT{}M", minutes.max(0)));
-        l.push("END:VALARM".into());
-    }
-    l.push("END:VEVENT".into());
     l
+}
+
+/// Its reminder, as an alarm.
+fn alarme(e: &Event) -> Vec<String> {
+    match e.reminder_minutes {
+        Some(minutes) => vec![
+            "BEGIN:VALARM".into(),
+            "ACTION:DISPLAY".into(),
+            format!("DESCRIPTION:{}", texte(&e.summary)),
+            format!("TRIGGER:-PT{}M", minutes.max(0)),
+            "END:VALARM".into(),
+        ],
+        None => Vec::new(),
+    }
+}
+
+/// The properties [`proprietes`] writes, which a patched event loses for Iris's own.
+const GEREES: &[&str] = &[
+    "DTSTART",
+    "DTEND",
+    "DURATION",
+    "SUMMARY",
+    "DESCRIPTION",
+    "LOCATION",
+    "RRULE",
+    "EXDATE",
+    "DTSTAMP",
+    "LAST-MODIFIED",
+    "SEQUENCE",
+];
+
+/// An object read from a server, with Iris's changes: its events (the one that repeats
+/// and its changed occurrences, under one UID) given back as `events` now are.
+///
+/// Everything Iris does not keep stays as the server wrote it — attendees, organiser,
+/// categories, its own time zones, other properties. Only the properties Iris keeps are
+/// replaced, the sequence counted up and the stamps renewed; an occurrence Iris no
+/// longer has is left out, one it added is added. The alarms stay unless the reminder
+/// changed.
+pub fn patch_object(original: &str, events: &[&Event], stamp_ms: i64) -> String {
+    let deplie = original
+        .replace("\r\n ", "")
+        .replace("\r\n\t", "")
+        .replace("\n ", "")
+        .replace("\n\t", "");
+    let lignes: Vec<&str> = deplie
+        .split('\n')
+        .map(|l| l.trim_end_matches('\r'))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let mut sortie: Vec<String> = Vec::new();
+    let mut servis = vec![false; events.len()];
+    let mut i = 0;
+    while i < lignes.len() {
+        let ligne = lignes[i];
+        if ligne.eq_ignore_ascii_case("BEGIN:VEVENT") {
+            // The whole event, its alarms included.
+            let mut fin = i + 1;
+            let mut profondeur = 0;
+            while fin < lignes.len() {
+                let l = lignes[fin];
+                if commence(l, "BEGIN:") {
+                    profondeur += 1;
+                } else if l.eq_ignore_ascii_case("END:VEVENT") && profondeur == 0 {
+                    break;
+                } else if commence(l, "END:") {
+                    profondeur -= 1;
+                }
+                fin += 1;
+            }
+            let bloc = &lignes[i..=fin.min(lignes.len() - 1)];
+            let rid = bloc.iter().find_map(|l| {
+                let (nom, params, valeur) = decouper(l);
+                (nom == "RECURRENCE-ID").then(|| {
+                    let tz = params
+                        .iter()
+                        .find(|(k, _)| k == "TZID")
+                        .map(|(_, v)| v.as_str());
+                    let date = params
+                        .iter()
+                        .any(|(k, v)| k == "VALUE" && v.eq_ignore_ascii_case("DATE"));
+                    crate::time::parse_moment(valeur, tz, date, None).map(|m| m.to_millis())
+                })
+            });
+            let rid = rid.flatten();
+            if let Some(n) = events.iter().position(|e| e.recurrence_id == rid) {
+                servis[n] = true;
+                sortie.extend(corriger(bloc, events[n], stamp_ms));
+            }
+            i = fin + 1;
+            continue;
+        }
+        if ligne.eq_ignore_ascii_case("END:VCALENDAR") {
+            for (n, e) in events.iter().enumerate() {
+                if !servis[n] {
+                    sortie.extend(vevent(e, stamp_ms));
+                    servis[n] = true;
+                }
+            }
+        }
+        sortie.push(ligne.to_string());
+        i += 1;
+    }
+    finir(sortie)
+}
+
+/// One event of an object, its kept properties replaced by Iris's.
+fn corriger(bloc: &[&str], e: &Event, stamp_ms: i64) -> Vec<String> {
+    let reminder_d_origine = {
+        let mut dans = false;
+        let mut trouve = None;
+        for l in bloc {
+            if l.eq_ignore_ascii_case("BEGIN:VALARM") {
+                dans = true;
+            } else if l.eq_ignore_ascii_case("END:VALARM") {
+                dans = false;
+            } else if dans && trouve.is_none() {
+                let (nom, _, valeur) = decouper(l);
+                if nom == "TRIGGER" {
+                    trouve = crate::time::parse_duration(valeur)
+                        .map(|ms| (-ms / 60_000) as i32)
+                        .filter(|m| *m >= 0);
+                }
+            }
+        }
+        trouve
+    };
+    let garder_alarmes = reminder_d_origine == e.reminder_minutes;
+    let mut sequence = 0i64;
+    let mut l: Vec<String> = Vec::new();
+    let mut profondeur = 0;
+    let mut dans_alarme = false;
+    for ligne in bloc.iter().skip(1) {
+        if ligne.eq_ignore_ascii_case("END:VEVENT") && profondeur == 0 {
+            break;
+        }
+        if commence(ligne, "BEGIN:") {
+            profondeur += 1;
+            dans_alarme = ligne.eq_ignore_ascii_case("BEGIN:VALARM");
+            if dans_alarme && !garder_alarmes {
+                continue;
+            }
+            l.push(ligne.to_string());
+            continue;
+        }
+        if commence(ligne, "END:") {
+            profondeur -= 1;
+            let etait = dans_alarme;
+            dans_alarme = false;
+            if etait && !garder_alarmes {
+                continue;
+            }
+            l.push(ligne.to_string());
+            continue;
+        }
+        if profondeur > 0 {
+            if !dans_alarme || garder_alarmes {
+                l.push(ligne.to_string());
+            }
+            continue;
+        }
+        let (nom, _, valeur) = decouper(ligne);
+        if nom == "SEQUENCE" {
+            sequence = valeur.trim().parse().unwrap_or(0);
+        }
+        // Its status stays unless Iris cancels it or brings it back.
+        let statut_gere =
+            nom == "STATUS" && (e.cancelled || valeur.eq_ignore_ascii_case("CANCELLED"));
+        if GEREES.contains(&nom.as_str()) || statut_gere {
+            continue;
+        }
+        l.push(ligne.to_string());
+    }
+    let mut sortie = vec!["BEGIN:VEVENT".to_string()];
+    sortie.extend(l);
+    sortie.push(format!("DTSTAMP:{}", utc(stamp_ms)));
+    sortie.push(format!("LAST-MODIFIED:{}", utc(stamp_ms)));
+    sortie.push(format!("SEQUENCE:{}", sequence + 1));
+    sortie.extend(proprietes(e));
+    if !garder_alarmes {
+        sortie.extend(alarme(e));
+    }
+    sortie.push("END:VEVENT".into());
+    sortie
+}
+
+/// Whether a line starts with `prefixe`, whatever the case (and never cutting a
+/// character).
+fn commence(ligne: &str, prefixe: &str) -> bool {
+    ligne
+        .get(..prefixe.len())
+        .is_some_and(|p| p.eq_ignore_ascii_case(prefixe))
+}
+
+/// A content line: its name in capitals, its parameters, its value. Quoted parameter
+/// values may hold `:` and `;`.
+fn decouper(ligne: &str) -> (String, Vec<(String, String)>, &str) {
+    let mut guillemets = false;
+    let mut deux_points = None;
+    for (i, c) in ligne.char_indices() {
+        match c {
+            '"' => guillemets = !guillemets,
+            ':' if !guillemets => {
+                deux_points = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let Some(dp) = deux_points else {
+        return (ligne.to_ascii_uppercase(), Vec::new(), "");
+    };
+    let tete = &ligne[..dp];
+    let valeur = &ligne[dp + 1..];
+    let mut morceaux = tete.split(';');
+    let nom = morceaux.next().unwrap_or("").to_ascii_uppercase();
+    let params = morceaux
+        .filter_map(|p| {
+            let (k, v) = p.split_once('=')?;
+            Some((k.to_ascii_uppercase(), v.trim_matches('"').to_string()))
+        })
+        .collect();
+    (nom, params, valeur)
 }
 
 fn utc(ms: i64) -> String {
@@ -283,6 +511,62 @@ mod tests {
             crate::ics::parse(&ecrit).unwrap().events[0].description,
             e.description
         );
+    }
+
+    const REUNION: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example//EN\r\n\
+BEGIN:VEVENT\r\nUID:r@example.com\r\nDTSTAMP:20260901T000000Z\r\nSEQUENCE:2\r\n\
+DTSTART:20260907T080000Z\r\nDTEND:20260907T090000Z\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:Old\r\n\
+ORGANIZER:mailto:boss@example.com\r\nATTENDEE;CN=\"Doe, J\":mailto:j@example.com\r\n\
+BEGIN:VALARM\r\nACTION:AUDIO\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:r@example.com\r\nRECURRENCE-ID:20260914T080000Z\r\n\
+DTSTART:20260914T100000Z\r\nDTEND:20260914T110000Z\r\nSUMMARY:Moved\r\nEND:VEVENT\r\n\
+END:VCALENDAR\r\n";
+
+    #[test]
+    fn a_patched_object_keeps_what_iris_does_not_know() {
+        let mut e = crate::ics::parse(REUNION).unwrap().events.remove(0);
+        e.summary = "New".into();
+        e.start += 3_600_000;
+        e.end += 3_600_000;
+        let ecrit = patch_object(REUNION, &[&e], 0);
+        assert!(ecrit.contains("ORGANIZER:mailto:boss@example.com"));
+        assert!(ecrit.contains("ATTENDEE;CN=\"Doe, J\":mailto:j@example.com"));
+        assert!(
+            ecrit.contains("ACTION:AUDIO"),
+            "the reminder did not change"
+        );
+        assert!(ecrit.contains("SEQUENCE:3"));
+        assert!(!ecrit.contains("SUMMARY:Old"));
+        assert!(
+            !ecrit.contains("SUMMARY:Moved"),
+            "an occurrence Iris no longer has"
+        );
+        assert_eq!(crate::ics::parse(&ecrit).unwrap().events, vec![e]);
+    }
+
+    #[test]
+    fn a_patched_object_takes_a_new_occurrence_and_a_new_reminder() {
+        let relus = crate::ics::parse(REUNION).unwrap().events;
+        let mut maitre = relus[0].clone();
+        maitre.reminder_minutes = Some(30);
+        let mut change = relus[1].clone();
+        change.summary = "Moved again".into();
+        let nouvelle = Event {
+            recurrence_id: Some(1_789_977_600_000),
+            start: 1_789_984_800_000,
+            end: 1_789_988_400_000,
+            summary: "Third".into(),
+            rrule: None,
+            ..maitre.clone()
+        };
+        let ecrit = patch_object(REUNION, &[&maitre, &change, &nouvelle], 0);
+        assert!(!ecrit.contains("ACTION:AUDIO"), "the reminder changed");
+        assert!(ecrit.contains("TRIGGER:-PT30M"));
+        let relu = crate::ics::parse(&ecrit).unwrap().events;
+        assert_eq!(relu.len(), 3);
+        assert_eq!(relu[1].summary, "Moved again");
+        assert_eq!(relu[2].recurrence_id, Some(1_789_977_600_000));
+        assert!(ecrit.split("\r\n").all(|l| l.len() <= 75));
     }
 
     #[test]

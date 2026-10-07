@@ -247,6 +247,17 @@ Switch between **Mail** and **Calendar** at the top of the side column, or with 
 - **Subscribe to a calendar…** (the link next to *Calendars*) follows a calendar published as a link: the `webcal://`
   or `.ics` address that Google Calendar, Outlook, iCloud, a school or a club gives out.
   Iris reads it every half hour; subscribed calendars are read-only.
+- **Connect calendars from a server** (the calendar icon next to *Calendars*) brings in
+  the calendars of iCloud, Fastmail, Nextcloud, mailbox.org, Posteo or any CalDAV
+  server, and keeps them both ways: what you add, move or delete here is changed there
+  within a minute, and what changes there shows here within a quarter of an hour (or
+  at once with *Sync now*). Type your address (or the server's), and a password: for
+  iCloud and Fastmail, an app password made in their account settings. For Gmail, add
+  the mailbox to Iris with Google's sign-in, then type its address and no password:
+  Google asks once more, in the browser, for the calendars (your OAuth client needs
+  Google's CalDAV API turned on). When an event was changed on both sides, the
+  server's version is kept. *Disconnect*, in a calendar's right-click menu, removes the
+  account's calendars from Iris and leaves them on their server.
 
 Right-click a calendar to refresh, rename, recolour or delete it. Open an event to add
 your own notes to it, even in a subscribed calendar. Opening an invitation received by
@@ -400,11 +411,14 @@ Hover over any button to see its shortcut, or press `?` for all of them.
   registration.
 - A message's attachments can weigh 25 MB together, the limit of most servers.
 - Replies and forwards are introduced in English ("On …, … wrote:").
+- Outlook and Microsoft 365 calendars cannot be connected (Microsoft offers no CalDAV);
+  their published link can be subscribed to, read-only.
 
 ## Privacy
 
-Iris talks to your mail servers, to the addresses of the calendars you subscribe to,
-to a mailing list's own address when you unsubscribe from it, and to GitHub to ask for
+Iris talks to your mail servers, to the calendar servers you connect, to the addresses
+of the calendars you subscribe to, to a mailing list's own address when you
+unsubscribe from it, and to GitHub to ask for
 the latest version. That last request carries no information about your mail or your
 accounts. Backups stay on this computer.
 

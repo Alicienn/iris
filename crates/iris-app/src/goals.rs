@@ -454,12 +454,7 @@ pub fn bloquer(f: &AppWindow, services: &Services, goal: i64) -> Result<String, 
     if premier > fin_objectif {
         return Err("The goal's day comes before the first of these.".into());
     }
-    let calendrier = services
-        .store
-        .calendars()
-        .unwrap_or_default()
-        .into_iter()
-        .find(|c| !c.is_subscription())
+    let calendrier = crate::calendar::own_calendar(services)
         .ok_or("There is no calendar of your own to put it in.")?;
     const JOURS: [&str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
     let byday = jours

@@ -313,7 +313,9 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 - **Calendar and tasks are in** (0.3.0 and 0.5.0), against the v1 non-goal. They came
   from use, not from the plan, and each has a pure domain crate (`iris-calendar`,
-  `iris-tasks`) on the same model as the mail's.
+  `iris-tasks`) on the same model as the mail's. Since 4.13.0 calendars can also be
+  kept with a server both ways (CalDAV, `iris-caldav`), a second protocol beside IMAP
+  and SMTP.
 - **No GPU for the interface.** Slint's software renderer replaced the GPU backend:
   38.5 MB against 209.7 MB for the same window, the difference being what the graphics
   driver reserves.

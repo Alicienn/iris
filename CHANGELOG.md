@@ -7,6 +7,7 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 
 ### New
 - Plan my day: today's tasks without an hour are laid into your free time in one click.
+- Connect your calendars from iCloud, Fastmail, Nextcloud, Gmail and other servers: changes go both ways.
 
 ## 4.12.0 — 2026-10-07
 

@@ -19,7 +19,7 @@ the first afternoon, and never forgive".
 | Composing | To / Cc / Bcc, attachments, formatting, signatures, an undo whose delay you choose |
 | Offline | Every action journalled and replayed; nothing waits for the network |
 | Privacy | Remote images blocked by default, trackers named |
-| Calendar | Month, week and day, an event typed straight into a free slot, events dragged and stretched, today's tasks dragged onto the week, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event |
+| Calendar | Month, week and day, an event typed straight into a free slot, events dragged and stretched, today's tasks dragged onto the week, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event, calendars kept both ways with iCloud, Fastmail, Nextcloud or Google (CalDAV, 4.13.0) as Thunderbird and Apple Calendar do |
 | Tasks | One-line entry, lists, subtasks, reminders, repeating tasks, a review of the week, tasks made from conversations and events, undo, the day's tasks laid into the calendar's free time in one click (4.13.0) |
 | Goals | A target or milestones by a date, the pace needed, time blocked weekly in the calendar — none of the four mail clients has them |
 | Drafts | Saved to the server's Drafts folder, asked for when a started message is closed |

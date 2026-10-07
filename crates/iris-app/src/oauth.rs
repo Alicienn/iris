@@ -181,6 +181,18 @@ pub async fn authorize(
     email: &str,
     now: Timestamp,
 ) -> Result<Tokens> {
+    authorize_with(secrets, settings, provider, email, now, &[]).await
+}
+
+/// The same, asking also for `extra` (Google's calendars, when they are connected).
+pub async fn authorize_with(
+    secrets: Arc<dyn SecretStore>,
+    settings: &OAuthSettings,
+    provider: Provider,
+    email: &str,
+    now: Timestamp,
+    extra: &[&str],
+) -> Result<Tokens> {
     let client_id = settings.client_id(provider).ok_or_else(|| {
         Error::Config(format!(
             "aucun identifiant client {} n'est configuré",
@@ -204,7 +216,7 @@ pub async fn authorize(
     let (ecoute, port) = iris_oauth::reserve_port()?;
 
     let entropie = entropie();
-    let demande = iris_oauth::begin(provider, client_id, port, Some(email), &entropie);
+    let demande = iris_oauth::begin_with(provider, client_id, port, Some(email), &entropie, extra);
 
     iris_oauth::open_browser(&demande)?;
 

@@ -43,7 +43,7 @@ import {
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu, EventContextMenu,
-    CalendarRenamePanel, CalendarDeletePanel
+    CalendarRenamePanel, CalendarDeletePanel, ConnectCalendarsPanel
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
@@ -1142,6 +1142,15 @@ export component AppWindow inherits Window {
     in property <bool> subscribe-busy;
     in property <string> subscribe-error;
     callback subscribe-confirmed();
+
+    /// Calendars kept with a server (CalDAV): what was typed, and how it went.
+    in-out property <bool> connect-open;
+    in-out property <string> connect-server;
+    in-out property <string> connect-user;
+    in-out property <string> connect-password;
+    in property <bool> connect-busy;
+    in property <string> connect-error;
+    callback connect-confirmed();
     /// Hidden in the tray: no body tile asks for pixels.
     in property <bool> bodies-suspended;
     /// Le message tel qu'il est arrivé, en-têtes compris.
@@ -1252,6 +1261,7 @@ export component AppWindow inherits Window {
         || root.empty-folder-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
+        || root.connect-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
@@ -1420,6 +1430,11 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.subscribe-open && !root.subscribe-busy) {
                 root.subscribe-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.connect-open && !root.connect-busy) {
+                root.connect-open = false;
+                root.connect-password = "";
                 return accept;
             }
             if (event.text == Key.Escape && root.tags-open) {
@@ -2023,6 +2038,12 @@ export component AppWindow inherits Window {
             root.subscribe-name = "";
             root.subscribe-open = true;
         }
+        connect-requested => {
+            root.connect-server = "";
+            root.connect-user = "";
+            root.connect-password = "";
+            root.connect-open = true;
+        }
     }
 
     if root.workspace == 2: TasksView {
@@ -2454,6 +2475,22 @@ export component AppWindow inherits Window {
         error: root.subscribe-error;
         subscribe => { root.subscribe-confirmed(); }
         dismissed => { root.subscribe-open = false; }
+    }
+
+    if root.connect-open: ConnectCalendarsPanel {
+        width: 100%;
+        height: 100%;
+        server <=> root.connect-server;
+        user <=> root.connect-user;
+        password <=> root.connect-password;
+        busy: root.connect-busy;
+        error: root.connect-error;
+        connect => { root.connect-confirmed(); }
+        dismissed => {
+            root.connect-open = false;
+            root.connect-password = "";
+            shortcuts.focus();
+        }
     }
 
     if root.problem-open: AccountProblemPanel {

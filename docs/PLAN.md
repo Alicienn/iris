@@ -648,5 +648,7 @@ their server.
       from Settings after keeping what is there; export as `.ics` (4.12.0).
 - [x] **S42.3** Plan my day (4.13.0): today's tasks without an hour, late first then
       by priority, laid into today's free time and booked; taken back the same day.
-- [ ] **S42.4** Calendars kept with their server (CalDAV): iCloud, Fastmail,
-      Nextcloud, Google; changes both ways.
+- [x] **S42.4** Calendars kept with their server (4.13.0, CalDAV): iCloud, Fastmail,
+      Nextcloud, mailbox.org, Posteo, Google through the mailbox's sign-in; changes
+      sent within a minute (patched objects, `If-Match`), read by tag every quarter
+      hour; the server wins a conflict. `iris-caldav`, migration 23.

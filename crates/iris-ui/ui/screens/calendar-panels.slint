@@ -742,6 +742,99 @@ export component SubscribePanel inherits Rectangle {
     }
 }
 
+// Calendars kept with a server, both ways (CalDAV): an address or a server, who signs
+// in, a password. Iris finds the calendars itself.
+export component ConnectCalendarsPanel inherits Rectangle {
+    in-out property <string> server;
+    in-out property <string> user;
+    in-out property <string> password;
+    in property <bool> busy;
+    in property <string> error;
+
+    callback connect();
+    callback dismissed();
+
+    PanelFrame {
+        width: 100%;
+        height: 100%;
+        title: "Connect calendars from a server";
+        card-height: 420px;
+        dismissed => { if (!root.busy) { root.dismissed(); } }
+
+        Text {
+            text: "iCloud, Fastmail, Nextcloud, mailbox.org, Posteo and any CalDAV server. "
+                + "What you change here is changed there, and the other way round. For iCloud "
+                + "and Fastmail use an app password. For Gmail, add the mailbox to Iris with "
+                + "Google's sign-in, then type its address here and no password.";
+            font-size: Tokens.size-small;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Labelled {
+            label: "Address or server";
+            TextField {
+                accessible-label: "Address or server";
+                placeholder-text: "you@icloud.com, or https://cloud.example.com/remote.php/dav";
+                text <=> root.server;
+                init => { self.focus(); }
+                accepted => { root.connect(); }
+            }
+        }
+
+        Labelled {
+            label: "User name (when it is not the address)";
+            TextField {
+                accessible-label: "User name";
+                text <=> root.user;
+                accepted => { root.connect(); }
+            }
+        }
+
+        Labelled {
+            label: "Password";
+            TextField {
+                accessible-label: "Password";
+                input-type: InputType.password;
+                text <=> root.password;
+                accepted => { root.connect(); }
+            }
+        }
+
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-small;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+        if root.busy: Text {
+            text: "Looking for your calendars…";
+            font-size: Tokens.size-small;
+            color: Tokens.text-muted;
+        }
+
+        Rectangle {}
+
+        HorizontalLayout {
+            height: 28px;
+            spacing: Tokens.space-2;
+            vertical-stretch: 0;
+            Rectangle {}
+            CalButton {
+                text: "Cancel";
+                enabled: !root.busy;
+                clicked => { root.dismissed(); }
+            }
+            CalButton {
+                text: "Connect";
+                primary: true;
+                enabled: !root.busy;
+                clicked => { root.connect(); }
+            }
+        }
+    }
+}
+
 // Right click on a calendar in the list.
 export component CalendarContextMenu inherits Rectangle {
     in property <CalendarData> cal;
@@ -788,9 +881,9 @@ export component CalendarContextMenu inherits Rectangle {
 
             MenuSeparator {}
 
-            if root.cal.subscribed: MenuEntry {
+            if root.cal.subscribed || root.cal.remote: MenuEntry {
                 icon: Icons.refresh;
-                label: "Refresh now";
+                label: root.cal.remote ? "Sync now" : "Refresh now";
                 activated => { root.refresh(); }
             }
             MenuEntry {
@@ -838,7 +931,8 @@ export component CalendarContextMenu inherits Rectangle {
 
             if root.cal.deletable: MenuEntry {
                 icon: Icons.trash;
-                label: root.cal.subscribed ? "Unsubscribe…" : "Delete calendar…";
+                label: root.cal.remote ? "Disconnect " + root.cal.account + "…"
+                    : root.cal.subscribed ? "Unsubscribe…" : "Delete calendar…";
                 danger: true;
                 activated => { root.remove(); }
             }
@@ -1018,12 +1112,16 @@ export component CalendarDeletePanel inherits Rectangle {
     PanelFrame {
         width: 100%;
         height: 100%;
-        title: root.cal.subscribed ? "Unsubscribe from this calendar?" : "Delete this calendar?";
+        title: root.cal.remote ? "Disconnect this account?"
+            : root.cal.subscribed ? "Unsubscribe from this calendar?" : "Delete this calendar?";
         card-height: 210px;
         dismissed => { root.dismissed(); }
 
         Text {
-            text: root.cal.subscribed
+            text: root.cal.remote
+                ? "The calendars of “" + root.cal.account + "” leave Iris. They stay on their "
+                    + "server, untouched: connect the account again to bring them back."
+                : root.cal.subscribed
                 ? "“" + root.cal.name + "” and its events leave Iris. The calendar itself is not "
                     + "touched: you can subscribe again with its link."
                 : "“" + root.cal.name + "” and every event in it are deleted from this computer. "
@@ -1045,7 +1143,7 @@ export component CalendarDeletePanel inherits Rectangle {
                 clicked => { root.dismissed(); }
             }
             CalButton {
-                text: root.cal.subscribed ? "Unsubscribe" : "Delete";
+                text: root.cal.remote ? "Disconnect" : root.cal.subscribed ? "Unsubscribe" : "Delete";
                 primary: true;
                 danger: true;
                 clicked => { root.confirmed(); }

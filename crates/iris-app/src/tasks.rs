@@ -505,12 +505,7 @@ fn uid_de_creneau(tache: i64) -> String {
 
 /// The first calendar of one's own: where slots are booked.
 fn calendrier_local(services: &Services) -> Option<iris_store::StoredCalendar> {
-    services
-        .store
-        .calendars()
-        .unwrap_or_default()
-        .into_iter()
-        .find(|c| !c.is_subscription())
+    crate::calendar::own_calendar(services)
 }
 
 /// The slot booked for a task, if there is one: (event id, start, end) in ms.
@@ -833,9 +828,11 @@ fn occupe_le(
 thread_local! {
     /// The last day planned, to take back that same day: each task laid out, and the day
     /// it was due before (a late task is brought to today).
-    static PLAN: RefCell<(Option<NaiveDate>, Vec<(i64, Option<String>)>)> =
-        const { RefCell::new((None, Vec::new())) };
+    static PLAN: RefCell<PlanRetenu> = const { RefCell::new((None, Vec::new())) };
 }
+
+/// The day a plan was made, and each task it laid out with the day it was due before.
+type PlanRetenu = (Option<NaiveDate>, Vec<(i64, Option<String>)>);
 
 /// What *Plan my day* did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

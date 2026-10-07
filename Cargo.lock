@@ -3545,6 +3545,7 @@ dependencies = [
  "iana-time-zone",
  "image",
  "iris-blobs",
+ "iris-caldav",
  "iris-calendar",
  "iris-discover",
  "iris-htmlview",
@@ -3593,6 +3594,17 @@ dependencies = [
  "tempfile",
  "tracing",
  "zstd",
+]
+
+[[package]]
+name = "iris-caldav"
+version = "4.13.0"
+dependencies = [
+ "iris-types",
+ "reqwest",
+ "roxmltree",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

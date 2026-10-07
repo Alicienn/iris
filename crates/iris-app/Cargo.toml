@@ -39,6 +39,7 @@ iris-rules = { workspace = true }
 iris-ui = { workspace = true }
 iris-plugins = { workspace = true }
 iris-calendar = { workspace = true }
+iris-caldav = { workspace = true }
 # L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 iana-time-zone = "0.1"

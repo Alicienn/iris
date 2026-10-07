@@ -33,6 +33,7 @@ iris-htmlview = { path = "crates/iris-htmlview", default-features = false }
 iris-ui = { path = "crates/iris-ui" }
 iris-plugins = { path = "crates/iris-plugins" }
 iris-calendar = { path = "crates/iris-calendar" }
+iris-caldav = { path = "crates/iris-caldav" }
 iris-tasks = { path = "crates/iris-tasks" }
 
 thiserror = "2"

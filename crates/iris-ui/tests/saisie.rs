@@ -424,6 +424,16 @@ fn l_abonnement_s_ouvre_dans_le_lien() {
     assert_eq!(f.get_subscribe_url().as_str(), "webcal://example.com/a.ics");
 }
 
+fn connecting_calendars_opens_in_the_address_and_escape_closes() {
+    let f = fenetre();
+    f.set_workspace(1);
+    f.set_connect_open(true);
+    taper(&f, "a@example.com");
+    assert_eq!(f.get_connect_server().as_str(), "a@example.com");
+    echap(&f);
+    assert!(!f.get_connect_open(), "Escape closes it");
+}
+
 fn un_calendrier(f: &AppWindow, abonne: bool) {
     f.set_workspace(1);
     f.set_calendars(ModelRc::new(VecModel::from(vec![iris_ui::CalendarData {
@@ -2352,6 +2362,10 @@ fn main() {
         (
             "l_abonnement_s_ouvre_dans_le_lien",
             l_abonnement_s_ouvre_dans_le_lien,
+        ),
+        (
+            "connecting_calendars_opens_in_the_address_and_escape_closes",
+            connecting_calendars_opens_in_the_address_and_escape_closes,
         ),
         (
             "seules_les_tuiles_proches_de_l_ecran_sont_demandees",

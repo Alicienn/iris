@@ -261,6 +261,10 @@ export struct CalendarData {
     failed: bool,
     // False for the last calendar of one's own: events need somewhere to go.
     deletable: bool,
+    // Kept with a server (CalDAV), and the account's name: removing it disconnects
+    // the account.
+    remote: bool,
+    account: string,
 }
 
 // An event as a line in a month cell or an all-day strip.

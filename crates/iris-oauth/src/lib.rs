@@ -131,6 +131,10 @@ pub struct AuthRequest {
     pub redirect_uri: String,
 }
 
+/// Google's calendars (CalDAV), asked for only when a mailbox's calendars are
+/// connected: the mail's own sign-in stays as small as it was.
+pub const GOOGLE_CALENDAR_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
+
 /// Prépare une demande d'autorisation.
 pub fn begin(
     provider: Provider,
@@ -139,16 +143,35 @@ pub fn begin(
     login_hint: Option<&str>,
     entropy: &[u8],
 ) -> AuthRequest {
+    begin_with(provider, client_id, redirect_port, login_hint, entropy, &[])
+}
+
+/// An authorisation asking, besides the mail, for `extra` (Google's calendars).
+pub fn begin_with(
+    provider: Provider,
+    client_id: &str,
+    redirect_port: u16,
+    login_hint: Option<&str>,
+    entropy: &[u8],
+    extra: &[&str],
+) -> AuthRequest {
     let verifier = pkce_verifier(entropy);
     let challenge = pkce_challenge(&verifier);
     let state = state_token(entropy);
     let redirect_uri = format!("http://127.0.0.1:{redirect_port}/oauth");
+    let mut habilitations: Vec<&str> = provider.scopes().to_vec();
+    habilitations.extend(
+        extra
+            .iter()
+            .copied()
+            .filter(|s| !provider.scopes().contains(s)),
+    );
 
     let mut params: Vec<(&str, String)> = vec![
         ("client_id", client_id.to_string()),
         ("redirect_uri", redirect_uri.clone()),
         ("response_type", "code".into()),
-        ("scope", provider.scopes().join(" ")),
+        ("scope", habilitations.join(" ")),
         ("code_challenge", challenge),
         ("code_challenge_method", "S256".into()),
         ("state", state.clone()),
@@ -160,6 +183,9 @@ pub fn begin(
         // au bout d'une heure sans explication.
         params.push(("access_type", "offline".into()));
         params.push(("prompt", "consent".into()));
+        // What was granted before stays granted: signing in again for the mail does
+        // not take the calendars back.
+        params.push(("include_granted_scopes", "true".into()));
     }
 
     if let Some(hint) = login_hint {
@@ -804,6 +830,18 @@ mod tests {
         // Demander davantage ferait hésiter l'utilisateur au moment le plus délicat.
         assert_eq!(Provider::Google.scopes().len(), 2);
         assert!(Provider::Microsoft.scopes().contains(&"offline_access"));
+        // The calendars only when they are connected.
+        let r = begin(Provider::Google, "c", 8080, None, b"g");
+        assert!(!r.url.contains("calendar"));
+        let r = begin_with(
+            Provider::Google,
+            "c",
+            8080,
+            None,
+            b"g",
+            &[GOOGLE_CALENDAR_SCOPE],
+        );
+        assert!(r.url.contains("auth%2Fcalendar"), "{}", r.url);
     }
 
     #[test]

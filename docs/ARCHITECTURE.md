@@ -187,6 +187,7 @@ contract of the one before it.
                  iris-blobs (zstd + LRU)
   Network        iris-sync · iris-imap · iris-smtp           tokio
                  iris-discover · iris-secrets · iris-oauth
+                 iris-caldav
   Cross-cutting  iris-kernel · iris-types
                  iris-plugins (host) · iris-plugin-sdk (guest)
   Assembly       iris-app                                    binary, wiring
@@ -633,6 +634,41 @@ The application side (`crates/iris-app/src/calendar.rs`):
   place, so the events it reaches share the column as it grows. A new model would
   rebuild the rows and drop the drag under the pointer. A move still draws a copy.
 
+**Calendars kept with a server** (4.13.0, CalDAV). `iris-caldav` is the protocol and
+nothing else, over `reqwest`: `starting_point` turns what was typed into an address
+(known servers by the address's domain — iCloud, Fastmail, Google, mailbox.org, Posteo,
+Yahoo — else the domain's `/.well-known/caldav`, then `/remote.php/dav/`, `/dav/`, `/`),
+`find_home` follows the principal to the calendar home, `calendars` lists those that
+take events (name, Apple colour, `getctag`, whether the privileges allow writing),
+`etags` reads every event's tag (`calendar-query`), `fetch` the changed objects by
+fifty (`calendar-multiget`), `put` and `delete` write with `If-Match` (`If-None-Match:
+*` for a new one) and say a `412` as a conflict. Redirections are followed by hand,
+keeping the method and body. Multistatus answers are read with `roxmltree`.
+
+`iris-app/src/caldav.rs` keeps them. An account (`calendar_accounts`, migration 23) is
+a server and a user name, its password in the vault under `caldav:{id}`, or, for
+Gmail, the mailbox's Google sign-in (`mail_account`): the token comes from the same
+`CredentialsProvider` as the mail's, and connecting asks Google once more, in the
+browser, for `GOOGLE_CALENDAR_SCOPE` (`begin_with`, with `include_granted_scopes`), so
+the mail's own sign-in still asks for nothing more. Its calendars are rows of
+`calendars` with `account_id`, `remote_href` and `read_only`; their events carry the
+object's `href`, `etag` and its text as last read (`remote_ics`). Any write of the store
+to such a calendar marks the row `dirty` (insert, update, cancel), and a deletion or a
+move to another calendar leaves a `calendar_tombstones` row (a changed occurrence marks
+its series instead). A sync, one at a time behind a mutex, lists the calendars again
+(new ones made with the server's name and colour, gone ones dropped), **sends** first —
+tombstones deleted, then each dirty UID written as one object, the stored text patched
+by `iris_calendar::write::patch_object` (Iris's own properties replaced, `SEQUENCE`
+counted up, attendees, organiser, time zones and unknown properties kept, alarms kept
+unless the reminder changed) or written anew (`write::object`) — then **reads** when the
+calendar's `getctag` moved or something was sent: objects whose tag differs are fetched
+and replace their rows (`store_remote_object`), those gone are removed, rows changed
+here and not yet sent are left alone. A conflict keeps the server's version. Every
+account is synced a quarter of an hour apart, and those with changes waiting every
+minute. Calendars on this computer still come first: invitations, tasks' slots and
+goals' time go to the first local calendar (`own_calendar`), else the first writable.
+Removing a remote calendar disconnects its account; the server keeps everything.
+
 ## Tasks
 
 `iris-tasks` is pure as well:
@@ -1024,6 +1060,7 @@ which keeps that term off any index, and a test pins the plan
 | 20 | Logins (`imap_user`, `smtp_user`) and `folder_delimiter` on accounts; `cc` and `reply_to` on messages; `thread_ghosts` and its trigger (4.6.0) |
 | 21 | `op_journal.uid_validity`: the folder validity an operation's UIDs belong to (4.8.0) |
 | 22 | `unsubscribed`: the senders one has left the mailing list of, by address (4.12.0) |
+| 23 | `calendar_accounts`; `account_id`, `remote_href`, `read_only` on calendars; `href`, `etag`, `remote_ics`, `dirty` on events; `calendar_tombstones` (4.13.0) |
 
 A new table or column always arrives as a new migration.
 
@@ -1031,7 +1068,7 @@ A new table or column always arrives as a new migration.
 `iris-app/src/backup.rs`). Mail comes back from its servers; calendars, events and
 what is set beside them, task lists, tasks and goals do not. Once a day (looked at a
 minute after launch, then every hour) `back_up_personal` attaches a new file and copies
-those eleven tables into it with `CREATE TABLE … AS SELECT`, in one transaction, with
+those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
 an `about` row (schema version, time); the file is written as `.partial` and renamed.
 They sit in `data/backups/personal-YYYY-MM-DD.db`, fourteen kept. `restore_personal`
 empties the same tables children first and fills them parents first from the backup,

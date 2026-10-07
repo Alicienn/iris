@@ -14,8 +14,11 @@ use std::path::Path;
 
 /// Parents before children: copied and restored in this order, emptied in the other.
 const TABLES: &[&str] = &[
+    // The accounts calendars are kept with (their passwords stay in the vault).
+    "calendar_accounts",
     "calendars",
     "calendar_events",
+    "calendar_tombstones",
     "event_notes",
     "event_colors",
     "event_links",

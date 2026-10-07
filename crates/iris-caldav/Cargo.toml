@@ -1,0 +1,16 @@
+[package]
+name = "iris-caldav"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+iris-types = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
+# Le XML de WebDAV (multistatus) : lu seulement, avec ses espaces de noms.
+roxmltree = "0.21"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

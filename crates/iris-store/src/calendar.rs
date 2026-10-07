@@ -18,11 +18,31 @@ pub struct StoredCalendar {
     pub last_modified: Option<String>,
     pub last_sync: Option<Timestamp>,
     pub last_error: Option<String>,
+    /// The calendar account it is kept with (CalDAV), and its address there.
+    pub account_id: Option<i64>,
+    pub remote_url: Option<String>,
+    /// The server lets it be read only.
+    pub read_only: bool,
 }
 
 impl StoredCalendar {
     pub fn is_subscription(&self) -> bool {
         self.source_url.is_some()
+    }
+
+    /// Kept with a server, both ways.
+    pub fn is_remote(&self) -> bool {
+        self.remote_url.is_some()
+    }
+
+    /// On this computer only.
+    pub fn is_local(&self) -> bool {
+        !self.is_subscription() && !self.is_remote()
+    }
+
+    /// Its events can be made, changed and deleted here.
+    pub fn is_writable(&self) -> bool {
+        !self.is_subscription() && !self.read_only
     }
 }
 
@@ -52,8 +72,8 @@ pub struct StoredEvent {
     pub event: NewEvent,
 }
 
-const COLONNES_CAL: &str =
-    "id, name, color, source_url, visible, etag, last_modified, last_sync, last_error";
+const COLONNES_CAL: &str = "id, name, color, source_url, visible, etag, last_modified, \
+     last_sync, last_error, account_id, remote_href, read_only";
 
 fn calendrier(r: &Row<'_>) -> rusqlite::Result<StoredCalendar> {
     Ok(StoredCalendar {
@@ -66,14 +86,17 @@ fn calendrier(r: &Row<'_>) -> rusqlite::Result<StoredCalendar> {
         last_modified: r.get(6)?,
         last_sync: r.get::<_, Option<i64>>(7)?.map(Timestamp::from_millis),
         last_error: r.get(8)?,
+        account_id: r.get(9)?,
+        remote_url: r.get(10)?,
+        read_only: r.get::<_, i64>(11)? != 0,
     })
 }
 
-const COLONNES_EV: &str =
+pub(crate) const COLONNES_EV: &str =
     "id, calendar_id, uid, summary, description, location, start_ms, end_ms, \
      all_day, tzid, rrule, exdates, recurrence_id, cancelled, reminder_minutes";
 
-fn evenement(r: &Row<'_>) -> rusqlite::Result<StoredEvent> {
+pub(crate) fn evenement(r: &Row<'_>) -> rusqlite::Result<StoredEvent> {
     let exdates: String = r.get(11)?;
     Ok(StoredEvent {
         id: r.get(0)?,
@@ -103,17 +126,25 @@ fn err(quoi: &str) -> impl Fn(rusqlite::Error) -> Error + '_ {
     move |e| Error::store(format!("{quoi} : {e}"))
 }
 
-fn inserer(tx: &rusqlite::Connection, calendar: i64, e: &NewEvent, now: Timestamp) -> Result<i64> {
+pub(crate) fn inserer(
+    tx: &rusqlite::Connection,
+    calendar: i64,
+    e: &NewEvent,
+    now: Timestamp,
+) -> Result<i64> {
     let exdates = e
         .exdates
         .iter()
         .map(i64::to_string)
         .collect::<Vec<_>>()
         .join(",");
+    // Made here in a calendar kept with a server: to be sent there.
     tx.execute(
         "INSERT INTO calendar_events (calendar_id, uid, summary, description, location, start_ms, \
-         end_ms, all_day, tzid, rrule, exdates, recurrence_id, cancelled, reminder_minutes, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         end_ms, all_day, tzid, rrule, exdates, recurrence_id, cancelled, reminder_minutes, updated_at, \
+         dirty) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, \
+         (SELECT count(*) FROM calendars WHERE id = ?1 AND remote_href IS NOT NULL))",
         params![
             calendar,
             e.uid,
@@ -136,6 +167,43 @@ fn inserer(tx: &rusqlite::Connection, calendar: i64, e: &NewEvent, now: Timestam
     Ok(tx.last_insert_rowid())
 }
 
+/// What an event leaves on its server when it is deleted, or moved to the calendar
+/// `vers`: its object deleted there (a tombstone), or, for a changed occurrence, its
+/// series sent again without it. Nothing for an event not there yet, nor one that stays.
+fn quitter_son_objet(c: &rusqlite::Connection, id: i64, vers: Option<i64>) -> Result<()> {
+    /// Its calendar, UID, object, tag and occurrence.
+    type Ligne = (i64, String, Option<String>, Option<String>, Option<i64>);
+    let ligne: Option<Ligne> = c
+        .query_row(
+            "SELECT calendar_id, uid, href, etag, recurrence_id FROM calendar_events WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .map_err(err("lecture d'un événement"))?;
+    let Some((calendrier, uid, Some(href), etag, rid)) = ligne else {
+        return Ok(());
+    };
+    if vers == Some(calendrier) {
+        return Ok(());
+    }
+    if rid.is_some() {
+        c.execute(
+            "UPDATE calendar_events SET dirty = 1 \
+             WHERE calendar_id = ?1 AND uid = ?2 AND recurrence_id IS NULL",
+            params![calendrier, uid],
+        )
+        .map_err(err("suppression d'une occurrence"))?;
+    } else {
+        c.execute(
+            "INSERT INTO calendar_tombstones (calendar_id, href, etag) VALUES (?1, ?2, ?3)",
+            params![calendrier, href, etag],
+        )
+        .map_err(err("suppression d'un événement"))?;
+    }
+    Ok(())
+}
+
 impl Store {
     /// Tous les calendriers, locaux d'abord, puis par nom.
     pub fn calendars(&self) -> Result<Vec<StoredCalendar>> {
@@ -143,7 +211,8 @@ impl Store {
             let mut stmt = c
                 .prepare(&format!(
                     "SELECT {COLONNES_CAL} FROM calendars \
-                     ORDER BY source_url IS NOT NULL, name COLLATE NOCASE"
+                     ORDER BY source_url IS NOT NULL, remote_href IS NOT NULL, \
+                     name COLLATE NOCASE"
                 ))
                 .map_err(err("lecture des calendriers"))?;
             let lignes = stmt
@@ -261,10 +330,18 @@ impl Store {
             .collect::<Vec<_>>()
             .join(",");
         self.with_conn(|c| {
+            // Moved to another calendar, it leaves its server object behind: deleted
+            // there (or its series sent again, for a changed occurrence), and made anew.
+            quitter_son_objet(c, id, Some(calendar))?;
             c.execute(
                 "UPDATE calendar_events SET calendar_id = ?2, summary = ?3, description = ?4, \
                  location = ?5, start_ms = ?6, end_ms = ?7, all_day = ?8, tzid = ?9, rrule = ?10, \
-                 exdates = ?11, reminder_minutes = ?12, updated_at = ?13 WHERE id = ?1",
+                 exdates = ?11, reminder_minutes = ?12, updated_at = ?13, \
+                 href = CASE WHEN calendar_id = ?2 THEN href END, \
+                 etag = CASE WHEN calendar_id = ?2 THEN etag END, \
+                 remote_ics = CASE WHEN calendar_id = ?2 THEN remote_ics END, \
+                 dirty = (SELECT count(*) FROM calendars WHERE id = ?2 AND remote_href IS NOT NULL) \
+                 WHERE id = ?1",
                 params![
                     id,
                     calendar,
@@ -288,6 +365,7 @@ impl Store {
 
     pub fn delete_event(&self, id: i64) -> Result<()> {
         self.with_conn(|c| {
+            quitter_son_objet(c, id, None)?;
             c.execute("DELETE FROM calendar_events WHERE id = ?1", [id])
                 .map(|_| ())
                 .map_err(err("suppression d'un événement"))
@@ -378,7 +456,10 @@ impl Store {
     pub fn set_event_cancelled(&self, id: i64, cancelled: bool) -> Result<()> {
         self.with_conn(|c| {
             c.execute(
-                "UPDATE calendar_events SET cancelled = ?2 WHERE id = ?1",
+                "UPDATE calendar_events SET cancelled = ?2, \
+                 dirty = (SELECT count(*) FROM calendars k \
+                          WHERE k.id = calendar_id AND k.remote_href IS NOT NULL) \
+                 WHERE id = ?1",
                 params![id, cancelled as i64],
             )
             .map(|_| ())

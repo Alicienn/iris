@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 22;
+pub const CURRENT_VERSION: i64 = 23;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -128,7 +128,55 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "mailing lists one has left",
         sql: SCHEMA_V22,
     },
+    Migration {
+        version: 23,
+        name: "calendars kept with a server",
+        sql: SCHEMA_V23,
+    },
 ];
+
+/// Calendars kept with a server (CalDAV), both ways.
+///
+/// - `calendar_accounts`: a server and who signs in there — a user name and a password
+///   in the vault (`caldav:{id}`), or the sign-in of one of one's mailboxes
+///   (`mail_account`, for Google). `home` is where its calendars are, found once.
+/// - A calendar of an account has its address there (`remote_href`), its tag in
+///   `etag` (the server's `getctag`), and may be read only.
+/// - An event of such a calendar has the address of its object (`href`), the object's
+///   tag, and the object as last read (`remote_ics`), so that what Iris does not keep
+///   (attendees, organiser…) goes back unchanged. `dirty` marks a change made here and
+///   not yet sent; `calendar_tombstones` the objects deleted here and not yet there.
+const SCHEMA_V23: &str = "
+CREATE TABLE calendar_accounts (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT NOT NULL,
+    server       TEXT NOT NULL,
+    home         TEXT,
+    username     TEXT NOT NULL DEFAULT '',
+    mail_account INTEGER,
+    last_sync    INTEGER,
+    last_error   TEXT,
+    created_at   INTEGER NOT NULL
+);
+
+ALTER TABLE calendars ADD COLUMN account_id INTEGER REFERENCES calendar_accounts(id) ON DELETE CASCADE;
+ALTER TABLE calendars ADD COLUMN remote_href TEXT;
+ALTER TABLE calendars ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE calendar_events ADD COLUMN href TEXT;
+ALTER TABLE calendar_events ADD COLUMN etag TEXT;
+ALTER TABLE calendar_events ADD COLUMN remote_ics TEXT;
+ALTER TABLE calendar_events ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX calendar_events_by_href ON calendar_events(calendar_id, href);
+CREATE INDEX calendar_events_dirty ON calendar_events(calendar_id) WHERE dirty = 1;
+
+CREATE TABLE calendar_tombstones (
+    id          INTEGER PRIMARY KEY,
+    calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    href        TEXT NOT NULL,
+    etag        TEXT
+);
+";
 
 /// The senders one has unsubscribed from, by address, and when: the reader then says
 /// so in place of offering it again.
