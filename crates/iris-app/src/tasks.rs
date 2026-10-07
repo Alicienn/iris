@@ -346,6 +346,12 @@ fn apercu(
         week_today: semaine.today,
         tint: Default::default(),
         open: 0,
+        to_plan: if vue == Vue::Today {
+            a_planifier(services).len() as i32
+        } else {
+            0
+        },
+        can_unplan: vue == Vue::Today && plan_a_reprendre(),
     }
 }
 
@@ -625,19 +631,7 @@ pub fn to_plan(services: &Services) -> Vec<iris_ui::PlanTaskData> {
         .into_iter()
         .map(|l| (l.id, l.color))
         .collect();
-    let mut taches: Vec<_> = services
-        .store
-        .open_tasks()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|t| {
-            t.task.parent_id.is_none()
-                && t.task.due_minute.is_none()
-                && jour(&t.task).is_some_and(|j| j <= today)
-        })
-        .collect();
-    taches.sort_by_key(|t| (jour(&t.task), -t.task.priority, t.id));
-    taches
+    a_planifier(services)
         .into_iter()
         .take(6)
         .map(|t| {
@@ -767,6 +761,27 @@ fn occupation(services: &Services, id: i64) -> Option<Occupation> {
     let today = maintenant.date();
     let jour_vise = jour(&t.task).filter(|j| *j >= today).unwrap_or(today);
     let longueur = t.task.estimate.unwrap_or(30);
+    let occupe = occupe_le(services, jour_vise, Some(id));
+    let depuis = if jour_vise == today {
+        (maintenant.time().num_seconds_from_midnight() / 60) as i32
+    } else {
+        0
+    };
+    Some(Occupation {
+        jour: jour_vise,
+        longueur,
+        occupe,
+        depuis,
+    })
+}
+
+/// What a day holds, in minutes of it: its timed events, and its tasks with an hour.
+/// `sauf` is a task looking for room, whose own booking does not stand in its way.
+fn occupe_le(
+    services: &Services,
+    jour_vise: NaiveDate,
+    sauf: Option<i64>,
+) -> Vec<(i32, i32, String)> {
     let minute_de = |ms: i64| {
         Local
             .timestamp_millis_opt(ms)
@@ -783,9 +798,11 @@ fn occupation(services: &Services, id: i64) -> Option<Occupation> {
             })
             .unwrap_or(0)
     };
-    let propre = uid_de_creneau(id);
+    let propre = sauf.map(uid_de_creneau);
     // Its own booking does not stand in its way.
-    let deja = creneau_reserve(services, id).map(|(ev, _, _)| format!("{ev}:"));
+    let deja = sauf
+        .and_then(|id| creneau_reserve(services, id))
+        .map(|(ev, _, _)| format!("{ev}:"));
     let mut occupe: Vec<(i32, i32, String)> = crate::calendar::upcoming(services, jour_vise, 1)
         .into_iter()
         .filter(|u| !u.all_day)
@@ -794,7 +811,9 @@ fn occupation(services: &Services, id: i64) -> Option<Occupation> {
         .collect();
     // The other tasks of that day that have an hour.
     for autre in services.store.open_tasks().unwrap_or_default() {
-        if autre.id == id || autre.task.event_uid.as_deref() == Some(propre.as_str()) {
+        if Some(autre.id) == sauf
+            || (propre.is_some() && autre.task.event_uid.as_deref() == propre.as_deref())
+        {
             continue;
         }
         if jour(&autre.task) == Some(jour_vise) {
@@ -808,17 +827,132 @@ fn occupation(services: &Services, id: i64) -> Option<Occupation> {
         }
     }
     occupe.sort();
-    let depuis = if jour_vise == today {
-        (maintenant.time().num_seconds_from_midnight() / 60) as i32
-    } else {
-        0
-    };
-    Some(Occupation {
-        jour: jour_vise,
-        longueur,
-        occupe,
-        depuis,
+    occupe
+}
+
+thread_local! {
+    /// The last day planned, to take back that same day: each task laid out, and the day
+    /// it was due before (a late task is brought to today).
+    static PLAN: RefCell<(Option<NaiveDate>, Vec<(i64, Option<String>)>)> =
+        const { RefCell::new((None, Vec::new())) };
+}
+
+/// What *Plan my day* did.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PlanDuJour {
+    pub planned: usize,
+    /// Those the day had no room left for.
+    pub left: usize,
+    /// From the first start to the last end, in minutes of the day.
+    pub from: i32,
+    pub to: i32,
+}
+
+impl PlanDuJour {
+    /// "Planned 4 tasks, 10:15 to 13:30. 1 did not fit."
+    pub fn message(&self) -> String {
+        let tenu = match self.planned {
+            0 => "No room is left today for these tasks.".to_string(),
+            1 => format!("Planned 1 task, {} to {}.", hm(self.from), hm(self.to)),
+            n => format!("Planned {n} tasks, {} to {}.", hm(self.from), hm(self.to)),
+        };
+        match (self.planned, self.left) {
+            (_, 0) | (0, _) => tenu,
+            (_, 1) => format!("{tenu} 1 did not fit."),
+            (_, n) => format!("{tenu} {n} did not fit."),
+        }
+    }
+}
+
+/// Today's tasks with no hour yet, late ones included: the late first, then by
+/// priority, then in the order they were made.
+fn a_planifier(services: &Services) -> Vec<StoredTask> {
+    let today = maintenant_local().date();
+    let mut taches: Vec<_> = services
+        .store
+        .open_tasks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| {
+            t.task.parent_id.is_none()
+                && t.task.due_minute.is_none()
+                && jour(&t.task).is_some_and(|j| j <= today)
+        })
+        .collect();
+    taches.sort_by_key(|t| (jour(&t.task), -t.task.priority, t.id));
+    taches
+}
+
+/// Lays today's tasks with no hour into today's free time, from now: one after the
+/// other in the order of [`a_planifier`], each for its length (half an hour when not
+/// said), each booked in the calendar as *Find a slot* books one. What does not fit
+/// before the end of the working day stays as it was.
+pub(crate) fn plan_day(services: &Services) -> PlanDuJour {
+    let maintenant = maintenant_local();
+    let today = maintenant.date();
+    let depuis = (maintenant.time().num_seconds_from_midnight() / 60) as i32;
+    let mut occupe: Vec<(i32, i32)> = occupe_le(services, today, None)
+        .into_iter()
+        .map(|(a, b, _)| (a, b))
+        .collect();
+    let mut bilan = PlanDuJour::default();
+    let mut retenu = Vec::new();
+    for t in a_planifier(services) {
+        let longueur = t.task.estimate.unwrap_or(30).max(5);
+        let debut = iris_tasks::slots::free_slots(&occupe, longueur, depuis, 1)
+            .first()
+            .copied();
+        let Some(m) = debut else {
+            bilan.left += 1;
+            continue;
+        };
+        let avant = t.task.due_day.clone();
+        match reserver(services, t.id, today, m) {
+            Ok(_) => {
+                occupe.push((m, m + longueur));
+                if bilan.planned == 0 {
+                    bilan.from = m;
+                }
+                bilan.to = bilan.to.max(m + longueur);
+                bilan.planned += 1;
+                retenu.push((t.id, avant));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "planning a task");
+                bilan.left += 1;
+            }
+        }
+    }
+    if !retenu.is_empty() {
+        PLAN.with(|p| *p.borrow_mut() = (Some(today), retenu));
+    }
+    bilan
+}
+
+/// Whether the last plan can still be taken back: made today, and not taken back.
+fn plan_a_reprendre() -> bool {
+    let today = maintenant_local().date();
+    PLAN.with(|p| {
+        let p = p.borrow();
+        p.0 == Some(today) && !p.1.is_empty()
     })
+}
+
+/// Takes the last plan back, made today: the slots off the calendar, each task without
+/// an hour and on the day it was due before. Gives how many.
+pub(crate) fn unplan_day(services: &Services) -> usize {
+    if !plan_a_reprendre() {
+        return 0;
+    }
+    let (_, plan) = PLAN.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    for (id, jour) in &plan {
+        liberer(services, *id);
+        modifier(services, *id, |t| {
+            t.due_minute = None;
+            t.due_day = jour.clone();
+        });
+    }
+    plan.len()
 }
 
 /// The day a slot picker is about: the task's due day from today on, or today.
@@ -2025,6 +2159,31 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         }
     );
 
+    // Today's tasks with no hour, laid into the free time; and taken back.
+    geste!(
+        on_task_plan_day,
+        [services, etat, redessiner, f, controller],
+        || {
+            f.set_toast(plan_day(services).message().into());
+            redessiner();
+        }
+    );
+    geste!(
+        on_task_unplan_day,
+        [services, etat, redessiner, f, controller],
+        || {
+            f.set_toast(
+                match unplan_day(services) {
+                    0 => "There is no plan of today to take back.".to_string(),
+                    1 => "The task planned has no hour again.".to_string(),
+                    n => format!("The {n} tasks planned have no hour again."),
+                }
+                .into(),
+            );
+            redessiner();
+        }
+    );
+
     // The completed tasks of the view, cleared from its Completed title.
     geste!(
         on_task_clear_completed,
@@ -2629,6 +2788,72 @@ mod tests {
         let t = services.store.task(id).unwrap().unwrap().task;
         assert_eq!(t.event_uid, None);
         assert_eq!(t.due_minute, Some(960), "its hour stays");
+    }
+
+    #[test]
+    fn a_plan_says_what_it_did() {
+        let plan = |planned, left| PlanDuJour {
+            planned,
+            left,
+            from: 10 * 60 + 15,
+            to: 13 * 60 + 30,
+        };
+        assert_eq!(plan(1, 0).message(), "Planned 1 task, 10:15 to 13:30.");
+        assert_eq!(
+            plan(4, 2).message(),
+            "Planned 4 tasks, 10:15 to 13:30. 2 did not fit."
+        );
+        assert_eq!(
+            plan(0, 3).message(),
+            "No room is left today for these tasks."
+        );
+    }
+
+    #[test]
+    fn a_plan_taken_back_leaves_tasks_as_they_were() {
+        let dir = tempfile::tempdir().unwrap();
+        let services = Services::open(
+            crate::paths::Paths::under(dir.path()),
+            Some(iris_secrets::Secret::new("test")),
+        )
+        .unwrap();
+        let liste = services.store.task_lists().unwrap()[0].id;
+        let hier = maintenant_local().date() - Duration::days(1);
+        let id = services
+            .store
+            .insert_task(
+                &NewTask {
+                    list_id: liste,
+                    title: "Late one".into(),
+                    due_day: Some(hier.format("%Y-%m-%d").to_string()),
+                    ..Default::default()
+                },
+                now(),
+            )
+            .unwrap();
+        assert!(a_planifier(&services).iter().any(|t| t.id == id));
+
+        // Laid out today, as Plan my day does.
+        let today = maintenant_local().date();
+        reserver(&services, id, today, 9 * 60).unwrap();
+        PLAN.with(|p| {
+            *p.borrow_mut() = (
+                Some(today),
+                vec![(id, Some(hier.format("%Y-%m-%d").to_string()))],
+            )
+        });
+        assert!(plan_a_reprendre());
+        assert!(
+            a_planifier(&services).iter().all(|t| t.id != id),
+            "it has an hour"
+        );
+
+        assert_eq!(unplan_day(&services), 1);
+        assert!(creneau_reserve(&services, id).is_none());
+        let t = services.store.task(id).unwrap().unwrap().task;
+        assert_eq!(t.due_minute, None);
+        assert_eq!(t.due_day, Some(hier.format("%Y-%m-%d").to_string()));
+        assert!(!plan_a_reprendre(), "taken back once");
     }
 
     #[test]

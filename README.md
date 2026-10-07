@@ -284,6 +284,10 @@ lists and goals follow.
   beside *Done* removes them.
 - A task can hold subtasks, a note and a reminder, and say how long it takes (*Takes*:
   15 min, 30 min, 1 h, 2 h, or any length written out, like `1h20`).
+- **Plan my day**, in *Today*, lays the day's tasks that have no hour yet (late ones
+  included, the late first, then by priority) one after another into the free time
+  left today, each for as long as it takes, and blocks them in your first calendar.
+  What does not fit before 20:00 stays as it was. **Undo plan** takes it back that day.
 - **Find a slot**, in a task's details, lists the free stretches of its day between your
   events and other timed tasks; the one you pick is blocked in your first calendar and
   gives the task its hour. *Remove* takes it back off.

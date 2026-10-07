@@ -666,6 +666,17 @@ that takes nothing from the keyboard: while it shows, `Enter` sends the field to
 `task-add-answered`, where nothing skips, a length (`goals::parse_duration`) is kept,
 and anything else is the next task. `Later` has *Tonight* (today, 23:59).
 
+**Plan my day** (4.13.0). Today's open tasks with no hour, late ones included
+(`a_planifier`: the late first, then by priority, as *To plan* in the calendar lists
+them), are laid one after another into today's free time from now: what the day holds
+is read once (`occupe_le`: timed events and tasks with an hour), each task takes the
+first stretch `slots::free_slots` finds for its length (half an hour when not said)
+before the end of the working day, and is booked as *Find a slot* books one
+(`reserver`: an event `task-{id}@iris` in the first calendar of one's own, the task's
+day and hour set to it). Each booked stretch then counts as taken for the next. The
+plan is kept for the day (`PLAN`: each task and the day it was due before), so
+*Undo plan* frees the slots and gives late tasks their own day back.
+
 ## Sending, and undoing a send
 
 The outbox (`crates/iris-smtp/src/outbox.rs`) holds each message for a delay **before**

@@ -991,6 +991,9 @@ export component AppWindow inherits Window {
     in property <string> tasks-title;
     in property <string> tasks-subtitle;
     callback task-clear-completed();
+    /// Today's tasks with no hour laid into the free time, and that taken back.
+    callback task-plan-day();
+    callback task-unplan-day();
     callback task-dropped(int, string);
     /// A task let go on another in the column: (it, that one, above rather than below).
     callback task-reordered(int, int, bool);
@@ -2038,6 +2041,8 @@ export component AppWindow inherits Window {
             shortcuts.focus();
         }
         clear-completed => { root.task-clear-completed(); }
+        plan-day => { root.task-plan-day(); }
+        unplan-day => { root.task-unplan-day(); }
         task-dropped(id, cle) => { root.task-dropped(id, cle); }
         task-reordered(porte, cible, dessus) => { root.task-reordered(porte, cible, dessus); }
         places: root.task-places;

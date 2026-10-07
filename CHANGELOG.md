@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.13.0 — 2026-10-07
+
+### New
+- Plan my day: today's tasks without an hour are laid into your free time in one click.
+
 ## 4.12.0 — 2026-10-07
 
 ### New

@@ -455,6 +455,10 @@ export struct TaskOverviewData {
     // transparent: the accent), with how many are open beside it.
     tint: color,
     open: int,
+    // Today: how many tasks have no hour yet, which Plan my day lays into the free
+    // time; and whether the last plan can be taken back.
+    to-plan: int,
+    can-unplan: bool,
 }
 
 // A step of a task.

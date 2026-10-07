@@ -1330,6 +1330,9 @@ export component TasksView inherits Rectangle {
     callback toggled(int);
     callback clear-completed();
     callback open-calendar();
+    /// Today: lay the tasks with no hour into the free time, or take that back.
+    callback plan-day();
+    callback unplan-day();
     /// A task let go on a list, or on Today.
     callback task-dropped(int, string);
     /// A task let go on another in the column: (it, that one, above rather than below).
@@ -1617,6 +1620,19 @@ export component TasksView inherits Rectangle {
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                     horizontal-stretch: 1;
+                }
+                // Today's tasks with no hour, laid into the calendar's free time.
+                if root.overview.can-unplan: Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Undo plan";
+                    size: ButtonSize.sm;
+                    clicked => { root.unplan-day(); }
+                }
+                if root.overview.to-plan > 0: Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Plan my day";
+                    size: ButtonSize.sm;
+                    clicked => { root.plan-day(); }
                 }
                 if root.overview.progress != "": HorizontalLayout {
                     horizontal-stretch: 0;
