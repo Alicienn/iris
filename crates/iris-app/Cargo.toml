@@ -41,6 +41,9 @@ iris-plugins = { workspace = true }
 iris-calendar = { workspace = true }
 iris-notes = { path = "../iris-notes" }
 iris-vault = { path = "../iris-vault" }
+# An image pasted into a note: read from the clipboard, written as PNG beside it.
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 iris-caldav = { workspace = true }
 # L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -92,8 +95,6 @@ winresource = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
-# Les captures de l'exemple « mesure ». Déjà dans l'arbre par le moteur HTML.
-image = { version = "0.25", default-features = false, features = ["png"] }
 wat = "1"
 iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }

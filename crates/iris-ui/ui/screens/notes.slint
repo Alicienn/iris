@@ -20,7 +20,7 @@ import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData } from "@i
 // A line of the tree: a folder (unfolded with its chevron), a note, a spreadsheet, an
 // image or another file. Carried by the mouse onto a folder, it moves there.
 component TreeRow inherits Rectangle {
-    in property <NoteTreeRowData> row;
+    in property <NoteTreeRowData> item;
     /// This row's name is being edited.
     in property <bool> renaming;
     /// Something is being carried, and where the pointer is (window coordinates).
@@ -44,7 +44,7 @@ component TreeRow inherits Rectangle {
     /// What was carried was let go on this row (a folder, or a note: its folder).
     callback dropped(string);
 
-    property <bool> folder: root.row.kind == 0;
+    property <bool> folder: root.item.kind == 0;
     pure function inside(x: length, y: length) -> bool {
         return x >= self.absolute-position.x && x < self.absolute-position.x + self.width
             && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
@@ -53,7 +53,7 @@ component TreeRow inherits Rectangle {
 
     changed drop => {
         if (root.inside(root.drop-x, root.drop-y)) {
-            root.dropped(root.row.key);
+            root.dropped(root.item.key);
         }
     }
 
@@ -62,14 +62,14 @@ component TreeRow inherits Rectangle {
     border-width: root.targeted ? 1.5px : 0px;
     border-color: Tokens.accent;
     background: root.targeted ? Tokens.accent.transparentize(0.8)
-        : Nav.background(root.row.selected, touch.has-hover);
+        : Nav.background(root.item.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
 
     accessible-role: list-item;
-    accessible-label: root.row.name;
-    accessible-item-selected: root.row.selected;
-    accessible-expanded: root.folder && root.row.expanded;
-    accessible-action-default => { root.clicked(root.row.key); }
+    accessible-label: root.item.name;
+    accessible-item-selected: root.item.selected;
+    accessible-expanded: root.folder && root.item.expanded;
+    accessible-action-default => { root.clicked(root.item.key); }
 
     property <length> press-x;
     property <length> press-y;
@@ -80,7 +80,7 @@ component TreeRow inherits Rectangle {
         mouse-cursor: root.pulled ? MouseCursor.grabbing : MouseCursor.default;
         pointer-event(event) => {
             if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
-                root.menu(root.row.key,
+                root.menu(root.item.key,
                     self.absolute-position.x + self.mouse-x,
                     self.absolute-position.y + self.mouse-y);
             }
@@ -102,7 +102,7 @@ component TreeRow inherits Rectangle {
             if (root.pressed-here && !root.pulled
                 && (abs(self.mouse-x - root.press-x) > 4px || abs(self.mouse-y - root.press-y) > 4px)) {
                 root.pulled = true;
-                root.carry-started(root.row.key, root.row.name);
+                root.carry-started(root.item.key, root.item.name);
             }
             if (root.pulled) {
                 root.carry-moved(self.absolute-position.x + self.mouse-x,
@@ -114,48 +114,48 @@ component TreeRow inherits Rectangle {
                 root.pulled = false;
                 return;
             }
-            if (root.folder && self.mouse-x < 6px + root.row.depth * 14px + 18px) {
-                root.toggled(root.row.key);
+            if (root.folder && self.mouse-x < 6px + root.item.depth * 14px + 18px) {
+                root.toggled(root.item.key);
             } else {
-                root.clicked(root.row.key);
+                root.clicked(root.item.key);
             }
         }
         double-clicked => {
-            if (root.folder) { root.toggled(root.row.key); }
+            if (root.folder) { root.toggled(root.item.key); }
         }
     }
 
     HorizontalLayout {
-        padding-left: 6px + root.row.depth * 14px;
+        padding-left: 6px + root.item.depth * 14px;
         padding-right: 6px;
         spacing: 5px;
 
         // The chevron of a folder; the room it takes, kept for a file, so names line up.
         Rectangle {
             width: 14px;
-            if root.folder && root.row.has-children: Icon {
-                data: root.row.expanded ? Icons.chevron-down : Icons.chevron-right;
+            if root.folder && root.item.has-children: Icon {
+                data: root.item.expanded ? Icons.chevron-down : Icons.chevron-right;
                 size: 11px;
                 weight: 2.2;
-                tint: Nav.count-ink(root.row.selected);
+                tint: Nav.count-ink(root.item.selected);
             }
         }
         Icon {
             y: (parent.height - self.height) / 2;
-            data: root.row.kind == 0 ? Icons.folder
-                : root.row.kind == 1 ? Icons.notes
-                : root.row.kind == 2 ? Icons.list
-                : root.row.kind == 3 ? Icons.image
+            data: root.item.kind == 0 ? Icons.folder
+                : root.item.kind == 1 ? Icons.notes
+                : root.item.kind == 2 ? Icons.list
+                : root.item.kind == 3 ? Icons.image
                 : Icons.paperclip;
             size: 15px;
-            tint: Nav.icon-ink(root.row.selected,
-                root.row.color.alpha > 0 ? root.row.color
-                : root.row.kind == 0 ? Tokens.accent : Tokens.text-muted);
+            tint: Nav.icon-ink(root.item.selected,
+                root.item.color.alpha > 0 ? root.item.color
+                : root.item.kind == 0 ? Tokens.accent : Tokens.text-muted);
         }
         if !root.renaming: Text {
-            text: root.row.name;
+            text: root.item.name;
             font-size: Nav.label-size;
-            color: Nav.ink(root.row.selected, false);
+            color: Nav.ink(root.item.selected, false);
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
@@ -174,20 +174,20 @@ component TreeRow inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 height: 22px;
                 width: parent.width;
-                text: root.row.name;
+                text: root.item.name;
                 font-size: Nav.label-size;
                 init => {
                     self.focus();
                     self.select-all();
                 }
-                accepted(t) => { root.renamed(root.row.key, t); }
+                accepted(t) => { root.renamed(root.item.key, t); }
             }
         }
-        if root.row.pinned: Icon {
+        if root.item.pinned: Icon {
             y: (parent.height - self.height) / 2;
             data: Icons.star;
             size: 11px;
-            tint: Nav.count-ink(root.row.selected);
+            tint: Nav.count-ink(root.item.selected);
         }
     }
 }
@@ -221,10 +221,15 @@ component NoteBlock inherits Rectangle {
     callback link(string);
     callback task-toggled(int);
     callback fold-toggled(int);
-    /// Where the cursor is in the window, for what pops up there.
-    callback caret(int, length, length);
+    /// Where the cursor is in the window, for what pops up there; the cursor and the
+    /// anchor, for a selection.
+    callback caret(int, length, length, int, int);
     /// Ctrl pressed or let go while typing.
     callback ctrl-changed(bool);
+    /// A popup is open over the cursor: Up, Down, Enter, Tab and Escape are its.
+    in property <bool> popup;
+    /// Reading mode: nothing is edited, a click on a link follows it.
+    in property <bool> read-only;
 
     property <bool> en-liste: root.block.kind == "bullet" || root.block.kind == "numbered"
         || root.block.kind == "task";
@@ -285,7 +290,8 @@ component NoteBlock inherits Rectangle {
                 cursor-position-changed(p) => {
                     self.curseur-y = p.y;
                     root.caret(root.index, self.absolute-position.x + p.x,
-                        self.absolute-position.y + p.y + root.taille * 1.35);
+                        self.absolute-position.y + p.y + root.taille * 1.35,
+                        self.cursor-position-byte-offset, self.anchor-position-byte-offset);
                 }
                 key-released(event) => {
                     if (event.text == Key.Control) {
@@ -302,6 +308,13 @@ component NoteBlock inherits Rectangle {
                     let a = self.anchor-position-byte-offset;
                     let premiere = self.curseur-y < root.taille * 0.8;
                     let derniere = self.curseur-y + root.taille * 1.7 > self.height;
+                    // A popup over the cursor takes the keys that choose in it.
+                    if (root.popup && !event.modifiers.control) {
+                        if (event.text == Key.UpArrow) { return root.key(root.index, "popup-up", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject; }
+                        if (event.text == Key.DownArrow) { return root.key(root.index, "popup-down", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject; }
+                        if (event.text == Key.Return || event.text == Key.Tab) { return root.key(root.index, "popup-accept", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject; }
+                        if (event.text == Key.Escape) { return root.key(root.index, "popup-close", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject; }
+                    }
                     let ctrl = event.modifiers.control && !event.modifiers.alt;
                     if (event.text == Key.Escape) {
                         return root.key(root.index, "escape", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
@@ -527,7 +540,7 @@ component NoteBlock inherits Rectangle {
 
             // The click that edits; it steps aside while Ctrl is held, for links.
             TouchArea {
-                enabled: !root.ctrl-held;
+                enabled: !root.ctrl-held && !root.read-only;
                 mouse-cursor: MouseCursor.text;
                 clicked => { root.clicked(root.index); }
             }
@@ -551,7 +564,7 @@ export component NotesView inherits Rectangle {
     in property <string> path;
     in property <string> status;
     in property <[NoteBlockData]> blocks;
-    in property <int> focus;
+    in property <int> focus-block;
     in property <int> focus-serial;
     in property <int> focus-cursor;
     in property <int> focus-anchor;
@@ -577,13 +590,41 @@ export component NotesView inherits Rectangle {
     callback link-clicked(string);
     callback task-toggled(int);
     callback fold-toggled(int);
-    callback caret(int, length, length);
+    callback caret(int, length, length, int, int);
     callback title-accepted(string);
     /// The keyboard handed back to the shortcuts (Escape in the note).
     callback escaped();
     /// A click below the last block: the end of the note.
     callback end-clicked();
     callback ctrl-changed(bool);
+
+    // What pops up over the cursor: the completion list, the formatting bubble over a
+    // selection, a card about what the cursor is in (a link, a colour, a footnote, maths).
+    in property <[NoteFoundData]> completion;
+    in property <int> completion-highlight;
+    in property <length> popup-x;
+    in property <length> popup-y;
+    in property <bool> bubble;
+    /// "", "link", "colour", "footnote", "math".
+    in property <string> card;
+    in property <string> card-title;
+    in property <string> card-text;
+    in property <image> card-picture;
+    callback completion-chosen(int);
+    callback format(string);
+    callback card-open();
+
+    // Beside the note: its outline, what mentions it, its tags and its length.
+    in property <bool> side;
+    in property <[NoteFoundData]> outline;
+    in property <[NoteFoundData]> backlinks;
+    in property <string> facts;
+    callback side-toggled();
+    callback outline-chosen(string);
+    callback backlink-chosen(string);
+    /// Reading mode: the whole note drawn as a page.
+    in property <bool> reading;
+    callback reading-toggled();
 
     // What is carried in the tree, and where the pointer is.
     property <string> carried;
@@ -677,7 +718,7 @@ export component NotesView inherits Rectangle {
                     width: arbre.visible-width;
                     alignment: start;
                     for r in root.tree: TreeRow {
-                        row: r;
+                        item: r;
                         renaming: root.renaming == r.key;
                         carrying: root.carried != "";
                         carry-x: root.carry-x;
@@ -750,6 +791,25 @@ export component NotesView inherits Rectangle {
                     color: Tokens.text-muted;
                     vertical-alignment: center;
                 }
+                if root.open: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.eye;
+                    label: root.reading ? "Edit" : "Read";
+                    shortcut: "Ctrl+R";
+                    button-size: 30px;
+                    icon-size: 17px;
+                    active: root.reading;
+                    clicked => { root.reading-toggled(); }
+                }
+                if root.open: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.sidebar;
+                    label: "Outline and links";
+                    button-size: 30px;
+                    icon-size: 17px;
+                    active: root.side;
+                    clicked => { root.side-toggled(); }
+                }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.search;
@@ -779,8 +839,10 @@ export component NotesView inherits Rectangle {
                 act => { root.new-note(); }
             }
 
-            if root.open: page := ScrollView {
-                vertical-stretch: 1;
+            if root.open: HorizontalLayout {
+              vertical-stretch: 1;
+              page := ScrollView {
+                horizontal-stretch: 1;
                 mouse-drag-pan-enabled: false;
                 viewport-width: self.visible-width;
                 HorizontalLayout {
@@ -837,7 +899,8 @@ export component NotesView inherits Rectangle {
                         for b[i] in root.blocks: NoteBlock {
                             block: b;
                             index: i;
-                            focused: i == root.focus;
+                            focused: i == root.focus-block && !root.reading;
+                            read-only: root.reading;
                             focus-serial: root.focus-serial;
                             focus-cursor: root.focus-cursor;
                             focus-anchor: root.focus-anchor;
@@ -853,7 +916,8 @@ export component NotesView inherits Rectangle {
                             link(l) => { root.link-clicked(l); }
                             task-toggled(k) => { root.task-toggled(k); }
                             fold-toggled(k) => { root.fold-toggled(k); }
-                            caret(k, x, y) => { root.caret(k, x, y); }
+                            caret(k, x, y, c, a) => { root.caret(k, x, y, c, a); }
+                            popup: i == root.focus-block && (root.completion.length > 0);
                             ctrl-changed(b) => { root.ctrl-changed(b); }
                         }
 
@@ -861,12 +925,307 @@ export component NotesView inherits Rectangle {
                         Rectangle {
                             height: 80px;
                             TouchArea {
+                                enabled: !root.reading;
                                 mouse-cursor: MouseCursor.text;
                                 clicked => { root.end-clicked(); }
                             }
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
+                }
+              }
+
+              // Beside the note: its outline, what mentions it, its tags and length.
+              if root.side: Rectangle {
+                width: 250px;
+                background: Tokens.surface-low;
+                Rectangle {
+                    x: 0;
+                    width: 1px;
+                    background: Tokens.border;
+                }
+                cote := ScrollView {
+                    x: 1px;
+                    width: parent.width - 1px;
+                    viewport-width: self.visible-width;
+                    mouse-drag-pan-enabled: false;
+                    VerticalLayout {
+                        width: cote.visible-width;
+                        alignment: start;
+                        padding: 12px;
+                        spacing: 2px;
+                        Text {
+                            text: root.facts;
+                            font-size: 11.5px;
+                            color: Tokens.text-muted;
+                            wrap: word-wrap;
+                        }
+                        SectionRow { text: "Outline"; }
+                        if root.outline.length == 0: Text {
+                            text: "No headings.";
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                        }
+                        for h in root.outline: Rectangle {
+                            height: 26px;
+                            border-radius: Tokens.radius-small;
+                            background: plan.has-hover ? Tokens.surface-hover : transparent;
+                            Text {
+                                x: 6px + (h.detail.to-float() - 1) * 12px;
+                                width: parent.width - self.x - 6px;
+                                text: h.title;
+                                font-size: 12.5px;
+                                font-weight: h.detail == "1" ? 600 : 400;
+                                color: Tokens.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            plan := TouchArea {
+                                clicked => { root.outline-chosen(h.key); }
+                            }
+                        }
+                        SectionRow { text: "Mentioned in"; }
+                        if root.backlinks.length == 0: Text {
+                            text: "No note links here yet.";
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                            wrap: word-wrap;
+                        }
+                        for l in root.backlinks: Rectangle {
+                            min-height: lien-retour.preferred-height + 10px;
+                            border-radius: Tokens.radius-small;
+                            background: retour.has-hover ? Tokens.surface-hover : transparent;
+                            lien-retour := VerticalLayout {
+                                padding: 5px;
+                                padding-left: 6px;
+                                Text {
+                                    text: l.title;
+                                    font-size: 12.5px;
+                                    font-weight: 600;
+                                    color: Tokens.accent;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: l.detail;
+                                    font-size: 11.5px;
+                                    color: Tokens.text-muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            retour := TouchArea {
+                                clicked => { root.backlink-chosen(l.key); }
+                            }
+                        }
+                    }
+                }
+              }
+            }
+        }
+    }
+
+    // --- Over the cursor ---
+
+    // The completion list.
+    if root.completion.length > 0: Rectangle {
+        x: min(root.popup-x - root.absolute-position.x, root.width - 300px);
+        y: min(root.popup-y - root.absolute-position.y, root.height - self.height - 8px);
+        width: 290px;
+        height: min(liste-completion.preferred-height + 8px, 300px);
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: 14px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: #00000030;
+        clip: true;
+        liste-completion := VerticalLayout {
+            padding: 4px;
+            for c[i] in root.completion: Rectangle {
+                height: c.detail != "" ? 40px : 30px;
+                border-radius: Tokens.radius-small;
+                background: i == root.completion-highlight ? Tokens.accent : choix-completion.has-hover ? Tokens.surface-hover : transparent;
+                VerticalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    alignment: center;
+                    Text {
+                        text: c.title;
+                        font-size: 13px;
+                        color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text;
+                        overflow: elide;
+                    }
+                    if c.detail != "": Text {
+                        text: c.detail;
+                        font-size: 11px;
+                        color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text-muted;
+                        overflow: elide;
+                    }
+                }
+                choix-completion := TouchArea {
+                    clicked => { root.completion-chosen(i); }
+                }
+            }
+        }
+    }
+
+    // The bubble over a selection: the marks, a colour, a link.
+    if root.bubble && root.completion.length == 0: Rectangle {
+        x: min(max(8px, root.popup-x - root.absolute-position.x - 120px), root.width - self.width - 8px);
+        y: max(8px, root.popup-y - root.absolute-position.y - 74px);
+        width: barre.preferred-width + 8px;
+        height: 36px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: 12px;
+        drop-shadow-offset-y: 3px;
+        drop-shadow-color: #00000030;
+        barre := HorizontalLayout {
+            x: 4px;
+            spacing: 1px;
+            alignment: start;
+            for f in [
+                { k: "bold", t: "B", l: "Bold", s: "Ctrl+B" },
+                { k: "italic", t: "I", l: "Italic", s: "Ctrl+I" },
+                { k: "underline", t: "U", l: "Underline", s: "Ctrl+U" },
+                { k: "strike", t: "S", l: "Strikethrough", s: "Ctrl+Shift+X" },
+                { k: "highlight", t: "H", l: "Highlight", s: "Ctrl+Shift+H" },
+                { k: "code", t: "</>", l: "Code", s: "Ctrl+E" },
+                { k: "math", t: "∑", l: "Maths", s: "Ctrl+M" },
+                { k: "link", t: "[[", l: "Link to a note", s: "Ctrl+L" },
+                { k: "colour", t: "A", l: "Colour", s: "Ctrl+Shift+1…7" },
+            ]: Rectangle {
+                y: 4px;
+                width: max(28px, lettre.preferred-width + 14px);
+                height: 28px;
+                border-radius: Tokens.radius-small;
+                background: bouton.has-hover ? Tokens.surface-hover : transparent;
+                accessible-role: button;
+                accessible-label: f.l;
+                accessible-description: f.s;
+                accessible-action-default => { root.format(f.k); }
+                lettre := Text {
+                    text: f.t;
+                    font-size: 13.5px;
+                    font-weight: f.k == "bold" ? 800 : 500;
+                    font-italic: f.k == "italic";
+                    color: f.k == "colour" ? Tokens.red : Tokens.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                if f.k == "underline": Rectangle {
+                    y: parent.height - 8px;
+                    x: (parent.width - 10px) / 2;
+                    width: 10px;
+                    height: 1px;
+                    background: Tokens.text;
+                }
+                if f.k == "strike": Rectangle {
+                    y: parent.height / 2;
+                    x: (parent.width - 10px) / 2;
+                    width: 10px;
+                    height: 1px;
+                    background: Tokens.text;
+                }
+                bouton := TouchArea {
+                    clicked => { root.format(f.k); }
+                }
+                // Its name and shortcut, when pointed at a moment.
+                if bouton.has-hover: Rectangle {
+                    y: parent.height + 4px;
+                    x: 0;
+                    width: bulle-aide.preferred-width + 14px;
+                    height: 22px;
+                    border-radius: Tokens.radius-small;
+                    background: Tokens.text;
+                    bulle-aide := Text {
+                        text: f.l + "  " + f.s;
+                        font-size: 11px;
+                        color: Tokens.surface;
+                    }
+                }
+            }
+        }
+    }
+
+    // A card about what the cursor is in: a link's note, a colour to change, a
+    // footnote, maths.
+    if root.card != "" && root.completion.length == 0 && !root.bubble: Rectangle {
+        x: min(max(8px, root.popup-x - root.absolute-position.x), root.width - self.width - 8px);
+        y: min(root.popup-y - root.absolute-position.y + 4px, root.height - self.height - 8px);
+        width: root.card == "colour" ? 264px : 320px;
+        height: carte.preferred-height + 12px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: 12px;
+        drop-shadow-offset-y: 3px;
+        drop-shadow-color: #00000030;
+        carte := VerticalLayout {
+            padding: 10px;
+            spacing: 6px;
+            if root.card-title != "": Text {
+                text: root.card-title;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            if root.card == "colour": HorizontalLayout {
+                spacing: 6px;
+                for teinte[i] in [Tokens.red, Tokens.orange, Tokens.yellow, Tokens.green, Tokens.blue, Tokens.purple, Tokens.grey]: Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 12px;
+                    background: teinte;
+                    border-width: pastille.has-hover ? 2px : 0px;
+                    border-color: Tokens.text;
+                    accessible-role: button;
+                    accessible-label: "Colour " + (i + 1);
+                    accessible-action-default => { root.format("colour:" + i); }
+                    pastille := TouchArea {
+                        clicked => { root.format("colour:" + i); }
+                    }
+                }
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Tokens.border-strong;
+                    accessible-role: button;
+                    accessible-label: "Default colour";
+                    accessible-action-default => { root.format("colour:none"); }
+                    Text {
+                        text: "×";
+                        color: Tokens.text-muted;
+                        font-size: 14px;
+                    }
+                    TouchArea {
+                        clicked => { root.format("colour:none"); }
+                    }
+                }
+            }
+            if root.card-picture.width > 0: Image {
+                source: root.card-picture;
+                width: min(self.source.width * 1px, 296px);
+                height: self.width * self.source.height / max(1, self.source.width);
+            }
+            if root.card-text != "": Text {
+                text: root.card-text;
+                font-size: 12.5px;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+            if root.card == "link": HorizontalLayout {
+                alignment: end;
+                Button {
+                    text: "Open";
+                    size: ButtonSize.sm;
+                    clicked => { root.card-open(); }
                 }
             }
         }
@@ -1060,6 +1419,8 @@ export component NotesQuickOpen inherits Rectangle {
     in-out property <string> query;
     in property <[NoteFoundData]> results;
     in property <int> highlighted;
+    /// Searching the notes' words (tag:, path:, is:task) rather than their names.
+    in property <bool> search;
     callback edited(string);
     callback moved(int);
     callback chosen(string);
@@ -1068,7 +1429,7 @@ export component NotesQuickOpen inherits Rectangle {
     Modal {
         width: 100%;
         height: 100%;
-        title: "Open a note";
+        title: root.search ? "Search the notes" : "Open a note";
         card-height: 420px;
         card-width: 520px;
         dismissed => { root.dismissed(); }
@@ -1084,14 +1445,14 @@ export component NotesQuickOpen inherits Rectangle {
                 champ := TextField {
                     width: 100%;
                     icon: Icons.search;
-                    placeholder-text: "Name of a note";
+                    placeholder-text: root.search ? "Words, tag:maths, path:Analyse, is:task" : "Name of a note";
                     text <=> root.query;
                     init => { self.focus(); }
                     edited(t) => { root.edited(t); }
                     accepted => {
                         if (root.highlighted >= 0 && root.highlighted < root.results.length) {
                             root.chosen(root.results[root.highlighted].key);
-                        } else if (root.query != "") {
+                        } else if (root.query != "" && !root.search) {
                             root.chosen("new:" + root.query);
                         }
                     }
@@ -1132,7 +1493,7 @@ export component NotesQuickOpen inherits Rectangle {
                 }
             }
             if root.results.length == 0 && root.query != "": Text {
-                text: "No note by that name. Enter makes it.";
+                text: root.search ? "Nothing found." : "No note by that name. Enter makes it.";
                 font-size: 12.5px;
                 color: Tokens.text-muted;
             }

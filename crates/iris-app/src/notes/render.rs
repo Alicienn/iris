@@ -193,8 +193,62 @@ pub fn numbering(blocks: &[Block]) -> Vec<String> {
         .collect()
 }
 
-/// A block as the editor shows it. `number`: what [`numbering`] gave it.
-pub fn render(block: &Block, number: &str, palette: &Palette) -> NoteBlockData {
+/// The file an embed names, in the space at `dir`: `![[a.png|50%]]` looks in the
+/// space, then in its attachments.
+pub fn embedded_file(target: &str, dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let nom = target.split('|').next().unwrap_or(target).trim();
+    let nom = nom.split('#').next().unwrap_or(nom);
+    if nom.is_empty() || nom.contains("..") || nom.contains(':') {
+        return None;
+    }
+    let directe = dir.join(nom);
+    if directe.is_file() {
+        return Some(directe);
+    }
+    let rangee = dir.join(iris_vault::ATTACHMENTS).join(nom);
+    rangee.is_file().then_some(rangee)
+}
+
+/// The widest a picture is kept in memory, in pixels: the column is narrower.
+const LARGEUR_MAX: u32 = 1600;
+
+/// A picture file, decoded and made no wider than the column needs.
+pub fn picture(path: &std::path::Path) -> Option<slint::Image> {
+    let img = image::open(path).ok()?;
+    let img = if img.width() > LARGEUR_MAX {
+        img.resize(
+            LARGEUR_MAX,
+            LARGEUR_MAX * img.height() / img.width().max(1),
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        img
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    Some(slint::Image::from_rgba8(slint::SharedPixelBuffer::<
+        slint::Rgba8Pixel,
+    >::clone_from_slice(
+        rgba.as_raw(), w, h
+    )))
+}
+
+/// Whether a file name is a picture the editor draws.
+pub fn is_picture(nom: &str) -> bool {
+    let n = nom.split('|').next().unwrap_or(nom).to_ascii_lowercase();
+    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]
+        .iter()
+        .any(|e| n.ends_with(e))
+}
+
+/// A block as the editor shows it. `number`: what [`numbering`] gave it; `dir`: the
+/// space, for the pictures it embeds.
+pub fn render(
+    block: &Block,
+    number: &str,
+    palette: &Palette,
+    dir: Option<&std::path::Path>,
+) -> NoteBlockData {
     let content = block.content();
     let mut d = NoteBlockData {
         source: content.into(),
@@ -279,6 +333,15 @@ pub fn render(block: &Block, number: &str, palette: &Palette) -> NoteBlockData {
             d.kind = "embed".into();
             d.title = target.as_str().into();
             d.rich = slint::StyledText::from_plain_text(&format!("⧉ {target}"));
+            if is_picture(target) {
+                if let Some(image) = dir
+                    .and_then(|d| embedded_file(target, d))
+                    .and_then(|p| picture(&p))
+                {
+                    d.picture = image;
+                    d.has_picture = true;
+                }
+            }
         }
         BlockKind::Container { kind, title } => {
             d.kind = "container".into();

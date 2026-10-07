@@ -1044,7 +1044,30 @@ export component AppWindow inherits Window {
     callback note-link-clicked(string);
     callback note-task-toggled(int);
     callback note-fold-toggled(int);
-    callback note-caret(int, length, length);
+    callback note-caret(int, length, length, int, int);
+    in property <[NoteFoundData]> note-completion;
+    in property <int> note-completion-highlight;
+    in property <length> note-popup-x;
+    in property <length> note-popup-y;
+    in property <bool> note-bubble;
+    in property <string> note-card;
+    in property <string> note-card-title;
+    in property <string> note-card-text;
+    in property <image> note-card-picture;
+    callback note-completion-chosen(int);
+    callback note-format(string);
+    callback note-card-open();
+    in property <bool> note-side;
+    in property <[NoteFoundData]> note-outline;
+    in property <[NoteFoundData]> note-backlinks;
+    in property <string> note-facts;
+    callback note-side-toggled();
+    callback note-outline-chosen(string);
+    callback note-backlink-chosen(string);
+    in property <bool> note-reading;
+    callback note-reading-toggled();
+    /// Quick open searching the notes' words rather than their names.
+    in-out property <bool> notes-quick-search;
     callback note-title-accepted(string);
     callback note-end-clicked();
     /// The menus and windows of the notes.
@@ -1595,10 +1618,23 @@ export component AppWindow inherits Window {
                     root.notes-new-note();
                 }
                 if (event.modifiers.control && event.text == "o") {
+                    root.notes-quick-search = false;
                     root.notes-quick-query = "";
                     root.notes-quick-highlight = 0;
                     root.notes-quick-open = true;
                     root.notes-quick-edited("");
+                }
+                // Search in the notes' words.
+                if (event.modifiers.control && event.modifiers.shift
+                    && (event.text == "f" || event.text == "F")) {
+                    root.notes-quick-search = true;
+                    root.notes-quick-query = "";
+                    root.notes-quick-highlight = 0;
+                    root.notes-quick-open = true;
+                    root.notes-quick-edited("");
+                }
+                if (event.modifiers.control && (event.text == "r" || event.text == "R")) {
+                    root.note-reading-toggled();
                 }
                 if (event.text == Key.F2 && root.notes-tree.length > 0) {
                     root.notes-row-action("rename", "");
@@ -2313,7 +2349,7 @@ export component AppWindow inherits Window {
         path: root.note-path;
         status: root.note-status;
         blocks: root.note-blocks;
-        focus: root.note-focus;
+        focus-block: root.note-focus;
         focus-serial: root.note-focus-serial;
         focus-cursor: root.note-focus-cursor;
         focus-anchor: root.note-focus-anchor;
@@ -2369,7 +2405,28 @@ export component AppWindow inherits Window {
         link-clicked(l) => { root.note-link-clicked(l); }
         task-toggled(k) => { root.note-task-toggled(k); }
         fold-toggled(k) => { root.note-fold-toggled(k); }
-        caret(k, x, y) => { root.note-caret(k, x, y); }
+        caret(k, x, y, c, a) => { root.note-caret(k, x, y, c, a); }
+        completion: root.note-completion;
+        completion-highlight: root.note-completion-highlight;
+        popup-x: root.note-popup-x;
+        popup-y: root.note-popup-y;
+        bubble: root.note-bubble;
+        card: root.note-card;
+        card-title: root.note-card-title;
+        card-text: root.note-card-text;
+        card-picture: root.note-card-picture;
+        completion-chosen(i) => { root.note-completion-chosen(i); }
+        format(k) => { root.note-format(k); }
+        card-open => { root.note-card-open(); }
+        side: root.note-side;
+        outline: root.note-outline;
+        backlinks: root.note-backlinks;
+        facts: root.note-facts;
+        side-toggled => { root.note-side-toggled(); }
+        outline-chosen(k) => { root.note-outline-chosen(k); }
+        backlink-chosen(k) => { root.note-backlink-chosen(k); }
+        reading: root.note-reading;
+        reading-toggled => { root.note-reading-toggled(); }
         title-accepted(t) => { root.note-title-accepted(t); }
         escaped => { shortcuts.focus(); }
         end-clicked => { root.note-end-clicked(); }
@@ -2751,6 +2808,7 @@ export component AppWindow inherits Window {
         query <=> root.notes-quick-query;
         results: root.notes-quick-results;
         highlighted: root.notes-quick-highlight;
+        search: root.notes-quick-search;
         edited(t) => {
             root.notes-quick-highlight = 0;
             root.notes-quick-edited(t);

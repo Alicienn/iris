@@ -72,6 +72,35 @@ struct Etat {
     signatures: Vec<u64>,
     palette: Palette,
     tree_keys: Vec<(String, EntryKind)>,
+    /// Where the cursor is: its block, its offset, the selection's anchor, and its
+    /// place in the window.
+    caret: Curseur,
+    /// The completion list open over the cursor.
+    completion: Option<Completion>,
+    /// The side panel and reading mode.
+    side: bool,
+    reading: bool,
+    /// The space's tags, read once for the `#` popup.
+    tags: Option<Vec<String>>,
+}
+
+/// Where the cursor is.
+#[derive(Debug, Default, Clone, Copy)]
+struct Curseur {
+    block: usize,
+    cursor: usize,
+    anchor: usize,
+    x: f32,
+    y: f32,
+}
+
+/// A completion list: what is being typed, what is offered, what is chosen.
+#[derive(Debug, Clone)]
+struct Completion {
+    block: usize,
+    trigger: iris_notes::complete::Trigger,
+    candidates: Vec<iris_notes::complete::Candidate>,
+    highlight: usize,
 }
 
 /// A note's blocks: never none, so an empty note has a line to type on.
@@ -224,6 +253,8 @@ fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
 /// The note's blocks to the window: all of them when their number changed or `tout`,
 /// else only those whose rendering changed.
 fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
+    let dir = e.espace().map(|s| s.dir().to_path_buf());
+    let dir = dir.as_deref();
     let Some(note) = &e.note else {
         e.model.set_vec(Vec::new());
         e.signatures.clear();
@@ -241,13 +272,14 @@ fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
             .blocks
             .iter()
             .zip(&numeros)
-            .map(|(b, n)| render::render(b, n, &e.palette))
+            .map(|(b, n)| render::render(b, n, &e.palette, dir))
             .collect();
         e.model.set_vec(lignes);
     } else {
         for (i, (b, n)) in note.blocks.iter().zip(&numeros).enumerate() {
             if e.signatures.get(i) != Some(&sigs[i]) {
-                e.model.set_row_data(i, render::render(b, n, &e.palette));
+                e.model
+                    .set_row_data(i, render::render(b, n, &e.palette, dir));
             }
         }
     }
@@ -868,6 +900,11 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         signatures: Vec::new(),
         palette: Palette::default(),
         tree_keys: Vec::new(),
+        caret: Curseur::default(),
+        completion: None,
+        side: false,
+        reading: false,
+        tags: None,
     }));
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
 
