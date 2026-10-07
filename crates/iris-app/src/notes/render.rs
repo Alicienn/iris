@@ -491,10 +491,8 @@ mod tests {
         assert_eq!(colonnes, 2);
         assert_eq!(cellules, ["Item", "Price", "Book", "12", "", "24"]);
         let (cellules, colonnes) = tableau_insere("Budget.sheet#B1:B2", dir.path()).unwrap();
-        assert_eq!(
-            (cellules.as_slice(), colonnes),
-            (["Price", "12"].as_slice(), 1)
-        );
+        assert_eq!(colonnes, 1);
+        assert_eq!(cellules, ["Price", "12"]);
         assert!(tableau_insere("Missing.sheet", dir.path()).is_none());
     }
 
