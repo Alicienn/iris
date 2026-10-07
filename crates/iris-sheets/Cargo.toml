@@ -1,0 +1,17 @@
+[package]
+name = "iris-sheets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Spreadsheets without a window: cells and their addresses, formulas read and
+# computed in the order they depend on each other, formats, the `.sheet` file, CSV and
+# Excel files read and written from bytes.
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+calamine = { version = "0.36", default-features = false }
+rust_xlsxwriter = { version = "0.99", default-features = false }
