@@ -474,6 +474,31 @@ mod tests {
     use iris_notes::block::parse;
 
     #[test]
+    fn a_spreadsheet_embedded_shows_its_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = iris_sheets::Workbook::default();
+        let s = &mut b.sheets[0];
+        s.set_input(iris_sheets::Addr::new(0, 0), "Item");
+        s.set_input(iris_sheets::Addr::new(1, 0), "Price");
+        s.set_input(iris_sheets::Addr::new(0, 1), "Book");
+        s.set_input(iris_sheets::Addr::new(1, 1), "12");
+        s.set_input(iris_sheets::Addr::new(1, 2), "=B2*2");
+        std::fs::write(dir.path().join("Budget.sheet"), b.to_json()).unwrap();
+        assert!(est_tableur("Budget.sheet"));
+        assert!(est_tableur("Budget.sheet#A1:B2|50%"));
+        assert!(!est_tableur("Budget.png"));
+        let (cellules, colonnes) = tableau_insere("Budget.sheet", dir.path()).unwrap();
+        assert_eq!(colonnes, 2);
+        assert_eq!(cellules, ["Item", "Price", "Book", "12", "", "24"]);
+        let (cellules, colonnes) = tableau_insere("Budget.sheet#B1:B2", dir.path()).unwrap();
+        assert_eq!(
+            (cellules.as_slice(), colonnes),
+            (["Price", "12"].as_slice(), 1)
+        );
+        assert!(tableau_insere("Missing.sheet", dir.path()).is_none());
+    }
+
+    #[test]
     fn words_lose_their_marks() {
         let k = |s: &str| parse(s).remove(0).kind;
         assert_eq!(words_of(&k("## Titre"), "## Titre"), "Titre");
