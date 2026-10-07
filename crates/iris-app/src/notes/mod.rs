@@ -8,6 +8,7 @@
 //! again when another program changes it.
 
 mod bin;
+mod export;
 pub mod render;
 
 use crate::services::Services;
@@ -82,6 +83,23 @@ struct Etat {
     reading: bool,
     /// The space's tags, read once for the `#` popup.
     tags: Option<Vec<String>>,
+    /// Only the note on screen: no tree, no side panel.
+    focus_mode: bool,
+    /// The flashcards being revised.
+    revision: Option<Revision>,
+    /// The note open beside, read-only.
+    beside: Option<String>,
+}
+
+/// A revision under way: the cards left, the one shown, and how it went.
+struct Revision {
+    /// (key, question, answer), the one shown first.
+    cards: std::collections::VecDeque<(String, String, String)>,
+    states: std::collections::BTreeMap<String, iris_notes::review::CardState>,
+    revealed: bool,
+    total: usize,
+    done: usize,
+    again: usize,
 }
 
 /// Where the cursor is.
@@ -325,8 +343,10 @@ fn montrer_note(f: &AppWindow, e: &mut Etat) {
                 }
                 .into(),
             );
+            f.set_note_has_cards(!iris_notes::meta::flashcards(&n.text).is_empty());
         }
         None => {
+            f.set_note_has_cards(false);
             f.set_note_open(false);
             f.set_note_title(SharedString::default());
             f.set_note_path(SharedString::default());
@@ -346,6 +366,7 @@ fn ecrire(f: &AppWindow, e: &mut Etat) {
     if !note.dirty {
         return;
     }
+    f.set_note_has_cards(!iris_notes::meta::flashcards(&note.text).is_empty());
     match espace.write(&note.rel, &note.text, note.modified) {
         Ok(WriteOutcome::Written(m)) => {
             note.modified = Some(m);
@@ -736,6 +757,10 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
         }
         "ctrl+r" | "ctrl+R" => {
             lecture(f, e);
+            true
+        }
+        "f11" => {
+            mode_focus(f, e);
             true
         }
         "ctrl+shift+f" | "ctrl+shift+F" => {
@@ -1245,6 +1270,188 @@ fn maj_cote(f: &AppWindow, e: &Etat) {
     f.set_note_facts(faits.into());
 }
 
+// --- Focus, beside, revising, pages ---------------------------------------------------
+
+/// Focus mode on or off: only the note, the tree and the side panel put away.
+fn mode_focus(f: &AppWindow, e: &mut Etat) {
+    e.focus_mode = !e.focus_mode;
+    f.set_note_focus_mode(e.focus_mode);
+}
+
+/// The note beside drawn again (`None`: closed).
+fn montrer_a_cote(f: &AppWindow, e: &mut Etat) {
+    let Some(rel) = e.beside.clone() else {
+        f.set_note_beside(ModelRc::default());
+        f.set_note_beside_title(SharedString::default());
+        return;
+    };
+    let Some(espace) = e.espace() else { return };
+    let dir = espace.dir().to_path_buf();
+    let Ok((texte, _)) = espace.read(&rel) else {
+        e.beside = None;
+        f.set_note_beside(ModelRc::default());
+        return;
+    };
+    let encre = f.global::<iris_ui::Tokens>().get_text();
+    let echelle = f.window().scale_factor();
+    let formule = move |latex: &str| render::formula_picture(latex, encre, echelle);
+    let blocs = blocs_de(&texte);
+    let numeros = render::numbering(&blocs);
+    let lignes: Vec<NoteBlockData> = blocs
+        .iter()
+        .zip(&numeros)
+        .map(|(b, n)| render::render(b, n, &e.palette, Some(&dir), &formule))
+        .collect();
+    f.set_note_beside(ModelRc::new(VecModel::from(lignes)));
+    f.set_note_beside_title(stem(&rel).into());
+}
+
+fn aujourdhui() -> chrono::NaiveDate {
+    chrono::Local::now().date_naive()
+}
+
+/// Starts revising the open note's flashcards: those due, or all of them when none is.
+fn reviser(f: &AppWindow, e: &mut Etat) {
+    ecrire(f, e);
+    let Some(note) = &e.note else { return };
+    let Some(espace) = e.espace() else { return };
+    let cartes = iris_notes::meta::flashcards(&note.text);
+    if cartes.is_empty() {
+        f.set_toast("This note has no flashcards: write “Question :: Answer”.".into());
+        return;
+    }
+    let etats = espace.review();
+    let jour = aujourdhui();
+    let toutes: Vec<(String, String, String)> = cartes
+        .into_iter()
+        .map(|(q, r)| (iris_notes::review::card_key(&note.rel, &q), q, r))
+        .collect();
+    let dues: std::collections::VecDeque<_> = toutes
+        .iter()
+        .filter(|(k, _, _)| etats.get(k).is_none_or(|s| s.due <= jour))
+        .cloned()
+        .collect();
+    let cards = if dues.is_empty() {
+        toutes.into_iter().collect()
+    } else {
+        dues
+    };
+    e.revision = Some(Revision {
+        total: cards.len(),
+        cards,
+        states: etats,
+        revealed: false,
+        done: 0,
+        again: 0,
+    });
+    montrer_revision(f, e);
+    f.set_notes_review_open(true);
+}
+
+fn montrer_revision(f: &AppWindow, e: &Etat) {
+    let Some(r) = &e.revision else { return };
+    match r.cards.front() {
+        Some((_, q, a)) => {
+            f.set_notes_review_finished(false);
+            f.set_notes_review_question(q.as_str().into());
+            f.set_notes_review_answer(a.as_str().into());
+            f.set_notes_review_revealed(r.revealed);
+            f.set_notes_review_progress(
+                format!("{} of {}", (r.done + 1).min(r.total), r.total).into(),
+            );
+        }
+        None => {
+            f.set_notes_review_finished(true);
+            f.set_notes_review_progress(
+                match r.again {
+                    0 => format!("{} cards revised. Well done.", r.total),
+                    1 => format!("{} cards revised, one seen twice.", r.total),
+                    n => format!("{} cards revised, {n} seen twice.", r.total),
+                }
+                .into(),
+            );
+        }
+    }
+}
+
+/// The card shown graded; the next one shown. A card forgotten comes back at the end.
+fn noter(f: &AppWindow, e: &mut Etat, note: i32) {
+    let Some(grade) = iris_notes::review::Grade::from_index(note) else {
+        return;
+    };
+    let Some(r) = &mut e.revision else { return };
+    if !r.revealed {
+        return;
+    }
+    let Some(carte) = r.cards.pop_front() else {
+        return;
+    };
+    let jour = aujourdhui();
+    let avant = r
+        .states
+        .get(&carte.0)
+        .cloned()
+        .unwrap_or_else(|| iris_notes::review::CardState::new(jour));
+    r.states.insert(
+        carte.0.clone(),
+        iris_notes::review::grade(&avant, grade, jour),
+    );
+    if grade == iris_notes::review::Grade::Again {
+        r.again += 1;
+        r.cards.push_back(carte);
+    } else {
+        r.done += 1;
+    }
+    r.revealed = false;
+    let etats = r.states.clone();
+    if let Some(Err(err)) = e.espace().map(|s| s.save_review(&etats)) {
+        f.set_status(format!("Could not keep the revision: {err}").into());
+    }
+    montrer_revision(f, e);
+}
+
+/// The note `rel` as a web page: saved where the user says, or opened to be printed.
+fn exporter(f: &AppWindow, e: &mut Etat, rel: &str, imprimer: bool) {
+    ecrire(f, e);
+    let Some(espace) = e.espace() else { return };
+    let texte = match espace.read(rel) {
+        Ok((t, _)) => t,
+        Err(err) => {
+            f.set_status(format!("Could not read the note: {err}").into());
+            return;
+        }
+    };
+    let titre = stem(rel);
+    // Printed on paper: the light palette, whatever the window's theme.
+    let html = export::page(&texte, &titre, espace.dir(), &Palette::default(), imprimer);
+    let chemin = if imprimer {
+        let dossier = std::env::temp_dir().join("iris-print");
+        let _ = std::fs::create_dir_all(&dossier);
+        dossier.join(format!("{}.html", nom_sur(&titre)))
+    } else {
+        let Some(c) = rfd::FileDialog::new()
+            .set_title("Export as a web page")
+            .set_file_name(format!("{}.html", nom_sur(&titre)))
+            .add_filter("Web page", &["html"])
+            .save_file()
+        else {
+            return;
+        };
+        c
+    };
+    if let Err(err) = std::fs::write(&chemin, html) {
+        f.set_status(format!("Could not write the page: {err}").into());
+        return;
+    }
+    if imprimer {
+        if let Err(err) = crate::platform::open_path(&chemin) {
+            f.set_status(format!("Could not open the page: {err}").into());
+        }
+    } else {
+        f.set_toast(format!("“{titre}” is saved as a web page.").into());
+    }
+}
+
 /// Undo (or redo): the note as it was a step ago.
 fn annuler(f: &AppWindow, e: &mut Etat, refaire: bool) {
     let focus = e.focus.max(0) as usize;
@@ -1512,6 +1719,9 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         side: false,
         reading: false,
         tags: None,
+        focus_mode: false,
+        revision: None,
+        beside: None,
     }));
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
 
@@ -1717,6 +1927,12 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 e.selected = Some(cle);
                 nouvelle_note(&f, e, "Untitled", "");
             }
+            "beside" => {
+                e.beside = Some(cle);
+                montrer_a_cote(&f, e);
+            }
+            "export" => exporter(&f, e, &cle, false),
+            "print" => exporter(&f, e, &cle, true),
             "duplicate" => {
                 if let Some(Err(err)) = e.espace().map(|s| s.duplicate(&cle)) {
                     f.set_status(format!("Could not duplicate it: {err}").into());
@@ -2043,6 +2259,25 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     });
     geste!(on_note_reading_toggled, |f, e| {
         lecture(&f, e);
+    });
+    geste!(on_note_focus_mode_toggled, |f, e| {
+        mode_focus(&f, e);
+    });
+    geste!(on_note_beside_closed, |f, e| {
+        e.beside = None;
+        montrer_a_cote(&f, e);
+    });
+    geste!(on_note_revise, |f, e| {
+        reviser(&f, e);
+    });
+    geste!(on_notes_review_reveal, |f, e| {
+        if let Some(r) = &mut e.revision {
+            r.revealed = true;
+        }
+        montrer_revision(&f, e);
+    });
+    geste!(on_notes_review_graded, |f, e, g| {
+        noter(&f, e, g);
     });
     geste!(on_note_title_accepted, |f, e, nom| {
         let Some(note) = &e.note else { return };

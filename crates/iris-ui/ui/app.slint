@@ -48,7 +48,7 @@ import {
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import {
-    NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen
+    NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel
 } from "@iris/screens/notes.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
 import { ListView, Palette } from "std-widgets.slint";
@@ -1068,6 +1068,21 @@ export component AppWindow inherits Window {
     callback note-backlink-chosen(string);
     in property <bool> note-reading;
     callback note-reading-toggled();
+    in property <bool> note-focus-mode;
+    callback note-focus-mode-toggled();
+    in property <bool> note-has-cards;
+    callback note-revise();
+    in property <[NoteBlockData]> note-beside;
+    in property <string> note-beside-title;
+    callback note-beside-closed();
+    in-out property <bool> notes-review-open;
+    in property <string> notes-review-question;
+    in property <string> notes-review-answer;
+    in property <bool> notes-review-revealed;
+    in property <string> notes-review-progress;
+    in property <bool> notes-review-finished;
+    callback notes-review-reveal();
+    callback notes-review-graded(int);
     /// Quick open searching the notes' words rather than their names.
     in-out property <bool> notes-quick-search;
     callback note-title-accepted(string);
@@ -1364,7 +1379,7 @@ export component AppWindow inherits Window {
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.connect-open
         || root.notes-row-menu-open || root.notes-space-menu-open || root.notes-name-asked != ""
-        || root.notes-quick-open
+        || root.notes-quick-open || root.notes-review-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
@@ -1546,6 +1561,10 @@ export component AppWindow inherits Window {
                 root.subscribe-open = false;
                 return accept;
             }
+            if (event.text == Key.Escape && root.notes-review-open) {
+                root.notes-review-open = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.notes-quick-open) {
                 root.notes-quick-open = false;
                 return accept;
@@ -1637,6 +1656,9 @@ export component AppWindow inherits Window {
                 }
                 if (event.modifiers.control && (event.text == "r" || event.text == "R")) {
                     root.note-reading-toggled();
+                }
+                if (event.text == Key.F11) {
+                    root.note-focus-mode-toggled();
                 }
                 if (event.text == Key.F2 && root.notes-tree.length > 0) {
                     root.notes-row-action("rename", "");
@@ -2429,6 +2451,13 @@ export component AppWindow inherits Window {
         backlink-chosen(k) => { root.note-backlink-chosen(k); }
         reading: root.note-reading;
         reading-toggled => { root.note-reading-toggled(); }
+        focus-mode: root.note-focus-mode;
+        focus-mode-toggled => { root.note-focus-mode-toggled(); }
+        has-cards: root.note-has-cards;
+        revise => { root.note-revise(); }
+        beside: root.note-beside;
+        beside-title: root.note-beside-title;
+        beside-closed => { root.note-beside-closed(); }
         title-accepted(t) => { root.note-title-accepted(t); }
         escaped => { shortcuts.focus(); }
         end-clicked => { root.note-end-clicked(); }
@@ -2759,6 +2788,22 @@ export component AppWindow inherits Window {
             }
         }
         dismissed => { root.notes-row-menu-open = false; }
+    }
+
+    if root.notes-review-open: NotesReviewPanel {
+        width: 100%;
+        height: 100%;
+        question: root.notes-review-question;
+        answer: root.notes-review-answer;
+        revealed: root.notes-review-revealed;
+        progress: root.notes-review-progress;
+        finished: root.notes-review-finished;
+        reveal => { root.notes-review-reveal(); }
+        graded(g) => { root.notes-review-graded(g); }
+        dismissed => {
+            root.notes-review-open = false;
+            shortcuts.focus();
+        }
     }
 
     if root.notes-space-menu-open: NotesSpaceMenu {

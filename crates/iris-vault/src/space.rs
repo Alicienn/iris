@@ -249,6 +249,25 @@ impl Space {
         ecrire_atomique(&dossier.join("space.json"), texte.as_bytes())
     }
 
+    /// What is known of the space's flashcards, in `.iris/review.json`, by card key.
+    pub fn review(&self) -> BTreeMap<String, iris_notes::review::CardState> {
+        std::fs::read_to_string(self.dir.join(".iris").join("review.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// The flashcards' state, written back.
+    pub fn save_review(
+        &self,
+        cards: &BTreeMap<String, iris_notes::review::CardState>,
+    ) -> Result<()> {
+        let dossier = self.dir.join(".iris");
+        std::fs::create_dir_all(&dossier)?;
+        let texte = serde_json::to_string(cards).map_err(|e| Error::other(e.to_string()))?;
+        ecrire_atomique(&dossier.join("review.json"), texte.as_bytes())
+    }
+
     /// The folders every space has, and its first templates.
     pub fn make_defaults(&self) -> Result<()> {
         std::fs::create_dir_all(self.dir.join(&self.config.attachments))?;
@@ -811,6 +830,20 @@ mod tests {
             std::fs::remove_file(path).or_else(|_| std::fs::remove_dir_all(path))?;
             Ok(())
         }
+    }
+
+    #[test]
+    fn flashcard_states_are_kept() {
+        let (_d, s) = espace();
+        assert!(s.review().is_empty());
+        let jour = chrono::NaiveDate::from_ymd_opt(2026, 10, 7).unwrap();
+        let mut cartes = BTreeMap::new();
+        cartes.insert(
+            "Cours.md|Limite ?".to_string(),
+            iris_notes::review::CardState::new(jour),
+        );
+        s.save_review(&cartes).unwrap();
+        assert_eq!(s.review(), cartes);
     }
 
     #[test]
