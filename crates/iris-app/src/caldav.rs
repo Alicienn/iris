@@ -343,7 +343,11 @@ async fn envoyer(
             }
             Written::Conflict => {
                 // Changed there meanwhile: the server's version wins.
-                match client.fetch(adresse, &[href.clone()]).await?.first() {
+                match client
+                    .fetch(adresse, std::slice::from_ref(&href))
+                    .await?
+                    .first()
+                {
                     Some(r) => garder(services, cal.id, r)?,
                     None => services.store.remove_remote_object(cal.id, &href)?,
                 }
