@@ -573,3 +573,7 @@ variant, brought into the application.
       view model folds the diffs waiting into one and answers with one snapshot; the
       copies of one message (inbox and All Mail) share a thread, are counted and read
       once, and threads split that way before are joined when the base opens.
+- [x] **S41.16** A folder of one mailbox read by its threads' own messages (4.5.2):
+      `+m.account_id` keeps SQLite off `messages_by_account` in the scope's correlated
+      subquery. Measured on a 21,000-message Gmail: one page 3.1 s → 1 ms, the tab
+      counts over two minutes → 39 ms.

@@ -48,7 +48,12 @@ fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
             .collect::<Vec<_>>()
             .join(",");
         args.extend(q.accounts.iter().map(|a| SqlValue::Integer(a.get())));
-        format!(" AND m.account_id IN ({places})")
+        // The `+` keeps SQLite off the account index inside this correlated
+        // subquery. Offered both, it took `messages_by_account` over
+        // `messages_by_thread`, and so read every message of the mailbox for every
+        // thread: 3 s for one page of a Gmail inbox, minutes for its tab counts, and
+        // the window frozen behind them. With it, the thread's few messages: 1 ms.
+        format!(" AND +m.account_id IN ({places})")
     };
 
     match &q.scope {
@@ -739,6 +744,48 @@ mod tests {
     use crate::model::Filters;
     use crate::model::{FolderRole, NewAccount, NewMessage};
     use iris_types::FolderId;
+
+    #[test]
+    fn a_folder_of_one_mailbox_reads_each_thread_by_its_own_messages() {
+        // Through the account index, every thread read every message of the mailbox:
+        // a Gmail inbox froze the window for seconds on each click.
+        let store = Store::in_memory().unwrap();
+        for scope in [
+            crate::model::Scope::Role(FolderRole::Inbox),
+            crate::model::Scope::Path("INBOX".into()),
+        ] {
+            let q = ListQuery {
+                accounts: vec![AccountId(1)],
+                scope,
+                ..ListQuery::new(WorkflowState::Todo, 60)
+            };
+            let mut sql = String::from("SELECT id FROM threads WHERE state = ?");
+            let mut args = vec![SqlValue::Integer(0)];
+            push_scope(&mut sql, &mut args, &q);
+
+            let plan: Vec<String> = store
+                .with_conn(|c| {
+                    let mut stmt = c
+                        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                        .map_err(|e| sql_err("plan", e))?;
+                    let lignes = stmt
+                        .query_map(params_from_iter(args), |r| r.get::<_, String>(3))
+                        .map_err(|e| sql_err("plan", e))?;
+                    lignes
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                        .map_err(|e| sql_err("plan", e))
+                })
+                .unwrap();
+            assert!(
+                plan.iter().any(|l| l.contains("messages_by_thread")),
+                "{plan:?}"
+            );
+            assert!(
+                !plan.iter().any(|l| l.contains("messages_by_account")),
+                "{plan:?}"
+            );
+        }
+    }
 
     struct Fixture {
         store: Store,

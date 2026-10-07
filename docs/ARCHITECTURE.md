@@ -706,6 +706,15 @@ that way by an older version are joined when the base opens
 (`join_copies_of_one_message`, a repair and not a migration: finding nothing costs one
 grouped read of an index).
 
+**A folder of one mailbox** (4.5.2). The list and its counts find a folder's threads
+with a correlated `EXISTS` over `messages`, which also names the account when the
+view is filtered to one. Without statistics, SQLite took `messages_by_account` for it
+over `messages_by_thread`, reading every message of the mailbox for every thread. On
+a 21,000-message Gmail one page took 3.1 s and the tab counts over two minutes, with
+the window waiting on the store behind them. `push_scope` writes `+m.account_id`,
+which keeps that term off any index, and a test pins the plan
+(`a_folder_of_one_mailbox_reads_each_thread_by_its_own_messages`): 1 ms and 39 ms.
+
 | # | Migration |
 |---|---|
 | 1 | Initial schema: accounts, folders, threads, messages, references, attachments, correspondents, operation journal, settings |
