@@ -23,6 +23,12 @@ component FolderRow inherits Rectangle {
 
     callback clicked();
     callback dropped();
+
+    /// On some mailboxes only, and not made so on purpose: worth a mark.
+    property <bool> absent-elsewhere: !root.node.permanent && !root.node.restricted
+        && root.node.accounts > 0 && root.node.accounts < root.accounts-total;
+    /// What the mark says when pointed at.
+    property <string> absent-text: "On \{root.node.accounts} of \{root.accounts-total} mailboxes";
     callback context-menu(length, length);
 
     // Un dossier de courrier se reconnaît à sa forme avant de se lire. Ceux que
@@ -100,8 +106,9 @@ component FolderRow inherits Rectangle {
         // Jamais sur un dossier de rôle : « Spam » n'est pas absent d'une boîte qui
         // n'en a pas, il n'y a simplement rien reçu, et un avertissement sur les six
         // premières lignes de l'arborescence n'avertirait plus de rien.
-        if !root.node.permanent && root.node.accounts > 0
-            && root.node.accounts < root.accounts-total: Icon {
+        //
+        // Ni sur un dossier fait exprès pour certaines boîtes : c'est ce qu'on a demandé.
+        if root.absent-elsewhere: Icon {
             y: (parent.height - self.height) / 2;
             data: Icons.exclamation;
             size: 11px;
@@ -128,6 +135,12 @@ component FolderRow inherits Rectangle {
             }
         }
         clicked => { root.clicked(); }
+    }
+
+    // The mark says why when the row is pointed at: the row's touch area is on top of
+    // it, so the row carries the tip.
+    if root.absent-elsewhere: Tooltip {
+        text: @markdown("\{root.absent-text}");
     }
 
     } // depot

@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.14.1 — 2026-10-07
+
+### Improved
+- Point at a folder with the orange warning to see how many mailboxes have it.
+
+### Fixed
+- A folder made for some of your addresses no longer shows the orange warning.
+- A switched-off mailbox no longer makes every folder show the orange warning.
+
 ## 4.14.0 — 2026-10-07
 
 ### New

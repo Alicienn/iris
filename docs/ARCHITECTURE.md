@@ -1003,7 +1003,9 @@ hides mail, and every mailbox ticked leaves no row. Its view (`push_scope`, `Sco
 and its tree counts (`unified_folders`) take those mailboxes' messages only, so a folder
 of that name on another mailbox is not part of it; moving mail into it
 (`Workflow::move_thread`) and *Mark all as read* skip the others. Renaming carries the
-rows (`rename_folder_path`); deleting drops them.
+rows (`rename_folder_path`); deleting drops them. The tree's orange mark (a folder
+missing on some mailboxes) is left off such a folder (`FolderNodeData::restricted`) and
+compares with the enabled mailboxes only (4.14.1).
 
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside

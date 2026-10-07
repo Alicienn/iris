@@ -4789,6 +4789,11 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
             // le lui faire traverser en sens inverse mettrait des chemins SVG dans du
             // code Rust, où plus personne ne penserait à les tenir à jour.
             role: n.role.as_str().into(),
+            restricted: !n.is_role
+                && services
+                    .store
+                    .folder_accounts(&n.key)
+                    .is_ok_and(|comptes| !comptes.is_empty()),
         })
         .collect();
 
@@ -4800,7 +4805,15 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
     {
         fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
     }
-    fenetre.set_account_count(services.store.accounts().map(|c| c.len()).unwrap_or(0) as i32);
+    // The enabled ones: folders are made on those only, and one switched off made every
+    // folder look missing somewhere.
+    fenetre.set_account_count(
+        services
+            .store
+            .accounts()
+            .map(|c| c.iter().filter(|c| c.enabled).count())
+            .unwrap_or(0) as i32,
+    );
 }
 
 /// Lit ce que l'arborescence a renvoyé.

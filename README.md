@@ -170,7 +170,9 @@ you are in, on the mailboxes you tick: all of them, or the one you are looking a
 default; a search finds one by its name or address, and **Select all** ticks (or
 unticks) every one it shows. A folder made for some of your addresses shows only their
 mail, even where another mailbox has a folder of the same name, and mail dropped on it
-is filed on those mailboxes only.
+is filed on those mailboxes only. An orange mark beside a folder says it is missing on
+some of your mailboxes (switched-off ones aside) without having been made for some;
+pointing at it says on how many it is.
 
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
 

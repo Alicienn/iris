@@ -655,3 +655,5 @@ their server.
 - [x] **S42.5** A folder for some mailboxes (4.14.0): New folder ticks the mailboxes
       (search, Select all; all or the one on screen by default); made for fewer than
       all, its view, counts, moves and Mark all as read keep to them. Migration 24.
+      The tree's orange mark spares such folders, counts enabled mailboxes only, and
+      says on how many a folder is (4.14.1).
