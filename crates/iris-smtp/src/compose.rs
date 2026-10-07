@@ -508,10 +508,13 @@ mod tests {
     fn la_date_de_citation_est_correcte() {
         // 1 700 000 000 s = 14 novembre 2023, 22 h 13 UTC.
         assert_eq!(
-            format_date(Timestamp::from_millis(1_700_000_000_000)),
-            "14/11/2023 à 22:13"
+            format_date(Timestamp::from_millis(1_700_000_000_000), &chrono::Utc),
+            "Tue 14 Nov 2023 at 22:13"
         );
-        assert_eq!(format_date(Timestamp::EPOCH), "01/01/1970 à 00:00");
+        assert_eq!(
+            format_date(Timestamp::EPOCH, &chrono::Utc),
+            "Thu 1 Jan 1970 at 00:00"
+        );
     }
 
     #[test]
