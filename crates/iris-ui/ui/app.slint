@@ -519,6 +519,9 @@ export component AppWindow inherits Window {
     in property <string> restore-question;
     callback backup-now();
     callback backup-open-folder();
+    in property <string> notes-folder;
+    callback notes-folder-open();
+    callback notes-folder-change();
     callback restore-choose();
     callback restore-confirmed();
     callback restore-cancelled();
@@ -1107,6 +1110,8 @@ export component AppWindow inherits Window {
     callback notes-review-graded(int);
     /// Quick open searching the notes' words rather than their names.
     in-out property <bool> notes-quick-search;
+    /// Quick open puts the note it opens beside the one open (Ctrl+\).
+    in-out property <bool> notes-quick-beside;
     callback note-title-accepted(string);
     callback note-end-clicked();
     /// The menus and windows of the notes.
@@ -1114,6 +1119,8 @@ export component AppWindow inherits Window {
     in-out property <string> notes-row-menu-key;
     in-out property <int> notes-row-menu-kind;
     in-out property <bool> notes-row-menu-pinned;
+    in property <[color]> notes-folder-palette;
+    in property <int> notes-row-menu-colour: -1;
     in-out property <length> notes-row-menu-x;
     in-out property <length> notes-row-menu-y;
     in-out property <bool> notes-space-menu-open;
@@ -1680,7 +1687,9 @@ export component AppWindow inherits Window {
                 if (event.modifiers.control && event.text == "n") {
                     root.notes-new-note();
                 }
-                if (event.modifiers.control && event.text == "o") {
+                // A note by name, opened here or (Ctrl+\) beside the one open.
+                if (event.modifiers.control && (event.text == "o" || event.text == "\\")) {
+                    root.notes-quick-beside = event.text == "\\";
                     root.notes-quick-search = false;
                     root.notes-quick-query = "";
                     root.notes-quick-highlight = 0;
@@ -1690,6 +1699,7 @@ export component AppWindow inherits Window {
                 // Search in the notes' words.
                 if (event.modifiers.control && event.modifiers.shift
                     && (event.text == "f" || event.text == "F")) {
+                    root.notes-quick-beside = false;
                     root.notes-quick-search = true;
                     root.notes-quick-query = "";
                     root.notes-quick-highlight = 0;
@@ -2455,6 +2465,8 @@ export component AppWindow inherits Window {
         }
         filter-edited(t) => { root.notes-filter-edited(t); }
         quick-open => {
+            root.notes-quick-beside = false;
+            root.notes-quick-search = false;
             root.notes-quick-query = "";
             root.notes-quick-highlight = 0;
             root.notes-quick-open = true;
@@ -2462,7 +2474,9 @@ export component AppWindow inherits Window {
         }
         block-edited(k, t, c) => { root.note-block-edited(k, t, c); }
         block-key(k, n, c, a, p, d) => {
-            if (n == "ctrl+o") {
+            if (n == "ctrl+o" || n == "ctrl+\\") {
+                root.notes-quick-beside = n == "ctrl+\\";
+                root.notes-quick-search = false;
                 root.notes-quick-query = "";
                 root.notes-quick-highlight = 0;
                 root.notes-quick-open = true;
@@ -2835,6 +2849,8 @@ export component AppWindow inherits Window {
         menu-y: root.notes-row-menu-y;
         kind: root.notes-row-menu-kind;
         pinned: root.notes-row-menu-pinned;
+        palette: root.notes-folder-palette;
+        colour: root.notes-row-menu-colour;
         chosen(action) => {
             root.notes-row-menu-open = false;
             if (action == "new-folder") {
@@ -3394,6 +3410,9 @@ export component AppWindow inherits Window {
         restore-question: root.restore-question;
         backup-now => { root.backup-now(); }
         backup-open-folder => { root.backup-open-folder(); }
+        notes-folder: root.notes-folder;
+        notes-folder-open => { root.notes-folder-open(); }
+        notes-folder-change => { root.notes-folder-change(); }
         restore-choose => { root.restore-choose(); }
         restore-confirmed => { root.restore-confirmed(); }
         restore-cancelled => { root.restore-cancelled(); }

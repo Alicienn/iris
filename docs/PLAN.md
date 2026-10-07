@@ -685,3 +685,7 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
 - [x] **S43.6** With the rest of Iris: `[[mail:]]`, `[[event:]]`, `[[task:]]` and
       *Copy link for a note*; a checkbox made a task, ticked both ways; past versions
       kept and restored; the graph of links; Home's Notes widget.
+- [x] **S43.7** What 4.15.0 left (4.16.0): the spaces' folder in Settings, pasting a
+      web address as a link and a page's HTML as Markdown, folder colours, links to a
+      numbered callout or a heading, `Ctrl`+`\` for a note beside, a folder's
+      flashcards revised together; a preview of Notes (`apercu_notes`).

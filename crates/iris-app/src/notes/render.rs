@@ -193,6 +193,28 @@ pub fn numbering(blocks: &[Block]) -> Vec<String> {
         .collect()
 }
 
+/// The block a link's `#…` names: `thm-2` the second theorem (as numbered), else a
+/// heading by its words.
+pub fn ancre_bloc(blocks: &[Block], ancre: &str) -> Option<usize> {
+    let ancre = ancre.trim();
+    if let Some((genre, n)) = ancre.rsplit_once('-') {
+        if let Ok(n) = n.trim().parse::<u32>() {
+            let (label, _, numerote) = callout_label(genre.trim());
+            if numerote {
+                let voulu = format!("{label} {n}");
+                if let Some(i) = numbering(blocks).iter().position(|x| *x == voulu) {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    let plat = |s: &str| s.trim().replace(['-', '_'], " ").to_lowercase();
+    blocks.iter().position(|b| {
+        matches!(b.kind, BlockKind::Heading(_))
+            && plat(b.content().trim_start_matches('#')) == plat(ancre)
+    })
+}
+
 /// The file an embed names, in the space at `dir`: `![[a.png|50%]]` looks in the
 /// space, then in its attachments.
 pub fn embedded_file(target: &str, dir: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -472,6 +494,20 @@ pub fn render(
 mod tests {
     use super::*;
     use iris_notes::block::parse;
+
+    #[test]
+    fn anchors_name_numbered_callouts_and_headings() {
+        let b = parse("# Limites\n\n> [!thm] A\n> x\n\n## Suites et séries\n\n> [!thm] B\n> y\n");
+        let pos = |a: &str| ancre_bloc(&b, a).map(|i| b[i].content().trim_end().to_string());
+        assert_eq!(pos("thm-2").as_deref(), Some("> [!thm] B\n> y"));
+        assert_eq!(pos("thm-1").as_deref(), Some("> [!thm] A\n> x"));
+        assert_eq!(
+            pos("suites-et-séries").as_deref(),
+            Some("## Suites et séries")
+        );
+        assert_eq!(pos("Limites").as_deref(), Some("# Limites"));
+        assert_eq!(pos("thm-9"), None);
+    }
 
     #[test]
     fn a_spreadsheet_embedded_shows_its_values() {

@@ -781,6 +781,14 @@ when the view moves past them. Excel files are read with `calamine` and written 
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
 
+**Pasting** (4.16.0). `Ctrl`+`V` tries, in order: an image (saved to the attachments),
+a web address over selected words (`[words](url)`), then the clipboard's `HTML
+Format` when it carries formatting (`paste::is_rich`), turned into Markdown by
+`iris_notes::paste::html_to_markdown` — a small tag reader over the copied fragment,
+not a parser of the whole web; anything else is the field's plain paste. Links to a
+place in a note (`[[#thm-2]]`, `[[Note#Heading]]`) are found by `render::ancre_bloc`
+against the callouts' numbering as drawn, then the headings.
+
 **Links with the rest of Iris.** `[[mail:<thread>]]`, `[[event:<key>]]` and
 `[[task:<id>]]` open through Home's own callbacks. A checkbox made a task keeps
 `[[task:<id>]]` on its line: ticking the line ticks the task (`tasks::toggle_done`),

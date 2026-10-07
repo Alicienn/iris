@@ -33,6 +33,10 @@ const PAS: Duration = Duration::from_millis(700);
 const VEILLE: Duration = Duration::from_secs(2);
 /// How many steps of undo a note keeps.
 const ANNULATIONS: usize = 200;
+/// The colours a folder can take, kept as written in `space.json`.
+const COULEURS_DOSSIERS: [&str; 8] = [
+    "#e5534b", "#f0883e", "#d4a72c", "#3fb950", "#4f8cff", "#a371f7", "#db61a2", "#8b949e",
+];
 
 /// The text and the cursor at a step of undo.
 #[derive(Debug, Clone)]
@@ -851,6 +855,7 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             true
         }
         "ctrl+shift+f" | "ctrl+shift+F" => {
+            f.set_notes_quick_beside(false);
             f.set_notes_quick_search(true);
             f.set_notes_quick_query(SharedString::default());
             f.set_notes_quick_highlight(0);
@@ -867,7 +872,9 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             f.set_note_card_text(SharedString::default());
             true
         }
-        "ctrl+v" | "ctrl+V" => coller_image(f, e, i, cursor),
+        "ctrl+v" | "ctrl+V" => {
+            coller_image(f, e, i, cursor) || coller_texte(f, e, i, cursor, anchor)
+        }
         "popup-up" | "popup-down" => {
             if let Some(c) = &mut e.completion {
                 let n = c.candidates.len().max(1);
@@ -1304,6 +1311,53 @@ fn coller_image(f: &AppWindow, e: &mut Etat, i: usize, cursor: usize) -> bool {
     }
 }
 
+/// Text from the clipboard made Markdown: a web address over selected words links
+/// them, a page's or a document's formatting is kept. False for plain text (the field
+/// pastes it).
+fn coller_texte(f: &AppWindow, e: &mut Etat, i: usize, cursor: usize, anchor: usize) -> bool {
+    let Some((kind, texte)) = contenu(e, i) else {
+        return false;
+    };
+    if matches!(kind, BlockKind::Code { .. } | BlockKind::Math) {
+        return false;
+    }
+    let Ok(mut presse) = arboard::Clipboard::new() else {
+        return false;
+    };
+    let (debut, fin) = (
+        cursor.min(anchor).min(texte.len()),
+        cursor.max(anchor).min(texte.len()),
+    );
+    if !texte.is_char_boundary(debut) || !texte.is_char_boundary(fin) {
+        return false;
+    }
+    if debut < fin {
+        if let Ok(t) = presse.get_text() {
+            if iris_notes::paste::is_url(&t) {
+                let lien = format!("[{}]({})", &texte[debut..fin], t.trim());
+                let nouveau = format!("{}{lien}{}", &texte[..debut], &texte[fin..]);
+                let c = debut + lien.len();
+                remplacer(f, e, i, &nouveau, c, c);
+                return true;
+            }
+        }
+    }
+    let Ok(html) = presse.get().html() else {
+        return false;
+    };
+    if !iris_notes::paste::is_rich(&html) {
+        return false;
+    }
+    let md = iris_notes::paste::html_to_markdown(&html);
+    if md.trim().is_empty() {
+        return false;
+    }
+    let nouveau = format!("{}{md}{}", &texte[..debut], &texte[fin..]);
+    let c = debut + md.len();
+    remplacer(f, e, i, &nouveau, c, c);
+    true
+}
+
 /// A mark, a colour or a link from the bubble or the colour card, on the selection
 /// (or the word at the cursor for a colour).
 fn formater(f: &AppWindow, e: &mut Etat, action: &str) {
@@ -1428,19 +1482,58 @@ fn aujourdhui() -> chrono::NaiveDate {
 /// Starts revising the open note's flashcards: those due, or all of them when none is.
 fn reviser(f: &AppWindow, e: &mut Etat) {
     ecrire(f, e);
-    let Some(note) = &e.note else { return };
+    let Some(rel) = e.note.as_ref().map(|n| n.rel.clone()) else {
+        return;
+    };
+    reviser_notes(f, e, &[rel]);
+}
+
+/// Revising the flashcards of every note in `folder` ("" for the whole space).
+fn reviser_dossier(f: &AppWindow, e: &mut Etat, folder: &str) {
+    ecrire(f, e);
     let Some(espace) = e.espace() else { return };
-    let cartes = iris_notes::meta::flashcards(&note.text);
-    if cartes.is_empty() {
-        f.set_toast("This note has no flashcards: write “Question :: Answer”.".into());
+    let modeles = format!("{}/", espace.config.templates);
+    let prefixe = format!("{folder}/");
+    let notes: Vec<String> = espace
+        .notes()
+        .into_iter()
+        .filter(|n| !n.starts_with(&modeles) && (folder.is_empty() || n.starts_with(&prefixe)))
+        .collect();
+    reviser_notes(f, e, &notes);
+}
+
+/// Revising the flashcards of `notes`: those due, or all of them when none is.
+fn reviser_notes(f: &AppWindow, e: &mut Etat, notes: &[String]) {
+    let Some(espace) = e.espace() else { return };
+    let mut toutes: Vec<(String, String, String)> = Vec::new();
+    for rel in notes {
+        // The note open as it is now; the others as written.
+        let texte = match &e.note {
+            Some(n) if n.rel == *rel => n.text.clone(),
+            _ => match espace.read(rel) {
+                Ok((t, _)) => t,
+                Err(_) => continue,
+            },
+        };
+        toutes.extend(
+            iris_notes::meta::flashcards(&texte)
+                .into_iter()
+                .map(|(q, r)| (iris_notes::review::card_key(rel, &q), q, r)),
+        );
+    }
+    if toutes.is_empty() {
+        f.set_toast(
+            if notes.len() == 1 {
+                "This note has no flashcards: write “Question :: Answer”."
+            } else {
+                "No flashcards here: write “Question :: Answer” in a note."
+            }
+            .into(),
+        );
         return;
     }
     let etats = espace.review();
     let jour = aujourdhui();
-    let toutes: Vec<(String, String, String)> = cartes
-        .into_iter()
-        .map(|(q, r)| (iris_notes::review::card_key(&note.rel, &q), q, r))
-        .collect();
     let dues: std::collections::VecDeque<_> = toutes
         .iter()
         .filter(|(k, _, _)| etats.get(k).is_none_or(|s| s.due <= jour))
@@ -1599,7 +1692,15 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
     if let Some(cible) = lien.strip_prefix("iris-note:") {
         let cible = iris_notes::inline::decode_target(cible);
         let nom = cible.split('#').next().unwrap_or(&cible).trim().to_string();
+        // `[[#thm-2]]`, `[[#Heading]]`: a place in this note.
+        let ancre = cible
+            .split_once('#')
+            .map(|(_, a)| a.trim().to_string())
+            .filter(|a| !a.is_empty() && lien_iris(&nom).is_none());
         if nom.is_empty() {
+            if let Some(a) = ancre {
+                aller_ancre(f, e, &a);
+            }
             return;
         }
         // The rest of Iris: a conversation, a task, an event.
@@ -1626,7 +1727,12 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
             .or_else(|| notes.iter().find(|n| stem(n).eq_ignore_ascii_case(&nom)))
             .cloned();
         match trouvee {
-            Some(rel) => ouvrir(f, e, &rel),
+            Some(rel) => {
+                ouvrir(f, e, &rel);
+                if let Some(a) = ancre {
+                    aller_ancre(f, e, &a);
+                }
+            }
             // A link to a note not written yet makes it, as Obsidian does.
             None => {
                 let nom_seul = nom.rsplit('/').next().unwrap_or(&nom).to_string();
@@ -1871,6 +1977,23 @@ fn aligner_taches(f: &AppWindow, e: &mut Etat) {
         rendre(f, e, true);
         planifier_ecriture(f);
     }
+}
+
+/// The cursor put on the block a link's `#…` names in the open note.
+fn aller_ancre(f: &AppWindow, e: &mut Etat, ancre: &str) {
+    let Some(i) = e
+        .note
+        .as_ref()
+        .and_then(|n| render::ancre_bloc(&n.blocks, ancre))
+    else {
+        f.set_toast(format!("Nothing called “{ancre}” in this note.").into());
+        return;
+    };
+    if e.reading {
+        lecture(f, e);
+    }
+    focaliser(f, e, i, 0, 0);
+    rendre(f, e, false);
 }
 
 /// `[[target|title]]` on the clipboard, to paste in a note.
@@ -2369,6 +2492,16 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 });
                 let epingle = e.espace().is_some_and(|s| s.config.pinned.contains(&cle));
                 f.set_notes_row_menu_pinned(epingle);
+                let teinte = e
+                    .espace()
+                    .and_then(|s| s.config.folder_colors.get(&cle).cloned())
+                    .and_then(|h| {
+                        COULEURS_DOSSIERS
+                            .iter()
+                            .position(|x| x.eq_ignore_ascii_case(&h))
+                    })
+                    .map_or(-1, |i| i as i32);
+                f.set_notes_row_menu_colour(teinte);
                 e.selected = Some(cle);
                 montrer_arbre(&f, e);
             }
@@ -2405,6 +2538,27 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 }
             }
             "history" => historique(&f, e, &cle),
+            "revise" => reviser_dossier(&f, e, &cle),
+            a if a.starts_with("colour:") => {
+                let choisie = a
+                    .strip_prefix("colour:")
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .and_then(|i| COULEURS_DOSSIERS.get(i));
+                if let Some(s) = e.espace_mut() {
+                    match choisie {
+                        Some(h) => {
+                            s.config.folder_colors.insert(cle.clone(), h.to_string());
+                        }
+                        None => {
+                            s.config.folder_colors.remove(&cle);
+                        }
+                    }
+                    if let Err(err) = s.save_config() {
+                        f.set_status(format!("Could not keep the colour: {err}").into());
+                    }
+                }
+                montrer_arbre(&f, e);
+            }
             "export" => exporter(&f, e, &cle, false),
             "print" => exporter(&f, e, &cle, true),
             "duplicate" => {
@@ -2505,6 +2659,49 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     });
     geste!(on_notes_new_note, |f, e| {
         nouvelle_note(&f, e, "Untitled", "");
+    });
+
+    f.set_notes_folder_palette(ModelRc::new(VecModel::from(
+        COULEURS_DOSSIERS
+            .iter()
+            .map(|h| crate::calendar::couleur(h))
+            .collect::<Vec<_>>(),
+    )));
+
+    // Settings › Notes: where the spaces are.
+    f.set_notes_folder(etat.borrow().vault.root().display().to_string().into());
+    geste!(on_notes_folder_open, |f, e| {
+        if let Err(err) = crate::platform::open_path(e.vault.root()) {
+            f.set_status(format!("Could not open the folder: {err}").into());
+        }
+    });
+    geste!(on_notes_folder_change, |f, e| {
+        let Some(dossier) = rfd::FileDialog::new()
+            .set_title("Where your notes' spaces go")
+            .pick_folder()
+        else {
+            return;
+        };
+        match Vault::open(dossier.clone()) {
+            Ok(v) => {
+                fermer_tout(&f, e);
+                e.vault = v;
+                let chemin = dossier.display().to_string();
+                crate::settings::update(|s| s.notes_root = chemin.clone());
+                e.space = 0;
+                e.expanded.clear();
+                e.selected = None;
+                e.fingerprint = 0;
+                e.tags = None;
+                charger_espaces(e);
+                montrer_note(&f, e);
+                montrer_espaces(&f, e);
+                montrer_arbre(&f, e);
+                f.set_notes_folder(chemin.into());
+                f.set_toast("Your notes' spaces are now in this folder.".into());
+            }
+            Err(err) => f.set_status(format!("Could not use this folder: {err}").into()),
+        }
     });
 
     // A note picked on Home.
@@ -2626,8 +2823,15 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         f.set_notes_quick_results(ModelRc::new(VecModel::from(trouves)));
     });
     geste!(on_notes_quick_chosen, |f, e, k| {
+        let a_cote = f.get_notes_quick_beside();
+        f.set_notes_quick_beside(false);
         match k.strip_prefix("new:") {
             Some(nom) => nouvelle_note(&f, e, nom, ""),
+            // Ctrl+\: beside the note open, to read while writing.
+            None if a_cote && EntryKind::of(&k) == EntryKind::Note => {
+                e.beside = Some(k.to_string());
+                montrer_a_cote(&f, e);
+            }
             None => {
                 let k = k.to_string();
                 ouvrir(&f, e, &k);

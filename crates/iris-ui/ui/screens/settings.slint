@@ -199,6 +199,10 @@ export component SettingsPanel inherits Rectangle {
     in property <string> restore-question;
     callback backup-now();
     callback backup-open-folder();
+    /// The folder the notes' spaces are made in.
+    in property <string> notes-folder;
+    callback notes-folder-open();
+    callback notes-folder-change();
     callback restore-choose();
     callback restore-confirmed();
     callback restore-cancelled();
@@ -603,6 +607,30 @@ export component SettingsPanel inherits Rectangle {
                             text: "Export…";
                             size: ButtonSize.sm;
                             clicked => { root.export-ics(); }
+                        }
+                    }
+                }
+
+                // Where the notes' spaces are made: a folder of one's own.
+                GroupTitle { text: "Notes"; }
+                Group {
+                    SettingRow {
+                        first: true;
+                        icon: Icons.folder;
+                        tint: Tokens.purple;
+                        label: "Where your spaces are";
+                        hint: root.notes-folder;
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Open folder";
+                            size: ButtonSize.sm;
+                            clicked => { root.notes-folder-open(); }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Change…";
+                            size: ButtonSize.sm;
+                            clicked => { root.notes-folder-change(); }
                         }
                     }
                 }

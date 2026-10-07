@@ -362,15 +362,17 @@ In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due d
 **Notes** (`Ctrl`+`4`) keeps notes as Markdown files in folders on your computer, so
 any other app can read them too. A **space** is one such folder: Iris makes the first
 one in `Iris` in your user folder; *New space* makes another, and *Open a folder as a
-space* opens one you already have (an Obsidian vault works as it is). Iris keeps its
-own settings for a space in a hidden `.iris` folder inside it.
+space* opens one you already have (an Obsidian vault works as it is). *Settings ›
+Notes* chooses another folder for them. Iris keeps its own settings for a space in a
+hidden `.iris` folder inside it.
 
 **The tree.** Folders, notes, spreadsheets, images and other files, sorted as people
 count ("Chapter 2" before "Chapter 10"). Drag a row onto a folder to move it, or onto
 the empty room below to bring it to the top. Right-click a row for *New note here*,
 *New spreadsheet here*, *New folder here*, *Rename* (`F2`), *Duplicate*, *Pin*,
 *Open beside*, *History…*, *Export as a web page…*, *Print or save as PDF…*,
-*Show in Explorer* and *Delete* (to the Recycle Bin). Renaming or moving a note
+*Show in Explorer* and *Delete* (to the Recycle Bin); a folder's menu also gives it a
+colour and revises the flashcards of every note in it. Renaming or moving a note
 rewrites every link to it. *Filter* narrows the tree by name; `Ctrl`+`O` opens a note
 by name (`Enter` on a name not found makes it), and `Ctrl`+`Shift`+`F` searches the
 words of the space, with `tag:`, `path:` and `is:task`.
@@ -389,6 +391,7 @@ result. Markdown, plus a few marks of Iris's own:
 | `` `x` `` | Code | `Ctrl`+`E` |
 | `$x$`, `$$` on a line | A formula in the line, a formula on its own | `Ctrl`+`M` |
 | `[[Note]]`, `[[Note#Heading]]`, `[[Note\|text]]` | A link to a note | typing `[[` |
+| `[[#thm-2]]`, `[[Note#def-1]]`, `[[#Heading]]` | A link to a numbered callout or a heading | |
 | `[text](https://…)` | A web link | `Ctrl`+`L` |
 | `#tag`, `@2026-10-08`, `^[text]` | A tag, a date, a footnote | typing `#`, `@` |
 | `# ` … `###### ` | Headings | `Ctrl`+`H` cycles |
@@ -404,7 +407,9 @@ redo. Selecting words shows a bubble of formats, each naming its key when pointe
 Typing `[[`, `#`, `@`, `\` (in maths), `/` or `{` opens a list at the cursor. With the
 cursor in a link, a card shows the start of its note (*Open* goes there); in a
 footnote, its text; in a formula, its drawing. An image pasted with `Ctrl`+`V` is
-saved in the space's `_Fichiers` folder and shown in the note.
+saved in the space's `_Fichiers` folder and shown in the note; a web address pasted
+over selected words links them; text copied from a page or a document keeps its bold,
+italic, links, headings, lists, quotes, code and tables.
 
 **Maths.** Formulas are written in LaTeX and drawn as in a book. In maths, `Tab`
 expands a few letters: `//` a fraction, `sq` a root, `sum`, `int`, `lim`, `vec`,
@@ -422,16 +427,17 @@ selection. Right-click a `.xlsx` or `.csv` file in the tree for *Open as a
 spreadsheet*. In a note, `![[Budget.sheet]]` (or `![[Budget.sheet#A1:D10]]`) shows its
 values as a table; a click opens it.
 
-**Courses.** An event's panel offers **Take notes**: a note named after it and its
-day, made from the *Cours* template, in a folder for the course. Templates are notes in
-`_Modèles`, with `{{title}}`, `{{date}}`, `{{time}}`, `{{course}}` and `{{cursor}}`.
-A note with flashcards shows a **Revise** button: each card comes back sooner or later
+**Courses.** An event's panel offers **Notes**: a note named after it and its day,
+made from the *Cours* template, in a folder for the course (opened again the next
+time). Templates are notes in `_Modèles`, with `{{title}}`, `{{date}}`, `{{time}}`,
+`{{course}}` and `{{cursor}}`. A note with flashcards shows a **Revise** button, and a
+folder's menu revises all of its notes': each card comes back sooner or later
 depending on how it went (Again, Hard, Good, Easy, or `1` to `4`).
 
 **Reading and more.** `Ctrl`+`R` reads the note with every line drawn and links one
 click away; `F11` is focus mode, the note alone; the side panel lists its outline,
-what mentions it, its tags and length. *Open beside* shows a second note to read while
-writing. `Ctrl`+`G` draws the graph of the links between the notes. *History…* lists
+what mentions it, its tags and length. *Open beside* (or `Ctrl`+`\`, then its name)
+shows a second note to read while writing. `Ctrl`+`G` draws the graph of the links between the notes. *History…* lists
 the versions kept (one per session of editing, the last thirty) and restores one.
 
 **With the rest of Iris.** *Copy link for a note*, in a conversation's, an event's or a
@@ -487,6 +493,7 @@ on school and office networks where many people share one address.
 | `Ctrl`+`0` | Home |
 | `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` / `Ctrl`+`4` | Mail / Calendar / Tasks / Notes |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | In Notes: new note / open a note / search the notes |
+| `Ctrl`+`\` | In Notes: open a note beside |
 | `Ctrl`+`R` / `F11` / `Ctrl`+`G` | In Notes: reading mode / focus mode / graph of links |
 | `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |
@@ -509,7 +516,8 @@ Hover over any button to see its shortcut, or press `?` for all of them.
 - Outlook and Microsoft 365 calendars cannot be connected (Microsoft offers no CalDAV);
   their published link can be subscribed to, read-only.
 - Notes are not synced between computers by Iris: put a space in a synced folder
-  (OneDrive, Dropbox) to have it elsewhere. Flashcards are revised one note at a time.
+  (OneDrive, Dropbox) to have it elsewhere. Files dropped from Explorer are not taken
+  into the tree yet: copy them into the space's folder.
 - Spreadsheets have no charts, merged cells or conditional formats; an Excel file
   keeps its values, formulas, number formats and column widths, not its charts.
 

@@ -19,6 +19,7 @@ pub mod inline;
 pub mod links;
 pub mod math;
 pub mod meta;
+pub mod paste;
 pub mod review;
 pub mod template;
 

@@ -3,6 +3,16 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.16.0 — 2026-10-08
+
+### New
+- Choose where your notes' spaces live, in Settings › Notes.
+- Paste a web address over selected words to make a link; text copied from a page or a document keeps its bold, lists, headings and tables.
+- Give a folder of notes a colour from its menu.
+- Link to a numbered theorem or definition, or to a heading, in the same note or another.
+- Ctrl+\ opens a note beside the one you are writing.
+- Revise the flashcards of a whole folder at once.
+
 ## 4.15.0 — 2026-10-08
 
 ### New

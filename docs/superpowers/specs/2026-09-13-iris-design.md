@@ -372,5 +372,5 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   notes outlive Iris and open in any editor. Its own spec is
   `2026-10-07-iris-notes-design.md`; against it, reading mode draws blocks rather than
   a page through Blitz, a second note opens beside read-only rather than in a split
-  editor, flashcards are revised per note, and the space is polled for changes rather
+  editor (opened with Ctrl+\ or its menu), and the space is polled for changes rather
   than watched.

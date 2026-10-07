@@ -1387,6 +1387,9 @@ export component NotesRowMenu inherits Rectangle {
     /// 0 folder, 1 note, 2 spreadsheet, 3 image, 4 other.
     in property <int> kind;
     in property <bool> pinned;
+    /// The colours a folder can take, and its own (-1: none).
+    in property <[color]> palette;
+    in property <int> colour: -1;
     callback chosen(string);
     callback dismissed();
 
@@ -1418,6 +1421,59 @@ export component NotesRowMenu inherits Rectangle {
                 icon: Icons.table;
                 label: "New spreadsheet here";
                 activated => { root.chosen("new-sheet"); }
+            }
+            if root.kind == 0: MenuEntry {
+                icon: Icons.sparkle;
+                label: "Revise its flashcards";
+                activated => { root.chosen("revise"); }
+            }
+            if root.kind == 0: MenuSeparator {}
+            // Its colour: a click on a swatch, the ring on the one it wears.
+            if root.kind == 0: HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 6px;
+                height: 30px;
+                aucune := Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 9px;
+                    border-width: root.colour < 0 || aucune-zone.has-hover ? 2px : 1px;
+                    border-color: root.colour < 0 ? Tokens.text : Tokens.border-strong;
+                    accessible-role: button;
+                    accessible-label: "No colour";
+                    accessible-action-default => { root.chosen("colour:none"); }
+                    Path {
+                        width: 100%;
+                        height: 100%;
+                        viewbox-width: 18;
+                        viewbox-height: 18;
+                        commands: "M 5 13 L 13 5";
+                        stroke: Tokens.text-muted;
+                        stroke-width: 1.5px;
+                    }
+                    aucune-zone := TouchArea {
+                        clicked => { root.chosen("colour:none"); }
+                    }
+                }
+                for c[i] in root.palette: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 9px;
+                    background: c;
+                    border-width: i == root.colour || zone.has-hover ? 2px : 0px;
+                    border-color: Tokens.text;
+                    accessible-role: button;
+                    accessible-label: "Folder colour " + (i + 1);
+                    accessible-action-default => { root.chosen("colour:" + i); }
+                    zone := TouchArea {
+                        clicked => { root.chosen("colour:" + i); }
+                    }
+                }
             }
             if root.kind == 0: MenuSeparator {}
             if root.kind == 4: MenuEntry {
