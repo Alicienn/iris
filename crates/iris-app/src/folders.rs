@@ -143,30 +143,47 @@ pub fn tree(folders: &[UnifiedFolder]) -> Vec<FolderNode> {
         // cela désignait un dossier qui n'existe nulle part, que la suppression ne
         // trouvait pas — et qui revenait aussitôt.
         let chemin = dossier.path.as_str();
+        // Its server's own delimiter when known, else either.
+        let separe = |c: char| match dossier.delimiter {
+            Some(d) => c == d,
+            None => SEPARATEURS.contains(&c),
+        };
         let mut segments: Vec<(&str, usize)> = Vec::new();
         let mut debut = 0;
         for (i, c) in chemin.char_indices() {
-            if SEPARATEURS.contains(&c) {
+            if separe(c) {
                 segments.push((&chemin[debut..i], i));
                 debut = i + c.len_utf8();
             }
         }
         segments.push((&chemin[debut..], chemin.len()));
-        segments.retain(|(s, _)| !s.eq_ignore_ascii_case("INBOX"));
+        // The server's prefix, at the start only: `Archives/Inbox` was made one with
+        // `Archives`.
+        if segments.len() > 1 && segments[0].0.eq_ignore_ascii_case("INBOX") {
+            segments.remove(0);
+        }
 
         for (i, (segment, fin)) in segments.iter().enumerate() {
             let affiche: Vec<&str> = segments[..=i].iter().map(|(s, _)| *s).collect();
             let feuille = i + 1 == segments.len();
 
-            let noeud = vus.entry(affiche.join(".")).or_insert_with(|| FolderNode {
-                name: segment.to_string(),
-                key: chemin[..*fin].to_string(),
-                depth: i,
-                role: iris_store::FolderRole::Other,
-                is_role: false,
-                accounts: 0,
-                threads: 0,
-            });
+            // Joined with its own delimiter: `Clients/Devis` and `Clients.Devis` were one
+            // row whose count added both, and whose list showed one.
+            let joint = dossier
+                .delimiter
+                .map(String::from)
+                .unwrap_or_else(|| ".".into());
+            let noeud = vus
+                .entry(affiche.join(&joint))
+                .or_insert_with(|| FolderNode {
+                    name: segment.to_string(),
+                    key: chemin[..*fin].to_string(),
+                    depth: i,
+                    role: iris_store::FolderRole::Other,
+                    is_role: false,
+                    accounts: 0,
+                    threads: 0,
+                });
 
             // Seule la feuille porte les chiffres du dossier : les additionner sur
             // les parents ferait compter deux fois un message rangé dans une
@@ -233,8 +250,19 @@ pub fn create_everywhere(
         let dossiers = store.folders(compte.id)?;
         let separateur = compte.folder_delimiter.unwrap_or('.');
         let chemin = match parent {
-            // Under a folder this mailbox has (or holds folders under).
+            // Under a folder this mailbox has (or holds folders under), by its own
+            // path here: `Clients` in the tree is `INBOX.Clients` on some servers.
             Some(p) => {
+                let p = dossiers
+                    .iter()
+                    .find(|f| f.path == p)
+                    .or_else(|| {
+                        dossiers
+                            .iter()
+                            .find(|f| iris_store::same_folder(&f.path, p))
+                    })
+                    .map(|f| f.path.clone())
+                    .unwrap_or_else(|| p.to_string());
                 let prefixe = format!("{p}{separateur}");
                 if !dossiers
                     .iter()
@@ -273,15 +301,19 @@ fn personal_prefix(dossiers: &[iris_store::Folder], separateur: Option<char>) ->
         return Some("INBOX.".to_string());
     };
     let prefixe = format!("INBOX{sep}");
-    dossiers
+    let sous_la_boite = |f: &&iris_store::Folder| {
+        f.path.len() > prefixe.len()
+            && f.path
+                .get(..prefixe.len())
+                .is_some_and(|debut| debut.eq_ignore_ascii_case(&prefixe))
+    };
+    // Where the server's own folders and one's own are: all under `INBOX`, the server
+    // imposes it. One folder made under it by another client put every new one there.
+    let autres: Vec<_> = dossiers
         .iter()
-        .any(|f| {
-            f.path.len() > prefixe.len()
-                && f.path
-                    .get(..prefixe.len())
-                    .is_some_and(|debut| debut.eq_ignore_ascii_case(&prefixe))
-        })
-        .then_some(prefixe)
+        .filter(|f| !f.path.eq_ignore_ascii_case("INBOX"))
+        .collect();
+    (!autres.is_empty() && autres.iter().all(sous_la_boite)).then_some(prefixe)
 }
 
 /// Renomme un dossier, sur toutes les boîtes qui l'ont.
@@ -292,25 +324,41 @@ pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) 
     let nom = validate(name).map_err(Error::Config)?;
 
     let mut demandes = 0;
-    for id in store.accounts_with_folder(path)? {
+    // On every mailbox that has it under that name, by its own path there; one's own
+    // folders only, never a server's bin or archive that bears the same name.
+    for (id, chemin) in store.folder_paths_named(path)? {
+        let a_soi = store
+            .folders(id)?
+            .iter()
+            .any(|f| f.path == chemin && f.role == iris_store::FolderRole::Other);
+        if !a_soi {
+            continue;
+        }
         // Split on this server's own delimiter: on both, `Clients/Devis` renamed
         // `Offres` went to the top as `Clients.Offres`.
         let separateur = store
             .account(id)?
             .and_then(|c| c.folder_delimiter)
             .unwrap_or('.');
-        let cible = match path.rsplit_once(separateur) {
+        let cible = match chemin.rsplit_once(separateur) {
             Some((parent, _)) => format!("{parent}{separateur}{nom}"),
             None => nom.clone(),
         };
-        if cible == path {
+        if cible == chemin {
             continue;
         }
+        if store.folders(id)?.iter().any(|f| f.path == cible) {
+            return Err(Error::Config(format!(
+                "a folder named “{nom}” is already there"
+            )));
+        }
         let charge = iris_store::OpPayload::RenameFolder {
-            folder: path.to_string(),
-            target: cible,
+            folder: chemin.clone(),
+            target: cible.clone(),
         };
         iris_sync::enqueue(store, id, &charge, now)?;
+        // Here at once, for what is done to its mail before the next sync.
+        store.rename_folder_path(id, &chemin, &cible, separateur)?;
         demandes += 1;
     }
 
@@ -363,9 +411,30 @@ pub fn mark_read_everywhere(
                 continue;
             }
 
+            // Their copies in other folders are marked read here too. Outside Gmail,
+            // where reading one copy reads them all, the server is told of those as
+            // well: told of this folder's only, they came back unread.
+            let ailleurs = if labels_not_folders(store, compte.id, &store.folders(compte.id)?)? {
+                Vec::new()
+            } else {
+                store.unread_copies_elsewhere(dossier.id)?
+            };
+
             // Localement d'abord : la pastille doit s'éteindre au clic, pas à la
             // synchronisation suivante.
             store.mark_folder_read(dossier.id)?;
+
+            for (chemin, uids) in ailleurs {
+                for lot in uids.chunks(50) {
+                    let charge = iris_store::OpPayload::SetFlags {
+                        folder: chemin.clone(),
+                        uids: lot.to_vec(),
+                        flags: iris_types::Flags::SEEN.0,
+                        add: true,
+                    };
+                    iris_sync::enqueue(store, compte.id, &charge, now)?;
+                }
+            }
 
             for lot in non_lus.chunks(50) {
                 let charge = iris_store::OpPayload::SetFlags {
@@ -476,7 +545,26 @@ pub fn labels_not_folders(
 }
 
 pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<usize> {
-    let comptes = store.accounts_with_folder(path)?;
+    // Every mailbox that has it under that name, by its own path there, as a folder of
+    // one's own: another server's bin of the same name is not deleted with it.
+    let mut comptes = Vec::new();
+    let mut du_serveur = false;
+    for (compte, chemin) in store.folder_paths_named(path)? {
+        let a_soi = store
+            .folders(compte)?
+            .iter()
+            .any(|f| f.path == chemin && f.role == iris_store::FolderRole::Other);
+        if a_soi {
+            comptes.push((compte, chemin));
+        } else {
+            du_serveur = true;
+        }
+    }
+    if comptes.is_empty() && du_serveur {
+        return Err(Error::Config(
+            "that folder belongs to the server and cannot be removed".into(),
+        ));
+    }
 
     // Un dossier qu'aucune boîte ne porte : le parent qu'on a fabriqué pour ranger des
     // sous-dossiers. Annoncer « supprimé sur 0 boîte » pour le voir aussitôt revenir
@@ -490,17 +578,17 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
     // Every mailbox is checked before any is touched: one where the folder belongs to
     // the server, or that has no inbox, used to stop the deletion halfway, after the
     // earlier mailboxes had already lost the folder.
-    for compte in &comptes {
+    for (compte, chemin) in &comptes {
         let dossiers = store.folders(*compte)?;
         if dossiers
             .iter()
-            .any(|f| f.path == path && f.role != iris_store::FolderRole::Other)
+            .any(|f| f.path == *chemin && f.role != iris_store::FolderRole::Other)
         {
             return Err(Error::Config(
                 "that folder belongs to the server and cannot be removed".into(),
             ));
         }
-        if dossiers.iter().any(|f| f.path == path)
+        if !labels_not_folders(store, *compte, &dossiers)?
             && !dossiers
                 .iter()
                 .any(|f| f.role == iris_store::FolderRole::Inbox)
@@ -511,9 +599,9 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         }
     }
 
-    for compte in &comptes {
+    for (compte, chemin) in &comptes {
         let dossiers = store.folders(*compte)?;
-        let Some(source) = dossiers.iter().find(|f| f.path == path) else {
+        let Some(source) = dossiers.iter().find(|f| f.path == *chemin) else {
             continue;
         };
         if source.role != iris_store::FolderRole::Other {
@@ -549,7 +637,7 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         // (livré depuis la dernière synchronisation, pas encore lu par une première)
         // était détruit avec le dossier.
         let charge = iris_store::OpPayload::DeleteFolder {
-            folder: path.to_string(),
+            folder: chemin.clone(),
             rescue: refuge,
         };
         iris_sync::enqueue(store, *compte, &charge, now)?;
@@ -567,7 +655,7 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         // jour les agrégats du fil, et la liste montrerait des conversations dont le
         // compteur ne correspond plus à rien.
         store.clear_folder(source.id)?;
-        store.forget_folder(*compte, path)?;
+        store.forget_folder(*compte, chemin)?;
     }
 
     Ok(comptes.len())
@@ -584,6 +672,7 @@ mod tests {
             role: FolderRole::Other,
             accounts: 2,
             threads,
+            delimiter: None,
         }
     }
 
@@ -593,7 +682,20 @@ mod tests {
             role,
             accounts: 2,
             threads,
+            delimiter: None,
         }
+    }
+
+    #[test]
+    fn a_folder_is_split_on_its_own_server_s_delimiter_only() {
+        let libelle = UnifiedFolder {
+            delimiter: Some('/'),
+            ..dossier("amazon.fr", 3)
+        };
+        let arbre = tree(&[libelle, dossier("Archives/Inbox", 1)]);
+        assert_eq!(noeud(&arbre, "amazon.fr").depth, 0);
+        // `INBOX` is the server's prefix only at the start of a path.
+        assert_eq!(noeud(&arbre, "Inbox").depth, 1);
     }
 
     fn noeud<'a>(arbre: &'a [FolderNode], nom: &str) -> &'a FolderNode {
@@ -915,5 +1017,13 @@ mod tests {
             "{}",
             op.payload
         );
+        // Under its new name here at once, for what is done before the next sync.
+        let chemins: Vec<String> = store
+            .folders(compte)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        assert_eq!(chemins, ["Clients/Offres"]);
     }
 }

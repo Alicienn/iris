@@ -140,7 +140,7 @@ impl Store {
                     "SELECT id, account_id, kind, payload, idempotency_key, created_at,
                             attempts, next_attempt_at, last_error, uid_validity
                      FROM op_journal
-                     WHERE done = 0
+                     WHERE done != 1
                        AND (?3 IS NULL OR account_id = ?3)
                      ORDER BY id ASC LIMIT ?2",
                 )
@@ -227,6 +227,25 @@ impl Store {
 
     /// Takes back an operation the server has not been told of yet. Says whether it
     /// was still waiting: once replayed, it can only be reversed by another.
+    /// Takes an operation for replay, just before it is sent: `false` if it was
+    /// withdrawn meanwhile. Once taken (`done = 2`) it can no longer be withdrawn, and
+    /// undo reverses it on the server instead. Withdrawn while replay held it, it was
+    /// still carried out there and undone only here.
+    ///
+    /// One left taken by a replay that never finished (Iris closed mid-pass) is handed
+    /// over again: only one pass runs per account.
+    pub fn claim_op(&self, id: OpId) -> Result<bool> {
+        self.with_conn(|c| {
+            let n = c
+                .execute(
+                    "UPDATE op_journal SET done = 2 WHERE id = ?1 AND done != 1",
+                    params![id.get()],
+                )
+                .map_err(|e| sql_err("prise de l'opération", e))?;
+            Ok(n > 0)
+        })
+    }
+
     pub fn withdraw_op(&self, id: OpId) -> Result<bool> {
         self.with_conn(|c| {
             let n = c
@@ -279,7 +298,7 @@ impl Store {
     /// Nombre d'opérations non réconciliées.
     pub fn pending_op_count(&self) -> Result<u64> {
         self.with_conn(|c| {
-            c.query_row("SELECT count(*) FROM op_journal WHERE done = 0", [], |r| {
+            c.query_row("SELECT count(*) FROM op_journal WHERE done != 1", [], |r| {
                 r.get::<_, i64>(0)
             })
             .map(|n| n as u64)

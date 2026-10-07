@@ -217,6 +217,8 @@ impl Actions {
     ) -> Result<usize> {
         let mut changes = 0;
         let mut premiere_erreur = None;
+        // One action for undo, however many threads.
+        self.workflow.begin_batch();
         for thread in threads {
             // A thread that vanished must not stop the others being processed.
             match self.apply(*thread, action, now) {
@@ -228,6 +230,7 @@ impl Actions {
                 }
             }
         }
+        self.workflow.end_batch();
         // Nothing done, and why: a bulk Archive on a mailbox with no archive folder
         // did nothing at all, without a word.
         match premiere_erreur {

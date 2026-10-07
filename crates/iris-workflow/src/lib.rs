@@ -36,6 +36,15 @@ use std::sync::{Arc, Mutex, RwLock};
 /// become a second journal.
 const UNDO_DEPTH: usize = 100;
 
+/// How many actions a stack holds: a batch's entries count as one.
+fn actions_in(stack: &[UndoEntry]) -> usize {
+    let mut groupes = std::collections::HashSet::new();
+    stack
+        .iter()
+        .filter(|e| e.group == 0 || groupes.insert(e.group))
+        .count()
+}
+
 /// The shape a thread had before an action, so the action can be reversed.
 ///
 /// It records more than the state: undoing a snooze that only restored the state
@@ -52,6 +61,10 @@ pub struct UndoEntry {
     /// stayed archived or binned on the server, and vanished again at the next sync.
     pub moves: Vec<MoveRecord>,
     pub at: Timestamp,
+    /// The action on several threads it was part of (0: one thread). Undone and redone
+    /// together: a hundred and fifty threads archived at once took a hundred
+    /// Ctrl+Z, and the fifty first could never be undone.
+    pub group: u64,
 }
 
 /// One message moved by an action, as undo needs it.
@@ -136,8 +149,8 @@ fn is_gmail(imap_host: &str) -> bool {
 /// Sent and drafts into the archive, and on Gmail, where a folder is a label, moving
 /// the label copies to All Mail stripped the labels Gmail's own archive keeps.
 ///
-/// - Archive takes what is in the inbox (and, outside Gmail, in folders of one's
-///   own); on Gmail that is exactly "remove the Inbox label".
+/// - Archive takes what is in the inbox, nothing filed elsewhere; on Gmail that is
+///   exactly "remove the Inbox label".
 /// - Delete takes everything but what was sent and drafts.
 /// - Moving to a folder takes everything but what was sent and drafts; on Gmail, what
 ///   is in the inbox, the bin or the junk (moving the All Mail copy files the
@@ -148,8 +161,9 @@ fn moves_copy(destination: Destination<'_>, gmail: bool, from: FolderRole) -> bo
         return false;
     }
     match destination {
-        Destination::Role(R::Archive) if gmail => from == R::Inbox,
-        Destination::Role(R::Archive) => matches!(from, R::Inbox | R::Other),
+        // Out of the inbox, and only that: a message filed in a folder of one's own
+        // (`Clients/ACME`) is filed already, and went to the archive with the reply.
+        Destination::Role(R::Archive) => from == R::Inbox,
         Destination::Role(R::Trash) => from != R::Trash,
         // Back to the inbox: out of the bin and the junk, the rest stays filed.
         Destination::Role(R::Inbox) => matches!(from, R::Trash | R::Junk),
@@ -172,6 +186,15 @@ pub struct Workflow {
     /// rétablir après avoir fait autre chose entre-temps rejouerait une action dans un
     /// monde qui a changé sous elle, et le résultat ne serait celui qu'attend personne.
     redo: Mutex<Vec<UndoEntry>>,
+    /// The last batch number given.
+    batches: std::sync::atomic::AtomicU64,
+}
+
+thread_local! {
+    /// The batch under way on this thread (0: none), and whether the rules make it.
+    /// Per thread: a pass's rules and the user's own action at the same moment are
+    /// two actions, not one.
+    static LOT: std::cell::Cell<(u64, bool)> = const { std::cell::Cell::new((0, false)) };
 }
 
 impl Workflow {
@@ -182,7 +205,33 @@ impl Workflow {
             settings: RwLock::new(settings),
             undo: Mutex::new(Vec::new()),
             redo: Mutex::new(Vec::new()),
+            batches: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// What follows on this thread, until `end_batch`, is one action for undo.
+    pub fn begin_batch(&self) {
+        self.begin(false);
+    }
+
+    /// The same, for what the rules do on their own: one undo for a whole pass, and
+    /// the redo stack left as it was. Each change a rule made was an entry of its own
+    /// and emptied redo, so Ctrl+Z went through the rules before reaching the user's
+    /// own last action, and what they had undone could not be redone.
+    pub fn begin_automatic_batch(&self) {
+        self.begin(true);
+    }
+
+    fn begin(&self, automatique: bool) {
+        let n = self
+            .batches
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        LOT.with(|l| l.set((n, automatique)));
+    }
+
+    pub fn end_batch(&self) {
+        LOT.with(|l| l.set((0, false)));
     }
 
     pub fn settings(&self) -> AutomationSettings {
@@ -244,6 +293,7 @@ impl Workflow {
                 flags: Vec::new(),
                 moves: Vec::new(),
                 at: now,
+                group: 0,
             };
             self.store.set_thread_state(thread, to)?;
             // Done is done: a snooze left on it woke later and brought it back.
@@ -289,6 +339,7 @@ impl Workflow {
             flags: Vec::new(),
             moves: Vec::new(),
             at: now,
+            group: 0,
         };
 
         let changed = self.store.snooze_thread(
@@ -493,10 +544,21 @@ impl Workflow {
         // queued, and the thread then stayed where it was here while its mail left on
         // the server.
         let mut plans = Vec::new();
+        // Mailboxes without that folder: their mail stays, the others' goes. One of
+        // them failed the whole thread.
+        let mut sans_dossier = 0;
         for (account, items) in per_account {
             let dossiers = self.store.folders(account)?;
             let trouve = match destination {
-                Destination::Role(role) => dossiers.iter().find(|f| f.role == role).cloned(),
+                // No archive folder (OVH, Gandi…): made, as other clients do. Archive
+                // failed on such mailboxes, for good.
+                Destination::Role(FolderRole::Archive) => {
+                    match self.store.folder_for_role(account, FolderRole::Archive)? {
+                        Some(f) => Some(f),
+                        None => Some(self.make_archive_folder(account, &dossiers, now)?),
+                    }
+                }
+                Destination::Role(role) => self.store.folder_for_role(account, role)?,
                 // Un compte sans ce dossier est ignoré, pas fatal : le fil est peut-être
                 // à cheval sur deux boîtes dont une seule a « Devis ».
                 // By the name it is shown under: `Devis` here, `INBOX.Devis` there.
@@ -513,12 +575,8 @@ impl Workflow {
             };
 
             let Some(target) = trouve else {
-                // No such folder on this server: say so rather than pretend. Silently
-                // marking the thread done would lose the mail on the next sync.
-                return Err(Error::Config(format!(
-                    "this account has no {} folder",
-                    destination.describe()
-                )));
+                sans_dossier += 1;
+                continue;
             };
 
             let gmail = self
@@ -549,6 +607,23 @@ impl Workflow {
                     .collect();
             }
             plans.push((account, target, choisis));
+        }
+        // No mailbox has it: said rather than pretended. Silently marking the thread
+        // done would lose the mail on the next sync.
+        if plans.is_empty() && sans_dossier > 0 {
+            return Err(Error::Config(format!(
+                "this account has no {} folder",
+                destination.describe()
+            )));
+        }
+        // Dropped on a folder none of its mailboxes has: nothing can move, and it was
+        // marked done all the same.
+        if plans.is_empty() {
+            if let Destination::Path(chemin) = destination {
+                return Err(Error::Config(format!(
+                    "the mailbox of this conversation has no folder “{chemin}”"
+                )));
+            }
         }
 
         // Moved back to the inbox (out of the bin or the junk folder, most often): a
@@ -656,6 +731,51 @@ impl Workflow {
             cause: TransitionCause::Manual,
         });
         Ok(true)
+    }
+
+    /// Makes an archive folder on a mailbox that has none: `Archives`, beside the
+    /// others (under `INBOX.` where they all are), created on the server by the
+    /// journal ahead of the moves into it.
+    fn make_archive_folder(
+        &self,
+        account: AccountId,
+        dossiers: &[iris_store::Folder],
+        now: Timestamp,
+    ) -> Result<iris_store::Folder> {
+        let separateur = self
+            .store
+            .account(account)?
+            .and_then(|c| c.folder_delimiter)
+            .unwrap_or('.');
+        let sous_la_boite = format!("INBOX{separateur}");
+        let autres: Vec<_> = dossiers
+            .iter()
+            .filter(|f| f.role != FolderRole::Inbox)
+            .collect();
+        let chemin =
+            if !autres.is_empty() && autres.iter().all(|f| f.path.starts_with(&sous_la_boite)) {
+                format!("{sous_la_boite}Archives")
+            } else {
+                "Archives".to_string()
+            };
+        let charge = iris_store::OpPayload::CreateFolder {
+            folder: chemin.clone(),
+        };
+        self.store.enqueue_op(
+            account,
+            charge.kind(),
+            &charge.to_json(),
+            &charge.idempotency_key(account),
+            now,
+        )?;
+        let id = self
+            .store
+            .upsert_folder(account, &chemin, FolderRole::Archive)?;
+        self.store
+            .folders(account)?
+            .into_iter()
+            .find(|f| f.id == id)
+            .ok_or_else(|| Error::store("archive folder not kept"))
     }
 
     /// Records a move for the server to carry out later: the operation, and the
@@ -789,7 +909,13 @@ impl Workflow {
         let Some(entry) = self.pop_undo() else {
             return Ok(None);
         };
-        self.restore(entry, now, true)
+        // The rest of its batch goes with it.
+        let reste = self.pop_rest_of(&self.undo, entry.group);
+        let premier = self.restore(entry, now, true)?;
+        for autre in reste {
+            self.restore(autre, now, true)?;
+        }
+        Ok(premier)
     }
 
     /// Refait ce que la dernière annulation a défait.
@@ -802,11 +928,17 @@ impl Workflow {
         let Some(entry) = self.redo.lock().ok().and_then(|mut r| r.pop()) else {
             return Ok(None);
         };
-        self.restore(entry, now, false)
+        let reste = self.pop_rest_of(&self.redo, entry.group);
+        let premier = self.restore(entry, now, false)?;
+        for autre in reste {
+            self.restore(autre, now, false)?;
+        }
+        Ok(premier)
     }
 
+    /// How many actions can be redone, a batch counting as one.
     pub fn redo_depth(&self) -> usize {
-        self.redo.lock().map(|r| r.len()).unwrap_or(0)
+        self.redo.lock().map(|r| actions_in(&r)).unwrap_or(0)
     }
 
     /// Remet un fil dans l'état décrit, et empile l'inverse.
@@ -855,6 +987,8 @@ impl Workflow {
         // L'état d'avant, capturé avant d'écrire : c'est ce que le geste inverse
         // rejouera. Le prendre après restaurerait ce qu'on vient d'installer.
         let mut inverse = self.snapshot(entry.thread, now, !entry.flags.is_empty())?;
+        // Redone, or undone again, with the rest of its batch.
+        inverse.group = entry.group;
         // The server is told too: the moves the action asked for are withdrawn or
         // reversed, and how to do them again goes with the inverse.
         for deplacement in entry.moves.iter().cloned() {
@@ -896,8 +1030,9 @@ impl Workflow {
         Ok(Some(entry))
     }
 
+    /// How many actions can be undone, a batch counting as one.
     pub fn undo_depth(&self) -> usize {
-        self.undo.lock().map(|u| u.len()).unwrap_or(0)
+        self.undo.lock().map(|u| actions_in(&u)).unwrap_or(0)
     }
 
     /// Puts the per-message flags back, and journals the reversal.
@@ -1006,6 +1141,32 @@ impl Workflow {
         Ok(issue)
     }
 
+    /// Mail of this thread was put back in the inbox elsewhere (moved there on a
+    /// phone, Gmail's Inbox label put back): it is to do again, no longer set aside or
+    /// snoozed. It kept the Done its move had given it, and stayed out of sight. Not
+    /// for undo: the user did not do it here.
+    pub fn on_back_in_inbox(&self, thread: ThreadId, _now: Timestamp) -> Result<bool> {
+        let Some(row) = self.store.thread_row(thread)? else {
+            return Ok(false);
+        };
+        let ecarte = row.put_aside;
+        if row.state == WorkflowState::Todo && !ecarte && row.snoozed_until.is_none() {
+            return Ok(false);
+        }
+        self.store.set_thread_put_aside(thread, None)?;
+        self.store.clear_snooze(thread)?;
+        if row.state != WorkflowState::Todo {
+            self.store.set_thread_state(thread, WorkflowState::Todo)?;
+            self.bus.publish(Event::ThreadStateChanged {
+                thread,
+                from: row.state,
+                to: WorkflowState::Todo,
+                cause: TransitionCause::MessageReceived,
+            });
+        }
+        Ok(true)
+    }
+
     // --- Internals ---
 
     /// Captures what an action could change, before it changes it.
@@ -1038,30 +1199,54 @@ impl Workflow {
             flags,
             moves: Vec::new(),
             at,
+            group: 0,
         })
     }
 
-    fn record_undo(&self, entry: UndoEntry) {
+    fn record_undo(&self, mut entry: UndoEntry) {
+        let (lot, automatique) = LOT.with(|l| l.get());
         // Une nouvelle action ferme l'avenir qu'un rétablissement aurait rejoué.
         // Refaire après avoir fait autre chose appliquerait une action dans un monde
-        // qui a changé sous elle.
-        if let Ok(mut redo) = self.redo.lock() {
-            redo.clear();
+        // qui a changé sous elle. Not one the rules made on their own.
+        if !automatique {
+            if let Ok(mut redo) = self.redo.lock() {
+                redo.clear();
+            }
         }
+        entry.group = lot;
         self.push(&self.undo, entry);
     }
 
+    /// Pushes onto a stack that keeps `UNDO_DEPTH` actions, a batch counting as one.
     fn push(&self, pile: &Mutex<Vec<UndoEntry>>, entry: UndoEntry) {
         if let Ok(mut stack) = pile.lock() {
-            if stack.len() == UNDO_DEPTH {
-                stack.remove(0);
-            }
             stack.push(entry);
+            while actions_in(&stack) > UNDO_DEPTH {
+                let premier = stack.remove(0);
+                if premier.group != 0 {
+                    stack.retain(|e| e.group != premier.group);
+                }
+            }
         }
     }
 
     fn pop_undo(&self) -> Option<UndoEntry> {
         self.undo.lock().ok()?.pop()
+    }
+
+    /// The entries still on `pile` that belong to the same batch as `group`, newest
+    /// first, taken off it.
+    fn pop_rest_of(&self, pile: &Mutex<Vec<UndoEntry>>, group: u64) -> Vec<UndoEntry> {
+        let mut reste = Vec::new();
+        if group == 0 {
+            return reste;
+        }
+        if let Ok(mut stack) = pile.lock() {
+            while stack.last().is_some_and(|e| e.group == group) {
+                reste.extend(stack.pop());
+            }
+        }
+        reste
     }
 
     /// Records what the server will have to be told.
@@ -1729,14 +1914,32 @@ mod tests {
     }
 
     #[test]
-    fn archiving_without_an_archive_folder_says_so() {
-        // Marking it done anyway would lose the mail at the next sync.
+    fn archiving_without_an_archive_folder_makes_one() {
+        // OVH and Gandi have none: archive failed there for good.
         let f = fixture();
         let thread = f.thread();
 
-        let error = f.workflow.archive(thread, t(1)).unwrap_err().to_string();
-        assert!(error.contains("archive"), "got: {error}");
-        assert_eq!(f.state(thread), WorkflowState::Todo, "nothing moved");
+        assert!(f.workflow.archive(thread, t(1)).unwrap());
+        assert_eq!(f.state(thread), WorkflowState::Done);
+        let archives = f
+            .store
+            .folders(f.account)
+            .unwrap()
+            .into_iter()
+            .find(|d| d.role == FolderRole::Archive)
+            .expect("an archive folder");
+        let demandes: Vec<String> = f
+            .store
+            .pending_ops(t(1_000_000), 10)
+            .unwrap()
+            .into_iter()
+            .map(|o| o.payload)
+            .collect();
+        assert!(demandes[0].contains("create_folder"), "{demandes:?}");
+        assert!(
+            demandes[1].contains(&format!("\"target\":\"{}\"", archives.path)),
+            "{demandes:?}"
+        );
     }
 
     #[test]

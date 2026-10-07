@@ -843,8 +843,16 @@ impl SyncEngine {
             _ => 3,
         });
 
+        // Flag changes made here that the replay could not deliver: the server's
+        // flags are not read back over them this pass.
+        let drapeaux_en_attente = self
+            .store
+            .pending_ops_for(account, Timestamp::from_millis(i64::MAX), 100)?
+            .iter()
+            .any(|op| op.kind == iris_store::OpKind::SetFlags);
         let options = FolderSyncOptions {
             detect_deletions,
+            keep_local_flags: drapeaux_en_attente,
             ..self.config.folder
         };
         let mut ajoutes_par_dossier = Vec::new();
@@ -874,6 +882,11 @@ impl SyncEngine {
                         for fil in &r.arrivals {
                             if let Err(e) = workflow.on_message_received(*fil, now) {
                                 tracing::warn!(error = %e, "reopening a thread");
+                            }
+                        }
+                        for fil in &r.back_in_inbox {
+                            if let Err(e) = workflow.on_back_in_inbox(*fil, now) {
+                                tracing::warn!(error = %e, "a thread back in the inbox");
                             }
                         }
                     }
@@ -1023,7 +1036,15 @@ impl SyncEngine {
             }
         }
 
-        match self.apply_rules(&ids, now) {
+        // One undo for all the pass's rules, and redo left alone.
+        if let Some(w) = &self.workflow {
+            w.begin_automatic_batch();
+        }
+        let resultat = self.apply_rules(&ids, now);
+        if let Some(w) = &self.workflow {
+            w.end_batch();
+        }
+        match resultat {
             Ok(report) if report.changed() => tracing::info!(
                 affected = report.affected,
                 actions = report.actions,

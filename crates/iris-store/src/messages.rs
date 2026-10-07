@@ -546,6 +546,43 @@ impl Store {
     /// Localement d'abord : la pastille doit s'éteindre au clic, pas à la
     /// synchronisation suivante. L'ordre part vers le serveur par le journal, comme
     /// toute autre action.
+    /// The unread copies, in other folders of the same mailbox, of this folder's
+    /// unread messages: `(folder path, UIDs)`. What marking the folder read marks here
+    /// too, and what a server other than Gmail must be told folder by folder.
+    pub fn unread_copies_elsewhere(&self, folder: FolderId) -> Result<Vec<(String, Vec<u32>)>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(&format!(
+                    "SELECT f.path, o.uid FROM messages o
+                     JOIN folders f ON f.id = o.folder_id
+                     WHERE (o.flags & {seen}) = 0
+                       AND o.folder_id != ?1
+                       AND o.account_id = (SELECT account_id FROM folders WHERE id = ?1)
+                       AND o.rfc_message_id IN (
+                           SELECT rfc_message_id FROM messages
+                           WHERE folder_id = ?1 AND (flags & {seen}) = 0
+                             AND rfc_message_id IS NOT NULL)
+                     ORDER BY f.path, o.uid",
+                    seen = Flags::SEEN.0
+                ))
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map(params![folder.get()], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+                })
+                .map_err(|e| sql_err("copies non lues", e))?;
+            let mut par_dossier: Vec<(String, Vec<u32>)> = Vec::new();
+            for ligne in rows {
+                let (chemin, uid) = ligne.map_err(|e| sql_err("copies non lues", e))?;
+                match par_dossier.last_mut() {
+                    Some((dernier, uids)) if *dernier == chemin => uids.push(uid),
+                    _ => par_dossier.push((chemin, vec![uid])),
+                }
+            }
+            Ok(par_dossier)
+        })
+    }
+
     pub fn mark_folder_read(&self, folder: FolderId) -> Result<usize> {
         self.with_tx(|tx| {
             let threads: Vec<ThreadId> = {

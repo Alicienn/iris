@@ -480,13 +480,7 @@ impl SendService {
         raw: &[u8],
         flags: Flags,
     ) -> Result<bool> {
-        let Some(dossier) = self
-            .engine
-            .store()
-            .folders(account)?
-            .into_iter()
-            .find(|f| f.role == role)
-        else {
+        let Some(dossier) = self.engine.store().folder_for_role(account, role)? else {
             return Ok(false);
         };
 

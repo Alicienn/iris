@@ -624,3 +624,9 @@ variant, brought into the application.
       with `$NotJunk`, whole quotes and the right sending mailbox in replies, SMTP
       logins and passwords kept, failing passes reported, Microsoft tokens stored in
       parts and every Microsoft domain known.
+- [x] **S41.24** Its medium findings, fixed (4.9.0 and 4.10.0): profile logins and
+      passwords, sign-in limits, Workspace behind a filter, replies to Waiting,
+      relays without AUTH, sends kept on disk, scheduled sends checked, forwards with
+      their files; threads joined by siblings, search and notifications on new mail
+      only, per-mailbox connections, one pass per account; ordered and claimed
+      journal, batch undo, archive folders made, folders found by their shown name.

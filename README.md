@@ -153,7 +153,9 @@ first time brings its newest mail first.
 **Archive** takes a conversation out of the inbox and leaves your sent replies in
 *Sent*; on Gmail it removes the *Inbox* label only, so labels and stars stay. **Delete**
 moves it to the bin. Undo (`Ctrl`+`Z`) puts it back on the server too, and a
-conversation moved to another folder keeps its state (*Done*, *Waiting*, snoozed). A
+conversation moved to another folder keeps its state (*Done*, *Waiting*, snoozed), and
+one put back in the inbox from another device is *To do* again. Archiving on a mailbox
+without an archive folder makes one, named *Archives*. A
 new message in a conversation you had marked done brings it back to *To do*, unless
 *Settings › A new message reopens the thread* is off. **Back to inbox** (`u`), or
 dropping a conversation on the inbox, takes it out of the bin or the junk folder, and

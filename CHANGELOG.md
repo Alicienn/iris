@@ -3,6 +3,29 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.10.0 — 2026-10-07
+
+### Improved
+- Archiving on a mailbox without an archive folder makes one.
+- Undo takes back a whole action on several conversations at once.
+- What the rules do in a sync is undone in one step, and leaves redo alone.
+- Snoozing until tomorrow morning means your morning, from the S key too.
+- Mail put back in the inbox on another device is to do again here.
+
+### Fixed
+- Undoing an action already on its way to the server undoes it there too.
+- Archiving a reply no longer takes filed messages out of their folders.
+- Dragging a conversation that is not checked moves it, not the checked ones.
+- Renaming, deleting or creating folders reaches every mailbox that shows them.
+- A Gmail label and another server's folder of the same name are kept apart.
+- Acting on a folder you just renamed works before the next sync.
+- The bin in use is chosen when a server has two.
+- New folders go where your other folders are.
+- Dropping on a folder the mailbox does not have says so.
+- Labels with a dot in their name show whole.
+- Mark all as read reaches every copy on the server.
+- Changes still waiting for the server are no longer undone by the next sync.
+
 ## 4.9.0 — 2026-10-07
 
 ### Improved

@@ -34,6 +34,10 @@ pub struct FolderSyncOptions {
     /// pouvoir s'interrompre et reprendre : l'utilisateur veut voir sa liste se
     /// remplir, pas attendre un quart d'heure devant un écran vide.
     pub max_per_pass: usize,
+    /// Leave the flags here as they are: changes made here still wait to reach the
+    /// server (its journal could not be replayed). Read back, the server's flags
+    /// undid them at every pass until they got through.
+    pub keep_local_flags: bool,
 }
 
 impl Default for FolderSyncOptions {
@@ -42,6 +46,7 @@ impl Default for FolderSyncOptions {
             chunk_size: 500,
             detect_deletions: false,
             max_per_pass: 5_000,
+            keep_local_flags: false,
         }
     }
 }
@@ -67,6 +72,10 @@ pub struct FolderReport {
     /// Every new row was counted, so Gmail's mail counted twice, a sent or archived
     /// copy counted, and a first sync announced thousands.
     pub inbox_arrivals: usize,
+    /// Threads whose mail came back into the inbox from elsewhere (moved there on a
+    /// phone, Gmail's Inbox label put back): to do again. They kept the Done state
+    /// their move had left, and stayed hidden.
+    pub back_in_inbox: Vec<iris_types::ThreadId>,
     /// Le dossier a été relu intégralement.
     pub full_resync: bool,
     /// Le serveur avait reconstruit la boîte.
@@ -162,7 +171,12 @@ pub async fn sync_folder(
     rapport.full_resync = complet;
 
     // --- Drapeaux modifiés ailleurs ---
-    if !complet && capacites.condstore && etat.highest_modseq > folder.highest_modseq {
+    let lire_drapeaux = !options.keep_local_flags;
+    if lire_drapeaux
+        && !complet
+        && capacites.condstore
+        && etat.highest_modseq > folder.highest_modseq
+    {
         let changements = conn.flags_changed_since(folder.highest_modseq).await?;
         rapport.flags_updated = store.apply_flag_changes(folder.id, &changements)?;
     }
@@ -274,6 +288,11 @@ pub async fn sync_folder(
             .collect();
         if !premiere_synchro && folder.role == iris_store::FolderRole::Inbox {
             rapport.inbox_arrivals += frais.len();
+            for i in inseres.iter().filter(|i| !i.was_known && i.came_back) {
+                if !rapport.back_in_inbox.contains(&i.thread) {
+                    rapport.back_in_inbox.push(i.thread);
+                }
+            }
         }
         rapport.fresh_messages.extend(frais);
 
@@ -300,14 +319,14 @@ pub async fn sync_folder(
     // while its passes went on, a flag on mail already fetched was otherwise never
     // seen (the change counter's baseline is only taken at the end).
     let premiere_finie = premiere_synchro && !rapport.more_available && !premiere_visite;
-    if premiere_finie && capacites.condstore && etat.highest_modseq > 0 {
+    if lire_drapeaux && premiere_finie && capacites.condstore && etat.highest_modseq > 0 {
         let connus = store.max_uid(folder.id)?;
         if connus > 0 {
             let tous = conn.fetch_flags(UidRange::new(1, connus)).await?;
             rapport.flags_updated += store.apply_flag_changes(folder.id, &tous)?;
         }
     }
-    if deja_connu && !(capacites.condstore && etat.highest_modseq > 0) {
+    if lire_drapeaux && deja_connu && !(capacites.condstore && etat.highest_modseq > 0) {
         let connus = store.max_uid(folder.id)?;
         let taille = store.folder_uids(folder.id)?.len();
         if connus > 0 && (taille <= FLAG_RESYNC_EVERY_PASS || options.detect_deletions) {
@@ -370,7 +389,14 @@ pub async fn sync_folder(
         } else {
             folder.uid_validity
         };
-        store.update_folder_sync_state(folder.id, validite, etat.uid_next, etat.highest_modseq)?;
+        // The change counter only moves on once flags were read up to it: moved on
+        // without, the changes in between were never asked for again.
+        let modseq = if lire_drapeaux {
+            etat.highest_modseq
+        } else {
+            folder.highest_modseq
+        };
+        store.update_folder_sync_state(folder.id, validite, etat.uid_next, modseq)?;
     }
 
     Ok(rapport)

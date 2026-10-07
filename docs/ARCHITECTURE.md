@@ -887,6 +887,30 @@ Since 4.9.0 (the same audit's high findings):
 - **Order.** The journal hands an account's operations over up to the first one still
   in back-off (`pending_ops_where`).
 
+Since 4.10.0 (the rest of its medium findings):
+
+- **Undo.** Replay takes an operation (`claim_op`, `done = 2`) just before sending it,
+  so undo can no longer withdraw one under way and reverses it instead. Undo entries
+  carry a `group`: `begin_batch`/`end_batch` (per thread, `LOT`) make an action on
+  several threads one entry, and `begin_automatic_batch` makes a sync's rules one too,
+  without emptying redo. Depth counts actions (`actions_in`).
+- **Moves.** Archiving takes the inbox's copies only; a mailbox with no archive folder
+  gets `Archives` (under `INBOX.` where everything is) created through the journal
+  (`make_archive_folder`); a role's folder is the one holding most mail where there
+  are several (`Store::folder_for_role`); a missing destination skips that mailbox,
+  and fails only when none has it. Mail coming back into the inbox from elsewhere
+  makes its thread to do again (`Workflow::on_back_in_inbox`). A pass that leaves
+  flag operations waiting does not read flags back (`keep_local_flags`), nor moves
+  the change counter on. A row dragged outside the checked ones is grabbed alone
+  (`Request::GrabThread`). The S key snoozes to tomorrow 8:00 local time.
+- **Folders.** Renaming, deleting and creating find a folder on each mailbox by the
+  name it is shown under (`Store::folder_paths_named`), and only one's own folders;
+  the tree groups one's own and the server's apart, splits on each server's own
+  delimiter (`UnifiedFolder::delimiter`) and strips `INBOX` at the start only. A
+  rename takes effect locally at once (`Store::rename_folder_path`). The personal
+  prefix is `INBOX.` only when every folder is under it. Mark all as read journals the
+  copies in other folders outside Gmail (`unread_copies_elsewhere`).
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New

@@ -21,6 +21,9 @@ pub enum Request {
     /// Charge l'état initial.
     Bootstrap,
     SelectThread(ThreadId),
+    /// A row picked up to be dragged: what the drop moves. Outside the checked ones,
+    /// it alone, the checks let go.
+    GrabThread(ThreadId),
     Move(Movement),
     SwitchTab(WorkflowState),
     /// Montrer une file de travail, ou un dossier.
@@ -271,6 +274,11 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             Ok(true)
         }
         Request::SelectThread(t) => Ok(vm.select(t)),
+        Request::GrabThread(t) => {
+            // Dragging a row that is not checked moved the checked ones.
+            let lache = !vm.selection().is_marked(t) && vm.clear_marks();
+            Ok(vm.select(t) || lache)
+        }
         Request::Move(m) => vm.move_selection(m),
         Request::SwitchTab(state) => Ok(!vm.set_tab(state)?.is_empty()),
         Request::ShowScope(scope) => Ok(!vm.set_scope(scope)?.is_empty()),
@@ -309,10 +317,21 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
 
             let maintenant = Timestamp::from_millis(now_millis());
             let mut touches = 0;
+            // One action for undo, however many threads.
+            actions.workflow().begin_batch();
+            let mut premiere_erreur = None;
             for fil in &cibles {
-                if actions.move_to_folder(*fil, &chemin, maintenant)? {
-                    touches += 1;
+                match actions.move_to_folder(*fil, &chemin, maintenant) {
+                    Ok(true) => touches += 1,
+                    Ok(false) => {}
+                    Err(e) => {
+                        premiere_erreur.get_or_insert(e);
+                    }
                 }
+            }
+            actions.workflow().end_batch();
+            if let (0, Some(e)) = (touches, premiere_erreur) {
+                return Err(e);
             }
             if touches == 0 {
                 return Ok(false);

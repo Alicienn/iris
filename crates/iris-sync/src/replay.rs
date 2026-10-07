@@ -141,6 +141,10 @@ pub async fn replay_account(
             continue;
         }
 
+        // Withdrawn by an undo since the batch was read: not to be sent.
+        if !store.claim_op(op.id)? {
+            continue;
+        }
         let resultat = apply(conn, &charge).await;
         if !charge.needs_selection() {
             // Supprimer un dossier en sélectionne d'autres : ne plus rien supposer.

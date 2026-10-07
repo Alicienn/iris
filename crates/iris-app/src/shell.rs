@@ -583,8 +583,12 @@ pub fn wire_callbacks(
     }
     {
         let c = Arc::clone(&controller);
+        // Tomorrow morning, as the menu says: it was 24 hours, so a thread snoozed at
+        // 23:00 came back at 23:00.
         fenetre.on_thread_snooze(move || {
-            c.send(Request::Apply(iris_viewmodel::Action::SnoozeHours(24)))
+            c.send(Request::Apply(iris_viewmodel::Action::SnoozeHours(
+                heures_de_report("tomorrow", now()),
+            )))
         });
     }
     {
@@ -797,6 +801,13 @@ fn dispatch(
     match kind {
         CommandKind::Plugin { plugin, spec } => {
             carnet.route(plugin, spec);
+        }
+        // `S` and "Snooze until tomorrow" mean tomorrow morning, here: the keyboard
+        // knows no clock, so it says 24 hours, which is not what it promises.
+        CommandKind::Thread(iris_viewmodel::Action::SnoozeHours(24)) => {
+            controller.send(Request::Apply(iris_viewmodel::Action::SnoozeHours(
+                heures_de_report("tomorrow", now()),
+            )))
         }
         CommandKind::Thread(action) => controller.send(Request::Apply(*action)),
         CommandKind::SwitchTab(state) => controller.send(Request::SwitchTab(*state)),
@@ -1946,15 +1957,28 @@ impl BodyLoader {
 /// l'on ne veut pas de courrier. Une échéance se compte jusqu'à une heure du jour, pas
 /// en durée depuis maintenant.
 ///
-/// En temps universel, comme tout le reste de l'application : elle ne connaît aucun
-/// fuseau, et en inventer un ici serait pire que de s'en passer.
+/// In the machine's own time: it was worked out in universal time, so "tomorrow
+/// morning" was 10 o'clock in Paris in summer.
 fn heures_de_report(quand: &str, maintenant: iris_types::Timestamp) -> u32 {
+    heures_de_report_en(quand, maintenant, &chrono::Local)
+}
+
+/// The same, in the time zone given.
+fn heures_de_report_en<Z: chrono::TimeZone>(
+    quand: &str,
+    maintenant: iris_types::Timestamp,
+    zone: &Z,
+) -> u32 {
+    use chrono::{Datelike, Timelike};
     const MATIN: i64 = 8;
     const SOIR: i64 = 18;
 
-    let heure = maintenant.seconds().rem_euclid(86_400) / 3600;
-    // Le 1er janvier 1970 était un jeudi, ce qui met le décalage à 3.
-    let jour = (maintenant.seconds().div_euclid(86_400) + 3).rem_euclid(7);
+    let Some(local) = zone.timestamp_millis_opt(maintenant.millis()).earliest() else {
+        return 24;
+    };
+    let heure = i64::from(local.hour());
+    // Lundi = 0 … dimanche = 6.
+    let jour = i64::from(local.weekday().num_days_from_monday());
 
     let heures = match quand {
         // Ce soir, si le soir est encore devant. Sinon demain matin : proposer une
@@ -4752,7 +4776,7 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
         fenetre.on_row_drag_started(move |id| {
             // Empoigner une ligne hors du lot la sélectionne : lâcher un message qu'on
             // vient de traîner pour en déplacer trois autres serait un piège.
-            controller.send(Request::SelectThread(iris_types::ThreadId(id as i64)));
+            controller.send(Request::GrabThread(iris_types::ThreadId(id as i64)));
         });
     }
 
@@ -7276,6 +7300,11 @@ mod tests {
             body_blob: None,
             recipients_json: "[]".into(),
         }
+    }
+
+    /// The snooze worked out in universal time, whatever the machine running the tests.
+    fn heures_de_report(quand: &str, maintenant: iris_types::Timestamp) -> u32 {
+        super::heures_de_report_en(quand, maintenant, &chrono::Utc)
     }
 
     /// Un instant à une heure donnée d'un jour donné. Jour 0 = jeudi 1er janvier 1970.

@@ -48,6 +48,10 @@ pub struct UnifiedFolder {
     pub accounts: u32,
     /// Combien de conversations il contient, tous comptes confondus.
     pub threads: u32,
+    /// What separates a folder from its children on the servers that have it, when
+    /// known: the tree splits on it alone. Split on both `.` and `/`, a Gmail label
+    /// `amazon.fr` showed as "amazon" › "fr".
+    pub delimiter: Option<char>,
 }
 
 /// Ce qu'un compte sait de ses serveurs.
@@ -210,10 +214,15 @@ impl Store {
                     "SELECT f.path,
                             min(f.role),
                             count(DISTINCT f.account_id),
-                            count(DISTINCT m.thread_id)
+                            count(DISTINCT m.thread_id),
+                            max(a.folder_delimiter)
                      FROM folders f
+                     JOIN accounts a ON a.id = f.account_id
                      LEFT JOIN messages m ON m.folder_id = f.id
-                     GROUP BY f.path
+                     -- One's own folder and a server's of the same name stay two: a
+                     -- Gmail label `Archives` vanished into another server's archive,
+                     -- and that server's real bin could be renamed as a label `Trash`.
+                     GROUP BY f.path, f.role = 'other'
                      ORDER BY f.path",
                 )
                 .map_err(|e| sql_err("préparation", e))?;
@@ -225,6 +234,9 @@ impl Store {
                         role: FolderRole::parse(&r.get::<_, String>(1)?),
                         accounts: r.get::<_, i64>(2)? as u32,
                         threads: r.get::<_, i64>(3)? as u32,
+                        delimiter: r
+                            .get::<_, Option<String>>(4)?
+                            .and_then(|d| d.chars().next()),
                     })
                 })
                 .map_err(|e| sql_err("liste des dossiers", e))?;
@@ -253,6 +265,37 @@ impl Store {
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("comptes ayant le dossier", e))
         })
+    }
+
+    /// The accounts that have this folder, by the name it is shown under, with its
+    /// path on each: `Devis` here, `INBOX.Devis` there. The folder tree joins them;
+    /// renaming, deleting or creating under it reached only the accounts whose path
+    /// was the very one clicked.
+    pub fn folder_paths_named(&self, path: &str) -> Result<Vec<(AccountId, String)>> {
+        let tous = self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached("SELECT account_id, path FROM folders ORDER BY account_id, path")
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map([], |r| Ok((AccountId(r.get(0)?), r.get::<_, String>(1)?)))
+                .map_err(|e| sql_err("dossiers", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("dossiers", e))
+        })?;
+        let mut trouves: Vec<(AccountId, String)> = Vec::new();
+        for (compte, chemin) in tous {
+            // The exact path first, else the one shown under the same name.
+            if let Some(deja) = trouves.iter_mut().find(|(c, _)| *c == compte) {
+                if chemin == path {
+                    deja.1 = chemin;
+                }
+                continue;
+            }
+            if chemin == path || crate::same_folder(&chemin, path) {
+                trouves.push((compte, chemin));
+            }
+        }
+        Ok(trouves)
     }
 
     /// Les comptes qui n'ont pas encore ce dossier.
@@ -396,6 +439,66 @@ impl Store {
     /// Si l'opération serveur échoue, le dossier réapparaît à la prochaine liste. C'est
     /// le bon comportement : la copie locale est un cache, et le serveur a le dernier
     /// mot dans les deux sens.
+    /// Gives a folder, and those under it, their new name here at once, as the server
+    /// will once the journal has replayed the rename. Left under the old name until
+    /// the next sync, an action on its mail was journalled for a folder the server no
+    /// longer had, and dropped; and the renamed folder came down again in full.
+    /// `RENAME` keeps UIDs; a server that does not says so with a new `UIDVALIDITY`.
+    pub fn rename_folder_path(
+        &self,
+        account: AccountId,
+        from: &str,
+        to: &str,
+        delimiter: char,
+    ) -> Result<()> {
+        self.with_tx(|tx| {
+            tx.execute(
+                "UPDATE folders SET path = ?3 WHERE account_id = ?1 AND path = ?2",
+                params![account.get(), from, to],
+            )
+            .map_err(|e| sql_err("renommage du dossier", e))?;
+            let avant = format!("{from}{delimiter}");
+            let apres = format!("{to}{delimiter}");
+            tx.execute(
+                "UPDATE folders SET path = ?3 || substr(path, length(?2) + 1)
+                 WHERE account_id = ?1 AND substr(path, 1, length(?2)) = ?2",
+                params![account.get(), avant, apres],
+            )
+            .map_err(|e| sql_err("renommage des sous-dossiers", e))?;
+            Ok(())
+        })
+    }
+
+    /// The folder of this role on an account. Where several have it (`Trash` and
+    /// `Deleted Messages`, `INBOX.Trash` and `Trash`: a server that names none, so the
+    /// names were guessed), the one in use: the one holding the most mail, then the
+    /// shortest name. The first by alphabet was taken, and the bin was the one no
+    /// other client used.
+    pub fn folder_for_role(&self, account: AccountId, role: FolderRole) -> Result<Option<Folder>> {
+        let candidats: Vec<Folder> = self
+            .folders(account)?
+            .into_iter()
+            .filter(|f| f.role == role)
+            .collect();
+        if candidats.len() < 2 {
+            return Ok(candidats.into_iter().next());
+        }
+        let mut notes = Vec::with_capacity(candidats.len());
+        for f in candidats {
+            let n: i64 = self.with_conn(|c| {
+                c.query_row(
+                    "SELECT count(*) FROM messages WHERE folder_id = ?1",
+                    params![f.id.get()],
+                    |r| r.get(0),
+                )
+                .map_err(|e| sql_err("taille du dossier", e))
+            })?;
+            notes.push((n, f));
+        }
+        notes.sort_by(|(na, a), (nb, b)| nb.cmp(na).then(a.path.len().cmp(&b.path.len())));
+        Ok(notes.into_iter().next().map(|(_, f)| f))
+    }
+
     pub fn forget_folder(&self, account: AccountId, path: &str) -> Result<bool> {
         self.with_conn(|c| {
             c.execute(
