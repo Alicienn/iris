@@ -32,10 +32,10 @@ pub fn layout(n: usize, edges: &[(usize, usize)]) -> Vec<(f32, f32)> {
     for _ in 0..tours {
         let mut depl = vec![(0.0_f32, 0.0_f32); n];
         // Every note pushes every other away.
-        for i in 0..n {
-            for j in i + 1..n {
-                let dx = pos[i].0 - pos[j].0;
-                let dy = pos[i].1 - pos[j].1;
+        for (i, a) in pos.iter().enumerate() {
+            for (j, b) in pos.iter().enumerate().skip(i + 1) {
+                let dx = a.0 - b.0;
+                let dy = a.1 - b.1;
                 let d2 = (dx * dx + dy * dy).max(1e-6);
                 let f = k * k / d2;
                 depl[i].0 += dx * f;
