@@ -3,6 +3,30 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.11.0 — 2026-10-07
+
+### Improved
+- New mail for the mailbox on screen shows as soon as its server announces it.
+- A folder you create shows at once.
+- More folder names are recognised: Pourriels, Junk Mail, Messages supprimés, Brouillon, with or without accents.
+- Shared folders are synced only when you are subscribed to them.
+- A reply finished in the new-message window stays in its conversation.
+- Saving a draft again replaces its copy on the server, and sending removes it.
+
+### Fixed
+- An encrypted profile says so.
+- Signing in with Microsoft checks the account is the address you typed.
+- Another program on your computer can no longer interrupt a sign-in.
+- Renewing a sign-in twice at once no longer signs you out.
+- Folder changes no longer wait for mailboxes that are switched off.
+- Archive no longer aims at a read-only "all mail" view outside Gmail.
+- A first sync no longer stalls on mailboxes with large gaps in their numbering.
+- A snoozed conversation that gets a reply comes back.
+- A Gmail reply reopens a conversation you had finished.
+- Filtering by mailbox no longer shows conversations that left it.
+- Actions on folders with accented names, waiting from an older version, reach the server.
+- A mark set after undoing a move goes to the right message.
+
 ## 4.10.0 — 2026-10-07
 
 ### Improved

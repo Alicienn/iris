@@ -104,6 +104,30 @@ pub fn reserve_port() -> Result<(TcpListener, u16)> {
 /// would leave the thread waiting for ever, holding a port. Polling costs one wake-up
 /// every hundred milliseconds and makes the timeout mean what it says.
 pub fn wait_for_redirect(listener: TcpListener, timeout: Duration) -> Result<Redirect> {
+    wait(listener, timeout, None)
+}
+
+/// The same, taking only the redirect that carries `state`, the one the request was
+/// sent with. Any program on the machine can reach the local address: one that
+/// called it with `?error=…` ended a sign-in under way.
+pub fn wait_for_redirect_from(
+    listener: TcpListener,
+    timeout: Duration,
+    state: &str,
+) -> Result<Redirect> {
+    wait(listener, timeout, Some(state))
+}
+
+/// The value of `state` in a request target.
+fn state_of(target: &str) -> Option<&str> {
+    target
+        .split_once('?')?
+        .1
+        .split('&')
+        .find_map(|p| p.strip_prefix("state="))
+}
+
+fn wait(listener: TcpListener, timeout: Duration, attendu: Option<&str>) -> Result<Redirect> {
     listener
         .set_nonblocking(true)
         .map_err(|e| Error::other(format!("local listener: {e}")))?;
@@ -128,7 +152,10 @@ pub fn wait_for_redirect(listener: TcpListener, timeout: Duration) -> Result<Red
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
 
         match request_target(&mut stream) {
-            Some(target) if target.contains("code=") || target.contains("error=") => {
+            Some(target)
+                if (target.contains("code=") || target.contains("error="))
+                    && attendu.is_none_or(|s| state_of(&target) == Some(s)) =>
+            {
                 respond(&mut stream, SUCCESS_PAGE);
                 return Ok(Redirect {
                     url: format!("http://127.0.0.1{target}"),
@@ -266,6 +293,32 @@ mod tests {
             vue.contains("Compte autorisé"),
             "l'utilisateur doit savoir que c'est fini"
         );
+    }
+
+    #[test]
+    fn a_call_without_the_request_s_state_does_not_end_the_sign_in() {
+        if !loopback_or_skip("a_call_without_the_request_s_state_does_not_end_the_sign_in") {
+            return;
+        }
+        let (ecoute, port) = reserve_port().unwrap();
+
+        let client = std::thread::spawn(move || {
+            for cible in [
+                "/oauth?error=access_denied",
+                "/oauth?code=bon&state=attendu",
+            ] {
+                let mut flux = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                flux.write_all(format!("GET {cible} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+                    .unwrap();
+                let mut reponse = String::new();
+                let _ = flux.read_to_string(&mut reponse);
+            }
+        });
+
+        let redirection =
+            wait_for_redirect_from(ecoute, Duration::from_secs(5), "attendu").unwrap();
+        assert!(redirection.url.contains("code=bon"), "{}", redirection.url);
+        client.join().unwrap();
     }
 
     #[test]

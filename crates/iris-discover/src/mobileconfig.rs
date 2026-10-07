@@ -62,7 +62,13 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<ProfileAccount>> {
 
     let mut comptes = Vec::new();
     let mut pop = false;
+    let mut chiffre = false;
     visit(&racine, &mut |dict| {
+        // Encrypted for a device: its accounts cannot be read here, and saying "no
+        // mail account" sent people looking for one.
+        if dict.iter().any(|(k, _)| k == "EncryptedPayloadContent") {
+            chiffre = true;
+        }
         if text(dict, "PayloadType") != Some("com.apple.mail.managed") {
             return;
         }
@@ -78,6 +84,10 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<ProfileAccount>> {
     if comptes.is_empty() {
         return Err(Error::Config(if pop {
             "this profile holds a POP account; Iris needs IMAP".into()
+        } else if chiffre {
+            "this profile is encrypted for one device; ask for it unencrypted, or type the \
+             servers by hand"
+                .into()
         } else {
             "this profile holds no mail account".into()
         }));

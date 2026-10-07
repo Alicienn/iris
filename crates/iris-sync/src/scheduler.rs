@@ -159,6 +159,11 @@ impl Scheduler {
     }
 
     /// Désigne le compte que l'utilisateur regarde.
+    /// The account the user is looking at, if one.
+    pub fn active(&self) -> Option<AccountId> {
+        self.active
+    }
+
     pub fn set_active(&mut self, account: Option<AccountId>, now: Timestamp) {
         let precedent = self.active;
         self.active = account;

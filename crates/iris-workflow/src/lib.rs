@@ -1132,6 +1132,16 @@ impl Workflow {
         thread: ThreadId,
         now: Timestamp,
     ) -> Result<TransitionOutcome> {
+        // Snoozed, and answered: the answer is what it waited for. It stayed hidden
+        // until the snooze ran out.
+        if self.settings().new_message_reopens {
+            if let Some(row) = self.store.thread_row(thread)? {
+                if row.snoozed_until.is_some() {
+                    self.store.clear_snooze(thread)?;
+                    self.bus.publish(Event::ThreadUnsnoozed { thread });
+                }
+            }
+        }
         let issue =
             self.apply_recorded(thread, TransitionCause::MessageReceived, None, now, false)?;
         if issue.changed() && self.settings().new_message_reopens {

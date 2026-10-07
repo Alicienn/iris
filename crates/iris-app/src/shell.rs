@@ -6440,6 +6440,10 @@ pub fn wire_compose(
                     if let Err(e) = crate::draft::Draft::clear(&chemin_envoi) {
                         tracing::warn!(error = %e, "clearing the draft");
                     }
+                    // Its copy in the Drafts folder too, beside the sent one.
+                    if let Err(e) = send.discard_saved_draft() {
+                        tracing::warn!(error = %e, "removing the saved draft");
+                    }
                 }
                 Err(e) => fenetre.set_compose_error(format!("Send refused: {e}").into()),
             }

@@ -796,6 +796,19 @@ fn flags_to_names(flags: Flags) -> String {
     format!("({})", noms.join(" "))
 }
 
+/// A folder in another user's or a shared namespace, by the names servers give them.
+fn is_shared(name: &str) -> bool {
+    let premier = name
+        .split(['/', '.'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(
+        premier.as_str(),
+        "shared folders" | "other users" | "public folders" | "#shared" | "#public" | "#users"
+    )
+}
+
 /// A capability's own name, `CONDSTORE`, `MOVE`… Read through `Debug` it was
 /// `ATOM("CONDSTORE")`, which matched nothing: no server was ever seen to have
 /// CONDSTORE, MOVE or UIDPLUS, and every move ended in a bare `EXPUNGE`.
@@ -879,7 +892,10 @@ fn special_use(attributes: &[async_imap::types::NameAttribute<'_>]) -> Option<Fo
             A::Drafts => return Some(FolderKind::Drafts),
             A::Trash => return Some(FolderKind::Trash),
             A::Junk => return Some(FolderKind::Junk),
-            A::Archive | A::All => return Some(FolderKind::Archive),
+            A::Archive => return Some(FolderKind::Archive),
+            // Gmail's All Mail, where archived mail lives; elsewhere a virtual
+            // folder, often read-only, which `list_folders` leaves out.
+            A::All => return Some(FolderKind::Archive),
             _ => {}
         }
     }
@@ -895,7 +911,23 @@ fn special_use(attributes: &[async_imap::types::NameAttribute<'_>]) -> Option<Fo
 /// `X/Spam` voyait tout son contenu caché comme indésirable, un `Archives/Inbox`
 /// rejoignait la boîte de réception.
 fn kind_by_name(name: &str, delimiter: Option<&str>) -> FolderKind {
-    let n = name.to_lowercase();
+    // Accents folded, written as one character or as a letter and a mark (a Mac's
+    // `envoyés` arrives decomposed): `Envoyes`, `Éléments supprimés` and their kin
+    // were not recognised.
+    let n: String = name
+        .to_lowercase()
+        .chars()
+        .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+        .map(|c| match c {
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'à' | 'â' | 'ä' => 'a',
+            'î' | 'ï' => 'i',
+            'ô' | 'ö' => 'o',
+            'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            autre => autre,
+        })
+        .collect();
     if n == "inbox" {
         return FolderKind::Inbox;
     }
@@ -911,27 +943,20 @@ fn kind_by_name(name: &str, delimiter: Option<&str>) -> FolderKind {
         return FolderKind::Other;
     };
     match *seul {
-        "sent"
-        | "sent items"
-        | "sent messages"
-        | "sent mail"
-        | "envoyés"
-        | "éléments envoyés"
-        | "messages envoyés" => FolderKind::Sent,
-        "drafts" | "draft" | "brouillons" => FolderKind::Drafts,
-        "trash"
-        | "deleted items"
-        | "deleted messages"
-        | "deleted"
-        | "bin"
-        | "corbeille"
-        | "éléments supprimés" => FolderKind::Trash,
+        "sent" | "sent items" | "sent messages" | "sent mail" | "envoyes" | "elements envoyes"
+        | "messages envoyes" => FolderKind::Sent,
+        "drafts" | "draft" | "brouillons" | "brouillon" => FolderKind::Drafts,
+        "trash" | "deleted items" | "deleted messages" | "deleted" | "bin" | "corbeille"
+        | "elements supprimes" | "messages supprimes" => FolderKind::Trash,
         "junk"
         | "spam"
         | "junk e-mail"
         | "junk email"
-        | "indésirables"
-        | "courrier indésirable" => FolderKind::Junk,
+        | "junk mail"
+        | "indesirables"
+        | "courrier indesirable"
+        | "pourriel"
+        | "pourriels" => FolderKind::Junk,
         "archive" | "archives" => FolderKind::Archive,
         _ => FolderKind::Other,
     }
@@ -977,8 +1002,16 @@ impl ImapConnection for ImapClient {
             };
             let special = special_use(name_attributes);
             let lisible = crate::utf7::decode(name);
+            // `\All` outside Gmail: a view over every folder (Dovecot's virtual All,
+            // Fastmail's), often read-only, which Archive then tried to move into.
+            let tout_virtuel = name_attributes
+                .iter()
+                .any(|a| matches!(a, async_imap::types::NameAttribute::All))
+                && !lisible.starts_with("[Gmail]/")
+                && !lisible.starts_with("[Google Mail]/");
             if special == Some(FolderKind::NoSelect)
                 || is_virtual(name_attributes)
+                || tout_virtuel
                 || is_server_internal(&lisible)
             {
                 return;
@@ -986,6 +1019,24 @@ impl ImapConnection for ImapClient {
             listes.push((lisible, special, delimiter.as_deref().map(str::to_string)));
         })
         .await?;
+
+        // Other people's and shared folders, only those subscribed to: a shared
+        // mailbox of thousands of messages was synced in full because the server
+        // listed it. One's own folders all stay, subscribed or not.
+        if listes.iter().any(|(nom, _, _)| is_shared(nom)) {
+            let mut abonnes = std::collections::HashSet::new();
+            let lu = self
+                .run("abonnements", "LSUB \"\" \"*\"", |r| {
+                    if let Response::MailboxData(MailboxDatum::List { name, .. }) = r {
+                        abonnes.insert(crate::utf7::decode(name));
+                    }
+                })
+                .await;
+            // Not answered: everything is kept, as before.
+            if lu.is_ok() {
+                listes.retain(|(nom, _, _)| !is_shared(nom) || abonnes.contains(nom));
+            }
+        }
         let roles = assign_kinds(&listes);
         Ok(listes
             .into_iter()
@@ -1531,6 +1582,13 @@ mod tests {
         // Le séparateur du serveur décide : sur Gmail, un point est une lettre.
         assert_eq!(kind_by_name("john.doe", Some("/")), FolderKind::Other);
         assert_eq!(kind_by_name("INBOX.Trash", Some(".")), FolderKind::Trash);
+        // Accents written or not, and decomposed as a Mac writes them.
+        assert_eq!(kind_by_name("Envoyes", None), FolderKind::Sent);
+        assert_eq!(kind_by_name("Envoye\u{301}s", None), FolderKind::Sent);
+        assert_eq!(kind_by_name("Messages supprimés", None), FolderKind::Trash);
+        assert_eq!(kind_by_name("Pourriels", None), FolderKind::Junk);
+        assert_eq!(kind_by_name("Junk Mail", None), FolderKind::Junk);
+        assert_eq!(kind_by_name("Brouillon", None), FolderKind::Drafts);
     }
 
     #[test]

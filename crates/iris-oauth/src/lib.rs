@@ -16,7 +16,8 @@
 pub mod http;
 
 pub use http::{
-    loopback_works, open_browser, reserve_port, wait_for_redirect, HttpEndpoint, Redirect,
+    loopback_works, open_browser, reserve_port, wait_for_redirect, wait_for_redirect_from,
+    HttpEndpoint, Redirect,
 };
 
 use async_trait::async_trait;
@@ -58,6 +59,9 @@ impl Provider {
                 "https://outlook.office.com/IMAP.AccessAsUser.All",
                 "https://outlook.office.com/SMTP.Send",
                 "offline_access",
+                // Without it Microsoft gives no identity token, so the account signed
+                // in was never checked against the address typed.
+                "openid",
                 "email",
             ],
         }
@@ -326,7 +330,12 @@ fn email_from_id_token(id_token: &str) -> Option<String> {
     let charge = id_token.split('.').nth(1)?;
     let octets = base64url_decode(charge)?;
     let json: serde_json::Value = serde_json::from_slice(&octets).ok()?;
-    json.get("email")?.as_str().map(str::to_string)
+    // Microsoft names the account in `preferred_username` when it gives no `email`.
+    ["email", "preferred_username"]
+        .iter()
+        .find_map(|k| json.get(*k)?.as_str())
+        .filter(|a| a.contains('@'))
+        .map(str::to_string)
 }
 
 // --- PKCE ---

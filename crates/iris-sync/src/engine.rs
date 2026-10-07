@@ -492,6 +492,64 @@ impl SyncEngine {
         }
     }
 
+    /// The mailbox whose inbox is watched for news: the one on screen, else the first
+    /// switched on.
+    pub async fn watched_account(&self) -> Option<AccountId> {
+        if let Some(actif) = self.scheduler.lock().await.active() {
+            return Some(actif);
+        }
+        self.store
+            .accounts()
+            .ok()?
+            .into_iter()
+            .find(|c| c.enabled)
+            .map(|c| c.id)
+    }
+
+    /// Waits on a mailbox's inbox for news, the IMAP `IDLE` way, and syncs it as soon
+    /// as some comes. Polled only, new mail took up to two minutes to show for the
+    /// mailbox on screen. Returns `Ok` at once when the server cannot `IDLE`, and an
+    /// error when the wait ends otherwise.
+    pub async fn watch_inbox(&self, account: AccountId) -> Result<()> {
+        let compte = self
+            .store
+            .account(account)?
+            .filter(|c| c.enabled)
+            .ok_or_else(|| Error::store(format!("account {account} not watched")))?;
+        let point = self.endpoint_for(&compte);
+        let identifiants = self.credentials_for(&compte).await?;
+        let mut conn = tokio::time::timeout(
+            self.config.connect_timeout,
+            self.connector.connect(&point, &identifiants),
+        )
+        .await
+        .map_err(|_| Error::network(format!("{} did not answer", compte.imap_host)))??;
+        if !conn.capabilities().idle {
+            let _ = conn.logout().await;
+            return Ok(());
+        }
+        let boite = self
+            .store
+            .folder_for_role(account, FolderRole::Inbox)?
+            .map(|f| f.path)
+            .unwrap_or_else(|| "INBOX".to_string());
+        conn.select(&boite).await?;
+        loop {
+            // Under the half hour servers allow an idle connection.
+            match conn.idle(std::time::Duration::from_secs(25 * 60)).await? {
+                iris_imap::IdleOutcome::Changed => {
+                    let maintenant = now_utc();
+                    let resultat = self.sync_account_bounded(account, maintenant, false).await;
+                    self.note_failure(account, resultat.as_ref().err());
+                }
+                iris_imap::IdleOutcome::TimedOut => {}
+                iris_imap::IdleOutcome::Disconnected => {
+                    return Err(Error::network("the server ended the wait for news"))
+                }
+            }
+        }
+    }
+
     pub async fn resume_account(&self, account: AccountId, now: Timestamp) {
         self.scheduler.lock().await.resume(account, now);
     }

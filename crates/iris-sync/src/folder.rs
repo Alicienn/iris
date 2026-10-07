@@ -208,7 +208,20 @@ pub async fn sync_folder(
             etat.uid_next.saturating_sub(1)
         };
         if plafond >= 1 {
-            let mut vers_le_bas = UidRange::new(1, plafond).chunks(options.chunk_size);
+            // UIDs far apart (a server that numbers from a large base, or a folder
+            // emptied of most of its mail) made millions of empty ranges, asked one
+            // after the other: the first sync never reached the mail. Past a few
+            // hundred ranges, the server is asked which UIDs there are.
+            let tranches = u64::from(plafond) / u64::from(options.chunk_size.max(1));
+            let mut vers_le_bas = if tranches > 200 {
+                let presents = conn.existing_uids(UidRange::new(1, plafond)).await?;
+                presents
+                    .chunks(options.chunk_size.max(1) as usize)
+                    .filter_map(|lot| Some(UidRange::new(*lot.first()?, *lot.last()?)))
+                    .collect()
+            } else {
+                UidRange::new(1, plafond).chunks(options.chunk_size)
+            };
             vers_le_bas.reverse();
             t.extend(vers_le_bas);
         }
@@ -286,23 +299,30 @@ pub async fn sync_folder(
             .filter(|i| !i.was_known && !i.came_back)
             .map(|i| i.message)
             .collect();
-        if !premiere_synchro && folder.role == iris_store::FolderRole::Inbox {
-            rapport.inbox_arrivals += frais.len();
-            for i in inseres.iter().filter(|i| !i.was_known && i.came_back) {
-                if !rapport.back_in_inbox.contains(&i.thread) {
-                    rapport.back_in_inbox.push(i.thread);
-                }
-            }
-        }
         rapport.fresh_messages.extend(frais);
 
         // Not on a first visit: everything there is old news, not an arrival. The
         // inbox only: mail filed into a folder of one's own is often mail Iris moved
         // there, whose old copy may already be gone, and that is not an answer.
         if !premiere_synchro && folder.role == iris_store::FolderRole::Inbox {
-            for i in inseres.iter().filter(|i| !i.was_known && !i.thread_created) {
-                if !store.has_other_copy(i.message)? && !rapport.arrivals.contains(&i.thread) {
-                    rapport.arrivals.push(i.thread);
+            for i in inseres.iter().filter(|i| !i.was_known) {
+                // Back from a move (the copy it left is gone): to do again, but not
+                // new mail.
+                let de_retour = i.came_back && !store.has_other_copy(i.message)?;
+                // New to the inbox, whatever other folder had it first: Gmail's All
+                // Mail copy of a reply may come down before its inbox copy, and the
+                // reply then reopened nothing, nor was told of.
+                let arrivee = !de_retour && !store.has_other_inbox_copy(i.message)?;
+                if (de_retour || (i.came_back && arrivee))
+                    && !rapport.back_in_inbox.contains(&i.thread)
+                {
+                    rapport.back_in_inbox.push(i.thread);
+                }
+                if arrivee {
+                    rapport.inbox_arrivals += 1;
+                    if !i.thread_created && !rapport.arrivals.contains(&i.thread) {
+                        rapport.arrivals.push(i.thread);
+                    }
                 }
             }
         }

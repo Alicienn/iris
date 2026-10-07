@@ -210,8 +210,9 @@ pub async fn authorize(
 
     // L'attente est bloquante : elle part sur un fil dédié, pour ne pas immobiliser
     // l'exécuteur pendant que l'utilisateur cherche son mot de passe.
+    let etat = demande.state.clone();
     let redirection = tokio::task::spawn_blocking(move || {
-        iris_oauth::wait_for_redirect(ecoute, DELAI_AUTORISATION)
+        iris_oauth::wait_for_redirect_from(ecoute, DELAI_AUTORISATION, &etat)
     })
     .await
     .map_err(|e| Error::other(format!("attente de l'autorisation : {e}")))??;

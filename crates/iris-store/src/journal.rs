@@ -208,25 +208,35 @@ impl Store {
                     |r| r.get::<_, String>(0),
                 )
                 .map_err(|e| sql_err("déplacements", e))?;
+            // Moves back by `Message-ID` (an undo once the server had moved it), newer
+            // than what is looked at: the message is back where it was, under a UID
+            // no one knows yet, and is found by its `Message-ID` there.
+            let mut retours: Vec<(String, String)> = Vec::new();
             for ligne in lignes {
                 let charge = ligne.map_err(|e| sql_err("déplacements", e))?;
-                if let Ok(crate::OpPayload::Move {
-                    folder: source,
-                    uids,
-                    target,
-                }) = crate::OpPayload::parse(&charge)
-                {
-                    if source == folder && uids.contains(&uid) {
-                        return Ok(Some(target));
+                match crate::OpPayload::parse(&charge) {
+                    Ok(crate::OpPayload::Move {
+                        folder: source,
+                        uids,
+                        target,
+                    }) if source == folder && uids.contains(&uid) => {
+                        let revenu = retours
+                            .iter()
+                            .any(|(de, vers)| *de == target && vers == folder);
+                        return Ok(Some(if revenu { folder.to_string() } else { target }));
                     }
+                    Ok(crate::OpPayload::MoveByMessageId {
+                        folder: de,
+                        target: vers,
+                        ..
+                    }) => retours.push((de, vers)),
+                    _ => {}
                 }
             }
             Ok(None)
         })
     }
 
-    /// Takes back an operation the server has not been told of yet. Says whether it
-    /// was still waiting: once replayed, it can only be reversed by another.
     /// Takes an operation for replay, just before it is sent: `false` if it was
     /// withdrawn meanwhile. Once taken (`done = 2`) it can no longer be withdrawn, and
     /// undo reverses it on the server instead. Withdrawn while replay held it, it was
@@ -246,6 +256,8 @@ impl Store {
         })
     }
 
+    /// Takes back an operation the server has not been told of yet. Says whether it
+    /// was still waiting: once replayed, it can only be reversed by another.
     pub fn withdraw_op(&self, id: OpId) -> Result<bool> {
         self.with_conn(|c| {
             let n = c

@@ -38,6 +38,9 @@ pub struct SendService {
     /// Messages queued and not yet settled: still in their undo delay, being sent, or
     /// being filed in Sent. Quitting waits for them (`wait_idle`).
     in_flight: std::sync::atomic::AtomicUsize,
+    /// The copy of the message being written last kept in a Drafts folder: its
+    /// mailbox and `Message-ID`, replaced at the next save and dropped when it goes.
+    saved_draft: std::sync::Mutex<Option<(iris_types::AccountId, String)>>,
 }
 
 impl SendService {
@@ -48,7 +51,43 @@ impl SendService {
             bus,
             senders: Default::default(),
             in_flight: Default::default(),
+            saved_draft: Default::default(),
         }
+    }
+
+    /// Deletes the copy kept in the Drafts folder of the message being written, when
+    /// it is sent or put away: it stayed there, among the copies each save added.
+    pub fn discard_saved_draft(&self) -> Result<()> {
+        let pris = self
+            .saved_draft
+            .lock()
+            .expect("saved draft poisoned")
+            .take();
+        if let Some((compte, id)) = pris {
+            self.delete_draft_copy(compte, id)?;
+        }
+        Ok(())
+    }
+
+    fn delete_draft_copy(&self, account: iris_types::AccountId, message_id: String) -> Result<()> {
+        let Some(brouillons) = self
+            .engine
+            .store()
+            .folder_for_role(account, FolderRole::Drafts)?
+        else {
+            return Ok(());
+        };
+        let charge = iris_store::OpPayload::DeleteByMessageId {
+            folder: brouillons.path,
+            message_ids: vec![message_id],
+        };
+        crate::replay::enqueue(
+            self.engine.store(),
+            account,
+            &charge,
+            crate::engine::now_utc(),
+        )?;
+        Ok(())
     }
 
     /// How many queued messages have not settled yet.
@@ -143,6 +182,29 @@ impl SendService {
         message.text_body = avec_signature(&draft.body, &compte.signature);
         message.attachments = draft.attachments.clone();
         message.date = crate::engine::now_utc();
+
+        // A reply written here (a quick reply put down in this window, or one
+        // reopened from a bar): to its conversation, by its subject and the person it
+        // goes to. It lost its `In-Reply-To` on the way, and went out as a new
+        // conversation, split from the old one at both ends.
+        let repond = {
+            let s = draft.subject.trim_start().to_ascii_lowercase();
+            ["re:", "re :", "aw:", "sv:"]
+                .iter()
+                .any(|p| s.starts_with(p))
+        };
+        if repond && message.to.len() == 1 {
+            if let Some(parent) = self.engine.store().last_message_from_about(
+                draft.account,
+                &message.to[0].addr,
+                &draft.subject,
+            )? {
+                let id = parent.rfc_message_id.clone().map(RfcMessageId);
+                message.references =
+                    iris_smtp::build_references(&self.reference_chain(&parent), id.as_ref());
+                message.in_reply_to = id;
+            }
+        }
         Ok(message)
     }
 
@@ -185,14 +247,35 @@ impl SendService {
         if let Some(a) = alias {
             message.from = a.clone();
         }
+        // Named here, so that the copy can be found again and replaced by the next.
+        let domaine = message
+            .from
+            .addr
+            .rsplit_once('@')
+            .map(|(_, d)| d)
+            .unwrap_or("");
+        let id = iris_smtp::generate_message_id(domaine, draft.body.len() as u64);
+        message.message_id = Some(id.clone());
         let brut = iris_smtp::message_bytes(&message)?;
-        self.append_to(
-            draft.account,
-            FolderRole::Drafts,
-            &brut,
-            Flags(Flags::DRAFT.0 | Flags::SEEN.0),
-        )
-        .await
+        let garde = self
+            .append_to(
+                draft.account,
+                FolderRole::Drafts,
+                &brut,
+                Flags(Flags::DRAFT.0 | Flags::SEEN.0),
+            )
+            .await?;
+        if garde {
+            let avant = self
+                .saved_draft
+                .lock()
+                .expect("saved draft poisoned")
+                .replace((draft.account, id.as_str().to_string()));
+            if let Some((compte, ancien)) = avant {
+                self.delete_draft_copy(compte, ancien)?;
+            }
+        }
+        Ok(garde)
     }
 
     pub fn compose_new(

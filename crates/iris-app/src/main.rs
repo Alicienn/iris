@@ -882,6 +882,43 @@ fn run_gui(
         }
     }
 
+    // News pushed by the server (IMAP IDLE) for the mailbox on screen: synced as it
+    // comes rather than at the next poll. Watched again on another mailbox when the
+    // one on screen changes; a server that cannot IDLE is left to polling.
+    {
+        let engine = Arc::clone(&services.engine);
+        runtime.spawn(async move {
+            loop {
+                let Some(compte) = engine.watched_account().await else {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
+                };
+                let change = async {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                        if engine.watched_account().await != Some(compte) {
+                            break;
+                        }
+                    }
+                };
+                tokio::select! {
+                    fin = engine.watch_inbox(compte) => {
+                        let pause = match fin {
+                            // No IDLE there: polling does it, asked again later.
+                            Ok(()) => 15 * 60,
+                            Err(e) => {
+                                tracing::debug!(error = %e, "waiting for news");
+                                60
+                            }
+                        };
+                        tokio::time::sleep(std::time::Duration::from_secs(pause)).await;
+                    }
+                    () = change => {}
+                }
+            }
+        });
+    }
+
     // La boucle de synchronisation.
     {
         let engine = Arc::clone(&services.engine);

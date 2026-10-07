@@ -911,6 +911,31 @@ Since 4.10.0 (the rest of its medium findings):
   prefix is `INBOX.` only when every folder is under it. Mark all as read journals the
   copies in other folders outside Gmail (`unread_copies_elsewhere`).
 
+Since 4.11.0 (its low findings):
+
+- **Push.** `SyncEngine::watch_inbox` keeps one connection in `IDLE` on the inbox of
+  the mailbox on screen (`watched_account`) and syncs it when the server says
+  something changed; `main.rs` restarts it on another mailbox when the one on screen
+  changes, and leaves a server without `IDLE` to polling.
+- **Folders.** Names are matched with accents folded (precomposed or not) and more
+  localised names; `\All` outside Gmail is left out; folders in shared namespaces
+  are kept only when `LSUB` lists them; a created folder is kept locally at once;
+  folder actions skip mailboxes switched off. A first sync whose UIDs are far apart
+  plans its ranges from `UID SEARCH`. An action journalled under a folder's encoded
+  name is replayed under its decoded one (`OpPayload::with_folder`).
+- **Threads.** An inbox copy is an arrival unless another inbox copy exists or it
+  came back from a move (`has_other_inbox_copy`), so a Gmail reply whose All Mail copy
+  came first reopens its thread; a reply received ends a snooze; a mailbox leaves
+  `thread_accounts` with its last message. `moved_to` sees moves taken back.
+- **Sending.** A "Re:" message from the new-message window answers the last message
+  of its correspondent under that subject (`Store::last_message_from_about`). A draft
+  saved again replaces its previous copy, and sending removes it
+  (`OpPayload::DeleteByMessageId`).
+- **Sign-in.** Renewals are one at a time (`StoredCredentials::renouvellement`);
+  Microsoft is asked for `openid`, and `preferred_username` read; the loopback waits
+  for the redirect that carries its own `state` (`wait_for_redirect_from`). An
+  encrypted profile is said as such.
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New

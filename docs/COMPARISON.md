@@ -29,6 +29,7 @@ the first afternoon, and never forgive".
 | Account setup | Address and password, or a configuration profile (`.mobileconfig`) as Apple Mail takes it; a login other than the address, STARTTLS on port 143, as Thunderbird allows (4.6.0) |
 | Undo | Archive and delete undone on the server too, as Gmail's undo does (4.6.0) |
 | Aliases | A reply leaves from the alias the message was sent to, as Gmail and Thunderbird do (4.7.0) |
+| New mail | Pushed by the server (IMAP IDLE) for the mailbox on screen, as Thunderbird and Apple Mail do (4.11.0) |
 
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris does not.

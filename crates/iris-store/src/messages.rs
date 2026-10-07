@@ -117,6 +117,54 @@ impl Store {
         })
     }
 
+    /// Whether another row holds the same message in an inbox: one already there, so
+    /// this copy is not an arrival. At Gmail a reply's All Mail copy may come first;
+    /// counted as "a copy already here", its inbox copy then reopened nothing.
+    pub fn has_other_inbox_copy(&self, id: MessageId) -> Result<bool> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT EXISTS (SELECT 1 FROM messages o, messages m, folders f
+                                WHERE m.id = ?1 AND m.rfc_message_id IS NOT NULL
+                                  AND o.rfc_message_id = m.rfc_message_id AND o.id != m.id
+                                  AND f.id = o.folder_id AND f.role = 'inbox')",
+                params![id.get()],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(|e| sql_err("copies du message", e))
+        })
+    }
+
+    /// The latest message from `from` in a thread of this subject, on this account: what
+    /// a reply written in the new-message window answers. A quick reply put down in
+    /// the window lost its `In-Reply-To`, and went out as a new conversation.
+    pub fn last_message_from_about(
+        &self,
+        account: AccountId,
+        from: &str,
+        subject: &str,
+    ) -> Result<Option<StoredMessage>> {
+        let sujet = normalize_subject(subject);
+        if sujet.is_empty() {
+            return Ok(None);
+        }
+        let id: Option<i64> = self.with_conn(|c| {
+            c.query_row(
+                "SELECT m.id FROM messages m JOIN threads t ON t.id = m.thread_id
+                 WHERE m.account_id = ?1 AND lower(m.from_addr) = lower(?2)
+                   AND t.subject_norm = ?3 AND m.rfc_message_id IS NOT NULL
+                 ORDER BY m.received DESC LIMIT 1",
+                params![account.get(), from.trim(), sujet],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| sql_err("message répondu", e))
+        })?;
+        match id {
+            Some(id) => self.message_by_id(MessageId(id)),
+            None => Ok(None),
+        }
+    }
+
     /// The thread a message of this `Message-ID` is in now, on this account: where a
     /// moved message came back under a new thread once its old copy was dropped.
     pub fn thread_of_message_id(
@@ -1259,6 +1307,16 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
             .map_err(|e| sql_err("suppression du fil vide", e))?;
         return Ok(());
     };
+
+    // A mailbox none of whose messages is left in the thread leaves it: filtered on
+    // that mailbox, the thread still showed, empty of it.
+    tx.prepare_cached(
+        "DELETE FROM thread_accounts WHERE thread_id = ?1
+           AND account_id NOT IN (SELECT account_id FROM messages WHERE thread_id = ?1)",
+    )
+    .map_err(|e| sql_err("preparation", e))?
+    .execute(params![thread.get()])
+    .map_err(|e| sql_err("comptes du fil", e))?;
 
     let mut stmt = tx
         .prepare_cached(

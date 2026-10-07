@@ -147,7 +147,9 @@ in: *Inbox*, a folder's name, or *Spam* and *Trash* in red; *Inbox +2* names all
 them when you point at it.
 
 Iris looks for new mail at least every quarter of an hour, every two minutes for the
-mailbox on screen; **Sync** (`F5` for all) asks at once. A mailbox added for the
+mailbox on screen, whose new mail shows as soon as its server announces it (when the
+server can say so); **Sync** (`F5` for all) asks at once. Shared folders are synced
+only when you are subscribed to them. A mailbox added for the
 first time brings its newest mail first.
 
 **Archive** takes a conversation out of the inbox and leaves your sent replies in

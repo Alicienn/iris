@@ -630,3 +630,8 @@ variant, brought into the application.
       their files; threads joined by siblings, search and notifications on new mail
       only, per-mailbox connections, one pass per account; ordered and claimed
       journal, batch undo, archive folders made, folders found by their shown name.
+- [x] **S41.25** Its low findings, fixed (4.11.0): IMAP IDLE for the mailbox on
+      screen, folder names and shared namespaces, Microsoft identity and loopback
+      state, one token renewal at a time, replies kept in their thread from the new
+      message window, drafts replaced on the server. Left: an alias two mailboxes
+      share, folder names that are not valid modified UTF-7, reopening a server draft.

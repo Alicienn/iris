@@ -59,6 +59,13 @@ pub enum OpPayload {
         flags: u32,
         add: bool,
     },
+    /// Delete for good the messages of these `Message-ID`s in `folder`: a draft saved
+    /// before, replaced by a later save or gone with the message. Every save added a
+    /// copy, and the Drafts folder filled with versions of the same message.
+    DeleteByMessageId {
+        folder: String,
+        message_ids: Vec<String>,
+    },
     /// Créer un dossier sur ce compte.
     ///
     /// Passe par le journal comme tout le reste : créer un dossier sur cent boîtes est
@@ -95,7 +102,7 @@ impl OpPayload {
         match self {
             Self::SetFlags { .. } | Self::SetFlagsByMessageId { .. } => crate::OpKind::SetFlags,
             Self::Move { .. } | Self::MoveByMessageId { .. } => crate::OpKind::MoveMessage,
-            Self::Delete { .. } => crate::OpKind::DeleteMessage,
+            Self::Delete { .. } | Self::DeleteByMessageId { .. } => crate::OpKind::DeleteMessage,
             Self::CreateFolder { .. } | Self::RenameFolder { .. } | Self::DeleteFolder { .. } => {
                 crate::OpKind::CreateFolder
             }
@@ -144,6 +151,14 @@ impl OpPayload {
                     ids.join(",")
                 )
             }
+            Self::DeleteByMessageId {
+                folder,
+                message_ids,
+            } => {
+                let mut ids = message_ids.clone();
+                ids.sort();
+                format!("{account}:delete-id:{folder}:{}", ids.join(","))
+            }
             Self::CreateFolder { folder } => format!("{account}:mkdir:{folder}"),
             Self::RenameFolder { folder, target } => {
                 format!("{account}:mvdir:{folder}:{target}")
@@ -164,6 +179,22 @@ impl OpPayload {
             .map_err(|e| Error::store(format!("opération journalisée illisible : {e}")))
     }
 
+    /// The same operation, on the folder named `folder`.
+    pub fn with_folder(mut self, folder: &str) -> Self {
+        match &mut self {
+            Self::SetFlags { folder: f, .. }
+            | Self::Move { folder: f, .. }
+            | Self::Delete { folder: f, .. }
+            | Self::MoveByMessageId { folder: f, .. }
+            | Self::SetFlagsByMessageId { folder: f, .. }
+            | Self::DeleteByMessageId { folder: f, .. }
+            | Self::CreateFolder { folder: f }
+            | Self::RenameFolder { folder: f, .. }
+            | Self::DeleteFolder { folder: f, .. } => *f = folder.to_string(),
+        }
+        self
+    }
+
     pub fn folder(&self) -> &str {
         match self {
             Self::SetFlags { folder, .. }
@@ -171,6 +202,7 @@ impl OpPayload {
             | Self::Delete { folder, .. }
             | Self::MoveByMessageId { folder, .. }
             | Self::SetFlagsByMessageId { folder, .. }
+            | Self::DeleteByMessageId { folder, .. }
             | Self::CreateFolder { folder }
             | Self::RenameFolder { folder, .. }
             | Self::DeleteFolder { folder, .. } => folder,

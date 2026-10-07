@@ -284,8 +284,13 @@ pub fn create_everywhere(
         if dossiers.iter().any(|f| f.path == chemin) {
             continue;
         }
-        let charge = OpPayload::CreateFolder { folder: chemin };
+        let charge = OpPayload::CreateFolder {
+            folder: chemin.clone(),
+        };
         iris_sync::enqueue(store, compte.id, &charge, now)?;
+        // In the column at once, mail can be dropped on it: it showed only after
+        // the next sync.
+        store.upsert_folder(compte.id, &chemin, iris_store::FolderRole::Other)?;
         demandes += 1;
     }
 
@@ -331,7 +336,10 @@ pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) 
             .folders(id)?
             .iter()
             .any(|f| f.path == chemin && f.role == iris_store::FolderRole::Other);
-        if !a_soi {
+        // Not on a mailbox switched off: its journal is not replayed, and the order
+        // waited there to surprise it when switched on again.
+        let allume = store.account(id)?.is_some_and(|c| c.enabled);
+        if !a_soi || !allume {
             continue;
         }
         // Split on this server's own delimiter: on both, `Clients/Devis` renamed
@@ -554,6 +562,9 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
             .folders(compte)?
             .iter()
             .any(|f| f.path == chemin && f.role == iris_store::FolderRole::Other);
+        if !store.account(compte)?.is_some_and(|c| c.enabled) {
+            continue;
+        }
         if a_soi {
             comptes.push((compte, chemin));
         } else {

@@ -81,6 +81,7 @@ impl Services {
             secrets: Arc::clone(&secrets),
             store: Arc::clone(&store),
             oauth: Arc::clone(&oauth),
+            renouvellement: tokio::sync::Mutex::new(()),
         });
 
         // Le moteur reçoit l'index et le magasin de contenus : sans eux, la
@@ -166,6 +167,11 @@ struct StoredCredentials {
     /// Les identifiants clients, relus à chaque usage : l'utilisateur peut les
     /// renseigner sans redémarrer.
     oauth: Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
+    /// One renewal at a time. A sync, a body download and a send could each find the
+    /// token expired and renew it together; Microsoft gives a new refresh token each
+    /// time and refuses the one just replaced, so the second renewal failed and the
+    /// account asked to sign in again.
+    renouvellement: tokio::sync::Mutex<()>,
 }
 
 #[async_trait::async_trait]
@@ -179,6 +185,9 @@ impl iris_sync::CredentialsProvider for StoredCredentials {
 
         if let Some(fournisseur) = fournisseur {
             let maintenant = now();
+            // Held through the check and the renewal: whoever waited finds the token
+            // the first one got.
+            let _un_a_la_fois = self.renouvellement.lock().await;
 
             if let Some(jeton) =
                 crate::oauth::valid_access_token(self.secrets.as_ref(), email, maintenant)?
@@ -381,6 +390,7 @@ mod tests {
                 secrets,
                 store,
                 oauth: Default::default(),
+                renouvellement: tokio::sync::Mutex::new(()),
             },
             id,
         )

@@ -84,6 +84,18 @@ pub async fn replay_account(
 
         // On ne sélectionne le dossier que lorsqu'il change : une sélection IMAP
         // coûte un aller-retour complet.
+        // Written before 4.6.0, a name may still be in its encoded form (`Envoy&AOk-s`),
+        // which no folder bears any more: the action is for the decoded one.
+        let mut charge = charge;
+        if charge.folder().contains('&') && charge.needs_selection() {
+            let lisible = iris_imap::utf7::decode(charge.folder());
+            if lisible != charge.folder()
+                && matches!(conn.select(charge.folder()).await, Err(ref e) if says_gone(e))
+            {
+                dossier_courant = None;
+                charge = charge.with_folder(&lisible);
+            }
+        }
         if charge.needs_selection() && dossier_courant.as_deref() != Some(charge.folder()) {
             match conn.select(charge.folder()).await {
                 Ok(selection) => {
@@ -229,6 +241,18 @@ async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> 
             }
             // Not there any more (moved again, deleted elsewhere): nothing to undo.
             conn.move_messages(&uids, target).await
+        }
+        OpPayload::DeleteByMessageId { message_ids, .. } => {
+            let mut uids = Vec::new();
+            for id in message_ids {
+                uids.extend(conn.find_message_id(id).await?);
+            }
+            // Gone already (sent, deleted elsewhere): nothing to do.
+            if uids.is_empty() {
+                return Ok(());
+            }
+            conn.store_flags(&uids, Flags::DELETED, true).await?;
+            conn.expunge(&uids).await
         }
         OpPayload::Delete { uids, .. } => {
             // Emptying the bin or the junk folder: deleted for good, which is what was
