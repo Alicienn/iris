@@ -376,6 +376,9 @@ fn translate_login_error(e: async_imap::error::Error, account: &str) -> Error {
         "[authenticationfailed]",
         "webalias",
         "application-specific password required",
+        // Office 365's refusal of an OAuth token: `NO AUTHENTICATE failed.` It passed
+        // for a network failure, and signing in again was never offered.
+        "authenticate failed",
     ];
 
     if REFUSALS.iter().any(|m| minuscules.contains(m)) {
@@ -742,7 +745,12 @@ fn translate_flags<'a>(flags: impl Iterator<Item = async_imap::types::Flag<'a>>)
             F::Draft => out.with(Flags::DRAFT),
             F::Deleted => out.with(Flags::DELETED),
             F::Recent => out.with(Flags::RECENT),
-            // Les mots-clés propres au serveur ne nous concernent pas.
+            F::Custom(ref k)
+                if k.eq_ignore_ascii_case("$NotJunk") || k.eq_ignore_ascii_case("NonJunk") =>
+            {
+                out.with(Flags::NOT_JUNK)
+            }
+            // Les autres mots-clés propres au serveur ne nous concernent pas.
             _ => out,
         };
     }
@@ -766,6 +774,9 @@ fn flags_to_names(flags: Flags) -> String {
     }
     if flags.contains(Flags::DELETED) {
         noms.push("\\Deleted");
+    }
+    if flags.contains(Flags::NOT_JUNK) {
+        noms.push("$NotJunk");
     }
     format!("({})", noms.join(" "))
 }

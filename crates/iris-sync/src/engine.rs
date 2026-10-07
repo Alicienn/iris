@@ -82,6 +82,8 @@ pub struct TickReport {
     pub messages_deleted: usize,
     pub ops_replayed: usize,
     pub failures: Vec<(AccountId, String)>,
+    /// Actions the server kept refusing, given up: done here, not there.
+    pub actions_refused: Vec<(AccountId, String)>,
 }
 
 impl TickReport {
@@ -535,6 +537,7 @@ impl SyncEngine {
                 Ok(bilan) => {
                     rapport.synced += 1;
                     rapport.added += bilan.added;
+                    rapport.refused += bilan.refused.len();
                     // Working: back on the schedule if it had been set aside. "Sync
                     // all" never resumed anyone, and an account left suspended stayed
                     // so although it had just synced.
@@ -660,6 +663,9 @@ impl SyncEngine {
                     rapport.flags_updated += bilan.flags_updated;
                     rapport.messages_deleted += bilan.deleted;
                     rapport.ops_replayed += bilan.ops_replayed;
+                    rapport
+                        .actions_refused
+                        .extend(bilan.refused.iter().map(|m| (account, m.clone())));
 
                     let resultat = if bilan.added > 0 || bilan.flags_updated > 0 {
                         SyncOutcome::Changed {
@@ -735,6 +741,7 @@ impl SyncEngine {
         if !a_traiter.is_empty() {
             let r = replay_account(conn.as_mut(), &self.store, &a_traiter, now).await?;
             bilan.ops_replayed = r.applied;
+            bilan.refused = r.refused;
         }
 
         // Découverte des dossiers.
@@ -794,6 +801,10 @@ impl SyncEngine {
             ..self.config.folder
         };
         let mut ajoutes_par_dossier = Vec::new();
+        // The first network failure of the pass, said at its end. Swallowed per folder,
+        // the pass ended as a success, the account's error was cleared, and no back-off
+        // applied: an account that could not fetch anything looked synchronised.
+        let mut panne: Option<Error> = None;
 
         for (index, dossier) in dossiers.iter().enumerate() {
             self.publish_phase(
@@ -856,6 +867,16 @@ impl SyncEngine {
                         account = %account, folder = %dossier.path, error = %e,
                         gone = disparu, "folder skipped"
                     );
+                    // The connection is opened again by the next command, so one
+                    // folder's failure does not end the pass; a second means the
+                    // server itself is out of reach, and the pass stops there.
+                    if e.is_transient() {
+                        if panne.is_some() {
+                            break;
+                        }
+                        panne = Some(e);
+                        continue;
+                    }
                     if disparu {
                         if let Err(e) = self.store.clear_folder(dossier.id) {
                             tracing::warn!(error = %e, "vidage du dossier disparu");
@@ -889,7 +910,10 @@ impl SyncEngine {
         }
 
         let _ = conn.logout().await;
-        Ok(bilan)
+        match panne {
+            Some(e) => Err(e),
+            None => Ok(bilan),
+        }
     }
 
     /// Indexe les messages d'un dossier qui n'ont pas encore de corps.
@@ -949,11 +973,21 @@ pub struct SyncAllReport {
     pub added: usize,
     /// Accounts that could not be reached, with the reason.
     pub failed: Vec<(String, String)>,
+    /// Actions the servers kept refusing, given up.
+    pub refused: usize,
 }
 
 impl SyncAllReport {
     /// One line for the status bar.
     pub fn summary(&self) -> String {
+        let ligne = self.summary_of_accounts();
+        match self.refused {
+            0 => ligne,
+            n => format!("{ligne} {}", refused_line(n)),
+        }
+    }
+
+    fn summary_of_accounts(&self) -> String {
         // The accounts that failed, by name when there are few: "1 account could not
         // be reached" sends the reader looking through the list for which one.
         let qui = match self.failed.len() {
@@ -977,12 +1011,27 @@ impl SyncAllReport {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// What to tell of actions a server kept refusing: they show as done here, and the
+/// next sync shows the mail as the server has it.
+pub fn refused_line(n: usize) -> String {
+    format!(
+        "The server refused {} you made; your mail now shows as the server has it.",
+        if n == 1 {
+            "an action".to_string()
+        } else {
+            format!("{n} actions")
+        }
+    )
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct AccountReport {
     added: usize,
     flags_updated: usize,
     deleted: usize,
     ops_replayed: usize,
+    /// Why the server refused the actions given up this pass.
+    refused: Vec<String>,
 }
 
 fn translate_kind(kind: iris_imap::FolderKind) -> FolderRole {
@@ -1161,6 +1210,7 @@ mod tests {
             synced: 2,
             added: 0,
             failed: vec![("a@example.com".into(), "boom".into())],
+            refused: 0,
         };
         assert!(rapport.summary().contains("a@example.com"));
     }

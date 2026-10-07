@@ -32,7 +32,9 @@ pub struct SendService {
     bus: EventBus,
     /// The mailbox each queued message is from, to file it in that mailbox's Sent
     /// folder once it has gone.
-    senders: std::sync::Mutex<std::collections::HashMap<SendHandle, iris_types::AccountId>>,
+    senders: std::sync::Mutex<
+        std::collections::HashMap<SendHandle, (iris_types::AccountId, Option<ThreadId>)>,
+    >,
     /// Messages queued and not yet settled: still in their undo delay, being sent, or
     /// being filed in Sent. Quitting waits for them (`wait_idle`).
     in_flight: std::sync::atomic::AtomicUsize,
@@ -237,22 +239,17 @@ impl SendService {
         scope: ReplyScope,
     ) -> Result<Outgoing> {
         let messages = self.engine.store().thread_messages(thread)?;
-        let dernier = messages
-            .last()
+        let dernier = reply_target(self.engine.store(), &messages)?
             .ok_or_else(|| Error::store(format!("fil {thread} vide")))?;
 
-        let compte = self
-            .engine
-            .store()
-            .account(dernier.account)?
-            .ok_or_else(|| Error::store("compte du fil introuvable"))?;
+        let compte = reply_account(self.engine.store(), &messages, dernier)?;
 
         // Le corps cité vient de ce qui est déjà téléchargé. S'il ne l'est pas,
         // l'aperçu suffit : citer trois lignes vaut mieux que faire attendre le
         // réseau au moment où l'utilisateur veut écrire.
         let corps_original = self.original_body(dernier);
 
-        let qui = reply_recipients(self.engine.store(), &messages)?;
+        let qui = reply_recipients(self.engine.store(), &messages, dernier)?;
         let cible = ReplyTarget {
             message_id: dernier.rfc_message_id.clone().map(RfcMessageId),
             references: self.reference_chain(dernier),
@@ -295,15 +292,10 @@ impl SendService {
     /// qu'un transfert ne peut pas deviner, et la seule qu'il faut donc demander.
     pub fn forward_prefill(&self, thread: ThreadId) -> Result<(String, String)> {
         let messages = self.engine.store().thread_messages(thread)?;
-        let dernier = messages
-            .last()
+        let dernier = reply_target(self.engine.store(), &messages)?
             .ok_or_else(|| Error::store(format!("fil {thread} vide")))?;
 
-        let compte = self
-            .engine
-            .store()
-            .account(dernier.account)?
-            .ok_or_else(|| Error::store("compte du fil introuvable"))?;
+        let compte = reply_account(self.engine.store(), &messages, dernier)?;
 
         let cible = ReplyTarget {
             message_id: dernier.rfc_message_id.clone().map(RfcMessageId),
@@ -335,6 +327,18 @@ impl SendService {
         let compte = sender_account(self.engine.store(), &message.from.addr)
             .ok()
             .map(|c| c.id);
+        // The thread it answers, by its `In-Reply-To`. Nothing told the outbox which
+        // thread a reply belonged to, so no reply ever put its thread in Waiting, and
+        // "Reply moves to Waiting" and follow-ups did nothing.
+        let fil = match (compte, message.in_reply_to.as_ref()) {
+            (Some(c), Some(parent)) => self
+                .engine
+                .store()
+                .thread_of_message_id(c, parent.as_str())
+                .ok()
+                .flatten(),
+            _ => None,
+        };
         // Held across the queueing: with no delay the message can be gone, and
         // `pump_outbox` asking whose it was, before the answer is written down.
         let mut expediteurs = self.senders.lock().expect("senders poisoned");
@@ -343,13 +347,14 @@ impl SendService {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let handle = self.outbox.queue(message);
         if let Some(compte) = compte {
-            expediteurs.insert(handle, compte);
+            expediteurs.insert(handle, (compte, fil));
         }
         Ok(handle)
     }
 
-    /// The mailbox a queued message is from, forgotten as it is read.
-    fn take_sender(&self, handle: SendHandle) -> Option<iris_types::AccountId> {
+    /// The mailbox a queued message is from, and the thread it answers, forgotten as
+    /// they are read.
+    fn take_sender(&self, handle: SendHandle) -> Option<(iris_types::AccountId, Option<ThreadId>)> {
         self.senders
             .lock()
             .expect("senders poisoned")
@@ -361,11 +366,11 @@ impl SendService {
         let mut bilan = SentOutcome::default();
         match self.append_to_sent(account, raw).await {
             Ok(true) => bilan.archived = true,
-            Ok(false) => bilan.note = Some("aucun dossier « envoyés » connu".into()),
+            Ok(false) => bilan.note = Some("this mailbox has no Sent folder Iris knows of".into()),
             // Un dépôt raté ne remet pas l'envoi en cause : le message est parti.
             Err(e) => {
                 tracing::warn!(error = %e, "dépôt dans les messages envoyés");
-                bilan.note = Some(format!("copie non déposée : {e}"));
+                bilan.note = Some(e.to_string());
             }
         }
         bilan
@@ -440,19 +445,42 @@ impl SendService {
             .account(account)?
             .ok_or_else(|| Error::store("compte introuvable"))?;
 
-        let _place = self.engine.pool().acquire(&compte.imap_host).await?;
-        let identifiants = self.engine.credentials_for(&compte).await?;
-        let point = self.engine.endpoint_for(&compte);
-
-        let mut conn = self
-            .engine
-            .connector()
-            .connect(&point, &identifiants)
-            .await?;
-        conn.append(&dossier.path, raw, flags).await?;
-        let _ = conn.logout().await;
-
-        Ok(true)
+        // Within a limit, and once more after a short wait if the network failed: a
+        // copy whose server hung held every later send's outcome behind it, and one
+        // lost to a dropped connection was never tried again.
+        const LIMITE: std::time::Duration = std::time::Duration::from_secs(45);
+        let mut derniere = None;
+        for essai in 0..2 {
+            if essai > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            let tentative = async {
+                let _place = self.engine.pool().acquire(&compte.imap_host).await?;
+                let identifiants = self.engine.credentials_for(&compte).await?;
+                let point = self.engine.endpoint_for(&compte);
+                let mut conn = self
+                    .engine
+                    .connector()
+                    .connect(&point, &identifiants)
+                    .await?;
+                conn.append(&dossier.path, raw, flags).await?;
+                let _ = conn.logout().await;
+                Ok::<(), Error>(())
+            };
+            match tokio::time::timeout(LIMITE, tentative).await {
+                Ok(Ok(())) => return Ok(true),
+                Ok(Err(e)) if !e.is_transient() => return Err(e),
+                Ok(Err(e)) => derniere = Some(e),
+                Err(_) => {
+                    derniere = Some(Error::network(format!(
+                        "{} did not take the copy within {} seconds",
+                        compte.imap_host,
+                        LIMITE.as_secs()
+                    )))
+                }
+            }
+        }
+        Err(derniere.unwrap_or_else(|| Error::network("the copy could not be filed")))
     }
 
     /// Fait passer le fil en attente, si l'automatisme est actif.
@@ -581,11 +609,14 @@ pub async fn pump_outbox(
     while let Some(evenement) = events.recv().await {
         match evenement {
             OutboxEvent::Sent { handle, outcome } => {
-                let expediteur = service.take_sender(handle);
-                // Tied to a thread, it goes to Waiting too. Otherwise — which is how
-                // every message was queued, so none was ever filed — it is filed in
+                let (expediteur, fil) = match service.take_sender(handle) {
+                    Some((compte, fil)) => (Some(compte), fil),
+                    None => (None, None),
+                };
+                // Tied to a thread, it goes to Waiting too. Otherwise it is filed in
                 // the Sent folder of the mailbox it is from.
-                let bilan = match (context.resolve(handle), expediteur) {
+                let lien = context.resolve(handle).or_else(|| fil.zip(expediteur));
+                let bilan = match (lien, expediteur) {
                     (Some((thread, account)), _) => {
                         service
                             .on_sent(thread, account, &outcome.raw, crate::engine::now_utc())
@@ -707,6 +738,96 @@ pub fn sender_account(store: &iris_store::Store, address: &str) -> Result<iris_s
 }
 
 /// Every address the user writes from: their mailboxes and their aliases, as keys.
+/// The message a reply or a forward is about: the thread's last one, never a draft
+/// (another client's would be answered), and of its copies the one whose body is here,
+/// else the one in the inbox.
+///
+/// The last row was taken: at Gmail, All Mail's copy, whose body is not downloaded,
+/// so the quote was the 200-character preview.
+fn reply_target<'a>(
+    store: &iris_store::Store,
+    messages: &'a [iris_store::StoredMessage],
+) -> Result<Option<&'a iris_store::StoredMessage>> {
+    let Some(dernier) = messages
+        .iter()
+        .rev()
+        .find(|m| !m.flags.contains(Flags::DRAFT))
+        .or_else(|| messages.last())
+    else {
+        return Ok(None);
+    };
+    let Some(id) = dernier.rfc_message_id.as_deref() else {
+        return Ok(Some(dernier));
+    };
+    let copies: Vec<_> = messages
+        .iter()
+        .filter(|m| m.rfc_message_id.as_deref() == Some(id))
+        .collect();
+    if let Some(avec_corps) = copies.iter().find(|m| m.body_blob.is_some()) {
+        return Ok(Some(avec_corps));
+    }
+    for copie in &copies {
+        let role = store
+            .folders(copie.account)?
+            .into_iter()
+            .find(|f| f.id == copie.folder)
+            .map(|f| f.role);
+        if role == Some(iris_store::FolderRole::Inbox) {
+            return Ok(Some(copie));
+        }
+    }
+    Ok(Some(dernier))
+}
+
+/// The mailbox a reply leaves from, when a conversation reached several of one's own.
+///
+/// A colleague writing to both `me@work` and `me@gmail` made one thread of two copies,
+/// and the reply left from whichever copy came last: the personal address shown to
+/// work contacts. The mailbox one already answered from in this thread is kept; else
+/// the first of one's addresses the message was written to, in order; else the copy's.
+fn reply_account(
+    store: &iris_store::Store,
+    messages: &[iris_store::StoredMessage],
+    cible: &iris_store::StoredMessage,
+) -> Result<iris_store::Account> {
+    let comptes = store.accounts()?;
+    let alias = store.aliases()?;
+    let compte_de = |adresse: &str| -> Option<iris_types::AccountId> {
+        comptes
+            .iter()
+            .find(|c| c.email.eq_ignore_ascii_case(adresse))
+            .map(|c| c.id)
+            .or_else(|| {
+                alias
+                    .iter()
+                    .find(|a| a.address.eq_ignore_ascii_case(adresse))
+                    .map(|a| a.account)
+            })
+    };
+
+    let deja = messages
+        .iter()
+        .rev()
+        .filter(|m| !m.flags.contains(Flags::DRAFT))
+        .find_map(|m| compte_de(&m.from_addr));
+    let ecrit_a = || -> Result<Option<iris_types::AccountId>> {
+        let (copies, _) = store.message_extras(cible.id)?;
+        let mut destinataires =
+            serde_json::from_str::<Vec<Address>>(&cible.recipients_json).unwrap_or_default();
+        destinataires.extend(serde_json::from_str::<Vec<Address>>(&copies).unwrap_or_default());
+        Ok(destinataires.iter().find_map(|d| compte_de(&d.addr)))
+    };
+    let choisi = match deja {
+        Some(c) => c,
+        None => ecrit_a()?.unwrap_or(cible.account),
+    };
+    comptes
+        .into_iter()
+        .find(|c| c.id == choisi)
+        .or(store.account(cible.account)?)
+        .ok_or_else(|| Error::store("compte du fil introuvable"))
+}
+
 fn own_addresses(store: &iris_store::Store) -> Result<std::collections::BTreeSet<String>> {
     let mut miennes: std::collections::BTreeSet<String> = store
         .accounts()?
@@ -733,6 +854,7 @@ fn own_addresses(store: &iris_store::Store) -> Result<std::collections::BTreeSet
 fn reply_recipients(
     store: &iris_store::Store,
     messages: &[iris_store::StoredMessage],
+    dernier: &iris_store::StoredMessage,
 ) -> Result<ReplyRecipients> {
     let miennes = own_addresses(store)?;
     let est_moi = |a: &str| miennes.contains(&Address::new(a.to_string()).key());
@@ -744,9 +866,6 @@ fn reply_recipients(
             .collect()
     };
 
-    let Some(dernier) = messages.last() else {
-        return Ok(ReplyRecipients::default());
-    };
     // Its copies and its reply address: neither was kept, so Reply all missed the
     // people in copy, and a reply to a form's notification went to its no-reply
     // address rather than to the person it named.

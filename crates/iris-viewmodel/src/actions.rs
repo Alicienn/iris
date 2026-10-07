@@ -120,6 +120,32 @@ impl Actions {
         self.workflow.undo_depth()
     }
 
+    /// Whether a thread was deleted or is junk: set aside, marked junk, or with mail
+    /// in the bin or the junk folder.
+    fn in_bin_or_junk(&self, thread: ThreadId) -> Result<bool> {
+        let store = self.workflow.store();
+        let Some(fil) = store.thread_row(thread)? else {
+            return Ok(false);
+        };
+        if fil.put_aside || fil.flags_union.contains(iris_types::Flags::SPAM) {
+            return Ok(true);
+        }
+        for m in store.thread_messages(thread)? {
+            let role = store
+                .folders(m.account)?
+                .into_iter()
+                .find(|f| f.id == m.folder)
+                .map(|f| f.role);
+            if matches!(
+                role,
+                Some(iris_store::FolderRole::Trash | iris_store::FolderRole::Junk)
+            ) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Applies an action to a thread.
     pub fn apply(&self, thread: ThreadId, action: Action, now: Timestamp) -> Result<ActionOutcome> {
         let changed = match action {
@@ -127,6 +153,11 @@ impl Actions {
                 .workflow
                 .set_state(thread, iris_types::WorkflowState::Done, now)?
                 .changed(),
+            // Out of the bin or the junk folder, it goes back to the inbox: setting the
+            // state alone left it there, set aside, and out of every queue.
+            Action::Todo if self.in_bin_or_junk(thread)? => {
+                self.workflow.back_to_inbox(thread, now)?
+            }
             Action::Todo => self
                 .workflow
                 .set_state(thread, iris_types::WorkflowState::Todo, now)?

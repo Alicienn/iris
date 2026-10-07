@@ -563,6 +563,7 @@ impl iris_sync::SendContext for SendTracker {
     }
 
     fn finished(&self, handle: iris_smtp::SendHandle, outcome: Result<iris_sync::SentOutcome>) {
+        let mut copie_manquante = None;
         let issue = match outcome {
             Ok(bilan) => {
                 tracing::info!(
@@ -571,17 +572,28 @@ impl iris_sync::SendContext for SendTracker {
                     waiting = bilan.moved_to_waiting,
                     "message sent"
                 );
+                if !bilan.archived {
+                    copie_manquante = bilan.note;
+                }
                 shell::IssueEnvoi::Parti
             }
             Err(e) => {
                 tracing::warn!(send = handle.0, error = %e, "send failed");
-                shell::IssueEnvoi::Echec(e.to_string())
+                shell::IssueEnvoi::Echec(e.to_string(), e.is_transient())
             }
         };
         if let Ok(mut e) = self.entries.lock() {
             e.remove(&handle);
         }
         self.tell(handle, issue);
+        // Gone, but its copy is not in Sent: said, where it was only logged.
+        if let Some(note) = copie_manquante {
+            let _ = self.fenetre.upgrade_in_event_loop(move |f| {
+                f.set_status(
+                    format!("Message sent, but its copy is not in your Sent folder: {note}").into(),
+                );
+            });
+        }
     }
 
     fn cancelled(&self, handle: iris_smtp::SendHandle) {
@@ -912,6 +924,13 @@ fn run_gui(
                     );
                 }
                 iris_app::home::count_arrivals(rapport.messages_added as u64);
+
+                // Actions the server kept refusing were given up: they looked done
+                // here, so it is said, not only logged.
+                if !rapport.actions_refused.is_empty() {
+                    let ligne = iris_sync::refused_line(rapport.actions_refused.len());
+                    let _ = faible.upgrade_in_event_loop(move |f| f.set_status(ligne.into()));
+                }
 
                 // La bulle d'arrivée. Une seule pour tout le tour, et seulement quand
                 // du courrier est réellement arrivé : un drapeau modifié sur le

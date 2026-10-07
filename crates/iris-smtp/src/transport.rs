@@ -24,8 +24,10 @@ pub trait Mailer: Send + Sync + std::fmt::Debug {
 #[derive(Debug)]
 pub struct LettreMailer {
     transport: lettre::AsyncSmtpTransport<lettre::Tokio1Executor>,
-    /// Domaine utilisé pour engendrer les identifiants de message.
-    domain: String,
+    /// The same server, signed in to by no one: for a relay that offers no way to
+    /// sign in (an office's own, which trusts its network). With a login always
+    /// given, such a relay could never be sent through.
+    anonymous: lettre::AsyncSmtpTransport<lettre::Tokio1Executor>,
 }
 
 /// How a mailbox signs in to its outgoing server.
@@ -55,23 +57,48 @@ impl LettreMailer {
             SmtpLogin::Password(p) => (p, vec![Mechanism::Plain, Mechanism::Login]),
             SmtpLogin::OAuth2(t) => (t, vec![Mechanism::Xoauth2]),
         };
-        let builder = if tls {
-            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
-        } else {
-            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
-        }
-        .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?;
+        let builder = || {
+            if tls {
+                lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
+            } else {
+                lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
+            }
+            .map_err(|e| Error::network(format!("configuration SMTP : {e}")))
+        };
 
-        let transport = builder
+        let transport = builder()?
             .port(port)
             .credentials(Credentials::new(user.into(), secret.clone()))
             .authentication(mecanismes)
             .build();
+        let anonymous = builder()?.port(port).build();
 
         Ok(Self {
             transport,
-            domain: domain_of(user),
+            anonymous,
         })
+    }
+}
+
+/// The server offers no way of signing in that Iris speaks: `AUTH` absent (a relay
+/// that trusts its network), or only CRAM-MD5.
+fn no_shared_mechanism(e: &lettre::transport::smtp::Error) -> bool {
+    e.to_string()
+        .to_ascii_lowercase()
+        .contains("no compatible authentication mechanism")
+}
+
+fn smtp_error(e: lettre::transport::smtp::Error) -> Error {
+    let texte = e.to_string();
+    // Un refus permanent du serveur ne doit pas être retenté indéfiniment :
+    // l'utilisateur doit corriger l'adresse ou ses identifiants.
+    if e.is_permanent() || no_shared_mechanism(&e) {
+        Error::Protocol {
+            protocol: "SMTP",
+            message: texte,
+        }
+    } else {
+        Error::network(format!("envoi : {texte}"))
     }
 }
 
@@ -89,21 +116,28 @@ impl Mailer for LettreMailer {
 
         message.validate().map_err(Error::Config)?;
 
-        let (courrier, message_id, brut) = sent_and_kept(message, &self.domain)?;
+        // The sender's own domain names the message: the login's gave `@iris.local`
+        // for a login without one, or let out the name of an internal domain.
+        let domaine = domain_of(&message.from.addr);
+        let (courrier, message_id, brut) = sent_and_kept(message, &domaine)?;
 
-        self.transport.send(courrier).await.map_err(|e| {
-            let texte = e.to_string();
-            // Un refus permanent du serveur ne doit pas être retenté indéfiniment :
-            // l'utilisateur doit corriger l'adresse ou ses identifiants.
-            if e.is_permanent() {
-                Error::Protocol {
-                    protocol: "SMTP",
-                    message: texte,
-                }
-            } else {
-                Error::network(format!("envoi : {texte}"))
+        match self.transport.send(courrier.clone()).await {
+            Ok(_) => {}
+            // Nothing to sign in with: tried as the relay expects, without a login.
+            Err(e) if no_shared_mechanism(&e) => {
+                self.anonymous
+                    .send(courrier)
+                    .await
+                    .map_err(|anonyme| Error::Protocol {
+                        protocol: "SMTP",
+                        message: format!(
+                            "{anonyme} (the server offers no sign-in Iris can use, \
+                             such as PLAIN or LOGIN, and refused the message without one)"
+                        ),
+                    })?;
             }
-        })?;
+            Err(e) => return Err(smtp_error(e)),
+        }
 
         Ok(SendOutcome {
             message_id,

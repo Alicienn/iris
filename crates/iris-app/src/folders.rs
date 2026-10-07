@@ -457,6 +457,24 @@ fn videable(scope: &Scope) -> bool {
     )
 }
 
+/// The mailbox keeps labels, not folders (Gmail, Google Workspace): a message is in
+/// All Mail whatever labels it bears, and losing one loses no mail.
+pub fn labels_not_folders(
+    store: &Store,
+    account: iris_types::AccountId,
+    folders: &[iris_store::Folder],
+) -> Result<bool> {
+    let hote = store
+        .account(account)?
+        .map(|c| c.imap_host.to_ascii_lowercase())
+        .unwrap_or_default();
+    Ok(hote == "imap.gmail.com"
+        || hote == "imap.googlemail.com"
+        || folders
+            .iter()
+            .any(|f| f.path.starts_with("[Gmail]/") || f.path.starts_with("[Google Mail]/")))
+}
+
 pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<usize> {
     let comptes = store.accounts_with_folder(path)?;
 
@@ -507,13 +525,23 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         // Où va le courrier. La boîte de réception : c'est l'endroit d'où il vient et
         // celui où on ira le rechercher. Le mettre à la corbeille serait interpréter
         // « je ne veux plus de ce dossier » comme « je ne veux plus de ce courrier ».
-        let Some(refuge) = dossiers
-            .iter()
-            .find(|f| f.role == iris_store::FolderRole::Inbox)
-        else {
-            return Err(Error::Config(
-                "this account has no inbox to move the mail into".into(),
-            ));
+        //
+        // Not at Gmail, where a folder is a label: removing it destroys no mail, which
+        // stays in All Mail, and moving it to the inbox put the label Inbox on every
+        // message, so deleting "Invoices" brought three thousand archived invoices
+        // back into the inbox on every device.
+        let refuge = if labels_not_folders(store, *compte, &dossiers)? {
+            None
+        } else {
+            let Some(inbox) = dossiers
+                .iter()
+                .find(|f| f.role == iris_store::FolderRole::Inbox)
+            else {
+                return Err(Error::Config(
+                    "this account has no inbox to move the mail into".into(),
+                ));
+            };
+            Some(inbox.path.clone())
         };
 
         // Le courrier part avec la suppression, au rejeu : tout ce que le serveur tient
@@ -522,7 +550,7 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         // était détruit avec le dossier.
         let charge = iris_store::OpPayload::DeleteFolder {
             folder: path.to_string(),
-            rescue: Some(refuge.path.clone()),
+            rescue: refuge,
         };
         iris_sync::enqueue(store, *compte, &charge, now)?;
 
@@ -786,6 +814,31 @@ mod tests {
 
         assert!(delete_everywhere(&store, "INBOX", maintenant).is_err());
         assert_eq!(store.folders(compte).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_gmail_label_is_deleted_without_sending_its_mail_to_the_inbox() {
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let gmail = store
+            .create_account(
+                &iris_store::NewAccount::new("a@gmail.com", "imap.gmail.com", "s"),
+                maintenant,
+            )
+            .unwrap();
+        store
+            .upsert_folder(gmail, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        store
+            .upsert_folder(gmail, "Factures", FolderRole::Other)
+            .unwrap();
+
+        assert_eq!(
+            delete_everywhere(&store, "Factures", maintenant).unwrap(),
+            1
+        );
+        let demande = &store.pending_ops(Timestamp::from_millis(1), 10).unwrap()[0].payload;
+        assert!(!demande.contains("rescue"), "{demande}");
     }
 
     #[test]

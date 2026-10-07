@@ -43,7 +43,17 @@ pub const PROVIDERS: &[Provider] = &[
         note: Some("Gmail exige une connexion par compte Google ; les mots de passe simples sont refusés."),
     },
     Provider {
-        domains: &["outlook.com", "hotmail.com", "hotmail.fr", "live.com", "live.fr", "msn.com"],
+        // Every country's own: `outlook.fr`, `hotmail.co.uk`, `live.de`… were looked up
+        // in Mozilla's base, which offers a password, and Microsoft's sign-in was never
+        // proposed for them.
+        domains: &[
+            "outlook.com", "outlook.fr", "outlook.de", "outlook.es", "outlook.it",
+            "outlook.be", "outlook.co.uk", "outlook.jp", "outlook.com.br",
+            "hotmail.com", "hotmail.fr", "hotmail.co.uk", "hotmail.de", "hotmail.es",
+            "hotmail.it", "hotmail.be", "hotmail.ca", "hotmail.com.br", "hotmail.nl",
+            "live.com", "live.fr", "live.co.uk", "live.de", "live.it", "live.be",
+            "live.nl", "live.ca", "live.com.au", "msn.com", "passport.com",
+        ],
         label: "Outlook",
         imap_host: "outlook.office365.com",
         imap_port: 993,

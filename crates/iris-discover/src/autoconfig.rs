@@ -90,8 +90,14 @@ pub fn parse(xml: &str, email: &str) -> Result<ServerConfig> {
         s.username
             .as_deref()
             .map(|u| substitute(u, email, &local))
-            .filter(|u| !u.is_empty() && !u.eq_ignore_ascii_case(&adresse))
+            .filter(|u| !u.is_empty())
     };
+    let imap_user = login(imap).filter(|u| !u.eq_ignore_ascii_case(&adresse));
+    // The sending login is kept unless it is the reading one: empty means "as for
+    // reading", and one equal to the address beside a reading login of its own was
+    // dropped, so that sending signed in with the reading login.
+    let lecture = imap_user.clone().unwrap_or_else(|| adresse.clone());
+    let smtp_user = login(smtp).filter(|u| !u.eq_ignore_ascii_case(&lecture));
 
     Ok(ServerConfig {
         provider: extract_display_name(xml),
@@ -104,16 +110,19 @@ pub fn parse(xml: &str, email: &str) -> Result<ServerConfig> {
         smtp_transport: smtp.transport(),
         auth: imap.auth_kind(),
         note: None,
-        imap_user: login(imap),
-        smtp_user: login(smtp),
+        imap_user,
+        smtp_user,
     })
 }
 
 /// Remplace les variables du document. Rares mais présentes chez certains hébergeurs.
 fn substitute(value: &str, email: &str, local: &str) -> String {
+    let domaine = email.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
     value
         .replace("%EMAILADDRESS%", email)
         .replace("%EMAILLOCALPART%", local)
+        // `imap.%EMAILDOMAIN%` was taken as a host of that name, which none is.
+        .replace("%EMAILDOMAIN%", domaine)
         .trim()
         .to_string()
 }
@@ -355,7 +364,16 @@ mod tests {
         );
         let c = parse(&xml, "marie@example.com").unwrap();
         assert_eq!(c.imap_user.as_deref(), Some("marie"));
-        assert_eq!(c.smtp_user, None, "the address: nothing to keep");
+        // The address, beside a reading login of its own: kept, or sending would sign
+        // in as "marie".
+        assert_eq!(c.smtp_user.as_deref(), Some("marie@example.com"));
+    }
+
+    #[test]
+    fn the_domain_is_put_in_for_its_variable() {
+        let xml = EXEMPLE.replacen("imap.example.com", "imap.%EMAILDOMAIN%", 1);
+        let c = parse(&xml, "marie@example.com").unwrap();
+        assert_eq!(c.imap_host, "imap.example.com");
     }
 
     #[test]

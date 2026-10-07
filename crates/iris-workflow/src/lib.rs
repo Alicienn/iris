@@ -77,6 +77,24 @@ pub enum MoveRecord {
     },
 }
 
+impl MoveRecord {
+    /// The mailbox and the `Message-ID` of the message moved, when it has one.
+    pub fn account_and_message_id(&self) -> Option<(AccountId, &str)> {
+        match self {
+            Self::Made {
+                account,
+                message_id,
+                ..
+            }
+            | Self::Withdrawn {
+                account,
+                message_id,
+                ..
+            } => message_id.as_deref().map(|id| (*account, id)),
+        }
+    }
+}
+
 /// What an action did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
@@ -133,6 +151,8 @@ fn moves_copy(destination: Destination<'_>, gmail: bool, from: FolderRole) -> bo
         Destination::Role(R::Archive) if gmail => from == R::Inbox,
         Destination::Role(R::Archive) => matches!(from, R::Inbox | R::Other),
         Destination::Role(R::Trash) => from != R::Trash,
+        // Back to the inbox: out of the bin and the junk, the rest stays filed.
+        Destination::Role(R::Inbox) => matches!(from, R::Trash | R::Junk),
         Destination::Role(_) => true,
         Destination::Path(_) if gmail => matches!(from, R::Inbox | R::Trash | R::Junk),
         Destination::Path(_) => true,
@@ -411,6 +431,21 @@ impl Workflow {
         )
     }
 
+    /// Brings a thread back to the inbox: its messages in the bin or the junk folder
+    /// go back there on the server, it is no longer set aside or marked junk, and it
+    /// is to do again.
+    ///
+    /// "Back to inbox" changed the state only. A deleted or junk thread stayed in its
+    /// folder and set aside, and the queue, which leaves those out, never showed it.
+    pub fn back_to_inbox(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
+        self.move_thread(
+            thread,
+            Destination::Role(iris_store::FolderRole::Inbox),
+            OpKind::MoveMessage,
+            now,
+        )
+    }
+
     /// Range un fil dans un dossier nommé.
     ///
     /// Le glisser-déposer, et l'entrée « Déplacer vers » du menu. Le dossier est
@@ -519,10 +554,45 @@ impl Workflow {
         // Moved back to the inbox (out of the bin or the junk folder, most often): a
         // rescue, not a filing. It went to Done, and a thread deleted before kept its
         // mark, so it never came back to the queue.
-        let vers_la_boite = matches!(destination, Destination::Path(_))
-            && plans
-                .iter()
-                .any(|(_, cible, _)| cible.role == FolderRole::Inbox);
+        let vers_la_boite = matches!(destination, Destination::Role(FolderRole::Inbox))
+            || matches!(destination, Destination::Path(_))
+                && plans
+                    .iter()
+                    .any(|(_, cible, _)| cible.role == FolderRole::Inbox);
+        // A rescue says it is not junk: the mark the spam filter's headers left on one
+        // message hid the whole thread, even once back in the inbox. The server is
+        // told with `$NotJunk`, set before the move so that it goes with the message,
+        // and that the next sync does not mark it junk again from its headers.
+        if vers_la_boite {
+            for m in &messages {
+                if !m.flags.contains(Flags::SPAM) {
+                    continue;
+                }
+                self.store
+                    .set_message_flags(m.id, m.flags.without(Flags::SPAM).with(Flags::NOT_JUNK))?;
+                let Some(dossier) = self
+                    .store
+                    .folders(m.account)?
+                    .into_iter()
+                    .find(|f| f.id == m.folder)
+                else {
+                    continue;
+                };
+                let charge = iris_store::OpPayload::SetFlags {
+                    folder: dossier.path,
+                    uids: vec![m.uid],
+                    flags: Flags::NOT_JUNK.0,
+                    add: true,
+                };
+                self.store.enqueue_op(
+                    m.account,
+                    charge.kind(),
+                    &charge.to_json(),
+                    &charge.idempotency_key(m.account),
+                    now,
+                )?;
+            }
+        }
 
         for (account, target, choisis) in plans {
             for (folder, uid, message_id) in choisis {
@@ -750,9 +820,36 @@ impl Workflow {
         now: Timestamp,
         vers_redo: bool,
     ) -> Result<Option<UndoEntry>> {
-        // The thread may be gone by now, in which case there is nothing to restore.
-        let Some(current) = self.store.thread_row(entry.thread)? else {
-            return Ok(None);
+        // The thread may be gone by now: once the server has carried out the move, the
+        // sync drops the old copies and the moved ones come back under a new thread.
+        // Undo found nothing and did nothing, a minute after an archive. The thread is
+        // found again by the moved messages' `Message-ID`; failing that, the server is
+        // still told, and the next sync brings the mail back.
+        let (entry, current) = match self.store.thread_row(entry.thread)? {
+            Some(current) => (entry, current),
+            None => {
+                let retrouve = entry.moves.iter().find_map(|d| {
+                    let (account, id) = d.account_and_message_id()?;
+                    self.store.thread_of_message_id(account, id).ok().flatten()
+                });
+                match retrouve.and_then(|t| self.store.thread_row(t).ok().flatten()) {
+                    Some(current) => (
+                        UndoEntry {
+                            thread: current.id,
+                            // Its messages are new rows: their flags are not these.
+                            flags: Vec::new(),
+                            ..entry
+                        },
+                        current,
+                    ),
+                    None => {
+                        for deplacement in entry.moves.iter().cloned() {
+                            self.reverse_move(deplacement, now)?;
+                        }
+                        return Ok(None);
+                    }
+                }
+            }
         };
 
         // L'état d'avant, capturé avant d'écrire : c'est ce que le geste inverse

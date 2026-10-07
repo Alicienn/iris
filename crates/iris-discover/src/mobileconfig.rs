@@ -133,8 +133,12 @@ fn account(dict: &[(String, Value)]) -> Option<ProfileAccount> {
             .filter(|p| !p.is_empty())
     };
     let imap_user = login("IncomingMailServerUsername").filter(|u| !u.eq_ignore_ascii_case(&email));
-    let smtp_user = login("OutgoingMailServerUsername")
-        .filter(|u| !u.eq_ignore_ascii_case(&email) && imap_user.as_deref() != Some(u.as_str()));
+    // Kept unless it is the reading login itself: an empty one means "as for reading",
+    // so a sending login equal to the address, beside a reading one of `CORP\jdoe`,
+    // was dropped and sending signed in as `CORP\jdoe`.
+    let lecture = imap_user.clone().unwrap_or_else(|| email.clone());
+    let smtp_user =
+        login("OutgoingMailServerUsername").filter(|u| !u.eq_ignore_ascii_case(&lecture));
 
     Some(ProfileAccount {
         description: description.clone(),

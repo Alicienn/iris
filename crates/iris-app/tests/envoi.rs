@@ -152,7 +152,7 @@ fn a_message_that_did_not_leave_comes_back() {
     iris_app::shell::envoi_termine(
         &f,
         iris_smtp::SendHandle(1),
-        iris_app::shell::IssueEnvoi::Echec("authentication refused".into()),
+        iris_app::shell::IssueEnvoi::Echec("authentication refused".into(), false),
     );
     assert!(f.get_compose_open(), "the message is back");
     assert_eq!(f.get_compose_subject().as_str(), "Devis");

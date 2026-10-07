@@ -3,6 +3,36 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.9.0 — 2026-10-07
+
+### Improved
+- Back to inbox, or a drop on the inbox, takes a conversation out of the bin or the junk.
+- Outlook, Hotmail and Live addresses of every country sign in with Microsoft.
+- Continue with Google works for Google Workspace domains behind a mail filter.
+- Replying moves the conversation to Waiting, as the setting says.
+- Send later checks the addresses and the attachments' size at once.
+- A message on its way when Iris closes unexpectedly comes back as a draft.
+- Sending works through office relays that need no sign-in.
+
+### Fixed
+- Actions a server refuses are tried again, and you are told if they are given up.
+- Deleting a Gmail label no longer puts its mail back in the inbox.
+- Undo still works once the mail has synced.
+- Mail you take out of the junk stays out, here and on your other devices.
+- Replies on Gmail quote the whole message, never a draft.
+- A reply to a conversation sent to two of your addresses leaves from the one you used.
+- Editing an account keeps its own sending login, and a new password works for sending too.
+- An account whose server stops answering during a sync says so.
+- Signing in with Microsoft no longer fails after you consent.
+- A refused Office 365 sign-in offers to sign in again.
+- Profiles keep their own sending login and password, address given or not.
+- Adding an account gives up after 30 seconds instead of waiting for ever.
+- The add-account screen starts encrypted every time.
+- Picking another account of a profile no longer reuses the previous password.
+- A scheduled message being sent can no longer be taken back and sent twice.
+- A scheduled message the server refuses waits for you, not retried every five minutes.
+- You are told when a sent message's copy could not go into Sent.
+
 ## 4.8.0 — 2026-10-07
 
 ### New

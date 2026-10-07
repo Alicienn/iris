@@ -29,12 +29,27 @@ use iris_types::{Error, Flags, Result, Timestamp};
 pub use iris_store::OpPayload;
 
 /// Résultat du rejeu d'un lot.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReplayReport {
     pub applied: usize,
     pub failed: usize,
     /// Opérations abandonnées parce qu'elles ne pourront jamais réussir.
     pub dropped: usize,
+    /// Why the server refused the operations given up after their last try: said to
+    /// the user, who saw them done here.
+    pub refused: Vec<String>,
+}
+
+/// How many times an operation the server refuses is tried before it is given up:
+/// with the journal's back-off, about twenty minutes. A refusal can pass (a full
+/// mailbox emptied, Office 365's "not connected" between two of its servers), and
+/// giving up at the first one lost up to a hundred archivings and deletions at once.
+pub const MAX_ATTEMPTS: u32 = 10;
+
+/// The server says the folder is not there: no retry can help.
+fn says_gone(e: &Error) -> bool {
+    let dit = e.to_string().to_ascii_uppercase();
+    dit.contains("NONEXISTENT") || dit.contains("TRYCREATE")
 }
 
 /// Rejoue les opérations en attente d'un compte.
@@ -89,13 +104,20 @@ pub async fn replay_account(
                     rapport.failed += 1;
                     break;
                 }
-                Err(e) => {
+                Err(e) if says_gone(&e) => {
                     // Le dossier n'existe plus (supprimé ailleurs, renommé) : le
                     // retenter à chaque passe bloquait toute la file du compte, et
                     // plus aucune action n'atteignait le serveur.
                     tracing::warn!(op = %op.id, error = %e, "dossier introuvable, opération abandonnée");
                     store.complete_op(op.id)?;
                     rapport.dropped += 1;
+                    dossier_courant = None;
+                    continue;
+                }
+                // Any other refusal may pass: tried again later, and given up only
+                // after `MAX_ATTEMPTS`, said.
+                Err(e) => {
+                    refuse(store, op, &e, now, &mut rapport)?;
                     dossier_courant = None;
                     continue;
                 }
@@ -135,17 +157,43 @@ pub async fn replay_account(
                 // La suite porte peut-être sur les mêmes messages.
                 break;
             }
-            Err(e) => {
-                // Erreur définitive : le dossier cible n'existe plus, le message a
-                // disparu. Réessayer indéfiniment bloquerait tout le compte.
+            Err(e) if says_gone(&e) => {
+                // Erreur définitive : le dossier cible n'existe plus. Réessayer
+                // indéfiniment bloquerait tout le compte.
                 tracing::warn!(op = %op.id, error = %e, "opération abandonnée");
                 store.complete_op(op.id)?;
                 rapport.dropped += 1;
             }
+            // Refused for another reason (`BAD` with no code, `[OVERQUOTA]`, a
+            // read-only folder…): all were given up at once, silently, although they
+            // showed as done here.
+            Err(e) => refuse(store, op, &e, now, &mut rapport)?,
         }
     }
 
     Ok(rapport)
+}
+
+/// An operation the server refused: tried again later, given up after
+/// `MAX_ATTEMPTS` with its reason kept for the user.
+fn refuse(
+    store: &Store,
+    op: &PendingOp,
+    e: &Error,
+    now: Timestamp,
+    rapport: &mut ReplayReport,
+) -> Result<()> {
+    let essais = store.fail_op(op.id, &e.to_string(), now)?;
+    if essais >= MAX_ATTEMPTS {
+        tracing::warn!(op = %op.id, error = %e, attempts = essais, "operation given up");
+        store.complete_op(op.id)?;
+        rapport.dropped += 1;
+        rapport.refused.push(e.to_string());
+    } else {
+        tracing::info!(op = %op.id, error = %e, attempts = essais, "operation refused, tried again later");
+        rapport.failed += 1;
+    }
+    Ok(())
 }
 
 async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> {
@@ -369,6 +417,43 @@ mod tests {
         let r = f.rejouer().await;
         assert_eq!(r.dropped, 1);
         assert_eq!(f.server.message_count("Archive"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_refusal_is_tried_again_then_given_up_and_said() {
+        let f = fixture();
+        let charge = OpPayload::Move {
+            folder: "INBOX".into(),
+            uids: vec![1],
+            target: "Archive".into(),
+        };
+        enqueue(&f.store, f.account, &charge, t(0)).unwrap();
+
+        // Office 365's "User is authenticated but not connected": it passes.
+        f.server
+            .refuse_next("BAD User is authenticated but not connected", 1);
+        let r = f.rejouer().await;
+        assert_eq!((r.dropped, r.failed), (0, 1));
+        assert_eq!(f.store.pending_op_count().unwrap(), 1);
+
+        // A refusal that lasts is given up in the end, and its reason kept.
+        let mut dernier = ReplayReport::default();
+        for essai in 1..=MAX_ATTEMPTS {
+            // Past the back-off each time (it reaches five minutes at most).
+            let quand = t(1_000_000 * essai as i64 + 10_000_000);
+            f.server.refuse_next("NO [OVERQUOTA] Mailbox is full", 1);
+            let ops = f.store.pending_ops(quand, 100).unwrap();
+            if ops.is_empty() {
+                break;
+            }
+            let mut c = f.conn().await;
+            dernier = replay_account(c.as_mut(), &f.store, &ops, quand)
+                .await
+                .unwrap();
+        }
+        assert_eq!(dernier.dropped, 1);
+        assert!(dernier.refused[0].contains("OVERQUOTA"));
+        assert_eq!(f.store.pending_op_count().unwrap(), 0);
     }
 
     #[tokio::test]

@@ -471,7 +471,12 @@ fn to_new_message(
     // recomputed: from the folder it filed the message in, from the headers its
     // filter wrote, or from the marker it stapled to the subject. Three sources
     // because providers use different ones, and any of them is a verdict.
-    if is_spam(folder, &brut.content, &analyse.subject) {
+    // Someone took it out of the junk (`$NotJunk`): the filter's headers stay on the
+    // message for ever, and a false positive put back in the inbox from a phone stayed
+    // hidden here.
+    let sauve = brut.flags.contains(iris_types::Flags::NOT_JUNK)
+        && folder.role != iris_store::FolderRole::Junk;
+    if !sauve && is_spam(folder, &brut.content, &analyse.subject) {
         flags = flags.with(iris_types::Flags::SPAM);
     }
 

@@ -181,6 +181,29 @@ pub fn schedule(
     alias: Option<&iris_types::Address>,
     quand: NaiveDateTime,
 ) -> Result<String> {
+    // Checked now, as sending at once checks it: kept unchecked, a mistyped address
+    // or files too heavy were refused at the time set, with nobody there, and tried
+    // again every half minute.
+    for champ in [&draft.to, &draft.cc, &draft.bcc] {
+        let (_, mauvaises) = iris_sync::parse_recipients(champ);
+        if let Some(m) = mauvaises.first() {
+            return Err(iris_types::Error::Config(format!(
+                "“{m}” is not an address"
+            )));
+        }
+    }
+    let poids: u64 = draft
+        .attachments
+        .iter()
+        .map(|p| p.content.len() as u64)
+        .sum();
+    if poids > iris_smtp::MAX_ATTACHMENTS {
+        return Err(iris_types::Error::Config(format!(
+            "the attachments come to {:.0} MB, and most servers refuse over {:.0}",
+            iris_smtp::mebibytes(poids),
+            iris_smtp::mebibytes(iris_smtp::MAX_ATTACHMENTS)
+        )));
+    }
     let a = Timestamp::from_millis(iris_calendar::time::zoned_millis(quand, &Local));
     services.store.schedule_mail(
         draft.account,

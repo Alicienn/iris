@@ -838,6 +838,41 @@ Since 4.8.0 (a second audit's critical findings):
   so a failure puts the message back and keeps Iris open, and a scheduled message that
   left is taken off the list. Emptying a folder is confirmed (`EmptyFolderPanel`).
 
+Since 4.9.0 (the same audit's high findings):
+
+- **Replay gives up only on what cannot pass.** A missing folder (`[NONEXISTENT]`,
+  `[TRYCREATE]`) drops an operation at once; any other refusal is retried with the
+  journal's back-off and given up after `replay::MAX_ATTEMPTS` (10), its reason in
+  `ReplayReport::refused`, carried to `TickReport::actions_refused` and said in the
+  status bar (`refused_line`). A pass whose folders fail on the network ends as a
+  failure (the first error, after a second one stops it), so the account shows it and
+  backs off.
+- **Gmail labels** (`folders::labels_not_folders`) are deleted without a rescue move.
+- **Undo after a sync** finds the thread again by its moved messages' `Message-ID`
+  (`Store::thread_of_message_id`), or still reverses the moves on the server.
+- **Back to inbox** (`Workflow::back_to_inbox`) moves the bin's and the junk's copies
+  to the inbox, clears `SPAM` and sets `$NotJunk` (`Flags::NOT_JUNK`, a protocol flag);
+  a message bearing `$NotJunk` is not taken for spam from its headers outside the junk.
+- **Replies** answer `reply_target` (the last message that is not a draft, the copy
+  whose body is here, else the inbox's) from `reply_account` (the mailbox already used
+  in the thread, else the first own address written to).
+- **Accounts.** Editing keeps the stored SMTP login; `accounts::set_password` writes
+  the sending password too when there is one. Long secrets go into the keyring in
+  parts of 1,000 characters (`iris-parts:N`), under Windows' 1,280. Every country's
+  Outlook, Hotmail and Live domain is known, and `AUTHENTICATE failed` is a refusal.
+- **Setting up.** A sending login is dropped only when it is the reading one (not when
+  it is the address); a profile without an address gives its sending details for any
+  (`du_profil`); `%EMAILDOMAIN%` is replaced; the sign-in check gives up after 30 s;
+  the TLS boxes reset; *Continue with Google* takes Gmail's servers whatever the MX.
+- **Sending.** `SendService::queue` finds a reply's thread by its `In-Reply-To`, so
+  `pump_outbox` puts it in Waiting. A server offering no usable `AUTH` is sent through
+  without a login (`LettreMailer::anonymous`); the `Message-ID` takes the sender's
+  domain. The Sent copy is tried twice within 45 s each, and a missing one is said.
+  Messages on their way are kept in `sending.json` until they leave
+  (`noter_en_route`); found there at start, they come back as minimised drafts. A
+  scheduled message is checked when scheduled, cannot be taken back while it leaves,
+  and a permanent refusal waits a day (`IssueEnvoi::Echec(_, passager)`).
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New

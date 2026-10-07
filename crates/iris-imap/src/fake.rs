@@ -54,6 +54,8 @@ pub struct FakeState {
     pub folders: BTreeMap<String, FakeFolder>,
     /// Erreur à renvoyer à la prochaine commande, puis effacée.
     pub next_error: Option<String>,
+    /// A refusal (`NO`, `BAD`) for the next commands, as many times as given.
+    pub refusals: Vec<String>,
     /// Refuser les connexions, pour éprouver la reprise.
     pub refuse_connections: bool,
     /// Résultat que doit rendre la prochaine attente `IDLE`.
@@ -189,6 +191,12 @@ impl FakeServer {
         self.state.lock().unwrap().next_error = Some(message.to_string());
     }
 
+    /// The next `times` commands are refused with `message`, as a server's `NO`.
+    pub fn refuse_next(&self, message: &str, times: usize) {
+        let mut state = self.state.lock().unwrap();
+        state.refusals = vec![message.to_string(); times];
+    }
+
     pub fn refuse_connections(&self, refuse: bool) {
         self.state.lock().unwrap().refuse_connections = refuse;
     }
@@ -249,8 +257,15 @@ impl FakeConnection {
     fn take_error(&self) -> Result<()> {
         // Une panne passagère, comme un serveur occupé ou une connexion coupée : un
         // refus définitif se simule par un dossier ou un message absent.
-        if let Some(message) = self.state.lock().unwrap().next_error.take() {
+        let mut state = self.state.lock().unwrap();
+        if let Some(message) = state.next_error.take() {
             return Err(Error::Network(message));
+        }
+        if let Some(message) = state.refusals.pop() {
+            return Err(Error::Protocol {
+                protocol: "IMAP",
+                message,
+            });
         }
         Ok(())
     }
@@ -288,7 +303,7 @@ impl ImapConnection for FakeConnection {
         let state = self.state.lock().unwrap();
         let f = state.folders.get(path).ok_or_else(|| Error::Protocol {
             protocol: "IMAP",
-            message: format!("dossier « {path} » inconnu"),
+            message: format!("[NONEXISTENT] dossier « {path} » inconnu"),
         })?;
 
         let selected = SelectedFolder {
@@ -496,7 +511,7 @@ impl ImapConnection for FakeConnection {
         if !state.folders.contains_key(target) {
             return Err(Error::Protocol {
                 protocol: "IMAP",
-                message: format!("dossier cible « {target} » inconnu"),
+                message: format!("[TRYCREATE] dossier cible « {target} » inconnu"),
             });
         }
 
@@ -528,7 +543,7 @@ impl ImapConnection for FakeConnection {
         if !state.folders.contains_key(folder) {
             return Err(Error::Protocol {
                 protocol: "IMAP",
-                message: format!("dossier « {folder} » inconnu"),
+                message: format!("[TRYCREATE] dossier « {folder} » inconnu"),
             });
         }
 

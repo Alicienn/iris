@@ -619,3 +619,8 @@ variant, brought into the application.
       when it breaks, capabilities recognised, no deletion on a doubtful answer,
       partial fetches completed one by one, operations stamped with their folder's
       validity, quitting that waits for sends, emptying a folder confirmed.
+- [x] **S41.23** Its high findings, fixed (4.9.0): refusals retried and said, Gmail
+      labels deleted in place, undo after a sync, rescues from the bin and the junk
+      with `$NotJunk`, whole quotes and the right sending mailbox in replies, SMTP
+      logins and passwords kept, failing passes reported, Microsoft tokens stored in
+      parts and every Microsoft domain known.

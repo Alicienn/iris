@@ -155,7 +155,9 @@ first time brings its newest mail first.
 moves it to the bin. Undo (`Ctrl`+`Z`) puts it back on the server too, and a
 conversation moved to another folder keeps its state (*Done*, *Waiting*, snoozed). A
 new message in a conversation you had marked done brings it back to *To do*, unless
-*Settings › A new message reopens the thread* is off. **Empty** on the bin or the junk
+*Settings › A new message reopens the thread* is off. **Back to inbox** (`u`), or
+dropping a conversation on the inbox, takes it out of the bin or the junk folder, and
+tells the server it is not junk. **Empty** on the bin or the junk
 folder deletes for good, once you have said yes. Quitting while a message is still on
 its way waits for it to leave; if it cannot, Iris stays open with your message.
 

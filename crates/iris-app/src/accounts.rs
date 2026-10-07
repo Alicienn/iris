@@ -122,10 +122,24 @@ pub async fn verify_login(config: &ServerConfig, password: &str) -> Result<()> {
         password: password.to_string(),
     };
 
-    let mut connexion = RustlsConnector::new()
-        .connect(&endpoint, &identifiants)
-        .await?;
-    let _ = connexion.logout().await;
+    // Within a limit: port 993 left in the clear, or a server that takes the
+    // connection and says nothing, kept the screen waiting for ever.
+    const LIMITE: std::time::Duration = std::time::Duration::from_secs(30);
+    let mut connexion = tokio::time::timeout(
+        LIMITE,
+        RustlsConnector::new().connect(&endpoint, &identifiants),
+    )
+    .await
+    .map_err(|_| {
+        Error::network(format!(
+            "{}:{} did not answer within {} seconds: check the server, its port and \
+             whether it is encrypted",
+            config.imap_host,
+            config.imap_port,
+            LIMITE.as_secs()
+        ))
+    })??;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), connexion.logout()).await;
     Ok(())
 }
 
@@ -332,7 +346,7 @@ pub fn update_account_manual(
         }
     }
     if let Some(motdepasse) = password.filter(|p| !p.is_empty()) {
-        secrets.set(&email, SecretKind::Password, &Secret::new(motdepasse))?;
+        set_password(secrets, &email, motdepasse)?;
     }
 
     store.update_account_servers(
@@ -346,7 +360,13 @@ pub fn update_account_manual(
             smtp_port: config.smtp_port,
             smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
             imap_user: config.imap_user.clone().unwrap_or_default(),
-            smtp_user: config.smtp_user.clone().unwrap_or_default(),
+            // Not on the screen, so not in what it gives: kept as it was. Editing an
+            // account whose profile signs in to send as `jdoe-smtp` emptied it, and
+            // every message was refused after.
+            smtp_user: config
+                .smtp_user
+                .clone()
+                .unwrap_or_else(|| ancien.smtp_user.clone()),
         },
     )?;
 
@@ -453,6 +473,18 @@ pub fn manual_defaults(email: &str) -> ServerConfig {
         imap_user: None,
         smtp_user: None,
     }
+}
+
+/// A new password for a mailbox, typed where Iris shows one password.
+///
+/// Sending prefers a profile's own sending password when there is one: a password
+/// changed on its own left sending on the old one, refused for ever.
+pub fn set_password(secrets: &dyn SecretStore, email: &str, password: &str) -> Result<()> {
+    secrets.set(email, SecretKind::Password, &Secret::new(password))?;
+    if secrets.get(email, SecretKind::SmtpPassword)?.is_some() {
+        secrets.set(email, SecretKind::SmtpPassword, &Secret::new(password))?;
+    }
+    Ok(())
 }
 
 /// Supprime un compte, ses messages et ses secrets.

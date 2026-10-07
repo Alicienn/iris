@@ -2006,7 +2006,9 @@ fn remplace_dernier_destinataire(champ: &str, choix: &str) -> String {
 #[derive(Debug, Clone)]
 pub enum IssueEnvoi {
     Parti,
-    Echec(String),
+    /// Why, and whether trying again can help (a refused recipient, login or alias
+    /// cannot).
+    Echec(String, bool),
 }
 
 /// What follows once a message's fate is known.
@@ -2051,6 +2053,88 @@ thread_local! {
     /// Quitting waits for messages on their way.
     static EN_PARTANCE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static ATTENTE_DE_SORTIE: slint::Timer = slint::Timer::default();
+}
+
+/// The messages written here that are on their way, as drafts, and the file they are
+/// kept in until they have left.
+type EnRoute = (
+    Vec<(iris_smtp::SendHandle, crate::draft::Draft)>,
+    Option<std::path::PathBuf>,
+);
+
+thread_local! {
+    static EN_ROUTE: std::cell::RefCell<EnRoute> =
+        const { std::cell::RefCell::new((Vec::new(), None)) };
+}
+
+/// Keeps a message on its way on this computer until it has left. The outbox lives in
+/// memory: Iris closed by a crash, or Windows restarting, during the undo delay, and
+/// the message was gone, its window already emptied.
+fn noter_en_route(handle: iris_smtp::SendHandle, brouillon: crate::draft::Draft) {
+    EN_ROUTE.with(|e| {
+        let mut e = e.borrow_mut();
+        e.0.push((handle, brouillon));
+        if let Some(chemin) = &e.1 {
+            let tous: Vec<_> = e.0.iter().map(|(_, b)| b.clone()).collect();
+            let _ = crate::draft::Draft::save_all(&tous, chemin);
+        }
+    });
+}
+
+/// A message as a draft to keep: its attachments counted, not kept.
+fn brouillon_de(message: &iris_smtp::Outgoing) -> crate::draft::Draft {
+    crate::draft::Draft {
+        to: liste_adresses(&message.to),
+        cc: liste_adresses(&message.cc),
+        bcc: liste_adresses(&message.bcc),
+        subject: message.subject.clone(),
+        body: message.text_body.clone(),
+        lost_attachments: message.attachments.len() as u32,
+        sender: message.from.addr.clone(),
+    }
+}
+
+/// It has left, failed (and is back in a window) or was taken back.
+fn oublier_en_route(handle: iris_smtp::SendHandle) {
+    EN_ROUTE.with(|e| {
+        let mut e = e.borrow_mut();
+        e.0.retain(|(h, _)| *h != handle);
+        if let Some(chemin) = &e.1 {
+            let tous: Vec<_> = e.0.iter().map(|(_, b)| b.clone()).collect();
+            let _ = crate::draft::Draft::save_all(&tous, chemin);
+        }
+    });
+}
+
+/// At start: the messages that were on their way when Iris last closed, put down at
+/// the foot of the window to send again. Not sent again by themselves: one may have
+/// left just before, and two copies are worse than a bar to click.
+fn reprendre_en_route(fenetre: &AppWindow, chemin: std::path::PathBuf) {
+    let restes = crate::draft::Draft::load_all(&chemin);
+    let _ = crate::draft::Draft::clear(&chemin);
+    EN_ROUTE.with(|e| e.borrow_mut().1 = Some(chemin));
+    if restes.is_empty() {
+        return;
+    }
+    let n = restes.len();
+    for brouillon in restes {
+        garder_en_bas(
+            fenetre,
+            Reduit {
+                brouillon,
+                pieces: Vec::new(),
+            },
+        );
+    }
+    let qui = if n == 1 {
+        "A message was".to_string()
+    } else {
+        format!("{n} messages were")
+    };
+    fenetre.set_status(
+        format!("{qui} on its way when Iris closed: kept at the bottom right, to send again.")
+            .into(),
+    );
 }
 
 /// How many messages the window sent that have not finished leaving.
@@ -2131,7 +2215,9 @@ impl AvisEnvoi {
             (fenetre.get_undo_send_seconds().max(0) as u32).clamp(*bornes.start(), *bornes.end());
         self.send
             .set_delay(std::time::Duration::from_secs(secondes as u64));
+        let garde = brouillon_de(&message);
         let handle = self.send.queue(message)?;
+        noter_en_route(handle, garde);
         self.en_vol.borrow_mut().insert(
             handle,
             EnVol {
@@ -2229,6 +2315,7 @@ impl AvisEnvoi {
             return;
         };
         if self.send.cancel(handle) {
+            oublier_en_route(handle);
             let envol = self.en_vol.borrow_mut().remove(&handle);
             if let Some(EnVol {
                 suite: Suite::Remettre(remettre),
@@ -2249,10 +2336,11 @@ impl AvisEnvoi {
         if self.en_attente.get() == Some(handle) {
             self.fermer(fenetre);
         }
+        oublier_en_route(handle);
         let envol = self.en_vol.borrow_mut().remove(&handle);
         let Some(EnVol { libelle, suite }) = envol else {
             // Not written here (an answer to an invitation): a failure is still said.
-            if let IssueEnvoi::Echec(e) = issue {
+            if let IssueEnvoi::Echec(e, _) = issue {
                 fenetre.set_status(format!("A message could not be sent: {e}").into());
             }
             return;
@@ -2261,7 +2349,7 @@ impl AvisEnvoi {
             (Suite::Remettre(_), IssueEnvoi::Parti) => {
                 fenetre.set_status("Message sent.".into());
             }
-            (Suite::Remettre(remettre), IssueEnvoi::Echec(e)) => {
+            (Suite::Remettre(remettre), IssueEnvoi::Echec(e, _)) => {
                 remettre(fenetre);
                 // Quitting would lose it: Iris stays, and shows it.
                 let restee = EN_PARTANCE.replace(false);
@@ -2285,14 +2373,24 @@ impl AvisEnvoi {
                 fenetre.set_status("A scheduled message was sent.".into());
                 rafraichir_plus_tard(fenetre, &services);
             }
-            (Suite::Programme { id, services }, IssueEnvoi::Echec(e)) => {
+            (Suite::Programme { id, services }, IssueEnvoi::Echec(e, passager)) => {
                 // Kept, and tried again a little later; it can be taken back meanwhile.
-                let plus_tard = iris_types::Timestamp::from_millis(now().millis() + 5 * 60 * 1000);
+                // A refusal that will not pass (a recipient refused, a login or an
+                // alias gone) was tried every five minutes for ever: it waits a day,
+                // for the user to open it and correct it.
+                let attente = if passager { 5 * 60 } else { 24 * 3600 };
+                let plus_tard = iris_types::Timestamp::from_millis(now().millis() + attente * 1000);
                 let _ = services.store.postpone_scheduled_mail(id, plus_tard);
                 fenetre.set_status(
-                    format!(
-                        "“{libelle}” could not be sent: {e}. Iris will try again in five minutes."
-                    )
+                    if passager {
+                        format!(
+                            "“{libelle}” could not be sent: {e}. Iris will try again in five minutes."
+                        )
+                    } else {
+                        format!(
+                            "“{libelle}” was refused: {e}. It stays in Send later: open it there to correct it."
+                        )
+                    }
                     .into(),
                 );
                 rafraichir_plus_tard(fenetre, &services);
@@ -3145,6 +3243,10 @@ pub fn wire_account_setup(
             fenetre.set_new_imap_port(Default::default());
             fenetre.set_new_smtp_host(Default::default());
             fenetre.set_new_smtp_port(Default::default());
+            // Back to encrypted: an account edited before with STARTTLS left the boxes
+            // unticked, and the next new account went to 993 and 465 without TLS.
+            fenetre.set_new_imap_tls(true);
+            fenetre.set_new_smtp_tls(true);
             fenetre.set_profile_choices(ModelRc::default());
             EDITION.with(|e| e.set(None));
             ENVOI_DU_PROFIL.with(|e| *e.borrow_mut() = None);
@@ -3228,6 +3330,9 @@ pub fn wire_account_setup(
             };
             let email = fenetre.get_new_email().to_string();
             let motdepasse = fenetre.get_new_password().to_string();
+            // Asked by "Continue with Google", read once.
+            let google = fenetre.get_add_account_google();
+            fenetre.set_add_account_google(false);
 
             // On an account that already exists, this button means "save the new
             // password". There is nothing to discover: the servers are known, they
@@ -3254,11 +3359,7 @@ pub fn wire_account_setup(
                     fenetre.set_add_account_error("Enter the new password.".into());
                     return;
                 }
-                match secrets.set(
-                    &email,
-                    iris_secrets::SecretKind::Password,
-                    &iris_secrets::Secret::new(motdepasse),
-                ) {
+                match crate::accounts::set_password(secrets.as_ref(), &email, &motdepasse) {
                     Ok(()) => {
                         fenetre.invoke_add_account_dismissed();
                         fenetre.set_status("Password saved, checking it with the server…".into());
@@ -3327,6 +3428,7 @@ pub fn wire_account_setup(
                     &oauth,
                     &email,
                     &motdepasse,
+                    google,
                     now(),
                     move |etape| {
                         let _ = progression.upgrade_in_event_loop(move |fenetre| {
@@ -3597,11 +3699,22 @@ async fn ajouter(
     oauth: &Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
     email: &str,
     motdepasse: &str,
+    google: bool,
     maintenant: iris_types::Timestamp,
     etape: impl Fn(&'static str),
 ) -> iris_types::Result<crate::accounts::AddedAccount> {
     etape("Recherche de la configuration…");
-    let decouverte = crate::accounts::discover(email).await?;
+    // "Continue with Google" says it is a Google account, whatever the domain's mail
+    // exchangers say: Workspace behind Proofpoint or Mimecast was taken for a
+    // password account, and the button signed in with nothing.
+    let decouverte = match iris_discover::builtin::lookup("gmail.com").filter(|_| google) {
+        Some(gmail) => iris_discover::Discovered {
+            config: gmail.to_config(email),
+            source: iris_discover::Source::Builtin,
+            attempts: Vec::new(),
+        },
+        None => crate::accounts::discover(email).await?,
+    };
     let mut config = decouverte.config.clone();
 
     let mut fournisseur = match config.auth {
@@ -3716,10 +3829,12 @@ fn prefill_manual(fenetre: &AppWindow) {
     if fenetre.get_new_imap_host().is_empty() {
         fenetre.set_new_imap_host(defauts.imap_host.as_str().into());
         fenetre.set_new_imap_port(defauts.imap_port.to_string().into());
+        fenetre.set_new_imap_tls(defauts.imap_transport == iris_discover::Transport::Tls);
     }
     if fenetre.get_new_smtp_host().is_empty() {
         fenetre.set_new_smtp_host(defauts.smtp_host.as_str().into());
         fenetre.set_new_smtp_port(defauts.smtp_port.to_string().into());
+        fenetre.set_new_smtp_tls(defauts.smtp_transport == iris_discover::Transport::Tls);
     }
 }
 
@@ -3786,9 +3901,9 @@ fn fill_from_profile_account(
     if !c.email.is_empty() {
         fenetre.set_new_email(c.email.as_str().into());
     }
-    if let Some(p) = &compte.password {
-        fenetre.set_new_password(p.as_str().into());
-    }
+    // Emptied when this account of the profile has none: picking another account of
+    // a profile kept the previous one's password, and tried it on this one.
+    fenetre.set_new_password(compte.password.as_deref().unwrap_or_default().into());
     fenetre.set_new_username(c.imap_user.as_deref().unwrap_or_default().into());
     ENVOI_DU_PROFIL.with(|e| {
         *e.borrow_mut() = Some((
@@ -3886,7 +4001,7 @@ fn config_saisie(
     let smtp_user = ENVOI_DU_PROFIL.with(|e| {
         e.borrow()
             .as_ref()
-            .filter(|(pour, _, _)| pour.eq_ignore_ascii_case(&adresse))
+            .filter(|(pour, _, _)| du_profil(pour, &adresse))
             .and_then(|(_, u, _)| u.clone())
     });
 
@@ -3911,9 +4026,16 @@ fn mot_de_passe_d_envoi(adresse: &str) -> Option<String> {
     ENVOI_DU_PROFIL.with(|e| {
         e.borrow()
             .as_ref()
-            .filter(|(pour, _, _)| pour.eq_ignore_ascii_case(adresse.trim()))
+            .filter(|(pour, _, _)| du_profil(pour, adresse.trim()))
             .and_then(|(_, _, p)| p.clone())
     })
+}
+
+/// Whether the address typed is the one the profile's sending details are for. A
+/// profile that gives no address (the user types it) gives them for any: matched
+/// against an empty address, its sending login and password were always dropped.
+fn du_profil(pour: &str, adresse: &str) -> bool {
+    pour.is_empty() || pour.eq_ignore_ascii_case(adresse)
 }
 
 /// Branche l'enregistrement des pièces jointes.
@@ -4610,6 +4732,10 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                 }
                 iris_store::Scope::Role(iris_store::FolderRole::Archive) => {
                     controller.send(Request::ApplyToMarked(iris_viewmodel::Action::Archive));
+                }
+                // Dropped on the inbox: back to it, out of the bin or the junk.
+                iris_store::Scope::Role(iris_store::FolderRole::Inbox) => {
+                    controller.send(Request::ApplyToMarked(iris_viewmodel::Action::Todo));
                 }
                 _ => fenetre.set_status("That folder cannot take dropped mail.".into()),
             }
@@ -5630,10 +5756,10 @@ pub fn wire_account_recovery(
                 return;
             };
 
-            if let Err(e) = services.secrets.set(
+            if let Err(e) = crate::accounts::set_password(
+                services.secrets.as_ref(),
                 &details.email,
-                iris_secrets::SecretKind::Password,
-                &iris_secrets::Secret::new(motdepasse),
+                &motdepasse,
             ) {
                 fenetre.set_problem_result(format!("Could not save the password: {e}").into());
                 return;
@@ -5861,6 +5987,7 @@ pub fn wire_compose(
             .collect();
     });
     montrer_reduits(fenetre);
+    reprendre_en_route(fenetre, chemin_reduits.with_file_name("sending.json"));
     {
         let chemin = chemin_reduits.clone();
         let chemin_brouillon = chemin_brouillon.clone();
@@ -6359,6 +6486,15 @@ pub fn wire_compose(
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
+            // On its way already: taken back now, it went and came back to the
+            // editor too, and sending it again made two.
+            let en_route = AVIS
+                .with(|a| a.borrow().upgrade())
+                .is_some_and(|avis| avis.programmes_en_vol().contains(&(id as i64)));
+            if en_route {
+                fenetre.set_status("That message is being sent now.".into());
+                return;
+            }
             let Some((d, alias)) = crate::later::take(&services, id as i64) else {
                 fenetre.set_status("That message is no longer waiting.".into());
                 return;

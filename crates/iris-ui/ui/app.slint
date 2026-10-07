@@ -568,6 +568,8 @@ export component AppWindow inherits Window {
     in-out property <string> new-imap-port: "993";
     in-out property <string> new-smtp-host;
     in-out property <string> new-smtp-port: "465";
+    /// "Continue with Google" was pressed: a Google account, whatever its domain.
+    in-out property <bool> add-account-google;
     in-out property <bool> new-imap-tls: true;
     in-out property <bool> new-smtp-tls: true;
 
@@ -2757,6 +2759,7 @@ export component AppWindow inherits Window {
         google-ready: root.oauth-google-id != "";
         google => {
             root.new-password = "";
+            root.add-account-google = true;
             root.add-account-discover();
         }
         dismissed => { root.add-account-dismissed(); }

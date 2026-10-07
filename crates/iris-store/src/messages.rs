@@ -11,7 +11,7 @@ use crate::{sql_err, Store};
 use iris_types::{
     AccountId, Flags, FolderId, MessageId, Result, ThreadId, Timestamp, WorkflowState,
 };
-use rusqlite::{params, params_from_iter, Transaction};
+use rusqlite::{params, params_from_iter, OptionalExtension, Transaction};
 
 /// Résultat de l'insertion d'un message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +112,31 @@ impl Store {
                 |r| r.get::<_, bool>(0),
             )
             .map_err(|e| sql_err("copies du message", e))
+        })
+    }
+
+    /// The thread a message of this `Message-ID` is in now, on this account: where a
+    /// moved message came back under a new thread once its old copy was dropped.
+    pub fn thread_of_message_id(
+        &self,
+        account: AccountId,
+        message_id: &str,
+    ) -> Result<Option<ThreadId>> {
+        let id = message_id
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>');
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT thread_id FROM messages
+                 WHERE account_id = ?1 AND rfc_message_id = ?2
+                 ORDER BY id DESC LIMIT 1",
+                params![account.get(), id],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
+            .map(|t| t.map(ThreadId))
+            .map_err(|e| sql_err("fil du message", e))
         })
     }
 
@@ -409,6 +434,15 @@ impl Store {
         self.with_tx(|tx| {
             let mut touches = std::collections::BTreeSet::new();
             let mut appliques = 0;
+            let indesirables: bool = tx
+                .query_row(
+                    "SELECT role = 'junk' FROM folders WHERE id = ?1",
+                    params![folder.get()],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(|e| sql_err("rôle du dossier", e))?
+                .unwrap_or(false);
 
             for (uid, flags) in changes {
                 let existant: Option<(i64, i64)> = {
@@ -429,9 +463,14 @@ impl Store {
                 // unsubscribe). Overwriting the whole field dropped those at every flag
                 // change, our own mark-read included: a spam message came back into
                 // the queue once read.
-                let fusion = Flags(
+                let mut fusion = Flags(
                     (flags.0 & Flags::PROTOCOL.0) | (actuels as u32 & !Flags::PROTOCOL.0),
                 );
+                // Taken out of the junk elsewhere (a phone sets `$NotJunk`): no longer
+                // spam here either, outside the junk folder.
+                if fusion.contains(Flags::NOT_JUNK) && !indesirables {
+                    fusion = fusion.without(Flags::SPAM);
+                }
 
                 // Ne rien écrire quand rien ne change : sur une resynchronisation
                 // complète, la quasi-totalité des drapeaux sont identiques.
