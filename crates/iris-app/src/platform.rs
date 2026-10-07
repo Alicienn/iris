@@ -151,6 +151,20 @@ mod windows_impl {
         ) == Some(0)
     }
 
+    /// How the user writes numbers and dates (Settings › Time & language › Region):
+    /// the decimal sign, the thousands sign, and whether the day comes first.
+    pub fn number_style() -> (char, char, bool) {
+        const REGION: &str = r"Control Panel\International";
+        let signe = |nom: &str, defaut: char| {
+            reg::read_string(reg::HKCU, REGION, nom)
+                .and_then(|s| s.chars().next())
+                .unwrap_or(defaut)
+        };
+        let jour_avant = reg::read_string(reg::HKCU, REGION, "sShortDate")
+            .is_none_or(|f| f.to_ascii_lowercase().starts_with('d'));
+        (signe("sDecimal", '.'), signe("sThousand", ','), jour_avant)
+    }
+
     /// Démarrer, ou non, à l'ouverture de session.
     ///
     /// Une valeur sous `Run`, et rien d'autre. Une tâche planifiée demanderait une
@@ -347,6 +361,40 @@ mod windows_impl {
             }
         }
 
+        /// A text (`REG_SZ`), if the value is there and is one.
+        #[allow(unsafe_code)]
+        pub fn read_string(hive: HKEY, path: &str, name: &str) -> Option<String> {
+            let chemin = wide(path);
+            let nom = wide(name);
+            let mut cle: HKEY = std::ptr::null_mut();
+            // SÛRETÉ : même contrat que `read_dword` ; le tampon fait les octets annoncés.
+            if unsafe { RegOpenKeyExW(hive, chemin.as_ptr(), 0, KEY_READ, &mut cle) }
+                != ERROR_SUCCESS
+            {
+                return None;
+            }
+            let mut tampon = [0u16; 64];
+            let mut taille: u32 = (tampon.len() * 2) as u32;
+            let mut genre: u32 = 0;
+            let lu = unsafe {
+                RegQueryValueExW(
+                    cle,
+                    nom.as_ptr(),
+                    std::ptr::null(),
+                    &mut genre,
+                    tampon.as_mut_ptr().cast(),
+                    &mut taille,
+                )
+            };
+            unsafe { RegCloseKey(cle) };
+            if lu != ERROR_SUCCESS || genre != REG_SZ {
+                return None;
+            }
+            let n = (taille as usize / 2).min(tampon.len());
+            let texte = String::from_utf16_lossy(&tampon[..n]);
+            Some(texte.trim_end_matches('\0').to_string())
+        }
+
         #[allow(unsafe_code)]
         pub fn delete_tree(hive: HKEY, path: &str) {
             let chemin = wide(path);
@@ -384,10 +432,14 @@ mod windows_impl {
     pub fn system_dark() -> bool {
         false
     }
+    pub fn number_style() -> (char, char, bool) {
+        ('.', ',', false)
+    }
 }
 
 pub use windows_impl::{
-    register_mailto, set_start_at_login, status, system_dark, unregister_mailto, Registration,
+    number_style, register_mailto, set_start_at_login, status, system_dark, unregister_mailto,
+    Registration,
 };
 
 /// Ouvre un fichier avec l'application que le système lui associe.

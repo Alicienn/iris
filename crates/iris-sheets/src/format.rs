@@ -133,6 +133,8 @@ impl Default for Locale {
 /// `n` with `decimales` decimals and the thousands separated.
 fn fixe(n: f64, decimales: u8, l: &Locale) -> String {
     let s = format!("{:.*}", decimales as usize, n.abs());
+    // No minus before a number that rounds to nothing.
+    let negatif = n < 0.0 && s.chars().any(|c| c.is_ascii_digit() && c != '0');
     let (entiers, fraction) = match s.split_once('.') {
         Some((e, f)) => (e.to_string(), Some(f.to_string())),
         None => (s, None),
@@ -145,8 +147,7 @@ fn fixe(n: f64, decimales: u8, l: &Locale) -> String {
         groupe.push(c);
     }
     let mut sortie = String::new();
-    // No minus before a number that rounds to nothing.
-    if n < 0.0 && s.chars().any(|c| c.is_ascii_digit() && c != '0') {
+    if negatif {
         sortie.push('-');
     }
     sortie.push_str(&groupe);
