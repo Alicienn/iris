@@ -223,6 +223,18 @@ property**, not by discipline:
    Since 3.14.0 the TCP connection tries a server's IPv4 addresses first, then its IPv6
    ones, 8 s each: on a network whose IPv6 goes nowhere, Gmail's IPv6 addresses each
    held the whole attempt for Windows' twenty seconds and used up `connect_timeout`.
+   Since 4.4.1 the sign-in reads the server's greeting first (`sign_in` in
+   `iris-imap/src/client.rs`): `async_imap::Client::new` leaves it unread, `LOGIN`
+   skips it, but `AUTHENTICATE XOAUTH2` took it for the end of the exchange and never
+   answered Gmail's `+`, so every Google account timed out at sign-in. A refused token's
+   reason is answered with an empty line, as SASL wants. Failed passes are written to
+   the log once per new reason (`note_failure`).
+
+   Deletions made elsewhere are looked for on any pass where a folder's count gives
+   them away — fewer messages on the server than in the local copy once the new ones
+   are in — and not only on the periodic scan (`deletion_scan_every`, one cycle in
+   ten), which is now the backstop. Folders whose server keeps no `MODSEQ` see their
+   deletions too; they were skipped before.
 
 ### Known departures
 

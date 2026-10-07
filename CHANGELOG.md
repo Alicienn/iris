@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.4.1 — 2026-10-07
+
+### Fixed
+- Gmail accounts signed in with Google sync instead of failing.
+- A message moved to the bin on another device leaves Inbox at the next sync.
+
 ## 4.4.0 — 2026-10-01
 
 ### New

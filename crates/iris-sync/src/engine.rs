@@ -40,7 +40,9 @@ pub struct EngineConfig {
     /// Un cycle sur combien relève les suppressions distantes.
     ///
     /// L'opération coûte une recherche sur tout le dossier : la faire à chaque tour
-    /// gaspillerait l'essentiel du budget réseau pour un événement rare.
+    /// gaspillerait l'essentiel du budget réseau pour un événement rare. A pass whose
+    /// message count drops makes it anyway (`sync_folder`); this scan is the backstop
+    /// for what the count cannot show.
     pub deletion_scan_every: u32,
     /// How long reaching a server and signing in may take.
     pub connect_timeout: std::time::Duration,
@@ -505,8 +507,8 @@ impl SyncEngine {
                     rapport.added += bilan.added;
                 }
                 // One unreachable server must not stop the other ninety-nine.
+                // `note_failure` has logged it.
                 Err(e) => {
-                    tracing::warn!(account = %compte.email, error = %e, "sync failed");
                     rapport.failed.push((compte.email.clone(), e.to_string()));
                 }
             }
@@ -554,10 +556,17 @@ impl SyncEngine {
         };
         match error {
             Some(e) => {
+                // Into the log once per new reason. The scheduled pass logged nothing,
+                // so an account that only ever failed in the background left no trace
+                // of why — a Google account stuck at sign-in among them.
+                let message = e.to_string();
+                if failures.get(&account).map(|f| &f.message) != Some(&message) {
+                    tracing::warn!(account = %account, error = %message, "sync failed");
+                }
                 failures.insert(
                     account,
                     AccountFailure {
-                        message: e.to_string(),
+                        message,
                         needs_password: e.needs_user_action(),
                         at: now_utc(),
                     },
@@ -1481,8 +1490,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn le_releve_des_suppressions_est_periodique() {
-        // Le faire à chaque tour gaspillerait l'essentiel du budget réseau.
+    async fn a_remote_deletion_is_seen_on_the_next_pass_not_the_next_scan() {
+        // The periodic scan came one pass in ten, and a quiet account is visited once
+        // an hour: a message binned from a phone stayed in Inbox here for most of a day.
         let f = fixture_with(EngineConfig {
             deletion_scan_every: 3,
             ..Default::default()
@@ -1495,13 +1505,10 @@ mod tests {
 
         f.server.remove("INBOX", 2);
 
-        // Tours 1 et 2 : pas de relevé.
-        f.engine.tick(t(100_000)).await;
-        f.engine.tick(t(200_000)).await;
-        assert_eq!(f.store.message_count().unwrap(), 4);
-
-        // Tour 3 : relevé.
-        let r = f.engine.tick(t(300_000)).await;
+        // Cycle 1: not a scan cycle.
+        let r = f.engine.tick(t(400_000)).await;
+        assert_eq!(r.accounts_synced, 1);
         assert_eq!(r.messages_deleted, 1);
+        assert_eq!(f.store.message_count().unwrap(), 3);
     }
 }

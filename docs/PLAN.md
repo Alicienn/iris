@@ -559,3 +559,7 @@ variant, brought into the application.
       (mail blue, calendar red, tasks orange) round a pupil, on a white plate; in
       `iris.ico` (16 to 256 px: the executable, the installer, the notification
       area), the README and the side column's badge.
+- [x] **S41.13** Mail that tells the truth (4.4.1): Google accounts sign in (the IMAP
+      greeting is read before `AUTHENTICATE XOAUTH2`), a message binned on another
+      device leaves Inbox at the next pass, not the next deletion scan, and a sync
+      failure is written to the log.

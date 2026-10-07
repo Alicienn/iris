@@ -180,9 +180,26 @@ pub async fn sync_folder(
     }
 
     // --- Suppressions faites ailleurs ---
-    if options.detect_deletions && !complet {
+    //
+    // Looked for on the scheduled scan, and on any pass where the count gives it away:
+    // once the new messages are in, the server holding fewer than the local copy means
+    // some went — moved to the bin from a phone, most often. Waiting for the scan alone
+    // left them in Inbox here for hours, since a quiet account is visited once an hour
+    // and scanned one visit in ten.
+    //
+    // Not on a first visit or after a rebuilt mailbox: there is nothing local to drop.
+    // A folder whose server keeps no `MODSEQ` is no reason to skip it, though: that
+    // only stops flag changes from being asked for, and it kept such folders' deletions
+    // from ever being seen.
+    let deja_connu = !(validite_changee || premiere_visite);
+    let locaux = if deja_connu {
+        store.folder_uids(folder.id)?
+    } else {
+        Vec::new()
+    };
+    let en_trop = !rapport.more_available && locaux.len() as u64 > etat.exists as u64;
+    if deja_connu && (options.detect_deletions || en_trop) {
         let distants = conn.existing_uids(UidRange::ALL).await?;
-        let locaux = store.folder_uids(folder.id)?;
         let disparus = missing_uids(&locaux, &distants);
         if !disparus.is_empty() {
             rapport.deleted = store.delete_messages_by_uid(folder.id, &disparus)?;
@@ -541,11 +558,8 @@ mod tests {
         f.sync(FolderSyncOptions::default()).await;
 
         f.server.remove("INBOX", 2);
-
-        // Sans détection, la suppression passe inaperçue.
-        let r = f.sync(FolderSyncOptions::default()).await;
-        assert_eq!(r.deleted, 0);
-        assert_eq!(f.store.message_count().unwrap(), 4);
+        f.server
+            .deliver("INBOX", &message("m4", "m4@x"), Flags::NONE);
 
         let r = f
             .sync(FolderSyncOptions {
@@ -553,8 +567,77 @@ mod tests {
                 ..Default::default()
             })
             .await;
+        assert_eq!(r.added, 1);
         assert_eq!(r.deleted, 1);
-        assert_eq!(f.store.message_count().unwrap(), 3);
+        assert_eq!(f.store.message_count().unwrap(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_message_binned_elsewhere_leaves_inbox_on_the_next_pass() {
+        // Moved to the bin from a phone: the inbox holds one fewer than the local copy.
+        let f = fixture();
+        for i in 0..3 {
+            f.server.deliver(
+                "INBOX",
+                &message(&format!("m{i}"), &format!("m{i}@x")),
+                Flags::NONE,
+            );
+        }
+        f.sync(FolderSyncOptions::default()).await;
+
+        f.server.remove("INBOX", 1);
+        let r = f.sync(FolderSyncOptions::default()).await;
+        assert_eq!(r.deleted, 1, "without waiting for the scheduled scan");
+        assert_eq!(f.store.message_count().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_folder_without_modseq_still_sees_its_deletions() {
+        let store = Store::in_memory().unwrap();
+        let account = store
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
+            .unwrap();
+        store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        let server = FakeServer::legacy();
+        server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+        let deux = server.deliver("INBOX", &message("Deux", "m2@x"), Flags::NONE);
+
+        async fn passe(store: &Store, server: &FakeServer, account: AccountId) -> FolderReport {
+            let folder = store.folders(account).unwrap().into_iter().next().unwrap();
+            let mut c = server
+                .connect(
+                    &Endpoint::tls("x", 993),
+                    &Credentials::Password {
+                        user: "a@x.fr".into(),
+                        password: "p".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            sync_folder(
+                c.as_mut(),
+                store,
+                account,
+                &folder,
+                FolderSyncOptions {
+                    detect_deletions: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+        }
+        passe(&store, &server, account).await;
+
+        server.remove("INBOX", deux);
+        let r = passe(&store, &server, account).await;
+        assert_eq!(r.deleted, 1);
+        assert_eq!(store.message_count().unwrap(), 1);
     }
 
     #[tokio::test]

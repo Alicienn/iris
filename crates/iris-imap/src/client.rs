@@ -138,24 +138,7 @@ impl Connector for RustlsConnector {
         }
 
         let tls = self.tls_stream(endpoint).await?;
-        let client = async_imap::Client::new(tls);
-
-        let session = match credentials {
-            Credentials::Password { user, password } => client
-                .login(user, password)
-                .await
-                .map_err(|(e, _)| translate_login_error(e, user))?,
-            Credentials::OAuth2 { user, token } => {
-                let auth = XOAuth2 {
-                    user: user.clone(),
-                    token: token.clone(),
-                };
-                client
-                    .authenticate("XOAUTH2", auth)
-                    .await
-                    .map_err(|(e, _)| translate_login_error(e, user))?
-            }
-        };
+        let session = sign_in(tls, credentials).await?;
 
         let mut connection = ImapClient {
             session: Some(session),
@@ -166,16 +149,72 @@ impl Connector for RustlsConnector {
     }
 }
 
+/// Reads the server's greeting, then signs in.
+///
+/// `async_imap::Client::new` leaves the greeting (`* OK Gimap ready…`) unread. `LOGIN`
+/// never noticed: it skips untagged lines on its way to its own answer. `AUTHENTICATE`
+/// did: it took the greeting for the end of the exchange, never answered the server's
+/// `+`, and waited with Gmail until the connection timed out. Every account signed in
+/// with Google failed that way, as "did not answer".
+async fn sign_in<T>(stream: T, credentials: &Credentials) -> Result<async_imap::Session<T>>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    use async_imap::imap_proto::{Response, Status};
+
+    let mut client = async_imap::Client::new(stream);
+    let accueil = client
+        .read_response()
+        .await
+        .map_err(|e| Error::network(format!("greeting from the server: {e}")))?
+        .ok_or_else(|| Error::network("the server closed the connection before greeting"))?;
+    if let Response::Data {
+        status: Status::Bye,
+        information,
+        ..
+    } = accueil.parsed()
+    {
+        return Err(Error::network(format!(
+            "the server refused the connection: {}",
+            information.as_deref().unwrap_or("no reason given")
+        )));
+    }
+
+    match credentials {
+        Credentials::Password { user, password } => client
+            .login(user, password)
+            .await
+            .map_err(|(e, _)| translate_login_error(e, user)),
+        Credentials::OAuth2 { user, token } => {
+            let auth = XOAuth2 {
+                user: user.clone(),
+                token: token.clone(),
+                sent: false,
+            };
+            client
+                .authenticate("XOAUTH2", auth)
+                .await
+                .map_err(|(e, _)| translate_login_error(e, user))
+        }
+    }
+}
+
 /// Mécanisme `XOAUTH2`, tel qu'attendu par Google et Microsoft.
 struct XOAuth2 {
     user: String,
     token: String,
+    /// The token has gone. A second challenge is the server's reason for refusing it
+    /// (base64 JSON), and SASL wants an empty line back, not the token again.
+    sent: bool,
 }
 
 impl async_imap::Authenticator for XOAuth2 {
     type Response = String;
 
     fn process(&mut self, _challenge: &[u8]) -> Self::Response {
+        if std::mem::replace(&mut self.sent, true) {
+            return String::new();
+        }
         format!("user={}\x01auth=Bearer {}\x01\x01", self.user, self.token)
     }
 }
@@ -767,9 +806,128 @@ mod tests {
         let mut m = XOAuth2 {
             user: "a@x.fr".into(),
             token: "jeton".into(),
+            sent: false,
         };
         let reponse = m.process(b"");
         assert_eq!(reponse, "user=a@x.fr\x01auth=Bearer jeton\x01\x01");
+        // The server's reason for a refusal is answered with an empty line.
+        assert_eq!(m.process(b"{\"status\":\"400\"}"), "");
+    }
+
+    /// Plays the server's side of a sign-in, as Gmail does: a greeting, a `+` after
+    /// `AUTHENTICATE`, then `answer` once the client has replied. Returns the lines the
+    /// client sent.
+    async fn gmail_server(
+        stream: tokio::io::DuplexStream,
+        answer_to_token: &'static [&'static str],
+    ) -> Vec<String> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let (lecture, mut ecriture) = tokio::io::split(stream);
+        let mut lignes = BufReader::new(lecture).lines();
+        let mut recues = Vec::new();
+
+        ecriture
+            .write_all(b"* OK Gimap ready for requests from 192.0.2.1\r\n")
+            .await
+            .unwrap();
+        let commande = lignes.next_line().await.unwrap().unwrap();
+        let etiquette = commande.split(' ').next().unwrap().to_string();
+        recues.push(commande);
+        ecriture.write_all(b"+ \r\n").await.unwrap();
+
+        for reponse in answer_to_token {
+            recues.push(lignes.next_line().await.unwrap().unwrap_or_default());
+            let reponse = reponse.replace("TAG", &etiquette);
+            ecriture.write_all(reponse.as_bytes()).await.unwrap();
+        }
+        recues
+    }
+
+    #[tokio::test]
+    async fn a_google_account_signs_in_past_the_greeting() {
+        let (client, serveur) = tokio::io::duplex(4096);
+        let serveur = tokio::spawn(gmail_server(
+            serveur,
+            &["* CAPABILITY IMAP4rev1 IDLE\r\nTAG OK a@gmail.com authenticated (Success)\r\n"],
+        ));
+
+        let identifiants = Credentials::OAuth2 {
+            user: "a@example.com".into(),
+            token: "jeton".into(),
+        };
+        let session = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            sign_in(client, &identifiants),
+        )
+        .await
+        .expect("the sign-in waited for an answer it had already been given");
+        assert!(session.is_ok(), "{:?}", session.err());
+
+        let recues = serveur.await.unwrap();
+        assert!(recues[0].ends_with("AUTHENTICATE XOAUTH2"));
+        assert!(!recues[1].is_empty(), "the token was sent");
+    }
+
+    #[tokio::test]
+    async fn a_refused_google_token_says_so() {
+        let (client, serveur) = tokio::io::duplex(4096);
+        let serveur = tokio::spawn(gmail_server(
+            serveur,
+            &[
+                "+ eyJzdGF0dXMiOiI0MDAiLCJzY2hlbWVzIjoiQmVhcmVyIn0=\r\n",
+                "TAG NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)\r\n",
+            ],
+        ));
+
+        let identifiants = Credentials::OAuth2 {
+            user: "a@example.com".into(),
+            token: "perime".into(),
+        };
+        let resultat = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            sign_in(client, &identifiants),
+        )
+        .await
+        .expect("a refusal must come back, not hang");
+        let erreur = resultat.err().expect("the token was refused");
+        assert!(erreur.needs_user_action(), "{erreur}");
+
+        let recues = serveur.await.unwrap();
+        assert_eq!(recues[2], "", "the reason is answered with an empty line");
+    }
+
+    #[tokio::test]
+    async fn a_password_account_still_signs_in() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let (client, serveur) = tokio::io::duplex(4096);
+        let serveur = tokio::spawn(async move {
+            let (lecture, mut ecriture) = tokio::io::split(serveur);
+            let mut lignes = BufReader::new(lecture).lines();
+            ecriture
+                .write_all(b"* OK Dovecot ready.\r\n")
+                .await
+                .unwrap();
+            let commande = lignes.next_line().await.unwrap().unwrap();
+            let etiquette = commande.split(' ').next().unwrap().to_string();
+            ecriture
+                .write_all(format!("{etiquette} OK Logged in\r\n").as_bytes())
+                .await
+                .unwrap();
+            commande
+        });
+
+        let identifiants = Credentials::Password {
+            user: "a@example.com".into(),
+            password: "secret".into(),
+        };
+        let session = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            sign_in(client, &identifiants),
+        )
+        .await
+        .unwrap();
+        assert!(session.is_ok(), "{:?}", session.err());
+        assert!(serveur.await.unwrap().contains("LOGIN"));
     }
 
     #[test]
