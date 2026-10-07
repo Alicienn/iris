@@ -2255,10 +2255,86 @@ fn le_menu_de_report_garde_le_clavier() {
     assert_eq!(f.get_reader_menu(), "");
 }
 
+fn un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites() {
+    let f = fenetre();
+    f.set_new_folder_mailboxes(ModelRc::new(VecModel::from(vec![
+        iris_ui::FolderMailboxData {
+            id: 1,
+            name: "Work".into(),
+            email: "a@example.com".into(),
+            checked: true,
+            ..Default::default()
+        },
+        iris_ui::FolderMailboxData {
+            id: 2,
+            name: "b@example.com".into(),
+            email: "b@example.com".into(),
+            ..Default::default()
+        },
+    ])));
+    f.set_new_folder_total(2);
+    f.set_new_folder_chosen(1);
+    let coches = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let tous = Rc::new(RefCell::new(0));
+    let cherches = Rc::new(RefCell::new(Vec::<String>::new()));
+    let fermes = Rc::new(RefCell::new(0));
+    let touches = Rc::new(RefCell::new(0));
+    {
+        let c = Rc::clone(&coches);
+        f.on_new_folder_mailbox_toggled(move |id| c.borrow_mut().push(id));
+        let t = Rc::clone(&tous);
+        f.on_new_folder_select_all_toggled(move || *t.borrow_mut() += 1);
+        let c = Rc::clone(&cherches);
+        f.on_new_folder_search_changed(move |t| c.borrow_mut().push(t.to_string()));
+        let fe = Rc::clone(&fermes);
+        f.on_new_folder_dismissed(move || *fe.borrow_mut() += 1);
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |_| *t.borrow_mut() += 1);
+    }
+    f.set_new_folder_open(true);
+
+    taper(&f, "Devis");
+    assert_eq!(
+        f.get_new_folder_name().as_str(),
+        "Devis",
+        "the first key writes the name"
+    );
+
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::Checkbox,
+        "b@example.com",
+    ));
+    assert_eq!(*coches.borrow(), [2], "one click ticks the mailbox");
+    clic(&par_role(
+        &f,
+        testing::AccessibleRole::Checkbox,
+        "Select all",
+    ));
+    assert_eq!(*tous.borrow(), 1);
+
+    clic(&champ(&f, "Search mailboxes"));
+    taper(&f, "b");
+    assert_eq!(
+        f.get_new_folder_search().as_str(),
+        "b",
+        "one click puts the cursor in the search"
+    );
+    assert_eq!(cherches.borrow().last().map(String::as_str), Some("b"));
+    assert_eq!(*touches.borrow(), 0, "nothing reaches the mail behind");
+
+    echap(&f);
+    assert_eq!(*fermes.borrow(), 1, "Escape closes the window");
+}
+
 fn main() {
     testing::init_no_event_loop();
 
     let scenarios: Vec<(&str, fn())> = vec![
+        (
+            "un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites",
+            un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites,
+        ),
         (
             "les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir",
             les_boutons_d_une_ligne_agissent_sur_elle_sans_l_ouvrir,

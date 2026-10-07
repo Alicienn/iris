@@ -83,6 +83,15 @@ export struct AccountRowData {
     members: int,
 }
 
+// A mailbox a new folder can be made on, ticked if it will be.
+export struct FolderMailboxData {
+    id: int,
+    name: string,
+    email: string,
+    tint: color,
+    checked: bool,
+}
+
 // A tag put on one's own mailboxes.
 export struct AccountTagData {
     id: int,

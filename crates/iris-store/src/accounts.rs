@@ -219,6 +219,18 @@ impl Store {
                      FROM folders f
                      JOIN accounts a ON a.id = f.account_id
                      LEFT JOIN messages m ON m.folder_id = f.id
+                     -- A folder made for some mailboxes counts theirs only, as its view
+                     -- shows: the same name on another mailbox is not part of it.
+                     WHERE f.role != 'other'
+                        OR NOT EXISTS (SELECT 1 FROM folder_accounts fa
+                                       WHERE fa.name = (CASE WHEN upper(substr(f.path, 1, 6))
+                                                             IN ('INBOX.', 'INBOX/')
+                                                        THEN substr(f.path, 7) ELSE f.path END))
+                        OR EXISTS (SELECT 1 FROM folder_accounts fa
+                                   WHERE fa.account_id = f.account_id
+                                     AND fa.name = (CASE WHEN upper(substr(f.path, 1, 6))
+                                                         IN ('INBOX.', 'INBOX/')
+                                                    THEN substr(f.path, 7) ELSE f.path END))
                      -- One's own folder and a server's of the same name stay two: a
                      -- Gmail label `Archives` vanished into another server's archive,
                      -- and that server's real bin could be renamed as a label `Trash`.
@@ -321,6 +333,41 @@ impl Store {
 
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("comptes sans le dossier", e))
+        })
+    }
+
+    /// The mailboxes a folder was made for, by the name it is shown under: `Devis`
+    /// and `INBOX.Devis` are one. Empty: every mailbox, as folders always were.
+    pub fn folder_accounts(&self, name: &str) -> Result<Vec<AccountId>> {
+        let nom = crate::display_path(name);
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT account_id FROM folder_accounts WHERE name = ?1 ORDER BY account_id",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map(params![nom], |r| Ok(AccountId(r.get(0)?)))
+                .map_err(|e| sql_err("boîtes du dossier", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("boîtes du dossier", e))
+        })
+    }
+
+    /// Sets the mailboxes a folder is for. Empty makes it every mailbox's again.
+    pub fn set_folder_accounts(&self, name: &str, accounts: &[AccountId]) -> Result<()> {
+        let nom = crate::display_path(name);
+        self.with_tx(|tx| {
+            tx.execute("DELETE FROM folder_accounts WHERE name = ?1", params![nom])
+                .map_err(|e| sql_err("boîtes du dossier", e))?;
+            for compte in accounts {
+                tx.execute(
+                    "INSERT OR IGNORE INTO folder_accounts (name, account_id) VALUES (?1, ?2)",
+                    params![nom, compte.get()],
+                )
+                .map_err(|e| sql_err("boîtes du dossier", e))?;
+            }
+            Ok(())
         })
     }
 
@@ -465,6 +512,24 @@ impl Store {
                 params![account.get(), avant, apres],
             )
             .map_err(|e| sql_err("renommage des sous-dossiers", e))?;
+            // The mailboxes it was made for follow it, and its children's.
+            let (de, vers) = (crate::display_path(from), crate::display_path(to));
+            tx.execute(
+                "UPDATE OR REPLACE folder_accounts SET name = ?3
+                 WHERE account_id = ?1 AND name = ?2",
+                params![account.get(), de, vers],
+            )
+            .map_err(|e| sql_err("boîtes du dossier renommé", e))?;
+            tx.execute(
+                "UPDATE OR REPLACE folder_accounts SET name = ?3 || substr(name, length(?2) + 1)
+                 WHERE account_id = ?1 AND substr(name, 1, length(?2)) = ?2",
+                params![
+                    account.get(),
+                    format!("{de}{delimiter}"),
+                    format!("{vers}{delimiter}")
+                ],
+            )
+            .map_err(|e| sql_err("boîtes des sous-dossiers renommés", e))?;
             Ok(())
         })
     }

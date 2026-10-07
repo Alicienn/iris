@@ -652,3 +652,6 @@ their server.
       Nextcloud, mailbox.org, Posteo, Google through the mailbox's sign-in; changes
       sent within a minute (patched objects, `If-Match`), read by tag every quarter
       hour; the server wins a conflict. `iris-caldav`, migration 23.
+- [x] **S42.5** A folder for some mailboxes (4.14.0): New folder ticks the mailboxes
+      (search, Select all; all or the one on screen by default); made for fewer than
+      all, its view, counts, moves and Mark all as read keep to them. Migration 24.

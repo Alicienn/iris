@@ -7,7 +7,7 @@ import {
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
-    AliasData
+    AliasData, FolderMailboxData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -723,6 +723,17 @@ export component AppWindow inherits Window {
     in-out property <string> rename-folder-name;
     in property <string> new-folder-error;
     in-out property <string> new-folder-name;
+    /// The folder it goes inside, by its name; empty at the top.
+    in property <string> new-folder-parent;
+    /// The mailboxes the new folder can be made on, as the search shows them.
+    in property <[FolderMailboxData]> new-folder-mailboxes;
+    in property <int> new-folder-chosen;
+    in property <int> new-folder-total;
+    in property <bool> new-folder-all-shown-checked;
+    in-out property <string> new-folder-search;
+    callback new-folder-search-changed(string);
+    callback new-folder-mailbox-toggled(int);
+    callback new-folder-select-all-toggled();
     callback folder-selected(string);
     callback folder-cleared();
     callback plugin-settings-requested(string);
@@ -2551,10 +2562,17 @@ export component AppWindow inherits Window {
     if root.new-folder-open: NewFolderPanel {
         width: 100%;
         height: 100%;
-        account-count: root.account-count;
-        parent-path: root.selected-folder;
+        parent-path: root.new-folder-parent;
         error: root.new-folder-error;
         name <=> root.new-folder-name;
+        mailboxes: root.new-folder-mailboxes;
+        chosen: root.new-folder-chosen;
+        total: root.new-folder-total;
+        all-shown-checked: root.new-folder-all-shown-checked;
+        search <=> root.new-folder-search;
+        search-changed(t) => { root.new-folder-search-changed(t); }
+        mailbox-toggled(id) => { root.new-folder-mailbox-toggled(id); }
+        select-all-toggled => { root.new-folder-select-all-toggled(); }
         create => { root.new-folder-create(); }
         dismissed => { root.new-folder-dismissed(); }
     }

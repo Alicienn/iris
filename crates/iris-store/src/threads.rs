@@ -121,13 +121,20 @@ fn push_scope(sql: &mut String, args: &mut Vec<SqlValue>, q: &ListQuery) {
                               JOIN folders f ON f.id = m.folder_id
                               WHERE m.thread_id = threads.id
                                 AND (f.path = ? OR f.path = 'INBOX.' || ?
-                                     OR f.path = 'INBOX/' || ?){filtre_compte})"
+                                     OR f.path = 'INBOX/' || ?)
+                                AND (NOT EXISTS (SELECT 1 FROM folder_accounts fa
+                                                 WHERE fa.name = ?)
+                                     OR EXISTS (SELECT 1 FROM folder_accounts fa
+                                                WHERE fa.name = ?
+                                                  AND fa.account_id = m.account_id)){filtre_compte})"
             ));
             // Le chemin est un paramètre lié, lui, parce qu'il vient de l'utilisateur.
             // Il est inséré avant les identifiants de comptes ajoutés ci-dessus.
+            // Made for some mailboxes: theirs only, even where another mailbox has a
+            // folder of that name, or shares a conversation with one of them.
             let nom = crate::display_path(chemin).to_string();
             let position = args.len() - q.accounts.len();
-            for _ in 0..3 {
+            for _ in 0..5 {
                 args.insert(position, SqlValue::Text(nom.clone()));
             }
         }
@@ -800,6 +807,85 @@ mod tests {
                 "{plan:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_folder_made_for_some_mailboxes_shows_theirs_only() {
+        let store = Store::in_memory().unwrap();
+        let zero = Timestamp::from_millis(0);
+        let a = store
+            .create_account(&NewAccount::new("a@example.com", "i", "s"), zero)
+            .unwrap();
+        let b = store
+            .create_account(&NewAccount::new("b@example.com", "i", "s"), zero)
+            .unwrap();
+        for (compte, chemin, uid) in [(a, "INBOX.Devis", 1), (b, "Devis", 2)] {
+            let dossier = store
+                .upsert_folder(compte, chemin, FolderRole::Other)
+                .unwrap();
+            store
+                .insert_message(&NewMessage {
+                    account: compte,
+                    folder: dossier,
+                    uid,
+                    rfc_message_id: Some(format!("d{uid}@example.com")),
+                    in_reply_to: None,
+                    references: vec![],
+                    subject: format!("Devis {uid}"),
+                    from_name: "x".into(),
+                    from_addr: "x@example.com".into(),
+                    recipients_json: "[]".into(),
+                    date: Timestamp::from_millis(uid as i64),
+                    received: Timestamp::from_millis(uid as i64),
+                    size: 10,
+                    flags: Flags::NONE,
+                    preview: String::new(),
+                })
+                .unwrap();
+        }
+        let vue = |accounts: Vec<AccountId>| -> Vec<String> {
+            let q = ListQuery {
+                accounts,
+                scope: crate::model::Scope::Path("INBOX.Devis".into()),
+                ..ListQuery::new(WorkflowState::Todo, 60)
+            };
+            store
+                .list_threads(&q)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.subject)
+                .collect()
+        };
+        let devis = |store: &Store| {
+            store
+                .unified_folders()
+                .unwrap()
+                .into_iter()
+                .filter(|f| crate::display_path(&f.path) == "Devis")
+                .map(|f| (f.accounts, f.threads))
+                .fold((0, 0), |(c, t), (fc, ft)| (c + fc, t + ft))
+        };
+        assert_eq!(vue(vec![]).len(), 2, "every mailbox's, as before");
+
+        store.set_folder_accounts("Devis", &[a]).unwrap();
+        assert_eq!(store.folder_accounts("INBOX.Devis").unwrap(), [a]);
+        assert_eq!(
+            vue(vec![]),
+            ["Devis 1"],
+            "b's folder of that name is not part of it"
+        );
+        assert!(vue(vec![b]).is_empty(), "b alone: nothing of it");
+        assert_eq!(devis(&store), (1, 1), "the tree counts what the view shows");
+
+        // Renamed, it stays made for a.
+        store
+            .rename_folder_path(a, "INBOX.Devis", "INBOX.Offres", '.')
+            .unwrap();
+        assert_eq!(store.folder_accounts("Offres").unwrap(), [a]);
+        assert!(store.folder_accounts("Devis").unwrap().is_empty());
+
+        store.set_folder_accounts("Offres", &[]).unwrap();
+        assert!(store.folder_accounts("Offres").unwrap().is_empty());
     }
 
     struct Fixture {
