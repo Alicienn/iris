@@ -11,6 +11,8 @@
 
 pub mod block;
 pub mod edit;
+pub mod fuzzy;
 pub mod inline;
+pub mod math;
 
 pub use block::{join, parse, Block, BlockKind};

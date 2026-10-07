@@ -144,6 +144,15 @@ pub struct Settings {
     /// The accent colour, its place in `shell::ACCENTS`: 0 is the theme's blue.
     #[serde(default)]
     pub accent: u8,
+    /// Where the notes' spaces are; empty: `%USERPROFILE%\Iris`.
+    #[serde(default)]
+    pub notes_root: String,
+    /// Folders elsewhere opened as spaces.
+    #[serde(default)]
+    pub notes_spaces: Vec<String>,
+    /// The space and the note open last (`<space folder>|<path>`), to open again.
+    #[serde(default)]
+    pub notes_last: String,
 }
 
 /// The Mac's lights on a Mac, Windows' buttons elsewhere.
@@ -206,6 +215,9 @@ impl Default for Settings {
             inbox_zero_streak: 0,
             mac_window_buttons: boutons_mac(),
             accent: 0,
+            notes_root: String::new(),
+            notes_spaces: Vec::new(),
+            notes_last: String::new(),
         }
     }
 }
@@ -337,6 +349,9 @@ mod tests {
             inbox_zero_streak: 4,
             mac_window_buttons: true,
             accent: 4,
+            notes_root: "D:\\Notes".into(),
+            notes_spaces: vec!["D:\\Coffre".into()],
+            notes_last: "D:\\Notes\\Cours|Analyse/Chapitre 1.md".into(),
         };
 
         reglages.save(&chemin).unwrap();

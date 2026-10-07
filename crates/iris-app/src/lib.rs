@@ -21,6 +21,7 @@ pub mod logging;
 pub mod memory;
 pub mod modules;
 pub mod nav;
+pub mod notes;
 pub mod notify;
 pub mod oauth;
 pub mod paths;

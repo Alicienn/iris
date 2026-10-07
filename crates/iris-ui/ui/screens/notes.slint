@@ -1,0 +1,1142 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Hairline } from "@iris/base/atoms.slint";
+import { TextField } from "@iris/controls/field.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Check } from "@iris/controls/choice.slint";
+import { Nav, SectionRow } from "@iris/lists/nav.slint";
+import { EmptyState, Modal } from "@iris/layout/frames.slint";
+import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData } from "@iris/types.slint";
+
+// Notes: Markdown files in spaces, in a tree on the left, the open note on the right,
+// written block by block. The block holding the cursor shows its source; every other
+// block its rendering.
+
+// --- The tree -------------------------------------------------------------------------
+
+// A line of the tree: a folder (unfolded with its chevron), a note, a spreadsheet, an
+// image or another file. Carried by the mouse onto a folder, it moves there.
+component TreeRow inherits Rectangle {
+    in property <NoteTreeRowData> row;
+    /// This row's name is being edited.
+    in property <bool> renaming;
+    /// Something is being carried, and where the pointer is (window coordinates).
+    in property <bool> carrying;
+    in property <length> carry-x;
+    in property <length> carry-y;
+    /// Raised when what is carried is let go.
+    in property <int> drop;
+    in property <length> drop-x;
+    in property <length> drop-y;
+
+    callback clicked(string);
+    callback toggled(string);
+    callback menu(string, length, length);
+    callback renamed(string, string);
+    callback rename-cancelled();
+    /// The row was pulled past a few pixels: it is carried.
+    callback carry-started(string, string);
+    callback carry-moved(length, length);
+    callback carry-ended(length, length);
+    /// What was carried was let go on this row (a folder, or a note: its folder).
+    callback dropped(string);
+
+    property <bool> folder: root.row.kind == 0;
+    pure function inside(x: length, y: length) -> bool {
+        return x >= self.absolute-position.x && x < self.absolute-position.x + self.width
+            && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
+    }
+    property <bool> targeted: root.carrying && root.folder && root.inside(root.carry-x, root.carry-y);
+
+    changed drop => {
+        if (root.inside(root.drop-x, root.drop-y)) {
+            root.dropped(root.row.key);
+        }
+    }
+
+    height: Nav.row-height;
+    border-radius: Tokens.radius-small;
+    border-width: root.targeted ? 1.5px : 0px;
+    border-color: Tokens.accent;
+    background: root.targeted ? Tokens.accent.transparentize(0.8)
+        : Nav.background(root.row.selected, touch.has-hover);
+    animate background { duration: Tokens.instant; }
+
+    accessible-role: list-item;
+    accessible-label: root.row.name;
+    accessible-item-selected: root.row.selected;
+    accessible-expanded: root.folder && root.row.expanded;
+    accessible-action-default => { root.clicked(root.row.key); }
+
+    property <length> press-x;
+    property <length> press-y;
+    property <bool> pressed-here;
+    property <bool> pulled;
+
+    touch := TouchArea {
+        mouse-cursor: root.pulled ? MouseCursor.grabbing : MouseCursor.default;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.menu(root.row.key,
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                root.pressed-here = true;
+                root.pulled = false;
+                root.press-x = self.mouse-x;
+                root.press-y = self.mouse-y;
+            }
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                if (root.pulled) {
+                    root.carry-ended(self.absolute-position.x + self.mouse-x,
+                        self.absolute-position.y + self.mouse-y);
+                }
+                root.pressed-here = false;
+            }
+        }
+        moved => {
+            if (root.pressed-here && !root.pulled
+                && (abs(self.mouse-x - root.press-x) > 4px || abs(self.mouse-y - root.press-y) > 4px)) {
+                root.pulled = true;
+                root.carry-started(root.row.key, root.row.name);
+            }
+            if (root.pulled) {
+                root.carry-moved(self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
+        clicked => {
+            if (root.pulled) {
+                root.pulled = false;
+                return;
+            }
+            if (root.folder && self.mouse-x < 6px + root.row.depth * 14px + 18px) {
+                root.toggled(root.row.key);
+            } else {
+                root.clicked(root.row.key);
+            }
+        }
+        double-clicked => {
+            if (root.folder) { root.toggled(root.row.key); }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 6px + root.row.depth * 14px;
+        padding-right: 6px;
+        spacing: 5px;
+
+        // The chevron of a folder; the room it takes, kept for a file, so names line up.
+        Rectangle {
+            width: 14px;
+            if root.folder && root.row.has-children: Icon {
+                data: root.row.expanded ? Icons.chevron-down : Icons.chevron-right;
+                size: 11px;
+                weight: 2.2;
+                tint: Nav.count-ink(root.row.selected);
+            }
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.row.kind == 0 ? Icons.folder
+                : root.row.kind == 1 ? Icons.notes
+                : root.row.kind == 2 ? Icons.list
+                : root.row.kind == 3 ? Icons.image
+                : Icons.paperclip;
+            size: 15px;
+            tint: Nav.icon-ink(root.row.selected,
+                root.row.color.alpha > 0 ? root.row.color
+                : root.row.kind == 0 ? Tokens.accent : Tokens.text-muted);
+        }
+        if !root.renaming: Text {
+            text: root.row.name;
+            font-size: Nav.label-size;
+            color: Nav.ink(root.row.selected, false);
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        // Escape, which the field does not want, comes up here: the old name stays.
+        if root.renaming: FocusScope {
+            horizontal-stretch: 1;
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.rename-cancelled();
+                    return accept;
+                }
+                reject
+            }
+            TextField {
+                y: (parent.height - self.height) / 2;
+                height: 22px;
+                width: parent.width;
+                text: root.row.name;
+                font-size: Nav.label-size;
+                init => {
+                    self.focus();
+                    self.select-all();
+                }
+                accepted(t) => { root.renamed(root.row.key, t); }
+            }
+        }
+        if root.row.pinned: Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.star;
+            size: 11px;
+            tint: Nav.count-ink(root.row.selected);
+        }
+    }
+}
+
+// --- The editor -----------------------------------------------------------------------
+
+// A block of the open note.
+//
+// Edited, it is a TextInput holding its source, in the block's own size. Otherwise it
+// is drawn: its words with their marks (StyledText), and what the kind adds — a bullet,
+// a number, a checkbox, a callout's frame, a quote's bar, a table's grid.
+//
+// A click on a drawn block edits it. Ctrl+click on a link follows it: while Ctrl is
+// held, the area that takes the click steps aside and lets the link have it.
+component NoteBlock inherits Rectangle {
+    in property <NoteBlockData> block;
+    in property <int> index;
+    in property <bool> focused;
+    /// Raised by Rust to put the cursor in this block, at `focus-cursor`
+    /// (`focus-anchor` for a selection), with the source it gives.
+    in property <int> focus-serial;
+    in property <int> focus-cursor;
+    in property <int> focus-anchor;
+    in property <bool> ctrl-held;
+
+    callback edited(int, string, int);
+    /// A key the block may want: its name, the cursor and anchor, whether the cursor is
+    /// on the first and the last line. True when it was used.
+    callback key(int, string, int, int, bool, bool) -> bool;
+    callback clicked(int);
+    callback link(string);
+    callback task-toggled(int);
+    callback fold-toggled(int);
+    /// Where the cursor is in the window, for what pops up there.
+    callback caret(int, length, length);
+    /// Ctrl pressed or let go while typing.
+    callback ctrl-changed(bool);
+
+    property <bool> en-liste: root.block.kind == "bullet" || root.block.kind == "numbered"
+        || root.block.kind == "task";
+    property <bool> fixe: root.block.kind == "code" || root.block.kind == "math"
+        || root.block.kind == "table" || root.block.kind == "properties";
+    property <length> taille: root.block.kind == "heading"
+        ? (root.block.level == 1 ? 27px : root.block.level == 2 ? 21.5px
+            : root.block.level == 3 ? 18px : 15.5px)
+        : root.fixe ? 13.5px : 15px;
+    property <int> graisse: root.block.kind == "heading" ? 700 : 400;
+    property <length> retrait: root.block.indent * 22px;
+    property <length> marge-haut: root.block.kind == "heading"
+        ? (root.block.level <= 2 ? 14px : 8px) : 2px;
+
+    min-height: root.block.kind == "blank" ? 12px : 0px;
+
+    VerticalLayout {
+        padding-top: root.marge-haut;
+        padding-bottom: 2px;
+
+        // Edited: the source.
+        if root.focused: Rectangle {
+            min-height: entree.preferred-height;
+            background: root.fixe ? Tokens.surface-low : transparent;
+            border-radius: root.fixe ? Tokens.radius-small : 0px;
+
+            entree := TextInput {
+                x: root.retrait + (root.fixe ? 8px : 0px);
+                y: root.fixe ? 6px : 0px;
+                width: parent.width - self.x - (root.fixe ? 8px : 0px);
+                text: root.block.source;
+                font-size: root.taille;
+                font-weight: root.graisse;
+                font-family: root.fixe ? Tokens.font-mono : Tokens.font-family;
+                color: Tokens.text;
+                wrap: word-wrap;
+                single-line: false;
+                selection-background-color: Tokens.accent.transparentize(0.7);
+                selection-foreground-color: Tokens.text;
+
+                // Where the cursor is, line-wise: the first and the last lines send Up
+                // and Down to the blocks around.
+                property <length> curseur-y;
+                property <int> serie: root.focus-serial;
+
+                init => {
+                    self.focus();
+                    self.set-selection-offsets(root.focus-anchor, root.focus-cursor);
+                }
+                changed serie => {
+                    self.text = root.block.source;
+                    self.focus();
+                    self.set-selection-offsets(root.focus-anchor, root.focus-cursor);
+                }
+                edited => {
+                    root.edited(root.index, self.text, self.cursor-position-byte-offset);
+                }
+                cursor-position-changed(p) => {
+                    self.curseur-y = p.y;
+                    root.caret(root.index, self.absolute-position.x + p.x,
+                        self.absolute-position.y + p.y + root.taille * 1.35);
+                }
+                key-released(event) => {
+                    if (event.text == Key.Control) {
+                        root.ctrl-changed(false);
+                    }
+                    EventResult.reject
+                }
+                key-pressed(event) => {
+                    if (event.text == Key.Control) {
+                        root.ctrl-changed(true);
+                        return EventResult.reject;
+                    }
+                    let c = self.cursor-position-byte-offset;
+                    let a = self.anchor-position-byte-offset;
+                    let premiere = self.curseur-y < root.taille * 0.8;
+                    let derniere = self.curseur-y + root.taille * 1.7 > self.height;
+                    let ctrl = event.modifiers.control && !event.modifiers.alt;
+                    if (event.text == Key.Escape) {
+                        return root.key(root.index, "escape", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (event.text == Key.Return) {
+                        let nom = ctrl ? "ctrl+enter" : event.modifiers.shift ? "shift+enter" : "enter";
+                        return root.key(root.index, nom, c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (event.text == Key.Backspace && c == 0 && a == 0) {
+                        return root.key(root.index, "backspace-start", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    // At the end, Delete joins the next block (Rust knows where the end is).
+                    if (event.text == Key.Delete && c == a) {
+                        return root.key(root.index, "delete", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (event.text == Key.Tab) {
+                        return root.key(root.index, event.modifiers.shift ? "shift+tab" : "tab", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (event.modifiers.alt && !event.modifiers.control && event.text == Key.UpArrow) {
+                        return root.key(root.index, "alt+up", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (event.modifiers.alt && !event.modifiers.control && event.text == Key.DownArrow) {
+                        return root.key(root.index, "alt+down", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (!event.modifiers.shift && event.text == Key.UpArrow && premiere) {
+                        return root.key(root.index, "up", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (!event.modifiers.shift && event.text == Key.DownArrow && derniere) {
+                        return root.key(root.index, "down", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (!event.modifiers.shift && event.text == Key.LeftArrow && c == 0 && a == 0) {
+                        return root.key(root.index, "left-start", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (!event.modifiers.shift && event.text == Key.RightArrow && c == a) {
+                        return root.key(root.index, "right", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    if (ctrl && event.text != "" && event.text != Key.Control && event.text != Key.Shift) {
+                        let nom = (event.modifiers.shift ? "ctrl+shift+" : "ctrl+") + event.text;
+                        return root.key(root.index, nom, c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    // A space (line starts), and the characters that come in pairs.
+                    if (!event.modifiers.control && (event.text == " " || event.text == "(" || event.text == "["
+                        || event.text == "{" || event.text == "$" || event.text == "`" || event.text == ")"
+                        || event.text == "]" || event.text == "}")) {
+                        return root.key(root.index, event.text, c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    EventResult.reject
+                }
+            }
+        }
+
+        // Drawn.
+        if !root.focused: Rectangle {
+            min-height: corps.preferred-height;
+
+            corps := HorizontalLayout {
+                padding-left: root.retrait;
+                spacing: 8px;
+
+                // A list item's mark.
+                if root.block.kind == "bullet": Text {
+                    width: 14px;
+                    text: root.block.indent == 0 ? "•" : root.block.indent == 1 ? "◦" : "▪";
+                    font-size: root.taille;
+                    color: Tokens.text-secondary;
+                    horizontal-alignment: center;
+                }
+                if root.block.kind == "numbered": Text {
+                    min-width: 18px;
+                    text: root.block.number;
+                    font-size: root.taille;
+                    color: Tokens.text-secondary;
+                    horizontal-alignment: right;
+                }
+                if root.block.kind == "task": Rectangle {
+                    width: 18px;
+                    Check {
+                        y: 3px;
+                        size: 16px;
+                        done: root.block.done;
+                        label: "Done";
+                        toggled => { root.task-toggled(root.index); }
+                    }
+                }
+                // A quote's bar.
+                if root.block.kind == "quote": Rectangle {
+                    width: 3px;
+                    border-radius: 1.5px;
+                    background: Tokens.border-strong;
+                }
+
+                // A callout: its frame, its title line, its words unless folded.
+                if root.block.kind == "callout": Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: Tokens.radius-small;
+                    background: root.block.tint.transparentize(0.9);
+                    min-height: encadre.preferred-height;
+                    Rectangle {
+                        x: 0;
+                        width: 3px;
+                        border-radius: 1.5px;
+                        background: root.block.tint;
+                    }
+                    encadre := VerticalLayout {
+                        padding: 10px;
+                        padding-left: 14px;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: root.block.number + (root.block.title != "" && root.block.number != "" ? " — " : "") + root.block.title;
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: root.block.tint;
+                                horizontal-stretch: 1;
+                                wrap: word-wrap;
+                            }
+                            Rectangle {
+                                width: 18px;
+                                height: 18px;
+                                accessible-role: button;
+                                accessible-label: root.block.folded ? "Unfold" : "Fold";
+                                accessible-action-default => { root.fold-toggled(root.index); }
+                                Icon {
+                                    data: root.block.folded ? Icons.chevron-right : Icons.chevron-down;
+                                    size: 12px;
+                                    tint: root.block.tint;
+                                }
+                                TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.fold-toggled(root.index); }
+                                }
+                            }
+                        }
+                        if !root.block.folded: StyledText {
+                            text: root.block.rich;
+                            default-color: Tokens.text;
+                            default-font-size: 14.5px;
+                            link-color: Tokens.accent;
+                            link-clicked(l) => { root.link(l); }
+                        }
+                    }
+                }
+
+                // A table: its cells, a grid.
+                if root.block.kind == "table": Rectangle {
+                    horizontal-stretch: 1;
+                    min-height: grille.preferred-height;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+                    border-radius: Tokens.radius-small;
+                    grille := VerticalLayout {
+                        for ligne[r] in root.block.rows: HorizontalLayout {
+                            for colonne[k] in root.block.columns: Rectangle {
+                                horizontal-stretch: 1;
+                                min-height: cellule.preferred-height + 10px;
+                                background: r == 0 ? Tokens.surface-low : transparent;
+                                border-width: 0.5px;
+                                border-color: Tokens.border;
+                                cellule := Text {
+                                    x: 8px;
+                                    width: parent.width - 16px;
+                                    text: root.block.cells[r * root.block.columns + k];
+                                    font-size: 13.5px;
+                                    font-weight: r == 0 ? 600 : 400;
+                                    color: Tokens.text;
+                                    wrap: word-wrap;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Code and maths: their text, fixed-width, on a plate. Maths drawn as an
+                // image once it can be.
+                if root.block.kind == "code" || (root.block.kind == "math" && !root.block.has-picture)
+                    || root.block.kind == "properties": Rectangle {
+                    horizontal-stretch: 1;
+                    min-height: fixe-texte.preferred-height + 14px;
+                    background: Tokens.surface-low;
+                    border-radius: Tokens.radius-small;
+                    fixe-texte := Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        text: root.block.title;
+                        font-family: Tokens.font-mono;
+                        font-size: 13px;
+                        color: root.block.kind == "properties" ? Tokens.text-muted : Tokens.text;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.block.has-picture: HorizontalLayout {
+                    horizontal-stretch: 1;
+                    alignment: root.block.kind == "math" ? LayoutAlignment.center : LayoutAlignment.start;
+                    Image {
+                        source: root.block.picture;
+                        width: min(self.source.width * 1px, parent.width);
+                        height: self.width * self.source.height / max(1, self.source.width);
+                    }
+                }
+
+                if root.block.kind == "rule": Rectangle {
+                    horizontal-stretch: 1;
+                    height: 13px;
+                    Hairline { y: 6px; }
+                }
+
+                // Words: a paragraph, a heading, a list item, a quote, a card.
+                if root.block.kind == "paragraph" || root.block.kind == "heading"
+                    || root.en-liste || root.block.kind == "quote" || root.block.kind == "flashcard"
+                    || root.block.kind == "container" || (root.block.kind == "embed" && !root.block.has-picture): StyledText {
+                    horizontal-stretch: 1;
+                    text: root.block.rich;
+                    default-color: root.block.kind == "quote" || (root.block.kind == "task" && root.block.done)
+                        ? Tokens.text-muted : Tokens.text;
+                    default-font-size: root.taille;
+                    link-color: Tokens.accent;
+                    link-clicked(l) => { root.link(l); }
+                }
+            }
+
+            // The click that edits; it steps aside while Ctrl is held, for links.
+            TouchArea {
+                enabled: !root.ctrl-held;
+                mouse-cursor: MouseCursor.text;
+                clicked => { root.clicked(root.index); }
+            }
+        }
+    }
+}
+
+// --- The place ------------------------------------------------------------------------
+
+export component NotesView inherits Rectangle {
+    in property <[NoteSpaceData]> spaces;
+    in property <int> space;
+    in property <[NoteTreeRowData]> tree;
+    in-out property <string> filter;
+    /// A row whose name is being edited; empty when none.
+    in property <string> renaming;
+
+    in property <bool> open;
+    in-out property <string> title;
+    /// Where the note is: its folder, written out.
+    in property <string> path;
+    in property <string> status;
+    in property <[NoteBlockData]> blocks;
+    in property <int> focus;
+    in property <int> focus-serial;
+    in property <int> focus-cursor;
+    in property <int> focus-anchor;
+    in property <bool> ctrl-held;
+    /// Raised to put the cursor in the title, its words selected (a new note).
+    in property <int> title-serial;
+
+    callback space-menu(length, length);
+    callback row-clicked(string);
+    callback row-toggled(string);
+    callback row-menu(string, length, length);
+    callback renamed(string, string);
+    callback rename-cancelled();
+    callback moved(string, string);
+    callback new-note();
+    callback new-folder();
+    callback filter-edited(string);
+    callback quick-open();
+
+    callback block-edited(int, string, int);
+    callback block-key(int, string, int, int, bool, bool) -> bool;
+    callback block-clicked(int);
+    callback link-clicked(string);
+    callback task-toggled(int);
+    callback fold-toggled(int);
+    callback caret(int, length, length);
+    callback title-accepted(string);
+    /// The keyboard handed back to the shortcuts (Escape in the note).
+    callback escaped();
+    /// A click below the last block: the end of the note.
+    callback end-clicked();
+    callback ctrl-changed(bool);
+
+    // What is carried in the tree, and where the pointer is.
+    property <string> carried;
+    property <string> carried-name;
+    property <string> dropped-key;
+    property <length> carry-x;
+    property <length> carry-y;
+    property <int> drop;
+    property <length> drop-x;
+    property <length> drop-y;
+
+    background: Tokens.surface;
+
+    HorizontalLayout {
+        SidebarFrame {
+            // The space: its colour and name; a click lists the others.
+            Rectangle {
+                height: 34px;
+                border-radius: Tokens.radius-small;
+                background: choix.has-hover ? Tokens.surface-hover : transparent;
+                accessible-role: button;
+                accessible-label: "Space: " + (root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].name : "");
+                accessible-action-default => { root.space-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].color : Tokens.accent;
+                    }
+                    Text {
+                        text: root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].name : "";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        data: Icons.chevron-down;
+                        size: 12px;
+                        tint: Tokens.text-muted;
+                    }
+                }
+                choix := TouchArea {
+                    clicked => { root.space-menu(self.absolute-position.x, self.absolute-position.y + parent.height); }
+                }
+            }
+
+            Rectangle { height: 6px; }
+            TextField {
+                height: 28px;
+                icon: Icons.search;
+                placeholder-text: "Filter";
+                text <=> root.filter;
+                edited(t) => { root.filter-edited(t); }
+            }
+
+            SectionRow {
+                text: "Notes";
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.folder;
+                    label: "New folder";
+                    button-size: 20px;
+                    icon-size: 13px;
+                    clicked => { root.new-folder(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.plus;
+                    label: "New note";
+                    shortcut: "Ctrl+N";
+                    button-size: 20px;
+                    icon-size: 14px;
+                    clicked => { root.new-note(); }
+                }
+            }
+
+            arbre := ScrollView {
+                vertical-stretch: 1;
+                mouse-drag-pan-enabled: false;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    width: arbre.visible-width;
+                    alignment: start;
+                    for r in root.tree: TreeRow {
+                        row: r;
+                        renaming: root.renaming == r.key;
+                        carrying: root.carried != "";
+                        carry-x: root.carry-x;
+                        carry-y: root.carry-y;
+                        drop: root.drop;
+                        drop-x: root.drop-x;
+                        drop-y: root.drop-y;
+                        clicked(k) => { root.row-clicked(k); }
+                        toggled(k) => { root.row-toggled(k); }
+                        menu(k, x, y) => { root.row-menu(k, x, y); }
+                        renamed(k, t) => { root.renamed(k, t); }
+                        rename-cancelled => { root.rename-cancelled(); }
+                        carry-started(k, n) => {
+                            root.carried = k;
+                            root.carried-name = n;
+                        }
+                        carry-moved(x, y) => {
+                            root.carry-x = x;
+                            root.carry-y = y;
+                        }
+                        carry-ended(x, y) => {
+                            root.dropped-key = root.carried;
+                            root.drop-x = x;
+                            root.drop-y = y;
+                            root.drop += 1;
+                            root.carried = "";
+                        }
+                        dropped(cible) => {
+                            if (root.dropped-key != "" && root.dropped-key != cible) {
+                                root.moved(root.dropped-key, cible);
+                            }
+                        }
+                    }
+                    // Let go on the empty room below: the top of the space.
+                    Rectangle {
+                        height: 40px;
+                        pure function inside(x: length, y: length) -> bool {
+                            return x >= self.absolute-position.x && x < self.absolute-position.x + self.width
+                                && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
+                        }
+                        property <bool> sous: root.carried != "" && self.inside(root.carry-x, root.carry-y);
+                        property <int> lache: root.drop;
+                        changed lache => {
+                            if (self.inside(root.drop-x, root.drop-y) && root.dropped-key != "") {
+                                root.moved(root.dropped-key, "");
+                            }
+                        }
+                        background: self.sous ? Tokens.accent.transparentize(0.85) : transparent;
+                        border-radius: Tokens.radius-small;
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+
+            WindowToolbar {
+                Text {
+                    text: root.path;
+                    font-size: 12.5px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.status;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.search;
+                    label: "Open a note";
+                    shortcut: "Ctrl+O";
+                    button-size: 30px;
+                    icon-size: 17px;
+                    clicked => { root.quick-open(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.plus;
+                    label: "New note";
+                    shortcut: "Ctrl+N";
+                    button-size: 30px;
+                    icon-size: 18px;
+                    tint: Tokens.accent;
+                    tinted: true;
+                    clicked => { root.new-note(); }
+                }
+            }
+
+            if !root.open: EmptyState {
+                vertical-stretch: 1;
+                text: "No note open. Pick one on the left, or start one.";
+                action: "New note";
+                act => { root.new-note(); }
+            }
+
+            if root.open: page := ScrollView {
+                vertical-stretch: 1;
+                mouse-drag-pan-enabled: false;
+                viewport-width: self.visible-width;
+                HorizontalLayout {
+                    width: page.visible-width;
+                    Rectangle { horizontal-stretch: 1; }
+                    VerticalLayout {
+                        horizontal-stretch: 1000;
+                        max-width: 760px;
+                        padding-left: 36px;
+                        padding-right: 36px;
+                        padding-top: 28px;
+                        padding-bottom: 120px;
+                        alignment: start;
+                        spacing: 0px;
+
+                        // The note's name, which is its file's: Enter renames it.
+                        titre := TextInput {
+                            property <int> demande: root.title-serial;
+                            changed demande => {
+                                self.text = root.title;
+                                self.focus();
+                                self.select-all();
+                            }
+                            text: root.title;
+                            font-family: Tokens.font-display;
+                            font-size: 30px;
+                            font-weight: 700;
+                            color: Tokens.text;
+                            single-line: true;
+                            selection-background-color: Tokens.accent.transparentize(0.7);
+                            accessible-role: text-input;
+                            accessible-label: "Note title";
+                            // Typing breaks the binding: another note's title is put back
+                            // by hand.
+                            property <string> source: root.title;
+                            changed source => { self.text = root.title; }
+                            accepted => { root.title-accepted(self.text); }
+                            key-pressed(event) => {
+                                if (event.text == Key.Escape) {
+                                    self.text = root.title;
+                                    root.escaped();
+                                    return accept;
+                                }
+                                if (event.text == Key.DownArrow || event.text == Key.Return) {
+                                    root.title-accepted(self.text);
+                                    root.block-clicked(0);
+                                    return accept;
+                                }
+                                reject
+                            }
+                        }
+                        Rectangle { height: 14px; }
+
+                        for b[i] in root.blocks: NoteBlock {
+                            block: b;
+                            index: i;
+                            focused: i == root.focus;
+                            focus-serial: root.focus-serial;
+                            focus-cursor: root.focus-cursor;
+                            focus-anchor: root.focus-anchor;
+                            ctrl-held: root.ctrl-held;
+                            edited(k, t, c) => { root.block-edited(k, t, c); }
+                            key(k, n, c, a, p, d) => {
+                                if (n == "escape") {
+                                    root.escaped();
+                                }
+                                return root.block-key(k, n, c, a, p, d);
+                            }
+                            clicked(k) => { root.block-clicked(k); }
+                            link(l) => { root.link-clicked(l); }
+                            task-toggled(k) => { root.task-toggled(k); }
+                            fold-toggled(k) => { root.fold-toggled(k); }
+                            caret(k, x, y) => { root.caret(k, x, y); }
+                            ctrl-changed(b) => { root.ctrl-changed(b); }
+                        }
+
+                        // Below the last block: a click writes at the end.
+                        Rectangle {
+                            height: 80px;
+                            TouchArea {
+                                mouse-cursor: MouseCursor.text;
+                                clicked => { root.end-clicked(); }
+                            }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+            }
+        }
+    }
+
+    // What is carried, under the pointer.
+    if root.carried != "": Rectangle {
+        x: root.carry-x - root.absolute-position.x + 12px;
+        y: root.carry-y - root.absolute-position.y + 4px;
+        width: etiquette.preferred-width + 20px;
+        height: 26px;
+        border-radius: Tokens.radius-small;
+        background: Tokens.accent;
+        opacity: 0.9;
+        etiquette := Text {
+            text: root.carried-name;
+            font-size: 12.5px;
+            color: Tokens.accent-text;
+        }
+    }
+}
+
+// The menu of a row of the tree.
+export component NotesRowMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    /// 0 folder, 1 note, 2 spreadsheet, 3 image, 4 other.
+    in property <int> kind;
+    in property <bool> pinned;
+    callback chosen(string);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 230px;
+        menu-height: entries.preferred-height + 8px;
+        entries := VerticalLayout {
+            padding: 4px;
+            if root.kind == 0: MenuEntry {
+                icon: Icons.plus;
+                label: "New note here";
+                activated => { root.chosen("new-note"); }
+            }
+            if root.kind == 0: MenuEntry {
+                icon: Icons.folder;
+                label: "New folder here";
+                activated => { root.chosen("new-folder"); }
+            }
+            if root.kind == 0: MenuSeparator {}
+            MenuEntry {
+                icon: Icons.pencil;
+                label: "Rename";
+                shortcut: "F2";
+                activated => { root.chosen("rename"); }
+            }
+            if root.kind != 0: MenuEntry {
+                icon: Icons.layers;
+                label: "Duplicate";
+                activated => { root.chosen("duplicate"); }
+            }
+            MenuEntry {
+                icon: Icons.star;
+                label: root.pinned ? "Unpin" : "Pin to the top";
+                activated => { root.chosen("pin"); }
+            }
+            MenuEntry {
+                icon: Icons.folder;
+                label: "Show in Explorer";
+                activated => { root.chosen("reveal"); }
+            }
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.trash;
+                label: "Move to the Recycle Bin";
+                danger: true;
+                activated => { root.chosen("delete"); }
+            }
+        }
+    }
+}
+
+// The spaces, from the picker at the top of the side column.
+export component NotesSpaceMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <[NoteSpaceData]> spaces;
+    in property <int> current;
+    callback chosen(int);
+    callback new-space();
+    callback open-folder();
+    callback reveal();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 240px;
+        menu-height: entries.preferred-height + 8px;
+        entries := VerticalLayout {
+            padding: 4px;
+            MenuHeader { text: "Spaces"; }
+            for s[i] in root.spaces: MenuEntry {
+                icon: i == root.current ? Icons.check : "";
+                label: s.name;
+                activated => { root.chosen(i); }
+            }
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.plus;
+                label: "New space…";
+                activated => { root.new-space(); }
+            }
+            MenuEntry {
+                icon: Icons.folder;
+                label: "Open a folder as a space…";
+                activated => { root.open-folder(); }
+            }
+            MenuEntry {
+                icon: Icons.folder;
+                label: "Show the space in Explorer";
+                activated => { root.reveal(); }
+            }
+        }
+    }
+}
+
+// A name asked for: a new space, a new folder.
+export component NotesNamePanel inherits Rectangle {
+    in property <string> title;
+    in property <string> action;
+    in-out property <string> name;
+    in property <string> error;
+    callback confirmed(string);
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: root.title;
+        card-height: 190px;
+        card-width: 400px;
+        dismissed => { root.dismissed(); }
+        VerticalLayout {
+            spacing: 10px;
+            TextField {
+                text <=> root.name;
+                init => { self.focus(); }
+                accepted(t) => { root.confirmed(t); }
+            }
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                wrap: word-wrap;
+            }
+            Rectangle {}
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                Rectangle {}
+                Button {
+                    text: "Cancel";
+                    clicked => { root.dismissed(); }
+                }
+                Button {
+                    text: root.action;
+                    kind: ButtonKind.primary;
+                    clicked => { root.confirmed(root.name); }
+                }
+            }
+        }
+    }
+}
+
+// Quick open: a note by its name, typed loosely.
+export component NotesQuickOpen inherits Rectangle {
+    in-out property <string> query;
+    in property <[NoteFoundData]> results;
+    in property <int> highlighted;
+    callback edited(string);
+    callback moved(int);
+    callback chosen(string);
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Open a note";
+        card-height: 420px;
+        card-width: 520px;
+        dismissed => { root.dismissed(); }
+        VerticalLayout {
+            spacing: 8px;
+            FocusScope {
+                height: champ.preferred-height;
+                key-pressed(event) => {
+                    if (event.text == Key.DownArrow) { root.moved(1); return accept; }
+                    if (event.text == Key.UpArrow) { root.moved(-1); return accept; }
+                    reject
+                }
+                champ := TextField {
+                    width: 100%;
+                    icon: Icons.search;
+                    placeholder-text: "Name of a note";
+                    text <=> root.query;
+                    init => { self.focus(); }
+                    edited(t) => { root.edited(t); }
+                    accepted => {
+                        if (root.highlighted >= 0 && root.highlighted < root.results.length) {
+                            root.chosen(root.results[root.highlighted].key);
+                        } else if (root.query != "") {
+                            root.chosen("new:" + root.query);
+                        }
+                    }
+                }
+            }
+            for f[i] in root.results: Rectangle {
+                height: 40px;
+                border-radius: Tokens.radius-small;
+                background: i == root.highlighted ? Tokens.accent : ligne.has-hover ? Tokens.surface-hover : transparent;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        data: Icons.notes;
+                        size: 15px;
+                        tint: i == root.highlighted ? Tokens.accent-text : Tokens.text-muted;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: f.title;
+                            font-size: 13.5px;
+                            color: i == root.highlighted ? Tokens.accent-text : Tokens.text;
+                            overflow: elide;
+                        }
+                        if f.detail != "": Text {
+                            text: f.detail;
+                            font-size: 11.5px;
+                            color: i == root.highlighted ? Tokens.accent-text : Tokens.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+                ligne := TouchArea {
+                    clicked => { root.chosen(f.key); }
+                }
+            }
+            if root.results.length == 0 && root.query != "": Text {
+                text: "No note by that name. Enter makes it.";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+            }
+            Rectangle {}
+        }
+    }
+}

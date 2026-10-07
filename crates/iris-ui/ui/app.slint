@@ -7,7 +7,7 @@ import {
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
-    AliasData
+    AliasData, NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -46,6 +46,9 @@ import {
     CalendarRenamePanel, CalendarDeletePanel, ConnectCalendarsPanel
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
+import {
+    NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen
+} from "@iris/screens/notes.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
 import { ListView, Palette } from "std-widgets.slint";
 
@@ -991,6 +994,67 @@ export component AppWindow inherits Window {
     in property <string> tasks-title;
     in property <string> tasks-subtitle;
     callback task-clear-completed();
+
+    // --- Notes ---
+    in property <[NoteSpaceData]> notes-spaces;
+    in property <int> notes-space;
+    in property <[NoteTreeRowData]> notes-tree;
+    in-out property <string> notes-filter;
+    in property <string> notes-renaming;
+    in property <bool> note-open;
+    in property <string> note-title;
+    in property <string> note-path;
+    in property <string> note-status;
+    in property <[NoteBlockData]> note-blocks;
+    in property <int> note-focus: -1;
+    in property <int> note-focus-serial;
+    in property <int> note-focus-cursor;
+    in property <int> note-focus-anchor;
+    in property <int> note-title-serial;
+    /// Ctrl is held: a click on a drawn note follows the link under it.
+    in-out property <bool> notes-ctrl-held;
+    callback notes-space-chosen(int);
+    callback notes-space-new(string);
+    callback notes-space-open-folder();
+    callback notes-space-reveal();
+    callback notes-row-clicked(string);
+    callback notes-row-toggled(string);
+    callback notes-row-action(string, string);
+    callback notes-renamed(string, string);
+    callback notes-rename-cancelled();
+    callback notes-moved(string, string);
+    callback notes-new-note();
+    callback notes-new-folder(string);
+    callback notes-filter-edited(string);
+    callback note-block-edited(int, string, int);
+    callback note-block-key(int, string, int, int, bool, bool) -> bool;
+    callback note-block-clicked(int);
+    callback note-link-clicked(string);
+    callback note-task-toggled(int);
+    callback note-fold-toggled(int);
+    callback note-caret(int, length, length);
+    callback note-title-accepted(string);
+    callback note-end-clicked();
+    /// The menus and windows of the notes.
+    in-out property <bool> notes-row-menu-open;
+    in-out property <string> notes-row-menu-key;
+    in-out property <int> notes-row-menu-kind;
+    in-out property <bool> notes-row-menu-pinned;
+    in-out property <length> notes-row-menu-x;
+    in-out property <length> notes-row-menu-y;
+    in-out property <bool> notes-space-menu-open;
+    in-out property <length> notes-space-menu-x;
+    in-out property <length> notes-space-menu-y;
+    /// A name asked for: "space" or "folder", empty when nothing is asked.
+    in-out property <string> notes-name-asked;
+    in-out property <string> notes-name;
+    in property <string> notes-name-error;
+    in-out property <bool> notes-quick-open;
+    in-out property <string> notes-quick-query;
+    in property <[NoteFoundData]> notes-quick-results;
+    in-out property <int> notes-quick-highlight;
+    callback notes-quick-edited(string);
+    callback notes-quick-chosen(string);
     /// Today's tasks with no hour laid into the free time, and that taken back.
     callback task-plan-day();
     callback task-unplan-day();
@@ -1262,6 +1326,8 @@ export component AppWindow inherits Window {
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.connect-open
+        || root.notes-row-menu-open || root.notes-space-menu-open || root.notes-name-asked != ""
+        || root.notes-quick-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
@@ -1290,13 +1356,24 @@ export component AppWindow inherits Window {
     shortcuts := FocusScope {
         width: 100%;
         height: 100%;
+        key-released(event) => {
+            if (event.text == Key.Control) {
+                root.notes-ctrl-held = false;
+            }
+            reject
+        }
         key-pressed(event) => {
-            // Home, mail, calendar and tasks, from anywhere but an open window.
+            // Ctrl held over a drawn note: its links take the click.
+            if (event.text == Key.Control) {
+                root.notes-ctrl-held = true;
+                return reject;
+            }
+            // Home, mail, calendar, tasks and notes, from anywhere but an open window.
             if (event.modifiers.control && !root.modal-open
                 && (event.text == "0" || event.text == "1" || event.text == "2"
-                    || event.text == "3")) {
+                    || event.text == "3" || event.text == "4")) {
                 root.workspace = event.text == "0" ? 3 : event.text == "1" ? 0
-                    : event.text == "2" ? 1 : 2;
+                    : event.text == "2" ? 1 : event.text == "3" ? 2 : 4;
                 root.workspace-changed(root.workspace);
                 return accept;
             }
@@ -1432,6 +1509,22 @@ export component AppWindow inherits Window {
                 root.subscribe-open = false;
                 return accept;
             }
+            if (event.text == Key.Escape && root.notes-quick-open) {
+                root.notes-quick-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.notes-name-asked != "") {
+                root.notes-name-asked = "";
+                return accept;
+            }
+            if (event.text == Key.Escape && root.notes-row-menu-open) {
+                root.notes-row-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.notes-space-menu-open) {
+                root.notes-space-menu-open = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.connect-open && !root.connect-busy) {
                 root.connect-open = false;
                 root.connect-password = "";
@@ -1482,6 +1575,25 @@ export component AppWindow inherits Window {
             }
             // Home has no keys of its own, and the mail's do not reach through it.
             if (root.workspace == 3) {
+                return accept;
+            }
+            // Notes: a new one, one opened by name; none of the mail's keys.
+            if (root.workspace == 4) {
+                if (event.modifiers.control && event.text == "n") {
+                    root.notes-new-note();
+                }
+                if (event.modifiers.control && event.text == "o") {
+                    root.notes-quick-query = "";
+                    root.notes-quick-highlight = 0;
+                    root.notes-quick-open = true;
+                    root.notes-quick-edited("");
+                }
+                if (event.text == Key.F2 && root.notes-tree.length > 0) {
+                    root.notes-row-action("rename", "");
+                }
+                if (event.text == Key.Return && root.note-open) {
+                    root.note-end-clicked();
+                }
                 return accept;
             }
             // The calendar has its own keys, and none of the mail's: "e" in the
@@ -2174,6 +2286,84 @@ export component AppWindow inherits Window {
     }
 
     // Home, over everything like the other workspaces.
+    if root.workspace == 4: NotesView {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height - 30px;
+        spaces: root.notes-spaces;
+        space: root.notes-space;
+        tree: root.notes-tree;
+        filter <=> root.notes-filter;
+        renaming: root.notes-renaming;
+        open: root.note-open;
+        title: root.note-title;
+        path: root.note-path;
+        status: root.note-status;
+        blocks: root.note-blocks;
+        focus: root.note-focus;
+        focus-serial: root.note-focus-serial;
+        focus-cursor: root.note-focus-cursor;
+        focus-anchor: root.note-focus-anchor;
+        title-serial: root.note-title-serial;
+        ctrl-held: root.notes-ctrl-held;
+        space-menu(x, y) => {
+            root.notes-space-menu-x = x;
+            root.notes-space-menu-y = y;
+            root.notes-space-menu-open = true;
+        }
+        row-clicked(k) => { root.notes-row-clicked(k); }
+        row-toggled(k) => { root.notes-row-toggled(k); }
+        row-menu(k, x, y) => {
+            root.notes-row-menu-key = k;
+            root.notes-row-menu-x = x;
+            root.notes-row-menu-y = y;
+            root.notes-row-action("menu", k);
+            root.notes-row-menu-open = true;
+        }
+        renamed(k, t) => {
+            root.notes-renamed(k, t);
+            shortcuts.focus();
+        }
+        rename-cancelled => {
+            root.notes-rename-cancelled();
+            shortcuts.focus();
+        }
+        moved(k, cible) => { root.notes-moved(k, cible); }
+        new-note => { root.notes-new-note(); }
+        new-folder => {
+            root.notes-name = "";
+            root.notes-name-asked = "folder";
+        }
+        filter-edited(t) => { root.notes-filter-edited(t); }
+        quick-open => {
+            root.notes-quick-query = "";
+            root.notes-quick-highlight = 0;
+            root.notes-quick-open = true;
+            root.notes-quick-edited("");
+        }
+        block-edited(k, t, c) => { root.note-block-edited(k, t, c); }
+        block-key(k, n, c, a, p, d) => {
+            if (n == "ctrl+o") {
+                root.notes-quick-query = "";
+                root.notes-quick-highlight = 0;
+                root.notes-quick-open = true;
+                root.notes-quick-edited("");
+                return true;
+            }
+            return root.note-block-key(k, n, c, a, p, d);
+        }
+        block-clicked(k) => { root.note-block-clicked(k); }
+        link-clicked(l) => { root.note-link-clicked(l); }
+        task-toggled(k) => { root.note-task-toggled(k); }
+        fold-toggled(k) => { root.note-fold-toggled(k); }
+        caret(k, x, y) => { root.note-caret(k, x, y); }
+        title-accepted(t) => { root.note-title-accepted(t); }
+        escaped => { shortcuts.focus(); }
+        end-clicked => { root.note-end-clicked(); }
+        ctrl-changed(b) => { root.notes-ctrl-held = b; }
+    }
+
     if root.workspace == 3: HomeView {
         x: 0px;
         y: 0px;
@@ -2475,6 +2665,96 @@ export component AppWindow inherits Window {
         error: root.subscribe-error;
         subscribe => { root.subscribe-confirmed(); }
         dismissed => { root.subscribe-open = false; }
+    }
+
+    if root.notes-row-menu-open: NotesRowMenu {
+        width: 100%;
+        height: 100%;
+        menu-x: root.notes-row-menu-x;
+        menu-y: root.notes-row-menu-y;
+        kind: root.notes-row-menu-kind;
+        pinned: root.notes-row-menu-pinned;
+        chosen(action) => {
+            root.notes-row-menu-open = false;
+            if (action == "new-folder") {
+                root.notes-name = "";
+                root.notes-name-asked = "folder";
+            } else {
+                root.notes-row-action(action, root.notes-row-menu-key);
+            }
+        }
+        dismissed => { root.notes-row-menu-open = false; }
+    }
+
+    if root.notes-space-menu-open: NotesSpaceMenu {
+        width: 100%;
+        height: 100%;
+        menu-x: root.notes-space-menu-x;
+        menu-y: root.notes-space-menu-y;
+        spaces: root.notes-spaces;
+        current: root.notes-space;
+        chosen(i) => {
+            root.notes-space-menu-open = false;
+            root.notes-space-chosen(i);
+        }
+        new-space => {
+            root.notes-space-menu-open = false;
+            root.notes-name = "";
+            root.notes-name-asked = "space";
+        }
+        open-folder => {
+            root.notes-space-menu-open = false;
+            root.notes-space-open-folder();
+        }
+        reveal => {
+            root.notes-space-menu-open = false;
+            root.notes-space-reveal();
+        }
+        dismissed => { root.notes-space-menu-open = false; }
+    }
+
+    if root.notes-name-asked != "": NotesNamePanel {
+        width: 100%;
+        height: 100%;
+        title: root.notes-name-asked == "space" ? "New space" : "New folder";
+        action: "Create";
+        name <=> root.notes-name;
+        error: root.notes-name-error;
+        confirmed(t) => {
+            if (root.notes-name-asked == "space") {
+                root.notes-space-new(t);
+            } else {
+                root.notes-new-folder(t);
+            }
+        }
+        dismissed => {
+            root.notes-name-asked = "";
+            shortcuts.focus();
+        }
+    }
+
+    if root.notes-quick-open: NotesQuickOpen {
+        width: 100%;
+        height: 100%;
+        query <=> root.notes-quick-query;
+        results: root.notes-quick-results;
+        highlighted: root.notes-quick-highlight;
+        edited(t) => {
+            root.notes-quick-highlight = 0;
+            root.notes-quick-edited(t);
+        }
+        moved(d) => {
+            root.notes-quick-highlight = max(0, min(root.notes-quick-results.length - 1,
+                root.notes-quick-highlight + d));
+        }
+        chosen(k) => {
+            root.notes-quick-open = false;
+            root.notes-quick-chosen(k);
+        }
+        dismissed => {
+            root.notes-quick-open = false;
+            shortcuts.focus();
+        }
     }
 
     if root.connect-open: ConnectCalendarsPanel {

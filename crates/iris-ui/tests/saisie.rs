@@ -424,6 +424,25 @@ fn l_abonnement_s_ouvre_dans_le_lien() {
     assert_eq!(f.get_subscribe_url().as_str(), "webcal://example.com/a.ics");
 }
 
+fn ctrl_4_opens_the_notes_and_escape_closes_their_menus() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    assert_eq!(f.get_workspace(), 4, "Ctrl+4 opens the notes");
+    assert!(!f.get_notes_ctrl_held(), "Ctrl let go");
+    f.set_notes_row_menu_open(true);
+    echap(&f);
+    assert!(!f.get_notes_row_menu_open(), "Escape closes the row's menu");
+    f.set_notes_quick_open(true);
+    taper(&f, "chap");
+    assert_eq!(
+        f.get_notes_quick_query().as_str(),
+        "chap",
+        "Quick open takes the keys"
+    );
+    echap(&f);
+    assert!(!f.get_notes_quick_open(), "Escape closes Quick open");
+}
+
 fn connecting_calendars_opens_in_the_address_and_escape_closes() {
     let f = fenetre();
     f.set_workspace(1);
@@ -2362,6 +2381,10 @@ fn main() {
         (
             "l_abonnement_s_ouvre_dans_le_lien",
             l_abonnement_s_ouvre_dans_le_lien,
+        ),
+        (
+            "ctrl_4_opens_the_notes_and_escape_closes_their_menus",
+            ctrl_4_opens_the_notes_and_escape_closes_their_menus,
         ),
         (
             "connecting_calendars_opens_in_the_address_and_escape_closes",

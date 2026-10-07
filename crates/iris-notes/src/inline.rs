@@ -795,7 +795,14 @@ pub fn raise(text: &str, haut: bool) -> String {
         .chars()
         .map(|c| if haut { exposant(c) } else { indice(c) })
         .collect();
-    conv.unwrap_or_else(|| format!("{}{}", if haut { '^' } else { '_' }, text))
+    conv.unwrap_or_else(|| {
+        let signe = if haut { '^' } else { '_' };
+        if text.chars().count() > 1 {
+            format!("{signe}({text})")
+        } else {
+            format!("{signe}{text}")
+        }
+    })
 }
 
 /// Text as Slint's markdown reads it literally: every ASCII punctuation escaped, and

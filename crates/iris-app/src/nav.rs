@@ -32,6 +32,8 @@ pub struct Place {
     pub tasks: String,
     /// The calendar: 0 month, 1 week, 2 day.
     pub calendar: i32,
+    /// The note open, by its path in its space.
+    pub note: String,
 }
 
 impl Place {
@@ -44,6 +46,7 @@ impl Place {
             tab: 0,
             tasks: "today".into(),
             calendar,
+            note: String::new(),
         }
     }
 
@@ -84,6 +87,10 @@ impl Place {
             "calendar-mode" => {
                 p.workspace = 1;
                 p.calendar = nombre()?;
+            }
+            "note" => {
+                p.workspace = 4;
+                p.note = value.to_string();
             }
             _ => return None,
         }
@@ -200,6 +207,9 @@ fn aller(f: &AppWindow, from: &Place, to: &Place) {
     }
     if to.calendar != from.calendar {
         f.invoke_calendar_mode_chosen(to.calendar);
+    }
+    if to.note != from.note && !to.note.is_empty() {
+        f.invoke_notes_quick_chosen(to.note.as_str().into());
     }
     if to.workspace != from.workspace {
         f.set_workspace(to.workspace);

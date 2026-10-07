@@ -544,3 +544,67 @@ export struct GoalLogData {
     // A milestone: ticked.
     done: bool,
 }
+
+// --- Notes ---
+
+// A space of notes, in the picker at the top of the side column.
+export struct NoteSpaceData {
+    name: string,
+    color: color,
+}
+
+// A line of the notes' tree.
+export struct NoteTreeRowData {
+    // Its path in the space, with "/".
+    key: string,
+    name: string,
+    depth: int,
+    // 0 folder, 1 note, 2 spreadsheet, 3 image, 4 other file.
+    kind: int,
+    expanded: bool,
+    has-children: bool,
+    selected: bool,
+    // A folder's colour of its own; transparent when none.
+    color: color,
+    pinned: bool,
+}
+
+// A block of the open note: its source while it is edited, its rendering otherwise.
+export struct NoteBlockData {
+    // "blank", "paragraph", "heading", "bullet", "numbered", "task", "quote",
+    // "callout", "math", "code", "rule", "table", "embed", "container",
+    // "properties", "flashcard".
+    kind: string,
+    // A heading's level.
+    level: int,
+    // How deep a list item is.
+    indent: int,
+    // The exact source, as typed.
+    source: string,
+    // What it shows when not edited: its words with their marks.
+    rich: styled-text,
+    // A checkbox ticked; a callout folded.
+    done: bool,
+    folded: bool,
+    // A numbered item's number ("3."), a callout's ("Theorem 2").
+    number: string,
+    // A callout's title, a container's, a code block's language.
+    title: string,
+    // A callout's colour.
+    tint: color,
+    // An image or a drawn formula.
+    picture: image,
+    has-picture: bool,
+    // A table's cells, row by row, and how many rows and columns.
+    cells: [string],
+    rows: int,
+    columns: int,
+}
+
+// A note found by Quick open or search.
+export struct NoteFoundData {
+    key: string,
+    title: string,
+    // Its folder, or the line found.
+    detail: string,
+}
