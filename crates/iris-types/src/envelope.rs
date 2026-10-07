@@ -76,6 +76,17 @@ impl Flags {
     /// questions indépendantes, et les confondre ferait perdre l'une des deux.
     pub const SPAM: Self = Self(1 << 9);
 
+    /// What the IMAP server keeps and tells: read, answered, starred, draft, deleted,
+    /// recent. The rest is worked out here, and a server's answer says nothing of it.
+    pub const PROTOCOL: Self = Self(
+        Self::SEEN.0
+            | Self::ANSWERED.0
+            | Self::FLAGGED.0
+            | Self::DRAFT.0
+            | Self::DELETED.0
+            | Self::RECENT.0,
+    );
+
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) == other.0

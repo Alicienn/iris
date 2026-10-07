@@ -19,6 +19,7 @@
 pub mod client;
 pub mod fake;
 pub mod pool;
+pub mod utf7;
 
 use async_trait::async_trait;
 use iris_types::{Flags, Result, Timestamp};
@@ -142,8 +143,12 @@ pub enum FolderKind {
 /// Un dossier tel qu'annoncé par le serveur.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFolder {
+    /// Lisible : décodé de l'UTF-7 modifié du protocole.
     pub path: String,
     pub kind: FolderKind,
+    /// Ce qui sépare un dossier de ses enfants chez ce serveur (`/` chez Gmail et
+    /// iCloud, `.` chez Courier et bien des Dovecot). `None` quand il ne le dit pas.
+    pub delimiter: Option<char>,
 }
 
 /// L'état d'un dossier au moment de sa sélection.
@@ -279,13 +284,32 @@ pub trait ImapConnection: Send + std::fmt::Debug {
     /// UID encore présents dans l'intervalle. Sert à détecter les suppressions.
     async fn existing_uids(&mut self, range: UidRange) -> Result<Vec<u32>>;
 
+    /// The UIDs, in the folder selected, of the message with this `Message-ID`
+    /// (without its angle brackets).
+    async fn find_message_id(&mut self, message_id: &str) -> Result<Vec<u32>>;
+
     /// Drapeaux modifiés depuis un numéro de modification donné.
     ///
     /// Exige `CONDSTORE`. C'est l'opération qui rend une synchronisation périodique
     /// négligeable au lieu de relire tout le dossier.
     async fn flags_changed_since(&mut self, modseq: u64) -> Result<Vec<(u32, Flags)>>;
 
+    /// Les drapeaux de tout un intervalle, sans `CONDSTORE`.
+    ///
+    /// Le repli des serveurs qui ne disent pas ce qui a changé (Exchange, Courier,
+    /// bien des hébergeurs) : sans lui, un message lu sur le téléphone restait non lu
+    /// ici pour toujours.
+    async fn fetch_flags(&mut self, range: UidRange) -> Result<Vec<(u32, Flags)>>;
+
     async fn store_flags(&mut self, uids: &[u32], flags: Flags, add: bool) -> Result<()>;
+
+    /// Efface pour de bon ces messages du dossier sélectionné, déjà marqués
+    /// `\Deleted`.
+    ///
+    /// `UID EXPUNGE` quand le serveur annonce `UIDPLUS` ; sinon `EXPUNGE`, qui efface
+    /// aussi ce que d'autres y ont marqué supprimé. Ne sert qu'à vider la corbeille et
+    /// les indésirables, où c'est ce qui est demandé.
+    async fn expunge(&mut self, uids: &[u32]) -> Result<()>;
 
     async fn move_messages(&mut self, uids: &[u32], target: &str) -> Result<()>;
 
@@ -300,12 +324,11 @@ pub trait ImapConnection: Send + std::fmt::Debug {
     /// Renomme un dossier. Réussir quand la cible porte déjà ce nom.
     async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()>;
 
-    /// Supprime un dossier, **sans toucher à ce qu'il contient**.
+    /// Supprime un dossier.
     ///
-    /// Le courrier est déplacé ailleurs avant l'appel, par l'appelant : `DELETE` sur
-    /// un dossier plein détruit son contenu sur le serveur, et personne ne s'attend à
-    /// perdre du courrier en rangeant ses dossiers. Réussir quand il n'existe déjà
-    /// plus, comme la création.
+    /// `DELETE` sur un dossier plein détruit son contenu : l'appelant le vide d'abord
+    /// (`delete_emptied_folder` dans le rejeu). Réussir quand il n'existe déjà plus,
+    /// comme la création.
     async fn delete_folder(&mut self, path: &str) -> Result<()>;
 
     /// Dépose un message dans un dossier.

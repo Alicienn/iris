@@ -148,6 +148,20 @@ impl Store {
         })
     }
 
+    /// Takes back an operation the server has not been told of yet. Says whether it
+    /// was still waiting: once replayed, it can only be reversed by another.
+    pub fn withdraw_op(&self, id: OpId) -> Result<bool> {
+        self.with_conn(|c| {
+            let n = c
+                .execute(
+                    "DELETE FROM op_journal WHERE id = ?1 AND done = 0",
+                    params![id.get()],
+                )
+                .map_err(|e| sql_err("retrait de l'opération", e))?;
+            Ok(n > 0)
+        })
+    }
+
     /// Marque une opération comme réconciliée.
     pub fn complete_op(&self, id: OpId) -> Result<bool> {
         self.with_conn(|c| {
@@ -193,6 +207,18 @@ impl Store {
             })
             .map(|n| n as u64)
             .map_err(|e| sql_err("comptage", e))
+        })
+    }
+
+    /// Forgets the states left by messages that went before `before` and never came
+    /// back (deleted for good, most of them).
+    pub fn purge_thread_ghosts(&self, before: Timestamp) -> Result<usize> {
+        self.with_conn(|c| {
+            c.execute(
+                "DELETE FROM thread_ghosts WHERE left_at < ?1",
+                params![before.millis()],
+            )
+            .map_err(|e| sql_err("purge des fantômes", e))
         })
     }
 

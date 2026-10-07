@@ -31,6 +31,11 @@ pub struct Outgoing {
     /// Identifiant du message, généré si absent.
     pub message_id: Option<RfcMessageId>,
     pub date: Timestamp,
+    /// An iTIP answer (`METHOD:REPLY`), sent as the message's own
+    /// `text/calendar; method=REPLY` part beside the text, which is where Outlook
+    /// and Google read it. Sent as an attachment named `reply.ics`, the organiser's
+    /// calendar left the answer unrecorded.
+    pub calendar_reply: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +60,7 @@ impl Outgoing {
             attachments: Vec::new(),
             message_id: None,
             date: Timestamp::EPOCH,
+            calendar_reply: None,
         }
     }
 
@@ -163,6 +169,7 @@ pub fn reply(target: &ReplyTarget, identity: &Address, scope: ReplyScope) -> Out
         attachments: Vec::new(),
         message_id: None,
         date: Timestamp::EPOCH,
+        calendar_reply: None,
     }
 }
 
@@ -283,6 +290,7 @@ pub fn forward(target: &ReplyTarget, identity: &Address, to: Vec<Address>) -> Ou
         attachments: Vec::new(),
         message_id: None,
         date: Timestamp::EPOCH,
+        calendar_reply: None,
     }
 }
 

@@ -23,12 +23,15 @@ fn account_from_row(r: &Row<'_>) -> rusqlite::Result<Account> {
         created_at: Timestamp::from_millis(r.get("created_at")?),
         last_activity_at: Timestamp::from_millis(r.get("last_activity_at")?),
         signature: r.get("signature")?,
+        imap_user: r.get("imap_user")?,
+        smtp_user: r.get("smtp_user")?,
+        folder_delimiter: r.get::<_, String>("folder_delimiter")?.chars().next(),
     })
 }
 
 const ACCOUNT_COLUMNS: &str = "id, email, display_name, imap_host, imap_port, imap_tls, \
      smtp_host, smtp_port, smtp_tls, auth_kind, group_name, pinned, enabled, \
-     created_at, last_activity_at, signature";
+     created_at, last_activity_at, signature, imap_user, smtp_user, folder_delimiter";
 
 /// Un dossier tel que l'interface le montre : un nom, sur toutes les boîtes à la fois.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +64,9 @@ pub struct AccountServers {
     pub smtp_host: String,
     pub smtp_port: u16,
     pub smtp_tls: bool,
+    /// The logins when they are not the address; empty: the address.
+    pub imap_user: String,
+    pub smtp_user: String,
 }
 
 impl Store {
@@ -75,8 +81,9 @@ impl Store {
             c.execute(
                 "INSERT INTO accounts
                    (email, display_name, imap_host, imap_port, imap_tls,
-                    smtp_host, smtp_port, smtp_tls, auth_kind, group_name, created_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                    smtp_host, smtp_port, smtp_tls, auth_kind, group_name, created_at,
+                    imap_user, smtp_user)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     email,
                     new.display_name,
@@ -89,6 +96,8 @@ impl Store {
                     new.auth.as_str(),
                     new.group,
                     now.millis(),
+                    new.imap_user.trim(),
+                    new.smtp_user.trim(),
                 ],
             )
             .map_err(|e| match e {
@@ -162,7 +171,8 @@ impl Store {
             let n = c
                 .execute(
                     "UPDATE accounts SET email = ?1, imap_host = ?2, imap_port = ?3, \
-                     imap_tls = ?4, smtp_host = ?5, smtp_port = ?6, smtp_tls = ?7 WHERE id = ?8",
+                     imap_tls = ?4, smtp_host = ?5, smtp_port = ?6, smtp_tls = ?7, \
+                     imap_user = ?9, smtp_user = ?10 WHERE id = ?8",
                     params![
                         servers.email,
                         servers.imap_host,
@@ -171,7 +181,9 @@ impl Store {
                         servers.smtp_host,
                         servers.smtp_port as i64,
                         servers.smtp_tls as i64,
-                        id.get()
+                        id.get(),
+                        servers.imap_user.trim(),
+                        servers.smtp_user.trim(),
                     ],
                 )
                 .map_err(|e| sql_err("mise à jour des serveurs", e))?;
@@ -266,6 +278,19 @@ impl Store {
 
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("comptes sans le dossier", e))
+        })
+    }
+
+    /// Notes what separates a folder from its children on this account's server, as
+    /// its folder listing says.
+    pub fn set_folder_delimiter(&self, id: AccountId, delimiter: char) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE accounts SET folder_delimiter = ?1 WHERE id = ?2",
+                params![delimiter.to_string(), id.get()],
+            )
+            .map_err(|e| sql_err("séparateur des dossiers", e))?;
+            Ok(())
         })
     }
 
@@ -483,6 +508,8 @@ mod tests {
                 smtp_host: "mail.y.fr".into(),
                 smtp_port: 587,
                 smtp_tls: true,
+                imap_user: "CORP\\marie".into(),
+                smtp_user: String::new(),
             },
         )
         .unwrap();
@@ -495,6 +522,21 @@ mod tests {
         assert!(!relu.imap_tls);
         assert_eq!(relu.smtp_port, 587);
         assert!(relu.smtp_tls);
+        // A login of its own, for both servers since SMTP has none.
+        assert_eq!(relu.imap_login(), "CORP\\marie");
+        assert_eq!(relu.smtp_login(), "CORP\\marie");
+    }
+
+    #[test]
+    fn the_folder_delimiter_is_kept() {
+        let s = store();
+        let id = s
+            .create_account(&NewAccount::new("a@x.fr", "i", "s"), now())
+            .unwrap();
+        assert_eq!(s.account(id).unwrap().unwrap().folder_delimiter, None);
+        s.set_folder_delimiter(id, '/').unwrap();
+        assert_eq!(s.account(id).unwrap().unwrap().folder_delimiter, Some('/'));
+        assert_eq!(s.account(id).unwrap().unwrap().imap_login(), "a@x.fr");
     }
 
     #[test]
@@ -512,6 +554,8 @@ mod tests {
                 smtp_host: "s".into(),
                 smtp_port: 465,
                 smtp_tls: true,
+                imap_user: String::new(),
+                smtp_user: String::new(),
             },
         );
         assert!(erreur.is_err());

@@ -217,10 +217,44 @@ impl iris_sync::CredentialsProvider for StoredCredentials {
                 account: email.to_string(),
             })?;
 
+        // The account's login when it is not its address (`jdoe`, `DOMAIN\jdoe`): the
+        // address was always used, and such a mailbox never signed in.
+        let login = self
+            .store
+            .account(account)?
+            .map(|c| c.imap_login().to_string())
+            .unwrap_or_else(|| email.to_string());
         Ok(iris_imap::Credentials::Password {
-            user: email.to_string(),
+            user: login,
             password: motdepasse.expose().to_string(),
         })
+    }
+
+    async fn smtp_credentials(
+        &self,
+        account: AccountId,
+        email: &str,
+    ) -> Result<iris_imap::Credentials> {
+        match self.credentials(account, email).await? {
+            // A token signs in as the address, whatever the logins.
+            jeton @ iris_imap::Credentials::OAuth2 { .. } => Ok(jeton),
+            iris_imap::Credentials::Password { password, .. } => {
+                let compte = self.store.account(account)?;
+                let login = compte
+                    .as_ref()
+                    .map(|c| c.smtp_login().to_string())
+                    .unwrap_or_else(|| email.to_string());
+                // A sending password of its own, else the same one.
+                let motdepasse = match self.secrets.get(email, SecretKind::SmtpPassword)? {
+                    Some(envoi) => envoi.expose().to_string(),
+                    None => password,
+                };
+                Ok(iris_imap::Credentials::Password {
+                    user: login,
+                    password: motdepasse,
+                })
+            }
+        }
     }
 }
 

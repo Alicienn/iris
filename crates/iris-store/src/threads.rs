@@ -283,8 +283,11 @@ impl Store {
     /// et une pastille qu'on n'a plus envie de regarder ne sert plus à rien.
     pub fn unread_count(&self) -> Result<u32> {
         self.with_conn(|c| {
+            // Each message once, however many folders hold a copy: on Gmail the inbox,
+            // All Mail and every label do, and one unread message counted three times.
             c.query_row(
-                "SELECT count(*) FROM messages m
+                "SELECT count(DISTINCT COALESCE(m.rfc_message_id, 'id:' || m.id))
+                 FROM messages m
                  JOIN folders f ON f.id = m.folder_id
                  WHERE (m.flags & ?1) = 0
                    AND (m.flags & ?2) = 0
@@ -305,14 +308,18 @@ impl Store {
     /// how many are kept in all. Junk and the bin are left out of the arrivals.
     pub fn mail_stats(&self, today: Timestamp, week: Timestamp) -> Result<MailStats> {
         self.with_conn(|c| {
+            // Each message once, whatever folders hold copies of it (Gmail).
             c.query_row(
                 "SELECT
-                   COALESCE(SUM(f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
-                       AND (m.flags & ?1) = 0 AND m.received >= ?2), 0),
-                   COALESCE(SUM(f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
-                       AND (m.flags & ?1) = 0 AND m.received >= ?3), 0),
-                   COALESCE(SUM(f.role = 'sent' AND m.date >= ?3), 0),
-                   COUNT(*)
+                   COUNT(DISTINCT CASE WHEN f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
+                       AND (m.flags & ?1) = 0 AND m.received >= ?2
+                       THEN COALESCE(m.rfc_message_id, 'id:' || m.id) END),
+                   COUNT(DISTINCT CASE WHEN f.role NOT IN ('trash', 'junk', 'sent', 'drafts')
+                       AND (m.flags & ?1) = 0 AND m.received >= ?3
+                       THEN COALESCE(m.rfc_message_id, 'id:' || m.id) END),
+                   COUNT(DISTINCT CASE WHEN f.role = 'sent' AND m.date >= ?3
+                       THEN COALESCE(m.rfc_message_id, 'id:' || m.id) END),
+                   COUNT(DISTINCT COALESCE(m.rfc_message_id, 'id:' || m.id))
                  FROM messages m JOIN folders f ON f.id = m.folder_id",
                 params![
                     iris_types::Flags::SPAM.0 as i64,
@@ -953,9 +960,11 @@ mod tests {
         // « non lus ou avec une pièce jointe ».
         let f = fixture();
         f.thread_at(1000, "Ni l'un ni l'autre");
-        f.thread_at(2000, "Avec pièce jointe");
+        let avec = f.thread_at(2000, "Avec pièce jointe");
+        // Worked out here, not told by the server: set on the message itself.
+        let message = f.store.thread_messages(avec).unwrap()[0].id;
         f.store
-            .apply_flag_changes(f.folder, &[(2, Flags::HAS_ATTACHMENT)])
+            .set_message_flags(message, Flags::HAS_ATTACHMENT)
             .unwrap();
 
         let deux = Filters {

@@ -11,7 +11,10 @@
 //!   système. Sur cent comptes, une machine mal configurée produirait cent échecs
 //!   inexplicables ;
 //! - **`STARTTLS` est géré**, car quelques hébergeurs n'exposent encore que le port
-//!   143 ; mais une session restée en clair est refusée après la négociation ;
+//!   143 ; un serveur qui refuse de chiffrer est refusé, rien n'est dit en clair
+//!   au-delà de l'accueil et de `STARTTLS` ;
+//! - **les noms de dossiers sont décodés** de l'UTF-7 modifié à leur arrivée et
+//!   réencodés à chaque commande (`utf7`) ;
 //! - **les en-têtes demandés sont limités** à ce que la liste affiche. Demander
 //!   `BODY[]` à la synchronisation initiale téléchargerait des gigaoctets.
 
@@ -70,6 +73,14 @@ impl RustlsConnector {
         // millisecondes ; sur une synchronisation bavarde, cela se voit.
         let _ = tcp.set_nodelay(true);
 
+        self.wrap(endpoint, tcp).await
+    }
+
+    async fn wrap(
+        &self,
+        endpoint: &Endpoint,
+        tcp: TcpStream,
+    ) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
         let nom = rustls::pki_types::ServerName::try_from(endpoint.host.clone())
             .map_err(|_| Error::Config(format!("nom d'hôte invalide : « {} »", endpoint.host)))?;
 
@@ -77,6 +88,79 @@ impl RustlsConnector {
             .connect(nom, tcp)
             .await
             .map_err(|e| Error::network(format!("négociation TLS avec {} : {e}", endpoint.host)))
+    }
+
+    /// Port 143: the greeting and `STARTTLS` in the clear, then TLS over the same
+    /// connection. Nothing else is said in the clear, and a server that will not
+    /// upgrade is refused rather than sent a password openly.
+    ///
+    /// Profiles, the Proton Bridge preset and discovery's fallback all produce this,
+    /// and every one of those accounts failed with "needs STARTTLS, which this version
+    /// does not handle yet".
+    async fn starttls_stream(
+        &self,
+        endpoint: &Endpoint,
+    ) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let tcp = connecter(&endpoint.host, endpoint.port).await?;
+        let _ = tcp.set_nodelay(true);
+        let mut lecteur = BufReader::new(tcp);
+        let reseau =
+            |e: std::io::Error| Error::network(format!("STARTTLS avec {} : {e}", endpoint.host));
+
+        let mut ligne = Vec::new();
+        lecteur
+            .read_until(b'\n', &mut ligne)
+            .await
+            .map_err(reseau)?;
+        let accueil = String::from_utf8_lossy(&ligne).to_ascii_uppercase();
+        if !accueil.starts_with("* OK") {
+            return Err(Error::network(format!(
+                "{} did not greet as an IMAP server: {}",
+                endpoint.host,
+                accueil.trim()
+            )));
+        }
+
+        lecteur
+            .get_mut()
+            .write_all(b"S1 STARTTLS\r\n")
+            .await
+            .map_err(reseau)?;
+        loop {
+            ligne.clear();
+            let lu = lecteur
+                .read_until(b'\n', &mut ligne)
+                .await
+                .map_err(reseau)?;
+            if lu == 0 {
+                return Err(Error::network(format!(
+                    "{} closed the connection during STARTTLS",
+                    endpoint.host
+                )));
+            }
+            let reponse = String::from_utf8_lossy(&ligne).to_ascii_uppercase();
+            if let Some(etat) = reponse.strip_prefix("S1 ") {
+                if etat.starts_with("OK") {
+                    break;
+                }
+                return Err(Error::Config(format!(
+                    "{}:{} will not encrypt the connection (STARTTLS refused): use its \
+                     encrypted port, usually 993",
+                    endpoint.host, endpoint.port
+                )));
+            }
+        }
+        // Anything already sent after the answer would be read as if it came over
+        // TLS: a known way to slip commands in (CVE-2011-0411 and its kin).
+        if !lecteur.buffer().is_empty() {
+            return Err(Error::network(format!(
+                "{} sent data before the TLS handshake",
+                endpoint.host
+            )));
+        }
+        self.wrap(endpoint, lecteur.into_inner()).await
     }
 }
 
@@ -125,20 +209,14 @@ impl Connector for RustlsConnector {
         endpoint: &Endpoint,
         credentials: &Credentials,
     ) -> Result<Box<dyn ImapConnection>> {
-        if !endpoint.tls_immediate {
-            // Le port 143 avec STARTTLS reste servi par quelques hébergeurs. La
-            // négociation par montée en chiffrement exige de reprendre le flux nu,
-            // ce que la bibliothèque ne propose pas directement : plutôt que de
-            // bricoler un chemin fragile et peu testé, on l'annonce clairement.
-            return Err(Error::Config(format!(
-                "{}:{} exige STARTTLS, que cette version ne gère pas encore ; \
-                 utilisez le port chiffré (993) si le serveur le propose",
-                endpoint.host, endpoint.port
-            )));
-        }
-
-        let tls = self.tls_stream(endpoint).await?;
-        let session = sign_in(tls, credentials).await?;
+        // After STARTTLS the greeting has already been read, in the clear, and the
+        // server says nothing more until spoken to.
+        let (tls, accueil_lu) = if endpoint.tls_immediate {
+            (self.tls_stream(endpoint).await?, false)
+        } else {
+            (self.starttls_stream(endpoint).await?, true)
+        };
+        let session = sign_in(tls, credentials, accueil_lu).await?;
 
         let mut connection = ImapClient {
             session: Some(session),
@@ -156,28 +234,34 @@ impl Connector for RustlsConnector {
 /// did: it took the greeting for the end of the exchange, never answered the server's
 /// `+`, and waited with Gmail until the connection timed out. Every account signed in
 /// with Google failed that way, as "did not answer".
-async fn sign_in<T>(stream: T, credentials: &Credentials) -> Result<async_imap::Session<T>>
+async fn sign_in<T>(
+    stream: T,
+    credentials: &Credentials,
+    greeting_read: bool,
+) -> Result<async_imap::Session<T>>
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
     use async_imap::imap_proto::{Response, Status};
 
     let mut client = async_imap::Client::new(stream);
-    let accueil = client
-        .read_response()
-        .await
-        .map_err(|e| Error::network(format!("greeting from the server: {e}")))?
-        .ok_or_else(|| Error::network("the server closed the connection before greeting"))?;
-    if let Response::Data {
-        status: Status::Bye,
-        information,
-        ..
-    } = accueil.parsed()
-    {
-        return Err(Error::network(format!(
-            "the server refused the connection: {}",
-            information.as_deref().unwrap_or("no reason given")
-        )));
+    if !greeting_read {
+        let accueil = client
+            .read_response()
+            .await
+            .map_err(|e| Error::network(format!("greeting from the server: {e}")))?
+            .ok_or_else(|| Error::network("the server closed the connection before greeting"))?;
+        if let Response::Data {
+            status: Status::Bye,
+            information,
+            ..
+        } = accueil.parsed()
+        {
+            return Err(Error::network(format!(
+                "the server refused the connection: {}",
+                information.as_deref().unwrap_or("no reason given")
+            )));
+        }
     }
 
     match credentials {
@@ -381,6 +465,22 @@ fn folder_kind(name: &str, attributes: &[async_imap::types::NameAttribute<'_>]) 
     special_use(attributes).unwrap_or_else(|| kind_by_name(name, None))
 }
 
+/// A view the server builds from a flag, holding copies of mail kept elsewhere:
+/// Gmail's Starred (`\Flagged`) and Important, Dovecot's virtual Flagged.
+///
+/// Synced as folders, every starred or important message was stored once more, counted
+/// unread once more, and moved out of them by Archive, which on Gmail takes the star
+/// or the importance away. The star is a flag on the message; nothing is lost by
+/// leaving the view out.
+fn is_virtual(attributes: &[async_imap::types::NameAttribute<'_>]) -> bool {
+    use async_imap::types::NameAttribute as A;
+    attributes.iter().any(|a| match a {
+        A::Flagged => true,
+        A::Extension(s) => s.eq_ignore_ascii_case("\\Important"),
+        _ => false,
+    })
+}
+
 /// Le rôle que le serveur annonce lui-même, s'il en annonce un.
 fn special_use(attributes: &[async_imap::types::NameAttribute<'_>]) -> Option<FolderKind> {
     use async_imap::types::NameAttribute as A;
@@ -494,31 +594,36 @@ impl ImapConnection for ImapClient {
         while let Some(nom) = flux.next().await {
             let nom = nom.map_err(|e| protocol_error("liste des dossiers", e))?;
             let special = special_use(nom.attributes());
-            if special == Some(FolderKind::NoSelect) || is_server_internal(nom.name()) {
+            let lisible = crate::utf7::decode(nom.name());
+            if special == Some(FolderKind::NoSelect)
+                || is_virtual(nom.attributes())
+                || is_server_internal(&lisible)
+            {
                 continue;
             }
-            listes.push((
-                nom.name().to_string(),
-                special,
-                nom.delimiter().map(str::to_string),
-            ));
+            listes.push((lisible, special, nom.delimiter().map(str::to_string)));
         }
         let roles = assign_kinds(&listes);
         Ok(listes
             .into_iter()
             .zip(roles)
-            .map(|((path, _, _), kind)| RemoteFolder { path, kind })
+            .map(|((path, _, delim), kind)| RemoteFolder {
+                path,
+                kind,
+                delimiter: delim.and_then(|d| d.chars().next()),
+            })
             .collect())
     }
 
     async fn select(&mut self, path: &str) -> Result<SelectedFolder> {
         let condstore = self.capabilities.condstore;
+        let nom = crate::utf7::encode(path);
         let session = self.session()?;
 
         let boite = if condstore {
-            session.select_condstore(path).await
+            session.select_condstore(&nom).await
         } else {
-            session.select(path).await
+            session.select(&nom).await
         }
         .map_err(|e| protocol_error(&format!("sélection de « {path} »"), e))?;
 
@@ -589,6 +694,29 @@ impl ImapConnection for ImapClient {
         Ok(out)
     }
 
+    async fn find_message_id(&mut self, message_id: &str) -> Result<Vec<u32>> {
+        // Quotes and backslashes cannot be in an IMAP quoted string unescaped, and
+        // have no business in a Message-ID: dropped rather than escaped.
+        let propre: String = message_id
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>')
+            .chars()
+            .filter(|c| !matches!(c, '"' | '\\') && !c.is_control())
+            .collect();
+        if propre.is_empty() {
+            return Ok(Vec::new());
+        }
+        let session = self.session()?;
+        let uids = session
+            .uid_search(format!("HEADER Message-ID \"<{propre}>\""))
+            .await
+            .map_err(|e| protocol_error("recherche du message", e))?;
+        let mut out: Vec<u32> = uids.into_iter().collect();
+        out.sort_unstable();
+        Ok(out)
+    }
+
     async fn flags_changed_since(&mut self, modseq: u64) -> Result<Vec<(u32, Flags)>> {
         if !self.capabilities.condstore {
             return Err(Error::Protocol {
@@ -611,6 +739,58 @@ impl ImapConnection for ImapClient {
             }
         }
         Ok(out)
+    }
+
+    async fn fetch_flags(&mut self, range: UidRange) -> Result<Vec<(u32, Flags)>> {
+        let session = self.session()?;
+        let mut flux = session
+            .uid_fetch(range.to_sequence(), "(UID FLAGS)")
+            .await
+            .map_err(|e| protocol_error("lecture des drapeaux", e))?;
+
+        let mut out = Vec::new();
+        while let Some(item) = flux.next().await {
+            let f = item.map_err(|e| protocol_error("lecture des drapeaux", e))?;
+            if let Some(uid) = f.uid {
+                out.push((uid, translate_flags(f.flags())));
+            }
+        }
+        Ok(out)
+    }
+
+    async fn expunge(&mut self, uids: &[u32]) -> Result<()> {
+        if uids.is_empty() {
+            return Ok(());
+        }
+        let uidplus = self.capabilities.uidplus;
+        let sequence = uids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let session = self.session()?;
+        if uidplus {
+            let mut purge = Box::pin(
+                session
+                    .uid_expunge(&sequence)
+                    .await
+                    .map_err(|e| protocol_error("purge", e))?,
+            );
+            while let Some(item) = purge.next().await {
+                item.map_err(|e| protocol_error("purge", e))?;
+            }
+        } else {
+            let mut purge = Box::pin(
+                session
+                    .expunge()
+                    .await
+                    .map_err(|e| protocol_error("purge", e))?,
+            );
+            while let Some(item) = purge.next().await {
+                item.map_err(|e| protocol_error("purge", e))?;
+            }
+        }
+        Ok(())
     }
 
     async fn store_flags(&mut self, uids: &[u32], flags: Flags, add: bool) -> Result<()> {
@@ -643,8 +823,9 @@ impl ImapConnection for ImapClient {
     }
 
     async fn create_folder(&mut self, path: &str) -> Result<()> {
+        let nom = crate::utf7::encode(path);
         let session = self.session()?;
-        match session.create(path).await {
+        match session.create(&nom).await {
             Ok(()) => Ok(()),
             // « ALREADYEXISTS », ou n'importe laquelle des formulations que les
             // serveurs emploient pour la même chose. Le but est atteint : le dossier
@@ -661,8 +842,9 @@ impl ImapConnection for ImapClient {
     }
 
     async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()> {
+        let (de, vers) = (crate::utf7::encode(from), crate::utf7::encode(to));
         let session = self.session()?;
-        match session.rename(from, to).await {
+        match session.rename(&de, &vers).await {
             Ok(()) => Ok(()),
             Err(e) => {
                 // Déjà renommé — le rejeu repasse — ou la source a disparu sous ce
@@ -682,8 +864,9 @@ impl ImapConnection for ImapClient {
     }
 
     async fn delete_folder(&mut self, path: &str) -> Result<()> {
+        let nom = crate::utf7::encode(path);
         let session = self.session()?;
-        match session.delete(path).await {
+        match session.delete(&nom).await {
             Ok(()) => Ok(()),
             Err(e) => {
                 let dit = e.to_string().to_lowercase();
@@ -706,11 +889,12 @@ impl ImapConnection for ImapClient {
             .collect::<Vec<_>>()
             .join(",");
         let atomique = self.capabilities.r#move;
+        let cible = crate::utf7::encode(target);
         let session = self.session()?;
 
         if atomique {
             session
-                .uid_mv(&sequence, target)
+                .uid_mv(&sequence, &cible)
                 .await
                 .map_err(|e| protocol_error("déplacement", e))?;
             return Ok(());
@@ -720,7 +904,7 @@ impl ImapConnection for ImapClient {
         // coupure entre les deux laisse un doublon — mais c'est le seul chemin
         // disponible, et le journal d'opérations rendra l'ensemble rejouable.
         session
-            .uid_copy(&sequence, target)
+            .uid_copy(&sequence, &cible)
             .await
             .map_err(|e| protocol_error("copie", e))?;
 
@@ -728,27 +912,19 @@ impl ImapConnection for ImapClient {
         // réemprunte.
         self.store_flags(uids, Flags::DELETED, true).await?;
 
-        let session = self.session()?;
-        // Le flux d'expurgation n'est pas « Unpin » : il doit être épinglé avant
-        // d'être parcouru.
-        let mut purge = Box::pin(
-            session
-                .uid_expunge(&sequence)
-                .await
-                .map_err(|e| protocol_error("purge", e))?,
-        );
-        while let Some(item) = purge.next().await {
-            item.map_err(|e| protocol_error("purge", e))?;
-        }
-        Ok(())
+        // `UID EXPUNGE` sans UIDPLUS était refusé : le déplacement était abandonné et
+        // l'original restait, marqué supprimé, à côté de sa copie. `expunge` retombe
+        // alors sur `EXPUNGE`.
+        self.expunge(uids).await
     }
 
     async fn append(&mut self, folder: &str, raw: &[u8], flags: Flags) -> Result<Option<u32>> {
         let noms = flags_to_names(flags);
+        let nom = crate::utf7::encode(folder);
         let session = self.session()?;
 
         session
-            .append(folder, Some(&noms), None, raw)
+            .append(&nom, Some(&noms), None, raw)
             .await
             .map_err(|e| protocol_error(&format!("dépôt dans « {folder} »"), e))?;
 
@@ -1015,7 +1191,7 @@ mod tests {
         };
         let session = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            sign_in(client, &identifiants),
+            sign_in(client, &identifiants, false),
         )
         .await
         .expect("the sign-in waited for an answer it had already been given");
@@ -1043,7 +1219,7 @@ mod tests {
         };
         let resultat = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            sign_in(client, &identifiants),
+            sign_in(client, &identifiants, false),
         )
         .await
         .expect("a refusal must come back, not hang");
@@ -1082,12 +1258,46 @@ mod tests {
         };
         let session = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            sign_in(client, &identifiants),
+            sign_in(client, &identifiants, false),
         )
         .await
         .unwrap();
         assert!(session.is_ok(), "{:?}", session.err());
         assert!(serveur.await.unwrap().contains("LOGIN"));
+    }
+
+    #[tokio::test]
+    async fn a_server_that_will_not_encrypt_is_refused() {
+        // Port 143 is upgraded with STARTTLS; one that refuses is never sent the
+        // password in the clear.
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let ecoute = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = ecoute.local_addr().unwrap().port();
+        let serveur = tokio::spawn(async move {
+            let (flux, _) = ecoute.accept().await.unwrap();
+            let (lecture, mut ecriture) = tokio::io::split(flux);
+            let mut lignes = BufReader::new(lecture).lines();
+            ecriture.write_all(b"* OK ready\r\n").await.unwrap();
+            let commande = lignes.next_line().await.unwrap().unwrap();
+            ecriture
+                .write_all(b"S1 NO STARTTLS not available\r\n")
+                .await
+                .unwrap();
+            commande
+        });
+
+        let erreur = RustlsConnector::new()
+            .connect(
+                &Endpoint::starttls("127.0.0.1", port),
+                &Credentials::Password {
+                    user: "a@example.com".into(),
+                    password: "secret".into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(erreur.to_string().contains("STARTTLS refused"), "{erreur}");
+        assert_eq!(serveur.await.unwrap(), "S1 STARTTLS");
     }
 
     #[test]

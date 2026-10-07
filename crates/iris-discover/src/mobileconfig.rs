@@ -22,6 +22,8 @@ pub struct ProfileAccount {
     pub config: ServerConfig,
     /// The password, when the profile carries one.
     pub password: Option<String>,
+    /// The sending password, when the profile gives one of its own.
+    pub smtp_password: Option<String>,
 }
 
 /// The mail accounts of a profile, in its order.
@@ -91,16 +93,24 @@ fn account(dict: &[(String, Value)]) -> Option<ProfileAccount> {
     }
     let imap_port = number(dict, "IncomingMailServerPortNumber").unwrap_or(993);
     let smtp_port = number(dict, "OutgoingMailServerPortNumber").unwrap_or(587);
-    // Never in the clear. The profile's "use SSL" is read from the port: on 993 and
-    // 465 the connection is encrypted from the start, on any other it is upgraded
-    // with STARTTLS — and one that cannot be upgraded fails rather than sends a
-    // password openly.
-    let transport = |port: u16| {
-        if port == 993 || port == 465 {
-            Transport::Tls
-        } else {
-            Transport::StartTls
-        }
+    // Never in the clear. On 993 and 465 the connection is encrypted from the start;
+    // on the ports made for STARTTLS (143, 587, 25) it is upgraded, which is what
+    // Apple's "use SSL" means there. On any other port the profile's "use SSL" says
+    // TLS from the start: the port alone was read before, and SSL on a port of the
+    // host's own (10993, 2465) was taken for STARTTLS and never connected. A
+    // connection that cannot be upgraded fails rather than sends a password openly.
+    let transport = |cle: &str, port: u16| match port {
+        993 | 465 => Transport::Tls,
+        143 | 587 | 25 => Transport::StartTls,
+        _ if boolean(dict, cle) == Some(true) => Transport::Tls,
+        _ => Transport::StartTls,
+    };
+    // The logins, when they are not the address: a corporate profile signs in as
+    // `jdoe` or `DOMAIN\jdoe`, and the address was always used instead.
+    let login = |cle: &str| {
+        text(dict, cle)
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
     };
     let email = text(dict, "EmailAddress")
         .unwrap_or("")
@@ -114,6 +124,17 @@ fn account(dict: &[(String, Value)]) -> Option<ProfileAccount> {
     let password = text(dict, "IncomingPassword")
         .map(str::to_string)
         .filter(|p| !p.is_empty());
+    // A password of its own for sending, unless the profile says it is the same.
+    let smtp_password = if boolean(dict, "OutgoingPasswordSameAsIncomingPassword") == Some(true) {
+        None
+    } else {
+        text(dict, "OutgoingPassword")
+            .map(str::to_string)
+            .filter(|p| !p.is_empty())
+    };
+    let imap_user = login("IncomingMailServerUsername").filter(|u| !u.eq_ignore_ascii_case(&email));
+    let smtp_user = login("OutgoingMailServerUsername")
+        .filter(|u| !u.eq_ignore_ascii_case(&email) && imap_user.as_deref() != Some(u.as_str()));
 
     Some(ProfileAccount {
         description: description.clone(),
@@ -122,14 +143,17 @@ fn account(dict: &[(String, Value)]) -> Option<ProfileAccount> {
             email,
             imap_host,
             imap_port,
-            imap_transport: transport(imap_port),
+            imap_transport: transport("IncomingMailServerUseSSL", imap_port),
             smtp_host,
             smtp_port,
-            smtp_transport: transport(smtp_port),
+            smtp_transport: transport("OutgoingMailServerUseSSL", smtp_port),
             auth: Auth::Password,
             note: None,
+            imap_user,
+            smtp_user,
         },
         password,
+        smtp_password,
     })
 }
 
@@ -272,8 +296,17 @@ enum Value {
     Array(Vec<Value>),
     Text(String),
     Number(i64),
-    /// Booleans, data, dates: nothing Iris needs.
+    /// `<true/>` and `<false/>`.
+    Bool(bool),
+    /// Data, dates: nothing Iris needs.
     Other,
+}
+
+fn boolean(dict: &[(String, Value)], key: &str) -> Option<bool> {
+    dict.iter().find_map(|(k, v)| match v {
+        Value::Bool(b) if k == key => Some(*b),
+        _ => None,
+    })
 }
 
 fn text<'a>(dict: &'a [(String, Value)], key: &str) -> Option<&'a str> {
@@ -378,7 +411,8 @@ impl<'a> Parser<'a> {
 
     fn value_of(&mut self, nom: &str, vide: bool) -> Option<Value> {
         Some(match nom {
-            "true" | "false" => Value::Other,
+            "true" => Value::Bool(true),
+            "false" => Value::Bool(false),
             _ if vide => match nom {
                 "dict" => Value::Dict(Vec::new()),
                 "array" => Value::Array(Vec::new()),
@@ -496,6 +530,43 @@ mod tests {
         assert_eq!(c.config.smtp_port, 587);
         assert_eq!(c.config.smtp_transport, Transport::StartTls);
         assert_eq!(c.password.as_deref(), Some("secret"));
+        assert_eq!(c.config.imap_user, None, "no login given: the address");
+        assert_eq!(c.smtp_password, None);
+    }
+
+    #[test]
+    fn a_corporate_profile_keeps_its_logins_and_ports() {
+        // `DOMAIN\jdoe` was replaced by the address, and SSL on the host's own port
+        // was taken for STARTTLS: such accounts never connected.
+        let xml = PROFIL
+            .replace(
+                "<key>IncomingPassword</key>",
+                "<key>IncomingMailServerUsername</key><string>CORP\\jdoe</string>\
+                 <key>OutgoingMailServerUsername</key><string>jdoe-smtp</string>\
+                 <key>OutgoingPasswordSameAsIncomingPassword</key><false/>\
+                 <key>OutgoingPassword</key><string>envoi</string>\
+                 <key>IncomingPassword</key>",
+            )
+            .replace("<integer>993</integer>", "<integer>10993</integer>");
+        let c = &parse(xml.as_bytes()).unwrap()[0];
+        assert_eq!(c.config.imap_user.as_deref(), Some("CORP\\jdoe"));
+        assert_eq!(c.config.smtp_user.as_deref(), Some("jdoe-smtp"));
+        assert_eq!(c.smtp_password.as_deref(), Some("envoi"));
+        assert_eq!(
+            (c.config.imap_port, c.config.imap_transport),
+            (10993, Transport::Tls)
+        );
+    }
+
+    #[test]
+    fn the_same_password_for_sending_is_not_kept_twice() {
+        let xml = PROFIL.replace(
+            "<key>IncomingPassword</key>",
+            "<key>OutgoingPasswordSameAsIncomingPassword</key><true/>\
+             <key>OutgoingPassword</key><string>ignored</string>\
+             <key>IncomingPassword</key>",
+        );
+        assert_eq!(parse(xml.as_bytes()).unwrap()[0].smtp_password, None);
     }
 
     #[test]

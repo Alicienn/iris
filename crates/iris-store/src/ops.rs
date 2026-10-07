@@ -38,6 +38,17 @@ pub enum OpPayload {
         folder: String,
         uids: Vec<u32>,
     },
+    /// Move messages found by their `Message-ID`, where their UIDs are not known.
+    ///
+    /// What undoing an archive or a delete the server has already carried out needs:
+    /// the messages have new UIDs in the folder they went to, which only the next sync
+    /// would tell. Undo used to change things here only, and the server kept them
+    /// archived or binned.
+    MoveByMessageId {
+        folder: String,
+        message_ids: Vec<String>,
+        target: String,
+    },
     /// Créer un dossier sur ce compte.
     ///
     /// Passe par le journal comme tout le reste : créer un dossier sur cent boîtes est
@@ -73,7 +84,7 @@ impl OpPayload {
     pub fn kind(&self) -> crate::OpKind {
         match self {
             Self::SetFlags { .. } => crate::OpKind::SetFlags,
-            Self::Move { .. } => crate::OpKind::MoveMessage,
+            Self::Move { .. } | Self::MoveByMessageId { .. } => crate::OpKind::MoveMessage,
             Self::Delete { .. } => crate::OpKind::DeleteMessage,
             Self::CreateFolder { .. } | Self::RenameFolder { .. } | Self::DeleteFolder { .. } => {
                 crate::OpKind::CreateFolder
@@ -101,6 +112,15 @@ impl OpPayload {
             Self::Delete { folder, uids } => {
                 format!("{account}:delete:{folder}:{}", join(uids))
             }
+            Self::MoveByMessageId {
+                folder,
+                message_ids,
+                target,
+            } => {
+                let mut ids = message_ids.clone();
+                ids.sort();
+                format!("{account}:move-id:{folder}:{}:{target}", ids.join(","))
+            }
             Self::CreateFolder { folder } => format!("{account}:mkdir:{folder}"),
             Self::RenameFolder { folder, target } => {
                 format!("{account}:mvdir:{folder}:{target}")
@@ -126,6 +146,7 @@ impl OpPayload {
             Self::SetFlags { folder, .. }
             | Self::Move { folder, .. }
             | Self::Delete { folder, .. }
+            | Self::MoveByMessageId { folder, .. }
             | Self::CreateFolder { folder }
             | Self::RenameFolder { folder, .. }
             | Self::DeleteFolder { folder, .. } => folder,

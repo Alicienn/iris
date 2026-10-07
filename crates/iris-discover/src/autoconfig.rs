@@ -16,6 +16,8 @@ struct Server {
     port: u16,
     socket_type: String,
     auth: Vec<String>,
+    /// `<username>`, variables unreplaced.
+    username: Option<String>,
 }
 
 impl Server {
@@ -47,29 +49,53 @@ impl Server {
 pub fn parse(xml: &str, email: &str) -> Result<ServerConfig> {
     let serveurs = extract_servers(xml)?;
 
-    let imap = serveurs
-        .iter()
-        .find(|s| s.kind.eq_ignore_ascii_case("imap"))
-        .ok_or_else(|| Error::Config("aucun serveur IMAP dans l'autoconfiguration".into()))?;
+    // Of the servers of each kind, an encrypted one, TLS from the start first: only
+    // the first was read, so a document listing STARTTLS on 143 before SSL on 993
+    // gave the one that fails, and one listing a plain server first was refused
+    // whole. A server announced in the clear is never taken.
+    let choisir = |genre: &str| {
+        let de_ce_genre = || {
+            serveurs
+                .iter()
+                .filter(move |s| s.kind.eq_ignore_ascii_case(genre))
+        };
+        de_ce_genre()
+            .find(|s| s.transport() == Transport::Tls)
+            .or_else(|| de_ce_genre().find(|s| s.transport() == Transport::StartTls))
+    };
 
-    let smtp = serveurs
-        .iter()
-        .find(|s| s.kind.eq_ignore_ascii_case("smtp"))
-        .ok_or_else(|| Error::Config("aucun serveur SMTP dans l'autoconfiguration".into()))?;
-
+    let a_genre = |genre: &str| serveurs.iter().any(|s| s.kind.eq_ignore_ascii_case(genre));
+    if !a_genre("imap") {
+        return Err(Error::Config(
+            "aucun serveur IMAP dans l'autoconfiguration".into(),
+        ));
+    }
+    if !a_genre("smtp") {
+        return Err(Error::Config(
+            "aucun serveur SMTP dans l'autoconfiguration".into(),
+        ));
+    }
     // Un serveur annoncé en clair est refusé : accepter un mot de passe en clair
     // parce qu'un fichier XML le demande serait absurde.
-    if imap.transport() == Transport::Plain || smtp.transport() == Transport::Plain {
+    let (Some(imap), Some(smtp)) = (choisir("imap"), choisir("smtp")) else {
         return Err(Error::Config(
             "l'autoconfiguration propose une connexion non chiffrée, refusée".into(),
         ));
-    }
+    };
 
     let local = email.split('@').next().unwrap_or("").to_string();
+    let adresse = email.trim().to_lowercase();
+    // The login, when the document says it is not the address (`%EMAILLOCALPART%`).
+    let login = |s: &Server| {
+        s.username
+            .as_deref()
+            .map(|u| substitute(u, email, &local))
+            .filter(|u| !u.is_empty() && !u.eq_ignore_ascii_case(&adresse))
+    };
 
     Ok(ServerConfig {
         provider: extract_display_name(xml),
-        email: email.trim().to_lowercase(),
+        email: adresse.clone(),
         imap_host: substitute(&imap.hostname, email, &local),
         imap_port: imap.port,
         imap_transport: imap.transport(),
@@ -78,6 +104,8 @@ pub fn parse(xml: &str, email: &str) -> Result<ServerConfig> {
         smtp_transport: smtp.transport(),
         auth: imap.auth_kind(),
         note: None,
+        imap_user: login(imap),
+        smtp_user: login(smtp),
     })
 }
 
@@ -128,6 +156,7 @@ fn extract_servers(xml: &str) -> Result<Vec<Server>> {
                 port,
                 socket_type: inner_text(&bloc, "socketType").unwrap_or_default(),
                 auth: all_inner_texts(&bloc, "authentication"),
+                username: inner_text(&bloc, "username").map(|u| u.trim().to_string()),
             });
         }
     }
@@ -296,6 +325,37 @@ mod tests {
         let xml = EXEMPLE.replace("Exemple Hébergement", "Marie &amp; Cie");
         let c = parse(&xml, "a@x.fr").unwrap();
         assert_eq!(c.provider.as_deref(), Some("Marie & Cie"));
+    }
+
+    #[test]
+    fn the_encrypted_server_is_chosen_whatever_comes_first() {
+        // Only the first was read: STARTTLS on 143 listed before SSL on 993 gave the
+        // one that fails; a plain one listed first refused the whole document.
+        let xml = r#"<clientConfig>
+            <incomingServer type="imap"><hostname>imap.x.fr</hostname><port>143</port>
+              <socketType>plain</socketType></incomingServer>
+            <incomingServer type="imap"><hostname>imap.x.fr</hostname><port>143</port>
+              <socketType>STARTTLS</socketType></incomingServer>
+            <incomingServer type="imap"><hostname>imap.x.fr</hostname><port>993</port>
+              <socketType>SSL</socketType></incomingServer>
+            <outgoingServer type="smtp"><hostname>smtp.x.fr</hostname><port>587</port>
+              <socketType>STARTTLS</socketType></outgoingServer>
+        </clientConfig>"#;
+        let c = parse(xml, "a@x.fr").unwrap();
+        assert_eq!((c.imap_port, c.imap_transport), (993, Transport::Tls));
+        assert_eq!(c.smtp_transport, Transport::StartTls);
+    }
+
+    #[test]
+    fn a_login_that_is_not_the_address_is_kept() {
+        let xml = EXEMPLE.replacen(
+            "<username>%EMAILADDRESS%</username>",
+            "<username>%EMAILLOCALPART%</username>",
+            1,
+        );
+        let c = parse(&xml, "marie@example.com").unwrap();
+        assert_eq!(c.imap_user.as_deref(), Some("marie"));
+        assert_eq!(c.smtp_user, None, "the address: nothing to keep");
     }
 
     #[test]

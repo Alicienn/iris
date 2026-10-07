@@ -51,8 +51,14 @@
 Your host or IT department sent a configuration profile (`.mobileconfig`, made for
 iPhones and Macs)? **Import a profile** in the same window fills in the servers, and the
 password when the profile carries one; check them and save. Signed profiles are read
-too. A profile with several accounts offers a list to pick which one fills the fields;
-POP accounts are refused, since Iris speaks IMAP.
+too, as are the logins and the separate sending password a profile may give. A profile
+with several accounts offers a list to pick which one fills the fields; POP accounts
+are refused, since Iris speaks IMAP.
+
+**Configure manually** shows the servers and a **User name** field, for hosts and
+companies whose login is not the address (`jdoe`, `DOMAIN\jdoe`); leave it empty to
+sign in with the address. Port 143 is upgraded with STARTTLS; nothing is ever sent
+unencrypted.
 
 **Signing in with Google or Microsoft.** In *Settings › Sign in with Google or
 Microsoft*, paste the details of an OAuth client for a desktop app. For Google, create
@@ -61,7 +67,9 @@ app in Microsoft Entra (its application ID). Adding a Gmail or Outlook address t
 opens the browser to sign in, with no password to type. **Continue with Google**, under
 the address in *Add an account*, does it directly; it stays greyed, and says why when
 pointed at, until a Google client is set. Without a client, type an app password as
-the password.
+the password. Google Workspace addresses on a domain of your own are recognised too.
+When such a sign-in expires or is withdrawn, the mailbox's red **!** (or *Password* in
+its menu) offers **Sign in again**.
 
 A tag carries a red **!** while one of its mailboxes fails to sync, folded or not.
 **Sync** on a mailbox says *Syncing …* in the status bar, then how it went.
@@ -137,6 +145,14 @@ of the conversation follow one another, a hairline between them, up to 900 pixel
 their attachments under them as file cards. Under the subject, beside the mailbox, the folder the conversation is
 in: *Inbox*, a folder's name, or *Spam* and *Trash* in red; *Inbox +2* names all of
 them when you point at it.
+
+**Archive** takes a conversation out of the inbox and leaves your sent replies in
+*Sent*; on Gmail it removes the *Inbox* label only, so labels and stars stay. **Delete**
+moves it to the bin. Undo (`Ctrl`+`Z`) puts it back on the server too, and a
+conversation moved to another folder keeps its state (*Done*, *Waiting*, snoozed). A
+new message in a conversation you had marked done brings it back to *To do*, unless
+*Settings › A new message reopens the thread* is off. **Empty** on the bin or the junk
+folder deletes for good.
 
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
 

@@ -76,6 +76,57 @@ impl Store {
         })
     }
 
+    /// Keeps the copies (`Cc`) and the reply address (`Reply-To`) of messages of a
+    /// folder, by UID, as JSON lists of addresses like the recipients.
+    pub fn set_message_extras(
+        &self,
+        folder: FolderId,
+        extras: &[(u32, String, String)],
+    ) -> Result<()> {
+        if extras.is_empty() {
+            return Ok(());
+        }
+        self.with_tx(|tx| {
+            let mut stmt = tx
+                .prepare_cached(
+                    "UPDATE messages SET cc = ?1, reply_to = ?2 WHERE folder_id = ?3 AND uid = ?4",
+                )
+                .map_err(|e| sql_err("préparation", e))?;
+            for (uid, cc, reponse) in extras {
+                stmt.execute(params![cc, reponse, folder.get(), *uid as i64])
+                    .map_err(|e| sql_err("copies et réponse", e))?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Whether another row holds the same message (same `Message-ID`): a Gmail label,
+    /// All Mail, or the copy a move left on its way. Such a copy is not an arrival.
+    pub fn has_other_copy(&self, id: MessageId) -> Result<bool> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT EXISTS (SELECT 1 FROM messages o, messages m
+                                WHERE m.id = ?1 AND m.rfc_message_id IS NOT NULL
+                                  AND o.rfc_message_id = m.rfc_message_id AND o.id != m.id)",
+                params![id.get()],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(|e| sql_err("copies du message", e))
+        })
+    }
+
+    /// A message's copies and reply address, as kept: `(cc, reply_to)` JSON lists.
+    pub fn message_extras(&self, id: MessageId) -> Result<(String, String)> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT cc, reply_to FROM messages WHERE id = ?1",
+                params![id.get()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| sql_err("copies et réponse", e))
+        })
+    }
+
     /// Change les drapeaux d'un message et met le fil à jour.
     pub fn set_message_flags(&self, id: MessageId, flags: Flags) -> Result<Option<ThreadId>> {
         self.with_tx(|tx| {
@@ -331,9 +382,18 @@ impl Store {
                 };
                 let Some((thread, actuels)) = existant else { continue };
 
+                // The server's say on what it knows (read, answered, starred…), ours
+                // kept on what only we work out (spam, attachment, tracker,
+                // unsubscribe). Overwriting the whole field dropped those at every flag
+                // change, our own mark-read included: a spam message came back into
+                // the queue once read.
+                let fusion = Flags(
+                    (flags.0 & Flags::PROTOCOL.0) | (actuels as u32 & !Flags::PROTOCOL.0),
+                );
+
                 // Ne rien écrire quand rien ne change : sur une resynchronisation
                 // complète, la quasi-totalité des drapeaux sont identiques.
-                if actuels == flags.0 as i64 {
+                if actuels == fusion.0 as i64 {
                     continue;
                 }
 
@@ -342,7 +402,7 @@ impl Store {
                         "UPDATE messages SET flags = ?1 WHERE folder_id = ?2 AND uid = ?3",
                     )
                     .map_err(|e| sql_err("préparation", e))?;
-                stmt.execute(params![flags.0 as i64, folder.get(), *uid as i64])
+                stmt.execute(params![fusion.0 as i64, folder.get(), *uid as i64])
                     .map_err(|e| sql_err("mise à jour des drapeaux", e))?;
 
                 touches.insert(ThreadId(thread));
@@ -402,6 +462,25 @@ impl Store {
                 rows.collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(|e| sql_err("fils du dossier", e))?
             };
+
+            // The other copies of those messages too, in the same mailbox (Gmail's All
+            // Mail and labels, where reading one copy reads them all): left unread,
+            // their threads stayed unread until the next sync.
+            tx.execute(
+                &format!(
+                    "UPDATE messages SET flags = flags | {seen}
+                     WHERE (flags & {seen}) = 0
+                       AND rfc_message_id IN (
+                           SELECT rfc_message_id FROM messages
+                           WHERE folder_id = ?1 AND (flags & {seen}) = 0
+                             AND rfc_message_id IS NOT NULL)
+                       AND account_id = (SELECT account_id FROM folders WHERE id = ?1)
+                       AND folder_id != ?1",
+                    seen = Flags::SEEN.0
+                ),
+                params![folder.get()],
+            )
+            .map_err(|e| sql_err("marquage des copies", e))?;
 
             let n = tx
                 .execute(
@@ -750,20 +829,57 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
     // un fil sorti de la corbeille en gardait un état que personne n'avait choisi.
     //
     // C'est la requête de liste qui écarte les dossiers mis de côté, et elle seule.
+    //
+    // Sauf pour un message qui revient : déplacé, son dossier renommé ou reconstruit,
+    // il a quitté la copie locale avec son fil, et son fil retrouve l'état qu'il
+    // avait (`thread_ghosts`, rempli par un déclencheur). Sans cela, archiver ou
+    // ranger un fil ailleurs que chez Gmail le recréait « à traiter ».
     let subject_norm = normalize_subject(&m.subject);
+    type Fantome = (i64, Option<i64>, Option<i64>, Option<i64>);
+    let fantome: Option<Fantome> = match &m.rfc_message_id {
+        Some(id) => {
+            let mut stmt = tx
+                .prepare_cached(
+                    "SELECT state, snooze_until, snooze_restore, put_aside_at
+                     FROM thread_ghosts WHERE rfc_message_id = ?1",
+                )
+                .map_err(|e| sql_err("preparation", e))?;
+            stmt.query_row(params![id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .ok()
+        }
+        None => None,
+    };
+    let (etat, report, retour, mis_de_cote) =
+        fantome.unwrap_or((WorkflowState::Todo.as_i64(), None, None, None));
 
     let mut stmt = tx
         .prepare_cached(
-            "INSERT INTO threads (subject_norm, state, last_activity_at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO threads
+               (subject_norm, state, last_activity_at, snooze_until, snooze_restore,
+                put_aside_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )
         .map_err(|e| sql_err("preparation", e))?;
     stmt.execute(params![
         subject_norm,
-        WorkflowState::Todo.as_i64(),
-        m.received.millis()
+        etat,
+        m.received.millis(),
+        report,
+        retour,
+        mis_de_cote
     ])
     .map_err(|e| sql_err("creation du fil", e))?;
-    Ok((ThreadId(tx.last_insert_rowid()), true))
+    let fil = ThreadId(tx.last_insert_rowid());
+    if let (Some(_), Some(id)) = (fantome, &m.rfc_message_id) {
+        tx.execute(
+            "DELETE FROM thread_ghosts WHERE rfc_message_id = ?1",
+            params![id],
+        )
+        .map_err(|e| sql_err("fantôme du fil", e))?;
+    }
+    Ok((fil, true))
 }
 
 /// One copy of each message, in the order given: one whose body is here, else the first.
@@ -1029,6 +1145,41 @@ mod tests {
                 preview: format!("aperçu {id}"),
             }
         }
+    }
+
+    #[test]
+    fn a_message_moved_elsewhere_keeps_its_thread_state() {
+        // Archived on a server other than Gmail: the inbox copy goes, the archive copy
+        // comes in a later pass with nothing left to join. Its thread came back To do.
+        let f = fixture();
+        let archives = f
+            .store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        let avant = f.store.insert_message(&f.msg("un@x", 1000)).unwrap();
+        f.store
+            .set_thread_state(avant.thread, WorkflowState::Done)
+            .unwrap();
+        f.store.delete_messages_by_uid(f.folder, &[1]).unwrap();
+        assert!(f.store.thread_row(avant.thread).unwrap().is_none());
+
+        let mut revenu = f.msg("un@x", 1000);
+        revenu.folder = archives;
+        let apres = f.store.insert_message(&revenu).unwrap();
+        assert!(apres.thread_created);
+        let ligne = f.store.thread_row(apres.thread).unwrap().unwrap();
+        assert_eq!(ligne.state, WorkflowState::Done);
+
+        // Taken once: a later new message with no thread is To do as ever.
+        f.store
+            .delete_messages_by_uid(archives, &[revenu.uid])
+            .unwrap();
+        f.store
+            .purge_thread_ghosts(Timestamp::from_millis(i64::MAX))
+            .unwrap();
+        let neuf = f.store.insert_message(&f.msg("un@x", 2000)).unwrap();
+        let ligne = f.store.thread_row(neuf.thread).unwrap().unwrap();
+        assert_eq!(ligne.state, WorkflowState::Todo);
     }
 
     #[test]

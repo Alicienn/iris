@@ -39,14 +39,14 @@ impl TokenEndpoint for HttpEndpoint {
             .form(params)
             .send()
             .await
-            .map_err(|e| Error::other(format!("token exchange: {e}")))?;
+            .map_err(|e| Error::Network(format!("token exchange: {e}")))?;
 
         // Le corps est lu même en cas d'erreur : les fournisseurs y mettent la
         // raison du refus, et c'est précisément ce qu'il faut montrer.
         reponse
             .text()
             .await
-            .map_err(|e| Error::other(format!("provider response: {e}")))
+            .map_err(|e| Error::Network(format!("provider response: {e}")))
     }
 }
 

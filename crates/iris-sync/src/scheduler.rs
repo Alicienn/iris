@@ -90,13 +90,16 @@ pub struct AccountSchedule {
     pub next_due: Timestamp,
     pub last_activity: Timestamp,
     pub consecutive_failures: u32,
-    /// Suspendu jusqu'à intervention de l'utilisateur.
+    /// In trouble: shown to the user. Tried again on its own after a while unless
+    /// `needs_user`.
     pub suspended: bool,
+    /// Stopped until the user acts: a refused password does not fix itself.
+    pub needs_user: bool,
 }
 
 impl AccountSchedule {
     pub fn is_due(&self, now: Timestamp) -> bool {
-        !self.suspended && now.millis() >= self.next_due.millis()
+        !self.needs_user && now.millis() >= self.next_due.millis()
     }
 }
 
@@ -139,6 +142,7 @@ impl Scheduler {
                 last_activity: Timestamp::EPOCH,
                 consecutive_failures: 0,
                 suspended: false,
+                needs_user: false,
             });
         entree.server = server.to_string();
         entree.pinned = pinned;
@@ -165,7 +169,7 @@ impl Scheduler {
         // l'utilisateur le regarde, il ne peut pas attendre le prochain cycle.
         if let Some(id) = account {
             if let Some(e) = self.accounts.get_mut(&id) {
-                if !e.suspended {
+                if !e.needs_user {
                     e.next_due = now;
                 }
             }
@@ -230,6 +234,8 @@ impl Scheduler {
         match outcome {
             SyncOutcome::Changed { .. } => {
                 e.consecutive_failures = 0;
+                e.suspended = false;
+                e.needs_user = false;
                 e.last_activity = now;
                 // Retour immédiat à l'intervalle minimal : une boîte qui vient de
                 // recevoir est susceptible de recevoir encore.
@@ -237,6 +243,8 @@ impl Scheduler {
             }
             SyncOutcome::Unchanged => {
                 e.consecutive_failures = 0;
+                e.suspended = false;
+                e.needs_user = false;
                 // Élargissement progressif. Le facteur trois quarts fait converger
                 // vers l'intervalle maximal en une dizaine de tours à vide, ce qui
                 // laisse le temps de réagir à une reprise d'activité.
@@ -249,14 +257,21 @@ impl Scheduler {
                 // martelé, mais doit rester surveillé.
                 let facteur = 2u32.saturating_pow(e.consecutive_failures.min(6));
                 e.interval = (config.min_interval * facteur).min(config.max_interval);
+                // Marked as in trouble, for the user to see, but tried again on its
+                // own an hour on: a network that comes back, a server out for half an
+                // hour, a long first sync that ran out of time are not the user's to
+                // fix. Suspended for good, an account stopped after about thirty
+                // minutes offline until someone clicked it.
                 if e.consecutive_failures >= config.failure_threshold {
                     e.suspended = true;
+                    e.interval = config.max_interval;
                 }
             }
             SyncOutcome::NeedsAttention => {
                 // Un mot de passe faux ne se corrige pas tout seul.
                 e.consecutive_failures += 1;
                 e.suspended = true;
+                e.needs_user = true;
             }
         }
 
@@ -267,10 +282,16 @@ impl Scheduler {
     pub fn resume(&mut self, account: AccountId, now: Timestamp) {
         if let Some(e) = self.accounts.get_mut(&account) {
             e.suspended = false;
+            e.needs_user = false;
             e.consecutive_failures = 0;
             e.interval = self.config.min_interval;
             e.next_due = now;
         }
+    }
+
+    /// The accounts registered.
+    pub fn registered(&self) -> Vec<AccountId> {
+        self.accounts.keys().copied().collect()
     }
 
     pub fn get(&self, account: AccountId) -> Option<&AccountSchedule> {
@@ -300,7 +321,7 @@ impl Scheduler {
     pub fn next_wakeup(&self, now: Timestamp) -> Option<Duration> {
         self.accounts
             .values()
-            .filter(|e| !e.suspended)
+            .filter(|e| !e.needs_user)
             .map(|e| e.next_due.millis().max(now.millis()) - now.millis())
             .min()
             .map(|ms| Duration::from_millis(ms as u64))
@@ -423,10 +444,23 @@ mod tests {
         s.record(AccountId(1), SyncOutcome::TransientFailure, t(10_000));
         assert!(s.get(AccountId(1)).unwrap().suspended);
         assert_eq!(s.suspended(), [AccountId(1)]);
+        assert!(s.due(t(10_000 + 3599)).is_empty(), "left alone for an hour");
+        // Then tried again on its own: a network back or a server up again is not
+        // the user's to fix. It stayed stopped until someone clicked it.
+        assert_eq!(s.due(t(10_000 + 3600)), [AccountId(1)]);
+        s.record(AccountId(1), SyncOutcome::Unchanged, t(10_000 + 3600));
         assert!(
-            s.due(t(999_999)).is_empty(),
-            "un compte suspendu n'est plus interrogé"
+            s.suspended().is_empty(),
+            "working again, no longer in trouble"
         );
+    }
+
+    #[test]
+    fn a_refused_password_stays_stopped() {
+        let mut s = scheduler();
+        s.register(AccountId(1), "x", false, t(0));
+        s.record(AccountId(1), SyncOutcome::NeedsAttention, t(0));
+        assert!(s.due(t(999_999)).is_empty());
     }
 
     #[test]

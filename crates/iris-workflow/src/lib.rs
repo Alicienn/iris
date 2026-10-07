@@ -21,10 +21,11 @@
 #![warn(missing_debug_implementations)]
 
 use iris_kernel::{Event, EventBus};
+use iris_store::FolderRole;
 use iris_store::{OpKind, Store};
 use iris_types::{
-    transition, AccountId, AutomationSettings, Error, Flags, FolderId, Result, Snooze, ThreadId,
-    Timestamp, TransitionCause, TransitionOutcome, WorkflowState,
+    transition, AccountId, AutomationSettings, Error, Flags, FolderId, OpId, Result, Snooze,
+    ThreadId, Timestamp, TransitionCause, TransitionOutcome, WorkflowState,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -46,7 +47,34 @@ pub struct UndoEntry {
     pub snoozed_until: Option<Timestamp>,
     /// Per-message flags, so read/unread and starring are reversible too.
     pub flags: Vec<(iris_types::MessageId, Flags)>,
+    /// The moves the action asked of the server, so undoing it takes them back
+    /// there too. Undo changed the state here only: an archived or binned thread
+    /// stayed archived or binned on the server, and vanished again at the next sync.
+    pub moves: Vec<MoveRecord>,
     pub at: Timestamp,
+}
+
+/// One message moved by an action, as undo needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MoveRecord {
+    /// Journalled as `op`, perhaps already carried out by the server.
+    Made {
+        account: AccountId,
+        op: OpId,
+        from: String,
+        /// Its UID in `from`, when known (not after a move by Message-ID).
+        uid: Option<u32>,
+        to: String,
+        message_id: Option<String>,
+    },
+    /// Taken back before the server heard of it.
+    Withdrawn {
+        account: AccountId,
+        from: String,
+        uid: Option<u32>,
+        to: String,
+        message_id: Option<String>,
+    },
 }
 
 /// What an action did.
@@ -75,6 +103,39 @@ impl Destination<'_> {
             Self::Role(role) => role.as_str(),
             Self::Path(chemin) => chemin,
         }
+    }
+}
+
+/// Whether the mailbox on this IMAP host is Gmail, whose folders are labels.
+fn is_gmail(imap_host: &str) -> bool {
+    let hote = imap_host.trim_end_matches('.').to_ascii_lowercase();
+    hote == "imap.gmail.com" || hote == "imap.googlemail.com"
+}
+
+/// Whether a copy of a message in a folder of this role goes with the thread.
+///
+/// Every copy used to, wherever it sat: archiving took one's sent replies out of
+/// Sent and drafts into the archive, and on Gmail, where a folder is a label, moving
+/// the label copies to All Mail stripped the labels Gmail's own archive keeps.
+///
+/// - Archive takes what is in the inbox (and, outside Gmail, in folders of one's
+///   own); on Gmail that is exactly "remove the Inbox label".
+/// - Delete takes everything but what was sent and drafts.
+/// - Moving to a folder takes everything but what was sent and drafts; on Gmail, what
+///   is in the inbox, the bin or the junk (moving the All Mail copy files the
+///   conversation under the label without taking anything else away).
+fn moves_copy(destination: Destination<'_>, gmail: bool, from: FolderRole) -> bool {
+    use FolderRole as R;
+    if matches!(from, R::Sent | R::Drafts) {
+        return false;
+    }
+    match destination {
+        Destination::Role(R::Archive) if gmail => from == R::Inbox,
+        Destination::Role(R::Archive) => matches!(from, R::Inbox | R::Other),
+        Destination::Role(R::Trash) => from != R::Trash,
+        Destination::Role(_) => true,
+        Destination::Path(_) if gmail => matches!(from, R::Inbox | R::Trash | R::Junk),
+        Destination::Path(_) => true,
     }
 }
 
@@ -129,6 +190,20 @@ impl Workflow {
         target: Option<WorkflowState>,
         now: Timestamp,
     ) -> Result<TransitionOutcome> {
+        self.apply_recorded(thread, cause, target, now, true)
+    }
+
+    /// `apply`, recorded for undo or not. What happens on its own (a reply arriving,
+    /// a snooze or a follow-up coming due) is not: Ctrl+Z after a sync undid that
+    /// instead of what the user had just done.
+    fn apply_recorded(
+        &self,
+        thread: ThreadId,
+        cause: TransitionCause,
+        target: Option<WorkflowState>,
+        now: Timestamp,
+        recorded: bool,
+    ) -> Result<TransitionOutcome> {
         let Some(row) = self.store.thread_row(thread)? else {
             return Err(Error::store(format!("thread {thread} not found")));
         };
@@ -147,10 +222,13 @@ impl Workflow {
                 state: row.state,
                 snoozed_until: row.snoozed_until,
                 flags: Vec::new(),
+                moves: Vec::new(),
                 at: now,
             };
             self.store.set_thread_state(thread, to)?;
-            self.record_undo(before);
+            if recorded {
+                self.record_undo(before);
+            }
             self.bus.publish(Event::ThreadStateChanged {
                 thread,
                 from,
@@ -185,6 +263,7 @@ impl Workflow {
             state: row.state,
             snoozed_until: row.snoozed_until,
             flags: Vec::new(),
+            moves: Vec::new(),
             at: now,
         };
 
@@ -340,31 +419,36 @@ impl Workflow {
             return Ok(false);
         }
 
-        let before = self.snapshot(thread, now, true)?;
+        let mut before = self.snapshot(thread, now, true)?;
         let mut moved = 0;
 
         // Grouped per account, because the destination folder is per account and a
         // thread can span several of them once regrouping has run.
-        let mut per_account: BTreeMap<AccountId, Vec<(FolderId, u32)>> = BTreeMap::new();
+        let mut per_account: BTreeMap<AccountId, Vec<(FolderId, u32, Option<String>)>> =
+            BTreeMap::new();
         for m in &messages {
-            per_account
-                .entry(m.account)
-                .or_default()
-                .push((m.folder, m.uid));
+            per_account.entry(m.account).or_default().push((
+                m.folder,
+                m.uid,
+                m.rfc_message_id.clone(),
+            ));
         }
 
+        // Every account's destination is found before anything is journalled: one
+        // without the folder used to fail after the earlier accounts' moves were
+        // queued, and the thread then stayed where it was here while its mail left on
+        // the server.
+        let mut plans = Vec::new();
         for (account, items) in per_account {
             let dossiers = self.store.folders(account)?;
             let trouve = match destination {
-                Destination::Role(role) => dossiers.into_iter().find(|f| f.role == role),
+                Destination::Role(role) => dossiers.iter().find(|f| f.role == role).cloned(),
                 // Un compte sans ce dossier est ignoré, pas fatal : le fil est peut-être
                 // à cheval sur deux boîtes dont une seule a « Devis ».
-                Destination::Path(chemin) => {
-                    match dossiers.into_iter().find(|f| f.path == chemin) {
-                        Some(f) => Some(f),
-                        None => continue,
-                    }
-                }
+                Destination::Path(chemin) => match dossiers.iter().find(|f| f.path == chemin) {
+                    Some(f) => Some(f.clone()),
+                    None => continue,
+                },
             };
 
             let Some(target) = trouve else {
@@ -376,11 +460,48 @@ impl Workflow {
                 )));
             };
 
-            for (folder, uid) in items {
-                if folder == target.id {
-                    continue;
-                }
-                self.journal_move(account, folder, uid, &target.path, kind, now)?;
+            let gmail = self
+                .store
+                .account(account)?
+                .is_some_and(|c| is_gmail(&c.imap_host));
+            let role_de = |folder: FolderId| {
+                dossiers
+                    .iter()
+                    .find(|f| f.id == folder)
+                    .map(|f| f.role)
+                    .unwrap_or(FolderRole::Other)
+            };
+            let mut choisis: Vec<_> = items
+                .iter()
+                .filter(|(folder, _, _)| {
+                    *folder != target.id && moves_copy(destination, gmail, role_de(*folder))
+                })
+                .cloned()
+                .collect();
+            // A Gmail conversation already out of the inbox lives in All Mail: that
+            // copy is the one to file under a label.
+            if choisis.is_empty() && gmail && matches!(destination, Destination::Path(_)) {
+                choisis = items
+                    .iter()
+                    .filter(|(folder, _, _)| role_de(*folder) == FolderRole::Archive)
+                    .cloned()
+                    .collect();
+            }
+            plans.push((account, target, choisis));
+        }
+
+        for (account, target, choisis) in plans {
+            for (folder, uid, message_id) in choisis {
+                let (op, from) =
+                    self.journal_move(account, folder, uid, &target.path, kind, now)?;
+                before.moves.push(MoveRecord::Made {
+                    account,
+                    op,
+                    from,
+                    uid: Some(uid),
+                    to: target.path.clone(),
+                    message_id,
+                });
                 moved += 1;
             }
         }
@@ -417,7 +538,8 @@ impl Workflow {
         Ok(true)
     }
 
-    /// Records a move for the server to carry out later.
+    /// Records a move for the server to carry out later: the operation, and the
+    /// folder it moves from.
     fn journal_move(
         &self,
         account: AccountId,
@@ -426,7 +548,7 @@ impl Workflow {
         destination: &str,
         kind: OpKind,
         now: Timestamp,
-    ) -> Result<()> {
+    ) -> Result<(OpId, String)> {
         let source = self
             .store
             .folders(account)?
@@ -446,9 +568,95 @@ impl Workflow {
         };
         let key = charge.idempotency_key(account);
 
-        self.store
+        let op = self
+            .store
             .enqueue_op(account, kind, &charge.to_json(), &key, now)?;
-        Ok(())
+        Ok((op, source))
+    }
+
+    /// Takes back one move of an undone action, and says how to take that back in
+    /// turn (for redo). A move the server has not heard of is withdrawn; one it has
+    /// carried out is reversed, the message found by its `Message-ID` where it went.
+    fn reverse_move(&self, record: MoveRecord, now: Timestamp) -> Result<Option<MoveRecord>> {
+        let enfiler = |account: AccountId, charge: iris_store::OpPayload| {
+            self.store.enqueue_op(
+                account,
+                charge.kind(),
+                &charge.to_json(),
+                &charge.idempotency_key(account),
+                now,
+            )
+        };
+        match record {
+            MoveRecord::Made {
+                account,
+                op,
+                from,
+                uid,
+                to,
+                message_id,
+            } => {
+                if self.store.withdraw_op(op)? {
+                    return Ok(Some(MoveRecord::Withdrawn {
+                        account,
+                        from,
+                        uid,
+                        to,
+                        message_id,
+                    }));
+                }
+                // Carried out already, and nothing to find the message by.
+                let Some(id) = message_id else {
+                    return Ok(None);
+                };
+                let op = enfiler(
+                    account,
+                    iris_store::OpPayload::MoveByMessageId {
+                        folder: to.clone(),
+                        message_ids: vec![id.clone()],
+                        target: from.clone(),
+                    },
+                )?;
+                Ok(Some(MoveRecord::Made {
+                    account,
+                    op,
+                    from: to,
+                    uid: None,
+                    to: from,
+                    message_id: Some(id),
+                }))
+            }
+            MoveRecord::Withdrawn {
+                account,
+                from,
+                uid,
+                to,
+                message_id,
+            } => {
+                let charge = match (uid, &message_id) {
+                    (Some(uid), _) => iris_store::OpPayload::Move {
+                        folder: from.clone(),
+                        uids: vec![uid],
+                        target: to.clone(),
+                    },
+                    (None, Some(id)) => iris_store::OpPayload::MoveByMessageId {
+                        folder: from.clone(),
+                        message_ids: vec![id.clone()],
+                        target: to.clone(),
+                    },
+                    (None, None) => return Ok(None),
+                };
+                let op = enfiler(account, charge)?;
+                Ok(Some(MoveRecord::Made {
+                    account,
+                    op,
+                    from,
+                    uid,
+                    to,
+                    message_id,
+                }))
+            }
+        }
     }
 
     // --- Undo ---
@@ -499,7 +707,14 @@ impl Workflow {
 
         // L'état d'avant, capturé avant d'écrire : c'est ce que le geste inverse
         // rejouera. Le prendre après restaurerait ce qu'on vient d'installer.
-        let inverse = self.snapshot(entry.thread, now, !entry.flags.is_empty())?;
+        let mut inverse = self.snapshot(entry.thread, now, !entry.flags.is_empty())?;
+        // The server is told too: the moves the action asked for are withdrawn or
+        // reversed, and how to do them again goes with the inverse.
+        for deplacement in entry.moves.iter().cloned() {
+            if let Some(retour) = self.reverse_move(deplacement, now)? {
+                inverse.moves.push(retour);
+            }
+        }
         self.push(if vers_redo { &self.redo } else { &self.undo }, inverse);
 
         // Undoing a deletion brings the thread back into its queue.
@@ -540,7 +755,10 @@ impl Workflow {
 
     /// Puts the per-message flags back, and journals the reversal.
     fn restore_flags(&self, entry: &UndoEntry, now: Timestamp) -> Result<()> {
-        let mut seen: BTreeMap<(AccountId, FolderId), (Vec<u32>, bool)> = BTreeMap::new();
+        // Per folder, per flag, per direction: read and starred both. The star was
+        // put back here only, and came back at the next flag change; and a folder's
+        // messages all took the first one's read state.
+        let mut a_dire: BTreeMap<(AccountId, FolderId, u32, bool), Vec<u32>> = BTreeMap::new();
 
         for (id, flags) in &entry.flags {
             let Some(message) = self.store.message_by_id(*id)? else {
@@ -551,15 +769,19 @@ impl Workflow {
             }
             self.store.set_message_flags(*id, *flags)?;
 
-            let was_read = flags.contains(Flags::SEEN);
-            seen.entry((message.account, message.folder))
-                .or_insert_with(|| (Vec::new(), was_read))
-                .0
-                .push(message.uid);
+            for drapeau in [Flags::SEEN, Flags::FLAGGED] {
+                let voulu = flags.contains(drapeau);
+                if message.flags.contains(drapeau) != voulu {
+                    a_dire
+                        .entry((message.account, message.folder, drapeau.0, voulu))
+                        .or_default()
+                        .push(message.uid);
+                }
+            }
         }
 
-        for ((account, folder), (uids, read)) in seen {
-            self.journal_flags(account, folder, &uids, Flags::SEEN, read, now)?;
+        for ((account, folder, drapeau, poser), uids) in a_dire {
+            self.journal_flags(account, folder, &uids, Flags(drapeau), poser, now)?;
         }
         Ok(())
     }
@@ -577,11 +799,12 @@ impl Workflow {
         for (thread, restore_to) in due {
             self.store.clear_snooze(thread)?;
             self.bus.publish(Event::ThreadUnsnoozed { thread });
-            self.apply(
+            self.apply_recorded(
                 thread,
                 TransitionCause::SnoozeExpired,
                 Some(restore_to),
                 now,
+                false,
             )?;
             woken += 1;
         }
@@ -603,7 +826,7 @@ impl Workflow {
         let mut followed = 0;
         for thread in candidates {
             if self
-                .apply(thread, TransitionCause::FollowUpDue, None, now)?
+                .apply_recorded(thread, TransitionCause::FollowUpDue, None, now, false)?
                 .changed()
             {
                 followed += 1;
@@ -617,13 +840,23 @@ impl Workflow {
         self.apply(thread, TransitionCause::ReplySent, None, now)
     }
 
-    /// Called when a new message joins an existing thread.
+    /// Called when a new message joins an existing thread (sync calls it for each
+    /// message that arrives, not for copies a move or a label made).
+    ///
+    /// Nothing called it, so the setting did nothing: a reply to a thread marked done
+    /// stayed in Done, and one to a deleted thread stayed hidden for good.
     pub fn on_message_received(
         &self,
         thread: ThreadId,
         now: Timestamp,
     ) -> Result<TransitionOutcome> {
-        self.apply(thread, TransitionCause::MessageReceived, None, now)
+        let issue =
+            self.apply_recorded(thread, TransitionCause::MessageReceived, None, now, false)?;
+        if issue.changed() && self.settings().new_message_reopens {
+            // Out of the bin's shadow too: a deleted thread someone answers is back.
+            self.store.set_thread_put_aside(thread, None)?;
+        }
+        Ok(issue)
     }
 
     // --- Internals ---
@@ -656,6 +889,7 @@ impl Workflow {
             state: row.state,
             snoozed_until: row.snoozed_until,
             flags,
+            moves: Vec::new(),
             at,
         })
     }
@@ -1360,6 +1594,89 @@ mod tests {
             f.state(thread),
             WorkflowState::Waiting,
             "undo returns it where it was, not to the default"
+        );
+    }
+
+    #[test]
+    fn undoing_an_archive_takes_the_move_back_on_the_server_too() {
+        // Undo changed the state here only: the server kept the thread archived, and
+        // it vanished again at the next sync.
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        let thread = f.thread();
+        let avant = f.store.pending_op_count().unwrap();
+
+        f.workflow.archive(thread, t(1)).unwrap();
+        assert_eq!(f.store.pending_op_count().unwrap(), avant + 1);
+        f.workflow.undo(t(2)).unwrap();
+        assert_eq!(
+            f.store.pending_op_count().unwrap(),
+            avant,
+            "not sent yet: withdrawn"
+        );
+
+        // Sent already: the move is reversed, the message found by its Message-ID.
+        f.workflow.archive(thread, t(3)).unwrap();
+        for op in f.store.pending_ops(t(4), 10).unwrap() {
+            f.store.complete_op(op.id).unwrap();
+        }
+        f.workflow.undo(t(5)).unwrap();
+        let retour = f.store.pending_ops(t(6), 10).unwrap();
+        assert_eq!(retour.len(), 1);
+        assert!(
+            matches!(
+                iris_store::OpPayload::parse(&retour[0].payload).unwrap(),
+                iris_store::OpPayload::MoveByMessageId { ref target, .. } if target == "INBOX"
+            ),
+            "{}",
+            retour[0].payload
+        );
+    }
+
+    #[test]
+    fn archiving_leaves_one_s_sent_replies_in_sent() {
+        let f = fixture();
+        f.store
+            .upsert_folder(f.account, "Archive", FolderRole::Archive)
+            .unwrap();
+        let envoyes = f
+            .store
+            .upsert_folder(f.account, "Sent", FolderRole::Sent)
+            .unwrap();
+        let thread = f.thread();
+        f.store
+            .insert_message(&NewMessage {
+                account: f.account,
+                folder: envoyes,
+                uid: 500,
+                rfc_message_id: Some("reponse@x".into()),
+                in_reply_to: Some(
+                    f.store.thread_messages(thread).unwrap()[0]
+                        .rfc_message_id
+                        .clone()
+                        .unwrap(),
+                ),
+                references: vec![],
+                subject: "Re".into(),
+                from_name: String::new(),
+                from_addr: "a@x.fr".into(),
+                recipients_json: "[]".into(),
+                date: t(1),
+                received: t(1),
+                size: 1,
+                flags: Flags::SEEN,
+                preview: String::new(),
+            })
+            .unwrap();
+        let avant = f.store.pending_op_count().unwrap();
+
+        f.workflow.archive(thread, t(2)).unwrap();
+        assert_eq!(
+            f.store.pending_op_count().unwrap(),
+            avant + 1,
+            "the inbox copy only"
         );
     }
 

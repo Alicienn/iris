@@ -101,7 +101,10 @@ impl Tokens {
 /// Réponse brute du point d'accès aux jetons.
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
-    access_token: String,
+    /// Absent from a refusal. Required, it made every refusal unreadable: an expired
+    /// or revoked authorisation was never recognised as one.
+    #[serde(default)]
+    access_token: Option<String>,
     refresh_token: Option<String>,
     /// Durée de validité, en secondes.
     expires_in: Option<i64>,
@@ -275,28 +278,40 @@ pub async fn refresh(
 
 /// Analyse une réponse du point d'accès.
 pub fn parse_tokens(body: &str, now: Timestamp) -> Result<Tokens> {
-    let reponse: TokenResponse = serde_json::from_str(body)
-        .map_err(|e| Error::Config(format!("réponse d'authentification illisible : {e}")))?;
+    // Not JSON: a captive portal's page, a provider's 5xx page. It passes; a
+    // configuration error suspended the account at once.
+    let reponse: TokenResponse = serde_json::from_str(body).map_err(|e| {
+        Error::Network(format!(
+            "the sign-in server's answer could not be read: {e}"
+        ))
+    })?;
 
     if let Some(erreur) = reponse.error {
         let details = reponse.error_description.unwrap_or_default();
-        // Un jeton de rafraîchissement révoqué exige une reconnexion de
-        // l'utilisateur : le distinguer d'une panne évite de marteler le serveur.
-        if erreur == "invalid_grant" {
-            return Err(Error::AuthFailed {
-                account: format!("autorisation expirée ou révoquée : {details}"),
-            });
-        }
-        return Err(Error::Config(format!(
-            "authentification refusée : {erreur} {details}"
-        )));
+        return Err(match erreur.as_str() {
+            // Un jeton de rafraîchissement révoqué exige une reconnexion de
+            // l'utilisateur : le distinguer d'une panne évite de marteler le serveur.
+            "invalid_grant" => Error::AuthFailed {
+                account: format!("sign-in expired or revoked, sign in again: {details}"),
+            },
+            "temporarily_unavailable" | "server_error" | "slow_down" => {
+                Error::Network(format!("the sign-in server is busy: {erreur} {details}"))
+            }
+            _ => Error::Config(format!("authentification refusée : {erreur} {details}")),
+        });
     }
+
+    let Some(acces) = reponse.access_token.filter(|a| !a.is_empty()) else {
+        return Err(Error::Network(
+            "the sign-in server answered without a token".into(),
+        ));
+    };
 
     // Une heure est la valeur par défaut chez les deux fournisseurs.
     let duree = reponse.expires_in.unwrap_or(3600);
 
     Ok(Tokens {
-        access_token: reponse.access_token,
+        access_token: acces,
         refresh_token: reponse.refresh_token,
         expires_at: Timestamp::from_millis((now.seconds() + duree) * 1000),
         email: reponse.id_token.as_deref().and_then(email_from_id_token),
@@ -685,12 +700,17 @@ mod tests {
     fn une_autorisation_revoquee_demande_une_reconnexion() {
         let corps = r#"{"error":"invalid_grant","error_description":"Token has been expired"}"#;
         let e = parse_tokens(corps, now()).unwrap_err();
+        // Recognised as such, not as an unreadable answer (`access_token` was
+        // required, so the refusal never parsed).
+        assert!(matches!(e, Error::AuthFailed { .. }), "{e}");
         assert!(e.needs_user_action(), "marteler le serveur serait inutile");
     }
 
     #[test]
     fn une_reponse_illisible_est_signalee() {
-        assert!(parse_tokens("pas du json", now()).is_err());
+        // A captive portal's page: it passes, and must not suspend the account.
+        let e = parse_tokens("<html>Sign in to the Wi-Fi</html>", now()).unwrap_err();
+        assert!(e.is_transient(), "{e}");
     }
 
     #[tokio::test]

@@ -121,10 +121,25 @@ async fn apply(conn: &mut dyn ImapConnection, charge: &OpPayload) -> Result<()> 
             uids, flags, add, ..
         } => conn.store_flags(uids, Flags(*flags), *add).await,
         OpPayload::Move { uids, target, .. } => conn.move_messages(uids, target).await,
+        OpPayload::MoveByMessageId {
+            message_ids,
+            target,
+            ..
+        } => {
+            let mut uids = Vec::new();
+            for id in message_ids {
+                uids.extend(conn.find_message_id(id).await?);
+            }
+            // Not there any more (moved again, deleted elsewhere): nothing to undo.
+            conn.move_messages(&uids, target).await
+        }
         OpPayload::Delete { uids, .. } => {
-            // Marquer supprimé plutôt que purger : la corbeille du serveur est le
-            // seul filet de sécurité de l'utilisateur.
-            conn.store_flags(uids, Flags::DELETED, true).await
+            // Emptying the bin or the junk folder: deleted for good, which is what was
+            // asked. Marked deleted only, the messages stayed on the server, nothing
+            // was freed, and the next pass, finding the local copy empty, brought
+            // them all back.
+            conn.store_flags(uids, Flags::DELETED, true).await?;
+            conn.expunge(uids).await
         }
         OpPayload::CreateFolder { folder } => conn.create_folder(folder).await,
         OpPayload::RenameFolder { folder, target } => conn.rename_folder(folder, target).await,
@@ -578,8 +593,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn une_suppression_marque_sans_purger() {
-        // La corbeille du serveur est le seul filet de sécurité de l'utilisateur.
+    async fn emptying_the_bin_deletes_for_good() {
+        // Only used to empty the bin and the junk folder. Marked deleted and left
+        // there, the messages came back at the next pass.
         let f = fixture();
         enqueue(
             &f.store,
@@ -592,17 +608,8 @@ mod tests {
         )
         .unwrap();
 
-        f.rejouer().await;
-        assert_eq!(
-            f.server.message_count("INBOX"),
-            3,
-            "le message existe toujours"
-        );
-
-        let mut c = f.conn().await;
-        c.select("INBOX").await.unwrap();
-        let messages = c.fetch_envelopes(UidRange::ALL).await.unwrap();
-        assert!(messages[0].flags.contains(Flags::DELETED));
+        assert_eq!(f.rejouer().await.applied, 1);
+        assert_eq!(f.server.message_count("INBOX"), 2, "gone from the server");
     }
 
     #[test]

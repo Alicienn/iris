@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 19;
+pub const CURRENT_VERSION: i64 = 20;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -113,7 +113,56 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "video call links of events",
         sql: SCHEMA_V19,
     },
+    Migration {
+        version: 20,
+        name: "logins, folder delimiter, copies and reply-to",
+        sql: SCHEMA_V20,
+    },
 ];
+
+/// What a mailbox signs in as, and what a message was also sent to.
+///
+/// - `imap_user`, `smtp_user`: the logins when they are not the address (`jdoe`,
+///   `DOMAIN\jdoe`); empty means the address. The address was always used, and a
+///   profile or a host whose login differs never connected.
+/// - `folder_delimiter`: what separates a folder from its children on that server
+///   (`/` at Gmail and iCloud, `.` at Courier); empty while unknown. Folders were
+///   always created and renamed with `.`, which at Gmail made a label `INBOX.Devis`.
+/// - `cc`, `reply_to`: the message's other recipients and where answers go, as the
+///   recipients are kept (`[{"name":…,"addr":…}]`). Neither was kept, so Reply all
+///   missed the copies and a reply to a form went to its no-reply address.
+///
+/// And `thread_ghosts`: the state of a message's thread as the message leaves the
+/// local copy (moved, its folder renamed or rebuilt), filled by a trigger. When it
+/// comes back in another folder with no thread left to join, its new thread takes
+/// that state. Archiving or filing a thread on a server other than Gmail, or renaming
+/// a folder, recreated its threads as To do, their Done, Waiting and snoozes lost.
+const SCHEMA_V20: &str = "
+ALTER TABLE accounts ADD COLUMN imap_user TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN smtp_user TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN folder_delimiter TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN cc TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT '[]';
+
+CREATE TABLE thread_ghosts (
+    rfc_message_id  TEXT    PRIMARY KEY,
+    state           INTEGER NOT NULL,
+    snooze_until    INTEGER,
+    snooze_restore  INTEGER,
+    put_aside_at    INTEGER,
+    left_at         INTEGER NOT NULL
+) STRICT;
+
+CREATE TRIGGER messages_leave_a_ghost BEFORE DELETE ON messages
+WHEN OLD.rfc_message_id IS NOT NULL
+BEGIN
+    INSERT OR REPLACE INTO thread_ghosts
+        (rfc_message_id, state, snooze_until, snooze_restore, put_aside_at, left_at)
+    SELECT OLD.rfc_message_id, t.state, t.snooze_until, t.snooze_restore, t.put_aside_at,
+           CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    FROM threads t WHERE t.id = OLD.thread_id;
+END;
+";
 
 /// The video call an event is held on (Meet, Teams, Zoom, Webex…), set by hand. Beside
 /// the events and not in them, by calendar and UID as their colours are, so a link

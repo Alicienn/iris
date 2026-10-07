@@ -237,20 +237,16 @@ pub fn respond(
     } else {
         cible.summary.trim().to_string()
     };
-    let brouillon = iris_sync::Draft {
+    // The iTIP answer as the message's own `text/calendar; method=REPLY` part, and no
+    // signature: an attachment named `reply.ics` under a signed note was left
+    // unrecorded by the organiser's calendar.
+    let mut message = send.compose_new(
         account,
-        to: cible.organizer.clone(),
-        cc: String::new(),
-        bcc: String::new(),
-        subject: format!("{}: {titre}", answer.verb()),
-        body: format!("{} {moi}.", answer.verb()),
-        attachments: vec![iris_smtp::Attachment {
-            filename: "reply.ics".into(),
-            mime_type: "text/calendar; method=REPLY; charset=UTF-8".into(),
-            content: ics.into_bytes(),
-        }],
-    };
-    let message = send.compose_full(&brouillon)?;
+        &cible.organizer,
+        &format!("{}: {titre}", answer.verb()),
+        &format!("{} {moi}.", answer.verb()),
+    )?;
+    message.calendar_reply = Some(ics);
     send.set_delay(std::time::Duration::ZERO);
     send.queue(message)?;
 

@@ -43,11 +43,17 @@ impl AccountMailer {
             store,
             credentials,
             Arc::new(|compte: &Account, login: SmtpLogin| {
+                // Its SMTP login, which is not always the address (`jdoe`, a
+                // profile's own outgoing login). XOAUTH2 signs in as the address.
+                let utilisateur = match &login {
+                    SmtpLogin::OAuth2(_) => compte.email.as_str(),
+                    SmtpLogin::Password(_) => compte.smtp_login(),
+                };
                 let expediteur = LettreMailer::new(
                     &compte.smtp_host,
                     compte.smtp_port,
                     compte.smtp_tls,
-                    &compte.email,
+                    utilisateur,
                     &login,
                 )?;
                 Ok(Arc::new(expediteur) as Arc<dyn Mailer>)
@@ -75,7 +81,7 @@ impl Mailer for AccountMailer {
         let compte = sender_account(&self.store, &message.from.addr)?;
         let login = match self
             .credentials
-            .credentials(compte.id, &compte.email)
+            .smtp_credentials(compte.id, &compte.email)
             .await?
         {
             Credentials::Password { password, .. } => SmtpLogin::Password(password),

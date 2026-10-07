@@ -58,6 +58,8 @@ pub struct FakeState {
     pub refuse_connections: bool,
     /// Résultat que doit rendre la prochaine attente `IDLE`.
     pub idle_result: Option<IdleOutcome>,
+    /// Le séparateur annoncé avec chaque dossier ; aucun par défaut.
+    pub delimiter: Option<char>,
 }
 
 /// Serveur IMAP simulé.
@@ -102,6 +104,12 @@ impl FakeServer {
     /// Serveur dépourvu des extensions modernes, pour éprouver les replis.
     pub fn legacy() -> Self {
         Self::new(Capabilities::default())
+    }
+
+    /// Le séparateur de hiérarchie que le serveur annonce (`/` pour Gmail, `.` pour
+    /// Courier).
+    pub fn set_delimiter(&self, delimiter: char) {
+        self.state.lock().unwrap().delimiter = Some(delimiter);
     }
 
     pub fn add_folder(&self, path: &str, kind: FolderKind) {
@@ -270,6 +278,7 @@ impl ImapConnection for FakeConnection {
             .map(|(path, f)| RemoteFolder {
                 path: path.clone(),
                 kind: f.kind,
+                delimiter: state.delimiter,
             })
             .collect())
     }
@@ -368,6 +377,64 @@ impl ImapConnection for FakeConnection {
             .filter(|(_, m)| **m > modseq)
             .filter_map(|(uid, _)| f.messages.get(uid).map(|m| (*uid, m.flags)))
             .collect())
+    }
+
+    async fn find_message_id(&mut self, message_id: &str) -> Result<Vec<u32>> {
+        self.take_error()?;
+        let path = self.current()?;
+        let state = self.state.lock().unwrap();
+        let f = state
+            .folders
+            .get(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
+        let id = message_id
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>');
+        let cherche = format!("Message-ID: <{id}>").to_ascii_lowercase();
+        Ok(f.messages
+            .iter()
+            .filter(|(_, m)| {
+                String::from_utf8_lossy(&m.content)
+                    .to_ascii_lowercase()
+                    .contains(&cherche)
+            })
+            .map(|(u, _)| *u)
+            .collect())
+    }
+
+    async fn fetch_flags(&mut self, range: UidRange) -> Result<Vec<(u32, Flags)>> {
+        self.take_error()?;
+        let path = self.current()?;
+        let state = self.state.lock().unwrap();
+        let f = state
+            .folders
+            .get(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
+        Ok(f.messages
+            .range(range.from..=range.to)
+            .map(|(u, m)| (*u, m.flags))
+            .collect())
+    }
+
+    async fn expunge(&mut self, uids: &[u32]) -> Result<()> {
+        self.take_error()?;
+        let path = self.current()?;
+        let mut state = self.state.lock().unwrap();
+        let f = state
+            .folders
+            .get_mut(&path)
+            .ok_or_else(|| Error::store("dossier disparu"))?;
+        for uid in uids {
+            if f.messages
+                .get(uid)
+                .is_some_and(|m| m.flags.contains(Flags::DELETED))
+            {
+                f.messages.remove(uid);
+                f.modseqs.remove(uid);
+            }
+        }
+        Ok(())
     }
 
     async fn store_flags(&mut self, uids: &[u32], flags: Flags, add: bool) -> Result<()> {

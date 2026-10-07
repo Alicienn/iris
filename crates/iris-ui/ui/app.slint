@@ -511,6 +511,7 @@ export component AppWindow inherits Window {
     in property <string> problem-message;
     in property <string> problem-advice;
     in property <bool> problem-needs-password;
+    in property <bool> problem-sign-in;
     in property <bool> problem-busy;
     in property <string> problem-result;
     in-out property <string> problem-password;
@@ -562,6 +563,7 @@ export component AppWindow inherits Window {
     in property <string> add-account-hint;
     in-out property <string> new-email;
     in-out property <string> new-password;
+    in-out property <string> new-username;
     in-out property <string> new-imap-host;
     in-out property <string> new-imap-port: "993";
     in-out property <string> new-smtp-host;
@@ -643,6 +645,7 @@ export component AppWindow inherits Window {
     callback account-filter-changed(string);
     callback problem-retry();
     callback problem-save-password();
+    callback problem-sign-in-again();
     callback problem-disable();
     callback sync-account(int);
     callback sync-all();
@@ -2429,11 +2432,13 @@ export component AppWindow inherits Window {
         message: root.problem-message;
         advice: root.problem-advice;
         needs-password: root.problem-needs-password;
+        sign-in: root.problem-sign-in;
         busy: root.problem-busy;
         result: root.problem-result;
         password <=> root.problem-password;
         retry => { root.problem-retry(); }
         save-password => { root.problem-save-password(); }
+        sign-in-again => { root.problem-sign-in-again(); }
         disable-account => { root.problem-disable(); }
         dismissed => { root.problem-open = false; }
     }
@@ -2712,6 +2717,7 @@ export component AppWindow inherits Window {
         hint: root.add-account-hint;
         email <=> root.new-email;
         password <=> root.new-password;
+        username <=> root.new-username;
         imap-host <=> root.new-imap-host;
         imap-port <=> root.new-imap-port;
         smtp-host <=> root.new-smtp-host;

@@ -725,6 +725,51 @@ never also guessed from a name, and a name gives a role only at the top, under
 used to be enough: a label `Clients/Trash` became the bin. The folder menu acts on the
 row's exact path, not on the first folder whose last segment matched its name.
 
+Since 4.6.0:
+
+- **Signing in.** IMAP on port 143 is upgraded with STARTTLS (`starttls_stream`):
+  greeting and `STARTTLS` in the clear, a refusal is an error, and bytes buffered
+  before the handshake are refused. An account may sign in with a login that is not
+  its address (`Account::imap_login`, `smtp_login`), read from profiles
+  (`IncomingMailServerUsername`, `OutgoingMailServerUsername`), autoconfig
+  (`<username>`) or the manual screen; a profile's `OutgoingPassword` is kept as
+  `SecretKind::SmtpPassword` and used by `CredentialsProvider::smtp_credentials`. A
+  token refusal (`invalid_grant`) is recognised as such (`access_token` is optional in
+  the answer), an unreadable answer is a passing failure, and the account's panel
+  offers *Sign in again* (`oauth::authorize` for that address). Google Workspace is
+  found by its mail servers (`google.com` among Gmail's domains).
+- **Folder names** are decoded from modified UTF-7 as they arrive and encoded at every
+  command (`iris-imap/src/utf7.rs`). The server's delimiter is kept on the account
+  (`folder_delimiter`); folders are created where the server keeps the user's
+  (`personal_prefix`: under `INBOX` and its delimiter if folders live there, else at
+  the top) and renamed under their own parent. Gmail's Starred and Important
+  (`\Flagged`, `\Important`) are left out of the listing: views of mail kept
+  elsewhere.
+- **Flags.** A server's flags replace only what IMAP knows (`Flags::PROTOCOL`); spam,
+  attachment, tracker and unsubscribe are kept. Without CONDSTORE every flag of a
+  folder is read again each pass (`fetch_flags`, on the deletion scan above 5,000
+  messages).
+- **Moving and undoing.** Archive moves the inbox copies (and, outside Gmail, those in
+  folders of one's own), Delete everything but Sent and Drafts (`moves_copy`). Each
+  move is recorded in the undo entry (`MoveRecord`): undoing withdraws it from the
+  journal if the server has not heard of it, else queues
+  `OpPayload::MoveByMessageId` back (`find_message_id`, `UID SEARCH HEADER
+  Message-ID`). A message leaving the local copy leaves its thread's state in
+  `thread_ghosts` (a trigger); coming back in another folder with no thread to join,
+  its new thread takes that state. New messages in the inbox that are not copies call
+  `Workflow::on_message_received`; automatic transitions are not put on the undo
+  stack.
+- **Deleting for good.** Emptying the bin or the junk folder sets `\Deleted` and
+  expunges (`expunge`: `UID EXPUNGE`, or `EXPUNGE` without UIDPLUS, which the move
+  fallback without MOVE uses too).
+- **Scheduling.** Transient failures put an account aside for an hour, not for good;
+  only a refusal waits for the user (`AccountSchedule::needs_user`). *Sync all*
+  resumes what it synced, accounts switched off or removed leave the schedule
+  (`load_accounts`), and a body download is bounded by `account_timeout`.
+- **Replies** go to `Reply-To` when there is one, and Reply all adds `Cc`
+  (`message_extras`). Invitation answers are the message's own
+  `text/calendar; method=REPLY` part (`Outgoing::calendar_reply`), unsigned.
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New
@@ -789,6 +834,7 @@ which keeps that term off any index, and a test pins the plan
 | 17 | `scheduled_mail` (drafts to send later) and `invite_replies` (answers given, by UID) (3.11.0) |
 | 18 | `account_aliases`: other addresses a mailbox sends as (3.12.0) |
 | 19 | `event_links`: an event's video call link set by hand, by calendar and UID (3.14.0) |
+| 20 | Logins (`imap_user`, `smtp_user`) and `folder_delimiter` on accounts; `cc` and `reply_to` on messages; `thread_ghosts` and its trigger (4.6.0) |
 
 A new table or column always arrives as a new migration.
 

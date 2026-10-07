@@ -3,6 +3,39 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.6.0 — 2026-10-07
+
+### New
+- Accounts whose login is not their address sign in, with a new "User name" field.
+- A Google or Microsoft account whose sign-in expired offers "Sign in again".
+
+### Improved
+- Undoing an archive or a delete undoes it on the server too.
+- Archiving leaves your sent replies in Sent, and keeps Gmail labels and stars.
+- A conversation moved to another folder keeps its state (Done, Waiting, snoozed).
+- A new message in a conversation marked done brings it back to To do.
+- Replies go to the Reply-To address, and Reply all includes the people in copy.
+- Google Workspace addresses on your own domain are recognised.
+- Profiles with logins, a sending password or SSL on an unusual port work.
+
+### Fixed
+- Servers on port 143 (STARTTLS) connect.
+- Adding an existing account again no longer deletes its password.
+- Editing an account no longer changes another account on the same server.
+- Messages read or starred elsewhere now show so on servers such as Exchange.
+- Reading a junk message no longer brings it back into To do.
+- A mailbox that lost its connection syncs again on its own.
+- A disabled mailbox stops syncing.
+- A stuck download no longer blocks a mailbox.
+- Emptying the bin or junk deletes for good instead of everything coming back.
+- Moving mail no longer leaves a duplicate on servers without MOVE.
+- Folders with accented names show and work.
+- New and renamed folders follow each server's hierarchy, Gmail labels included.
+- Gmail's unread count counts each message once.
+- Mark all as read on Gmail clears conversations at once.
+- Gmail's Starred and Important no longer show every message twice.
+- Answers to invitations are recorded by Outlook and Google calendars.
+
 ## 4.5.3 — 2026-10-07
 
 ### Fixed

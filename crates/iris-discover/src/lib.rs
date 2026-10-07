@@ -76,6 +76,12 @@ pub struct ServerConfig {
     pub auth: Auth,
     /// Contrainte à signaler à l'utilisateur, le cas échéant.
     pub note: Option<String>,
+    /// The IMAP login, when it is not the address (`jdoe`, `DOMAIN\jdoe`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imap_user: Option<String>,
+    /// The SMTP login, when it is not the IMAP one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smtp_user: Option<String>,
 }
 
 /// D'où provient la configuration proposée.
@@ -225,6 +231,8 @@ impl<T: DiscoveryIo> Discovery<T> {
                     smtp_transport,
                     auth: Auth::Password,
                     note: None,
+                    imap_user: None,
+                    smtp_user: None,
                 },
                 source: Source::DnsSrv,
                 attempts,
@@ -321,6 +329,8 @@ impl<T: DiscoveryIo> Discovery<T> {
                  Vérifiez-la avant de l'enregistrer."
                     .into(),
             ),
+            imap_user: None,
+            smtp_user: None,
         })
     }
 }
@@ -468,12 +478,15 @@ mod tests {
     #[tokio::test]
     async fn le_domaine_mx_trahit_l_hebergeur() {
         let mut io = MockIo::default();
-        io.add_mx("entreprise.fr", "aspmx.l.google.com.gmail.com");
+        // Google Workspace's real mail server: the test used a made-up
+        // `aspmx.l.google.com.gmail.com`, which hid that the real one never matched.
+        io.add_mx("entreprise.fr", "aspmx.l.google.com.");
         let d = Discovery::new(io);
 
         let r = d.discover("contact@entreprise.fr").await.unwrap();
         assert_eq!(r.source, Source::MxGuess);
         assert_eq!(r.config.imap_host, "imap.gmail.com");
+        assert_eq!(r.config.auth, Auth::OAuthGoogle);
         assert!(r.config.note.unwrap().contains("Vérifiez"));
         assert!(
             !r.source.is_authoritative(),

@@ -110,8 +110,15 @@ pub async fn verify_login(config: &ServerConfig, password: &str) -> Result<()> {
         tls_immediate: config.imap_transport == iris_discover::Transport::Tls,
     };
 
+    // Its login when it is not the address: a profile's `jdoe`, a host's own.
     let identifiants = Credentials::Password {
-        user: config.email.trim().to_lowercase(),
+        user: config
+            .imap_user
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| config.email.trim().to_lowercase()),
         password: password.to_string(),
     };
 
@@ -159,6 +166,8 @@ pub async fn add_account(
             Auth::OAuthMicrosoft => AuthKind::OAuthMicrosoft,
         },
         group,
+        imap_user: config.imap_user.clone().unwrap_or_default(),
+        smtp_user: config.smtp_user.clone().unwrap_or_default(),
     };
 
     let id = match store.create_account(&nouveau, now) {
@@ -222,8 +231,36 @@ pub fn add_account_manual(
     group: Option<String>,
     now: Timestamp,
 ) -> Result<AccountId> {
+    add_account_manual_with(store, secrets, config, password, None, group, now)
+}
+
+/// [`add_account_manual`], with a password of its own for sending (a profile's
+/// `OutgoingPassword`).
+pub fn add_account_manual_with(
+    store: &Store,
+    secrets: &dyn SecretStore,
+    config: &ServerConfig,
+    password: &str,
+    smtp_password: Option<&str>,
+    group: Option<String>,
+    now: Timestamp,
+) -> Result<AccountId> {
     let email = config.email.trim().to_lowercase();
+
+    // Before anything is written. The secret is kept under the address: written for
+    // an account that already exists, then cleaned up when the store refused the
+    // duplicate, it deleted that account's own password.
+    if store.account_by_email(&email)?.is_some() {
+        return Err(Error::Config(format!("le compte « {email} » existe déjà")));
+    }
+
     secrets.set(&email, SecretKind::Password, &Secret::new(password))?;
+    if let Some(envoi) = smtp_password.filter(|p| !p.is_empty()) {
+        if let Err(e) = secrets.set(&email, SecretKind::SmtpPassword, &Secret::new(envoi)) {
+            let _ = secrets.delete(&email, SecretKind::Password);
+            return Err(e);
+        }
+    }
 
     let nouveau = NewAccount {
         email: email.clone(),
@@ -236,10 +273,13 @@ pub fn add_account_manual(
         smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
         auth: AuthKind::Password,
         group,
+        imap_user: config.imap_user.clone().unwrap_or_default(),
+        smtp_user: config.smtp_user.clone().unwrap_or_default(),
     };
 
     store.create_account(&nouveau, now).inspect_err(|_| {
         let _ = secrets.delete(&email, SecretKind::Password);
+        let _ = secrets.delete(&email, SecretKind::SmtpPassword);
     })
 }
 
@@ -273,14 +313,19 @@ pub fn update_account_manual(
         }
     }
 
+    // L'adresse est la clé du coffre : changer l'une sans déplacer l'autre laisserait
+    // le compte sans mot de passe au prochain démarrage. Every secret moves, the
+    // tokens of an account signed in with Google included: they stayed under the old
+    // address, and the account could not sign in any more.
+    if email != ancien.email {
+        for nature in SecretKind::ALL {
+            if let Some(secret) = secrets.get(&ancien.email, nature)? {
+                secrets.set(&email, nature, &secret)?;
+            }
+        }
+    }
     if let Some(motdepasse) = password.filter(|p| !p.is_empty()) {
         secrets.set(&email, SecretKind::Password, &Secret::new(motdepasse))?;
-    } else if email != ancien.email {
-        // L'adresse est la clé du coffre : changer l'une sans déplacer l'autre
-        // laisserait le compte sans mot de passe au prochain démarrage.
-        if let Some(secret) = secrets.get(&ancien.email, SecretKind::Password)? {
-            secrets.set(&email, SecretKind::Password, &secret)?;
-        }
     }
 
     store.update_account_servers(
@@ -293,13 +338,17 @@ pub fn update_account_manual(
             smtp_host: config.smtp_host.clone(),
             smtp_port: config.smtp_port,
             smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
+            imap_user: config.imap_user.clone().unwrap_or_default(),
+            smtp_user: config.smtp_user.clone().unwrap_or_default(),
         },
     )?;
 
     // L'ancienne entrée du coffre ne sert plus à rien et porte encore un mot de passe
     // valable : la laisser serait laisser traîner un secret que plus personne ne lit.
     if email != ancien.email {
-        let _ = secrets.delete(&ancien.email, SecretKind::Password);
+        for nature in SecretKind::ALL {
+            let _ = secrets.delete(&ancien.email, nature);
+        }
     }
 
     store.touch_account(id, now)?;
@@ -355,6 +404,8 @@ pub fn add_account_oauth(
             smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
             auth,
             group,
+            imap_user: String::new(),
+            smtp_user: String::new(),
         },
         now,
     )
@@ -392,6 +443,8 @@ pub fn manual_defaults(email: &str) -> ServerConfig {
         auth: Auth::Password,
         note: None,
         email,
+        imap_user: None,
+        smtp_user: None,
     }
 }
 
@@ -403,11 +456,7 @@ pub fn remove_account(store: &Store, secrets: &dyn SecretStore, id: AccountId) -
 
     // Les secrets d'abord : un compte supprimé dont le mot de passe traînerait encore
     // dans le trousseau serait une fuite silencieuse.
-    for nature in [
-        SecretKind::Password,
-        SecretKind::AccessToken,
-        SecretKind::RefreshToken,
-    ] {
+    for nature in SecretKind::ALL {
         let _ = secrets.delete(&compte.email, nature);
     }
     store.delete_account(id)
@@ -433,6 +482,8 @@ mod tests_manuel {
             smtp_transport: iris_discover::Transport::Tls,
             auth,
             note: None,
+            imap_user: None,
+            smtp_user: None,
         }
     }
 
@@ -598,6 +649,8 @@ mod tests {
             smtp_transport: iris_discover::Transport::StartTls,
             auth: Auth::Password,
             note: None,
+            imap_user: None,
+            smtp_user: None,
         };
 
         let id =
@@ -616,7 +669,10 @@ mod tests {
     }
 
     #[test]
-    fn un_compte_en_double_ne_laisse_pas_de_secret_orphelin() {
+    fn adding_an_account_twice_leaves_the_first_one_s_password_alone() {
+        // The secret is kept under the address. Written for the duplicate, then
+        // cleaned up when the store refused it, it deleted the existing account's
+        // password: re-importing a profile broke the mailbox it was for.
         let dir = tempfile::tempdir().unwrap();
         let store = Store::in_memory().unwrap();
         let coffre = coffre(dir.path());
@@ -632,19 +688,60 @@ mod tests {
             smtp_transport: iris_discover::Transport::Tls,
             auth: Auth::Password,
             note: None,
+            imap_user: None,
+            smtp_user: None,
         };
 
         add_account_manual(&store, &coffre, &config, "un", None, Timestamp::EPOCH).unwrap();
-        coffre.delete("moi@x.fr", SecretKind::Password).unwrap();
 
-        // Second ajout : le store refuse, le secret ne doit pas survivre.
         assert!(
             add_account_manual(&store, &coffre, &config, "deux", None, Timestamp::EPOCH).is_err()
         );
-        assert!(coffre
+        let garde = coffre
             .get("moi@x.fr", SecretKind::Password)
             .unwrap()
-            .is_none());
+            .unwrap();
+        assert_eq!(garde.expose(), "un", "the first account keeps its password");
+    }
+
+    #[test]
+    fn a_profile_s_logins_and_sending_password_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::in_memory().unwrap();
+        let coffre = coffre(dir.path());
+        let config = ServerConfig {
+            provider: None,
+            email: "jdoe@corp.example.com".into(),
+            imap_host: "mail.corp.example.com".into(),
+            imap_port: 993,
+            imap_transport: iris_discover::Transport::Tls,
+            smtp_host: "mail.corp.example.com".into(),
+            smtp_port: 587,
+            smtp_transport: iris_discover::Transport::StartTls,
+            auth: Auth::Password,
+            note: None,
+            imap_user: Some("CORP\\jdoe".into()),
+            smtp_user: None,
+        };
+        let id = add_account_manual_with(
+            &store,
+            &coffre,
+            &config,
+            "lecture",
+            Some("envoi"),
+            None,
+            Timestamp::EPOCH,
+        )
+        .unwrap();
+
+        let compte = store.account(id).unwrap().unwrap();
+        assert_eq!(compte.imap_login(), "CORP\\jdoe");
+        assert_eq!(compte.smtp_login(), "CORP\\jdoe");
+        let envoi = coffre
+            .get("jdoe@corp.example.com", SecretKind::SmtpPassword)
+            .unwrap()
+            .unwrap();
+        assert_eq!(envoi.expose(), "envoi");
     }
 
     #[test]
@@ -666,6 +763,8 @@ mod tests {
             smtp_transport: iris_discover::Transport::Tls,
             auth: Auth::Password,
             note: None,
+            imap_user: None,
+            smtp_user: None,
         };
         let id =
             add_account_manual(&store, &coffre, &config, "secret", None, Timestamp::EPOCH).unwrap();

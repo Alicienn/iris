@@ -56,6 +56,32 @@ pub struct Account {
     /// facture comme on écrit à sa sœur. Vide par défaut — personne ne veut découvrir
     /// une signature inventée par le programme au bas d'un message déjà parti.
     pub signature: String,
+    /// The IMAP login when it is not the address; empty means the address.
+    pub imap_user: String,
+    /// The SMTP login when it is not the IMAP one; empty means that one.
+    pub smtp_user: String,
+    /// What separates a folder from its children on this server, once known.
+    pub folder_delimiter: Option<char>,
+}
+
+impl Account {
+    /// What the IMAP server is signed in to as.
+    pub fn imap_login(&self) -> &str {
+        if self.imap_user.trim().is_empty() {
+            &self.email
+        } else {
+            self.imap_user.trim()
+        }
+    }
+
+    /// What the SMTP server is signed in to as: its own login, else the IMAP one.
+    pub fn smtp_login(&self) -> &str {
+        if self.smtp_user.trim().is_empty() {
+            self.imap_login()
+        } else {
+            self.smtp_user.trim()
+        }
+    }
 }
 
 /// Description d'un compte à créer.
@@ -71,6 +97,9 @@ pub struct NewAccount {
     pub smtp_tls: bool,
     pub auth: AuthKind,
     pub group: Option<String>,
+    /// The logins, when they are not the address. Empty: the address.
+    pub imap_user: String,
+    pub smtp_user: String,
 }
 
 impl NewAccount {
@@ -91,6 +120,8 @@ impl NewAccount {
             smtp_tls: true,
             auth: AuthKind::Password,
             group: None,
+            imap_user: String::new(),
+            smtp_user: String::new(),
         }
     }
 }

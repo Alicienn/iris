@@ -243,7 +243,7 @@ impl SendService {
         // réseau au moment où l'utilisateur veut écrire.
         let corps_original = self.original_body(dernier);
 
-        let (to, reply_to) = reply_recipients(self.engine.store(), &messages)?;
+        let qui = reply_recipients(self.engine.store(), &messages)?;
         let cible = ReplyTarget {
             message_id: dernier.rfc_message_id.clone().map(RfcMessageId),
             references: self.reference_chain(dernier),
@@ -252,9 +252,9 @@ impl SendService {
                 name: none_if_empty(&dernier.from_name),
                 addr: dernier.from_addr.clone(),
             }],
-            to,
-            cc: vec![],
-            reply_to,
+            to: qui.to,
+            cc: qui.cc,
+            reply_to: qui.reply_to,
             date: dernier.received,
             text_body: corps_original,
         };
@@ -718,11 +718,11 @@ fn own_addresses(store: &iris_store::Store) -> Result<std::collections::BTreeSet
 fn reply_recipients(
     store: &iris_store::Store,
     messages: &[iris_store::StoredMessage],
-) -> Result<(Vec<Address>, Vec<Address>)> {
+) -> Result<ReplyRecipients> {
     let miennes = own_addresses(store)?;
     let est_moi = |a: &str| miennes.contains(&Address::new(a.to_string()).key());
-    let destinataires = |m: &iris_store::StoredMessage| -> Vec<Address> {
-        serde_json::from_str::<Vec<Address>>(&m.recipients_json)
+    let sans_moi = |json: &str| -> Vec<Address> {
+        serde_json::from_str::<Vec<Address>>(json)
             .unwrap_or_default()
             .into_iter()
             .filter(|a| !est_moi(&a.addr))
@@ -730,13 +730,23 @@ fn reply_recipients(
     };
 
     let Some(dernier) = messages.last() else {
-        return Ok((vec![], vec![]));
+        return Ok(ReplyRecipients::default());
     };
+    // Its copies and its reply address: neither was kept, so Reply all missed the
+    // people in copy, and a reply to a form's notification went to its no-reply
+    // address rather than to the person it named.
+    let (copies, reponse) = store.message_extras(dernier.id)?;
+    let copies = sans_moi(&copies);
     if !est_moi(&dernier.from_addr) {
-        return Ok((destinataires(dernier), vec![]));
+        let reply_to = serde_json::from_str::<Vec<Address>>(&reponse).unwrap_or_default();
+        return Ok(ReplyRecipients {
+            to: sans_moi(&dernier.recipients_json),
+            cc: copies,
+            reply_to,
+        });
     }
 
-    let mut a_qui = destinataires(dernier);
+    let mut a_qui = sans_moi(&dernier.recipients_json);
     if a_qui.is_empty() {
         a_qui = messages
             .iter()
@@ -750,7 +760,19 @@ fn reply_recipients(
             })
             .unwrap_or_default();
     }
-    Ok((vec![], a_qui))
+    Ok(ReplyRecipients {
+        to: vec![],
+        cc: copies,
+        reply_to: a_qui,
+    })
+}
+
+/// Who a reply goes to, for its [`ReplyTarget`].
+#[derive(Debug, Default)]
+struct ReplyRecipients {
+    to: Vec<Address>,
+    cc: Vec<Address>,
+    reply_to: Vec<Address>,
 }
 
 /// Whether the mailbox on `imap_host` keeps a copy of what is sent without being given
@@ -1024,6 +1046,36 @@ mod tests {
         assert_eq!(reponse.to[0].addr, "marie@example.com");
         let copie: Vec<_> = reponse.cc.iter().map(|a| a.addr.as_str()).collect();
         assert_eq!(copie, ["luc@example.com"]);
+    }
+
+    #[tokio::test]
+    async fn a_reply_goes_where_reply_to_says_and_reply_all_keeps_the_copies() {
+        // Neither header was kept: a reply to a form's notice went to its no-reply
+        // address, and Reply all missed everyone in copy.
+        let f = fixture();
+        f.server.deliver(
+            "INBOX",
+            b"Subject: Re: Devis refonte\r\nFrom: Formulaire <noreply@example.com>\r\n\
+              Reply-To: Client <client@example.net>\r\nTo: moi@example.com\r\n\
+              Cc: Luc <luc@example.com>, moi@example.com\r\nMessage-ID: <form@x>\r\n\
+              In-Reply-To: <origine@x>\r\nReferences: <origine@x>\r\n\r\nDemande.\r\n",
+            Flags::NONE,
+        );
+        f.ouvrir_le_fil().await;
+
+        let simple = f
+            .service
+            .compose_reply(ThreadId(1), "Bien reçu.", ReplyScope::Sender)
+            .unwrap();
+        let a_qui: Vec<_> = simple.to.iter().map(|a| a.addr.as_str()).collect();
+        assert_eq!(a_qui, ["client@example.net"]);
+
+        let tous = f
+            .service
+            .compose_reply(ThreadId(1), "Bien reçu.", ReplyScope::All)
+            .unwrap();
+        let copie: Vec<_> = tous.cc.iter().map(|a| a.addr.as_str()).collect();
+        assert_eq!(copie, ["luc@example.com"], "the copies, without me");
     }
 
     #[tokio::test(start_paused = true)]

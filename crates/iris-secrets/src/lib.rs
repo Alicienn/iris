@@ -40,20 +40,32 @@ pub trait SecretStore: Send + Sync + std::fmt::Debug {
 /// Nature d'un secret. Un compte peut en détenir plusieurs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SecretKind {
-    /// Mot de passe IMAP et SMTP.
+    /// Mot de passe IMAP, et SMTP quand l'envoi n'a pas le sien.
     Password,
     /// Jeton d'accès OAuth2, de courte durée.
     AccessToken,
     /// Jeton de rafraîchissement OAuth2, de longue durée. Le plus sensible.
     RefreshToken,
+    /// The sending password, when the SMTP server takes another one (a profile's
+    /// `OutgoingPassword`).
+    SmtpPassword,
 }
 
 impl SecretKind {
+    /// Every kind, for what must remove or move all of an account's secrets.
+    pub const ALL: [Self; 4] = [
+        Self::Password,
+        Self::AccessToken,
+        Self::RefreshToken,
+        Self::SmtpPassword,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Password => "password",
             Self::AccessToken => "access_token",
             Self::RefreshToken => "refresh_token",
+            Self::SmtpPassword => "smtp_password",
         }
     }
 
@@ -62,6 +74,7 @@ impl SecretKind {
             "password" => Some(Self::Password),
             "access_token" => Some(Self::AccessToken),
             "refresh_token" => Some(Self::RefreshToken),
+            "smtp_password" => Some(Self::SmtpPassword),
             _ => None,
         }
     }

@@ -18,12 +18,16 @@ export component AccountProblemPanel inherits Rectangle {
     in property <string> message;
     in property <string> advice;
     in property <bool> needs-password;
+    /// Signed in through the browser (Google, Microsoft): no password to type, the
+    /// way back is to sign in again.
+    in property <bool> sign-in;
     in property <bool> busy;
     in property <string> result;
     in-out property <string> password;
 
     callback retry();
     callback save-password();
+    callback sign-in-again();
     callback disable-account();
     callback dismissed();
 
@@ -82,7 +86,7 @@ export component AccountProblemPanel inherits Rectangle {
             }
         }
 
-        if root.needs-password: VerticalLayout {
+        if root.needs-password && !root.sign-in: VerticalLayout {
             spacing: 4px;
             Text {
                 text: "New password";
@@ -116,7 +120,16 @@ export component AccountProblemPanel inherits Rectangle {
                 clicked => { root.disable-account(); }
             }
             Rectangle { horizontal-stretch: 1; }
-            Button {
+            // Signed in through the browser: a password field led nowhere, the
+            // password saved was never used, and the account stayed refused.
+            if root.sign-in: Button {
+                text: root.busy ? "Waiting for the browser…" : "Sign in again";
+                label: "Sign in again in the browser";
+                kind: root.needs-password ? ButtonKind.primary : ButtonKind.ghost;
+                enabled: !root.busy;
+                clicked => { root.sign-in-again(); }
+            }
+            if !root.sign-in || !root.needs-password: Button {
                 text: root.busy ? "Trying…" : (root.needs-password ? "Save and retry" : "Try again");
                 label: root.needs-password ? "Save and retry" : "Try again";
                 kind: ButtonKind.primary;

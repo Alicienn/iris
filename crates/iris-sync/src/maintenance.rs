@@ -53,6 +53,9 @@ impl SyncEngine {
         const WEEK_MS: i64 = 7 * 24 * 3600 * 1000;
         self.store()
             .purge_completed_ops(Timestamp::from_millis(now.millis() - WEEK_MS))?;
+        // A message moved comes back at the next pass; one gone a month is gone.
+        self.store()
+            .purge_thread_ghosts(Timestamp::from_millis(now.millis() - 4 * WEEK_MS))?;
 
         let Some(workflow) = self.workflow() else {
             return Ok(MaintenanceReport::default());

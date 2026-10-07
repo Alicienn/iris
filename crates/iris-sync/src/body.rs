@@ -69,26 +69,40 @@ impl SyncEngine {
         // téléchargement de corps ne doit pas contourner le plafond de connexions.
         let _place = self.pool().acquire(&compte.imap_host).await?;
 
-        let identifiants = self.credentials_for(&compte).await?;
-        let point = self.endpoint_for(&compte);
-        let mut conn = self.connector().connect(&point, &identifiants).await?;
+        // Within the time a whole account's pass is given. Unbounded, a download cut by
+        // the machine sleeping waited for ever, holding one of the server's places in
+        // the pool: three of them and every sync of that server failed.
+        let limite = self.config().account_timeout;
+        let brut = tokio::time::timeout(limite, async {
+            let identifiants = self.credentials_for(&compte).await?;
+            let point = self.endpoint_for(&compte);
+            let mut conn = self.connector().connect(&point, &identifiants).await?;
 
-        let selection = conn.select(&dossier.path).await?;
-        // Un dossier reconstruit par le serveur donne à ses UID un autre sens : le
-        // même numéro désigne alors un autre message, dont le corps aurait été
-        // affiché, mis en cache et cité à la place. La prochaine synchronisation
-        // relit le dossier ; d'ici là, on ne télécharge rien.
-        if dossier.uid_validity != 0
-            && selection.uid_validity != 0
-            && selection.uid_validity != dossier.uid_validity
-        {
+            let selection = conn.select(&dossier.path).await?;
+            // Un dossier reconstruit par le serveur donne à ses UID un autre sens : le
+            // même numéro désigne alors un autre message, dont le corps aurait été
+            // affiché, mis en cache et cité à la place. La prochaine synchronisation
+            // relit le dossier ; d'ici là, on ne télécharge rien.
+            if dossier.uid_validity != 0
+                && selection.uid_validity != 0
+                && selection.uid_validity != dossier.uid_validity
+            {
+                let _ = conn.logout().await;
+                return Err(Error::ResyncRequired {
+                    reason: format!("UIDVALIDITY of « {} » changed", dossier.path),
+                });
+            }
+            let brut = conn.fetch_body(stocke.uid).await?;
             let _ = conn.logout().await;
-            return Err(Error::ResyncRequired {
-                reason: format!("UIDVALIDITY of « {} » changed", dossier.path),
-            });
-        }
-        let brut = conn.fetch_body(stocke.uid).await?;
-        let _ = conn.logout().await;
+            Ok::<Vec<u8>, Error>(brut)
+        })
+        .await
+        .map_err(|_| {
+            Error::Network(format!(
+                "{} stopped answering while the message was downloaded",
+                compte.imap_host
+            ))
+        })??;
 
         if brut.is_empty() {
             return Err(Error::Protocol {

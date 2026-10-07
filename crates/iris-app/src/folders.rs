@@ -223,24 +223,62 @@ pub fn create_everywhere(
     now: Timestamp,
 ) -> Result<usize> {
     let nom = validate(name).map_err(Error::Config)?;
+    let parent = parent.map(str::trim).filter(|p| !p.is_empty());
 
-    let chemin = match parent.map(str::trim).filter(|p| !p.is_empty()) {
-        Some(parent) => format!("{parent}.{nom}"),
-        // Sans parent choisi, sous la boîte de réception : c'est là que les serveurs
-        // qui imposent un préfixe attendent les dossiers de l'utilisateur, et créer à
-        // la racine échoue chez eux sans que rien ne le laisse prévoir.
-        None => format!("INBOX.{nom}"),
-    };
-
-    let comptes = store.accounts_without_folder(&chemin)?;
-    for compte in &comptes {
-        let charge = OpPayload::CreateFolder {
-            folder: chemin.clone(),
+    let mut demandes = 0;
+    for compte in store.accounts()?.into_iter().filter(|c| c.enabled) {
+        let dossiers = store.folders(compte.id)?;
+        let separateur = compte.folder_delimiter.unwrap_or('.');
+        let chemin = match parent {
+            // Under a folder this mailbox has (or holds folders under).
+            Some(p) => {
+                let prefixe = format!("{p}{separateur}");
+                if !dossiers
+                    .iter()
+                    .any(|f| f.path == p || f.path.starts_with(&prefixe))
+                {
+                    continue;
+                }
+                format!("{p}{separateur}{nom}")
+            }
+            // Where this server keeps the user's folders: under `INBOX` for those
+            // that impose it (Courier, many hosts), at the top for the others. Always
+            // `INBOX.` before: at Gmail that made a label literally named
+            // `INBOX.Devis`.
+            None => match personal_prefix(&dossiers, compte.folder_delimiter) {
+                Some(prefixe) => format!("{prefixe}{nom}"),
+                None => nom.clone(),
+            },
         };
-        iris_sync::enqueue(store, *compte, &charge, now)?;
+        if dossiers.iter().any(|f| f.path == chemin) {
+            continue;
+        }
+        let charge = OpPayload::CreateFolder { folder: chemin };
+        iris_sync::enqueue(store, compte.id, &charge, now)?;
+        demandes += 1;
     }
 
-    Ok(comptes.len())
+    Ok(demandes)
+}
+
+/// Where a server keeps the user's folders, from what it already lists: `INBOX` and
+/// its delimiter when folders live under it, nothing when they live at the top. With
+/// the delimiter still unknown, `INBOX.` as before: creating at the top fails at the
+/// hosts that impose the prefix.
+fn personal_prefix(dossiers: &[iris_store::Folder], separateur: Option<char>) -> Option<String> {
+    let Some(sep) = separateur else {
+        return Some("INBOX.".to_string());
+    };
+    let prefixe = format!("INBOX{sep}");
+    dossiers
+        .iter()
+        .any(|f| {
+            f.path.len() > prefixe.len()
+                && f.path
+                    .get(..prefixe.len())
+                    .is_some_and(|debut| debut.eq_ignore_ascii_case(&prefixe))
+        })
+        .then_some(prefixe)
 }
 
 /// Renomme un dossier, sur toutes les boîtes qui l'ont.
@@ -250,25 +288,30 @@ pub fn create_everywhere(
 pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) -> Result<usize> {
     let nom = validate(name).map_err(Error::Config)?;
 
-    let parent = path.rsplit_once(SEPARATEURS).map(|(p, _)| p.to_string());
-    let cible = match &parent {
-        Some(p) => format!("{p}.{nom}"),
-        None => nom,
-    };
-    if cible == path {
-        return Ok(0);
-    }
-
-    let comptes = store.accounts_with_folder(path)?;
-    for compte in &comptes {
+    let mut demandes = 0;
+    for id in store.accounts_with_folder(path)? {
+        // Split on this server's own delimiter: on both, `Clients/Devis` renamed
+        // `Offres` went to the top as `Clients.Offres`.
+        let separateur = store
+            .account(id)?
+            .and_then(|c| c.folder_delimiter)
+            .unwrap_or('.');
+        let cible = match path.rsplit_once(separateur) {
+            Some((parent, _)) => format!("{parent}{separateur}{nom}"),
+            None => nom.clone(),
+        };
+        if cible == path {
+            continue;
+        }
         let charge = iris_store::OpPayload::RenameFolder {
             folder: path.to_string(),
-            target: cible.clone(),
+            target: cible,
         };
-        iris_sync::enqueue(store, *compte, &charge, now)?;
+        iris_sync::enqueue(store, id, &charge, now)?;
+        demandes += 1;
     }
 
-    Ok(comptes.len())
+    Ok(demandes)
 }
 
 /// Supprime un dossier, **en gardant ce qu'il contient**.
@@ -692,5 +735,81 @@ mod tests {
 
         assert!(delete_everywhere(&store, "INBOX", maintenant).is_err());
         assert_eq!(store.folders(compte).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_new_folder_follows_each_server_s_own_ways() {
+        // Always `INBOX.` + name before: at Gmail, a label named `INBOX.Devis`.
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let gmail = store
+            .create_account(
+                &iris_store::NewAccount::new("a@gmail.com", "imap.gmail.com", "s"),
+                maintenant,
+            )
+            .unwrap();
+        store.set_folder_delimiter(gmail, '/').unwrap();
+        store
+            .upsert_folder(gmail, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        store
+            .upsert_folder(gmail, "[Gmail]/Sent Mail", FolderRole::Sent)
+            .unwrap();
+        let courier = store
+            .create_account(&iris_store::NewAccount::new("b@x.fr", "i", "s"), maintenant)
+            .unwrap();
+        store.set_folder_delimiter(courier, '.').unwrap();
+        store
+            .upsert_folder(courier, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        store
+            .upsert_folder(courier, "INBOX.Sent", FolderRole::Sent)
+            .unwrap();
+
+        assert_eq!(
+            create_everywhere(&store, None, "Devis", maintenant).unwrap(),
+            2
+        );
+        let demandes: Vec<String> = store
+            .pending_ops(Timestamp::from_millis(1), 10)
+            .unwrap()
+            .into_iter()
+            .map(|o| o.payload)
+            .collect();
+        assert!(
+            demandes.iter().any(|p| p.contains("\"folder\":\"Devis\"")),
+            "{demandes:?}"
+        );
+        assert!(
+            demandes
+                .iter()
+                .any(|p| p.contains("\"folder\":\"INBOX.Devis\"")),
+            "{demandes:?}"
+        );
+    }
+
+    #[test]
+    fn a_folder_is_renamed_under_its_own_parent() {
+        // Split on both, `Clients/Devis` renamed `Offres` became `Clients.Offres`.
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let compte = store
+            .create_account(&iris_store::NewAccount::new("a@x.fr", "i", "s"), maintenant)
+            .unwrap();
+        store.set_folder_delimiter(compte, '/').unwrap();
+        store
+            .upsert_folder(compte, "Clients/Devis", FolderRole::Other)
+            .unwrap();
+
+        assert_eq!(
+            rename_everywhere(&store, "Clients/Devis", "Offres", maintenant).unwrap(),
+            1
+        );
+        let op = &store.pending_ops(Timestamp::from_millis(1), 10).unwrap()[0];
+        assert!(
+            op.payload.contains("\"target\":\"Clients/Offres\""),
+            "{}",
+            op.payload
+        );
     }
 }

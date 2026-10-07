@@ -28,7 +28,10 @@ pub struct Provider {
 
 pub const PROVIDERS: &[Provider] = &[
     Provider {
-        domains: &["gmail.com", "googlemail.com"],
+        // `google.com` also stands for Google Workspace's mail servers, which a
+        // domain of one's own points its MX at (`aspmx.l.google.com`,
+        // `smtp.google.com`): without it, such a mailbox was never recognised.
+        domains: &["gmail.com", "googlemail.com", "google.com"],
         label: "Gmail",
         imap_host: "imap.gmail.com",
         imap_port: 993,
@@ -227,6 +230,8 @@ impl Provider {
             smtp_transport: self.smtp_transport,
             auth: self.auth,
             note: self.note.map(str::to_string),
+            imap_user: None,
+            smtp_user: None,
         }
     }
 }

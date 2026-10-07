@@ -91,6 +91,9 @@ export component AccountSetupPanel inherits Rectangle {
     in property <string> hint;
     in-out property <string> email;
     in-out property <string> password;
+    /// The login when it is not the address (`jdoe`, `DOMAIN\jdoe`); empty: the
+    /// address.
+    in-out property <string> username;
     in-out property <string> imap-host;
     in-out property <string> imap-port;
     in-out property <string> smtp-host;
@@ -179,6 +182,15 @@ export component AccountSetupPanel inherits Rectangle {
         }
 
         if root.manual: Hairline {}
+
+        // Some hosts and most companies sign in with a name of their own, not the
+        // address: without this field such a mailbox could never connect.
+        if root.manual: Field {
+            label: "User name, if not the address";
+            placeholder: "Leave empty to sign in with the address";
+            value <=> root.username;
+            accepted => { root.save-manual(); }
+        }
 
         if root.manual: HorizontalLayout {
             spacing: 8px;

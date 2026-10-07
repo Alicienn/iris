@@ -26,7 +26,14 @@ use std::sync::Arc;
 /// savoir où vivent les mots de passe, et les tests n'ont aucune raison d'en créer.
 #[async_trait]
 pub trait CredentialsProvider: Send + Sync + std::fmt::Debug {
+    /// What the IMAP server is signed in to with.
     async fn credentials(&self, account: AccountId, email: &str) -> Result<Credentials>;
+
+    /// What the SMTP server is signed in to with: the IMAP credentials unless the
+    /// account has a login or a password of its own for sending.
+    async fn smtp_credentials(&self, account: AccountId, email: &str) -> Result<Credentials> {
+        self.credentials(account, email).await
+    }
 }
 
 /// Réglages du moteur.
@@ -298,6 +305,10 @@ impl SyncEngine {
         &self.bus
     }
 
+    pub(crate) fn config(&self) -> &EngineConfig {
+        &self.config
+    }
+
     pub(crate) fn pool(&self) -> &ConnectionPool {
         &self.pool
     }
@@ -412,6 +423,17 @@ impl SyncEngine {
         let mut ordonnanceur = self.scheduler.lock().await;
         let mut inscrits = 0;
 
+        // Disabled or removed since: out of the schedule. Accounts were only ever
+        // added, so one switched off kept syncing (a refused password kept being
+        // tried, which is how servers lock accounts) and a removed one kept failing.
+        let actifs: std::collections::BTreeSet<AccountId> =
+            comptes.iter().filter(|c| c.enabled).map(|c| c.id).collect();
+        for id in ordonnanceur.registered() {
+            if !actifs.contains(&id) {
+                ordonnanceur.remove(id);
+            }
+        }
+
         for c in &comptes {
             if !c.enabled {
                 continue;
@@ -505,6 +527,10 @@ impl SyncEngine {
                 Ok(bilan) => {
                     rapport.synced += 1;
                     rapport.added += bilan.added;
+                    // Working: back on the schedule if it had been set aside. "Sync
+                    // all" never resumed anyone, and an account left suspended stayed
+                    // so although it had just synced.
+                    self.scheduler.lock().await.resume(compte.id, now);
                 }
                 // One unreachable server must not stop the other ninety-nine.
                 // `note_failure` has logged it.
@@ -710,6 +736,13 @@ impl SyncEngine {
             self.store
                 .upsert_folder(account, &d.path, translate_kind(d.kind))?;
         }
+        // What separates a folder from its children here, for folders created and
+        // renamed from Iris (`/` at Gmail, where a `.` made a label `INBOX.Devis`).
+        if let Some(separateur) = distants.iter().find_map(|d| d.delimiter) {
+            if compte.folder_delimiter != Some(separateur) {
+                self.store.set_folder_delimiter(account, separateur)?;
+            }
+        }
 
         // Et ce que le serveur ne liste plus, on l'oublie.
         //
@@ -768,6 +801,15 @@ impl SyncEngine {
                     bilan.added += r.added;
                     bilan.flags_updated += r.flags_updated;
                     bilan.deleted += r.deleted;
+                    // A message that arrives in a thread may bring it back to the
+                    // queue (the "a new message reopens the thread" setting).
+                    if let Some(workflow) = &self.workflow {
+                        for fil in &r.arrivals {
+                            if let Err(e) = workflow.on_message_received(*fil, now) {
+                                tracing::warn!(error = %e, "reopening a thread");
+                            }
+                        }
+                    }
                     if r.added > 0 {
                         ajoutes_par_dossier.push(dossier.id);
                         // L'indexation suit immédiatement l'insertion : un message

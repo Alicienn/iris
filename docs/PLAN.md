@@ -587,3 +587,15 @@ variant, brought into the application.
       no longer blocks it. Folders: deletion empties what the server holds first,
       roles guessed only at the top and never over a `SPECIAL-USE` one, the menu acts
       on the exact path. A body is not fetched across a `UIDVALIDITY` change.
+- [x] **S41.18** The high findings of the same audit, fixed (4.6.0). Accounts: IMAP
+      STARTTLS, logins other than the address (profiles, autoconfig, a *User name*
+      field) and a separate sending password, *Sign in again* for Google and
+      Microsoft, Google Workspace recognised, duplicates and edits that no longer
+      touch another account. Receiving: flags re-read without CONDSTORE and merged
+      with ours, accounts that recover on their own, disabled ones out of the
+      schedule, bounded body downloads. Managing: undo reaches the server, copies in
+      Sent and Gmail labels left alone, thread state kept across moves
+      (`thread_ghosts`), replies reopen done threads, emptying deletes for good, no
+      duplicate without MOVE. Folders: modified UTF-7, the server's delimiter and
+      prefix, Gmail's Starred and Important left out, unread counted once. Sending:
+      Reply-To and Cc, invitation answers as a calendar part.

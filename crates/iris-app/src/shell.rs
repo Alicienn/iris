@@ -3068,11 +3068,14 @@ pub fn wire_account_setup(
             fenetre.set_add_account_hint(Default::default());
             fenetre.set_new_email(Default::default());
             fenetre.set_new_password(Default::default());
+            fenetre.set_new_username(Default::default());
             fenetre.set_new_imap_host(Default::default());
             fenetre.set_new_imap_port(Default::default());
             fenetre.set_new_smtp_host(Default::default());
             fenetre.set_new_smtp_port(Default::default());
             fenetre.set_profile_choices(ModelRc::default());
+            EDITION.with(|e| e.set(None));
+            ENVOI_DU_PROFIL.with(|e| *e.borrow_mut() = None);
         });
     }
     // --- Passer à la main sans attendre l'échec ---
@@ -3159,13 +3162,22 @@ pub fn wire_account_setup(
             // work, and rerunning discovery on them could only replace a correct
             // configuration with a guessed one.
             if fenetre.get_add_account_editing() {
-                let Some(id) = store.account_by_email(&email).ok().flatten().map(|c| c.id) else {
+                let Some(compte) = EDITION
+                    .with(|e| e.get())
+                    .and_then(|id| store.account(id).ok().flatten())
+                else {
+                    fenetre.set_add_account_error("That account no longer exists.".into());
+                    return;
+                };
+                let id = compte.id;
+                if !compte.email.eq_ignore_ascii_case(email.trim()) {
                     fenetre.set_add_account_error(
                         "Changing the address needs the manual screen.".into(),
                     );
                     prefill_manual(&fenetre);
                     return;
-                };
+                }
+                let email = compte.email.clone();
                 if motdepasse.is_empty() {
                     fenetre.set_add_account_error("Enter the new password.".into());
                     return;
@@ -3351,12 +3363,13 @@ pub fn wire_account_setup(
             // workflow state attached to the old identifier — a hostname typo would
             // cost the user their mailbox.
             if fenetre.get_add_account_editing() {
-                let Some(id) = store
-                    .account_by_email(&email)
-                    .ok()
-                    .flatten()
-                    .map(|c| c.id)
-                    .or_else(|| editing_id(&store, &fenetre))
+                // The account the screen was opened on, by its identifier. It was
+                // found again from the address typed, or the first account on the
+                // same server: with three mailboxes on one host, editing the third
+                // rewrote the first.
+                let Some(id) = EDITION
+                    .with(|e| e.get())
+                    .filter(|id| store.account(*id).ok().flatten().is_some())
                 else {
                     fenetre.set_add_account_error("That account no longer exists.".into());
                     return;
@@ -3429,19 +3442,30 @@ pub fn wire_account_setup(
             let controller = Arc::clone(&controller);
             let faible = fenetre.as_weak();
             let adresse = config.email.clone();
+            let envoi = mot_de_passe_d_envoi(&adresse);
 
             runtime_manuel.spawn(async move {
-                let resultat = match crate::accounts::verify_login(&config, &motdepasse).await {
-                    Ok(()) => crate::accounts::add_account_manual(
-                        &store,
-                        secrets.as_ref(),
-                        &config,
-                        &motdepasse,
-                        None,
-                        now(),
-                    )
-                    .map(|_| ()),
-                    Err(e) => Err(e),
+                // Already there: said before signing in, and nothing written. The
+                // existing account's password is kept under the same address.
+                let resultat = if store.account_by_email(&config.email).ok().flatten().is_some() {
+                    Err(iris_types::Error::Config(format!(
+                        "{} is already set up: edit it from its menu instead",
+                        config.email
+                    )))
+                } else {
+                    match crate::accounts::verify_login(&config, &motdepasse).await {
+                        Ok(()) => crate::accounts::add_account_manual_with(
+                            &store,
+                            secrets.as_ref(),
+                            &config,
+                            &motdepasse,
+                            envoi.as_deref(),
+                            None,
+                            now(),
+                        )
+                        .map(|_| ()),
+                        Err(e) => Err(e),
+                    }
                 };
 
                 if resultat.is_ok() {
@@ -3681,6 +3705,14 @@ fn fill_from_profile_account(
     if let Some(p) = &compte.password {
         fenetre.set_new_password(p.as_str().into());
     }
+    fenetre.set_new_username(c.imap_user.as_deref().unwrap_or_default().into());
+    ENVOI_DU_PROFIL.with(|e| {
+        *e.borrow_mut() = Some((
+            c.email.clone(),
+            c.smtp_user.clone(),
+            compte.smtp_password.clone(),
+        ))
+    });
     fenetre.set_new_imap_host(c.imap_host.as_str().into());
     fenetre.set_new_imap_port(c.imap_port.to_string().into());
     fenetre.set_new_imap_tls(c.imap_transport == iris_discover::Transport::Tls);
@@ -3706,19 +3738,14 @@ fn fill_from_profile_account(
     fenetre.set_add_account_hint(indice.into());
 }
 
-/// The account the edit screen is working on, when its address has been changed.
-///
-/// Looked up by the servers rather than the address, because the address is exactly
-/// what may have just been retyped. Two accounts on the same host and port are the
-/// same mailbox as far as this screen is concerned.
-fn editing_id(store: &iris_store::Store, fenetre: &AppWindow) -> Option<iris_types::AccountId> {
-    let hote = fenetre.get_new_imap_host().trim().to_lowercase();
-    store
-        .accounts()
-        .ok()?
-        .into_iter()
-        .find(|c| c.imap_host.to_lowercase() == hote)
-        .map(|c| c.id)
+thread_local! {
+    /// The account the setup screen is editing, set when it opens on one.
+    static EDITION: std::cell::Cell<Option<iris_types::AccountId>> =
+        const { std::cell::Cell::new(None) };
+    /// What the profile account chosen says of sending that the screen does not show,
+    /// for the address it was for: `(address, SMTP login, SMTP password)`.
+    static ENVOI_DU_PROFIL: std::cell::RefCell<Option<(String, Option<String>, Option<String>)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Vérifie l'adresse, sans réseau.
@@ -3766,9 +3793,19 @@ fn config_saisie(
         }
     };
 
+    let adresse = email.trim().to_lowercase();
+    let login = fenetre.get_new_username().trim().to_string();
+    // The profile's own sending login, while the address is still the one it gave.
+    let smtp_user = ENVOI_DU_PROFIL.with(|e| {
+        e.borrow()
+            .as_ref()
+            .filter(|(pour, _, _)| pour.eq_ignore_ascii_case(&adresse))
+            .and_then(|(_, u, _)| u.clone())
+    });
+
     Ok(iris_discover::ServerConfig {
         provider: None,
-        email: email.trim().to_lowercase(),
+        email: adresse,
         imap_host,
         imap_port: port(fenetre.get_new_imap_port(), "IMAP")?,
         imap_transport: transport(fenetre.get_new_imap_tls()),
@@ -3777,6 +3814,18 @@ fn config_saisie(
         smtp_transport: transport(fenetre.get_new_smtp_tls()),
         auth: iris_discover::Auth::Password,
         note: None,
+        imap_user: (!login.is_empty()).then_some(login),
+        smtp_user,
+    })
+}
+
+/// The profile's own sending password, for the address it was given for.
+fn mot_de_passe_d_envoi(adresse: &str) -> Option<String> {
+    ENVOI_DU_PROFIL.with(|e| {
+        e.borrow()
+            .as_ref()
+            .filter(|(pour, _, _)| pour.eq_ignore_ascii_case(adresse.trim()))
+            .and_then(|(_, _, p)| p.clone())
     })
 }
 
@@ -5041,6 +5090,12 @@ pub fn wire_account_menu(
             let Some(details) = courant() else {
                 return;
             };
+            // Signed in through the browser: no password to change, but a sign-in to
+            // renew, which the account's panel offers.
+            if crate::oauth::provider_for(details.auth).is_some() {
+                fenetre.invoke_resume_account(details.id.get() as i32);
+                return;
+            }
             // Not the manual form: the short screen is one address and one password,
             // which is exactly the shape of "my password changed". The servers are
             // already known and correct, and showing them invites editing them by
@@ -5192,6 +5247,7 @@ pub fn wire_account_menu(
     {
         let services = services.clone();
         let courant = courant.clone();
+        let runtime = runtime.clone();
         let faible = fenetre.as_weak();
         fenetre.on_account_menu_enable(move || {
             let Some(fenetre) = faible.upgrade() else {
@@ -5207,6 +5263,7 @@ pub fn wire_account_menu(
                     let mot = if allume { "enabled" } else { "disabled" };
                     fenetre.set_status(format!("{} {mot}.", details.email).into());
                     refresh_accounts(&fenetre, &services, &[]);
+                    recharger_les_comptes(&services, &runtime);
                 }
                 Err(e) => fenetre.set_status(format!("Could not change it: {e}").into()),
             }
@@ -5235,6 +5292,8 @@ pub fn wire_account_menu(
                     fenetre.set_status(format!("{} removed.", details.email).into());
                     refresh_accounts(&fenetre, &services, &[]);
                     controller.send(Request::Bootstrap);
+                    recharger_les_comptes(&services, &runtime);
+                    charger_expediteurs(&fenetre, &services);
                 }
                 Err(e) => fenetre.set_status(format!("Could not remove it: {e}").into()),
             }
@@ -5242,8 +5301,22 @@ pub fn wire_account_menu(
     }
 }
 
+/// Tells the engine which accounts are on: one switched off or removed leaves the
+/// schedule (it was only ever added to it, and kept syncing, a refused password
+/// retried until the server locked the account).
+fn recharger_les_comptes(services: &Services, runtime: &tokio::runtime::Handle) {
+    let engine = Arc::clone(&services.engine);
+    runtime.spawn(async move {
+        if let Err(e) = engine.load_accounts(now()).await {
+            tracing::warn!(error = %e, "reloading the accounts");
+        }
+    });
+}
+
 /// Opens the setup screen on an account that already exists.
 fn prefill_from_account(fenetre: &AppWindow, compte: &iris_store::Account, manual: bool) {
+    EDITION.with(|e| e.set(Some(compte.id)));
+    fenetre.set_new_username(compte.imap_user.as_str().into());
     fenetre.set_add_account_editing(true);
     fenetre.set_add_account_manual(manual);
     fenetre.set_add_account_error(Default::default());
@@ -5294,19 +5367,23 @@ pub fn wire_account_recovery(
             let compte = iris_types::AccountId(id as i64);
             *sujet.lock().expect("poisoned") = Some(compte);
 
-            let email = services
-                .store
-                .account(compte)
-                .ok()
-                .flatten()
-                .map(|c| c.email)
+            let details = services.store.account(compte).ok().flatten();
+            let email = details
+                .as_ref()
+                .map(|c| c.email.clone())
                 .unwrap_or_default();
+            let par_navigateur = details
+                .as_ref()
+                .and_then(|c| crate::oauth::provider_for(c.auth))
+                .is_some();
 
             // What the engine last saw. Without a recorded failure the account is
             // merely paused, which is still worth explaining.
             let panne = services.engine.failure(compte);
+            let refuse = panne.as_ref().map(|p| p.needs_password).unwrap_or(false);
 
             fenetre.set_problem_account(email.into());
+            fenetre.set_problem_sign_in(par_navigateur);
             fenetre.set_problem_message(
                 panne
                     .as_ref()
@@ -5315,11 +5392,16 @@ pub fn wire_account_recovery(
                     .into(),
             );
             fenetre.set_problem_advice(
-                panne
-                    .as_ref()
-                    .map(|p| p.advice())
-                    .unwrap_or_else(|| "This mailbox was paused after repeated failures.".into())
-                    .into(),
+                if par_navigateur && refuse {
+                    "The sign-in that lets Iris read this mailbox has expired or was \
+                     withdrawn. Sign in again in the browser."
+                        .to_string()
+                } else {
+                    panne.as_ref().map(|p| p.advice()).unwrap_or_else(|| {
+                        "This mailbox was paused after repeated failures.".into()
+                    })
+                }
+                .into(),
             );
             fenetre.set_problem_needs_password(
                 panne.as_ref().map(|p| p.needs_password).unwrap_or(false),
@@ -5443,10 +5525,92 @@ pub fn wire_account_recovery(
         });
     }
 
+    // --- Signed in through the browser: sign in again ---
+    //
+    // A Google or Microsoft account whose authorisation expired or was withdrawn was
+    // offered a password, which such an account never uses: it stayed refused for
+    // good, and the only way out was to remove it and add it again.
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let runtime_auth = runtime.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_problem_sign_in_again(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(compte) = *sujet.lock().expect("poisoned") else {
+                return;
+            };
+            let Some(details) = services.store.account(compte).ok().flatten() else {
+                return;
+            };
+            let Some(fournisseur) = crate::oauth::provider_for(details.auth) else {
+                return;
+            };
+            let reglages = services
+                .oauth
+                .read()
+                .expect("réglages OAuth empoisonnés")
+                .clone();
+            if !reglages.is_configured(fournisseur) {
+                fenetre.set_problem_result(
+                    "Set the sign-in client first, in Settings › Sign in with Google or \
+                     Microsoft."
+                        .into(),
+                );
+                return;
+            }
+            fenetre.set_problem_busy(true);
+            fenetre.set_problem_result("Sign in in the browser window that opened.".into());
+
+            let (secrets, engine) = (Arc::clone(&services.secrets), Arc::clone(&services.engine));
+            let services_apres = services.clone();
+            let faible = fenetre.as_weak();
+            runtime_auth.spawn(async move {
+                let resultat = match crate::oauth::authorize(
+                    secrets,
+                    &reglages,
+                    fournisseur,
+                    &details.email,
+                    now(),
+                )
+                .await
+                {
+                    Ok(_) => {
+                        engine.resume_account(compte, now()).await;
+                        engine.sync_now(compte, now()).await
+                    }
+                    Err(e) => Err(e),
+                };
+                let suspendus = engine.suspended_accounts().await;
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    fenetre.set_problem_busy(false);
+                    match resultat {
+                        Ok(n) => {
+                            fenetre.set_problem_open(false);
+                            fenetre.set_status(
+                                format!(
+                                    "Signed in again: {}.",
+                                    iris_ui::format::plural(n as u64, "message")
+                                )
+                                .into(),
+                            );
+                        }
+                        Err(e) => fenetre.set_problem_result(format!("Still refused: {e}").into()),
+                    }
+                    refresh_accounts(&fenetre, &services_apres, &suspendus);
+                });
+            });
+        });
+    }
+
     // --- Or switch it off and stop being told about it ---
     {
         let services = services.clone();
         let sujet = Arc::clone(&sujet);
+        let runtime_eteint = runtime.clone();
         let faible = fenetre.as_weak();
 
         fenetre.on_problem_disable(move || {
@@ -5462,6 +5626,7 @@ pub fn wire_account_recovery(
                     fenetre.set_problem_open(false);
                     fenetre.set_status("Account disabled.".into());
                     refresh_accounts(&fenetre, &services, &[]);
+                    recharger_les_comptes(&services, &runtime_eteint);
                 }
                 Err(e) => fenetre.set_problem_result(format!("Could not disable it: {e}").into()),
             }
@@ -6975,6 +7140,9 @@ mod tests {
             created_at: iris_types::Timestamp::EPOCH,
             last_activity_at: iris_types::Timestamp::EPOCH,
             signature: String::new(),
+            imap_user: String::new(),
+            smtp_user: String::new(),
+            folder_delimiter: None,
         }
     }
 

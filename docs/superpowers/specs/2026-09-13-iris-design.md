@@ -355,3 +355,7 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   same intention twice in a row is one operation, but once acknowledged, or once
   another intention came after it, the same key is a new step. Kept for ever, it made
   "read, unread, read" leave the server unread. Each account replays its own queue.
+- **Undo reaches the server** (4.6.0): an undone archive or delete withdraws its moves
+  from the journal, or moves the messages back by their `Message-ID` once the server
+  has carried them out. Automatic transitions (a reply arriving, a snooze or a
+  follow-up due) are not undoable: undo is for what the user did.

@@ -181,6 +181,26 @@ fn build_lettre_message(
         builder = builder.references(chaine);
     }
 
+    // An answer to an invitation: the text, and beside it as an alternative the iTIP
+    // part itself, `text/calendar; method=REPLY`, as Outlook and Google send and
+    // read it.
+    if let Some(ics) = &message.calendar_reply {
+        let type_ics: header::ContentType = "text/calendar; method=REPLY; charset=UTF-8"
+            .parse()
+            .map_err(|e| Error::Config(format!("type de l'invitation : {e}")))?;
+        let reponse = MultiPart::alternative()
+            .singlepart(
+                SinglePart::builder()
+                    .header(header::ContentType::TEXT_PLAIN)
+                    .body(message.text_body.clone()),
+            )
+            .singlepart(SinglePart::builder().header(type_ics).body(ics.clone()));
+        let courrier = builder
+            .multipart(reponse)
+            .map_err(|e| Error::Config(format!("construction du message : {e}")))?;
+        return Ok((courrier, message_id));
+    }
+
     // Le corps : texte seul, ou alternative texte + HTML. Une alternative texte est
     // toujours jointe, car un message uniquement HTML est souvent classé indésirable.
     let corps = match (&message.html_body, message.attachments.is_empty()) {
@@ -373,6 +393,22 @@ mod tests {
         assert!(brut.contains("multipart/alternative"));
         assert!(brut.contains("text/plain"));
         assert!(brut.contains("text/html"));
+    }
+
+    #[test]
+    fn an_invitation_answer_is_the_message_s_own_calendar_part() {
+        // As Outlook and Google send and read it; an attachment named `reply.ics`
+        // left the organiser's calendar unaware of the answer.
+        let mut m = message();
+        m.calendar_reply = Some("BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nEND:VCALENDAR\r\n".into());
+
+        let (courrier, _) = build_lettre_message(&m, "example.com").unwrap();
+        let brut = String::from_utf8_lossy(&courrier.formatted()).to_string();
+
+        assert!(brut.contains("multipart/alternative"), "{brut}");
+        assert!(brut.contains("text/calendar"), "{brut}");
+        assert!(brut.to_ascii_lowercase().contains("method=reply"), "{brut}");
+        assert!(!brut.contains("attachment"), "{brut}");
     }
 
     #[test]

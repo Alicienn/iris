@@ -47,9 +47,12 @@ impl Default for FolderSyncOptions {
 }
 
 /// Ce qu'une synchronisation a produit.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FolderReport {
     pub added: usize,
+    /// Threads a new message has just joined: arrived in the inbox, not a copy of a
+    /// message already here. What may reopen them.
+    pub arrivals: Vec<iris_types::ThreadId>,
     pub flags_updated: usize,
     pub deleted: usize,
     /// Le dossier a été relu intégralement.
@@ -65,6 +68,11 @@ impl FolderReport {
         self.added > 0 || self.flags_updated > 0 || self.deleted > 0
     }
 }
+
+/// Up to how many messages a folder without `CONDSTORE` has all its flags read again
+/// at every pass. A larger one has them read on the deletion scan only: about forty
+/// bytes a message, so this is a few hundred kilobytes at most.
+const FLAG_RESYNC_EVERY_PASS: usize = 5_000;
 
 /// Synchronise un dossier.
 pub async fn sync_folder(
@@ -165,9 +173,15 @@ pub async fn sync_folder(
         }
 
         let mut lot = Vec::with_capacity(bruts.len());
+        let mut extras = Vec::new();
         for brut in &bruts {
             match to_new_message(account, folder, brut) {
-                Ok(m) => lot.push(m),
+                Ok((m, copies, reponse)) => {
+                    if copies != "[]" || reponse != "[]" {
+                        extras.push((m.uid, copies, reponse));
+                    }
+                    lot.push(m);
+                }
                 // Un message illisible ne doit pas interrompre la synchronisation
                 // des dix mille autres.
                 Err(e) => tracing::warn!(uid = brut.uid, error = %e, "message ignoré"),
@@ -175,8 +189,36 @@ pub async fn sync_folder(
         }
 
         let inseres = store.insert_messages(&lot)?;
+        store.set_message_extras(folder.id, &extras)?;
         ramenes += lot.len();
         rapport.added += inseres.iter().filter(|i| !i.was_known).count();
+
+        // Not on a first visit: everything there is old news, not an arrival. The
+        // inbox only: mail filed into a folder of one's own is often mail Iris moved
+        // there, whose old copy may already be gone, and that is not an answer.
+        if !premiere_visite && folder.role == iris_store::FolderRole::Inbox {
+            for i in inseres.iter().filter(|i| !i.was_known && !i.thread_created) {
+                if !store.has_other_copy(i.message)? && !rapport.arrivals.contains(&i.thread) {
+                    rapport.arrivals.push(i.thread);
+                }
+            }
+        }
+    }
+
+    // --- Drapeaux modifiés ailleurs, sans CONDSTORE ---
+    //
+    // A server that keeps no `MODSEQ` (Exchange, Courier, many hosts) cannot say what
+    // changed, and nothing asked: a message read on the phone stayed unread here for
+    // ever. Its flags are read again, all of them, each pass for a folder of a
+    // reasonable size and on the deletion scan for a large one.
+    let deja_connu = !(validite_changee || premiere_visite);
+    if deja_connu && !(capacites.condstore && etat.highest_modseq > 0) {
+        let connus = store.max_uid(folder.id)?;
+        let taille = store.folder_uids(folder.id)?.len();
+        if connus > 0 && (taille <= FLAG_RESYNC_EVERY_PASS || options.detect_deletions) {
+            let tous = conn.fetch_flags(UidRange::new(1, connus)).await?;
+            rapport.flags_updated += store.apply_flag_changes(folder.id, &tous)?;
+        }
     }
 
     // --- Suppressions faites ailleurs ---
@@ -191,7 +233,6 @@ pub async fn sync_folder(
     // A folder whose server keeps no `MODSEQ` is no reason to skip it, though: that
     // only stops flag changes from being asked for, and it kept such folders' deletions
     // from ever being seen.
-    let deja_connu = !(validite_changee || premiere_visite);
     let locaux = if deja_connu {
         store.folder_uids(folder.id)?
     } else {
@@ -281,16 +322,19 @@ fn is_spam(folder: &Folder, raw: &[u8], subject: &str) -> bool {
     iris_mime::headers_say_spam(&headers)
 }
 
-/// Traduit un message brut du serveur en message à insérer.
+/// Traduit un message brut du serveur en message à insérer, avec ses copies (`Cc`)
+/// et son adresse de réponse (`Reply-To`) en listes JSON.
 fn to_new_message(
     account: AccountId,
     folder: &Folder,
     brut: &iris_imap::RawMessage,
-) -> Result<NewMessage> {
+) -> Result<(NewMessage, String, String)> {
     let analyse = iris_mime::parse(&brut.content)
         .map_err(|e| Error::parse(format!("UID {} : {e}", brut.uid)))?;
 
     let destinataires = serde_json::to_string(&analyse.to).unwrap_or_else(|_| "[]".into());
+    let copies = serde_json::to_string(&analyse.cc).unwrap_or_else(|_| "[]".into());
+    let reponse = serde_json::to_string(&analyse.reply_to).unwrap_or_else(|_| "[]".into());
     let expediteur = analyse.from.first();
 
     // Les drapeaux du serveur et ceux déduits du contenu se combinent : le serveur
@@ -313,7 +357,7 @@ fn to_new_message(
         analyse.subject.clone()
     };
 
-    Ok(NewMessage {
+    let message = NewMessage {
         account,
         folder: folder.id,
         uid: brut.uid,
@@ -335,7 +379,8 @@ fn to_new_message(
         size: brut.size,
         flags,
         preview: analyse.preview,
-    })
+    };
+    Ok((message, copies, reponse))
 }
 
 /// Applique aux drapeaux locaux ceux annoncés par le serveur.
@@ -343,11 +388,11 @@ fn to_new_message(
 /// Les drapeaux déduits du contenu — pièce jointe, traqueur, désabonnement — sont
 /// **conservés** : le serveur ne les connaît pas, et les écraser les ferait
 /// disparaître à chaque synchronisation.
+///
+/// The rule `Store::apply_flag_changes` applies: the server's word on what IMAP
+/// knows, ours on the rest (spam included).
 pub fn merge_flags(local: Flags, remote: Flags) -> Flags {
-    const DERIVES: Flags =
-        Flags(Flags::HAS_ATTACHMENT.0 | Flags::HAS_TRACKER.0 | Flags::UNSUBSCRIBABLE.0);
-    let conserves = Flags(local.0 & DERIVES.0);
-    remote.with(conserves)
+    Flags((remote.0 & Flags::PROTOCOL.0) | (local.0 & !Flags::PROTOCOL.0))
 }
 
 #[cfg(test)]
@@ -638,6 +683,55 @@ mod tests {
         let r = passe(&store, &server, account).await;
         assert_eq!(r.deleted, 1);
         assert_eq!(store.message_count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_server_without_condstore_still_tells_what_was_read_elsewhere() {
+        // Nothing asked: a message read on the phone stayed unread here for ever.
+        let store = Store::in_memory().unwrap();
+        let account = store
+            .create_account(
+                &NewAccount::new("a@x.fr", "i", "s"),
+                Timestamp::from_millis(0),
+            )
+            .unwrap();
+        store
+            .upsert_folder(account, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        let server = FakeServer::legacy();
+        let un = server.deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+
+        let passe = || async {
+            let folder = store.folders(account).unwrap().into_iter().next().unwrap();
+            let mut c = server
+                .connect(
+                    &Endpoint::tls("x", 993),
+                    &Credentials::Password {
+                        user: "a@x.fr".into(),
+                        password: "p".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            sync_folder(
+                c.as_mut(),
+                &store,
+                account,
+                &folder,
+                FolderSyncOptions::default(),
+            )
+            .await
+            .unwrap()
+        };
+        passe().await;
+        server.set_flags_remotely("INBOX", un, Flags::SEEN);
+
+        let r = passe().await;
+        assert_eq!(r.flags_updated, 1);
+        let folder = store.folders(account).unwrap().into_iter().next().unwrap();
+        let id = store.message_by_uid(folder.id, un).unwrap().unwrap();
+        let lu = store.message_by_id(id).unwrap().unwrap();
+        assert!(lu.flags.contains(Flags::SEEN));
     }
 
     #[tokio::test]
