@@ -3887,6 +3887,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-vault"
+version = "4.13.0"
+dependencies = [
+ "chrono",
+ "iris-notes",
+ "iris-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "iris-viewmodel"
 version = "4.13.0"
 dependencies = [
