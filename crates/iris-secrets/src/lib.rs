@@ -118,10 +118,6 @@ impl KeyringStore {
         }
     }
 
-    fn entry(&self, account: &str, kind: SecretKind) -> Result<keyring::Entry> {
-        self.entry_at(&entry_key(account, kind))
-    }
-
     fn entry_at(&self, key: &str) -> Result<keyring::Entry> {
         keyring::Entry::new(&self.service, key).map_err(|e| Error::Config(format!("keyring: {e}")))
     }
