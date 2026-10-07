@@ -157,6 +157,16 @@ impl Store {
         })
     }
 
+    /// A thread as it is read: one copy of each message.
+    ///
+    /// `thread_messages` gives every copy, which is what moving or marking needs (each
+    /// folder is told). Reading needs each message once: on Gmail every message is in
+    /// the inbox and in All Mail. The copy kept is one whose body is here, else the
+    /// first stored.
+    pub fn conversation(&self, thread: ThreadId) -> Result<Vec<StoredMessage>> {
+        Ok(one_copy_each(self.thread_messages(thread)?))
+    }
+
     /// Supprime les messages d'un dossier dont l'UID n'est plus présent côté serveur.
     pub fn delete_messages_by_uid(&self, folder: FolderId, uids: &[u32]) -> Result<usize> {
         if uids.is_empty() {
@@ -679,6 +689,18 @@ fn insert_message_tx_deferred(tx: &Transaction<'_>, m: &NewMessage) -> Result<In
 
 /// Trouve le fil auquel rattacher un message, ou en cree un.
 fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, bool)> {
+    // 0. Another copy of this very message. Gmail shows each message in two folders
+    //    at least (the inbox and All Mail), and a copy in each mailbox it was sent to
+    //    is the same message too: one conversation, not two rows saying the same.
+    if let Some(mine) = &m.rfc_message_id {
+        let mut stmt = tx
+            .prepare_cached("SELECT thread_id FROM messages WHERE rfc_message_id = ?1 LIMIT 1")
+            .map_err(|e| sql_err("preparation", e))?;
+        if let Ok(t) = stmt.query_row(params![mine], |r| r.get::<_, i64>(0)) {
+            return Ok((ThreadId(t), false));
+        }
+    }
+
     // 1. Un message que nous citons est-il deja connu ?
     if m.in_reply_to.is_some() || !m.references.is_empty() {
         let mut stmt = tx
@@ -744,6 +766,111 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
     Ok((ThreadId(tx.last_insert_rowid()), true))
 }
 
+/// One copy of each message, in the order given: one whose body is here, else the first.
+fn one_copy_each(messages: Vec<StoredMessage>) -> Vec<StoredMessage> {
+    let mut sortie: Vec<StoredMessage> = Vec::with_capacity(messages.len());
+    let mut rang: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for m in messages {
+        let Some(cle) = m.rfc_message_id.clone() else {
+            sortie.push(m);
+            continue;
+        };
+        match rang.get(&cle) {
+            Some(&i) => {
+                if sortie[i].body_blob.is_none() && m.body_blob.is_some() {
+                    sortie[i] = m;
+                }
+            }
+            None => {
+                rang.insert(cle, sortie.len());
+                sortie.push(m);
+            }
+        }
+    }
+    sortie
+}
+
+/// Joins the threads that hold copies of one message, oldest thread first. Returns how
+/// many threads were absorbed.
+///
+/// Until 4.5.1 a copy of a message already stored opened a thread of its own, so a
+/// Gmail mailbox listed nearly everything twice (its inbox and All Mail). Run when the
+/// base opens: with nothing to join it costs one grouped read of an index.
+pub(crate) fn join_copies_of_one_message(conn: &rusqlite::Connection) -> Result<usize> {
+    let partages: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT rfc_message_id FROM messages
+                 WHERE rfc_message_id IS NOT NULL
+                 GROUP BY rfc_message_id
+                 HAVING count(DISTINCT thread_id) > 1",
+            )
+            .map_err(|e| sql_err("preparation", e))?;
+        let lignes = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| sql_err("copies d'un message", e))?;
+        lignes
+            .collect::<rusqlite::Result<_>>()
+            .map_err(|e| sql_err("copies d'un message", e))?
+    };
+    if partages.is_empty() {
+        return Ok(0);
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| sql_err("transaction", e))?;
+    let mut absorbes = 0;
+    let mut touches = std::collections::BTreeSet::new();
+    for id in &partages {
+        // Read again for each message: an earlier one may already have joined these.
+        let fils: Vec<i64> = {
+            let mut stmt = tx
+                .prepare_cached(
+                    "SELECT DISTINCT thread_id FROM messages WHERE rfc_message_id = ?1
+                     ORDER BY thread_id",
+                )
+                .map_err(|e| sql_err("preparation", e))?;
+            let lignes = stmt
+                .query_map([id], |r| r.get(0))
+                .map_err(|e| sql_err("copies d'un message", e))?;
+            lignes
+                .collect::<rusqlite::Result<_>>()
+                .map_err(|e| sql_err("copies d'un message", e))?
+        };
+        let Some((&cible, autres)) = fils.split_first() else {
+            continue;
+        };
+        for &autre in autres {
+            tx.execute(
+                "UPDATE messages SET thread_id = ?1 WHERE thread_id = ?2",
+                params![cible, autre],
+            )
+            .map_err(|e| sql_err("rattachement des copies", e))?;
+            tx.execute(
+                "INSERT OR IGNORE INTO thread_accounts (thread_id, account_id)
+                 SELECT ?1, account_id FROM thread_accounts WHERE thread_id = ?2",
+                params![cible, autre],
+            )
+            .map_err(|e| sql_err("rattachement des copies", e))?;
+            tx.execute(
+                "UPDATE tasks SET thread_id = ?1 WHERE thread_id = ?2",
+                params![cible, autre],
+            )
+            .map_err(|e| sql_err("rattachement des copies", e))?;
+            tx.execute("DELETE FROM threads WHERE id = ?1", params![autre])
+                .map_err(|e| sql_err("rattachement des copies", e))?;
+            absorbes += 1;
+        }
+        touches.insert(cible);
+    }
+    for fil in touches {
+        refresh_thread(&tx, ThreadId(fil))?;
+    }
+    tx.commit().map_err(|e| sql_err("transaction", e))?;
+    Ok(absorbes)
+}
+
 /// Recalcule les colonnes agregees d'un fil.
 ///
 /// Ces colonnes sont denormalisees pour que la liste principale n'ait besoin d'aucune
@@ -766,7 +893,8 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
     {
         let mut stmt = tx
             .prepare_cached(
-                "SELECT flags, received, from_name, from_addr, subject, preview, account_id
+                "SELECT flags, received, from_name, from_addr, subject, preview, account_id,
+                        rfc_message_id
                  FROM messages WHERE thread_id = ?1 ORDER BY received DESC, id DESC",
             )
             .map_err(|e| sql_err("preparation", e))?;
@@ -774,12 +902,25 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
             .query(params![thread.get()])
             .map_err(|e| sql_err("agregats du fil", e))?;
 
+        // Messages are counted once, however many folders hold a copy (Gmail's inbox
+        // and All Mail): a single message read as "2 messages, 2 unread" otherwise.
+        let mut vus = std::collections::HashSet::new();
+        let mut non_lus = std::collections::HashSet::new();
+        let mut sans_identifiant = 0i64;
         while let Some(r) = rows.next().map_err(|e| sql_err("agregats du fil", e))? {
             let flags: i64 = r.get(0).map_err(|e| sql_err("agregats du fil", e))?;
             let received: i64 = r.get(1).map_err(|e| sql_err("agregats du fil", e))?;
-            count += 1;
+            let identifiant: Option<String> =
+                r.get(7).map_err(|e| sql_err("agregats du fil", e))?;
+            let cle = identifiant.unwrap_or_else(|| {
+                sans_identifiant += 1;
+                format!("\u{0}{sans_identifiant}")
+            });
+            if vus.insert(cle.clone()) {
+                count += 1;
+            }
             union |= flags;
-            if flags & (Flags::SEEN.0 as i64) == 0 {
+            if flags & (Flags::SEEN.0 as i64) == 0 && non_lus.insert(cle) {
                 unread += 1;
             }
             if received > last_activity {
@@ -888,6 +1029,74 @@ mod tests {
                 preview: format!("aperçu {id}"),
             }
         }
+    }
+
+    #[test]
+    fn a_copy_in_another_folder_joins_the_same_thread() {
+        // Gmail: the inbox and All Mail hold the same message.
+        let f = fixture();
+        let tout = f
+            .store
+            .upsert_folder(f.account, "[Gmail]/All Mail", FolderRole::Archive)
+            .unwrap();
+        let premier = f.store.insert_message(&f.msg("un@x", 1000)).unwrap();
+        let mut copie = f.msg("un@x", 1000);
+        copie.folder = tout;
+        let second = f.store.insert_message(&copie).unwrap();
+
+        assert_eq!(second.thread, premier.thread);
+        assert!(!second.thread_created);
+
+        // Read once, counted once; both copies kept for what moves them.
+        let fil = premier.thread;
+        assert_eq!(f.store.thread_messages(fil).unwrap().len(), 2);
+        assert_eq!(f.store.conversation(fil).unwrap().len(), 1);
+        let ligne = f.store.thread_row(fil).unwrap().unwrap();
+        assert_eq!(ligne.message_count, 1);
+        assert_eq!(ligne.unread_count, 1);
+    }
+
+    #[test]
+    fn copies_stored_apart_are_joined() {
+        let f = fixture();
+        let tout = f
+            .store
+            .upsert_folder(f.account, "[Gmail]/All Mail", FolderRole::Archive)
+            .unwrap();
+        let premier = f.store.insert_message(&f.msg("un@x", 1000)).unwrap();
+        let mut copie = f.msg("autre@x", 2000);
+        copie.folder = tout;
+        let second = f.store.insert_message(&copie).unwrap();
+        // As an older version stored it: the copy in a thread of its own.
+        f.store
+            .with_conn(|c| {
+                c.execute(
+                    "UPDATE messages SET rfc_message_id = 'un@x' WHERE id = ?1",
+                    [second.message.get()],
+                )
+                .map_err(|e| sql_err("test", e))
+            })
+            .unwrap();
+        assert_ne!(premier.thread, second.thread);
+
+        assert_eq!(f.store.join_copies_of_one_message().unwrap(), 1);
+        let messages = f.store.thread_messages(premier.thread).unwrap();
+        assert_eq!(messages.len(), 2);
+        assert!(f.store.thread_row(second.thread).unwrap().is_none());
+        assert_eq!(
+            f.store
+                .thread_row(premier.thread)
+                .unwrap()
+                .unwrap()
+                .message_count,
+            1,
+            "two copies of one message"
+        );
+        assert_eq!(
+            f.store.join_copies_of_one_message().unwrap(),
+            0,
+            "once only"
+        );
     }
 
     #[test]

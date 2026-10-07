@@ -1645,7 +1645,7 @@ pub fn wire_remote_images(
                         }
                         let messages = services
                             .store
-                            .thread_messages(iris_types::ThreadId(fil as i64))
+                            .conversation(iris_types::ThreadId(fil as i64))
                             .unwrap_or_default();
                         conversation_rendue().clear();
                         remplir_conversation(
@@ -1688,7 +1688,7 @@ pub fn wire_remote_images(
             }
             let messages = services_pli
                 .store
-                .thread_messages(iris_types::ThreadId(fil as i64))
+                .conversation(iris_types::ThreadId(fil as i64))
                 .unwrap_or_default();
             remplir_conversation(
                 &fenetre,
@@ -1713,7 +1713,7 @@ pub fn wire_remote_images(
 
         let messages = services
             .store
-            .thread_messages(iris_types::ThreadId(fil as i64))
+            .conversation(iris_types::ThreadId(fil as i64))
             .unwrap_or_default();
         let Some(message) = messages.last() else {
             return;
@@ -3662,7 +3662,7 @@ pub fn wire_source(
             return;
         };
 
-        let messages = services.store.thread_messages(thread).unwrap_or_default();
+        let messages = services.store.conversation(thread).unwrap_or_default();
         let Some(message) = messages.last() else {
             return;
         };
@@ -3892,7 +3892,7 @@ fn octets_de_piece(
     thread: ThreadIdent,
     rang: usize,
 ) -> iris_types::Result<(String, String, Vec<u8>)> {
-    let messages = services.store.thread_messages(thread)?;
+    let messages = services.store.conversation(thread)?;
     let message = messages
         .last()
         .ok_or_else(|| iris_types::Error::other("conversation vide"))?;

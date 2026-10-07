@@ -209,7 +209,12 @@ property**, not by discipline:
    operation journal, replay to the server. No hourglass for a user's gesture.
 4. **Events are batched.** Coalescing in 16 ms windows, and a batch touching more than
    256 threads degrades into a full refresh — the cost on the interface side stays
-   bounded however intense the synchronisation.
+   bounded however intense the synchronisation. Since 4.5.1 the view model also takes
+   every request waiting when it wakes, folds neighbouring diffs into one
+   (`ViewDiff::merge`, `fold_diffs` in `controller.rs`; never past a request of the
+   user's) and answers the lot with one snapshot. Handled one by one, a Gmail
+   mailbox's first sync (twenty thousand messages, a diff every window, each a reload
+   and the counts) kept it busy for minutes, with a click queued behind the diffs.
 5. **No server holds back another.** Since 3.9.1 the accounts due (`tick`) and *Sync
    all* run side by side, `concurrency` at a time (4), with the IMAP pool still capping
    connections per host. Reaching a server and signing in must take less than
@@ -689,6 +694,17 @@ full text in `iris-index`.
 The schema version is `PRAGMA user_version`. Each migration runs in its own
 transaction, a published migration is never edited, and a database written by a newer
 Iris is refused rather than misread.
+
+**Copies of one message** (4.5.1). A message whose `Message-ID` is already stored joins
+that thread (`resolve_thread`, step 0): Gmail shows every message in the inbox and in
+All Mail, and a message sent to two of one's mailboxes is one message too. Before, each
+copy opened a thread, and a Gmail mailbox listed nearly everything twice. A thread
+counts each message once (`refresh_thread`), and the reader shows one copy of each
+(`Store::conversation`, the copy whose body is here); moving and marking still go
+through every copy (`thread_messages`), since each folder must be told. Threads split
+that way by an older version are joined when the base opens
+(`join_copies_of_one_message`, a repair and not a migration: finding nothing costs one
+grouped read of an index).
 
 | # | Migration |
 |---|---|

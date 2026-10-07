@@ -212,25 +212,55 @@ fn run(
     }
     let mut actions = Actions::new(workflow);
 
-    while let Ok(request) = requests.recv() {
-        if request == Request::Shutdown {
-            break;
-        }
-
-        match handle(&mut vm, &mut actions, request) {
-            Ok(true) => on_snapshot(snapshot(&vm, &store)),
-            Ok(false) => {}
-            // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
-            // resterait figée sans explication. It is also carried out to the status
-            // bar, so the explanation reaches the person rather than the log file.
-            Err(e) => {
-                tracing::error!(error = %e, "vue-modèle");
-                let mut instantane = snapshot(&vm, &store);
-                instantane.error = Some(e.to_string());
-                on_snapshot(instantane);
+    // Everything waiting is taken at once, its diffs folded together, and one snapshot
+    // answers the lot. One at a time, a Gmail mailbox's first sync (twenty thousand
+    // messages, a diff every 16 ms, each costing a reload and the counts) kept this
+    // thread busy for minutes, with a click on the mailbox queued behind hundreds of
+    // diffs and the window waiting on every snapshot in turn.
+    while let Ok(premiere) = requests.recv() {
+        let mut a_montrer = false;
+        let mut erreur = None;
+        for request in fold_diffs(std::iter::once(premiere).chain(requests.try_iter())) {
+            if request == Request::Shutdown {
+                return;
+            }
+            match handle(&mut vm, &mut actions, request) {
+                Ok(montrer) => a_montrer |= montrer,
+                // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
+                // resterait figée sans explication. It is also carried out to the
+                // status bar, so the explanation reaches the person rather than the
+                // log file.
+                Err(e) => {
+                    tracing::error!(error = %e, "vue-modèle");
+                    erreur = Some(e.to_string());
+                }
             }
         }
+        if a_montrer || erreur.is_some() {
+            let mut instantane = snapshot(&vm, &store);
+            instantane.error = erreur;
+            on_snapshot(instantane);
+        }
     }
+}
+
+/// The requests in their order, with each run of consecutive diffs folded into one.
+/// Only neighbours are folded: a diff never moves past a request the user made.
+fn fold_diffs(requests: impl Iterator<Item = Request>) -> Vec<Request> {
+    let mut sortie: Vec<Request> = Vec::new();
+    for request in requests {
+        match request {
+            Request::Diff(suivant) => {
+                if let Some(Request::Diff(precedent)) = sortie.last_mut() {
+                    precedent.merge(*suivant);
+                    continue;
+                }
+                sortie.push(Request::Diff(suivant));
+            }
+            autre => sortie.push(autre),
+        }
+    }
+    sortie
 }
 
 /// Traite une requête. Retourne `true` si un nouvel instantané doit être émis.
@@ -400,7 +430,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
     let messages = vm
         .selection()
         .thread()
-        .and_then(|t| store.thread_messages(t).ok())
+        .and_then(|t| store.conversation(t).ok())
         .unwrap_or_default();
 
     let recherche = vm.search_state().map(|s| SearchSummary {
@@ -734,6 +764,36 @@ mod tests {
 
         c.shutdown();
         fil.join().unwrap();
+    }
+
+    #[test]
+    fn diffs_waiting_side_by_side_are_handled_as_one() {
+        let diff = |t: i64| {
+            Request::Diff(Box::new(ViewDiff {
+                threads: [ThreadId(t)].into(),
+                merged: 1,
+                ..Default::default()
+            }))
+        };
+        let plies = fold_diffs(
+            [
+                diff(1),
+                diff(2),
+                Request::SwitchTab(WorkflowState::Done),
+                diff(3),
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            plies.len(),
+            3,
+            "a diff never jumps over what the user asked"
+        );
+        let Request::Diff(premier) = &plies[0] else {
+            panic!("the diffs come first");
+        };
+        assert_eq!(premier.threads, [ThreadId(1), ThreadId(2)].into());
+        assert_eq!(plies[1], Request::SwitchTab(WorkflowState::Done));
     }
 
     #[test]

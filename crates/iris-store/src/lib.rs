@@ -61,9 +61,21 @@ impl Store {
             .map_err(|e| Error::store(format!("ouverture : {e}")))?;
         Self::configure(&conn)?;
         migrations::migrate(&conn)?;
+        // A repair and not a migration: copies stored apart by an older version can
+        // also arrive later from a copy of the base, and finding none costs nothing.
+        match messages::join_copies_of_one_message(&conn) {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(threads = n, "copies of one message joined"),
+            Err(e) => tracing::warn!(error = %e, "joining copies of one message"),
+        }
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// Joins the threads that hold copies of one message. Done when the base opens.
+    pub fn join_copies_of_one_message(&self) -> Result<usize> {
+        self.with_conn(messages::join_copies_of_one_message)
     }
 
     /// Base en mémoire, pour les tests.

@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.5.1 — 2026-10-07
+
+### Fixed
+- Iris stays responsive while a large mailbox syncs for the first time.
+- Gmail conversations show once, not twice (inbox and All Mail).
+
 ## 4.5.0 — 2026-10-07
 
 ### Improved

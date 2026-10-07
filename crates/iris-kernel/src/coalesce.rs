@@ -99,6 +99,24 @@ impl ViewDiff {
         }
     }
 
+    /// Folds a later batch into this one, as if their events had come in one window.
+    ///
+    /// For a reader that fell behind: a large sync sends a batch every window, and
+    /// handling each one in turn queued hundreds of them behind the user's next click.
+    pub fn merge(&mut self, later: ViewDiff) {
+        self.merged = self.merged.saturating_add(later.merged);
+        self.accounts.extend(later.accounts);
+        if self.full_refresh || later.full_refresh {
+            self.degrade();
+            return;
+        }
+        self.threads.extend(later.threads);
+        self.lists.extend(later.lists);
+        if self.threads.len() > MAX_THREADS {
+            self.degrade();
+        }
+    }
+
     /// Remplace une énumération devenue trop longue par une invalidation globale.
     fn degrade(&mut self) {
         self.full_refresh = true;
@@ -156,6 +174,45 @@ mod tests {
     use crate::event::SyncPhase;
     use iris_types::{FolderId, MessageId, Timestamp, TransitionCause};
     use std::sync::Arc;
+
+    #[test]
+    fn merged_batches_add_up_and_degrade_past_the_limit() {
+        let mut a = ViewDiff::default();
+        a.absorb(&state_change(1, WorkflowState::Todo, WorkflowState::Done));
+        let mut b = ViewDiff::default();
+        b.absorb(&state_change(
+            2,
+            WorkflowState::Todo,
+            WorkflowState::Waiting,
+        ));
+        a.merge(b);
+        assert_eq!(a.threads.len(), 2);
+        assert!(a.lists.contains(&WorkflowState::Waiting));
+        assert_eq!(a.merged, 2);
+
+        for i in 0..=MAX_THREADS as i64 {
+            let mut c = ViewDiff::default();
+            c.absorb(&state_change(
+                100 + i,
+                WorkflowState::Todo,
+                WorkflowState::Done,
+            ));
+            a.merge(c);
+        }
+        assert!(a.full_refresh);
+        assert!(a.threads.is_empty());
+
+        let mut d = ViewDiff::default();
+        d.absorb(&state_change(1, WorkflowState::Todo, WorkflowState::Done));
+        d.merge(ViewDiff {
+            full_refresh: true,
+            ..Default::default()
+        });
+        assert!(
+            d.full_refresh,
+            "a full refresh wins whichever side it is on"
+        );
+    }
 
     fn state_change(t: i64, from: WorkflowState, to: WorkflowState) -> Event {
         Event::ThreadStateChanged {

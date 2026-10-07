@@ -111,7 +111,7 @@ impl SyncEngine {
         &self,
         thread: iris_types::ThreadId,
     ) -> Vec<(MessageId, Result<FetchedBody>)> {
-        let messages = match self.store().thread_messages(thread) {
+        let messages = match self.store().conversation(thread) {
             Ok(m) => m,
             Err(e) => {
                 tracing::warn!(thread = %thread, error = %e, "lecture du fil");

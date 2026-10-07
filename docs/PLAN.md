@@ -569,3 +569,7 @@ variant, brought into the application.
       and Microsoft, `XOAUTH2`. Before, everything went through the first enabled
       mailbox. Sent messages are filed in their mailbox's Sent folder (they never
       were); Gmail's is left to Gmail, which files one itself.
+- [x] **S41.15** A first Gmail sync that does not freeze the window (4.5.1): the
+      view model folds the diffs waiting into one and answers with one snapshot; the
+      copies of one message (inbox and All Mail) share a thread, are counted and read
+      once, and threads split that way before are joined when the base opens.
