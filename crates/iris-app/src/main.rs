@@ -749,6 +749,7 @@ fn run_gui(
     );
     shell::wire_updates(&fenetre, Arc::clone(&controller), runtime.handle().clone());
     iris_app::calendar::wire_calendar(&fenetre, &services, runtime.handle().clone());
+    iris_app::backup::wire_backup(&fenetre, &services, runtime.handle().clone());
     iris_app::tasks::wire_tasks(&fenetre, &services, Arc::clone(&controller));
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
@@ -781,6 +782,14 @@ fn run_gui(
                 &services,
                 Arc::clone(&envoi),
                 Arc::clone(&controller),
+            );
+            // So may leaving a mailing list.
+            shell::wire_unsubscribe(
+                &fenetre,
+                &services,
+                Arc::clone(&envoi),
+                Arc::clone(&controller),
+                runtime.handle().clone(),
             );
             let contexte: Arc<dyn iris_sync::SendContext> =
                 Arc::new(SendTracker::new(fenetre.as_weak()));

@@ -30,6 +30,8 @@ the first afternoon, and never forgive".
 | Undo | Archive and delete undone on the server too, as Gmail's undo does (4.6.0) |
 | Aliases | A reply leaves from the alias the message was sent to, as Gmail and Thunderbird do (4.7.0) |
 | New mail | Pushed by the server (IMAP IDLE) for the mailbox on screen, as Thunderbird and Apple Mail do (4.11.0) |
+| Mailing lists | Unsubscribe in one click beside the sender, as Gmail and Apple Mail offer (4.12.0) |
+| Own data | Calendars, tasks and goals backed up daily and restorable; exported as `.ics` (4.12.0) |
 
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris does not.

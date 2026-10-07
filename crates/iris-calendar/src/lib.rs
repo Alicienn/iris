@@ -8,7 +8,9 @@
 //!   des lundis précis, exceptions et occurrences modifiées comprises ;
 //! - [`layout`] dispose ces occurrences pour l'écran : une grille de mois, des
 //!   colonnes de semaine où deux réunions simultanées se partagent la largeur ;
-//! - [`link`] reconnaît un lien d'abonnement (`webcal://`, `https://…/basic.ics`).
+//! - [`link`] reconnaît un lien d'abonnement (`webcal://`, `https://…/basic.ics`) ;
+//! - [`write`] writes events and tasks back as iCalendar, for other applications and
+//!   for calendar servers.
 //!
 //! Le temps est en millisecondes UTC partout, comme dans le reste d'Iris. Le fuseau
 //! n'intervient qu'aux deux bords : à la lecture, pour convertir ce que le fichier
@@ -21,6 +23,7 @@ pub mod layout;
 pub mod link;
 pub mod recur;
 pub mod time;
+pub mod write;
 
 /// Un événement, tel que le fichier le décrit.
 ///

@@ -635,3 +635,17 @@ variant, brought into the application.
       state, one token renewal at a time, replies kept in their thread from the new
       message window, drafts replaced on the server. Left: an alias two mailboxes
       share, folder names that are not valid modified UTF-7, reopening a server draft.
+
+## E42 — One's own data, and the day planned (4.12.0)
+
+What exists only on this computer kept safe and taken elsewhere, the mailing lists
+left in one click, the day's tasks laid into the calendar, and calendars kept with
+their server.
+
+- [x] **S42.1** One-click unsubscribe (4.12.0): beside the sender, asked on the spot;
+      RFC 8058 POST, the list's `mailto:`, or its page; remembered by sender.
+- [x] **S42.2** Daily backups of calendars, tasks and goals, fourteen kept, restored
+      from Settings after keeping what is there; export as `.ics` (4.12.0).
+- [ ] **S42.3** Plan my day: today's tasks without an hour laid into the free time.
+- [ ] **S42.4** Calendars kept with their server (CalDAV): iCloud, Fastmail,
+      Nextcloud, Google; changes both ways.

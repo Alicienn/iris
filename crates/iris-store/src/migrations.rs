@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 21;
+pub const CURRENT_VERSION: i64 = 22;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -123,7 +123,21 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "the folder validity an operation's UIDs belong to",
         sql: SCHEMA_V21,
     },
+    Migration {
+        version: 22,
+        name: "mailing lists one has left",
+        sql: SCHEMA_V22,
+    },
 ];
+
+/// The senders one has unsubscribed from, by address, and when: the reader then says
+/// so in place of offering it again.
+const SCHEMA_V22: &str = "
+CREATE TABLE unsubscribed (
+    address TEXT PRIMARY KEY,
+    at      INTEGER NOT NULL
+);
+";
 
 /// `op_journal.uid_validity`: the `UIDVALIDITY` of the folder an operation's UIDs were
 /// read in, written when it is enqueued (0: no UIDs, or written before this). Compared

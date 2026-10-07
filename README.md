@@ -167,6 +167,11 @@ its way waits for it to leave; if it cannot, Iris stays open with your message.
 
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
 
+A message from a mailing list offers **Unsubscribe** beside its sender. Iris asks once
+on the spot, then tells the list directly when it allows it, or sends the message it
+asks for from the mailbox it wrote to; the message then says *Unsubscribed*. A list
+that only has a web page for it has that page opened in your browser.
+
 An empty *To do* is **Inbox zero**: Iris says so, and counts the days in a row you got
 there.
 
@@ -312,6 +317,16 @@ done late comes back after today, never in the past.
 *This week*, in the column on the left, looks back and ahead: what is late, what was
 put off, what is due next week, what was done since Monday, and the goals under way.
 
+### Backups and export
+
+Your calendars, tasks and goals exist only on this computer, so Iris copies them every
+day to the `backups` folder beside its data and keeps the last fourteen days.
+*Settings › Your calendars and tasks* shows when the last copy was made, makes one now,
+opens the folder, and **restores** one: Iris says what it holds and asks first, and
+keeps what is there now as a backup of its own. **Export…** writes each of your
+calendars and your tasks as `.ics` files, which Google Calendar, Outlook and Apple's
+apps import.
+
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
 `L` later,
 `Delete` delete, `Ctrl`+`Z` to bring back what you just deleted.
@@ -385,8 +400,9 @@ Hover over any button to see its shortcut, or press `?` for all of them.
 ## Privacy
 
 Iris talks to your mail servers, to the addresses of the calendars you subscribe to,
-and to GitHub to ask for the latest version. That last request carries no information
-about your mail or your accounts.
+to a mailing list's own address when you unsubscribe from it, and to GitHub to ask for
+the latest version. That last request carries no information about your mail or your
+accounts. Backups stay on this computer.
 
 Removing an account removes from this computer its mail, its passwords and its words
 in the search index.

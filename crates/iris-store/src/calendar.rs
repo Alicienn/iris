@@ -336,6 +336,24 @@ impl Store {
         })
     }
 
+    /// Every event of one calendar, changed occurrences included, shown or not.
+    pub fn events_of_calendar(&self, calendar: i64) -> Result<Vec<StoredEvent>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare(&format!(
+                    "SELECT {COLONNES_EV} FROM calendar_events WHERE calendar_id = ?1 \
+                     ORDER BY start_ms, id"
+                ))
+                .map_err(err("lecture d'un calendrier"))?;
+            let lignes = stmt
+                .query_map([calendar], evenement)
+                .map_err(err("lecture d'un calendrier"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err("lecture d'un calendrier"));
+            lignes
+        })
+    }
+
     /// L'événement d'un calendrier qui porte cet identifiant — et cette occurrence
     /// remplacée, le cas échéant. C'est ce qui fait qu'une invitation mise à jour
     /// remplace la précédente au lieu de s'y ajouter.

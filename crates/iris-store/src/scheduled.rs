@@ -195,6 +195,48 @@ impl Store {
     }
 }
 
+impl Store {
+    /// When one unsubscribed from the sender `address`, if one did.
+    pub fn unsubscribed_at(&self, address: &str) -> Result<Option<Timestamp>> {
+        self.with_conn(|c| {
+            use rusqlite::OptionalExtension;
+            c.query_row(
+                "SELECT at FROM unsubscribed WHERE address = ?1",
+                [address.trim().to_ascii_lowercase()],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
+            .map(|at| at.map(Timestamp::from_millis))
+            .map_err(err("désabonnement"))
+        })
+    }
+
+    /// Keeps that one unsubscribed from the sender `address`.
+    pub fn set_unsubscribed(&self, address: &str, now: Timestamp) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "INSERT INTO unsubscribed (address, at) VALUES (?1, ?2) \
+                 ON CONFLICT (address) DO UPDATE SET at = excluded.at",
+                params![address.trim().to_ascii_lowercase(), now.millis()],
+            )
+            .map(|_| ())
+            .map_err(err("désabonnement"))
+        })
+    }
+
+    /// Forgets it: the request did not reach the list.
+    pub fn clear_unsubscribed(&self, address: &str) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "DELETE FROM unsubscribed WHERE address = ?1",
+                [address.trim().to_ascii_lowercase()],
+            )
+            .map(|_| ())
+            .map_err(err("désabonnement"))
+        })
+    }
+}
+
 /// An address a mailbox sends as, besides its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alias {
@@ -316,5 +358,17 @@ mod tests {
         assert!(s.postpone_scheduled_mail(id, t(8_000)).unwrap());
         assert!(s.due_scheduled_mail(t(5_000)).unwrap().is_empty());
         assert_eq!(s.due_scheduled_mail(t(8_000)).unwrap()[0].id, id);
+    }
+
+    #[test]
+    fn a_list_left_is_remembered_whatever_the_case() {
+        let s = Store::in_memory().unwrap();
+        assert_eq!(s.unsubscribed_at("news@example.com").unwrap(), None);
+        s.set_unsubscribed("News@Example.com", Timestamp::from_millis(7))
+            .unwrap();
+        assert_eq!(
+            s.unsubscribed_at(" news@example.com").unwrap(),
+            Some(Timestamp::from_millis(7))
+        );
     }
 }

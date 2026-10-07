@@ -177,6 +177,8 @@ export struct MessageData {
     // "ACCEPTED", "TENTATIVE", "DECLINED", or empty.
     invite-can-reply: bool,
     invite-reply: string,
+    // A mailing list it came from: 0 none, 1 one can leave it, 2 one has left it.
+    unsubscribe: int,
 }
 
 export struct CommandData {

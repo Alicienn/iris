@@ -506,6 +506,17 @@ export component AppWindow inherits Window {
     callback check-for-updates();
     callback update-confirmed();
 
+    /// The backups of one's calendars and tasks (Settings): when the last was made, and
+    /// a chosen one asked about before it is restored.
+    in property <string> backup-status;
+    in property <string> restore-question;
+    callback backup-now();
+    callback backup-open-folder();
+    callback restore-choose();
+    callback restore-confirmed();
+    callback restore-cancelled();
+    callback export-ics();
+
     in-out property <bool> problem-open;
     in property <string> problem-account;
     in property <string> problem-message;
@@ -800,6 +811,8 @@ export component AppWindow inherits Window {
     callback invite-open(string, string);
     /// An invitation answered: the message's id, and 0 Accept, 1 Maybe, 2 Decline.
     callback invite-answer(int, int);
+    /// Leave the mailing list the message (its id) came from.
+    callback unsubscribe(int);
     /// A tile of a message body, (message id, tile index), came near the screen or left it.
     callback body-tile-wanted(int, int);
     callback body-tile-released(int, int);
@@ -1900,6 +1913,7 @@ export component AppWindow inherits Window {
                     invite-accept(id) => { root.invite-accept(id); }
                     invite-open(k, d) => { root.invite-open(k, d); }
                     invite-answer(id, a) => { root.invite-answer(id, a); }
+                    unsubscribe(id) => { root.unsubscribe(id); }
                     body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
                     body-tile-released(m, t) => { root.body-tile-released(m, t); }
                     body-select(m, t, x, y, p) => { root.body-select(m, t, x, y, p); }
@@ -2810,6 +2824,14 @@ export component AppWindow inherits Window {
         update-version: root.update-version;
         check-for-updates => { root.check-for-updates(); }
         install-update => { root.settings-open = false; root.update-open = true; }
+        backup-status: root.backup-status;
+        restore-question: root.restore-question;
+        backup-now => { root.backup-now(); }
+        backup-open-folder => { root.backup-open-folder(); }
+        restore-choose => { root.restore-choose(); }
+        restore-confirmed => { root.restore-confirmed(); }
+        restore-cancelled => { root.restore-cancelled(); }
+        export-ics => { root.export-ics(); }
         system-changed => { root.system-changed(); }
         appearance-chosen(i) => { root.appearance-chosen(i); }
         density-chosen(i) => { root.density-chosen(i); }

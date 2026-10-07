@@ -936,6 +936,16 @@ Since 4.11.0 (its low findings):
   for the redirect that carries its own `state` (`wait_for_redirect_from`). An
   encrypted profile is said as such.
 
+Since 4.12.0, **unsubscribing**. A message whose headers carry `List-Unsubscribe`
+(`Flags::UNSUBSCRIBABLE`) offers *Unsubscribe* beside its sender once its source is
+here, asked again on the spot before anything is done. `iris-app/src/unsubscribe.rs`
+reads the way back from the stored source (`iris_mime::parse`): a one-click address
+(RFC 8058, with `List-Unsubscribe-Post`) gets the POST `List-Unsubscribe=One-Click`
+over HTTPS only, with no cookie; a `mailto:` gets its message from the mailbox the list
+wrote to, at once (forgotten if it does not leave); a page is opened in the browser and
+not counted as done. The first two are kept by sender (`unsubscribed`, migration 22),
+and the reader then says *Unsubscribed*.
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New
@@ -1002,8 +1012,24 @@ which keeps that term off any index, and a test pins the plan
 | 19 | `event_links`: an event's video call link set by hand, by calendar and UID (3.14.0) |
 | 20 | Logins (`imap_user`, `smtp_user`) and `folder_delimiter` on accounts; `cc` and `reply_to` on messages; `thread_ghosts` and its trigger (4.6.0) |
 | 21 | `op_journal.uid_validity`: the folder validity an operation's UIDs belong to (4.8.0) |
+| 22 | `unsubscribed`: the senders one has left the mailing list of, by address (4.12.0) |
 
 A new table or column always arrives as a new migration.
+
+**Backups of one's own data** (4.12.0, `iris-store/src/backup.rs`,
+`iris-app/src/backup.rs`). Mail comes back from its servers; calendars, events and
+what is set beside them, task lists, tasks and goals do not. Once a day (looked at a
+minute after launch, then every hour) `back_up_personal` attaches a new file and copies
+those eleven tables into it with `CREATE TABLE … AS SELECT`, in one transaction, with
+an `about` row (schema version, time); the file is written as `.partial` and renamed.
+They sit in `data/backups/personal-YYYY-MM-DD.db`, fourteen kept. `restore_personal`
+empties the same tables children first and fills them parents first from the backup,
+by the columns both sides have, in one transaction: a backup from an older schema
+restores into a newer one, its missing columns taking their defaults. What was there is
+first kept as `before-restore-….db`. *Export for other apps* writes each own calendar
+and the tasks as iCalendar (`iris_calendar::write`: events with their zone named by
+`TZID`, rules, exceptions, changed occurrences and first reminder; tasks as `VTODO`
+with their list as `CATEGORIES`).
 
 ---
 

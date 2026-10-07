@@ -15,6 +15,7 @@
 mod account_tags;
 mod accounts;
 mod attachments;
+mod backup;
 mod calendar;
 mod goals;
 mod journal;
@@ -30,6 +31,7 @@ mod threads;
 pub use account_tags::AccountTag;
 pub use accounts::{AccountServers, UnifiedFolder};
 pub use attachments::StoredAttachment;
+pub use backup::{backup_info, BackupInfo};
 pub use calendar::{NewEvent, StoredCalendar, StoredEvent};
 pub use goals::{Goal, GoalEntry, GoalKind, Milestone, NewGoal};
 pub use migrations::CURRENT_VERSION;

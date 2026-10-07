@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 
 pub mod accounts;
+pub mod backup;
 pub mod calendar;
 pub mod changelog;
 pub mod controller;
@@ -32,6 +33,7 @@ pub mod single;
 pub mod tags;
 pub mod tasks;
 pub mod tray;
+pub mod unsubscribe;
 pub mod update;
 pub mod visio;
 pub mod vitals;

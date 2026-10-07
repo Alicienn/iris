@@ -193,6 +193,16 @@ export component SettingsPanel inherits Rectangle {
 
     callback check-for-updates();
     callback install-update();
+    /// When the last backup was made, and how many are kept.
+    in property <string> backup-status;
+    /// A backup chosen, asked about before it replaces anything; empty otherwise.
+    in property <string> restore-question;
+    callback backup-now();
+    callback backup-open-folder();
+    callback restore-choose();
+    callback restore-confirmed();
+    callback restore-cancelled();
+    callback export-ics();
     callback appearance-chosen(int);
     callback accent-chosen(int);
     callback first-name-changed(string);
@@ -529,6 +539,70 @@ export component SettingsPanel inherits Rectangle {
                             font-size: 12.5px;
                             text <=> root.microsoft-client-id;
                             edited(t) => { root.oauth-changed(); }
+                        }
+                    }
+                }
+
+                // What exists only on this computer: a copy every day, one to go back
+                // to, and files other applications read.
+                GroupTitle { text: "Your calendars and tasks"; }
+                Group {
+                    SettingRow {
+                        first: true;
+                        icon: Icons.archive;
+                        tint: Tokens.teal;
+                        label: "Back up every day";
+                        hint: root.backup-status;
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Open folder";
+                            size: ButtonSize.sm;
+                            clicked => { root.backup-open-folder(); }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Back up now";
+                            size: ButtonSize.sm;
+                            clicked => { root.backup-now(); }
+                        }
+                    }
+                    SettingRow {
+                        icon: Icons.refresh;
+                        tint: Tokens.orange;
+                        label: "Restore a backup";
+                        hint: root.restore-question != ""
+                            ? root.restore-question
+                            : "Puts your calendars, tasks and goals back as they were on a day of the last two weeks.";
+                        if root.restore-question != "": Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Cancel";
+                            size: ButtonSize.sm;
+                            clicked => { root.restore-cancelled(); }
+                        }
+                        if root.restore-question != "": Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Restore";
+                            kind: ButtonKind.primary;
+                            size: ButtonSize.sm;
+                            clicked => { root.restore-confirmed(); }
+                        }
+                        if root.restore-question == "": Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Choose…";
+                            size: ButtonSize.sm;
+                            clicked => { root.restore-choose(); }
+                        }
+                    }
+                    SettingRow {
+                        icon: Icons.download;
+                        tint: Tokens.blue;
+                        label: "Export for other apps";
+                        hint: "Your calendars and tasks as .ics files, which Google Calendar, Outlook and Apple's apps import.";
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Export…";
+                            size: ButtonSize.sm;
+                            clicked => { root.export-ics(); }
                         }
                     }
                 }

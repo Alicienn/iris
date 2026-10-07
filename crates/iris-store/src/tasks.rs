@@ -178,6 +178,23 @@ impl Store {
     }
 
     /// Les tâches faites le plus récemment, d'une liste ou de toutes, sans les étapes.
+    /// Every task, done or not, steps included: parents before their steps.
+    pub fn all_tasks(&self) -> Result<Vec<StoredTask>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare(&format!(
+                    "SELECT {COLONNES} FROM tasks ORDER BY parent_id IS NOT NULL, list_id, position, id"
+                ))
+                .map_err(err("lecture des tâches"))?;
+            let lignes = stmt
+                .query_map([], tache)
+                .map_err(err("lecture des tâches"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err("lecture des tâches"));
+            lignes
+        })
+    }
+
     pub fn done_tasks(&self, list: Option<i64>, limit: u32) -> Result<Vec<StoredTask>> {
         self.with_conn(|c| {
             let mut stmt = c

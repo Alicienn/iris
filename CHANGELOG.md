@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.12.0 — 2026-10-07
+
+### New
+- Unsubscribe from a mailing list in one click, beside its sender.
+- Your calendars, tasks and goals are backed up every day; restore one from Settings.
+- Export your calendars and tasks as .ics files for other apps.
+
 ## 4.11.0 — 2026-10-07
 
 ### Improved

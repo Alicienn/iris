@@ -1263,6 +1263,15 @@ pub fn remplir_conversation(
                 vue.invite_can_reply = inv.can_reply;
                 vue.invite_reply = inv.reply.into();
             }
+            // A list to leave: offered once its source is here to say how.
+            if message.flags.contains(iris_types::Flags::UNSUBSCRIBABLE)
+                && message.body_blob.is_some()
+            {
+                vue.unsubscribe = match services.store.unsubscribed_at(&message.from_addr) {
+                    Ok(Some(_)) => 2,
+                    _ => 1,
+                };
+            }
             vue
         })
         .collect();
@@ -4317,6 +4326,107 @@ pub fn wire_invite_answers(
             full_refresh: true,
             ..Default::default()
         })));
+    });
+}
+
+/// Leaving the mailing list a message came from: asked of the list's server at once
+/// (one click), by mail from the mailbox it wrote to, or on its page in the browser,
+/// as the list says. The first two are remembered by sender, and the reader then says
+/// so; a page opened may not have been followed through, and is not.
+pub fn wire_unsubscribe(
+    fenetre: &AppWindow,
+    services: &Services,
+    send: Arc<SendService>,
+    controller: Arc<Controller>,
+    runtime: tokio::runtime::Handle,
+) {
+    let services = services.clone();
+    let faible = fenetre.as_weak();
+    fenetre.on_unsubscribe(move |id| {
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        let identifiant = iris_types::MessageId(id as i64);
+        let Some(message) = services.store.message_by_id(identifiant).ok().flatten() else {
+            return;
+        };
+        let maniere = match crate::unsubscribe::way_of(&services, identifiant) {
+            Ok(m) => m,
+            Err(e) => {
+                fenetre.set_status(format!("Could not unsubscribe: {e}").into());
+                return;
+            }
+        };
+        let expediteur = message.from_addr.clone();
+        let nom = if message.from_name.trim().is_empty() {
+            expediteur.clone()
+        } else {
+            message.from_name.trim().to_string()
+        };
+        // Kept, and the reader drawn again to say so.
+        let retenir = {
+            let services = services.clone();
+            let controller = Arc::clone(&controller);
+            let expediteur = expediteur.clone();
+            move || {
+                if let Err(e) = services.store.set_unsubscribed(&expediteur, now()) {
+                    tracing::warn!(error = %e, "remembering an unsubscription");
+                }
+                conversation_rendue().clear();
+                controller.send(Request::Diff(Box::new(ViewDiff {
+                    full_refresh: true,
+                    ..Default::default()
+                })));
+            }
+        };
+        match maniere {
+            iris_types::Unsubscribe::OneClick { url } => {
+                fenetre.set_toast(format!("Unsubscribing from {nom}…").into());
+                let faible = fenetre.as_weak();
+                runtime.spawn(async move {
+                    let issue = crate::unsubscribe::one_click(&url).await;
+                    let _ = faible.upgrade_in_event_loop(move |fenetre| match issue {
+                        Ok(()) => {
+                            fenetre.set_toast(format!("Unsubscribed from {nom}.").into());
+                            retenir();
+                        }
+                        Err(e) => fenetre.set_status(format!("Could not unsubscribe: {e}").into()),
+                    });
+                });
+            }
+            iris_types::Unsubscribe::Mailto { addr, subject } => {
+                match crate::unsubscribe::request_by_mail(
+                    &send,
+                    message.account,
+                    &addr,
+                    subject.as_deref(),
+                ) {
+                    Ok(handle) => {
+                        fenetre.set_toast(format!("Unsubscribed from {nom}.").into());
+                        retenir();
+                        // Not sent after all: offered again.
+                        let services = services.clone();
+                        if let Some(avis) = AVIS.with(|a| a.borrow().upgrade()) {
+                            avis.suivre(handle, "Your unsubscribe request".into(), move |_| {
+                                if let Err(e) = services.store.clear_unsubscribed(&expediteur) {
+                                    tracing::warn!(error = %e, "forgetting an unsubscription");
+                                }
+                                conversation_rendue().clear();
+                            });
+                        }
+                    }
+                    Err(e) => fenetre.set_status(format!("Could not unsubscribe: {e}").into()),
+                }
+            }
+            iris_types::Unsubscribe::Http { url } => match crate::platform::open_url(&url) {
+                Ok(()) => fenetre.set_toast(
+                    format!("{nom}'s page to unsubscribe is open in your browser.").into(),
+                ),
+                Err(_) => fenetre.set_status(
+                    "This list's page is not a secure link: Iris did not open it.".into(),
+                ),
+            },
+        }
     });
 }
 

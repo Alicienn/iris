@@ -181,6 +181,11 @@ pub fn couleur(hex: &str) -> slint::Color {
     }
 }
 
+/// A stored event as the calendar crate knows it (to lay it out, or write it).
+pub(crate) fn to_domain(e: &NewEvent) -> Event {
+    vers_domaine(e)
+}
+
 fn vers_domaine(e: &NewEvent) -> Event {
     Event {
         uid: e.uid.clone(),
