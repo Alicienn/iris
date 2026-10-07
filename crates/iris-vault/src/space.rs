@@ -405,10 +405,14 @@ impl Space {
                     continue;
                 }
                 if let Ok(meta) = e.metadata() {
+                    // A folder by its name only: Windows changes a folder's time on its
+                    // own, after the fact, and a fingerprint must not move for that.
                     if meta.is_dir() {
                         pile.push(p.clone());
+                        vus.push((p, 0, 0));
+                    } else {
+                        vus.push((p, meta.len(), millis(&meta)));
                     }
-                    vus.push((p, meta.len(), millis(&meta)));
                 }
             }
         }
@@ -588,6 +592,160 @@ impl Space {
             .ok_or_else(|| Error::other("outside the space"))
     }
 
+    /// After notes moved or were renamed (`moves`: old and new paths, `before`: the
+    /// space's notes as they were), every link to them in the space written again.
+    /// Gives the notes that changed.
+    pub fn relink(&self, moves: &[(String, String)], before: &[String]) -> Result<Vec<String>> {
+        let apres = self.notes();
+        let mut changees = Vec::new();
+        for rel in &apres {
+            let Ok((mut texte, _)) = self.read(rel) else {
+                continue;
+            };
+            let mut change = false;
+            for (ancien, nouveau) in moves {
+                if let Some(t) =
+                    iris_notes::links::rewrite_links(&texte, ancien, nouveau, before, &apres)
+                {
+                    texte = t;
+                    change = true;
+                }
+            }
+            if change {
+                self.write(rel, &texte, None)?;
+                changees.push(rel.clone());
+            }
+        }
+        Ok(changees)
+    }
+
+    /// The notes moved with a folder or a note: (old path, new path) of each note.
+    pub fn moves_of(before: &[String], old: &str, new: &str) -> Vec<(String, String)> {
+        before
+            .iter()
+            .filter_map(|n| {
+                if n == old {
+                    Some((n.clone(), new.to_string()))
+                } else {
+                    n.strip_prefix(&format!("{old}/"))
+                        .map(|reste| (n.clone(), format!("{new}/{reste}")))
+                }
+            })
+            .collect()
+    }
+
+    /// The notes that link to `rel`, with the line of each link.
+    pub fn backlinks(&self, rel: &str) -> Vec<(String, String)> {
+        let notes = self.notes();
+        let mut sortie = Vec::new();
+        for n in &notes {
+            if n == rel {
+                continue;
+            }
+            let Ok((texte, _)) = self.read(n) else {
+                continue;
+            };
+            for l in iris_notes::links::links(&texte) {
+                if iris_notes::links::resolve(&l.target, &notes).as_deref() == Some(rel) {
+                    sortie.push((n.clone(), l.line.clone()));
+                }
+            }
+        }
+        sortie
+    }
+
+    /// Every tag used in the space, by how often, the most used first.
+    pub fn all_tags(&self) -> Vec<String> {
+        let mut compte: BTreeMap<String, usize> = BTreeMap::new();
+        let modeles = format!("{}/", self.config.templates);
+        for n in self
+            .notes()
+            .into_iter()
+            .filter(|n| !n.starts_with(&modeles))
+        {
+            if let Ok((texte, _)) = self.read(&n) {
+                for t in iris_notes::meta::tags(&texte) {
+                    *compte.entry(t).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut tags: Vec<(String, usize)> = compte.into_iter().collect();
+        tags.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        tags.into_iter().map(|(t, _)| t).collect()
+    }
+
+    /// The notes holding every word of `query` (case and accents aside), with the first
+    /// line that holds one. `tag:x` keeps the notes tagged `x`, `path:x` those whose path
+    /// holds `x`, `is:task` those with a checkbox left to tick.
+    pub fn search(&self, query: &str, max: usize) -> Vec<(String, String)> {
+        let mut mots = Vec::new();
+        let mut etiquettes = Vec::new();
+        let mut chemins = Vec::new();
+        let mut taches = false;
+        for m in query.split_whitespace() {
+            if let Some(t) = m.strip_prefix("tag:").or_else(|| m.strip_prefix('#')) {
+                etiquettes.push(iris_notes::fuzzy::folded(t));
+            } else if let Some(p) = m.strip_prefix("path:") {
+                chemins.push(iris_notes::fuzzy::folded(p));
+            } else if m == "is:task" {
+                taches = true;
+            } else {
+                mots.push(iris_notes::fuzzy::folded(m));
+            }
+        }
+        let mut sortie = Vec::new();
+        let modeles = format!("{}/", self.config.templates);
+        for n in self.notes() {
+            if sortie.len() >= max {
+                break;
+            }
+            // Templates are not notes one looks for.
+            if n.starts_with(&modeles) {
+                continue;
+            }
+            let chemin = iris_notes::fuzzy::folded(&n);
+            if !chemins.iter().all(|p| chemin.contains(p)) {
+                continue;
+            }
+            let Ok((texte, _)) = self.read(&n) else {
+                continue;
+            };
+            if !etiquettes.is_empty() {
+                let ses: Vec<String> = iris_notes::meta::tags(&texte)
+                    .iter()
+                    .map(|t| iris_notes::fuzzy::folded(t))
+                    .collect();
+                if !etiquettes.iter().all(|e| {
+                    ses.iter()
+                        .any(|s| s == e || s.starts_with(&format!("{e}/")))
+                }) {
+                    continue;
+                }
+            }
+            if taches && !texte.lines().any(|l| l.trim_start().starts_with("- [ ]")) {
+                continue;
+            }
+            let plie = iris_notes::fuzzy::folded(&texte);
+            let titre = iris_notes::fuzzy::folded(iris_notes::links::stem(&n));
+            if !mots.iter().all(|m| plie.contains(m) || titre.contains(m)) {
+                continue;
+            }
+            let ligne = texte
+                .lines()
+                .find(|l| {
+                    let p = iris_notes::fuzzy::folded(l);
+                    mots.iter().any(|m| p.contains(m))
+                })
+                .unwrap_or_else(|| texte.lines().find(|l| !l.trim().is_empty()).unwrap_or(""))
+                .trim()
+                .chars()
+                .take(140)
+                .collect();
+            sortie.push((n, ligne));
+        }
+        sortie
+    }
+
     /// The templates, by name (without `.md`).
     pub fn templates(&self) -> Vec<(String, String)> {
         let dir = self.dir.join(&self.config.templates);
@@ -756,6 +914,64 @@ mod tests {
         assert_eq!(avant, s.fingerprint());
         s.create_note("", "Nouvelle", "x").unwrap();
         assert_ne!(avant, s.fingerprint());
+    }
+
+    #[test]
+    fn renaming_a_note_rewrites_the_links_to_it() {
+        let (_d, s) = espace();
+        s.create_folder("", "Analyse").unwrap();
+        let cible = s.create_note("Analyse", "Limites", "# Limites\n").unwrap();
+        s.create_note("", "Cours", "Voir [[Limites#Def|déf]] et [[Autre]].\n")
+            .unwrap();
+        let avant = s.notes();
+        let nouveau = s.rename(&cible, "Limites et suites").unwrap();
+        let changees = s
+            .relink(&Space::moves_of(&avant, &cible, &nouveau), &avant)
+            .unwrap();
+        assert_eq!(changees, ["Cours.md"]);
+        assert_eq!(
+            s.read("Cours.md").unwrap().0,
+            "Voir [[Limites et suites#Def|déf]] et [[Autre]].\n"
+        );
+        assert_eq!(
+            s.backlinks(&nouveau),
+            [(
+                "Cours.md".to_string(),
+                "Voir [[Limites et suites#Def|déf]] et [[Autre]].".to_string()
+            )]
+        );
+        // A folder moved: its notes move with it.
+        let avant = s.notes();
+        let dossier = s.create_folder("", "Maths").unwrap();
+        let deplace = s.move_to("Analyse", &dossier).unwrap();
+        let m = Space::moves_of(&avant, "Analyse", &deplace);
+        assert_eq!(
+            m,
+            [(
+                "Analyse/Limites et suites.md".to_string(),
+                "Maths/Analyse/Limites et suites.md".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn search_tags_and_paths() {
+        let (_d, s) = espace();
+        s.create_note(
+            "",
+            "Suites",
+            "Une suite #maths converge.\n- [ ] exercice 3\n",
+        )
+        .unwrap();
+        s.create_note("", "Recette", "Une tarte #cuisine.\n")
+            .unwrap();
+        let r = s.search("suite", 10);
+        assert_eq!(r[0].0, "Suites.md");
+        assert_eq!(r[0].1, "Une suite #maths converge.");
+        assert_eq!(s.search("tag:cuisine", 10)[0].0, "Recette.md");
+        assert_eq!(s.search("is:task", 10).len(), 1);
+        assert!(s.search("introuvable", 10).is_empty());
+        assert_eq!(s.all_tags(), ["cuisine", "maths"]);
     }
 
     #[test]

@@ -198,8 +198,8 @@ fn classer(lignes: &[&str], i: usize) -> (BlockKind, usize) {
     }
 
     // Display maths: `$$` alone, or `$$ … $$` on one line.
-    if t.starts_with("$$") {
-        let reste = t[2..].trim_end();
+    if let Some(reste) = t.strip_prefix("$$") {
+        let reste = reste.trim_end();
         if reste.len() >= 2 && reste.ends_with("$$") {
             return (BlockKind::Math, 1);
         }
@@ -225,7 +225,7 @@ fn classer(lignes: &[&str], i: usize) -> (BlockKind, usize) {
                         fin = Some(k);
                         break;
                     }
-                } else if f.starts_with(":::") && f.len() > 3 && !f[3..].starts_with("col") {
+                } else if f.starts_with(":::") && f.len() > 3 && f != ":::col" {
                     profondeur += 1;
                 }
             }

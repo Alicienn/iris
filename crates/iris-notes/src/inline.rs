@@ -363,8 +363,8 @@ fn entoure(
                 continue;
             }
         }
-        if r.starts_with('\\') {
-            k += 1 + r[1..].chars().next().map_or(0, char::len_utf8);
+        if let Some(apres_barre) = r.strip_prefix('\\') {
+            k += 1 + apres_barre.chars().next().map_or(0, char::len_utf8);
             continue;
         }
         let ch = r.chars().next()?;
@@ -1205,7 +1205,13 @@ mod tests {
         assert_eq!(marques("$a*b*c$")[0].0, "a*b*c");
         assert_eq!(marques("`**x**`")[0].0, "**x**");
         assert_eq!(marques("``a ` b``")[0].0, "a ` b");
-        assert_eq!(seul("**a `**` b**"), vec![Mark::Bold]);
+        // The `**` inside code does not close the bold around it.
+        let s = marques("**a `**` b**");
+        assert!(
+            s.iter().all(|(_, m)| m.first() == Some(&Mark::Bold)),
+            "{s:?}"
+        );
+        assert_eq!(s[1], ("**".into(), vec![Mark::Bold, Mark::Code]));
     }
 
     #[test]
@@ -1231,7 +1237,7 @@ mod tests {
         let p = Palette::default();
         let un = |s: &str| s.to_string();
         let md = to_slint_markdown(&parse_inline("1. <b>**gras**</b> #tag"), &p, &un);
-        assert!(md.starts_with("1\\. \\<b\\>**gras**\\</b\\>"), "{md}");
+        assert!(md.starts_with("1\\. \\<b\\>**gras**\\<\\/b\\>"), "{md}");
         assert!(md.contains("[\\#tag](iris-tag:tag)"), "{md}");
         let md = to_slint_markdown(&parse_inline("__s__ {r}x{/}"), &p, &un);
         assert!(md.contains("<u>s</u>"));
