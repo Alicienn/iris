@@ -55,11 +55,16 @@ impl SendService {
     }
 
     fn settled(&self) {
-        let _ = self.in_flight.fetch_update(
-            std::sync::atomic::Ordering::SeqCst,
-            std::sync::atomic::Ordering::SeqCst,
-            |n| n.checked_sub(1),
-        );
+        use std::sync::atomic::Ordering::SeqCst;
+        // Never below zero: an event for a message queued past `queue` (a test's)
+        // must not wrap the count round.
+        let mut n = self.in_flight.load(SeqCst);
+        while n > 0 {
+            match self.in_flight.compare_exchange(n, n - 1, SeqCst, SeqCst) {
+                Ok(_) => break,
+                Err(actuel) => n = actuel,
+            }
+        }
     }
 
     /// Waits, at most `limit`, for every queued message to settle.
