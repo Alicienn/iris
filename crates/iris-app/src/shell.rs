@@ -5325,6 +5325,15 @@ pub fn wire_account_menu(
                 details.id,
             ) {
                 Ok(_) => {
+                    // Its words leave the search index too, not only its mail the
+                    // base: what was removed is not kept on disk elsewhere.
+                    if let Err(e) = services
+                        .index
+                        .remove_account(details.id)
+                        .and_then(|()| services.index.commit())
+                    {
+                        tracing::warn!(error = %e, "removing the account from the index");
+                    }
                     fenetre.set_status(
                         if programmes == 0 {
                             format!("{} removed.", details.email)
@@ -6458,16 +6467,21 @@ fn attach_files(
     let mut refuses = Vec::new();
 
     for chemin in chemins {
-        // Twenty-five mebibytes is where most servers stop accepting, and a message
-        // refused after the undo window has closed cannot be recovered.
-        const MAX: u64 = 25 * 1024 * 1024;
+        // The files together, not each alone: that is what the server weighs, and a
+        // message refused after the undo window has closed cannot be recovered.
+        let deja: u64 = liste.iter().map(|p| p.content.len() as u64).sum();
         match std::fs::metadata(&chemin).map(|m| m.len()) {
-            Ok(taille) if taille > MAX => {
-                refuses.push(format!(
-                    "{} is {:.0} MB, and most servers refuse over 25",
-                    chemin.file_name().unwrap_or_default().to_string_lossy(),
-                    taille as f64 / (1024.0 * 1024.0)
-                ));
+            Ok(taille) if deja + taille > iris_smtp::MAX_ATTACHMENTS => {
+                let nom = chemin.file_name().unwrap_or_default().to_string_lossy();
+                let poids = iris_smtp::mebibytes(deja + taille);
+                let plafond = iris_smtp::mebibytes(iris_smtp::MAX_ATTACHMENTS);
+                refuses.push(if deja == 0 {
+                    format!("{nom} is {poids:.0} MB, and most servers refuse over {plafond:.0}")
+                } else {
+                    format!(
+                        "{nom} would bring the files to {poids:.0} MB, and most servers refuse over {plafond:.0}"
+                    )
+                });
                 continue;
             }
             Err(e) => {

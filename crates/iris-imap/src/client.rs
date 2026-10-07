@@ -480,12 +480,27 @@ fn flags_to_names(flags: Flags) -> String {
 /// détection de doublons à la livraison) et `sieve` (les scripts de filtrage). Aucun
 /// ne contient de courrier, et le serveur les recrée à chaque livraison : les montrer
 /// offrait une suppression qui ne tenait jamais.
+///
+/// Only Dovecot's own file names are hidden: a folder the user named `dovecot`, or
+/// `dovecot-notes`, is theirs.
 fn is_server_internal(name: &str) -> bool {
-    let premier = name
+    const FICHIERS: [&str; 6] = ["lda-dupes", "index", "list", "sieve", "svbin", "mailbox"];
+    const PREFIXES: [&str; 5] = [
+        "dovecot-uidlist",
+        "dovecot-keywords",
+        "dovecot-uidvalidity",
+        "dovecot-acl",
+        "dovecot-virtual",
+    ];
+    let mut segments = name
         .split(['.', '/'])
-        .find(|s| !s.eq_ignore_ascii_case("INBOX"))
-        .unwrap_or("");
-    premier == "dovecot" || premier.starts_with("dovecot-") || name == "sieve"
+        .skip_while(|s| s.eq_ignore_ascii_case("INBOX"));
+    let premier = segments.next().unwrap_or("");
+    let interne = match premier {
+        "dovecot" => segments.next().is_some_and(|s| FICHIERS.contains(&s)),
+        _ => PREFIXES.iter().any(|p| premier.starts_with(p)),
+    };
+    interne || name == "sieve"
 }
 
 /// Déduit le rôle d'un dossier de ses attributs spéciaux, avec repli sur son nom.
@@ -1071,6 +1086,15 @@ mod tests {
         assert!(is_server_internal("sieve"));
         assert!(!is_server_internal("INBOX.Devis"));
         assert!(!is_server_internal("Clients/sieve"));
+    }
+
+    #[test]
+    fn a_folder_the_user_named_dovecot_is_shown() {
+        assert!(!is_server_internal("dovecot"));
+        assert!(!is_server_internal("dovecot-notes"));
+        assert!(!is_server_internal("INBOX.dovecot.Factures"));
+        assert!(is_server_internal("dovecot-uidlist"));
+        assert!(is_server_internal("dovecot.index.log"));
     }
 
     #[test]

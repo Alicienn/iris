@@ -14,6 +14,16 @@ use iris_types::{Address, RfcMessageId, Timestamp};
 /// On garde donc la racine et les plus récents.
 const MAX_REFERENCES: usize = 20;
 
+/// The most a message's attachments may weigh together: 25 MiB, where most servers
+/// stop accepting. Checked before the undo window opens, since a message refused
+/// after it is a message the user believed sent.
+pub const MAX_ATTACHMENTS: u64 = 25 * 1024 * 1024;
+
+/// Bytes in mebibytes, for a message to the user.
+pub fn mebibytes(bytes: u64) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
+
 /// Un message à envoyer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outgoing {
@@ -81,6 +91,13 @@ impl Outgoing {
             if !a.looks_valid() {
                 return Err(format!("invalid recipient: \"{}\"", a.addr));
             }
+        }
+        if self.attachments_size() > MAX_ATTACHMENTS {
+            return Err(format!(
+                "the attachments come to {:.0} MB, and most servers refuse over {:.0}",
+                mebibytes(self.attachments_size()),
+                mebibytes(MAX_ATTACHMENTS)
+            ));
         }
         Ok(())
     }
@@ -214,7 +231,7 @@ fn quote(target: &ReplyTarget) -> String {
         .from
         .first()
         .map(|a| a.display().to_string())
-        .unwrap_or_else(|| "l'expéditeur".into());
+        .unwrap_or_else(|| "the sender".into());
 
     let cite: String = target
         .text_body
@@ -230,46 +247,29 @@ fn quote(target: &ReplyTarget) -> String {
         .join("\r\n");
 
     format!(
-        "\r\n\r\nLe {}, {auteur} a écrit :\r\n{cite}\r\n",
-        format_date(target.date)
+        "\r\n\r\nOn {}, {auteur} wrote:\r\n{cite}\r\n",
+        format_date(target.date, &chrono::Local)
     )
 }
 
-/// Date lisible, en heure locale approximative (UTC).
-fn format_date(t: Timestamp) -> String {
-    // Format volontairement minimal : la ligne de citation n'a pas à être un
-    // horodatage exact, et dépendre d'une bibliothèque de calendrier pour cela
-    // serait disproportionné.
-    let secondes = t.seconds();
-    let jours = secondes.div_euclid(86_400);
-    let reste = secondes.rem_euclid(86_400);
-    let (h, m) = (reste / 3600, (reste % 3600) / 60);
-
-    // 1970-01-01 + jours, calculé en jours civils.
-    let (annee, mois, jour) = civil_from_days(jours);
-    format!("{jour:02}/{mois:02}/{annee} à {h:02}:{m:02}")
-}
-
-/// Conversion jours depuis l'époque → date civile (algorithme de Howard Hinnant).
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
+/// A date as the quote line shows it, in the writer's own time: "Tue 14 Nov 2023 at
+/// 23:13". In English, as the rest of Iris is.
+fn format_date<Z: chrono::TimeZone>(t: Timestamp, zone: &Z) -> String
+where
+    Z::Offset: std::fmt::Display,
+{
+    match zone.timestamp_millis_opt(t.millis()).earliest() {
+        Some(heure) => heure.format("%a %-d %b %Y at %H:%M").to_string(),
+        None => "an unknown date".into(),
+    }
 }
 
 /// Construit un transfert.
 pub fn forward(target: &ReplyTarget, identity: &Address, to: Vec<Address>) -> Outgoing {
     let entete = format!(
-        "\r\n\r\n---------- Message transféré ----------\r\nDe : {}\r\nDate : {}\r\nSujet : {}\r\nÀ : {}\r\n\r\n{}",
+        "\r\n\r\n---------- Forwarded message ----------\r\nFrom: {}\r\nDate: {}\r\nSubject: {}\r\nTo: {}\r\n\r\n{}",
         target.from.iter().map(Address::to_string).collect::<Vec<_>>().join(", "),
-        format_date(target.date),
+        format_date(target.date, &chrono::Local),
         target.subject,
         target.to.iter().map(Address::to_string).collect::<Vec<_>>().join(", "),
         target.text_body
@@ -297,10 +297,13 @@ pub fn forward(target: &ReplyTarget, identity: &Address, to: Vec<Address>) -> Ou
 pub fn forward_subject(subject: &str) -> String {
     let s = subject.trim();
     let minuscules = s.to_lowercase();
-    if minuscules.starts_with("tr:") || minuscules.starts_with("fwd:") {
+    if ["tr:", "fwd:", "fw:"]
+        .iter()
+        .any(|p| minuscules.starts_with(p))
+    {
         s.to_string()
     } else {
-        format!("Tr: {s}")
+        format!("Fwd: {s}")
     }
 }
 
@@ -420,9 +423,19 @@ mod tests {
     #[test]
     fn le_corps_cite_le_message_d_origine() {
         let r = reply(&cible(), &moi(), ReplyScope::Sender);
-        assert!(r.text_body.contains("Marie a écrit"));
+        assert!(r.text_body.contains("Marie wrote:"));
         assert!(r.text_body.contains("> Bonjour,"));
         assert!(r.text_body.contains("> Voici le devis."));
+    }
+
+    #[test]
+    fn the_quote_line_gives_the_writer_s_own_time() {
+        // 1 700 000 000 s is 22:13 UTC: an hour east of it, it is 23:13.
+        let est = chrono::FixedOffset::east_opt(3600).unwrap();
+        assert_eq!(
+            format_date(Timestamp::from_millis(1_700_000_000_000), &est),
+            "Tue 14 Nov 2023 at 23:13"
+        );
     }
 
     #[test]
@@ -432,20 +445,35 @@ mod tests {
         let f = forward(&cible(), &moi(), vec![Address::new("tiers@example.com")]);
         assert!(f.in_reply_to.is_none());
         assert!(f.references.is_empty());
-        assert_eq!(f.subject, "Tr: Devis refonte");
-        assert!(f.text_body.contains("Message transféré"));
+        assert_eq!(f.subject, "Fwd: Devis refonte");
+        assert!(f.text_body.contains("Forwarded message"));
     }
 
     #[test]
     fn le_sujet_de_transfert_n_empile_pas_non_plus() {
         assert_eq!(forward_subject("Tr: Devis"), "Tr: Devis");
         assert_eq!(forward_subject("Fwd: Devis"), "Fwd: Devis");
+        assert_eq!(forward_subject("FW: Devis"), "FW: Devis");
     }
 
     #[test]
     fn la_validation_refuse_un_message_sans_destinataire() {
         let m = Outgoing::new(moi(), vec![], "Sujet");
         assert!(m.validate().unwrap_err().contains("no recipient"));
+    }
+
+    #[test]
+    fn attachments_heavier_together_than_servers_take_are_refused() {
+        let piece = |n: &str| Attachment {
+            filename: n.into(),
+            mime_type: "application/pdf".into(),
+            content: vec![0; 15 * 1024 * 1024],
+        };
+        let mut m = Outgoing::new(moi(), vec![Address::new("a@example.com")], "S");
+        m.attachments.push(piece("un.pdf"));
+        assert!(m.validate().is_ok());
+        m.attachments.push(piece("deux.pdf"));
+        assert!(m.validate().unwrap_err().contains("30 MB"));
     }
 
     #[test]

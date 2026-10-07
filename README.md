@@ -372,12 +372,17 @@ Hover over any button to see its shortcut, or press `?` for all of them.
   browser once you have set an OAuth client of your own in *Settings › Sign in with
   Google or Microsoft*. Iris ships without one: each provider wants its own
   registration.
+- A message's attachments can weigh 25 MB together, the limit of most servers.
+- Replies and forwards are introduced in English ("On …, … wrote:").
 
 ## Privacy
 
 Iris talks to your mail servers, to the addresses of the calendars you subscribe to,
 and to GitHub to ask for the latest version. That last request carries no information
 about your mail or your accounts.
+
+Removing an account removes from this computer its mail, its passwords and its words
+in the search index.
 
 ## Reporting a problem
 

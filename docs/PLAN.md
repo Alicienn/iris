@@ -608,3 +608,7 @@ variant, brought into the application.
       snoozes, stars, checks and bulk errors put right; folders matched by their shown
       name and subscribed. Replies from the alias written to, drafts with Bcc and
       alias, Reply-To-safe recipient lists, lighter scheduled sends.
+- [x] **S41.20** The low findings of the same audit, fixed (4.7.1). Quote lines in
+      English and local time, attachments weighed together, Bcc kept in the Sent copy,
+      a removed account gone from search, credentials never printed, a folder named
+      `dovecot` shown.

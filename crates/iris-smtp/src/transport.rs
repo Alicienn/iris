@@ -2,7 +2,7 @@
 
 use crate::compose::Outgoing;
 use async_trait::async_trait;
-use iris_types::{Error, Result, RfcMessageId};
+use iris_types::{Error, Result, RfcMessageId, Timestamp};
 use std::sync::{Arc, Mutex};
 
 /// Ce qu'un envoi rapporte.
@@ -89,8 +89,7 @@ impl Mailer for LettreMailer {
 
         message.validate().map_err(Error::Config)?;
 
-        let (courrier, message_id) = build_lettre_message(message, &self.domain)?;
-        let brut = courrier.formatted();
+        let (courrier, message_id, brut) = sent_and_kept(message, &self.domain)?;
 
         self.transport.send(courrier).await.map_err(|e| {
             let texte = e.to_string();
@@ -121,6 +120,34 @@ impl Mailer for LettreMailer {
 pub fn message_bytes(message: &Outgoing) -> Result<Vec<u8>> {
     let domaine = domain_of(&message.from.addr);
     build_lettre_message_with(message, &domaine, true).map(|(m, _)| m.formatted())
+}
+
+/// The message that goes out, its id, and the bytes kept in Sent.
+///
+/// The kept copy has the Bcc line the one sent has not, as every client's Sent folder
+/// does: who was copied blind is the sender's to know. Both carry the same
+/// `Message-ID` and `Date`, or the copy would not be the message sent.
+fn sent_and_kept(
+    message: &Outgoing,
+    domain: &str,
+) -> Result<(lettre::Message, RfcMessageId, Vec<u8>)> {
+    if message.bcc.is_empty() {
+        let (courrier, id) = build_lettre_message(message, domain)?;
+        let brut = courrier.formatted();
+        return Ok((courrier, id, brut));
+    }
+    let mut fige = message.clone();
+    if fige.date == Timestamp::EPOCH {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        fige.date = Timestamp::from_millis(ms);
+    }
+    let (courrier, id) = build_lettre_message(&fige, domain)?;
+    fige.message_id = Some(id.clone());
+    let (copie, _) = build_lettre_message_with(&fige, domain, true)?;
+    Ok((courrier, id, copie.formatted()))
 }
 
 /// Traduit notre message vers celui de `lettre`, sans `Bcc` : il ne sert qu'à
@@ -176,6 +203,10 @@ fn build_lettre_message_with(
     }
 
     builder = builder.subject(&message.subject);
+    if message.date != Timestamp::EPOCH {
+        let depuis = std::time::Duration::from_millis(message.date.millis().max(0) as u64);
+        builder = builder.date(std::time::UNIX_EPOCH + depuis);
+    }
 
     let message_id = message
         .message_id
@@ -338,6 +369,24 @@ mod tests {
         let (envoi, _) = build_lettre_message(&m, "example.com").unwrap();
         let envoi = String::from_utf8(envoi.formatted()).unwrap();
         assert!(!envoi.contains("secret@example.com"), "{envoi}");
+    }
+
+    #[test]
+    fn the_sent_copy_keeps_the_blind_copies_and_the_message_s_id() {
+        let mut m = message();
+        m.bcc = vec![Address::new("secret@example.com")];
+        let (envoye, id, copie) = sent_and_kept(&m, "example.com").unwrap();
+        let envoye = String::from_utf8(envoye.formatted()).unwrap();
+        let copie = String::from_utf8(copie).unwrap();
+        assert!(!envoye.contains("secret@example.com"), "{envoye}");
+        assert!(copie.contains("secret@example.com"), "{copie}");
+        assert!(copie.contains(id.as_str()) && envoye.contains(id.as_str()));
+        let date = |t: &str| {
+            t.lines()
+                .find(|l| l.starts_with("Date:"))
+                .map(str::to_string)
+        };
+        assert_eq!(date(&envoye), date(&copie));
     }
 
     #[test]

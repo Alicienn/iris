@@ -800,6 +800,13 @@ Since 4.7.0:
   drafts keep attachments as base64, and the half-minute check reads only what is
   due.
 
+Since 4.7.1: the Sent copy keeps its Bcc line, with the `Message-ID` and `Date` of
+the message sent (`sent_and_kept`); attachments are weighed together against
+`MAX_ATTACHMENTS` (25 MiB) when added and when queued; quote and forward lines are in
+English and in the machine's time (`chrono::Local`). Removing an account deletes its
+documents from the search index. `Credentials` prints no secret (`Debug` by hand),
+and only Dovecot's own file names are taken for its working folders.
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New

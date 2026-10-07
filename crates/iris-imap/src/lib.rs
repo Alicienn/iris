@@ -53,7 +53,10 @@ impl Endpoint {
 }
 
 /// De quoi s'authentifier.
-#[derive(Debug, Clone)]
+///
+/// Its `Debug` shows the login, never the password or the token: a log line or a
+/// panic message must not carry a secret.
+#[derive(Clone)]
 pub enum Credentials {
     Password {
         user: String,
@@ -71,6 +74,39 @@ impl Credentials {
         match self {
             Self::Password { user, .. } | Self::OAuth2 { user, .. } => user,
         }
+    }
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (genre, secret) = match self {
+            Self::Password { .. } => ("Password", "password"),
+            Self::OAuth2 { .. } => ("OAuth2", "token"),
+        };
+        f.debug_struct(genre)
+            .field("user", &self.user())
+            .field(secret, &"<hidden>")
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod credentials_tests {
+    use super::Credentials;
+
+    #[test]
+    fn printing_credentials_never_shows_the_secret() {
+        let mot_de_passe = Credentials::Password {
+            user: "moi@example.com".into(),
+            password: "s3cret-pw".into(),
+        };
+        let jeton = Credentials::OAuth2 {
+            user: "moi@example.com".into(),
+            token: "ya29.jeton".into(),
+        };
+        let texte = format!("{mot_de_passe:?} {jeton:?}");
+        assert!(texte.contains("moi@example.com"));
+        assert!(!texte.contains("s3cret-pw") && !texte.contains("ya29.jeton"));
     }
 }
 

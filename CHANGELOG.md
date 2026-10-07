@@ -3,6 +3,18 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.7.1 — 2026-10-07
+
+### Improved
+- Replies and forwards are introduced in English, as the rest of Iris is.
+- Attachments that together pass 25 MB are refused when added, not after sending.
+
+### Fixed
+- The time in a quoted reply is your own, not UTC.
+- Your Sent copy keeps the people you copied in Bcc.
+- Removing an account also removes its mail from search.
+- A folder you named "dovecot" is no longer hidden.
+
 ## 4.7.0 — 2026-10-07
 
 ### Improved

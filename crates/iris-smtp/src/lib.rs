@@ -16,8 +16,8 @@ mod outbox;
 mod transport;
 
 pub use compose::{
-    build_references, forward, generate_message_id, reply, Attachment, Outgoing, ReplyScope,
-    ReplyTarget,
+    build_references, forward, generate_message_id, mebibytes, reply, Attachment, Outgoing,
+    ReplyScope, ReplyTarget, MAX_ATTACHMENTS,
 };
 pub use outbox::{Outbox, OutboxEvent, SendHandle, DEFAULT_DELAY};
 pub use transport::{message_bytes, FakeMailer, LettreMailer, Mailer, SendOutcome, SmtpLogin};
