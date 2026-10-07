@@ -889,7 +889,9 @@ mod tests {
         )
         .await
         .expect("a refusal must come back, not hang");
-        let erreur = resultat.err().expect("the token was refused");
+        let Err(erreur) = resultat else {
+            panic!("the token was refused");
+        };
         assert!(erreur.needs_user_action(), "{erreur}");
 
         let recues = serveur.await.unwrap();
