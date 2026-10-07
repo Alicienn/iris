@@ -674,6 +674,7 @@ component TaskDetail inherits DetailPanel {
     callback step-toggled(int);
     callback step-removed(int);
     callback open-mail();
+    callback copy-link();
     callback delete();
     callback closed();
 
@@ -1103,6 +1104,14 @@ component TaskDetail inherits DetailPanel {
     HorizontalLayout {
         height: 28px;
         vertical-stretch: 0;
+        Button {
+            text: "Copy link";
+            label: "Copy a link to this task, for a note";
+            icon: Icons.link;
+            kind: ButtonKind.ghost;
+            size: ButtonSize.sm;
+            clicked => { root.copy-link(); }
+        }
         Rectangle { horizontal-stretch: 1; }
         Button {
             text: "Delete";
@@ -1353,6 +1362,7 @@ export component TasksView inherits Rectangle {
     callback step-toggled(int);
     callback step-removed(int);
     callback open-mail();
+    callback copy-link();
     callback delete();
     callback detail-closed();
 
@@ -1795,6 +1805,7 @@ export component TasksView inherits Rectangle {
             step-toggled(id) => { root.step-toggled(id); }
             step-removed(id) => { root.step-removed(id); }
             open-mail => { root.open-mail(); }
+            copy-link => { root.copy-link(); }
             delete => { root.delete(); }
             closed => { root.detail-closed(); }
         }

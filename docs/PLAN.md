@@ -657,3 +657,31 @@ their server.
       all, its view, counts, moves and Mark all as read keep to them. Migration 24.
       The tree's orange mark spares such folders, counts enabled mailboxes only, and
       says on how many a folder is (4.14.1).
+
+## E43 — Notes (4.15.0)
+
+An "Obsidian, better" inside Iris, made for course notes: Markdown files in folders of
+one's own, written as they look, with LaTeX, links, flashcards and spreadsheets.
+Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
+`docs/superpowers/plans/2026-10-07-iris-notes.md`.
+
+- [x] **S43.1** Spaces and the tree: `%USERPROFILE%\Iris\<space>`, any folder opened as
+      a space, `.iris/space.json`; drag and drop, inline rename, pin, duplicate,
+      Recycle Bin, moves and renames rewriting links; filter, quick open, search with
+      `tag:`, `path:`, `is:task`. `iris-vault`.
+- [x] **S43.2** The block editor: exact parse and join, the block under the cursor as
+      its source, the others drawn; Iris's marks (`__u__`, `--s--`, colours,
+      highlight, sup, sub), callouts numbered per note, columns, flashcards, tables,
+      embeds; shortcuts, the selection bubble, the colour card, completion for `[[`,
+      `#`, `@`, `\`, `/`, `{`; undo. `iris-notes`.
+- [x] **S43.3** LaTeX drawn in the note (`iris-math`), snippets with Tab, Unicode in
+      the line; reading mode; outline, backlinks and tags beside.
+- [x] **S43.4** Courses: *Take notes* from an event, templates, flashcards revised
+      with SM-2 (`.iris/review.json`), focus mode, a note beside, pages to keep or
+      print as PDF.
+- [x] **S43.5** Spreadsheets (`iris-sheets`): formulas computed in dependency order
+      without recursion, forty-seven functions, formats, rows and columns, sort, fill,
+      clipboard with Excel, undo; Excel and CSV in and out; `![[x.sheet]]` in a note.
+- [x] **S43.6** With the rest of Iris: `[[mail:]]`, `[[event:]]`, `[[task:]]` and
+      *Copy link for a note*; a checkbox made a task, ticked both ways; past versions
+      kept and restored; the graph of links; Home's Notes widget.

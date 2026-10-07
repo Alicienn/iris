@@ -490,6 +490,7 @@ export component ThreadContextMenu inherits Rectangle {
     callback toggle-star();
     callback delete-thread();
     callback view-source();
+    callback copy-link();
     callback dismissed();
     /// Un clic droit ailleurs : ferme ici, et rouvre là-bas.
     callback reopen-at(length, length);
@@ -597,6 +598,11 @@ export component ThreadContextMenu inherits Rectangle {
                 icon: Icons.code;
                 label: "View source";
                 activated => { root.view-source(); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.link;
+                label: "Copy link for a note";
+                activated => { root.copy-link(); root.dismissed(); }
             }
 
             MenuEntry {

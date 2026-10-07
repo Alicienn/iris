@@ -8,7 +8,7 @@ import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
-    NoteFoundData
+    NoteFoundData, NoteGraphNodeData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -48,7 +48,8 @@ import {
 } from "@iris/screens/calendar-panels.slint";
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import {
-    NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel
+    NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel,
+    NotesHistoryPanel, NotesGraphPanel
 } from "@iris/screens/notes.slint";
 import { SheetGrid, SheetMenu } from "@iris/screens/sheet.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
@@ -1079,6 +1080,23 @@ export component AppWindow inherits Window {
     callback note-beside-closed();
     in property <bool> note-sheet-open;
     callback notes-new-sheet();
+    // Home's Notes widget.
+    in property <[HomeItemData]> home-notes;
+    in property <int> home-cards-due;
+    callback home-note-opened(string);
+    // A note's past versions.
+    in-out property <bool> notes-history-open;
+    in property <[NoteFoundData]> notes-history;
+    in property <int> notes-history-chosen: -1;
+    in property <string> notes-history-preview;
+    callback notes-history-picked(int);
+    callback notes-history-restore();
+    // The graph of a space's links.
+    in-out property <bool> notes-graph-open;
+    in property <[NoteGraphNodeData]> notes-graph-nodes;
+    in property <string> notes-graph-edges;
+    callback notes-graph-requested();
+    callback notes-graph-chosen(string);
     in-out property <bool> notes-review-open;
     in property <string> notes-review-question;
     in property <string> notes-review-answer;
@@ -1234,6 +1252,9 @@ export component AppWindow inherits Window {
     callback task-step-toggled(int);
     callback task-step-removed(int);
     callback task-open-mail();
+    callback task-copy-link();
+    callback thread-copy-link(int);
+    callback event-copy-link();
     callback task-delete();
     callback task-detail-closed();
     /// Up or down the column, from the keyboard.
@@ -1384,6 +1405,7 @@ export component AppWindow inherits Window {
         || root.connect-open
         || root.notes-row-menu-open || root.notes-space-menu-open || root.notes-name-asked != ""
         || root.notes-quick-open || root.notes-review-open || SheetGrid.menu != ""
+        || root.notes-history-open || root.notes-graph-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
@@ -1569,6 +1591,14 @@ export component AppWindow inherits Window {
                 SheetGrid.menu = "";
                 return accept;
             }
+            if (event.text == Key.Escape && root.notes-history-open) {
+                root.notes-history-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.notes-graph-open) {
+                root.notes-graph-open = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.notes-review-open) {
                 root.notes-review-open = false;
                 return accept;
@@ -1667,6 +1697,9 @@ export component AppWindow inherits Window {
                 }
                 if (event.text == Key.F11) {
                     root.note-focus-mode-toggled();
+                }
+                if (event.modifiers.control && (event.text == "g" || event.text == "G")) {
+                    root.notes-graph-requested();
                 }
                 if (event.text == Key.F2 && root.notes-tree.length > 0) {
                     root.notes-row-action("rename", "");
@@ -2353,6 +2386,7 @@ export component AppWindow inherits Window {
         step-toggled(id) => { root.task-step-toggled(id); }
         step-removed(id) => { root.task-step-removed(id); }
         open-mail => { root.task-open-mail(); }
+        copy-link => { root.task-copy-link(); }
         // The panel closes with the task: the keyboard goes back to the shortcuts,
         // so Ctrl+Z reaches them.
         delete => {
@@ -2468,6 +2502,7 @@ export component AppWindow inherits Window {
         beside-closed => { root.note-beside-closed(); }
         sheet-open: root.note-sheet-open;
         new-sheet => { root.notes-new-sheet(); }
+        graph => { root.notes-graph-requested(); }
         title-accepted(t) => { root.note-title-accepted(t); }
         escaped => { shortcuts.focus(); }
         end-clicked => { root.note-end-clicked(); }
@@ -2499,6 +2534,9 @@ export component AppWindow inherits Window {
         streak: root.inbox-zero-streak;
         accounts: root.home-accounts;
         last-sync: root.last-sync;
+        notes: root.home-notes;
+        cards-due: root.home-cards-due;
+        note-opened(k) => { root.home-note-opened(k); shortcuts.focus(); }
         thread-opened(id) => { root.home-thread-opened(id); shortcuts.focus(); }
         goal-opened(id) => { root.home-goal-opened(id); shortcuts.focus(); }
         compose => {
@@ -2710,6 +2748,11 @@ export component AppWindow inherits Window {
             root.event-color-chosen(i);
             shortcuts.focus();
         }
+        copy-link => {
+            root.event-menu-open = false;
+            root.event-copy-link();
+            shortcuts.focus();
+        }
         dismissed => {
             root.event-menu-open = false;
             shortcuts.focus();
@@ -2864,6 +2907,40 @@ export component AppWindow inherits Window {
         }
         dismissed => {
             root.notes-name-asked = "";
+            shortcuts.focus();
+        }
+    }
+
+    if root.notes-history-open: NotesHistoryPanel {
+        width: 100%;
+        height: 100%;
+        versions: root.notes-history;
+        chosen: root.notes-history-chosen;
+        preview: root.notes-history-preview;
+        picked(i) => { root.notes-history-picked(i); }
+        restore => {
+            root.notes-history-restore();
+            root.notes-history-open = false;
+            shortcuts.focus();
+        }
+        dismissed => {
+            root.notes-history-open = false;
+            shortcuts.focus();
+        }
+    }
+
+    if root.notes-graph-open: NotesGraphPanel {
+        width: 100%;
+        height: 100%;
+        nodes: root.notes-graph-nodes;
+        edges: root.notes-graph-edges;
+        chosen(k) => {
+            root.notes-graph-open = false;
+            root.notes-graph-chosen(k);
+            shortcuts.focus();
+        }
+        dismissed => {
+            root.notes-graph-open = false;
             shortcuts.focus();
         }
     }
@@ -3069,6 +3146,7 @@ export component AppWindow inherits Window {
         toggle-star => { root.menu-toggle-star(root.context-menu-thread); }
         delete-thread => { root.menu-delete(root.context-menu-thread); }
         view-source => { root.view-source(); }
+        copy-link => { root.thread-copy-link(root.context-menu-thread); }
         dismissed => { root.context-menu-open = false; }
         reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
     }

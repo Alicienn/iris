@@ -2,7 +2,7 @@
 
 A desktop mail client, written in Rust, designed to hold **a hundred mailboxes and a
 million messages** on one machine without ever ceasing to be immediate. Beside the mail
-sit a calendar and a task list, built on the same principles.
+sit a calendar, a task list and notes, built on the same principles.
 
 Three stances set it apart:
 
@@ -183,8 +183,10 @@ contract of the one before it.
   Domain         iris-workflow · iris-thread · iris-rules    pure, no I/O
                  iris-search · iris-mime
                  iris-calendar · iris-tasks
+                 iris-notes · iris-sheets · iris-math
   Data           iris-store (SQLite) · iris-index (Tantivy)  local truth
                  iris-blobs (zstd + LRU)
+                 iris-vault (the notes' folders)
   Network        iris-sync · iris-imap · iris-smtp           tokio
                  iris-discover · iris-secrets · iris-oauth
                  iris-caldav
@@ -274,6 +276,15 @@ Stated here so they are decided rather than discovered:
   `unstable-winit-030` accessor: inside the interface, whatever row or button is under
   the pointer takes the press first. The accessor is tied to Slint's minor version.
 - `iris-ui` and `iris-workflow` depend on `iris-store` directly.
+- **Notes read and write their files on the display thread.** A note is read when
+  opened and written after typing stops, in milliseconds; but search, backlinks, the
+  graph and Home's widget read every note of the space there too. A space of a few
+  thousand notes would want an index built on a worker, as the spec planned.
+- **Notes look for changes by polling** (`Space::fingerprint` every two seconds while
+  Notes shows) rather than with file-system notifications.
+- **Reading mode draws the blocks** with `StyledText`, not the whole note through
+  Blitz as the spec planned: highlight is coloured text, and inline maths is Unicode.
+  Pages for keeping and printing are real HTML, opened in the browser.
 
 ---
 
@@ -712,6 +723,68 @@ before the end of the working day, and is booked as *Find a slot* books one
 day and hour set to it). Each booked stretch then counts as taken for the next. The
 plan is kept for the day (`PLAN`: each task and the day it was due before), so
 *Undo plan* frees the slots and gives late tasks their own day back.
+
+## Notes
+
+Notes (4.15.0) are Markdown files in folders the user owns, never rows of the
+database: any other editor reads them, a synced folder carries them elsewhere, and
+nothing is lost if Iris is. Four crates hold them, and the application wires them:
+
+| Crate | Kind | Does |
+|---|---|---|
+| `iris-notes` | pure | blocks, inline marks, edits, completion, links, tags, flashcards and SM-2, templates, HTML, the graph's layout |
+| `iris-math` | pure | LaTeX drawn as RGBA (`latex-rust`, STIX Two Math carried in the crate), with a cache of 256 formulas |
+| `iris-vault` | files | spaces, the tree, atomic writes, conflicts, moves rewriting links, the Recycle Bin behind a trait, search, past versions, flashcard state |
+| `iris-sheets` | pure (bytes in, bytes out) | cells, formulas, recalculation, formats, the `.sheet` file, CSV, Excel |
+
+**The text is the truth.** `iris_notes::block::parse` cuts a note into blocks without
+losing a byte (`join` gives the file back exactly, a test over every block kind holds
+it). Every key that changes a note goes through a pure function of `iris_notes::edit`
+(`toggle_mark`, `on_enter`, `indent`, `move_block`…) that returns the new text and the
+cursor; the note is parsed again and only the blocks whose rendering changed (a hash of
+their kind, text and number) are given back to the window. The block holding the cursor
+shows its source in a `TextInput`, the others their rendering in `StyledText` (bold,
+italic, underline, strikethrough, code, links, colours; highlight is coloured text,
+`StyledText` drawing no background). Iris's own marks (`__u__`, `--s--`, `{r}…{/}`,
+`=={g}…==`, `^sup^`, `~sub~`) are read by `inline::parse_inline` into a tree of marks
+and written to Slint's markdown by `to_slint_markdown`. Undo keeps whole-text
+snapshots, keys closer than 700 ms being one step.
+
+**Files.** `Space::write` writes beside the file and renames over it; if the file
+changed on the disk since it was read, the other version is kept beside it as a
+conflict copy and said. The open note is written 500 ms after the last key, on
+leaving Notes, and before anything else is opened. Every two seconds while Notes shows,
+`Space::fingerprint` (names and modification times, folders by name only) says whether
+anything changed elsewhere; the tree is read again and the open note too when it was
+not being edited. A space keeps its settings in `.iris/space.json`, its flashcards'
+state in `.iris/review.json` and its notes' past versions in `.iris/history/<path>/`:
+the text as it was before each session of editing, the last thirty. Deleting goes to
+the Recycle Bin (`SHFileOperationW` with `FOF_ALLOWUNDO`, behind `RecycleBin` so tests
+use a folder). Renaming or moving rewrites every `[[link]]` to what moved.
+
+**Formulas** are drawn by `iris-math` at the size and colour of the text and the
+screen's scale; inline maths shows as Unicode in the line (`math::to_unicode`) and as a
+drawing in the card under the cursor. Pages made for keeping or printing
+(`notes/export.rs`) carry their formulas and pictures inside as `data:` PNGs.
+
+**Spreadsheets.** `iris-sheets` keeps what was typed in each cell; values are
+computed when the file is read and after each change, by `eval::recalc`: every formula
+is parsed, its references give the formulas it reads (a range reads the formulas inside
+it), and they are computed in that order (Kahn's), each reading only values already
+known. What is left depends on itself and is `#CYCLE!`; nothing recurses, so a column
+of twenty thousand formulas each reading the one above is computed like any other (a
+test holds it). Rows and columns inserted or deleted rewrite every formula's
+references token by token (`formula::adjust`), as a copy or a fill moves the relative
+ones (`formula::shift`). The grid (`notes/sheet.rs`, `screens/sheet.slint`) is drawn
+from a `SheetGrid` global: only the columns, rows and cells in view and a margin, again
+when the view moves past them. Excel files are read with `calamine` and written with
+`rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
+`HKCU\Control Panel\International`.
+
+**Links with the rest of Iris.** `[[mail:<thread>]]`, `[[event:<key>]]` and
+`[[task:<id>]]` open through Home's own callbacks. A checkbox made a task keeps
+`[[task:<id>]]` on its line: ticking the line ticks the task (`tasks::toggle_done`),
+and opening the note ticks the lines whose tasks were done meanwhile.
 
 ## Sending, and undoing a send
 

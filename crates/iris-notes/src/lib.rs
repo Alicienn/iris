@@ -13,6 +13,7 @@ pub mod block;
 pub mod complete;
 pub mod edit;
 pub mod fuzzy;
+pub mod graph;
 pub mod html;
 pub mod inline;
 pub mod links;

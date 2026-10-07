@@ -367,3 +367,10 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 - **A folder can be made for some mailboxes only** (4.14.0): still one name across
   mailboxes, created on all of them by default, but the user may tick fewer; such a
   folder remembers which, and shows, counts and files their mail only.
+- **Iris keeps notes too** (4.15.0), a fifth place beside mail, calendar, tasks and
+  Home: Markdown files in folders the user owns, not rows of the database, so the
+  notes outlive Iris and open in any editor. Its own spec is
+  `2026-10-07-iris-notes-design.md`; against it, reading mode draws blocks rather than
+  a page through Blitz, a second note opens beside read-only rather than in a split
+  editor, flashcards are revised per note, and the space is polled for changes rather
+  than watched.

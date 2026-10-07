@@ -622,6 +622,17 @@ export struct NoteFoundData {
     detail: string,
 }
 
+// A note in the graph of its space: where (0 to 1 across the square), how big (by its
+// links), and whether it is the one open.
+export struct NoteGraphNodeData {
+    key: string,
+    label: string,
+    x: float,
+    y: float,
+    size: float,
+    current: bool,
+}
+
 // A cell of a spreadsheet as drawn: where (in the grid's content), what, and how.
 export struct SheetCellData {
     x: length,

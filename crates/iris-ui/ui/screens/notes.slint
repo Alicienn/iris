@@ -9,7 +9,7 @@ import { EmptyState, Modal } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
-import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData } from "@iris/types.slint";
+import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData, NoteGraphNodeData } from "@iris/types.slint";
 import { SheetView } from "@iris/screens/sheet.slint";
 
 // Notes: Markdown files in spaces, in a tree on the left, the open note on the right,
@@ -647,6 +647,8 @@ export component NotesView inherits Rectangle {
     /// A spreadsheet open in place of a note.
     in property <bool> sheet-open;
     callback new-sheet();
+    /// The graph of the space's links.
+    callback graph();
 
     // What is carried in the tree, and where the pointer is.
     property <string> carried;
@@ -857,6 +859,15 @@ export component NotesView inherits Rectangle {
                     icon-size: 17px;
                     active: root.side;
                     clicked => { root.side-toggled(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.graph;
+                    label: "Links between the notes";
+                    shortcut: "Ctrl+G";
+                    button-size: 30px;
+                    icon-size: 17px;
+                    clicked => { root.graph(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
@@ -1441,6 +1452,11 @@ export component NotesRowMenu inherits Rectangle {
                 label: "Print or save as PDF…";
                 activated => { root.chosen("print"); }
             }
+            if root.kind == 1: MenuEntry {
+                icon: Icons.history;
+                label: "History…";
+                activated => { root.chosen("history"); }
+            }
             MenuEntry {
                 icon: Icons.star;
                 label: root.pinned ? "Unpin" : "Pin to the top";
@@ -1737,6 +1753,165 @@ export component NotesQuickOpen inherits Rectangle {
                 color: Tokens.text-muted;
             }
             Rectangle {}
+        }
+    }
+}
+
+// The past versions of a note: one per session of editing, the last thirty. One
+// picked shows its text; Restore puts it back (the version replaced is kept too).
+export component NotesHistoryPanel inherits Rectangle {
+    in property <[NoteFoundData]> versions;
+    in property <int> chosen: -1;
+    in property <string> preview;
+    callback picked(int);
+    callback restore();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "History of the note";
+        card-width: min(root.width - 80px, 820px);
+        card-height: min(root.height - 80px, 560px);
+        dismissed => { root.dismissed(); }
+        HorizontalLayout {
+            spacing: 14px;
+            liste := ScrollView {
+                width: 230px;
+                horizontal-stretch: 0;
+                mouse-drag-pan-enabled: false;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    width: liste.visible-width;
+                    alignment: start;
+                    if root.versions.length == 0: Text {
+                        text: "No earlier version yet: one is kept each time the note is edited again.";
+                        wrap: word-wrap;
+                        font-size: 12.5px;
+                        color: Tokens.text-muted;
+                    }
+                    for v[i] in root.versions: Rectangle {
+                        height: 46px;
+                        border-radius: Tokens.radius-small;
+                        background: i == root.chosen ? Tokens.surface-hover : zone.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent;
+                        VerticalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            alignment: center;
+                            Text {
+                                text: v.title;
+                                font-size: 13px;
+                                font-weight: i == root.chosen ? 600 : 400;
+                                color: Tokens.text;
+                            }
+                            Text {
+                                text: v.detail;
+                                font-size: 11.5px;
+                                color: Tokens.text-muted;
+                            }
+                        }
+                        zone := TouchArea {
+                            clicked => { root.picked(i); }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                width: 1px;
+                background: Tokens.border;
+            }
+            VerticalLayout {
+                spacing: 10px;
+                apercu := ScrollView {
+                    vertical-stretch: 1;
+                    mouse-drag-pan-enabled: false;
+                    viewport-width: self.visible-width;
+                    VerticalLayout {
+                        width: apercu.visible-width;
+                        alignment: start;
+                        Text {
+                            text: root.chosen < 0 ? "Pick a version on the left." : root.preview;
+                            wrap: word-wrap;
+                            font-family: Tokens.font-mono;
+                            font-size: 12.5px;
+                            color: root.chosen < 0 ? Tokens.text-muted : Tokens.text-secondary;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    Button {
+                        text: "Restore this version";
+                        kind: ButtonKind.primary;
+                        enabled: root.chosen >= 0;
+                        clicked => { root.restore(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The notes of the space and their links, placed by their links: a click opens one.
+export component NotesGraphPanel inherits Rectangle {
+    in property <[NoteGraphNodeData]> nodes;
+    /// Every link, as path commands in a 1000 × 1000 square.
+    in property <string> edges;
+    callback chosen(string);
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Links between the notes";
+        card-width: min(root.width - 60px, 1000px);
+        card-height: min(root.height - 60px, 760px);
+        dismissed => { root.dismissed(); }
+        cadre := Rectangle {
+            carre := Rectangle {
+                width: min(cadre.width, cadre.height);
+                height: self.width;
+                x: (cadre.width - self.width) / 2;
+                y: (cadre.height - self.height) / 2;
+                Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 1000;
+                    viewbox-height: 1000;
+                    commands: root.edges;
+                    stroke: Tokens.border-strong;
+                    stroke-width: 1px;
+                }
+                for n in root.nodes: Rectangle {
+                    property <length> d: (5 + n.size * 9) * 1px;
+                    x: n.x * carre.width - self.width / 2;
+                    y: n.y * carre.height - self.d / 2;
+                    width: max(self.d, etiquette.preferred-width + 6px);
+                    height: self.d + 16px;
+                    Rectangle {
+                        x: (parent.width - parent.d) / 2;
+                        y: 0px;
+                        width: parent.d;
+                        height: parent.d;
+                        border-radius: parent.d / 2;
+                        background: n.current ? Tokens.accent : zone.has-hover ? Tokens.accent.transparentize(0.3) : Tokens.text-muted;
+                    }
+                    etiquette := Text {
+                        y: parent.d + 2px;
+                        width: parent.width;
+                        text: n.label;
+                        font-size: 10.5px;
+                        color: n.current || zone.has-hover ? Tokens.text : Tokens.text-muted;
+                        horizontal-alignment: center;
+                    }
+                    zone := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.chosen(n.key); }
+                    }
+                }
+            }
         }
     }
 }

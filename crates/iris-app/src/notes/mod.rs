@@ -55,6 +55,8 @@ struct Ouverte {
     undo: Vec<Instantane>,
     redo: Vec<Instantane>,
     dernier_pas: Option<Instant>,
+    /// The version before this session of editing is kept already.
+    versionnee: bool,
 }
 
 /// Everything the place holds.
@@ -92,6 +94,10 @@ struct Etat {
     beside: Option<String>,
     /// The spreadsheet open, in place of a note.
     sheet: Option<sheet::Feuille>,
+    /// For the tasks a checkbox is linked to.
+    services: Services,
+    /// The history shown: the note, and when each of its versions was kept.
+    historique: Option<(String, Vec<i64>)>,
 }
 
 /// A revision under way: the cards left, the one shown, and how it went.
@@ -371,6 +377,15 @@ fn ecrire(f: &AppWindow, e: &mut Etat) {
         return;
     }
     f.set_note_has_cards(!iris_notes::meta::flashcards(&note.text).is_empty());
+    // The note as it was before this session of editing, kept once.
+    if !note.versionnee {
+        note.versionnee = true;
+        if let Ok((avant, quand)) = espace.read(&note.rel) {
+            if avant != note.text && !avant.trim().is_empty() {
+                let _ = espace.save_version(&note.rel, &avant, quand);
+            }
+        }
+    }
     match espace.write(&note.rel, &note.text, note.modified) {
         Ok(WriteOutcome::Written(m)) => {
             note.modified = Some(m);
@@ -416,6 +431,7 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
                 undo: Vec::new(),
                 redo: Vec::new(),
                 dernier_pas: None,
+                versionnee: false,
             });
             e.selected = Some(rel.to_string());
             // Its folders unfolded, so it shows in the tree.
@@ -426,6 +442,7 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
             }
             sans_focus(f, e);
             montrer_note(f, e);
+            aligner_taches(f, e);
             crate::settings::update(|s| s.notes_last = format!("{dir}|{rel}"));
             crate::nav::note(f, "note", rel);
             fermer_popups(f, e);
@@ -689,6 +706,11 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             let t = edit::toggle_task(&texte);
             let c = t.len();
             remplacer(f, e, i, &t, c, c);
+            cocher_tache(e, &t);
+            true
+        }
+        "ctrl+shift+t" | "ctrl+shift+T" => {
+            faire_tache(f, e, i);
             true
         }
         "backspace-start" => {
@@ -822,6 +844,10 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
         }
         "f11" => {
             mode_focus(f, e);
+            true
+        }
+        "ctrl+g" | "ctrl+G" => {
+            graphe(f, e);
             true
         }
         "ctrl+shift+f" | "ctrl+shift+F" => {
@@ -1130,10 +1156,18 @@ fn carte(f: &AppWindow, e: &mut Etat, texte: &str, cursor: usize, selection: boo
             });
             f.set_note_card("link".into());
             f.set_note_card_title(nom.as_str().into());
+            let ailleurs = lien_iris(&nom).map(|(genre, _)| match genre {
+                "mail" => "A conversation of your mail: Open shows it.",
+                "task" => "A task: Open shows it.",
+                _ => "An event of your calendar: Open shows it.",
+            });
             f.set_note_card_text(
-                apercu
-                    .unwrap_or_else(|| "Not written yet: Open makes it.".into())
-                    .into(),
+                match (ailleurs, apercu) {
+                    (Some(a), _) => a.to_string(),
+                    (None, Some(t)) => t,
+                    (None, None) => "Not written yet: Open makes it.".into(),
+                }
+                .into(),
             );
             f.set_note_card_picture(slint::Image::default());
         }
@@ -1568,6 +1602,22 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
         if nom.is_empty() {
             return;
         }
+        // The rest of Iris: a conversation, a task, an event.
+        if let Some((genre, id)) = lien_iris(&nom) {
+            ecrire(f, e);
+            match genre {
+                "mail" => match id.parse::<i32>() {
+                    Ok(n) => f.invoke_home_thread_opened(n),
+                    Err(_) => f.set_status("This link to a conversation is not valid.".into()),
+                },
+                "task" => match id.parse::<i32>() {
+                    Ok(n) => f.invoke_home_task_opened(n),
+                    Err(_) => f.set_status("This link to a task is not valid.".into()),
+                },
+                _ => f.invoke_home_event_opened(id.into()),
+            }
+            return;
+        }
         let Some(espace) = e.espace() else { return };
         let notes = espace.notes();
         let trouvee = notes
@@ -1601,6 +1651,268 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
     } else {
         f.set_status("Only secure web links (https://) are opened.".into());
     }
+}
+
+// --- History and graph -----------------------------------------------------------------
+
+/// A moment as the history lists it: `7 Oct 2026, 14:32`.
+fn quand(millis: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(millis)
+        .single()
+        .map(|t| t.format("%-d %b %Y, %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// The past versions of `rel`, listed.
+fn historique(f: &AppWindow, e: &mut Etat, rel: &str) {
+    ecrire(f, e);
+    let Some(espace) = e.espace() else { return };
+    let versions = espace.versions(rel);
+    let lignes: Vec<NoteFoundData> = versions
+        .iter()
+        .map(|(t, _)| {
+            let mots = espace
+                .read_version(rel, *t)
+                .map(|x| iris_notes::meta::word_count(&x))
+                .unwrap_or(0);
+            NoteFoundData {
+                key: t.to_string().into(),
+                title: quand(*t).into(),
+                detail: format!("{mots} words").into(),
+            }
+        })
+        .collect();
+    e.historique = Some((rel.to_string(), versions.iter().map(|(t, _)| *t).collect()));
+    f.set_notes_history(ModelRc::new(VecModel::from(lignes)));
+    f.set_notes_history_chosen(-1);
+    f.set_notes_history_preview(SharedString::default());
+    f.set_notes_history_open(true);
+}
+
+/// The graph of the space: its notes placed by their links.
+fn graphe(f: &AppWindow, e: &mut Etat) {
+    ecrire(f, e);
+    let Some(espace) = e.espace() else { return };
+    let modeles = format!("{}/", espace.config.templates);
+    let notes: Vec<String> = espace
+        .notes()
+        .into_iter()
+        .filter(|n| !n.starts_with(&modeles))
+        .collect();
+    if notes.is_empty() {
+        f.set_toast("This space has no note yet.".into());
+        return;
+    }
+    let index: std::collections::HashMap<&str, usize> = notes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let mut aretes: HashSet<(usize, usize)> = HashSet::new();
+    for (i, rel) in notes.iter().enumerate() {
+        let Ok((texte, _)) = espace.read(rel) else {
+            continue;
+        };
+        for l in iris_notes::links::links(&texte) {
+            if let Some(j) = iris_notes::links::resolve(&l.target, &notes)
+                .and_then(|c| index.get(c.as_str()).copied())
+            {
+                if i != j {
+                    aretes.insert((i.min(j), i.max(j)));
+                }
+            }
+        }
+    }
+    let aretes: Vec<(usize, usize)> = aretes.into_iter().collect();
+    let places = iris_notes::graph::layout(notes.len(), &aretes);
+    let mut degre = vec![0usize; notes.len()];
+    let mut chemin = String::new();
+    for &(a, b) in &aretes {
+        degre[a] += 1;
+        degre[b] += 1;
+        let (pa, pb) = (places[a], places[b]);
+        chemin.push_str(&format!(
+            "M {:.1} {:.1} L {:.1} {:.1} ",
+            pa.0 * 1000.0,
+            pa.1 * 1000.0,
+            pb.0 * 1000.0,
+            pb.1 * 1000.0
+        ));
+    }
+    let max = degre.iter().copied().max().unwrap_or(0).max(1) as f32;
+    let ouverte = e.note.as_ref().map(|n| n.rel.clone());
+    let noeuds: Vec<iris_ui::NoteGraphNodeData> = notes
+        .iter()
+        .enumerate()
+        .map(|(i, rel)| iris_ui::NoteGraphNodeData {
+            key: rel.as_str().into(),
+            label: stem(rel).into(),
+            x: places[i].0,
+            y: places[i].1,
+            size: (degre[i] as f32 / max).sqrt(),
+            current: ouverte.as_deref() == Some(rel.as_str()),
+        })
+        .collect();
+    f.set_notes_graph_nodes(ModelRc::new(VecModel::from(noeuds)));
+    f.set_notes_graph_edges(chemin.into());
+    f.set_notes_graph_open(true);
+}
+
+// --- Checkboxes and the tasks of Iris ---------------------------------------------------
+
+/// The task a checkbox line is linked to (`[[task:7]]`), and whether the line is ticked.
+fn tache_de_ligne(ligne: &str) -> Option<(i64, bool)> {
+    let debut = ligne.find("[[task:")?;
+    let reste = &ligne[debut + "[[task:".len()..];
+    let fin = reste.find([']', '|'])?;
+    let id = reste[..fin].trim().parse().ok()?;
+    let t = ligne.trim_start();
+    Some((id, t.starts_with("- [x]") || t.starts_with("- [X]")))
+}
+
+/// A checkbox ticked or unticked in a note: its task follows.
+fn cocher_tache(e: &Etat, ligne: &str) {
+    let Some((id, coche)) = tache_de_ligne(ligne) else {
+        return;
+    };
+    if let Ok(Some(t)) = e.services.store.task(id) {
+        if t.is_done() != coche {
+            crate::tasks::toggle_done(&e.services, id);
+        }
+    }
+}
+
+/// A checkbox line made a task of Iris, each ticking the other.
+fn faire_tache(f: &AppWindow, e: &mut Etat, i: usize) {
+    let Some((kind, texte)) = contenu(e, i) else {
+        return;
+    };
+    if !matches!(kind, BlockKind::Task { .. }) {
+        f.set_toast("Put the cursor on a checkbox line (- [ ] …) to make it a task.".into());
+        return;
+    }
+    if tache_de_ligne(&texte).is_some() {
+        f.set_toast("This line is a task already.".into());
+        return;
+    }
+    let ligne = texte.trim_start();
+    let apres = ligne.get(6..).unwrap_or("");
+    let titre = iris_notes::inline::plain_text(&iris_notes::inline::parse_inline(apres))
+        .trim()
+        .to_string();
+    if titre.is_empty() {
+        f.set_toast("Write the task on the line first.".into());
+        return;
+    }
+    let note = e.note.as_ref().map(|n| stem(&n.rel)).unwrap_or_default();
+    let Some(liste) = e
+        .services
+        .store
+        .task_lists()
+        .ok()
+        .and_then(|l| l.first().map(|x| x.id))
+    else {
+        f.set_status("Make a list in Tasks first.".into());
+        return;
+    };
+    let t = iris_store::NewTask {
+        list_id: liste,
+        title: titre,
+        notes: format!("From the note “{note}”."),
+        source: format!("Note: {note}"),
+        ..Default::default()
+    };
+    match e.services.store.insert_task(&t, crate::services::now()) {
+        Ok(id) => {
+            if ligne.starts_with("- [x]") || ligne.starts_with("- [X]") {
+                let _ = e
+                    .services
+                    .store
+                    .set_task_done(id, Some(crate::services::now()));
+            }
+            let nouveau = format!("{} [[task:{id}]]", texte.trim_end());
+            let c = nouveau.len();
+            remplacer(f, e, i, &nouveau, c, c);
+            f.set_toast("Task made: ticking one ticks the other.".into());
+        }
+        Err(err) => f.set_status(format!("Could not make the task: {err}").into()),
+    }
+}
+
+/// The checkboxes linked to tasks ticked as their tasks are now (a task may have been
+/// done in Tasks since).
+fn aligner_taches(f: &AppWindow, e: &mut Etat) {
+    let Some(note) = &mut e.note else { return };
+    let mut blocs = note.blocks.clone();
+    let mut change = false;
+    let mut k = 0;
+    while k < blocs.len() {
+        let c = blocs[k].content().to_string();
+        let lie = matches!(blocs[k].kind, BlockKind::Task { .. })
+            .then(|| tache_de_ligne(&c))
+            .flatten();
+        if let Some((id, coche)) = lie {
+            if let Ok(Some(t)) = e.services.store.task(id) {
+                if t.is_done() != coche {
+                    let ed = edit::replace_block(&blocs, k, &edit::toggle_task(&c), 0);
+                    blocs = blocs_de(&ed.text);
+                    change = true;
+                }
+            }
+        }
+        k += 1;
+    }
+    if change {
+        note.text = block::join(&blocs);
+        note.blocks = blocs;
+        note.dirty = true;
+        rendre(f, e, true);
+        planifier_ecriture(f);
+    }
+}
+
+/// `[[target|title]]` on the clipboard, to paste in a note.
+fn copier_lien(f: &AppWindow, cible: &str, titre: &str) {
+    let lien = lien_ecrit(cible, titre);
+    match arboard::Clipboard::new().and_then(|mut c| c.set_text(lien)) {
+        Ok(()) => f.set_toast("Link copied: paste it in a note.".into()),
+        Err(err) => f.set_status(format!("Could not copy the link: {err}").into()),
+    }
+}
+
+/// `[[target|title]]`, the title kept from closing the link early.
+fn lien_ecrit(cible: &str, titre: &str) -> String {
+    let titre: String = titre
+        .chars()
+        .map(|c| {
+            if matches!(c, '[' | ']' | '|' | '\n' | '\r') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let titre = titre.split_whitespace().collect::<Vec<_>>().join(" ");
+    if titre.is_empty() {
+        format!("[[{cible}]]")
+    } else {
+        format!("[[{cible}|{titre}]]")
+    }
+}
+
+/// A link to the rest of Iris: `mail:12`, `task:7`, `event:<key>`.
+fn lien_iris(cible: &str) -> Option<(&'static str, &str)> {
+    let (genre, id) = cible.split_once(':')?;
+    let genre = match genre.trim().to_ascii_lowercase().as_str() {
+        "mail" => "mail",
+        "task" => "task",
+        "event" => "event",
+        _ => return None,
+    };
+    let id = id.trim();
+    (!id.is_empty()).then_some((genre, id))
 }
 
 /// The note open moved or renamed: it follows.
@@ -1679,6 +1991,50 @@ fn veiller(f: &AppWindow, e: &mut Etat) {
         None => {}
     }
     montrer_arbre(f, e);
+}
+
+/// Home's Notes widget: the notes of the space shown changed last, and the flashcards
+/// due today.
+pub fn refresh_home(f: &AppWindow) {
+    let etat = ETAT.with(|e| e.borrow().as_ref().cloned());
+    let Some(etat) = etat else { return };
+    let Ok(e) = etat.try_borrow() else { return };
+    let Some(s) = e.espace() else {
+        f.set_home_notes(ModelRc::default());
+        f.set_home_cards_due(0);
+        return;
+    };
+    let modeles = format!("{}/", s.config.templates);
+    let mut notes: Vec<(i64, String)> = s
+        .notes()
+        .into_iter()
+        .filter(|n| !n.starts_with(&modeles))
+        .map(|n| (s.modified(&n).unwrap_or(0), n))
+        .collect();
+    notes.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+    let aujourd = chrono::Local::now().date_naive();
+    let items: Vec<iris_ui::HomeItemData> = notes
+        .into_iter()
+        .take(4)
+        .map(|(t, rel)| {
+            use chrono::TimeZone;
+            let quand = chrono::Local.timestamp_millis_opt(t).single();
+            let meta = match quand {
+                Some(q) if q.date_naive() == aujourd => q.format("%H:%M").to_string(),
+                Some(q) => q.format("%-d %b").to_string(),
+                None => String::new(),
+            };
+            iris_ui::HomeItemData {
+                key: rel.as_str().into(),
+                title: stem(&rel).into(),
+                meta: meta.into(),
+                ..Default::default()
+            }
+        })
+        .collect();
+    let dues = s.review().values().filter(|c| c.due <= aujourd).count();
+    f.set_home_notes(ModelRc::new(VecModel::from(items)));
+    f.set_home_cards_due(dues as i32);
 }
 
 /// What an event's note is made from.
@@ -1813,6 +2169,8 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         revision: None,
         beside: None,
         sheet: None,
+        services: services.clone(),
+        historique: None,
     }));
     sheet::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
@@ -2046,6 +2404,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     montrer_arbre(&f, e);
                 }
             }
+            "history" => historique(&f, e, &cle),
             "export" => exporter(&f, e, &cle, false),
             "print" => exporter(&f, e, &cle, true),
             "duplicate" => {
@@ -2147,6 +2506,49 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     geste!(on_notes_new_note, |f, e| {
         nouvelle_note(&f, e, "Untitled", "");
     });
+
+    // A note picked on Home.
+    {
+        let faible = f.as_weak();
+        f.on_home_note_opened(move |k| {
+            let Some(f) = faible.upgrade() else { return };
+            f.set_workspace(4);
+            f.invoke_workspace_changed(4);
+            f.invoke_notes_quick_chosen(k);
+        });
+    }
+
+    // A conversation, an event, a task: a link to it copied, to paste in a note.
+    {
+        let (services, faible) = (services.clone(), f.as_weak());
+        f.on_thread_copy_link(move |id| {
+            let Some(f) = faible.upgrade() else { return };
+            let sujet = services
+                .store
+                .thread_row(iris_types::ThreadId(i64::from(id)))
+                .ok()
+                .flatten()
+                .map(|l| l.subject)
+                .unwrap_or_default();
+            copier_lien(&f, &format!("mail:{id}"), &sujet);
+        });
+    }
+    {
+        let faible = f.as_weak();
+        f.on_event_copy_link(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let d = f.get_event_detail();
+            copier_lien(&f, &format!("event:{}", d.key), &d.title);
+        });
+    }
+    {
+        let faible = f.as_weak();
+        f.on_task_copy_link(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let id = f.get_task_detail().id;
+            copier_lien(&f, &format!("task:{id}"), &f.get_task_detail_title());
+        });
+    }
     geste!(on_notes_new_sheet, |f, e| {
         let dossier = e.dossier_courant();
         if let Some(rel) = sheet::nouvelle(&f, e, &dossier) {
@@ -2333,6 +2735,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
             let ed = edit::replace_block(&note.blocks, i, &n, 0);
             retenir(e, true);
             appliquer(&f, e, ed, false, None);
+            cocher_tache(e, &n);
         }
     });
     geste!(on_note_fold_toggled, |f, e, i| {
@@ -2414,6 +2817,64 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     geste!(on_note_focus_mode_toggled, |f, e| {
         mode_focus(&f, e);
     });
+    geste!(on_notes_graph_requested, |f, e| {
+        graphe(&f, e);
+    });
+    geste!(on_notes_graph_chosen, |f, e, k| {
+        let k = k.to_string();
+        ouvrir(&f, e, &k);
+        montrer_arbre(&f, e);
+    });
+    geste!(on_notes_history_picked, |f, e, i| {
+        let Some((rel, temps)) = &e.historique else {
+            return;
+        };
+        let Some(t) = temps.get(i.max(0) as usize).copied() else {
+            return;
+        };
+        let texte = e
+            .espace()
+            .and_then(|s| s.read_version(rel, t).ok())
+            .unwrap_or_default();
+        f.set_notes_history_preview(texte.into());
+        f.set_notes_history_chosen(i);
+    });
+    geste!(on_notes_history_restore, |f, e| {
+        let Some((rel, temps)) = e.historique.take() else {
+            return;
+        };
+        let Some(t) = temps
+            .get(f.get_notes_history_chosen().max(0) as usize)
+            .copied()
+        else {
+            return;
+        };
+        let Some(Ok(texte)) = e.espace().map(|s| s.read_version(&rel, t)) else {
+            return;
+        };
+        if e.note.as_ref().map(|n| n.rel.as_str()) != Some(rel.as_str()) {
+            ouvrir(&f, e, &rel);
+        }
+        if e.note.as_ref().map(|n| n.rel.as_str()) != Some(rel.as_str()) {
+            return;
+        }
+        // Like an edit: undone with Ctrl+Z, and what it replaces kept in the history.
+        retenir(e, true);
+        appliquer(
+            &f,
+            e,
+            NoteEdit {
+                text: texte,
+                block: 0,
+                cursor: 0,
+            },
+            false,
+            None,
+        );
+        sans_focus(&f, e);
+        rendre(&f, e, true);
+        f.set_toast(format!("The version of {} is back.", quand(t)).into());
+    });
     geste!(on_note_beside_closed, |f, e| {
         e.beside = None;
         montrer_a_cote(&f, e);
@@ -2470,6 +2931,33 @@ mod tests {
         let b = blocs_de("");
         assert_eq!(b.len(), 1);
         assert_eq!(block::join(&b), "");
+    }
+
+    #[test]
+    fn links_to_the_rest_of_iris() {
+        assert_eq!(lien_iris("mail:12"), Some(("mail", "12")));
+        assert_eq!(lien_iris("Task: 7"), Some(("task", "7")));
+        assert_eq!(
+            lien_iris("event:abc:1760000000000"),
+            Some(("event", "abc:1760000000000"))
+        );
+        assert_eq!(lien_iris("Chapitre 1"), None);
+        assert_eq!(lien_iris("mail:"), None);
+        assert_eq!(lien_iris("http://x"), None);
+        assert_eq!(
+            lien_ecrit("mail:3", "Re: [devis] | v2"),
+            "[[mail:3|Re: devis v2]]"
+        );
+        assert_eq!(lien_ecrit("task:9", "  "), "[[task:9]]");
+        assert_eq!(
+            tache_de_ligne("- [ ] Rendre le TD [[task:12]]"),
+            Some((12, false))
+        );
+        assert_eq!(
+            tache_de_ligne("  - [x] Fait [[task:3|ici]]"),
+            Some((3, true))
+        );
+        assert_eq!(tache_de_ligne("- [ ] Sans lien"), None);
     }
 
     #[test]

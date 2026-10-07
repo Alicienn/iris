@@ -30,6 +30,7 @@
 | <img src="docs/assets/icons/droplet.svg" width="20" alt=""> | **Light or dark.** One clean look, in light or dark, following Windows by default. |
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
 | <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, subtasks and reminders, typed in one line, with the conversations they came from one click away. |
+| <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Notes.** Markdown notes in folders of your own, written as they look, with LaTeX, links, flashcards and spreadsheets. |
 
 ## Install
 
@@ -95,8 +96,8 @@ beside *Accounts* shows them all in one list instead.
 
 ## Getting around
 
-Each place has its side column, and at its top four buttons go from one to another:
-**Home**, **Mail**, **Calendar** and **Tasks** (a dot when tasks are due). Back and
+Each place has its side column, and at its top five buttons go from one to another:
+**Home**, **Mail**, **Calendar**, **Tasks** (a dot when tasks are due) and **Notes**. Back and
 forward sit just above them. At the column's foot, the settings (`Ctrl`+`,`) and search
 and commands (`Ctrl`+`K`: every command at once, narrowed as you type).
 
@@ -119,6 +120,7 @@ Iris opens on **Home**: the date, a greeting with your first name (set it in
 - **Today**: the tasks due today or late; a circle ticks one off.
 - **To answer**: the first conversations of To do, and how many wait for an answer.
 - **This week**: the tasks done, a bar a day, and your inbox zero streak.
+- **Notes**: the notes you changed last, and how many flashcards are due.
 
 Each widget's title opens its place, each line what it names. Click **Home** at the top
 of the side column, or press `Ctrl`+`0`, to come back to it. To open on your mail
@@ -355,6 +357,88 @@ In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due d
 `L` later,
 `Delete` delete, `Ctrl`+`Z` to bring back what you just deleted.
 
+## Notes
+
+**Notes** (`Ctrl`+`4`) keeps notes as Markdown files in folders on your computer, so
+any other app can read them too. A **space** is one such folder: Iris makes the first
+one in `Iris` in your user folder; *New space* makes another, and *Open a folder as a
+space* opens one you already have (an Obsidian vault works as it is). Iris keeps its
+own settings for a space in a hidden `.iris` folder inside it.
+
+**The tree.** Folders, notes, spreadsheets, images and other files, sorted as people
+count ("Chapter 2" before "Chapter 10"). Drag a row onto a folder to move it, or onto
+the empty room below to bring it to the top. Right-click a row for *New note here*,
+*New spreadsheet here*, *New folder here*, *Rename* (`F2`), *Duplicate*, *Pin*,
+*Open beside*, *History…*, *Export as a web page…*, *Print or save as PDF…*,
+*Show in Explorer* and *Delete* (to the Recycle Bin). Renaming or moving a note
+rewrites every link to it. *Filter* narrows the tree by name; `Ctrl`+`O` opens a note
+by name (`Enter` on a name not found makes it), and `Ctrl`+`Shift`+`F` searches the
+words of the space, with `tag:`, `path:` and `is:task`.
+
+**Writing.** The line you are on shows what you typed; every other line shows the
+result. Markdown, plus a few marks of Iris's own:
+
+| Typed | Gives | Key |
+|---|---|---|
+| `**x**`, `*x*` | Bold, italic | `Ctrl`+`B`, `Ctrl`+`I` |
+| `__x__` | Underline | `Ctrl`+`U` |
+| `--x--` | Strikethrough | `Ctrl`+`Shift`+`X` |
+| `==x==`, `=={g}x==` | Highlight, in a colour | `Ctrl`+`Shift`+`H` |
+| `{r}x{/}` | Coloured text: `r` `o` `y` `g` `b` `p` `n` (grey) | `Ctrl`+`Shift`+`1`…`7`, or `Ctrl`+`Shift`+`C` for the picker |
+| `x^2^`, `H~2~O` | Superscript, subscript | `Ctrl`+`.`, `Ctrl`+`,` |
+| `` `x` `` | Code | `Ctrl`+`E` |
+| `$x$`, `$$` on a line | A formula in the line, a formula on its own | `Ctrl`+`M` |
+| `[[Note]]`, `[[Note#Heading]]`, `[[Note\|text]]` | A link to a note | typing `[[` |
+| `[text](https://…)` | A web link | `Ctrl`+`L` |
+| `#tag`, `@2026-10-08`, `^[text]` | A tag, a date, a footnote | typing `#`, `@` |
+| `# ` … `###### ` | Headings | `Ctrl`+`H` cycles |
+| `- `, `1. `, `[] ` | Bullets, numbers, a checkbox | `Ctrl`+`Enter` ticks |
+| `>def `, `>thm `, `>ex `, `>q `, `>! `, `>tip `… | A callout (definition, theorem…), numbered per note | |
+| `Question :: Answer` | A flashcard | |
+| `:::cols` … `:::col` … `:::` | Columns | |
+| `/` | The list of every block | |
+
+Pairs close themselves; lists go on with `Enter`; `Tab` and `Shift`+`Tab` nest;
+`Alt`+`↑`/`↓` move a block and `Ctrl`+`D` duplicates it; `Ctrl`+`Z`/`Ctrl`+`Y` undo and
+redo. Selecting words shows a bubble of formats, each naming its key when pointed at.
+Typing `[[`, `#`, `@`, `\` (in maths), `/` or `{` opens a list at the cursor. With the
+cursor in a link, a card shows the start of its note (*Open* goes there); in a
+footnote, its text; in a formula, its drawing. An image pasted with `Ctrl`+`V` is
+saved in the space's `_Fichiers` folder and shown in the note.
+
+**Maths.** Formulas are written in LaTeX and drawn as in a book. In maths, `Tab`
+expands a few letters: `//` a fraction, `sq` a root, `sum`, `int`, `lim`, `vec`,
+`mat2`, `mat3`, `cases`; `Tab` again goes to the next blank.
+
+**Spreadsheets.** A `.sheet` file is a workbook of sheets: type in a cell, `=` for a
+formula (`SUM`, `AVERAGE`, `IF`, `VLOOKUP`, `SUMIF`, `ROUND`, `TODAY` and some forty
+more), click cells to put them in it. Numbers and dates are read as you write them
+(`12,5`, `15 %`, `07/10/2026`). The toolbar sets number formats, decimals, bold,
+italic, underline, strikethrough, text and fill colours, borders, alignment and wrap;
+its menu inserts and deletes rows and columns, sorts, fills down (`Ctrl`+`D`) and
+right (`Ctrl`+`R`), and exports to Excel or CSV. Copy and paste go to and from Excel
+and Google Sheets. *Freeze* keeps the top rows in view; the status line adds up the
+selection. Right-click a `.xlsx` or `.csv` file in the tree for *Open as a
+spreadsheet*. In a note, `![[Budget.sheet]]` (or `![[Budget.sheet#A1:D10]]`) shows its
+values as a table; a click opens it.
+
+**Courses.** An event's panel offers **Take notes**: a note named after it and its
+day, made from the *Cours* template, in a folder for the course. Templates are notes in
+`_Modèles`, with `{{title}}`, `{{date}}`, `{{time}}`, `{{course}}` and `{{cursor}}`.
+A note with flashcards shows a **Revise** button: each card comes back sooner or later
+depending on how it went (Again, Hard, Good, Easy, or `1` to `4`).
+
+**Reading and more.** `Ctrl`+`R` reads the note with every line drawn and links one
+click away; `F11` is focus mode, the note alone; the side panel lists its outline,
+what mentions it, its tags and length. *Open beside* shows a second note to read while
+writing. `Ctrl`+`G` draws the graph of the links between the notes. *History…* lists
+the versions kept (one per session of editing, the last thirty) and restores one.
+
+**With the rest of Iris.** *Copy link for a note*, in a conversation's, an event's or a
+task's menu, copies `[[mail:…]]`, `[[event:…]]` or `[[task:…]]`; in a note, a click
+opens it. `Ctrl`+`Shift`+`T` on a checkbox makes it a task: ticking one ticks the
+other.
+
 ## Sending
 
 Sending closes the message window at once. For a few seconds, a notice at the bottom
@@ -401,7 +485,9 @@ on school and office networks where many people share one address.
 | `Ctrl`+`K` | Command palette |
 | `T` | Add the conversation to tasks |
 | `Ctrl`+`0` | Home |
-| `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` | Mail / Calendar / Tasks |
+| `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` / `Ctrl`+`4` | Mail / Calendar / Tasks / Notes |
+| `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | In Notes: new note / open a note / search the notes |
+| `Ctrl`+`R` / `F11` / `Ctrl`+`G` | In Notes: reading mode / focus mode / graph of links |
 | `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |
 | `Ctrl`+`,` | Settings |
@@ -422,6 +508,10 @@ Hover over any button to see its shortcut, or press `?` for all of them.
 - Replies and forwards are introduced in English ("On …, … wrote:").
 - Outlook and Microsoft 365 calendars cannot be connected (Microsoft offers no CalDAV);
   their published link can be subscribed to, read-only.
+- Notes are not synced between computers by Iris: put a space in a synced folder
+  (OneDrive, Dropbox) to have it elsewhere. Flashcards are revised one note at a time.
+- Spreadsheets have no charts, merged cells or conditional formats; an Excel file
+  keeps its values, formulas, number formats and column widths, not its charts.
 
 ## Privacy
 
@@ -429,7 +519,8 @@ Iris talks to your mail servers, to the calendar servers you connect, to the add
 of the calendars you subscribe to, to a mailing list's own address when you
 unsubscribe from it, and to GitHub to ask for
 the latest version. That last request carries no information about your mail or your
-accounts. Backups stay on this computer.
+accounts. Backups stay on this computer, and so do your notes: Iris reads and writes
+them in their folders and sends them nowhere.
 
 Removing an account removes from this computer its mail, its passwords and its words
 in the search index.

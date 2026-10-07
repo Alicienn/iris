@@ -386,6 +386,7 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     )));
     f.set_home_tasks_more(plus as i32);
     f.set_home_threads(ModelRc::new(VecModel::from(a_repondre(services, 3))));
+    crate::notes::refresh_home(f);
     f.set_home_answer_total(a_traiter as i32);
     f.set_home_waiting(en_attente(services) as i32);
     match crate::goals::for_home(services) {
@@ -486,6 +487,7 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
                     f.invoke_task_place_chosen("goals".into());
                 }
                 "calendar" => vers(&f, 1),
+                "notes" => vers(&f, 4),
                 _ => vers(&f, 0),
             }
         });

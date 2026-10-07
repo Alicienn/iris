@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 pub const ATTACHMENTS: &str = "_Fichiers";
 /// Where templates are.
 pub const TEMPLATES: &str = "_Modèles";
+/// How many past versions of a note are kept.
+pub const VERSIONS: usize = 30;
 
 /// A space's settings, in `.iris/space.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -255,6 +257,53 @@ impl Space {
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default()
+    }
+
+    /// Where the past versions of `rel` are kept: `.iris/history/<rel, / as ~>/`.
+    fn dossier_versions(&self, rel: &str) -> PathBuf {
+        let nom: String = rel
+            .chars()
+            .map(|c| if c == '/' || c == '\\' { '~' } else { c })
+            .collect();
+        self.dir.join(".iris").join("history").join(nom)
+    }
+
+    /// Keeps `text` as a past version of `rel`, at `when` (milliseconds); the oldest
+    /// beyond [`VERSIONS`] are let go.
+    pub fn save_version(&self, rel: &str, text: &str, when: i64) -> Result<()> {
+        self.path(rel)?;
+        let dossier = self.dossier_versions(rel);
+        std::fs::create_dir_all(&dossier)?;
+        ecrire_atomique(&dossier.join(format!("{when}.md")), text.as_bytes())?;
+        let versions = self.versions(rel);
+        for (t, _) in versions.iter().skip(VERSIONS) {
+            let _ = std::fs::remove_file(dossier.join(format!("{t}.md")));
+        }
+        Ok(())
+    }
+
+    /// The past versions of `rel`, newest first: when, and how many bytes.
+    pub fn versions(&self, rel: &str) -> Vec<(i64, u64)> {
+        let mut sortie: Vec<(i64, u64)> = std::fs::read_dir(self.dossier_versions(rel))
+            .map(|it| {
+                it.filter_map(|e| {
+                    let e = e.ok()?;
+                    let nom = e.file_name().to_string_lossy().into_owned();
+                    let t = nom.strip_suffix(".md")?.parse::<i64>().ok()?;
+                    Some((t, e.metadata().map(|m| m.len()).unwrap_or(0)))
+                })
+                .collect()
+            })
+            .unwrap_or_default();
+        sortie.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+        sortie
+    }
+
+    /// The text of `rel` as it was at `when`.
+    pub fn read_version(&self, rel: &str, when: i64) -> Result<String> {
+        self.path(rel)?;
+        let octets = std::fs::read(self.dossier_versions(rel).join(format!("{when}.md")))?;
+        Ok(String::from_utf8_lossy(&octets).into_owned())
     }
 
     /// The flashcards' state, written back.
@@ -830,6 +879,27 @@ mod tests {
             std::fs::remove_file(path).or_else(|_| std::fs::remove_dir_all(path))?;
             Ok(())
         }
+    }
+
+    #[test]
+    fn past_versions_are_kept_thirty_at_most() {
+        let (_d, s) = espace();
+        let rel = s.create_note("", "Cours", "v0").unwrap();
+        assert!(s.versions(&rel).is_empty());
+        for k in 0..35 {
+            s.save_version(&rel, &format!("v{k}"), 1_000 + k).unwrap();
+        }
+        let v = s.versions(&rel);
+        assert_eq!(v.len(), VERSIONS);
+        assert_eq!(v[0].0, 1_034);
+        assert_eq!(s.read_version(&rel, 1_034).unwrap(), "v34");
+        assert!(s.read_version(&rel, 1_000).is_err());
+        // Notes in folders keep theirs apart.
+        s.create_folder("", "A").unwrap();
+        let autre = s.create_note("A", "Cours", "").unwrap();
+        assert!(s.versions(&autre).is_empty());
+        // Hidden from the tree.
+        assert!(s.notes().iter().all(|n| !n.contains("history")));
     }
 
     #[test]

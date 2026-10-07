@@ -443,6 +443,88 @@ fn ctrl_4_opens_the_notes_and_escape_closes_their_menus() {
     assert!(!f.get_notes_quick_open(), "Escape closes Quick open");
 }
 
+fn a_note_s_line_takes_every_key_and_enter_goes_to_rust() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    let edites = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let edites = Rc::clone(&edites);
+        f.on_note_block_edited(move |_, t, _| edites.borrow_mut().push(t.to_string()));
+    }
+    let cles = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let cles = Rc::clone(&cles);
+        f.on_note_block_key(move |_, n, _, _, _, _| {
+            cles.borrow_mut().push(n.to_string());
+            n == "enter"
+        });
+    }
+    f.set_note_open(true);
+    f.set_note_blocks(ModelRc::new(VecModel::from(vec![iris_ui::NoteBlockData {
+        kind: "paragraph".into(),
+        ..Default::default()
+    }])));
+    f.set_note_focus(0);
+    f.set_note_focus_serial(1);
+    // AltGr's characters too, as an AZERTY keyboard gives them.
+    taper(&f, "Hé@€");
+    assert_eq!(
+        edites.borrow().last().map(String::as_str),
+        Some("Hé@€"),
+        "the line takes the keys"
+    );
+    let entree = SharedString::from(slint::platform::Key::Return);
+    f.window().dispatch_event(WindowEvent::KeyPressed {
+        text: entree.clone(),
+    });
+    f.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: entree });
+    assert!(
+        cles.borrow().iter().any(|k| k == "enter"),
+        "Enter is Rust's: {:?}",
+        cles.borrow()
+    );
+}
+
+fn a_spreadsheet_takes_the_keys_and_its_menu_owns_them_until_escape() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    let g = f.global::<iris_ui::SheetGrid>();
+    let cles = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let cles = Rc::clone(&cles);
+        g.on_key(move |t, _, _| {
+            cles.borrow_mut().push(t.to_string());
+            true
+        });
+    }
+    f.set_note_sheet_open(true);
+    g.set_focus_serial(g.get_focus_serial() + 1);
+    taper(&f, "=@");
+    assert_eq!(*cles.borrow(), vec!["=".to_string(), "@".to_string()]);
+    g.set_menu("more".into());
+    taper(&f, "x");
+    assert_eq!(cles.borrow().len(), 2, "nothing passes an open menu");
+    echap(&f);
+    assert_eq!(g.get_menu().as_str(), "", "Escape closes the menu");
+    taper(&f, "y");
+    assert_eq!(cles.borrow().last().map(String::as_str), Some("y"));
+}
+
+fn the_notes_panels_close_with_escape() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    f.set_notes_history_open(true);
+    echap(&f);
+    assert!(!f.get_notes_history_open(), "Escape closes the history");
+    f.set_notes_graph_open(true);
+    echap(&f);
+    assert!(!f.get_notes_graph_open(), "Escape closes the graph");
+    f.set_notes_review_open(true);
+    echap(&f);
+    assert!(!f.get_notes_review_open(), "Escape closes the revision");
+}
+
 fn connecting_calendars_opens_in_the_address_and_escape_closes() {
     let f = fenetre();
     f.set_workspace(1);
@@ -2461,6 +2543,18 @@ fn main() {
         (
             "ctrl_4_opens_the_notes_and_escape_closes_their_menus",
             ctrl_4_opens_the_notes_and_escape_closes_their_menus,
+        ),
+        (
+            "a_note_s_line_takes_every_key_and_enter_goes_to_rust",
+            a_note_s_line_takes_every_key_and_enter_goes_to_rust,
+        ),
+        (
+            "a_spreadsheet_takes_the_keys_and_its_menu_owns_them_until_escape",
+            a_spreadsheet_takes_the_keys_and_its_menu_owns_them_until_escape,
+        ),
+        (
+            "the_notes_panels_close_with_escape",
+            the_notes_panels_close_with_escape,
         ),
         (
             "connecting_calendars_opens_in_the_address_and_escape_closes",

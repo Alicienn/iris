@@ -965,6 +965,7 @@ export component EventContextMenu inherits Rectangle {
     callback delete();
     /// A swatch of the palette; -1 for the calendar's colour again.
     callback color-chosen(int);
+    callback copy-link();
     callback dismissed();
 
     TouchArea {
@@ -998,6 +999,11 @@ export component EventContextMenu inherits Rectangle {
                 icon: Icons.calendar;
                 label: "Open";
                 activated => { root.open(); }
+            }
+            MenuEntry {
+                icon: Icons.link;
+                label: "Copy link for a note";
+                activated => { root.copy-link(); }
             }
             if root.event.editable: MenuEntry {
                 icon: Icons.pencil;

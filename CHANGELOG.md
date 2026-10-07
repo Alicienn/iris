@@ -3,6 +3,21 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.15.0 — 2026-10-08
+
+### New
+- Notes: write in spaces of Markdown files, arranged in a tree you drag and drop.
+- Formatting as you type and with shortcuts: headings, lists, checkboxes, callouts, colours, highlight, underline, strikethrough.
+- Links between notes, with what mentions a note, its outline, tags and search.
+- LaTeX formulas drawn in the note, with snippets for the usual symbols.
+- Spreadsheets with formulas and formatting, opened from Excel or CSV, and shown inside a note.
+- Flashcards in your notes, brought back when it is time to revise them.
+- Take notes for an event straight from the calendar.
+- Link a note to a conversation, an event or a task; a checkbox can become a task.
+- Reading mode, focus mode, a note beside another, the graph of links and past versions.
+- Save a note as a web page or print it as PDF.
+- Home shows your last notes and the flashcards due.
+
 ## 4.14.1 — 2026-10-07
 
 ### Improved
