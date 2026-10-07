@@ -273,7 +273,7 @@ pub(super) fn dessiner(f: &AppWindow, fe: &mut Feuille, tout: bool) {
             pos: fe.x(c),
             size: fe.x(c + 1) - fe.x(c),
             label: iris_sheets::col_name(c).into(),
-            selected: c >= sel.start.col && c <= sel.end.col,
+            selected: (sel.start.col..=sel.end.col).contains(&c),
         })
         .collect();
     let mut lignes: Vec<SheetHeaderData> = (0..gelees.min(r0))
@@ -283,7 +283,7 @@ pub(super) fn dessiner(f: &AppWindow, fe: &mut Feuille, tout: bool) {
             pos: fe.y(r),
             size: fe.y(r + 1) - fe.y(r),
             label: (r + 1).to_string().into(),
-            selected: r >= sel.start.row && r <= sel.end.row,
+            selected: (sel.start.row..=sel.end.row).contains(&r),
         })
         .collect();
     lignes.sort_by_key(|l| l.index);
@@ -351,7 +351,7 @@ pub(super) fn montrer_selection(f: &AppWindow, fe: &mut Feuille) {
     // What the selection adds up to.
     let mut nombres = Vec::new();
     let mut remplies = 0usize;
-    if sel.len() > 1 && sel.len() < 200_000 {
+    if (2..200_000).contains(&sel.len()) {
         let s = fe.feuille();
         for (a, _) in s
             .cells
