@@ -3613,6 +3613,7 @@ dependencies = [
  "iris-plugins",
  "iris-rules",
  "iris-secrets",
+ "iris-sheets",
  "iris-smtp",
  "iris-store",
  "iris-sync",

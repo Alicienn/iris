@@ -1,0 +1,972 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { TextField } from "@iris/controls/field.slint";
+import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
+import { SheetCellData, SheetHeaderData } from "@iris/types.slint";
+
+// A spreadsheet open in Notes: its formats above, the formula bar, the grid with its
+// headers, the sheets' tabs and the selection's sum below.
+//
+// The grid only draws what shows: the columns, rows and cells in view (and a margin)
+// come from Rust each time the view moves past them. Positions are in the grid's
+// content, from its top left cell.
+
+export global SheetGrid {
+    // The grid.
+    in property <[SheetCellData]> cells;
+    /// The cells of the frozen rows, drawn over the others while they scroll.
+    in property <[SheetCellData]> pinned;
+    in property <[SheetHeaderData]> columns;
+    in property <[SheetHeaderData]> rows;
+    in property <int> frozen-rows;
+    in property <length> frozen-height;
+    in property <length> content-width;
+    in property <length> content-height;
+    /// Asked by Rust: the view moved to `scroll-x`/`scroll-y` (content offsets, ≤ 0).
+    in property <length> scroll-x;
+    in property <length> scroll-y;
+    in property <int> scroll-serial;
+    // The selection and the active cell, in content coordinates.
+    in property <length> sel-x;
+    in property <length> sel-y;
+    in property <length> sel-width;
+    in property <length> sel-height;
+    in property <length> cur-x;
+    in property <length> cur-y;
+    in property <length> cur-width;
+    in property <length> cur-height;
+    // Typing in a cell.
+    in property <bool> editing;
+    in property <string> edit-text;
+    in property <int> edit-serial;
+    in property <int> edit-cursor;
+    // Above and below the grid.
+    in property <string> address;
+    in property <string> input;
+    in property <int> input-serial;
+    in property <string> status;
+    in property <[string]> sheets;
+    in property <int> sheet;
+    /// Raised to give the keyboard to the grid.
+    in-out property <int> focus-serial;
+    // The active cell's format, for the toolbar.
+    in property <bool> bold;
+    in property <bool> italic;
+    in property <bool> underline;
+    in property <bool> strike;
+    in property <bool> wrap;
+    in property <bool> border;
+    /// 0 auto, 1 left, 2 centre, 3 right.
+    in property <int> align;
+    /// What the number format button says.
+    in property <string> number;
+    in property <bool> frozen;
+    // A menu over the window: "", "color", "fill", "number", "more", "sheet".
+    in-out property <string> menu;
+    in-out property <length> menu-x;
+    in-out property <length> menu-y;
+
+    /// The view: its offset in the content and its size.
+    callback viewport(length, length, length, length);
+    /// A press in the grid (content coordinates), Shift held or not.
+    callback pressed(length, length, bool);
+    callback dragged(length, length);
+    callback double-clicked(length, length);
+    /// A header pressed: 0 a column, 1 a row; its index; Shift held.
+    callback header-pressed(int, int, bool);
+    /// A column (0) or row (1) given a new size.
+    callback header-resized(int, int, length);
+    /// A key while the grid has the keyboard: its text, Shift, Ctrl (not AltGr).
+    callback key(string, bool, bool) -> bool;
+    /// Typing done: the text, and where to go — 0 stay, 1 down, 2 right, 3 up, 4 left, −1 cancelled.
+    callback edit-done(string, int);
+    callback edit-changed(string);
+    /// The formula bar's text accepted.
+    callback input-done(string);
+    callback action(string);
+    callback sheet-chosen(int);
+}
+
+// A cell: its colour, its text where its format puts it, a line under or through it.
+component SheetCell inherits Rectangle {
+    in property <SheetCellData> item;
+    x: root.item.x;
+    y: root.item.y;
+    width: root.item.width;
+    height: root.item.height;
+    background: root.item.has-fill ? root.item.fill : transparent;
+    border-width: root.item.border ? 1px : 0px;
+    border-color: Tokens.text-muted;
+
+    t := Text {
+        x: 5px;
+        width: parent.width - 10px;
+        height: parent.height;
+        text: root.item.text;
+        color: root.item.color;
+        font-size: 13px;
+        font-weight: root.item.bold ? 700 : 400;
+        font-italic: root.item.italic;
+        horizontal-alignment: root.item.align == 2 ? TextHorizontalAlignment.right
+            : root.item.align == 1 ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
+        vertical-alignment: TextVerticalAlignment.center;
+        wrap: root.item.wrap ? TextWrap.word-wrap : TextWrap.no-wrap;
+        overflow: TextOverflow.elide;
+    }
+    property <length> largeur: min(t.preferred-width, t.width);
+    property <length> debut: root.item.align == 2 ? t.x + t.width - root.largeur
+        : root.item.align == 1 ? t.x + (t.width - root.largeur) / 2 : t.x;
+    if root.item.underline && !root.item.wrap: Rectangle {
+        x: root.debut;
+        y: parent.height / 2 + 8px;
+        width: root.largeur;
+        height: 1px;
+        background: root.item.color;
+    }
+    if root.item.strike && !root.item.wrap: Rectangle {
+        x: root.debut;
+        y: parent.height / 2;
+        width: root.largeur;
+        height: 1px;
+        background: root.item.color;
+    }
+}
+
+// A button of the toolbar that says a word rather than shows an icon.
+component WordButton inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+    width: max(30px, mot.preferred-width + 16px);
+    height: 28px;
+    border-radius: Tokens.radius-small;
+    background: zone.pressed ? Tokens.surface-hover.darker(0.05)
+        : zone.has-hover || root.active ? Tokens.surface-hover : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    mot := Text {
+        text: root.text;
+        font-size: 12.5px;
+        color: Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component Separator inherits Rectangle {
+    width: 9px;
+    Rectangle {
+        x: 4px;
+        y: 7px;
+        width: 1px;
+        height: parent.height - 14px;
+        background: Tokens.border;
+    }
+}
+
+export component SheetView inherits Rectangle {
+    background: Tokens.surface;
+    property <length> entete-w: 46px;
+    property <length> entete-h: 24px;
+    property <int> demande: SheetGrid.focus-serial;
+    changed demande => { touches.focus(); }
+
+    function menu(kind: string, x: length, y: length) {
+        SheetGrid.menu-x = x;
+        SheetGrid.menu-y = y;
+        SheetGrid.menu = kind;
+    }
+
+    // The keyboard of the grid: Rust decides what each key does, and a character
+    // typed starts writing in the cell.
+    touches := FocusScope {
+        width: 0px;
+        height: 0px;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            // A menu open owns the keyboard: Escape closes it, nothing else passes.
+            if (SheetGrid.menu != "") {
+                if (event.text == Key.Escape) {
+                    SheetGrid.menu = "";
+                }
+                return accept;
+            }
+            if (event.text == Key.Shift || event.text == Key.Control || event.text == Key.Alt
+                || event.text == Key.AltGr || event.text == Key.Meta) {
+                return reject;
+            }
+            let ctrl = event.modifiers.control && !event.modifiers.alt;
+            if (SheetGrid.key(event.text, event.modifiers.shift, ctrl)) {
+                return accept;
+            }
+            reject
+        }
+    }
+
+    VerticalLayout {
+        // The formats of the selection.
+        HorizontalLayout {
+            height: 40px;
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 1px;
+            alignment: start;
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.undo;
+                label: "Undo";
+                shortcut: "Ctrl+Z";
+                clicked => { SheetGrid.action("undo"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.redo;
+                label: "Redo";
+                shortcut: "Ctrl+Y";
+                clicked => { SheetGrid.action("redo"); touches.focus(); }
+            }
+            Separator { }
+            nombre := WordButton {
+                y: (parent.height - self.height) / 2;
+                text: SheetGrid.number + "  ▾";
+                label: "Number format";
+                clicked => { root.menu("number", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+            }
+            WordButton {
+                y: (parent.height - self.height) / 2;
+                text: ".0−";
+                label: "Fewer decimals";
+                clicked => { SheetGrid.action("decimals-"); touches.focus(); }
+            }
+            WordButton {
+                y: (parent.height - self.height) / 2;
+                text: ".00+";
+                label: "More decimals";
+                clicked => { SheetGrid.action("decimals+"); touches.focus(); }
+            }
+            Separator { }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.bold;
+                label: "Bold";
+                shortcut: "Ctrl+B";
+                active: SheetGrid.bold;
+                clicked => { SheetGrid.action("bold"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.italic;
+                label: "Italic";
+                shortcut: "Ctrl+I";
+                active: SheetGrid.italic;
+                clicked => { SheetGrid.action("italic"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.underline;
+                label: "Underline";
+                shortcut: "Ctrl+U";
+                active: SheetGrid.underline;
+                clicked => { SheetGrid.action("underline"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.strikethrough;
+                label: "Strikethrough";
+                shortcut: "Ctrl+5";
+                active: SheetGrid.strike;
+                clicked => { SheetGrid.action("strike"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.text-colour;
+                label: "Text colour";
+                clicked => { root.menu("color", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.fill;
+                label: "Fill colour";
+                clicked => { root.menu("fill", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.border;
+                label: "Borders";
+                active: SheetGrid.border;
+                clicked => { SheetGrid.action("border"); touches.focus(); }
+            }
+            Separator { }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.align-left;
+                label: "Align left";
+                active: SheetGrid.align == 1;
+                clicked => { SheetGrid.action("align-left"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.align-center;
+                label: "Centre";
+                active: SheetGrid.align == 2;
+                clicked => { SheetGrid.action("align-center"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.align-right;
+                label: "Align right";
+                active: SheetGrid.align == 3;
+                clicked => { SheetGrid.action("align-right"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.wrap;
+                label: "Wrap text";
+                active: SheetGrid.wrap;
+                clicked => { SheetGrid.action("wrap"); touches.focus(); }
+            }
+            Separator { }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.sort;
+                label: "Sort A to Z by this column";
+                clicked => { SheetGrid.action("sort-asc"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.freeze;
+                label: SheetGrid.frozen ? "Unfreeze the top rows" : "Freeze the rows above the cursor";
+                active: SheetGrid.frozen;
+                clicked => { SheetGrid.action("freeze"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.more;
+                label: "Rows, columns, export";
+                clicked => { root.menu("more", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+            }
+        }
+        Rectangle {
+            height: 1px;
+            background: Tokens.border;
+        }
+
+        // The formula bar: the address, and what the active cell holds.
+        HorizontalLayout {
+            height: 36px;
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            spacing: 8px;
+            Rectangle {
+                width: 84px;
+                border-radius: Tokens.radius-small;
+                background: Tokens.surface-low;
+                Text {
+                    text: SheetGrid.address;
+                    font-size: 12.5px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.function;
+                size: 16px;
+                tint: Tokens.text-muted;
+            }
+            barre := TextField {
+                horizontal-stretch: 1;
+                placeholder-text: "A value, or = and a formula";
+                property <int> demande: SheetGrid.input-serial;
+                changed demande => { self.text = SheetGrid.input; }
+                text: SheetGrid.input;
+                accepted(t) => {
+                    SheetGrid.input-done(t);
+                    touches.focus();
+                }
+            }
+        }
+        Rectangle {
+            height: 1px;
+            background: Tokens.border;
+        }
+
+        // The grid.
+        grille := Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+
+            // The corner: everything selected.
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: root.entete-w;
+                height: root.entete-h;
+                background: Tokens.surface-low;
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    background: Tokens.border;
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Tokens.border;
+                }
+                TouchArea {
+                    clicked => {
+                        SheetGrid.action("select-all");
+                        touches.focus();
+                    }
+                }
+            }
+
+            // The columns' letters.
+            Rectangle {
+                x: root.entete-w;
+                y: 0px;
+                width: parent.width - root.entete-w;
+                height: root.entete-h;
+                clip: true;
+                background: Tokens.surface-low;
+                for c in SheetGrid.columns: Rectangle {
+                    x: c.pos + f.viewport-x;
+                    width: c.size;
+                    height: parent.height;
+                    background: c.selected ? Tokens.accent.transparentize(0.86) : transparent;
+                    Text {
+                        text: c.label;
+                        font-size: 11.5px;
+                        font-weight: c.selected ? 600 : 400;
+                        color: c.selected ? Tokens.accent : Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        x: parent.width - 1px;
+                        width: 1px;
+                        background: Tokens.border;
+                    }
+                    TouchArea {
+                        width: parent.width - 5px;
+                        x: 0px;
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                SheetGrid.header-pressed(0, c.index, event.modifiers.shift);
+                                touches.focus();
+                            }
+                        }
+                    }
+                    // Its right edge, carried: its width.
+                    TouchArea {
+                        x: parent.width - 5px;
+                        width: 8px;
+                        mouse-cursor: MouseCursor.col-resize;
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                SheetGrid.header-resized(0, c.index, max(24px, c.size + self.mouse-x - self.pressed-x));
+                                touches.focus();
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Tokens.border;
+                }
+            }
+
+            // The rows' numbers; the frozen ones stay.
+            Rectangle {
+                x: 0px;
+                y: root.entete-h;
+                width: root.entete-w;
+                height: parent.height - root.entete-h;
+                clip: true;
+                background: Tokens.surface-low;
+                for r in SheetGrid.rows: Rectangle {
+                    y: r.index < SheetGrid.frozen-rows ? r.pos : r.pos + f.viewport-y;
+                    visible: r.index < SheetGrid.frozen-rows || r.pos + f.viewport-y >= SheetGrid.frozen-height - r.size;
+                    height: r.size;
+                    width: parent.width;
+                    background: r.selected ? Tokens.accent.transparentize(0.86) : Tokens.surface-low;
+                    Text {
+                        text: r.label;
+                        font-size: 11.5px;
+                        font-weight: r.selected ? 600 : 400;
+                        color: r.selected ? Tokens.accent : Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Tokens.border;
+                    }
+                    TouchArea {
+                        height: parent.height - 4px;
+                        y: 0px;
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                SheetGrid.header-pressed(1, r.index, event.modifiers.shift);
+                                touches.focus();
+                            }
+                        }
+                    }
+                    TouchArea {
+                        y: parent.height - 4px;
+                        height: 7px;
+                        mouse-cursor: MouseCursor.row-resize;
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                SheetGrid.header-resized(1, r.index, max(16px, r.size + self.mouse-y - self.pressed-y));
+                                touches.focus();
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    background: Tokens.border;
+                }
+            }
+
+            corps := Rectangle {
+                x: root.entete-w;
+                y: root.entete-h;
+                width: parent.width - root.entete-w;
+                height: parent.height - root.entete-h;
+                clip: true;
+
+                f := Flickable {
+                    width: parent.width;
+                    height: parent.height;
+                    mouse-drag-pan-enabled: false;
+                    viewport-width: max(self.width, SheetGrid.content-width);
+                    viewport-height: max(self.height, SheetGrid.content-height);
+                    property <int> demande: SheetGrid.scroll-serial;
+                    changed demande => {
+                        self.viewport-x = SheetGrid.scroll-x;
+                        self.viewport-y = SheetGrid.scroll-y;
+                    }
+                    changed viewport-x => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
+                    changed viewport-y => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
+                    changed width => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
+                    changed height => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
+                    init => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
+
+                    // The lines between cells, across what shows.
+                    for c in SheetGrid.columns: Rectangle {
+                        x: c.pos + c.size - 1px;
+                        y: -f.viewport-y;
+                        width: 1px;
+                        height: f.height;
+                        background: Tokens.border.transparentize(0.4);
+                    }
+                    for r in SheetGrid.rows: Rectangle {
+                        x: -f.viewport-x;
+                        y: r.pos + r.size - 1px;
+                        width: f.width;
+                        height: 1px;
+                        background: Tokens.border.transparentize(0.4);
+                    }
+                    for c in SheetGrid.cells: SheetCell {
+                        item: c;
+                    }
+                    // The selection, and the cell typed in.
+                    Rectangle {
+                        x: SheetGrid.sel-x;
+                        y: SheetGrid.sel-y;
+                        width: SheetGrid.sel-width;
+                        height: SheetGrid.sel-height;
+                        background: Tokens.accent.transparentize(0.9);
+                        border-width: 1px;
+                        border-color: Tokens.accent.transparentize(0.4);
+                    }
+                    Rectangle {
+                        x: SheetGrid.cur-x - 1px;
+                        y: SheetGrid.cur-y - 1px;
+                        width: SheetGrid.cur-width + 1px;
+                        height: SheetGrid.cur-height + 1px;
+                        border-width: 2px;
+                        border-color: Tokens.accent;
+                    }
+                    souris := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: f.viewport-width;
+                        height: f.viewport-height;
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                SheetGrid.pressed(self.mouse-x, self.mouse-y, event.modifiers.shift);
+                                touches.focus();
+                            }
+                        }
+                        moved => {
+                            if (self.pressed) {
+                                SheetGrid.dragged(self.mouse-x, self.mouse-y);
+                            }
+                        }
+                        double-clicked => { SheetGrid.double-clicked(self.mouse-x, self.mouse-y); }
+                    }
+                }
+
+                // The frozen rows, over the others.
+                if SheetGrid.frozen-height > 0: Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: SheetGrid.frozen-height;
+                    clip: true;
+                    background: Tokens.surface;
+                    for c in SheetGrid.columns: Rectangle {
+                        x: c.pos + c.size - 1px + f.viewport-x;
+                        width: 1px;
+                        background: Tokens.border.transparentize(0.4);
+                    }
+                    for c in SheetGrid.pinned: SheetCell {
+                        item: c;
+                        x: c.x + f.viewport-x;
+                    }
+                    Rectangle {
+                        x: SheetGrid.cur-x - 1px + f.viewport-x;
+                        y: SheetGrid.cur-y - 1px;
+                        width: SheetGrid.cur-width + 1px;
+                        height: SheetGrid.cur-height + 1px;
+                        visible: SheetGrid.cur-y < SheetGrid.frozen-height;
+                        border-width: 2px;
+                        border-color: Tokens.accent;
+                    }
+                    Rectangle {
+                        y: parent.height - 2px;
+                        height: 2px;
+                        background: Tokens.border;
+                    }
+                    TouchArea {
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                SheetGrid.pressed(self.mouse-x - f.viewport-x, self.mouse-y, event.modifiers.shift);
+                                touches.focus();
+                            }
+                        }
+                        moved => {
+                            if (self.pressed) {
+                                SheetGrid.dragged(self.mouse-x - f.viewport-x, self.mouse-y);
+                            }
+                        }
+                        double-clicked => { SheetGrid.double-clicked(self.mouse-x - f.viewport-x, self.mouse-y); }
+                    }
+                }
+
+                // Typing in a cell: the field over it, as wide as its text.
+                property <bool> fige: SheetGrid.cur-y < SheetGrid.frozen-height;
+                editeur := Rectangle {
+                    x: SheetGrid.cur-x + f.viewport-x - 1px;
+                    y: SheetGrid.cur-y + (corps.fige ? 0px : f.viewport-y) - 1px;
+                    width: max(SheetGrid.cur-width + 2px, min(saisie.preferred-width + 14px, corps.width - self.x));
+                    height: SheetGrid.cur-height + 2px;
+                    visible: SheetGrid.editing;
+                    background: Tokens.surface;
+                    border-width: 2px;
+                    border-color: Tokens.accent;
+                    drop-shadow-blur: 6px;
+                    drop-shadow-color: #0000002a;
+                    saisie := TextInput {
+                        x: 6px;
+                        width: parent.width - 12px;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        single-line: true;
+                        font-size: 13px;
+                        color: Tokens.text;
+                        selection-background-color: Tokens.accent.transparentize(0.7);
+                        enabled: SheetGrid.editing;
+                        property <int> demande: SheetGrid.edit-serial;
+                        changed demande => {
+                            self.text = SheetGrid.edit-text;
+                            self.focus();
+                            self.set-selection-offsets(SheetGrid.edit-cursor, SheetGrid.edit-cursor);
+                        }
+                        edited => { SheetGrid.edit-changed(self.text); }
+                        key-pressed(event) => {
+                            if (event.text == Key.Return) {
+                                SheetGrid.edit-done(self.text, event.modifiers.shift ? 3 : 1);
+                                touches.focus();
+                                return accept;
+                            }
+                            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                                SheetGrid.edit-done(self.text, event.modifiers.shift || event.text == Key.Backtab ? 4 : 2);
+                                touches.focus();
+                                return accept;
+                            }
+                            if (event.text == Key.Escape) {
+                                SheetGrid.edit-done(self.text, -1);
+                                touches.focus();
+                                return accept;
+                            }
+                            reject
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Tokens.border;
+        }
+        // The sheets, and what the selection adds up to.
+        HorizontalLayout {
+            height: 32px;
+            padding-left: 8px;
+            padding-right: 12px;
+            spacing: 2px;
+            for s[i] in SheetGrid.sheets: Rectangle {
+                y: 3px;
+                height: parent.height - 6px;
+                width: onglet.preferred-width + 24px;
+                border-radius: Tokens.radius-small;
+                background: i == SheetGrid.sheet ? Tokens.surface-hover : zone.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent;
+                onglet := Text {
+                    text: s;
+                    font-size: 12.5px;
+                    font-weight: i == SheetGrid.sheet ? 600 : 400;
+                    color: i == SheetGrid.sheet ? Tokens.text : Tokens.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                zone := TouchArea {
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                            SheetGrid.sheet-chosen(i);
+                            touches.focus();
+                        }
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                            SheetGrid.sheet-chosen(i);
+                            root.menu("sheet", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                        }
+                    }
+                    double-clicked => { root.menu("sheet", self.absolute-position.x, self.absolute-position.y - 80px); }
+                }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.plus;
+                label: "New sheet";
+                button-size: 24px;
+                icon-size: 13px;
+                clicked => { SheetGrid.action("sheet-add"); touches.focus(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: SheetGrid.status;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// The colours a cell's text and fill can take: none, then the palette.
+component Swatch inherits Rectangle {
+    in property <color> colour;
+    in property <bool> none;
+    in property <string> label;
+    callback clicked();
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: root.none ? Tokens.surface : root.colour;
+    border-width: zone.has-hover ? 2px : 1px;
+    border-color: zone.has-hover ? Tokens.accent : Tokens.border;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    if root.none: Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 5 19 L 19 5";
+        stroke: #d93025;
+        stroke-width: 1.6px;
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SheetMenu inherits Rectangle {
+    callback chosen(string);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: SheetGrid.menu-x;
+        menu-y: SheetGrid.menu-y;
+        menu-width: SheetGrid.menu == "color" || SheetGrid.menu == "fill" ? 232px : 250px;
+        menu-height: entries.preferred-height + 8px;
+        entries := VerticalLayout {
+            padding: 4px;
+            if SheetGrid.menu == "color" || SheetGrid.menu == "fill": VerticalLayout {
+                padding: 8px;
+                spacing: 8px;
+                Text {
+                    text: SheetGrid.menu == "color" ? "Text colour" : "Fill colour";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Swatch {
+                        none: true;
+                        label: "None";
+                        clicked => { root.chosen(SheetGrid.menu + ":none"); }
+                    }
+                    for c[i] in SheetGrid.menu == "color"
+                        ? [#d93025, #e8710a, #b88400, #188038, #1a73e8, #8e24aa, #5f6368]
+                        : [#fce8e6, #feefe3, #fef7e0, #e6f4ea, #e8f0fe, #f3e8fd, #eceef0]: Swatch {
+                        colour: c;
+                        label: ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Grey"][i];
+                        clicked => { root.chosen(SheetGrid.menu + ":" + i); }
+                    }
+                }
+            }
+            if SheetGrid.menu == "number": VerticalLayout {
+                MenuEntry {
+                    label: "General";
+                    activated => { root.chosen("number:general"); }
+                }
+                MenuEntry {
+                    label: "Number   1 234,56";
+                    activated => { root.chosen("number:number"); }
+                }
+                MenuEntry {
+                    label: "Percent   12 %";
+                    activated => { root.chosen("number:percent"); }
+                }
+                MenuEntry {
+                    label: "Currency   12,50 €";
+                    activated => { root.chosen("number:currency"); }
+                }
+                MenuEntry {
+                    label: "Date";
+                    activated => { root.chosen("number:date"); }
+                }
+                MenuEntry {
+                    label: "Time";
+                    activated => { root.chosen("number:time"); }
+                }
+                MenuEntry {
+                    label: "Date and time";
+                    activated => { root.chosen("number:datetime"); }
+                }
+                MenuEntry {
+                    label: "Text, as typed";
+                    activated => { root.chosen("number:text"); }
+                }
+            }
+            if SheetGrid.menu == "more": VerticalLayout {
+                MenuEntry {
+                    icon: Icons.plus;
+                    label: "Insert a row above";
+                    activated => { root.chosen("row-above"); }
+                }
+                MenuEntry {
+                    icon: Icons.plus;
+                    label: "Insert a row below";
+                    activated => { root.chosen("row-below"); }
+                }
+                MenuEntry {
+                    icon: Icons.minus;
+                    label: "Delete the rows";
+                    activated => { root.chosen("row-delete"); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    icon: Icons.plus;
+                    label: "Insert a column left";
+                    activated => { root.chosen("col-left"); }
+                }
+                MenuEntry {
+                    icon: Icons.plus;
+                    label: "Insert a column right";
+                    activated => { root.chosen("col-right"); }
+                }
+                MenuEntry {
+                    icon: Icons.minus;
+                    label: "Delete the columns";
+                    activated => { root.chosen("col-delete"); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    icon: Icons.sort;
+                    label: "Sort Z to A by this column";
+                    activated => { root.chosen("sort-desc"); }
+                }
+                MenuEntry {
+                    icon: Icons.chevron-down;
+                    label: "Fill down";
+                    shortcut: "Ctrl+D";
+                    activated => { root.chosen("fill-down"); }
+                }
+                MenuEntry {
+                    icon: Icons.chevron-right;
+                    label: "Fill right";
+                    shortcut: "Ctrl+R";
+                    activated => { root.chosen("fill-right"); }
+                }
+                MenuSeparator { }
+                MenuEntry {
+                    icon: Icons.download;
+                    label: "Export as Excel…";
+                    activated => { root.chosen("export-xlsx"); }
+                }
+                MenuEntry {
+                    icon: Icons.download;
+                    label: "Export as CSV…";
+                    activated => { root.chosen("export-csv"); }
+                }
+            }
+            if SheetGrid.menu == "sheet": VerticalLayout {
+                MenuEntry {
+                    icon: Icons.pencil;
+                    label: "Rename the sheet…";
+                    activated => { root.chosen("sheet-rename"); }
+                }
+                MenuEntry {
+                    icon: Icons.layers;
+                    label: "Duplicate the sheet";
+                    activated => { root.chosen("sheet-duplicate"); }
+                }
+                MenuEntry {
+                    icon: Icons.trash;
+                    label: "Delete the sheet";
+                    danger: true;
+                    activated => { root.chosen("sheet-delete"); }
+                }
+            }
+        }
+    }
+}

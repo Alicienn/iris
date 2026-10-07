@@ -234,6 +234,55 @@ pub fn picture(path: &std::path::Path) -> Option<slint::Image> {
 }
 
 /// Whether a file name is a picture the editor draws.
+/// Whether `![[…]]` embeds a spreadsheet.
+pub fn est_tableur(target: &str) -> bool {
+    let nom = target.split(['|', '#']).next().unwrap_or(target).trim();
+    nom.to_ascii_lowercase().ends_with(".sheet")
+}
+
+/// The most of a spreadsheet a note shows when no range is given.
+const TABLEAU_LIGNES: u32 = 30;
+const TABLEAU_COLONNES: u32 = 12;
+
+/// The values of a spreadsheet embedded with `![[Budget.sheet]]` or
+/// `![[Budget.sheet#A1:D10]]`, as a table: its cells row by row, and how many columns.
+pub fn tableau_insere(target: &str, dir: &std::path::Path) -> Option<(Vec<String>, usize)> {
+    let sans_taille = target.split('|').next().unwrap_or(target);
+    let (nom, plage) = match sans_taille.split_once('#') {
+        Some((n, p)) => (n.trim(), iris_sheets::Range::parse(p.trim())),
+        None => (sans_taille.trim(), None),
+    };
+    let chemin = embedded_file(nom, dir)?;
+    let book = iris_sheets::Workbook::from_json(&std::fs::read_to_string(chemin).ok()?).ok()?;
+    let valeurs = book.compute();
+    let feuille = book.sheets.first()?;
+    let plage = match plage {
+        Some(p) => p,
+        None => {
+            let (cols, rows) = feuille.extent();
+            if cols == 0 || rows == 0 {
+                return None;
+            }
+            iris_sheets::Range::new(
+                iris_sheets::Addr::new(0, 0),
+                iris_sheets::Addr::new(
+                    cols.min(TABLEAU_COLONNES) - 1,
+                    rows.min(TABLEAU_LIGNES) - 1,
+                ),
+            )
+        }
+    };
+    if plage.len() > u64::from(TABLEAU_LIGNES * TABLEAU_COLONNES) * 4 {
+        return None;
+    }
+    let l = super::sheet::locale();
+    let cellules: Vec<String> = plage
+        .cells()
+        .map(|a| iris_sheets::format::display(&valeurs.get(&book, 0, a), &feuille.format(a), &l))
+        .collect();
+    Some((cellules, plage.width() as usize))
+}
+
 pub fn is_picture(nom: &str) -> bool {
     let n = nom.split('|').next().unwrap_or(nom).to_ascii_lowercase();
     [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]
@@ -363,6 +412,26 @@ pub fn render(
                     .map(SharedString::from)
                     .collect::<Vec<_>>(),
             ));
+        }
+        BlockKind::Embed { target } if est_tableur(target) => {
+            d.title = target.as_str().into();
+            match dir.and_then(|d| tableau_insere(target, d)) {
+                Some((cellules, colonnes)) => {
+                    d.kind = "table".into();
+                    d.rows = cellules.len().checked_div(colonnes).unwrap_or(0) as i32;
+                    d.columns = colonnes as i32;
+                    d.cells = ModelRc::new(VecModel::from(
+                        cellules
+                            .into_iter()
+                            .map(SharedString::from)
+                            .collect::<Vec<_>>(),
+                    ));
+                }
+                None => {
+                    d.kind = "embed".into();
+                    d.rich = slint::StyledText::from_plain_text(&format!("⧉ {target}"));
+                }
+            }
         }
         BlockKind::Embed { target } => {
             d.kind = "embed".into();

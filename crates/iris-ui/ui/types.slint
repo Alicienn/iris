@@ -621,3 +621,32 @@ export struct NoteFoundData {
     // Its folder, or the line found.
     detail: string,
 }
+
+// A cell of a spreadsheet as drawn: where (in the grid's content), what, and how.
+export struct SheetCellData {
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+    text: string,
+    color: color,
+    fill: color,
+    has-fill: bool,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+    strike: bool,
+    wrap: bool,
+    border: bool,
+    // 0 left, 1 centre, 2 right.
+    align: int,
+}
+
+// A column or row header: where it starts and how long it is (in the grid's content).
+export struct SheetHeaderData {
+    index: int,
+    pos: length,
+    size: length,
+    label: string,
+    selected: bool,
+}

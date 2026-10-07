@@ -758,7 +758,7 @@ fn comparer(a: &Value, b: &Value) -> std::cmp::Ordering {
         }
     }
     match (a, b) {
-        (Value::Empty, Value::Text(t)) => "".cmp(&t.to_lowercase().as_str()),
+        (Value::Empty, Value::Text(t)) => "".cmp(t.to_lowercase().as_str()),
         (Value::Text(t), Value::Empty) => t.to_lowercase().as_str().cmp(""),
         (Value::Text(x), Value::Text(y)) => x.to_lowercase().cmp(&y.to_lowercase()),
         (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
@@ -857,7 +857,7 @@ fn binaire(op: BinOp, a: Value, b: Value) -> Value {
         BinOp::Sub => num(nombres().map(|(x, y)| x - y)),
         BinOp::Mul => num(nombres().map(|(x, y)| x * y)),
         BinOp::Div => match nombres() {
-            Ok((_, y)) if y == 0.0 => Value::Error(CellError::Div0),
+            Ok((_, 0.0)) => Value::Error(CellError::Div0),
             r => num(r.map(|(x, y)| x / y)),
         },
         BinOp::Pow => num(nombres().map(|(x, y)| x.powf(y))),

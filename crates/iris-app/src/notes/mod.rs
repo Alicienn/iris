@@ -10,6 +10,7 @@
 mod bin;
 mod export;
 pub mod render;
+mod sheet;
 
 use crate::services::Services;
 use iris_notes::block::{self, Block, BlockKind};
@@ -89,6 +90,8 @@ struct Etat {
     revision: Option<Revision>,
     /// The note open beside, read-only.
     beside: Option<String>,
+    /// The spreadsheet open, in place of a note.
+    sheet: Option<sheet::Feuille>,
 }
 
 /// A revision under way: the cards left, the one shown, and how it went.
@@ -359,6 +362,7 @@ fn montrer_note(f: &AppWindow, e: &mut Etat) {
 
 /// Writes the open note if it changed.
 fn ecrire(f: &AppWindow, e: &mut Etat) {
+    sheet::ecrire(f, e);
     let Some(espace) = e.spaces.get(e.space).cloned() else {
         return;
     };
@@ -392,6 +396,13 @@ fn ecrire(f: &AppWindow, e: &mut Etat) {
 /// Opens a note of the space, writing the one open before.
 fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
     ecrire(f, e);
+    if EntryKind::of(rel) == EntryKind::Sheet {
+        ouvrir_tableur(f, e, rel);
+        return;
+    }
+    if e.sheet.is_some() {
+        sheet::fermer(f, e);
+    }
     let Some(espace) = e.espace() else { return };
     match espace.read(rel) {
         Ok((text, modified)) => {
@@ -422,6 +433,56 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
         }
         Err(err) => f.set_status(format!("Could not open the note: {err}").into()),
     }
+}
+
+/// Everything open written and closed: the note, the spreadsheet, the note beside.
+fn fermer_tout(f: &AppWindow, e: &mut Etat) {
+    ecrire(f, e);
+    if e.sheet.is_some() {
+        sheet::fermer(f, e);
+    }
+    e.note = None;
+    e.beside = None;
+    montrer_a_cote(f, e);
+    sans_focus(f, e);
+}
+
+/// Opens a spreadsheet of the space in place of the note.
+fn ouvrir_tableur(f: &AppWindow, e: &mut Etat, rel: &str) {
+    if e.sheet.is_some() {
+        sheet::fermer(f, e);
+    }
+    e.note = None;
+    sans_focus(f, e);
+    fermer_popups(f, e);
+    montrer_note(f, e);
+    sheet::ouvrir(f, e, rel);
+    if e.sheet.is_none() {
+        return;
+    }
+    e.selected = Some(rel.to_string());
+    let mut p = parent_of(rel);
+    while !p.is_empty() {
+        e.expanded.insert(p.clone());
+        p = parent_of(&p);
+    }
+    let espace = e
+        .espace()
+        .map(|s| s.config.name.clone())
+        .unwrap_or_default();
+    let dossier = parent_of(rel);
+    f.set_note_path(
+        if dossier.is_empty() {
+            format!("{espace} › {}", stem(rel))
+        } else {
+            format!("{espace} › {} › {}", dossier.replace('/', " › "), stem(rel))
+        }
+        .into(),
+    );
+    if let Some(dir) = e.espace().map(|s| s.dir().display().to_string()) {
+        crate::settings::update(|s| s.notes_last = format!("{dir}|{rel}"));
+    }
+    crate::nav::note(f, "note", rel);
 }
 
 /// A new note in the current folder, opened with its title to type.
@@ -1124,7 +1185,27 @@ fn choisir(f: &AppWindow, e: &mut Etat, k: usize) -> bool {
         return false;
     };
     let curseur = e.caret.cursor.min(texte.len());
-    let r = iris_notes::complete::apply(&texte, curseur, &c.trigger, candidat);
+    let mut candidat = candidat.clone();
+    // `/sheet`: a spreadsheet made beside the note, and embedded.
+    if candidat.insert == "![[Sheet.sheet]]" {
+        let note = e.note.as_ref().map(|n| n.rel.clone()).unwrap_or_default();
+        let fait = e.espace().and_then(|s| {
+            s.create_file(
+                &parent_of(&note),
+                &format!("{} table", stem(&note)),
+                "sheet",
+                iris_sheets::Workbook::default().to_json().as_bytes(),
+            )
+            .ok()
+        });
+        if let Some(rel) = fait {
+            let nom = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+            candidat.insert = format!("![[{nom}]]");
+            candidat.cursor = candidat.insert.len();
+            montrer_arbre(f, e);
+        }
+    }
+    let r = iris_notes::complete::apply(&texte, curseur, &c.trigger, &candidat);
     f.set_note_completion(ModelRc::default());
     remplacer(f, e, c.block, &r.text, r.cursor, r.cursor);
     true
@@ -1524,12 +1605,21 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
 
 /// The note open moved or renamed: it follows.
 fn suivre_deplacement(e: &mut Etat, avant: &str, apres: &str) {
-    if let Some(n) = &mut e.note {
-        if n.rel == avant {
-            n.rel = apres.to_string();
-        } else if let Some(reste) = n.rel.strip_prefix(&format!("{avant}/")) {
-            n.rel = format!("{apres}/{reste}");
+    let suivre = |rel: &mut String| {
+        if rel == avant {
+            *rel = apres.to_string();
+        } else if let Some(reste) = rel.strip_prefix(&format!("{avant}/")) {
+            *rel = format!("{apres}/{reste}");
         }
+    };
+    if let Some(n) = &mut e.note {
+        suivre(&mut n.rel);
+    }
+    if let Some(s) = &mut e.sheet {
+        suivre(&mut s.rel);
+    }
+    if let Some(b) = &mut e.beside {
+        suivre(b);
     }
     let deplies: Vec<String> = e.expanded.iter().cloned().collect();
     for d in deplies {
@@ -1722,7 +1812,9 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         focus_mode: false,
         revision: None,
         beside: None,
+        sheet: None,
     }));
+    sheet::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
 
     // The spaces, and the note open last.
@@ -1789,7 +1881,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     }
 
     geste!(on_notes_space_chosen, |f, e, i| {
-        ecrire(&f, e);
+        fermer_tout(&f, e);
         if (i as usize) < e.spaces.len() {
             e.space = i as usize;
             e.note = None;
@@ -1806,6 +1898,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         match e.vault.create_space(&nom) {
             Ok(s) => {
                 let dir = s.dir().to_path_buf();
+                fermer_tout(&f, e);
                 charger_espaces(e);
                 e.space = e
                     .spaces
@@ -1838,6 +1931,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                         s.notes_spaces.push(chemin.clone());
                     }
                 });
+                fermer_tout(&f, e);
                 charger_espaces(e);
                 e.space = e
                     .spaces
@@ -1869,8 +1963,8 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     e.expanded.insert(k);
                 }
             }
-            Some(EntryKind::Note) => ouvrir(&f, e, &k),
-            Some(EntryKind::Image | EntryKind::Other | EntryKind::Sheet) => {
+            Some(EntryKind::Note | EntryKind::Sheet) => ouvrir(&f, e, &k),
+            Some(EntryKind::Image | EntryKind::Other) => {
                 if let Some(Ok(p)) = e.espace().map(|s| s.path(&k)) {
                     if let Err(err) = crate::platform::open_path(&p) {
                         f.set_status(format!("Could not open it: {err}").into());
@@ -1931,6 +2025,27 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 e.beside = Some(cle);
                 montrer_a_cote(&f, e);
             }
+            "new-sheet" => {
+                let dossier = if genre == EntryKind::Folder {
+                    cle.clone()
+                } else {
+                    parent_of(&cle)
+                };
+                if let Some(rel) = sheet::nouvelle(&f, e, &dossier) {
+                    if !dossier.is_empty() {
+                        e.expanded.insert(dossier);
+                    }
+                    ouvrir(&f, e, &rel);
+                    montrer_arbre(&f, e);
+                    f.set_notes_renaming(rel.as_str().into());
+                }
+            }
+            "import-sheet" => {
+                if let Some(rel) = sheet::importer(&f, e, &cle) {
+                    ouvrir(&f, e, &rel);
+                    montrer_arbre(&f, e);
+                }
+            }
             "export" => exporter(&f, e, &cle, false),
             "print" => exporter(&f, e, &cle, true),
             "duplicate" => {
@@ -1958,14 +2073,20 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 }
             }
             "delete" => {
-                let ouverte_dedans = e
-                    .note
-                    .as_ref()
-                    .is_some_and(|n| n.rel == cle || n.rel.starts_with(&format!("{cle}/")));
+                let dedans = |rel: &str| rel == cle || rel.starts_with(&format!("{cle}/"));
+                let ouverte_dedans = e.note.as_ref().is_some_and(|n| dedans(&n.rel));
                 if ouverte_dedans {
                     e.note = None;
                     sans_focus(&f, e);
                     montrer_note(&f, e);
+                }
+                if e.sheet.as_ref().is_some_and(|s| dedans(&s.rel)) {
+                    e.sheet = None;
+                    f.set_note_sheet_open(false);
+                }
+                if e.beside.as_deref().is_some_and(dedans) {
+                    e.beside = None;
+                    montrer_a_cote(&f, e);
                 }
                 match e.espace().map(|s| s.delete(&cle, &bin::SystemBin)) {
                     Some(Ok(())) => {
@@ -2025,6 +2146,17 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     });
     geste!(on_notes_new_note, |f, e| {
         nouvelle_note(&f, e, "Untitled", "");
+    });
+    geste!(on_notes_new_sheet, |f, e| {
+        let dossier = e.dossier_courant();
+        if let Some(rel) = sheet::nouvelle(&f, e, &dossier) {
+            if !dossier.is_empty() {
+                e.expanded.insert(dossier);
+            }
+            ouvrir(&f, e, &rel);
+            montrer_arbre(&f, e);
+            f.set_notes_renaming(rel.as_str().into());
+        }
     });
     geste!(on_notes_new_folder, |f, e, nom| {
         let parent = e.dossier_courant();
@@ -2139,6 +2271,25 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     }
     geste!(on_note_block_clicked, |f, e, i| {
         let i = i.max(0) as usize;
+        // A spreadsheet embedded: a click opens it (the arrows reach its line).
+        if let Some((BlockKind::Embed { target }, _)) = contenu(e, i) {
+            if render::est_tableur(&target) {
+                let nom = target
+                    .split(['|', '#'])
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let rel = e
+                    .espace()
+                    .and_then(|s| render::embedded_file(&nom, s.dir()).and_then(|p| s.rel(&p)));
+                if let Some(rel) = rel {
+                    ouvrir(&f, e, &rel);
+                    montrer_arbre(&f, e);
+                    return;
+                }
+            }
+        }
         let fin = contenu(e, i).map_or(0, |(_, t)| t.len());
         focaliser(&f, e, i, fin, fin);
         rendre(&f, e, false);

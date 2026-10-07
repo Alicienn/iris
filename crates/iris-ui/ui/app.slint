@@ -50,10 +50,12 @@ import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import {
     NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel
 } from "@iris/screens/notes.slint";
+import { SheetGrid, SheetMenu } from "@iris/screens/sheet.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
 import { ListView, Palette } from "std-widgets.slint";
 
 export { Tokens }
+export { SheetGrid }
 
 // La palette de commandes.
 //
@@ -1075,6 +1077,8 @@ export component AppWindow inherits Window {
     in property <[NoteBlockData]> note-beside;
     in property <string> note-beside-title;
     callback note-beside-closed();
+    in property <bool> note-sheet-open;
+    callback notes-new-sheet();
     in-out property <bool> notes-review-open;
     in property <string> notes-review-question;
     in property <string> notes-review-answer;
@@ -1379,7 +1383,7 @@ export component AppWindow inherits Window {
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.connect-open
         || root.notes-row-menu-open || root.notes-space-menu-open || root.notes-name-asked != ""
-        || root.notes-quick-open || root.notes-review-open
+        || root.notes-quick-open || root.notes-review-open || SheetGrid.menu != ""
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
@@ -1559,6 +1563,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.subscribe-open && !root.subscribe-busy) {
                 root.subscribe-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && SheetGrid.menu != "") {
+                SheetGrid.menu = "";
                 return accept;
             }
             if (event.text == Key.Escape && root.notes-review-open) {
@@ -2458,6 +2466,8 @@ export component AppWindow inherits Window {
         beside: root.note-beside;
         beside-title: root.note-beside-title;
         beside-closed => { root.note-beside-closed(); }
+        sheet-open: root.note-sheet-open;
+        new-sheet => { root.notes-new-sheet(); }
         title-accepted(t) => { root.note-title-accepted(t); }
         escaped => { shortcuts.focus(); }
         end-clicked => { root.note-end-clicked(); }
@@ -2836,13 +2846,18 @@ export component AppWindow inherits Window {
     if root.notes-name-asked != "": NotesNamePanel {
         width: 100%;
         height: 100%;
-        title: root.notes-name-asked == "space" ? "New space" : "New folder";
-        action: "Create";
+        title: root.notes-name-asked == "space" ? "New space"
+            : root.notes-name-asked == "sheet" ? "Rename the sheet" : "New folder";
+        action: root.notes-name-asked == "sheet" ? "Rename" : "Create";
         name <=> root.notes-name;
         error: root.notes-name-error;
         confirmed(t) => {
             if (root.notes-name-asked == "space") {
                 root.notes-space-new(t);
+            } else if (root.notes-name-asked == "sheet") {
+                root.notes-name-asked = "";
+                SheetGrid.action("sheet-rename:" + t);
+                SheetGrid.focus-serial += 1;
             } else {
                 root.notes-new-folder(t);
             }
@@ -2850,6 +2865,25 @@ export component AppWindow inherits Window {
         dismissed => {
             root.notes-name-asked = "";
             shortcuts.focus();
+        }
+    }
+
+    if SheetGrid.menu != "": SheetMenu {
+        width: 100%;
+        height: 100%;
+        chosen(action) => {
+            SheetGrid.menu = "";
+            if (action == "sheet-rename") {
+                root.notes-name = "";
+                root.notes-name-asked = "sheet";
+            } else {
+                SheetGrid.action(action);
+                SheetGrid.focus-serial += 1;
+            }
+        }
+        dismissed => {
+            SheetGrid.menu = "";
+            SheetGrid.focus-serial += 1;
         }
     }
 
