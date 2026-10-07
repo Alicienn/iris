@@ -2076,7 +2076,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 .enumerate()
                 .map(|(i, n)| (espace.modified(n).unwrap_or(0), i))
                 .collect();
-            recents.sort_by(|a, b| b.0.cmp(&a.0));
+            recents.sort_by_key(|a| std::cmp::Reverse(a.0));
             recents.into_iter().take(20).map(|(_, i)| i).collect()
         } else {
             iris_notes::fuzzy::rank(&q, &refs, 30)

@@ -355,11 +355,7 @@ pub fn render(
         BlockKind::Table => {
             d.kind = "table".into();
             let (cellules, colonnes) = table_cells(content);
-            d.rows = if colonnes == 0 {
-                0
-            } else {
-                (cellules.len() / colonnes) as i32
-            };
+            d.rows = cellules.len().checked_div(colonnes).unwrap_or(0) as i32;
             d.columns = colonnes as i32;
             d.cells = ModelRc::new(VecModel::from(
                 cellules
