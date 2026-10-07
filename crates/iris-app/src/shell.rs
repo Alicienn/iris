@@ -806,8 +806,8 @@ fn dispatch(
         CommandKind::UnifiedView => controller.send(Request::FilterAccounts(Vec::new())),
         CommandKind::Undo => controller.send(Request::Undo),
         CommandKind::Quit => {
-            controller.shutdown();
-            let _ = slint::quit_event_loop();
+            let c = controller.clone();
+            quit_after_sends(fenetre.upgrade().as_ref(), move || c.shutdown());
         }
         // Chercher, c'est mettre le curseur dans la barre : le champ est déjà à
         // l'écran, l'ouvrir ailleurs ferait deux endroits pour la même chose.
@@ -2048,6 +2048,65 @@ thread_local! {
     /// The notice, for the outcomes that arrive from the sending side.
     static AVIS: std::cell::RefCell<std::rc::Weak<AvisEnvoi>> =
         const { std::cell::RefCell::new(std::rc::Weak::new()) };
+    /// Quitting waits for messages on their way.
+    static EN_PARTANCE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ATTENTE_DE_SORTIE: slint::Timer = slint::Timer::default();
+}
+
+/// How many messages the window sent that have not finished leaving.
+fn envois_en_cours() -> usize {
+    AVIS.with(|a| a.borrow().upgrade())
+        .map(|avis| avis.en_vol.borrow().len())
+        .unwrap_or(0)
+}
+
+/// Quits, once the messages on their way have left.
+///
+/// Waited for while the window still runs: what a send ends with (the message put back
+/// when it fails, a scheduled one taken off the list when it leaves) is done by the
+/// window, and waited for after it had stopped, it was never done. A message that
+/// failed then was in no window and no draft, and a scheduled one went again at the
+/// next start. A failure while waiting keeps Iris open, with the message back. Quitting
+/// a second time quits at once.
+pub fn quit_after_sends(fenetre: Option<&AppWindow>, shutdown: impl FnOnce() + 'static) {
+    let reste = envois_en_cours();
+    if reste == 0 || EN_PARTANCE.get() {
+        shutdown();
+        let _ = slint::quit_event_loop();
+        return;
+    }
+    EN_PARTANCE.set(true);
+    if let Some(f) = fenetre {
+        f.set_status(
+            format!(
+                "Sending {} before quitting. Quit again to quit now.",
+                iris_ui::format::plural(reste as u64, "message")
+            )
+            .into(),
+        );
+    }
+    let limite = std::time::Instant::now()
+        + std::time::Duration::from_secs(u64::from(*crate::settings::UNDO_SEND_RANGE.end()) + 90);
+    let mut shutdown = Some(shutdown);
+    ATTENTE_DE_SORTIE.with(|t| {
+        t.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(250),
+            move || {
+                // Taken back by a failure: Iris stays.
+                if !EN_PARTANCE.get() {
+                    ATTENTE_DE_SORTIE.with(|t| t.stop());
+                    return;
+                }
+                if envois_en_cours() == 0 || std::time::Instant::now() >= limite {
+                    if let Some(s) = shutdown.take() {
+                        s();
+                    }
+                    let _ = slint::quit_event_loop();
+                }
+            },
+        )
+    });
 }
 
 /// Tells the window how a message ended. Called on the window's thread.
@@ -2204,8 +2263,21 @@ impl AvisEnvoi {
             }
             (Suite::Remettre(remettre), IssueEnvoi::Echec(e)) => {
                 remettre(fenetre);
+                // Quitting would lose it: Iris stays, and shows it.
+                let restee = EN_PARTANCE.replace(false);
+                if restee {
+                    fenetre.window().set_minimized(false);
+                    let _ = fenetre.show();
+                }
                 fenetre.set_status(
-                    format!("Not sent: {e}. Your message is back, to send again.").into(),
+                    if restee {
+                        format!(
+                            "Not sent: {e}. Iris stayed open: your message is back, to send again."
+                        )
+                    } else {
+                        format!("Not sent: {e}. Your message is back, to send again.")
+                    }
+                    .into(),
                 );
             }
             (Suite::Programme { id, services }, IssueEnvoi::Parti) => {
@@ -2971,8 +3043,8 @@ pub fn wire_updates(
                     // the executable. Leaving now is what lets it finish.
                     f.set_update_status("Installing. Iris will open again in a moment.".into());
                     tracing::info!(version = %dispo.version, "update: installer started, quitting");
-                    controller.shutdown();
-                    let _ = slint::quit_event_loop();
+                    let c = controller.clone();
+                    quit_after_sends(Some(&f), move || c.shutdown());
                 }
                 Err(e) => {
                     f.set_update_busy(false);
@@ -4313,7 +4385,7 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
             // aucune raison de la laisser tourner entre les deux.
             let _ = fenetre.window().hide();
             if !fenetre.get_tray_available() || !fenetre.get_keep_running() {
-                let _ = slint::quit_event_loop();
+                quit_after_sends(Some(&fenetre), || {});
             } else {
                 went_to_tray(&fenetre);
             }
@@ -4701,14 +4773,33 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
         });
     }
     {
-        let services = services.clone();
-        let controller = Arc::clone(&controller);
+        // Asked first: emptying deletes for good, on every mailbox the view covers.
         let faible = fenetre.as_weak();
         fenetre.on_folder_empty_requested(move || {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
             fenetre.set_folder_menu_open(false);
+            fenetre.set_empty_folder_name(fenetre.get_folder_menu_path());
+            fenetre.set_empty_folder_scope(
+                if compte_regarde(&fenetre).is_some() {
+                    "in this mailbox"
+                } else {
+                    "in all your mailboxes"
+                }
+                .into(),
+            );
+            fenetre.set_empty_folder_open(true);
+        });
+    }
+    {
+        let services = services.clone();
+        let controller = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_empty_confirmed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
             let portee = scope_depuis(fenetre.get_folder_menu_key().as_str());
 
             match crate::folders::empty_everywhere(

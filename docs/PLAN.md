@@ -614,3 +614,8 @@ variant, brought into the application.
       `dovecot` shown.
 - [x] **S41.21** Rounded corners after restoring a window opened maximised (4.7.2):
       the corner preference waits for the system window to exist.
+- [x] **S41.22** A second mail audit's critical findings, fixed (4.8.0): UTF-8 declared
+      on plain text, IMAP answers read to their verdict with the connection reopened
+      when it breaks, capabilities recognised, no deletion on a doubtful answer,
+      partial fetches completed one by one, operations stamped with their folder's
+      validity, quitting that waits for sends, emptying a folder confirmed.

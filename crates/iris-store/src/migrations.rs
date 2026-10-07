@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 20;
+pub const CURRENT_VERSION: i64 = 21;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -118,7 +118,21 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "logins, folder delimiter, copies and reply-to",
         sql: SCHEMA_V20,
     },
+    Migration {
+        version: 21,
+        name: "the folder validity an operation's UIDs belong to",
+        sql: SCHEMA_V21,
+    },
 ];
+
+/// `op_journal.uid_validity`: the `UIDVALIDITY` of the folder an operation's UIDs were
+/// read in, written when it is enqueued (0: no UIDs, or written before this). Compared
+/// with the folder's own at replay, it was not caught when a sync of the same pass
+/// had already stored the new value: the two agreed, and an old UID moved or purged
+/// whichever new message now bore it.
+const SCHEMA_V21: &str = "
+ALTER TABLE op_journal ADD COLUMN uid_validity INTEGER NOT NULL DEFAULT 0;
+";
 
 /// What a mailbox signs in as, and what a message was also sent to.
 ///

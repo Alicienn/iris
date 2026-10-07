@@ -1063,8 +1063,8 @@ fn run_gui(
                         }
                     }
                     Some(iris_app::tray::TrayCommand::Quit) => {
-                        controller_zone.shutdown();
-                        let _ = slint::quit_event_loop();
+                        let c = Arc::clone(&controller_zone);
+                        shell::quit_after_sends(faible.upgrade().as_ref(), move || c.shutdown());
                     }
                     None => {}
                 }

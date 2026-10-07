@@ -156,7 +156,8 @@ moves it to the bin. Undo (`Ctrl`+`Z`) puts it back on the server too, and a
 conversation moved to another folder keeps its state (*Done*, *Waiting*, snoozed). A
 new message in a conversation you had marked done brings it back to *To do*, unless
 *Settings › A new message reopens the thread* is off. **Empty** on the bin or the junk
-folder deletes for good.
+folder deletes for good, once you have said yes. Quitting while a message is still on
+its way waits for it to leave; if it cannot, Iris stays open with your message.
 
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
 

@@ -810,6 +810,34 @@ English and in the machine's time (`chrono::Local`). Removing an account deletes
 documents from the search index. `Credentials` prints no secret (`Debug` by hand),
 and only Dovecot's own file names are taken for its working folders.
 
+Since 4.8.0 (a second audit's critical findings):
+
+- **Answers read to their verdict.** async-imap's readers drop the tagged status of
+  `FETCH`, `SEARCH`, `STORE` and `EXPUNGE`, and take a connection closed mid-answer for
+  its end. `ImapClient::run` sends those commands, and `SELECT`, `LIST`, `CREATE`,
+  `RENAME`, `DELETE`, `COPY` and `MOVE`, itself, reads every response with
+  `Session::read_response` up to its own tag, and turns `NO`/`BAD` into errors and a
+  closed stream into a network one. A connection that broke (cut, or holding an answer
+  the library could not parse, whose bytes stay in its buffer) is marked `broken`, and
+  the next command opens a new one with the same endpoint and credentials and selects
+  the folder again (`revive`).
+- **Capabilities by name** (`capability_name`): read through `Debug` they never matched,
+  so no server had CONDSTORE, MOVE, UIDPLUS or IDLE. Without UIDPLUS, `expunge`
+  unmarks other clients' `\Deleted` messages for the time of a bare `EXPUNGE`.
+- **Nothing deleted on doubt.** A folder sync deletes local copies only with an
+  `UIDVALIDITY`, and not when `SEARCH` finds nothing in a folder the server says holds
+  mail. A batch refused or unreadable is fetched one message at a time; a message that
+  still fails is kept as a placeholder (`placeholder`), since the next pass starts
+  above it. A server that gives no `UIDNEXT` has it taken from `UID FETCH * (UID)`.
+- **Operations carry their validity** (`op_journal.uid_validity`, migration 21),
+  stamped by `enqueue_op` from the folder's; replay drops a UID operation whose
+  validity differs from the server's.
+- **Plain text says UTF-8**: a body without attachments is a `text/plain;
+  charset=utf-8` part with `MIME-Version`, not a bare body.
+- **Quitting waits for sends** (`shell::quit_after_sends`) while the window still runs,
+  so a failure puts the message back and keeps Iris open, and a scheduled message that
+  left is taken off the list. Emptying a folder is confirmed (`EmptyFolderPanel`).
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New
@@ -875,6 +903,7 @@ which keeps that term off any index, and a test pins the plan
 | 18 | `account_aliases`: other addresses a mailbox sends as (3.12.0) |
 | 19 | `event_links`: an event's video call link set by hand, by calendar and UID (3.14.0) |
 | 20 | Logins (`imap_user`, `smtp_user`) and `folder_delimiter` on accounts; `cc` and `reply_to` on messages; `thread_ghosts` and its trigger (4.6.0) |
+| 21 | `op_journal.uid_validity`: the folder validity an operation's UIDs belong to (4.8.0) |
 
 A new table or column always arrives as a new migration.
 

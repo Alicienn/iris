@@ -204,15 +204,25 @@ pub async fn sync_folder(
             // One answer the library cannot read failed the whole batch, the next
             // pass started from the same place and failed the same way: nothing later
             // in the folder ever arrived. The batch is asked for again one message at
-            // a time, and only the unreadable one is left out.
+            // a time, and only the unreadable one is set aside.
+            // A batch the server refused half-way (Gmail's "Some messages could not be
+            // FETCHed", Office 365's limits) is the same case: what it did send is not
+            // all there is, and resuming above it left the rest out for good.
             Err(e) => {
                 tracing::warn!(folder = %folder.path, error = %e, "batch unreadable, one at a time");
                 let mut un_par_un = Vec::new();
                 for uid in conn.existing_uids(tranche).await? {
                     match conn.fetch_envelopes(UidRange::new(uid, uid)).await {
-                        Ok(mut b) => un_par_un.append(&mut b),
+                        // Nothing for it: expunged since the search.
+                        Ok(b) => un_par_un.extend(b),
                         Err(e) if e.is_transient() => return Err(e),
-                        Err(e) => tracing::warn!(uid, error = %e, "message left out: unreadable"),
+                        // Kept as a placeholder, not left out: left out, it was gone
+                        // without a trace, since the next pass starts above it. Its
+                        // body may still be read when it is opened.
+                        Err(_) => {
+                            tracing::warn!(uid, folder = %folder.path, "message unreadable, kept as a placeholder");
+                            un_par_un.push(placeholder(uid));
+                        }
                     }
                 }
                 un_par_un
@@ -300,11 +310,24 @@ pub async fn sync_folder(
         Vec::new()
     };
     let en_trop = !rapport.more_available && locaux.len() as u64 > etat.exists as u64;
-    if deja_connu && (options.detect_deletions || en_trop) {
+    // Never on a selection that gave no `UIDVALIDITY`: a real one always does, and one
+    // without it was an answer cut short, whose message count of zero emptied the
+    // folder here.
+    if deja_connu && etat.uid_validity != 0 && (options.detect_deletions || en_trop) {
         let distants = conn.existing_uids(UidRange::ALL).await?;
-        let disparus = missing_uids(&locaux, &distants);
-        if !disparus.is_empty() {
-            rapport.deleted = store.delete_messages_by_uid(folder.id, &disparus)?;
+        // A search that finds nothing in a folder the server says holds mail
+        // contradicts it: believed, it deleted every local copy.
+        if distants.is_empty() && etat.exists > 0 {
+            tracing::warn!(
+                folder = %folder.path,
+                exists = etat.exists,
+                "the server found no message in a folder it says is not empty: nothing deleted"
+            );
+        } else {
+            let disparus = missing_uids(&locaux, &distants);
+            if !disparus.is_empty() {
+                rapport.deleted = store.delete_messages_by_uid(folder.id, &disparus)?;
+            }
         }
     }
 
@@ -343,6 +366,22 @@ fn plan_chunks(range: UidRange, uid_next: u32, chunk_size: u32) -> Vec<UidRange>
 ///
 /// Les deux listes sont triées : une fusion suffit, là où une comparaison naïve
 /// coûterait le produit des tailles.
+/// A message the server would not send in any form, kept so that it can be seen and
+/// opened later rather than skipped for good.
+fn placeholder(uid: u32) -> iris_imap::RawMessage {
+    let maintenant = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    iris_imap::RawMessage {
+        uid,
+        flags: Flags::NONE,
+        internal_date: Timestamp::from_millis(maintenant),
+        size: 0,
+        content: b"Subject: (a message Iris could not read; open it to try again)\r\n\r\n".to_vec(),
+    }
+}
+
 fn missing_uids(locaux: &[u32], distants: &[u32]) -> Vec<u32> {
     let mut out = Vec::new();
     let mut j = 0;

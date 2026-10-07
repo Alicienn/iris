@@ -398,6 +398,43 @@ export component FolderContextMenu inherits Rectangle {
 }
 
 // Renommer un dossier.
+// Asked before a folder is emptied: what is emptied is deleted for good, on every
+// mailbox the view covers, with no undo. The menu's "…" promised this question and
+// nothing asked it.
+export component EmptyFolderPanel inherits Rectangle {
+    in property <string> folder;
+    in property <string> scope;
+
+    callback confirmed();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Empty “" + root.folder + "”?";
+        close-label: "Cancel";
+        card-width: 420px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: "Every message in it " + root.scope
+                + " is deleted for good. This cannot be undone.";
+            font-size: 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        ModalFooter {
+            Button {
+                text: "Empty";
+                kind: ButtonKind.danger;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
 export component RenameFolderPanel inherits Rectangle {
     in property <string> current;
     in property <string> error;

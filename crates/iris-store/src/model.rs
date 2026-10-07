@@ -480,6 +480,8 @@ pub struct PendingOp {
     pub attempts: u32,
     pub next_attempt_at: Timestamp,
     pub last_error: Option<String>,
+    /// The `UIDVALIDITY` its UIDs were read under; 0 when unknown or without UIDs.
+    pub uid_validity: u32,
 }
 
 /// Quelqu'un à qui on a déjà eu affaire.

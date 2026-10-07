@@ -49,9 +49,10 @@ pub async fn replay_account(
 ) -> Result<ReplayReport> {
     let mut rapport = ReplayReport::default();
     let mut dossier_courant: Option<String> = None;
-    // The folder selected was rebuilt by the server since the actions were queued:
-    // their UIDs now name other messages.
+    // The folder selected was rebuilt by the server since the local copy last saw it.
     let mut uid_perimes = false;
+    // Its validity as the server gives it now.
+    let mut validite_serveur = 0u32;
 
     for op in ops {
         let charge = match OpPayload::parse(&op.payload) {
@@ -81,6 +82,7 @@ pub async fn replay_account(
                     uid_perimes = connue != 0
                         && selection.uid_validity != 0
                         && connue != selection.uid_validity;
+                    validite_serveur = selection.uid_validity;
                 }
                 Err(e) if e.is_transient() => {
                     store.fail_op(op.id, &e.to_string(), now)?;
@@ -102,8 +104,15 @@ pub async fn replay_account(
 
         // Its UIDs were given by a folder the server has rebuilt since: they would
         // land on other messages (a flag, a move, a deletion on mail nobody chose).
-        // Dropped; the next sync reads the folder again.
-        if uid_perimes && charge.uses_uids() {
+        // Dropped; the next sync reads the folder again. The validity written with the
+        // operation decides; the local copy's only for operations written before it
+        // was, since a sync may already have stored the new one.
+        let reconstruit = if op.uid_validity != 0 {
+            validite_serveur != 0 && op.uid_validity != validite_serveur
+        } else {
+            uid_perimes
+        };
+        if reconstruit && charge.uses_uids() {
             tracing::warn!(op = %op.id, folder = %charge.folder(), "folder rebuilt since: operation dropped");
             store.complete_op(op.id)?;
             rapport.dropped += 1;
@@ -327,6 +336,39 @@ mod tests {
         c.select("INBOX").await.unwrap();
         let messages = c.fetch_envelopes(UidRange::ALL).await.unwrap();
         assert!(messages[0].flags.contains(Flags::SEEN));
+    }
+
+    #[tokio::test]
+    async fn uids_of_a_folder_rebuilt_since_touch_nothing_even_after_a_sync() {
+        let f = fixture();
+        let inbox = |s: &Store| {
+            s.folders(f.account)
+                .unwrap()
+                .into_iter()
+                .find(|d| d.path == "INBOX")
+                .unwrap()
+                .id
+        };
+        f.store
+            .update_folder_sync_state(inbox(&f.store), 1, 0, 0)
+            .unwrap();
+        let charge = OpPayload::Move {
+            folder: "INBOX".into(),
+            uids: vec![1],
+            target: "Archive".into(),
+        };
+        enqueue(&f.store, f.account, &charge, t(0)).unwrap();
+
+        // The server rebuilds the folder, and a sync stores the new validity before
+        // the move is replayed: the two agree, the operation's own does not.
+        f.server.bump_uid_validity("INBOX");
+        f.store
+            .update_folder_sync_state(inbox(&f.store), 2, 0, 0)
+            .unwrap();
+
+        let r = f.rejouer().await;
+        assert_eq!(r.dropped, 1);
+        assert_eq!(f.server.message_count("Archive"), 0);
     }
 
     #[tokio::test]

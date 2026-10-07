@@ -25,7 +25,7 @@ import { HomeView } from "@iris/screens/home.slint";
 import { TagsPanel } from "@iris/screens/tags.slint";
 import { ThreadListView, ThreadContextMenu, SortMenu } from "@iris/screens/list.slint";
 import { Sidebar, AccountContextMenu } from "@iris/screens/sidebar.slint";
-import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel }
+import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, EmptyFolderPanel }
     from "@iris/screens/folders.slint";
 import { ConversationView, ReaderMenu } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
@@ -728,6 +728,11 @@ export component AppWindow inherits Window {
     in-out property <string> folder-menu-key;
     callback folder-mark-read-requested();
     callback folder-empty-requested();
+    /// Asked before emptying: the folder's name, and where ("in all your mailboxes").
+    in-out property <bool> empty-folder-open;
+    in property <string> empty-folder-name;
+    in property <string> empty-folder-scope;
+    callback folder-empty-confirmed();
     callback new-folder-create();
     callback new-folder-dismissed();
     in property <bool> filter-unread;
@@ -1226,6 +1231,7 @@ export component AppWindow inherits Window {
         || root.problem-open || root.source-open || root.signature-open || root.alias-open
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
+        || root.empty-folder-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
@@ -1360,6 +1366,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.task-list-delete-open) {
                 root.task-list-delete-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.empty-folder-open) {
+                root.empty-folder-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.calendar-menu-open) {
@@ -2456,6 +2466,18 @@ export component AppWindow inherits Window {
         rename => { root.folder-rename-requested(); }
         remove => { root.folder-delete-requested(); }
         dismissed => { root.folder-menu-dismissed(); }
+    }
+
+    if root.empty-folder-open: EmptyFolderPanel {
+        width: 100%;
+        height: 100%;
+        folder: root.empty-folder-name;
+        scope: root.empty-folder-scope;
+        confirmed => {
+            root.empty-folder-open = false;
+            root.folder-empty-confirmed();
+        }
+        dismissed => { root.empty-folder-open = false; }
     }
 
     if root.rename-folder-open: RenameFolderPanel {

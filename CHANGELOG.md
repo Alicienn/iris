@@ -3,6 +3,27 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.8.0 — 2026-10-07
+
+### New
+- Emptying a folder asks first.
+
+### Improved
+- Moves happen in one step, and changes made elsewhere show sooner, on servers that allow it.
+- Quitting while a message is on its way waits for it to leave.
+
+### Fixed
+- Accented letters in your messages show correctly for everyone you write to.
+- A dropped connection no longer empties folders.
+- Moving mail no longer purges messages another app had only marked deleted.
+- Messages a server sends only in part are fetched one by one, not skipped.
+- A message Iris cannot read stays in the list instead of vanishing.
+- A message that fails while Iris quits comes back, and Iris stays open.
+- A scheduled message sent while quitting no longer goes again.
+- Actions waiting on a folder the server rebuilt no longer touch the wrong mail.
+- Servers that do not give their next message number now sync.
+- Renaming a folder to a name already taken says so.
+
 ## 4.7.2 — 2026-10-07
 
 ### Fixed

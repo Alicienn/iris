@@ -22,8 +22,8 @@ use crate::{
     Capabilities, Connector, Credentials, Endpoint, FolderKind, IdleOutcome, ImapConnection,
     RawMessage, RemoteFolder, SelectedFolder, UidRange,
 };
+use async_imap::imap_proto::{AttributeValue, MailboxDatum, MessageSection, Response, SectionPath};
 use async_trait::async_trait;
-use futures::StreamExt;
 use iris_types::{Error, Flags, Result, Timestamp};
 use std::sync::Arc;
 use std::time::Duration;
@@ -226,6 +226,28 @@ impl Connector for RustlsConnector {
         endpoint: &Endpoint,
         credentials: &Credentials,
     ) -> Result<Box<dyn ImapConnection>> {
+        let (session, capabilities) = self.open(endpoint, credentials).await?;
+        Ok(Box::new(ImapClient {
+            session: Some(session),
+            capabilities,
+            reopen: Some(Reopen {
+                connector: self.clone(),
+                endpoint: endpoint.clone(),
+                credentials: credentials.clone(),
+            }),
+            selected: None,
+            broken: false,
+        }))
+    }
+}
+
+impl RustlsConnector {
+    /// A signed-in session and what its server can do.
+    async fn open(
+        &self,
+        endpoint: &Endpoint,
+        credentials: &Credentials,
+    ) -> Result<(Session, Capabilities)> {
         // After STARTTLS the greeting has already been read, in the clear, and the
         // server says nothing more until spoken to.
         let (tls, accueil_lu) = if endpoint.tls_immediate {
@@ -233,15 +255,22 @@ impl Connector for RustlsConnector {
         } else {
             (self.starttls_stream(endpoint).await?, true)
         };
-        let session = sign_in(tls, credentials, accueil_lu).await?;
-
-        let mut connection = ImapClient {
-            session: Some(session),
-            capabilities: Capabilities::default(),
-        };
-        connection.load_capabilities().await?;
-        Ok(Box::new(connection))
+        let mut session = sign_in(tls, credentials, accueil_lu).await?;
+        let caps = session
+            .capabilities()
+            .await
+            .map_err(|e| protocol_error("lecture des capacités", e))?;
+        let capabilities = Capabilities::from_names(caps.iter().filter_map(capability_name));
+        Ok((session, capabilities))
     }
+}
+
+/// What a connection needs to be opened again.
+#[derive(Debug, Clone)]
+struct Reopen {
+    connector: RustlsConnector,
+    endpoint: Endpoint,
+    credentials: Credentials,
 }
 
 /// Reads the server's greeting, then signs in.
@@ -259,7 +288,7 @@ async fn sign_in<T>(
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    use async_imap::imap_proto::{Response, Status};
+    use async_imap::imap_proto::Status;
 
     let mut client = async_imap::Client::new(stream);
     if !greeting_read {
@@ -364,7 +393,19 @@ pub struct ImapClient {
     /// Absente seulement le temps d'une attente `IDLE`, qui consomme la session.
     session: Option<Session>,
     capabilities: Capabilities,
+    /// How to open it again once it is broken; `None` where it was not opened here.
+    reopen: Option<Reopen>,
+    /// The folder last selected, selected again on a new connection.
+    selected: Option<String>,
+    /// Cut, or holding an answer the library could not read: every later read on it
+    /// fails the same way (the bytes stay in its buffer), so the next command opens a
+    /// new one first. Going on with a dead connection made every following folder
+    /// "empty", and the pass still ended as a success.
+    broken: bool,
 }
+
+/// Words put in the error for an answer the library could not read.
+const UNREADABLE: &str = "an answer the IMAP library could not read";
 
 impl ImapClient {
     fn session(&mut self) -> Result<&mut Session> {
@@ -374,19 +415,275 @@ impl ImapClient {
         })
     }
 
-    async fn load_capabilities(&mut self) -> Result<()> {
-        let session = self.session()?;
-        let caps = session
-            .capabilities()
-            .await
-            .map_err(|e| protocol_error("lecture des capacités", e))?;
-        let noms: Vec<String> = caps
-            .iter()
-            .map(|c| format!("{c:?}").to_uppercase())
-            .collect();
-        self.capabilities = Capabilities::from_names(noms);
+    /// Opens the connection again when the last command broke it, and selects the
+    /// folder that was selected.
+    async fn revive(&mut self) -> Result<()> {
+        if !self.broken {
+            return Ok(());
+        }
+        let Some(r) = self.reopen.clone() else {
+            return Err(Error::network("the connection to the server was lost"));
+        };
+        // Dropped, not logged out of: a broken stream answers nothing.
+        self.session = None;
+        let (session, capabilities) = r.connector.open(&r.endpoint, &r.credentials).await?;
+        self.session = Some(session);
+        self.capabilities = capabilities;
+        self.broken = false;
+        tracing::info!(host = %r.endpoint.host, "connection opened again");
+        if let Some(chemin) = self.selected.clone() {
+            let commande = select_command(&chemin, capabilities.condstore);
+            let session = self.session()?;
+            let resultat = run_checked(session, "sélection", &commande, |_| {}).await;
+            self.note(&resultat);
+            resultat?;
+        }
         Ok(())
     }
+
+    /// Remembers that a command broke the connection.
+    fn note<T>(&mut self, resultat: &Result<T>) {
+        if let Err(e) = resultat {
+            if breaks_connection(e) {
+                self.broken = true;
+            }
+        }
+    }
+
+    /// Runs a command whose whole answer is read here, its verdict checked.
+    async fn run(
+        &mut self,
+        what: &str,
+        command: &str,
+        each: impl FnMut(&Response<'_>) + Send,
+    ) -> Result<()> {
+        self.revive().await?;
+        let session = self.session()?;
+        let resultat = run_checked(session, what, command, each).await;
+        self.note(&resultat);
+        resultat
+    }
+
+    /// `UID SEARCH`, its UIDs in order.
+    async fn search(&mut self, what: &str, criteria: &str) -> Result<Vec<u32>> {
+        let mut out = Vec::new();
+        self.run(what, &format!("UID SEARCH {criteria}"), |r| {
+            if let Response::MailboxData(MailboxDatum::Search(uids)) = r {
+                out.extend_from_slice(uids);
+            }
+        })
+        .await?;
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+
+    /// The flags a `UID FETCH … (UID FLAGS)` command answers with.
+    async fn flags_of(&mut self, what: &str, command: &str) -> Result<Vec<(u32, Flags)>> {
+        let mut out = Vec::new();
+        self.run(what, command, |r| {
+            let Response::Fetch(_, attrs) = r else { return };
+            let f = fetched(attrs);
+            if let (Some(uid), Some(flags)) = (f.uid, f.flags) {
+                out.push((uid, flags));
+            }
+        })
+        .await?;
+        Ok(out)
+    }
+}
+
+/// The server's way of saying the name is taken.
+fn says_already_exists(e: &Error) -> bool {
+    let dit = e.to_string().to_lowercase();
+    dit.contains("alreadyexists") || dit.contains("already exists")
+}
+
+/// The server's way of saying there is no such folder.
+fn says_nonexistent(e: &Error) -> bool {
+    let dit = e.to_string().to_lowercase();
+    dit.contains("nonexistent") || dit.contains("does not exist") || dit.contains("doesn't exist")
+}
+
+/// A cut connection, or one left unreadable: either way it cannot be used again.
+fn breaks_connection(e: &Error) -> bool {
+    match e {
+        Error::Network(_) | Error::Io(_) => true,
+        Error::Protocol { message, .. } => message.contains(UNREADABLE),
+        _ => false,
+    }
+}
+
+/// Sends a command and reads its whole answer, up to and including the server's
+/// verdict, which is checked.
+///
+/// async-imap's own readers drop that verdict for `FETCH`, `SEARCH`, `STORE` and
+/// `EXPUNGE`, and take a connection closed mid-answer for the end of it. A refused or
+/// cut `UID SEARCH` read as "no message left", and the folder was emptied here; a
+/// `FETCH` the server refused half-way read as a whole one, and what it left out was
+/// never asked for again; a refused `STORE` counted as done.
+async fn run_checked(
+    session: &mut Session,
+    what: &str,
+    command: &str,
+    mut each: impl FnMut(&Response<'_>) + Send,
+) -> Result<()> {
+    use async_imap::error::Error as E;
+    use async_imap::imap_proto::Status;
+
+    let tag = session
+        .run_command(command)
+        .await
+        .map_err(|e| protocol_error(what, e))?;
+    loop {
+        let reponse = match session.read_response().await {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                return Err(Error::network(format!(
+                    "{what} : the server closed the connection before answering"
+                )))
+            }
+            Err(e) if e.to_string().contains("during parsing of") => {
+                return Err(Error::Protocol {
+                    protocol: "IMAP",
+                    message: format!("{what} : {UNREADABLE}"),
+                })
+            }
+            Err(e) => return Err(Error::network(format!("{what} : {e}"))),
+        };
+        match reponse.parsed() {
+            Response::Done {
+                tag: t,
+                status,
+                code,
+                information,
+            } if *t == tag => {
+                if *status == Status::Ok {
+                    return Ok(());
+                }
+                let texte = format!("code: {code:?}, info: {information:?}");
+                let refus = if *status == Status::No {
+                    E::No(texte)
+                } else {
+                    E::Bad(texte)
+                };
+                return Err(protocol_error(what, refus));
+            }
+            Response::Data {
+                status: Status::Bye,
+                information,
+                ..
+            } => {
+                return Err(Error::network(format!(
+                    "{what} : the server is closing the connection ({})",
+                    information.as_deref().unwrap_or("no reason given")
+                )))
+            }
+            autre => each(autre),
+        }
+    }
+}
+
+/// A name as an IMAP quoted string.
+fn quoted(name: &str) -> String {
+    let mut sortie = String::with_capacity(name.len() + 2);
+    sortie.push('"');
+    for c in name.chars().filter(|c| !matches!(c, '\r' | '\n')) {
+        if matches!(c, '"' | '\\') {
+            sortie.push('\\');
+        }
+        sortie.push(c);
+    }
+    sortie.push('"');
+    sortie
+}
+
+/// `SELECT`, asking for change numbers where the server keeps them.
+fn select_command(path: &str, condstore: bool) -> String {
+    let nom = quoted(&crate::utf7::encode(path));
+    if condstore {
+        format!("SELECT {nom} (CONDSTORE)")
+    } else {
+        format!("SELECT {nom}")
+    }
+}
+
+/// UIDs as a sequence set, runs written as ranges: `3:7,9,12:14`.
+fn uid_set(uids: &[u32]) -> String {
+    let mut tries = uids.to_vec();
+    tries.sort_unstable();
+    tries.dedup();
+    let mut morceaux: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < tries.len() {
+        let debut = tries[i];
+        let mut fin = debut;
+        while i + 1 < tries.len() && tries[i + 1] == fin + 1 {
+            i += 1;
+            fin = tries[i];
+        }
+        morceaux.push(if debut == fin {
+            debut.to_string()
+        } else {
+            format!("{debut}:{fin}")
+        });
+        i += 1;
+    }
+    morceaux.join(",")
+}
+
+/// One message's answer to a `FETCH`.
+#[derive(Debug, Default)]
+struct Fetched {
+    uid: Option<u32>,
+    flags: Option<Flags>,
+    date: Option<Timestamp>,
+    size: Option<u32>,
+    header: Option<Vec<u8>>,
+    text: Option<Vec<u8>>,
+    body: Option<Vec<u8>>,
+}
+
+/// Reads what a `FETCH` answer carries.
+fn fetched(attrs: &[AttributeValue<'_>]) -> Fetched {
+    let mut f = Fetched::default();
+    for a in attrs {
+        match a {
+            AttributeValue::Uid(uid) => f.uid = Some(*uid),
+            AttributeValue::Flags(noms) => {
+                f.flags = Some(translate_flags(
+                    noms.iter()
+                        .map(|n| async_imap::types::Flag::from(n.as_ref())),
+                ))
+            }
+            AttributeValue::InternalDate(date) => {
+                f.date = chrono::DateTime::parse_from_str(date.trim(), "%d-%b-%Y %H:%M:%S %z")
+                    .ok()
+                    .map(|d| Timestamp::from_millis(d.timestamp_millis()))
+            }
+            AttributeValue::Rfc822Size(taille) => f.size = Some(*taille),
+            AttributeValue::BodySection {
+                section: Some(SectionPath::Full(MessageSection::Header)),
+                data: Some(d),
+                ..
+            }
+            | AttributeValue::Rfc822Header(Some(d)) => f.header = Some(d.to_vec()),
+            AttributeValue::BodySection {
+                section: Some(SectionPath::Full(MessageSection::Text)),
+                data: Some(d),
+                ..
+            }
+            | AttributeValue::Rfc822Text(Some(d)) => f.text = Some(d.to_vec()),
+            AttributeValue::BodySection {
+                section: None,
+                data: Some(d),
+                ..
+            }
+            | AttributeValue::Rfc822(Some(d)) => f.body = Some(d.to_vec()),
+            _ => {}
+        }
+    }
+    f
 }
 
 /// Traduit une erreur de la bibliothèque en disant si elle vaut d'être retentée.
@@ -471,6 +768,18 @@ fn flags_to_names(flags: Flags) -> String {
         noms.push("\\Deleted");
     }
     format!("({})", noms.join(" "))
+}
+
+/// A capability's own name, `CONDSTORE`, `MOVE`… Read through `Debug` it was
+/// `ATOM("CONDSTORE")`, which matched nothing: no server was ever seen to have
+/// CONDSTORE, MOVE or UIDPLUS, and every move ended in a bare `EXPUNGE`.
+fn capability_name(c: &async_imap::types::Capability) -> Option<&str> {
+    use async_imap::types::Capability as C;
+    match c {
+        C::Imap4rev1 => Some("IMAP4REV1"),
+        C::Atom(nom) => Some(nom.as_str()),
+        C::Auth(_) => None,
+    }
 }
 
 /// Un répertoire de travail du serveur, que LIST montre comme une boîte.
@@ -628,25 +937,29 @@ impl ImapConnection for ImapClient {
     }
 
     async fn list_folders(&mut self) -> Result<Vec<RemoteFolder>> {
-        let session = self.session()?;
-        let mut flux = session
-            .list(Some(""), Some("*"))
-            .await
-            .map_err(|e| protocol_error("liste des dossiers", e))?;
-
+        // Read to the server's verdict: a list cut after `INBOX` passed for the whole
+        // of it, and every other folder was forgotten here with its mail.
         let mut listes = Vec::new();
-        while let Some(nom) = flux.next().await {
-            let nom = nom.map_err(|e| protocol_error("liste des dossiers", e))?;
-            let special = special_use(nom.attributes());
-            let lisible = crate::utf7::decode(nom.name());
+        self.run("liste des dossiers", "LIST \"\" \"*\"", |r| {
+            let Response::MailboxData(MailboxDatum::List {
+                name_attributes,
+                delimiter,
+                name,
+            }) = r
+            else {
+                return;
+            };
+            let special = special_use(name_attributes);
+            let lisible = crate::utf7::decode(name);
             if special == Some(FolderKind::NoSelect)
-                || is_virtual(nom.attributes())
+                || is_virtual(name_attributes)
                 || is_server_internal(&lisible)
             {
-                continue;
+                return;
             }
-            listes.push((lisible, special, nom.delimiter().map(str::to_string)));
-        }
+            listes.push((lisible, special, delimiter.as_deref().map(str::to_string)));
+        })
+        .await?;
         let roles = assign_kinds(&listes);
         Ok(listes
             .into_iter()
@@ -660,81 +973,111 @@ impl ImapConnection for ImapClient {
     }
 
     async fn select(&mut self, path: &str) -> Result<SelectedFolder> {
-        let condstore = self.capabilities.condstore;
-        let nom = crate::utf7::encode(path);
-        let session = self.session()?;
+        use async_imap::imap_proto::{ResponseCode, Status};
 
-        let boite = if condstore {
-            session.select_condstore(&nom).await
-        } else {
-            session.select(&nom).await
-        }
-        .map_err(|e| protocol_error(&format!("sélection de « {path} »"), e))?;
+        let commande = select_command(path, self.capabilities.condstore);
+        let (mut validite, mut suivant, mut nombre, mut modseq) = (0, None, 0, 0);
+        self.run(
+            &format!("sélection de « {path} »"),
+            &commande,
+            |r| match r {
+                Response::Data {
+                    status: Status::Ok,
+                    code: Some(code),
+                    ..
+                } => match code {
+                    ResponseCode::UidValidity(v) => validite = *v,
+                    ResponseCode::UidNext(n) => suivant = Some(*n),
+                    ResponseCode::HighestModSeq(m) => modseq = *m,
+                    _ => {}
+                },
+                Response::MailboxData(MailboxDatum::Exists(n)) => nombre = *n,
+                _ => {}
+            },
+        )
+        .await?;
+        self.selected = Some(path.to_string());
+
+        // A server that does not say what the next UID will be (a few do not) had
+        // nothing ever fetched: the next UID was taken as 1, so nothing lay below it.
+        // The highest UID there is says it as well.
+        let suivant = match suivant {
+            Some(n) => n,
+            None if nombre > 0 => {
+                let mut plus_haut = 0;
+                self.run("plus grand UID", "UID FETCH * (UID)", |r| {
+                    if let Response::Fetch(_, attrs) = r {
+                        if let Some(uid) = fetched(attrs).uid {
+                            plus_haut = plus_haut.max(uid);
+                        }
+                    }
+                })
+                .await?;
+                plus_haut + 1
+            }
+            None => 1,
+        };
 
         Ok(SelectedFolder {
-            uid_validity: boite.uid_validity.unwrap_or(0),
-            uid_next: boite.uid_next.unwrap_or(1),
-            exists: boite.exists,
-            highest_modseq: boite.highest_modseq.unwrap_or(0),
+            uid_validity: validite,
+            uid_next: suivant,
+            exists: nombre,
+            highest_modseq: modseq,
         })
     }
 
     async fn fetch_envelopes(&mut self, range: UidRange) -> Result<Vec<RawMessage>> {
-        let session = self.session()?;
-        let mut flux = session
-            .uid_fetch(range.to_sequence(), HEADER_FIELDS)
-            .await
-            .map_err(|e| protocol_error("récupération des en-têtes", e))?;
-
         let mut out = Vec::new();
-        while let Some(item) = flux.next().await {
-            let f = item.map_err(|e| protocol_error("récupération des en-têtes", e))?;
+        let commande = format!("UID FETCH {} {HEADER_FIELDS}", range.to_sequence());
+        self.run("récupération des en-têtes", &commande, |r| {
+            let Response::Fetch(_, attrs) = r else { return };
+            let f = fetched(attrs);
             // Une réponse sans UID est inexploitable : nous n'aurions aucun moyen de
             // la relier à quoi que ce soit.
-            let Some(uid) = f.uid else { continue };
-
+            let Some(uid) = f.uid else { return };
+            // Outside what was asked: the server telling of a change elsewhere.
+            if uid < range.from || uid > range.to {
+                return;
+            }
             out.push(RawMessage {
                 uid,
-                flags: translate_flags(f.flags()),
-                internal_date: f
-                    .internal_date()
-                    .map(|d| Timestamp::from_millis(d.timestamp_millis()))
-                    .unwrap_or(Timestamp::EPOCH),
+                flags: f.flags.unwrap_or(Flags::NONE),
+                internal_date: f.date.unwrap_or(Timestamp::EPOCH),
                 size: f.size.unwrap_or(0) as u64,
-                content: headers_and_start(f.header(), f.text()),
+                content: headers_and_start(f.header.as_deref(), f.text.as_deref()),
             });
-        }
+        })
+        .await?;
         Ok(out)
     }
 
     async fn fetch_body(&mut self, uid: u32) -> Result<Vec<u8>> {
-        let session = self.session()?;
-        let mut flux = session
-            .uid_fetch(uid.to_string(), "(BODY.PEEK[])")
-            .await
-            .map_err(|e| protocol_error("récupération du corps", e))?;
-
-        while let Some(item) = flux.next().await {
-            let f = item.map_err(|e| protocol_error("récupération du corps", e))?;
-            if let Some(corps) = f.body() {
-                return Ok(corps.to_vec());
-            }
-        }
-        Err(Error::Protocol {
+        let mut corps = None;
+        self.run(
+            "récupération du corps",
+            &format!("UID FETCH {uid} (UID BODY.PEEK[])"),
+            |r| {
+                let Response::Fetch(_, attrs) = r else { return };
+                let f = fetched(attrs);
+                if f.uid == Some(uid) || (f.uid.is_none() && corps.is_none()) {
+                    if let Some(b) = f.body {
+                        corps = Some(b);
+                    }
+                }
+            },
+        )
+        .await?;
+        corps.ok_or_else(|| Error::Protocol {
             protocol: "IMAP",
             message: format!("corps de l'UID {uid} absent"),
         })
     }
 
     async fn existing_uids(&mut self, range: UidRange) -> Result<Vec<u32>> {
-        let session = self.session()?;
-        let uids = session
-            .uid_search(format!("UID {}", range.to_sequence()))
-            .await
-            .map_err(|e| protocol_error("recherche des UID", e))?;
-
-        let mut out: Vec<u32> = uids.into_iter().collect();
-        out.sort_unstable();
+        let mut out = self
+            .search("recherche des UID", &format!("UID {}", range.to_sequence()))
+            .await?;
+        out.retain(|u| *u >= range.from && *u <= range.to);
         Ok(out)
     }
 
@@ -751,14 +1094,11 @@ impl ImapConnection for ImapClient {
         if propre.is_empty() {
             return Ok(Vec::new());
         }
-        let session = self.session()?;
-        let uids = session
-            .uid_search(format!("HEADER Message-ID \"<{propre}>\""))
-            .await
-            .map_err(|e| protocol_error("recherche du message", e))?;
-        let mut out: Vec<u32> = uids.into_iter().collect();
-        out.sort_unstable();
-        Ok(out)
+        self.search(
+            "recherche du message",
+            &format!("HEADER Message-ID \"<{propre}>\""),
+        )
+        .await
     }
 
     async fn flags_changed_since(&mut self, modseq: u64) -> Result<Vec<(u32, Flags)>> {
@@ -768,37 +1108,21 @@ impl ImapConnection for ImapClient {
                 message: "CONDSTORE non disponible sur ce serveur".into(),
             });
         }
-
-        let session = self.session()?;
-        let mut flux = session
-            .uid_fetch("1:*", format!("(UID FLAGS) (CHANGEDSINCE {modseq})"))
-            .await
-            .map_err(|e| protocol_error("drapeaux modifiés", e))?;
-
-        let mut out = Vec::new();
-        while let Some(item) = flux.next().await {
-            let f = item.map_err(|e| protocol_error("drapeaux modifiés", e))?;
-            if let Some(uid) = f.uid {
-                out.push((uid, translate_flags(f.flags())));
-            }
-        }
-        Ok(out)
+        self.flags_of(
+            "drapeaux modifiés",
+            &format!("UID FETCH 1:* (UID FLAGS) (CHANGEDSINCE {modseq})"),
+        )
+        .await
     }
 
     async fn fetch_flags(&mut self, range: UidRange) -> Result<Vec<(u32, Flags)>> {
-        let session = self.session()?;
-        let mut flux = session
-            .uid_fetch(range.to_sequence(), "(UID FLAGS)")
-            .await
-            .map_err(|e| protocol_error("lecture des drapeaux", e))?;
-
-        let mut out = Vec::new();
-        while let Some(item) = flux.next().await {
-            let f = item.map_err(|e| protocol_error("lecture des drapeaux", e))?;
-            if let Some(uid) = f.uid {
-                out.push((uid, translate_flags(f.flags())));
-            }
-        }
+        let mut out = self
+            .flags_of(
+                "lecture des drapeaux",
+                &format!("UID FETCH {} (UID FLAGS)", range.to_sequence()),
+            )
+            .await?;
+        out.retain(|(u, _)| *u >= range.from && *u <= range.to);
         Ok(out)
     }
 
@@ -806,132 +1130,134 @@ impl ImapConnection for ImapClient {
         if uids.is_empty() {
             return Ok(());
         }
-        let uidplus = self.capabilities.uidplus;
-        let sequence = uids
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let session = self.session()?;
-        if uidplus {
-            let mut purge = Box::pin(
-                session
-                    .uid_expunge(&sequence)
-                    .await
-                    .map_err(|e| protocol_error("purge", e))?,
-            );
-            while let Some(item) = purge.next().await {
-                item.map_err(|e| protocol_error("purge", e))?;
-            }
-        } else {
-            let mut purge = Box::pin(
-                session
-                    .expunge()
-                    .await
-                    .map_err(|e| protocol_error("purge", e))?,
-            );
-            while let Some(item) = purge.next().await {
-                item.map_err(|e| protocol_error("purge", e))?;
-            }
+        if self.capabilities.uidplus {
+            return self
+                .run("purge", &format!("UID EXPUNGE {}", uid_set(uids)), |_| {})
+                .await;
         }
-        Ok(())
+
+        // Without UIDPLUS only the whole folder can be purged, and with it whatever
+        // another client had only marked deleted (Thunderbird's and Outlook's "mark as
+        // deleted" mode), gone for good. Those are unmarked for the time of the purge,
+        // then marked again.
+        let mut autres = self.search("purge", "DELETED").await?;
+        autres.retain(|u| !uids.contains(u));
+        self.store_flags(&autres, Flags::DELETED, false).await?;
+        let purge = self.run("purge", "EXPUNGE", |_| {}).await;
+        let remis = self.store_flags(&autres, Flags::DELETED, true).await;
+        purge?;
+        remis
     }
 
     async fn store_flags(&mut self, uids: &[u32], flags: Flags, add: bool) -> Result<()> {
         if uids.is_empty() {
             return Ok(());
         }
-        let sequence = uids
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
         let commande = if add {
             "+FLAGS.SILENT"
         } else {
             "-FLAGS.SILENT"
         };
-
-        let session = self.session()?;
-        let mut flux = session
-            .uid_store(sequence, format!("{commande} {}", flags_to_names(flags)))
-            .await
-            .map_err(|e| protocol_error("modification des drapeaux", e))?;
-
-        // La réponse doit être consommée entièrement, sinon la commande suivante lit
-        // les reliquats de celle-ci et le flux se désynchronise.
-        while let Some(item) = flux.next().await {
-            item.map_err(|e| protocol_error("modification des drapeaux", e))?;
-        }
-        Ok(())
+        // Read to its verdict: a refused STORE counted as done, and the action left
+        // the journal although the server had not carried it out.
+        self.run(
+            "modification des drapeaux",
+            &format!(
+                "UID STORE {} {commande} {}",
+                uid_set(uids),
+                flags_to_names(flags)
+            ),
+            |_| {},
+        )
+        .await
     }
 
     async fn create_folder(&mut self, path: &str) -> Result<()> {
-        let nom = crate::utf7::encode(path);
-        let session = self.session()?;
-        let resultat = match session.create(&nom).await {
-            Ok(()) => Ok(()),
+        let nom = quoted(&crate::utf7::encode(path));
+        let resultat = match self
+            .run("création du dossier", &format!("CREATE {nom}"), |_| {})
+            .await
+        {
             // « ALREADYEXISTS », ou n'importe laquelle des formulations que les
             // serveurs emploient pour la même chose. Le but est atteint : le dossier
             // est là. Remonter une erreur ferait échouer un rejeu qui a réussi.
-            Err(e) => {
-                let dit = e.to_string().to_lowercase();
-                if dit.contains("alreadyexists") || dit.contains("already exists") {
-                    Ok(())
-                } else {
-                    Err(protocol_error("création du dossier", e))
-                }
-            }
+            Err(e) if says_already_exists(&e) => Ok(()),
+            autre => autre,
         };
         // Subscribed too: clients that show only subscribed folders (many phones,
         // Thunderbird by default) never showed one created here. A refusal is not
         // worth failing for.
         if resultat.is_ok() {
-            let _ = session.subscribe(&nom).await;
+            let _ = self
+                .run("abonnement", &format!("SUBSCRIBE {nom}"), |_| {})
+                .await;
         }
         resultat
     }
 
     async fn rename_folder(&mut self, from: &str, to: &str) -> Result<()> {
-        let (de, vers) = (crate::utf7::encode(from), crate::utf7::encode(to));
-        let session = self.session()?;
-        match session.rename(&de, &vers).await {
+        let de = quoted(&crate::utf7::encode(from));
+        let vers = quoted(&crate::utf7::encode(to));
+        match self
+            .run(
+                "renommage du dossier",
+                &format!("RENAME {de} {vers}"),
+                |_| {},
+            )
+            .await
+        {
             Ok(()) => {
                 // The subscription follows the name.
-                let _ = session.unsubscribe(&de).await;
-                let _ = session.subscribe(&vers).await;
+                let _ = self
+                    .run("abonnement", &format!("UNSUBSCRIBE {de}"), |_| {})
+                    .await;
+                let _ = self
+                    .run("abonnement", &format!("SUBSCRIBE {vers}"), |_| {})
+                    .await;
                 Ok(())
             }
-            Err(e) => {
-                // Déjà renommé — le rejeu repasse — ou la source a disparu sous ce
-                // nom-là. Dans les deux cas le but est atteint et échouer ferait
-                // bloquer la file du compte sur une opération qui n'a plus d'objet.
-                let dit = e.to_string().to_lowercase();
-                if dit.contains("alreadyexists")
-                    || dit.contains("already exists")
-                    || dit.contains("nonexistent")
-                {
-                    Ok(())
+            // La source a disparu sous ce nom-là : le rejeu repasse sur un renommage
+            // fait. Échouer bloquerait la file du compte sur une opération qui n'a plus
+            // d'objet.
+            Err(e) if says_nonexistent(&e) => Ok(()),
+            // The new name taken: done already only if the old one is gone. Renaming
+            // onto a folder of the same name counted as done, and nothing was renamed.
+            Err(e) if says_already_exists(&e) => {
+                let mut source_la = false;
+                self.run("liste des dossiers", &format!("LIST \"\" {de}"), |r| {
+                    if matches!(r, Response::MailboxData(MailboxDatum::List { .. })) {
+                        source_la = true;
+                    }
+                })
+                .await?;
+                if source_la {
+                    Err(Error::Config(format!(
+                        "a folder named “{to}” already exists"
+                    )))
                 } else {
-                    Err(protocol_error("renommage du dossier", e))
+                    Ok(())
                 }
             }
+            Err(e) => Err(e),
         }
     }
 
     async fn delete_folder(&mut self, path: &str) -> Result<()> {
-        let nom = crate::utf7::encode(path);
-        let session = self.session()?;
-        match session.delete(&nom).await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                let dit = e.to_string().to_lowercase();
-                if dit.contains("nonexistent") || dit.contains("does not exist") {
-                    Ok(())
-                } else {
-                    Err(protocol_error("suppression du dossier", e))
-                }
+        let nom = quoted(&crate::utf7::encode(path));
+        match self
+            .run("suppression du dossier", &format!("DELETE {nom}"), |_| {})
+            .await
+        {
+            Ok(()) => {
+                // A subscription to a folder that is gone shows as a broken folder in
+                // other clients.
+                let _ = self
+                    .run("abonnement", &format!("UNSUBSCRIBE {nom}"), |_| {})
+                    .await;
+                Ok(())
             }
+            Err(e) if says_nonexistent(&e) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
@@ -939,30 +1265,25 @@ impl ImapConnection for ImapClient {
         if uids.is_empty() {
             return Ok(());
         }
-        let sequence = uids
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
+        let sequence = uid_set(uids);
         let atomique = self.capabilities.r#move;
-        let cible = crate::utf7::encode(target);
-        let session = self.session()?;
+        let cible = quoted(&crate::utf7::encode(target));
 
         if atomique {
-            session
-                .uid_mv(&sequence, &cible)
-                .await
-                .map_err(|e| protocol_error("déplacement", e))?;
-            return Ok(());
+            return self
+                .run(
+                    "déplacement",
+                    &format!("UID MOVE {sequence} {cible}"),
+                    |_| {},
+                )
+                .await;
         }
 
         // Sans MOVE : copier, marquer supprimé, purger. Ce n'est pas atomique — une
         // coupure entre les deux laisse un doublon — mais c'est le seul chemin
         // disponible, et le journal d'opérations rendra l'ensemble rejouable.
-        session
-            .uid_copy(&sequence, &cible)
-            .await
-            .map_err(|e| protocol_error("copie", e))?;
+        self.run("copie", &format!("UID COPY {sequence} {cible}"), |_| {})
+            .await?;
 
         // L'emprunt de la session doit prendre fin avant l'appel suivant, qui la
         // réemprunte.
@@ -977,12 +1298,15 @@ impl ImapConnection for ImapClient {
     async fn append(&mut self, folder: &str, raw: &[u8], flags: Flags) -> Result<Option<u32>> {
         let noms = flags_to_names(flags);
         let nom = crate::utf7::encode(folder);
+        self.revive().await?;
         let session = self.session()?;
 
-        session
+        let resultat = session
             .append(&nom, Some(&noms), None, raw)
             .await
-            .map_err(|e| protocol_error(&format!("dépôt dans « {folder} »"), e))?;
+            .map_err(|e| protocol_error(&format!("dépôt dans « {folder} »"), e));
+        self.note(&resultat);
+        resultat?;
 
         // Le serveur ne renvoie l'UID attribué que s'il annonce UIDPLUS, et notre
         // bibliothèque ne l'expose pas ici. L'absence n'est pas un échec : la
@@ -1000,6 +1324,7 @@ impl ImapConnection for ImapClient {
 
         // L'attente consomme la session : on la retire, puis on la rend. Si l'attente
         // échoue, la connexion est perdue et l'appelant devra se reconnecter.
+        self.revive().await?;
         let session = self.session.take().ok_or_else(|| Error::Protocol {
             protocol: "IMAP",
             message: "session absente".into(),
@@ -1076,6 +1401,64 @@ mod tests {
             folder_kind("Branche", &[A::Extension("\\NonExistent".into())]),
             FolderKind::NoSelect
         );
+    }
+
+    #[test]
+    fn uids_go_out_as_ranges() {
+        assert_eq!(uid_set(&[9, 3, 4, 5, 12, 13, 4]), "3:5,9,12:13");
+        assert_eq!(uid_set(&[7]), "7");
+    }
+
+    #[test]
+    fn a_name_is_quoted_with_its_quotes_escaped() {
+        assert_eq!(quoted("Devis"), "\"Devis\"");
+        assert_eq!(quoted("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn a_fetch_answer_is_read_whole() {
+        use std::borrow::Cow;
+        let attrs = vec![
+            AttributeValue::Uid(42),
+            AttributeValue::Flags(vec![Cow::Borrowed("\\Seen"), Cow::Borrowed("$Label1")]),
+            AttributeValue::InternalDate(Cow::Borrowed(" 7-Oct-2026 09:30:00 +0200")),
+            AttributeValue::Rfc822Size(1234),
+            AttributeValue::BodySection {
+                section: Some(SectionPath::Full(MessageSection::Header)),
+                index: None,
+                data: Some(Cow::Borrowed(b"Subject: Devis\r\n\r\n")),
+            },
+            AttributeValue::BodySection {
+                section: Some(SectionPath::Full(MessageSection::Text)),
+                index: Some(0),
+                data: Some(Cow::Borrowed(b"Bonjour")),
+            },
+        ];
+        let f = fetched(&attrs);
+        assert_eq!(f.uid, Some(42));
+        assert_eq!(f.flags, Some(Flags::SEEN));
+        assert_eq!(f.size, Some(1234));
+        assert_eq!(f.date, Some(Timestamp::from_millis(1_791_358_200_000)));
+        assert_eq!(
+            headers_and_start(f.header.as_deref(), f.text.as_deref()),
+            b"Subject: Devis\r\n\r\nBonjour"
+        );
+    }
+
+    #[test]
+    fn a_server_s_capabilities_are_read_by_their_names() {
+        use async_imap::types::Capability as C;
+        let annonce = [
+            C::Imap4rev1,
+            C::Atom("CONDSTORE".into()),
+            C::Atom("MOVE".into()),
+            C::Atom("UIDPLUS".into()),
+            C::Atom("IDLE".into()),
+            C::Auth("PLAIN".into()),
+        ];
+        let c = Capabilities::from_names(annonce.iter().filter_map(capability_name));
+        assert!(c.condstore && c.r#move && c.uidplus && c.idle, "{c:?}");
+        assert!(!c.qresync);
     }
 
     #[test]

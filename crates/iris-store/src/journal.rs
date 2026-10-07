@@ -70,16 +70,33 @@ impl Store {
             )
             .map_err(|e| sql_err("libération de la clé", e))?;
 
+            // The folder's validity as its UIDs were read: replay drops the operation
+            // if the server has rebuilt the folder since, whatever a sync has stored.
+            let validite: i64 = match crate::OpPayload::parse(payload) {
+                Ok(charge) if charge.uses_uids() => tx
+                    .query_row(
+                        "SELECT uid_validity FROM folders WHERE account_id = ?1 AND path = ?2",
+                        params![account.get(), charge.folder()],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| sql_err("validité du dossier", e))?
+                    .unwrap_or(0),
+                _ => 0,
+            };
+
             tx.execute(
                 "INSERT INTO op_journal
-                   (account_id, kind, payload, idempotency_key, created_at, next_attempt_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                   (account_id, kind, payload, idempotency_key, created_at, next_attempt_at,
+                    uid_validity)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
                 params![
                     account.get(),
                     kind.as_str(),
                     payload,
                     idempotency_key,
-                    now.millis()
+                    now.millis(),
+                    validite
                 ],
             )
             .map_err(|e| sql_err("enregistrement de l'opération", e))?;
@@ -117,7 +134,7 @@ impl Store {
             let mut stmt = c
                 .prepare_cached(
                     "SELECT id, account_id, kind, payload, idempotency_key, created_at,
-                            attempts, next_attempt_at, last_error
+                            attempts, next_attempt_at, last_error, uid_validity
                      FROM op_journal
                      WHERE done = 0 AND next_attempt_at <= ?1
                        AND (?3 IS NULL OR account_id = ?3)
@@ -139,6 +156,7 @@ impl Store {
                             attempts: r.get::<_, i64>(6)? as u32,
                             next_attempt_at: Timestamp::from_millis(r.get(7)?),
                             last_error: r.get(8)?,
+                            uid_validity: r.get::<_, i64>(9)? as u32,
                         })
                     },
                 )

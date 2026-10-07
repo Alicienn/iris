@@ -144,7 +144,7 @@ impl Snapshot {
 }
 
 /// Le fil du vue-modèle.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Controller {
     requests: Sender<Request>,
 }

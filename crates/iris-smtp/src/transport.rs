@@ -250,9 +250,15 @@ fn build_lettre_message_with(
     // Le corps : texte seul, ou alternative texte + HTML. Une alternative texte est
     // toujours jointe, car un message uniquement HTML est souvent classé indésirable.
     let corps = match (&message.html_body, message.attachments.is_empty()) {
+        // As a part, not a bare body: `body` writes no `Content-Type` and no
+        // `MIME-Version`, which reads as US-ASCII, and "é" arrived as "Ã©".
         (None, true) => {
             return builder
-                .body(message.text_body.clone())
+                .singlepart(
+                    SinglePart::builder()
+                        .header(header::ContentType::TEXT_PLAIN)
+                        .body(message.text_body.clone()),
+                )
                 .map(|m| (m, message_id))
                 .map_err(|e| Error::Config(format!("construction du message : {e}")));
         }
@@ -387,6 +393,17 @@ mod tests {
                 .map(str::to_string)
         };
         assert_eq!(date(&envoye), date(&copie));
+    }
+
+    #[test]
+    fn a_plain_text_message_says_it_is_utf8() {
+        let m = message().body("Voilà le devis, à très vite");
+        let brut = String::from_utf8(message_bytes(&m).unwrap()).unwrap();
+        assert!(brut.contains("MIME-Version: 1.0"), "{brut}");
+        assert!(
+            brut.contains("Content-Type: text/plain; charset=utf-8"),
+            "{brut}"
+        );
     }
 
     #[test]
