@@ -230,6 +230,8 @@ component NoteBlock inherits Rectangle {
     in property <bool> popup;
     /// Reading mode: nothing is edited, a click on a link follows it.
     in property <bool> read-only;
+    /// How wide the note's column is, for pictures.
+    in property <length> available: 640px;
 
     property <bool> en-liste: root.block.kind == "bullet" || root.block.kind == "numbered"
         || root.block.kind == "task";
@@ -511,9 +513,11 @@ component NoteBlock inherits Rectangle {
                 if root.block.has-picture: HorizontalLayout {
                     horizontal-stretch: 1;
                     alignment: root.block.kind == "math" ? LayoutAlignment.center : LayoutAlignment.start;
+                    // As wide as it is, or the column: the column's width comes from
+                    // the page, never from this layout, so nothing loops.
                     Image {
                         source: root.block.picture;
-                        width: min(self.source.width * 1px, parent.width);
+                        width: min(self.source.width * 1px, root.available - root.retrait);
                         height: self.width * self.source.height / max(1, self.source.width);
                     }
                 }
@@ -901,6 +905,7 @@ export component NotesView inherits Rectangle {
                             index: i;
                             focused: i == root.focus-block && !root.reading;
                             read-only: root.reading;
+                            available: min(760px, page.visible-width) - 72px;
                             focus-serial: root.focus-serial;
                             focus-cursor: root.focus-cursor;
                             focus-anchor: root.focus-anchor;
@@ -916,7 +921,18 @@ export component NotesView inherits Rectangle {
                             link(l) => { root.link-clicked(l); }
                             task-toggled(k) => { root.task-toggled(k); }
                             fold-toggled(k) => { root.fold-toggled(k); }
-                            caret(k, x, y, c, a) => { root.caret(k, x, y, c, a); }
+                            caret(k, x, y, c, a) => {
+                                // The cursor kept in view: the page scrolls to it.
+                                let haut = page.absolute-position.y + 30px;
+                                let bas = page.absolute-position.y + page.visible-height - 30px;
+                                let plancher = min(0px, page.visible-height - page.viewport-height);
+                                if (y > bas) {
+                                    page.viewport-y = max(plancher, page.viewport-y - (y - bas));
+                                } else if (y - 40px < haut) {
+                                    page.viewport-y = min(0px, page.viewport-y + (haut - (y - 40px)));
+                                }
+                                root.caret(k, x, y, c, a);
+                            }
                             popup: i == root.focus-block && (root.completion.length > 0);
                             ctrl-changed(b) => { root.ctrl-changed(b); }
                         }

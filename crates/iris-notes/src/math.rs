@@ -289,6 +289,30 @@ pub fn snippet(word: &str) -> Option<(&'static str, usize)> {
     })
 }
 
+/// What [`snippet`] knows, longest first so `<=>` is found before `=>`.
+pub const SNIPPET_KEYS: &[&str] = &[
+    "cases", "align", "mat2", "mat3", "prod", "<=>", "vec", "hat", "bar", "sum", "int", "lim",
+    "txt", "inf", "//", "sq", "bb", "=>", "->", "<=", ">=", "!=",
+];
+
+/// The snippet ending `before` (what is typed before the cursor), if one does: how
+/// long its key is, what it becomes, and where the cursor goes in that.
+pub fn snippet_before(before: &str) -> Option<(usize, &'static str, usize)> {
+    SNIPPET_KEYS.iter().find_map(|k| {
+        if !before.ends_with(k) {
+            return None;
+        }
+        // A word snippet stands alone: `\sum` already written is not `sum` again.
+        let avant = before[..before.len() - k.len()].chars().next_back();
+        if k.chars().all(|c| c.is_ascii_alphanumeric())
+            && avant.is_some_and(|c| c.is_ascii_alphanumeric() || c == '\\')
+        {
+            return None;
+        }
+        snippet(k).map(|(texte, curseur)| (k.len(), texte, curseur))
+    })
+}
+
 /// The next place to fill after `cursor` in maths: inside the next `{}`, or after the
 /// next `&`. `None` when there is none left.
 pub fn next_slot(text: &str, cursor: usize) -> Option<usize> {
