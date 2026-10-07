@@ -993,6 +993,20 @@ wrote to, at once (forgotten if it does not leave); a page is opened in the brow
 not counted as done. The first two are kept by sender (`unsubscribed`, migration 22),
 and the reader then says *Unsubscribed*.
 
+Since 4.14.0, **a folder for some mailboxes**. *New folder* lists the mailboxes it can
+be made on (`folders::mailboxes_for_new_folder`: the enabled ones, under a parent those
+that have it), searched and ticked in Rust (`BoitesDuDossier` in `shell.rs`), and
+`folders::create_on` creates it on the ticked ones only. Made for fewer than every
+mailbox, the folder remembers which, by the name it is shown under (`folder_accounts`,
+migration 24); the mailboxes that already had it stay in, so making it again never
+hides mail, and every mailbox ticked leaves no row. Its view (`push_scope`, `Scope::Path`)
+and its tree counts (`unified_folders`) take those mailboxes' messages only, so a folder
+of that name on another mailbox is not part of it; moving mail into it
+(`Workflow::move_thread`) and *Mark all as read* skip the others. Renaming carries the
+rows (`rename_folder_path`); deleting drops them. The tree's orange mark (a folder
+missing on some mailboxes) is left off such a folder (`FolderNodeData::restricted`) and
+compares with the enabled mailboxes only (4.14.1).
+
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside
 `draft.json`, attachments kept only while Iris runs) and empties the window, so New
@@ -1061,6 +1075,7 @@ which keeps that term off any index, and a test pins the plan
 | 21 | `op_journal.uid_validity`: the folder validity an operation's UIDs belong to (4.8.0) |
 | 22 | `unsubscribed`: the senders one has left the mailing list of, by address (4.12.0) |
 | 23 | `calendar_accounts`; `account_id`, `remote_href`, `read_only` on calendars; `href`, `etag`, `remote_ics`, `dirty` on events; `calendar_tombstones` (4.13.0) |
+| 24 | `folder_accounts`: the mailboxes a folder of one's own was made for, by its shown name; none means every mailbox (4.14.0) |
 
 A new table or column always arrives as a new migration.
 

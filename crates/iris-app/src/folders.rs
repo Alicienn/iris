@@ -9,8 +9,9 @@
 //!
 //! Deux conséquences, l'une et l'autre voulues :
 //!
-//! - **Créer, c'est créer partout.** Un dossier qui n'existerait que sur une boîte
-//!   serait invisible depuis les autres, et rangerait le courrier à moitié.
+//! - **Créer, c'est créer partout** — sauf si l'on coche moins de boîtes. Un dossier
+//!   fait pour certaines boîtes s'en souvient (`folder_accounts`) et ne montre, ne
+//!   compte et ne range que leur courrier.
 //! - **Choisir un compte *et* un dossier croise les deux.** C'est la question « ce
 //!   qu'il y a dans Devis, chez ce client-là », et c'est celle qu'on pose le plus
 //!   souvent une fois qu'on a plus d'une boîte.
@@ -231,47 +232,90 @@ pub fn validate(name: &str) -> std::result::Result<String, String> {
     Ok(nom.to_string())
 }
 
-/// Demande la création d'un dossier sur toutes les boîtes qui ne l'ont pas.
+/// The mailboxes a new folder can be made on: the enabled ones, and under a parent
+/// only those that have it (or hold folders under it).
+pub fn mailboxes_for_new_folder(
+    store: &Store,
+    parent: Option<&str>,
+) -> Result<Vec<iris_store::Account>> {
+    let parent = parent.map(str::trim).filter(|p| !p.is_empty());
+    let mut boites = Vec::new();
+    for compte in store.accounts()?.into_iter().filter(|c| c.enabled) {
+        if let Some(p) = parent {
+            if parent_here(&store.folders(compte.id)?, p, &compte).is_none() {
+                continue;
+            }
+        }
+        boites.push(compte);
+    }
+    Ok(boites)
+}
+
+/// The parent's path on this mailbox, if it has it or holds folders under it:
+/// `Clients` in the tree is `INBOX.Clients` on some servers.
+fn parent_here(
+    dossiers: &[iris_store::Folder],
+    parent: &str,
+    compte: &iris_store::Account,
+) -> Option<String> {
+    let separateur = compte.folder_delimiter.unwrap_or('.');
+    let p = dossiers
+        .iter()
+        .find(|f| f.path == parent)
+        .or_else(|| {
+            dossiers
+                .iter()
+                .find(|f| iris_store::same_folder(&f.path, parent))
+        })
+        .map(|f| f.path.clone())
+        .unwrap_or_else(|| parent.to_string());
+    let prefixe = format!("{p}{separateur}");
+    dossiers
+        .iter()
+        .any(|f| f.path == p || f.path.starts_with(&prefixe))
+        .then_some(p)
+}
+
+/// Demande la création d'un dossier sur les boîtes choisies qui ne l'ont pas.
 ///
 /// Renvoie le nombre de comptes à qui la demande a été adressée. Zéro n'est pas une
-/// erreur : il veut dire que le dossier existe déjà partout, ce qui est exactement
+/// erreur : il veut dire que le dossier existe déjà sur chacune, ce qui est exactement
 /// l'état recherché.
-pub fn create_everywhere(
+///
+/// Made for fewer than every mailbox, the folder remembers which: its view then shows
+/// their mail only. The mailboxes that already had it stay in, so that none of its
+/// mail is hidden by making it again.
+pub fn create_on(
     store: &Store,
     parent: Option<&str>,
     name: &str,
+    accounts: &[iris_types::AccountId],
     now: Timestamp,
 ) -> Result<usize> {
     let nom = validate(name).map_err(Error::Config)?;
     let parent = parent.map(str::trim).filter(|p| !p.is_empty());
+    if accounts.is_empty() {
+        return Err(Error::Config("Choose at least one mailbox.".into()));
+    }
 
+    let tous = store.accounts()?;
+    let allumes: Vec<iris_types::AccountId> =
+        tous.iter().filter(|c| c.enabled).map(|c| c.id).collect();
     let mut demandes = 0;
-    for compte in store.accounts()?.into_iter().filter(|c| c.enabled) {
+    // Each member, by the name its own path is shown under there.
+    let mut membres: std::collections::BTreeMap<String, Vec<iris_types::AccountId>> =
+        Default::default();
+    let mut existants: Vec<(iris_types::AccountId, String)> = Vec::new();
+    for compte in tous.into_iter().filter(|c| c.enabled) {
         let dossiers = store.folders(compte.id)?;
         let separateur = compte.folder_delimiter.unwrap_or('.');
         let chemin = match parent {
             // Under a folder this mailbox has (or holds folders under), by its own
             // path here: `Clients` in the tree is `INBOX.Clients` on some servers.
-            Some(p) => {
-                let p = dossiers
-                    .iter()
-                    .find(|f| f.path == p)
-                    .or_else(|| {
-                        dossiers
-                            .iter()
-                            .find(|f| iris_store::same_folder(&f.path, p))
-                    })
-                    .map(|f| f.path.clone())
-                    .unwrap_or_else(|| p.to_string());
-                let prefixe = format!("{p}{separateur}");
-                if !dossiers
-                    .iter()
-                    .any(|f| f.path == p || f.path.starts_with(&prefixe))
-                {
-                    continue;
-                }
-                format!("{p}{separateur}{nom}")
-            }
+            Some(p) => match parent_here(&dossiers, p, &compte) {
+                Some(p) => format!("{p}{separateur}{nom}"),
+                None => continue,
+            },
             // Where this server keeps the user's folders: under `INBOX` for those
             // that impose it (Courier, many hosts), at the top for the others. Always
             // `INBOX.` before: at Gmail that made a label literally named
@@ -281,7 +325,18 @@ pub fn create_everywhere(
                 None => nom.clone(),
             },
         };
-        if dossiers.iter().any(|f| f.path == chemin) {
+        let deja = dossiers.iter().any(|f| f.path == chemin);
+        if deja {
+            existants.push((compte.id, chemin.clone()));
+        }
+        if !accounts.contains(&compte.id) {
+            continue;
+        }
+        membres
+            .entry(iris_store::display_path(&chemin).to_string())
+            .or_default()
+            .push(compte.id);
+        if deja {
             continue;
         }
         let charge = OpPayload::CreateFolder {
@@ -292,6 +347,27 @@ pub fn create_everywhere(
         // the next sync.
         store.upsert_folder(compte.id, &chemin, iris_store::FolderRole::Other)?;
         demandes += 1;
+    }
+
+    // Who it is for. Where it already was: those it was made for, else every mailbox
+    // that had it, whose mail stayed in sight.
+    for (nom_affiche, comptes) in &mut membres {
+        let avant = store.folder_accounts(nom_affiche)?;
+        if avant.is_empty() {
+            comptes.extend(
+                existants
+                    .iter()
+                    .filter(|(_, chemin)| iris_store::display_path(chemin) == nom_affiche.as_str())
+                    .map(|(id, _)| *id),
+            );
+        } else {
+            comptes.extend(avant);
+        }
+        comptes.sort();
+        comptes.dedup();
+        // Every mailbox: nothing to remember, as folders always were.
+        let partout = allumes.iter().all(|id| comptes.contains(id));
+        store.set_folder_accounts(nom_affiche, if partout { &[][..] } else { &comptes[..] })?;
     }
 
     Ok(demandes)
@@ -403,11 +479,17 @@ pub fn mark_read_everywhere(
     now: Timestamp,
 ) -> Result<usize> {
     let mut touches = 0usize;
+    // A folder made for some mailboxes: theirs, as its view shows.
+    let membres = match scope {
+        Scope::Path(chemin) => store.folder_accounts(chemin)?,
+        _ => Vec::new(),
+    };
 
     for compte in store
         .accounts()?
         .into_iter()
         .filter(|c| only.is_none_or(|seul| seul == c.id))
+        .filter(|c| membres.is_empty() || membres.contains(&c.id))
     {
         for dossier in store.folders(compte.id)? {
             if !concerne(scope, &dossier) {
@@ -668,6 +750,8 @@ pub fn delete_everywhere(store: &Store, path: &str, now: Timestamp) -> Result<us
         store.clear_folder(source.id)?;
         store.forget_folder(*compte, chemin)?;
     }
+    // Made again later, it is every mailbox's unless said otherwise.
+    store.set_folder_accounts(path, &[])?;
 
     Ok(comptes.len())
 }
@@ -989,8 +1073,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            create_everywhere(&store, None, "Devis", maintenant).unwrap(),
+            create_on(&store, None, "Devis", &[gmail, courier], maintenant).unwrap(),
             2
+        );
+        assert!(
+            store.folder_accounts("Devis").unwrap().is_empty(),
+            "made on every mailbox, there is nothing to remember"
         );
         let demandes: Vec<String> = store
             .pending_ops(Timestamp::from_millis(1), 10)
@@ -1008,6 +1096,80 @@ mod tests {
                 .any(|p| p.contains("\"folder\":\"INBOX.Devis\"")),
             "{demandes:?}"
         );
+    }
+
+    #[test]
+    fn a_folder_is_made_on_the_chosen_mailboxes_only() {
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let mut comptes = Vec::new();
+        for adresse in ["a@example.com", "b@example.com", "c@example.com"] {
+            let id = store
+                .create_account(&iris_store::NewAccount::new(adresse, "i", "s"), maintenant)
+                .unwrap();
+            store.set_folder_delimiter(id, '.').unwrap();
+            store.upsert_folder(id, "INBOX", FolderRole::Inbox).unwrap();
+            comptes.push(id);
+        }
+        let (a, b, c) = (comptes[0], comptes[1], comptes[2]);
+
+        assert!(create_on(&store, None, "Devis", &[], maintenant).is_err());
+        assert_eq!(
+            create_on(&store, None, "Devis", &[a, c], maintenant).unwrap(),
+            2
+        );
+        let a_le_dossier = |id| store.folders(id).unwrap().iter().any(|f| f.path == "Devis");
+        assert!(a_le_dossier(a) && a_le_dossier(c));
+        assert!(!a_le_dossier(b), "not asked for b");
+        assert_eq!(store.folder_accounts("Devis").unwrap(), [a, c]);
+
+        // Made again for b: the ones it was for stay in, and it is every mailbox's.
+        assert_eq!(
+            create_on(&store, None, "Devis", &[b], maintenant).unwrap(),
+            1
+        );
+        assert!(store.folder_accounts("Devis").unwrap().is_empty());
+
+        // Deleted, nothing of it is remembered.
+        create_on(&store, None, "Factures", &[a], maintenant).unwrap();
+        assert_eq!(store.folder_accounts("Factures").unwrap(), [a]);
+        delete_everywhere(&store, "Factures", maintenant).unwrap();
+        assert!(store.folder_accounts("Factures").unwrap().is_empty());
+    }
+
+    #[test]
+    fn under_a_parent_only_the_mailboxes_that_have_it_are_offered() {
+        let store = Store::in_memory().unwrap();
+        let maintenant = Timestamp::from_millis(0);
+        let a = store
+            .create_account(
+                &iris_store::NewAccount::new("a@example.com", "i", "s"),
+                maintenant,
+            )
+            .unwrap();
+        let b = store
+            .create_account(
+                &iris_store::NewAccount::new("b@example.com", "i", "s"),
+                maintenant,
+            )
+            .unwrap();
+        store.set_folder_delimiter(a, '.').unwrap();
+        store
+            .upsert_folder(a, "Clients", FolderRole::Other)
+            .unwrap();
+        store.upsert_folder(b, "INBOX", FolderRole::Inbox).unwrap();
+
+        let ids = |p| -> Vec<iris_types::AccountId> {
+            let mut ids: Vec<_> = mailboxes_for_new_folder(&store, p)
+                .unwrap()
+                .into_iter()
+                .map(|c| c.id)
+                .collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(ids(None), [a, b]);
+        assert_eq!(ids(Some("Clients")), [a]);
     }
 
     #[test]

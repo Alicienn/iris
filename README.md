@@ -165,6 +165,15 @@ tells the server it is not junk. **Empty** on the bin or the junk
 folder deletes for good, once you have said yes. Quitting while a message is still on
 its way waits for it to leave; if it cannot, Iris stays open with your message.
 
+A folder is one name across your mailboxes. **New folder** creates it inside the folder
+you are in, on the mailboxes you tick: all of them, or the one you are looking at, by
+default; a search finds one by its name or address, and **Select all** ticks (or
+unticks) every one it shows. A folder made for some of your addresses shows only their
+mail, even where another mailbox has a folder of the same name, and mail dropped on it
+is filed on those mailboxes only. An orange mark beside a folder says it is missing on
+some of your mailboxes (switched-off ones aside) without having been made for some;
+pointing at it says on how many it is.
+
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
 
 A message from a mailing list offers **Unsubscribe** beside its sender. Iris asks once

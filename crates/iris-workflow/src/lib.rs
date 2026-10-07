@@ -547,7 +547,16 @@ impl Workflow {
         // Mailboxes without that folder: their mail stays, the others' goes. One of
         // them failed the whole thread.
         let mut sans_dossier = 0;
+        // A folder made for some mailboxes takes theirs only: another mailbox's folder
+        // of that name is not part of it, and mail filed there would not show in it.
+        let membres = match destination {
+            Destination::Path(chemin) => self.store.folder_accounts(chemin)?,
+            Destination::Role(_) => Vec::new(),
+        };
         for (account, items) in per_account {
+            if !membres.is_empty() && !membres.contains(&account) {
+                continue;
+            }
             let dossiers = self.store.folders(account)?;
             let trouve = match destination {
                 // No archive folder (OVH, Gandi…): made, as other clients do. Archive

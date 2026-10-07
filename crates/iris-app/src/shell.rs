@@ -4789,6 +4789,11 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
             // le lui faire traverser en sens inverse mettrait des chemins SVG dans du
             // code Rust, où plus personne ne penserait à les tenir à jour.
             role: n.role.as_str().into(),
+            restricted: !n.is_role
+                && services
+                    .store
+                    .folder_accounts(&n.key)
+                    .is_ok_and(|comptes| !comptes.is_empty()),
         })
         .collect();
 
@@ -4800,7 +4805,15 @@ pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
     {
         fenetre.set_folders(ModelRc::new(VecModel::from(lignes)));
     }
-    fenetre.set_account_count(services.store.accounts().map(|c| c.len()).unwrap_or(0) as i32);
+    // The enabled ones: folders are made on those only, and one switched off made every
+    // folder look missing somewhere.
+    fenetre.set_account_count(
+        services
+            .store
+            .accounts()
+            .map(|c| c.iter().filter(|c| c.enabled).count())
+            .unwrap_or(0) as i32,
+    );
 }
 
 /// Lit ce que l'arborescence a renvoyé.
@@ -4833,6 +4846,57 @@ fn compte_regarde(fenetre: &AppWindow) -> Option<iris_types::AccountId> {
         0 => None,
         id => Some(iris_types::AccountId(id as i64)),
     }
+}
+
+/// What the New folder window offers: the mailboxes it can be made on, and the ticked.
+#[derive(Default)]
+struct BoitesDuDossier {
+    boites: Vec<iris_store::Account>,
+    coches: std::collections::BTreeSet<iris_types::AccountId>,
+}
+
+/// Whether the search finds this mailbox, by its name or its address.
+fn boite_cherchee(compte: &iris_store::Account, recherche: &str) -> bool {
+    let recherche = recherche.trim().to_lowercase();
+    recherche.is_empty()
+        || compte.email.to_lowercase().contains(&recherche)
+        || compte.display_name.to_lowercase().contains(&recherche)
+}
+
+/// Shows the mailboxes the search finds, each ticked or not, and the counts.
+fn montrer_boites(fenetre: &AppWindow, choix: &BoitesDuDossier) {
+    let recherche = fenetre.get_new_folder_search().to_string();
+    let lignes: Vec<iris_ui::FolderMailboxData> = choix
+        .boites
+        .iter()
+        .filter(|c| boite_cherchee(c, &recherche))
+        .map(|c| {
+            let (r, g, b) = iris_ui::format::account_tint(&c.email);
+            let nom = c.display_name.trim();
+            iris_ui::FolderMailboxData {
+                id: c.id.get() as i32,
+                name: (if nom.is_empty() {
+                    c.email.as_str()
+                } else {
+                    nom
+                })
+                .into(),
+                email: c.email.as_str().into(),
+                tint: slint::Color::from_rgb_u8(r, g, b),
+                checked: choix.coches.contains(&c.id),
+            }
+        })
+        .collect();
+    let tous_coches = !lignes.is_empty() && lignes.iter().all(|l| l.checked);
+    let coches = choix
+        .boites
+        .iter()
+        .filter(|c| choix.coches.contains(&c.id))
+        .count();
+    fenetre.set_new_folder_all_shown_checked(tous_coches);
+    fenetre.set_new_folder_chosen(coches as i32);
+    fenetre.set_new_folder_total(choix.boites.len() as i32);
+    fenetre.set_new_folder_mailboxes(ModelRc::new(VecModel::from(lignes)));
 }
 
 /// Le chemin que le serveur connaît, pour le dossier dont le menu est ouvert.
@@ -5145,13 +5209,92 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
         });
     }
 
+    // The mailboxes the new folder can be made on, and those ticked. Kept here so that
+    // a search narrows the list without losing what was ticked outside it.
+    let choix_boites: Rc<std::cell::RefCell<BoitesDuDossier>> = Default::default();
     {
+        let services = services.clone();
         let faible = fenetre.as_weak();
+        let choix_boites = Rc::clone(&choix_boites);
         fenetre.on_new_folder_requested(move || {
             if let Some(fenetre) = faible.upgrade() {
+                let parent = match scope_depuis(fenetre.get_selected_folder().as_str()) {
+                    iris_store::Scope::Path(chemin) => Some(chemin),
+                    _ => None,
+                };
+                let boites =
+                    crate::folders::mailboxes_for_new_folder(&services.store, parent.as_deref())
+                        .unwrap_or_default();
+                // The mailbox being looked at, else every one.
+                let coches = match compte_regarde(&fenetre) {
+                    Some(id) if boites.iter().any(|c| c.id == id) => [id].into(),
+                    _ => boites.iter().map(|c| c.id).collect(),
+                };
+                *choix_boites.borrow_mut() = BoitesDuDossier { boites, coches };
+                fenetre.set_new_folder_parent(
+                    parent
+                        .map(|p| crate::folders::scope_name(&iris_store::Scope::Path(p)))
+                        .unwrap_or_default()
+                        .into(),
+                );
                 fenetre.set_new_folder_name(Default::default());
                 fenetre.set_new_folder_error(Default::default());
+                fenetre.set_new_folder_search(Default::default());
+                montrer_boites(&fenetre, &choix_boites.borrow());
                 fenetre.set_new_folder_open(true);
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        let choix_boites = Rc::clone(&choix_boites);
+        fenetre.on_new_folder_search_changed(move |_| {
+            if let Some(fenetre) = faible.upgrade() {
+                montrer_boites(&fenetre, &choix_boites.borrow());
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        let choix_boites = Rc::clone(&choix_boites);
+        fenetre.on_new_folder_mailbox_toggled(move |id| {
+            if let Some(fenetre) = faible.upgrade() {
+                let id = iris_types::AccountId(id as i64);
+                {
+                    let mut choix = choix_boites.borrow_mut();
+                    if !choix.coches.remove(&id) {
+                        choix.coches.insert(id);
+                    }
+                }
+                montrer_boites(&fenetre, &choix_boites.borrow());
+            }
+        });
+    }
+    {
+        let faible = fenetre.as_weak();
+        let choix_boites = Rc::clone(&choix_boites);
+        fenetre.on_new_folder_select_all_toggled(move || {
+            if let Some(fenetre) = faible.upgrade() {
+                // The ones the search shows: all ticked, they are all unticked; else all
+                // ticked.
+                let recherche = fenetre.get_new_folder_search().to_string();
+                {
+                    let mut choix = choix_boites.borrow_mut();
+                    let montres: Vec<_> = choix
+                        .boites
+                        .iter()
+                        .filter(|c| boite_cherchee(c, &recherche))
+                        .map(|c| c.id)
+                        .collect();
+                    if montres.iter().all(|id| choix.coches.contains(id)) {
+                        for id in &montres {
+                            choix.coches.remove(id);
+                        }
+                    } else {
+                        choix.coches.extend(montres);
+                    }
+                }
+                montrer_boites(&fenetre, &choix_boites.borrow());
             }
         });
     }
@@ -5167,6 +5310,7 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
     {
         let services = services.clone();
         let faible = fenetre.as_weak();
+        let choix_boites = Rc::clone(&choix_boites);
 
         fenetre.on_new_folder_create(move || {
             let Some(fenetre) = faible.upgrade() else {
@@ -5194,14 +5338,31 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
                 fenetre.set_new_folder_error(Default::default());
             };
 
-            match crate::folders::create_everywhere(&services.store, parent.as_deref(), &nom, now())
-            {
+            // In the list's order, the ticked ones only.
+            let comptes: Vec<iris_types::AccountId> = {
+                let choix = choix_boites.borrow();
+                choix
+                    .boites
+                    .iter()
+                    .map(|c| c.id)
+                    .filter(|id| choix.coches.contains(id))
+                    .collect()
+            };
+
+            match crate::folders::create_on(
+                &services.store,
+                parent.as_deref(),
+                &nom,
+                &comptes,
+                now(),
+            ) {
                 // Zéro compte à prévenir veut dire qu'il existe déjà partout : le but
                 // est atteint. Garder la fenêtre ouverte sur une erreur punirait
                 // l'utilisateur d'avoir demandé quelque chose qui était déjà fait.
                 Ok(0) => {
                     ferme(&fenetre);
-                    fenetre.set_status("That folder already exists everywhere.".into());
+                    fenetre.set_status("That folder is already on those mailboxes.".into());
+                    refresh_folders(&fenetre, &services);
                 }
                 Ok(n) => {
                     ferme(&fenetre);

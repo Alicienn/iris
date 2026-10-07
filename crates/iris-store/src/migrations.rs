@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 23;
+pub const CURRENT_VERSION: i64 = 24;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -133,7 +133,24 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "calendars kept with a server",
         sql: SCHEMA_V23,
     },
+    Migration {
+        version: 24,
+        name: "the mailboxes a folder was made for",
+        sql: SCHEMA_V24,
+    },
 ];
+
+/// The mailboxes a folder of one's own was made for, by the name it is shown under
+/// (`Devis`, never `INBOX.Devis`). No row for a name: every mailbox, as before. Its
+/// view shows only these mailboxes' mail, even when a folder of that name appears on
+/// another one.
+const SCHEMA_V24: &str = "
+CREATE TABLE folder_accounts (
+    name       TEXT NOT NULL,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    PRIMARY KEY (name, account_id)
+) WITHOUT ROWID;
+";
 
 /// Calendars kept with a server (CalDAV), both ways.
 ///

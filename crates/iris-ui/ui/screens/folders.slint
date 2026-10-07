@@ -1,6 +1,8 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { FolderNodeData } from "@iris/types.slint";
+import { FolderNodeData, FolderMailboxData } from "@iris/types.slint";
+import { Check, CheckShape } from "@iris/controls/choice.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
@@ -21,6 +23,12 @@ component FolderRow inherits Rectangle {
 
     callback clicked();
     callback dropped();
+
+    /// On some mailboxes only, and not made so on purpose: worth a mark.
+    property <bool> absent-elsewhere: !root.node.permanent && !root.node.restricted
+        && root.node.accounts > 0 && root.node.accounts < root.accounts-total;
+    /// What the mark says when pointed at.
+    property <string> absent-text: "On \{root.node.accounts} of \{root.accounts-total} mailboxes";
     callback context-menu(length, length);
 
     // Un dossier de courrier se reconnaît à sa forme avant de se lire. Ceux que
@@ -98,8 +106,9 @@ component FolderRow inherits Rectangle {
         // Jamais sur un dossier de rôle : « Spam » n'est pas absent d'une boîte qui
         // n'en a pas, il n'y a simplement rien reçu, et un avertissement sur les six
         // premières lignes de l'arborescence n'avertirait plus de rien.
-        if !root.node.permanent && root.node.accounts > 0
-            && root.node.accounts < root.accounts-total: Icon {
+        //
+        // Ni sur un dossier fait exprès pour certaines boîtes : c'est ce qu'on a demandé.
+        if root.absent-elsewhere: Icon {
             y: (parent.height - self.height) / 2;
             data: Icons.exclamation;
             size: 11px;
@@ -126,6 +135,12 @@ component FolderRow inherits Rectangle {
             }
         }
         clicked => { root.clicked(); }
+    }
+
+    // The mark says why when the row is pointed at: the row's touch area is on top of
+    // it, so the row carries the tip.
+    if root.absent-elsewhere: Tooltip {
+        text: @markdown("\{root.absent-text}");
     }
 
     } // depot
@@ -234,25 +249,92 @@ export component FolderTree inherits VerticalLayout {
     }
 }
 
+// A mailbox the new folder can be made on: its tick, its name, its address. The whole
+// row takes the click.
+component MailboxChoice inherits Rectangle {
+    in property <FolderMailboxData> mailbox;
+    callback toggled();
+
+    height: 36px;
+    border-radius: Tokens.radius-small;
+    background: touch.has-hover ? Tokens.surface-hover : transparent;
+
+    accessible-role: checkbox;
+    accessible-label: root.mailbox.email;
+    accessible-checked: root.mailbox.checked;
+    accessible-action-default => { root.toggled(); }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+        Check {
+            y: (parent.height - self.height) / 2;
+            shape: CheckShape.square;
+            size: 14px;
+            tint: root.mailbox.tint;
+            done: root.mailbox.checked;
+            label: root.mailbox.email;
+            interactive: false;
+            toggled => { root.toggled(); }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.mailbox.name;
+                font-size: Tokens.size-small;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            if root.mailbox.name != root.mailbox.email: Text {
+                text: root.mailbox.email;
+                font-size: 11px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.toggled(); }
+    }
+}
+
 // La fenêtre « nouveau dossier ».
 //
-// Elle dit sur combien de boîtes le dossier va être créé, parce que c'est la partie
-// surprenante : partout ailleurs, créer un dossier crée un dossier.
+// Le nom, puis les boîtes sur lesquelles le créer : toutes par défaut, ou celle qu'on
+// regarde. La liste des boîtes est déjà filtrée par la recherche, en Rust, qui garde ce
+// qui est coché d'une recherche à l'autre.
 export component NewFolderPanel inherits Rectangle {
-    in property <int> account-count;
     in property <string> parent-path;
     in property <string> error;
     in-out property <string> name;
+    /// The mailboxes the search shows.
+    in property <[FolderMailboxData]> mailboxes;
+    /// How many are ticked, of how many it can be made on.
+    in property <int> chosen;
+    in property <int> total;
+    /// Every mailbox the search shows is ticked.
+    in property <bool> all-shown-checked;
+    in-out property <string> search;
 
     callback create();
     callback dismissed();
+    callback search-changed(string);
+    callback mailbox-toggled(int);
+    callback select-all-toggled();
+
+    property <string> boites-dites: root.chosen == root.total
+        ? (root.total == 1 ? "your mailbox" : "all " + root.total + " mailboxes")
+        : "\{root.chosen} of \{root.total} mailboxes";
 
     Modal {
         width: 100%;
         height: 100%;
         title: "New folder";
         close-label: "Cancel";
-        card-width: 420px;
+        card-width: 440px;
         fit: true;
         dismissed => { root.dismissed(); }
 
@@ -261,14 +343,105 @@ export component NewFolderPanel inherits Rectangle {
             placeholder-text: "Quotes";
             font-size: Tokens.size-body;
             text <=> root.name;
+            // Opened to name a folder: the first key writes it.
+            init => { self.focus(); }
             accepted => { root.create(); }
         }
 
+        // One mailbox: nothing to choose.
+        if root.total > 1: VerticalLayout {
+            spacing: 6px;
+
+            SectionTitle {
+                text: "Mailboxes";
+            }
+
+            TextField {
+                accessible-label: "Search mailboxes";
+                placeholder-text: "Search by name or address";
+                icon: Icons.search;
+                font-size: Tokens.size-small;
+                text <=> root.search;
+                edited(t) => { root.search-changed(t); }
+                accepted => {
+                    if (root.mailboxes.length == 1) {
+                        root.mailbox-toggled(root.mailboxes[0].id);
+                    }
+                }
+            }
+
+            if root.mailboxes.length > 0: Rectangle {
+                height: 30px;
+                border-radius: Tokens.radius-small;
+                background: tout.has-hover ? Tokens.surface-hover : transparent;
+
+                accessible-role: checkbox;
+                accessible-label: "Select all";
+                accessible-checked: root.all-shown-checked;
+                accessible-action-default => { root.select-all-toggled(); }
+
+                HorizontalLayout {
+                    padding-left: Tokens.space-2;
+                    padding-right: Tokens.space-2;
+                    spacing: Tokens.space-2;
+                    Check {
+                        y: (parent.height - self.height) / 2;
+                        shape: CheckShape.square;
+                        size: 14px;
+                        tint: Tokens.accent;
+                        done: root.all-shown-checked;
+                        label: "Select all";
+                        interactive: false;
+                        toggled => { root.select-all-toggled(); }
+                    }
+                    Text {
+                        text: "Select all";
+                        font-size: Tokens.size-small;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: "\{root.chosen} of \{root.total}";
+                        font-size: 11px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+
+                tout := TouchArea {
+                    clicked => { root.select-all-toggled(); }
+                }
+            }
+
+            // Scrolls past six: a hundred mailboxes must not make the window taller
+            // than the screen.
+            if root.mailboxes.length > 0: ScrollView {
+                height: min(root.mailboxes.length * 36px, 216px);
+                VerticalLayout {
+                    for boite in root.mailboxes: MailboxChoice {
+                        mailbox: boite;
+                        toggled => { root.mailbox-toggled(boite.id); }
+                    }
+                }
+            }
+
+            if root.mailboxes.length == 0: Text {
+                height: 36px;
+                text: "No mailbox matches “" + root.search + "”.";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
         Text {
-            text: root.parent-path == ""
-                ? "It will be created on all " + root.account-count + " mailboxes."
-                : "Inside " + root.parent-path + ", on all "
-                    + root.account-count + " mailboxes.";
+            text: root.chosen == 0 ? "Choose at least one mailbox."
+                : (root.parent-path == "" ? "It will be created on " : "Inside " + root.parent-path + ", on ")
+                    + root.boites-dites
+                    + (root.chosen < root.total ? ". Its view shows their mail only." : ".");
             font-size: 12px;
             color: Tokens.text-muted;
             wrap: word-wrap;
@@ -286,7 +459,7 @@ export component NewFolderPanel inherits Rectangle {
                 text: "Create";
                 label: "Create the folder";
                 kind: ButtonKind.primary;
-                enabled: root.name != "";
+                enabled: root.name != "" && root.chosen > 0;
                 clicked => { root.create(); }
             }
         }

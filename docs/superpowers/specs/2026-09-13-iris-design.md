@@ -364,3 +364,6 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
 - **A move's state follows its destination** (4.7.0): moving a conversation back to
   the inbox makes it *To do* again, not *Done*, and any move ends its snooze. A flag
   set on a message the journal has already moved follows it by its `Message-ID`.
+- **A folder can be made for some mailboxes only** (4.14.0): still one name across
+  mailboxes, created on all of them by default, but the user may tick fewer; such a
+  folder remembers which, and shows, counts and files their mail only.
