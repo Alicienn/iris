@@ -706,7 +706,12 @@ mod tests {
         let arbre = tree(&[libelle, dossier("Archives/Inbox", 1)]);
         assert_eq!(noeud(&arbre, "amazon.fr").depth, 0);
         // `INBOX` is the server's prefix only at the start of a path.
-        assert_eq!(noeud(&arbre, "Inbox").depth, 1);
+        // The role row is also named Inbox: the folder is the other one.
+        let inbox = arbre
+            .iter()
+            .find(|n| n.name == "Inbox" && !n.is_role)
+            .expect("Archives/Inbox in the tree");
+        assert_eq!(inbox.depth, 1);
     }
 
     fn noeud<'a>(arbre: &'a [FolderNode], nom: &str) -> &'a FolderNode {
