@@ -290,6 +290,9 @@ impl SendService {
     ///
     /// Rend `(sujet, corps)`. Les destinataires restent vides : c'est la seule chose
     /// qu'un transfert ne peut pas deviner, et la seule qu'il faut donc demander.
+    ///
+    /// The signature is put above the forwarded message, where one's own words end: it
+    /// was added at sending, at the very bottom, under the other person's message.
     pub fn forward_prefill(&self, thread: ThreadId) -> Result<(String, String)> {
         let messages = self.engine.store().thread_messages(thread)?;
         let dernier = reply_target(self.engine.store(), &messages)?
@@ -318,7 +321,55 @@ impl SendService {
         };
 
         let transfert = iris_smtp::forward(&cible, &identite, vec![]);
-        Ok((transfert.subject, transfert.text_body))
+        let corps = if compte.signature.trim().is_empty() {
+            transfert.text_body
+        } else {
+            format!(
+                "\n\n-- \n{}{}",
+                compte.signature.trim_end_matches('\n'),
+                transfert.text_body
+            )
+        };
+        Ok((transfert.subject, corps))
+    }
+
+    /// The files of the message a forward is about, to go with it, and whether some
+    /// could not be had (its body not downloaded yet). A forward went without them.
+    pub fn forward_attachments(
+        &self,
+        thread: ThreadId,
+    ) -> Result<(Vec<iris_smtp::Attachment>, bool)> {
+        let messages = self.engine.store().thread_messages(thread)?;
+        let Some(dernier) = reply_target(self.engine.store(), &messages)? else {
+            return Ok((Vec::new(), false));
+        };
+        let brut = dernier
+            .body_blob
+            .as_deref()
+            .and_then(iris_types::BlobId::from_hex)
+            .and_then(|id| self.engine.blobs().and_then(|b| b.get(id).ok().flatten()));
+        let Some(brut) = brut else {
+            return Ok((Vec::new(), dernier.flags.contains(Flags::HAS_ATTACHMENT)));
+        };
+        let Ok(analyse) = iris_mime::parse(&brut) else {
+            return Ok((Vec::new(), false));
+        };
+        let mut pieces = Vec::new();
+        let mut manquantes = false;
+        for (rang, meta) in analyse.attachments.iter().enumerate() {
+            if meta.inline {
+                continue;
+            }
+            match iris_mime::attachment_bytes(&brut, rang) {
+                Some(content) => pieces.push(iris_smtp::Attachment {
+                    filename: meta.filename.clone(),
+                    mime_type: meta.mime_type.clone(),
+                    content,
+                }),
+                None => manquantes = true,
+            }
+        }
+        Ok((pieces, manquantes))
     }
 
     /// Met une réponse en file. Elle partira après le délai d'annulation.
@@ -455,7 +506,11 @@ impl SendService {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
             let tentative = async {
-                let _place = self.engine.pool().acquire(&compte.imap_host).await?;
+                let _place = self
+                    .engine
+                    .pool()
+                    .acquire(&crate::engine::pool_key(&compte))
+                    .await?;
                 let identifiants = self.engine.credentials_for(&compte).await?;
                 let point = self.engine.endpoint_for(&compte);
                 let mut conn = self
@@ -1455,7 +1510,7 @@ mod tests {
             .await;
 
         assert!(!bilan.archived);
-        assert!(bilan.note.unwrap().contains("envoyés"));
+        assert!(bilan.note.unwrap().contains("Sent folder"));
         assert!(bilan.moved_to_waiting, "le workflow avance quand même");
     }
 

@@ -130,20 +130,24 @@ impl Store {
         now: Timestamp,
         limit: u32,
     ) -> Result<Vec<PendingOp>> {
-        self.with_conn(|c| {
+        // In order, per account, up to the first one still waiting out its back-off:
+        // the ones after it may be about the same messages. Taking every one whose time
+        // had come let "read" then "unread" end read on the server, the failed
+        // "unread" replayed after the "read" that followed it.
+        let toutes = self.with_conn(|c| {
             let mut stmt = c
                 .prepare_cached(
                     "SELECT id, account_id, kind, payload, idempotency_key, created_at,
                             attempts, next_attempt_at, last_error, uid_validity
                      FROM op_journal
-                     WHERE done = 0 AND next_attempt_at <= ?1
+                     WHERE done = 0
                        AND (?3 IS NULL OR account_id = ?3)
                      ORDER BY id ASC LIMIT ?2",
                 )
                 .map_err(|e| sql_err("préparation", e))?;
             let rows = stmt
                 .query_map(
-                    params![now.millis(), limit as i64, account.map(|a| a.get())],
+                    params![now.millis(), limit as i64 * 4, account.map(|a| a.get())],
                     |r| {
                         Ok(PendingOp {
                             id: OpId(r.get(0)?),
@@ -163,7 +167,24 @@ impl Store {
                 .map_err(|e| sql_err("opérations en attente", e))?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("opérations en attente", e))
-        })
+        })?;
+
+        let mut bloques = std::collections::HashSet::new();
+        let mut pretes = Vec::new();
+        for op in toutes {
+            if bloques.contains(&op.account) {
+                continue;
+            }
+            if op.next_attempt_at > now {
+                bloques.insert(op.account);
+                continue;
+            }
+            pretes.push(op);
+            if pretes.len() >= limit as usize {
+                break;
+            }
+        }
+        Ok(pretes)
     }
 
     /// Where the latest move journalled for this message sent it, if one did: the
@@ -448,6 +469,22 @@ mod tests {
         let ops = s.pending_ops(t(10), 10).unwrap();
         assert_eq!(ops.len(), 3);
         assert_eq!(ops.last().unwrap().idempotency_key, "lu");
+    }
+
+    #[test]
+    fn an_operation_waiting_to_be_tried_again_holds_back_those_after_it() {
+        // "Unread" failed and waits; "read" after it must not reach the server first.
+        let (s, a) = setup();
+        let non_lu = s
+            .enqueue_op(a, OpKind::SetFlags, "{}", "non-lu", t(0))
+            .unwrap();
+        s.enqueue_op(a, OpKind::SetFlags, "{}", "lu", t(1)).unwrap();
+        s.fail_op(non_lu, "serveur occupé", t(0)).unwrap();
+
+        assert!(s.pending_ops_for(a, t(1_000), 10).unwrap().is_empty());
+        let reprise = s.pending_ops_for(a, t(5_000), 10).unwrap();
+        assert_eq!(reprise.len(), 2);
+        assert_eq!(reprise[0].idempotency_key, "non-lu");
     }
 
     #[test]

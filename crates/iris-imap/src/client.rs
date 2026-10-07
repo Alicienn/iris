@@ -534,12 +534,15 @@ async fn run_checked(
     use async_imap::error::Error as E;
     use async_imap::imap_proto::Status;
 
-    let tag = session
-        .run_command(command)
+    let tag = tokio::time::timeout(SILENCE, session.run_command(command))
         .await
+        .map_err(|_| silent(what))?
         .map_err(|e| protocol_error(what, e))?;
     loop {
-        let reponse = match session.read_response().await {
+        let lu = tokio::time::timeout(SILENCE, session.read_response())
+            .await
+            .map_err(|_| silent(what))?;
+        let reponse = match lu {
             Ok(Some(r)) => r,
             Ok(None) => {
                 return Err(Error::network(format!(
@@ -585,6 +588,18 @@ async fn run_checked(
             autre => each(autre),
         }
     }
+}
+
+/// How long a server may say nothing in the middle of an answer. Only the whole
+/// account's pass had a limit (ten minutes): a server that went quiet held its pass,
+/// and the round every other mailbox waited for, that long.
+const SILENCE: Duration = Duration::from_secs(120);
+
+fn silent(what: &str) -> Error {
+    Error::network(format!(
+        "{what} : the server said nothing for {} seconds",
+        SILENCE.as_secs()
+    ))
 }
 
 /// A name as an IMAP quoted string.

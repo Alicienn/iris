@@ -218,6 +218,10 @@ fn fold(ligne: &str) -> String {
 /// Answers the invitation carried by `texte` for the mailbox `moi`: the reply goes to
 /// the organiser from that mailbox, the calendar follows (added for Accept and Maybe,
 /// taken out for Decline), and the answer is kept for the banner.
+///
+/// Gives what to say, the send's handle and the invitation's UID: the answer is
+/// forgotten again if the send fails (`Store::clear_invite_reply`), or the banner
+/// said "answered" to an organiser who heard nothing.
 pub fn respond(
     services: &Services,
     send: &iris_sync::SendService,
@@ -225,7 +229,7 @@ pub fn respond(
     moi: &str,
     texte: &str,
     answer: Answer,
-) -> Result<String> {
+) -> Result<(String, iris_smtp::SendHandle, String)> {
     let cible = replyable(texte, moi)
         .ok_or_else(|| iris_types::Error::other("this invitation cannot be answered"))?;
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
@@ -248,7 +252,7 @@ pub fn respond(
     )?;
     message.calendar_reply = Some(ics);
     send.set_delay(std::time::Duration::ZERO);
-    send.queue(message)?;
+    let handle = send.queue(message)?;
 
     // The calendar follows the answer.
     match answer {
@@ -260,7 +264,11 @@ pub fn respond(
     services
         .store
         .set_invite_reply(&cible.uid, answer.partstat(), now())?;
-    Ok(format!("{} sent to {}.", answer.verb(), cible.organizer))
+    Ok((
+        format!("{} sent to {}.", answer.verb(), cible.organizer),
+        handle,
+        cible.uid,
+    ))
 }
 
 #[cfg(test)]

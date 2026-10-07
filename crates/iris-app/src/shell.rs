@@ -2289,6 +2289,22 @@ impl AvisEnvoi {
         Ok(())
     }
 
+    /// Follows a message queued elsewhere: `remettre` runs if it does not leave.
+    pub fn suivre(
+        &self,
+        handle: iris_smtp::SendHandle,
+        libelle: String,
+        remettre: impl FnOnce(&AppWindow) + 'static,
+    ) {
+        self.en_vol.borrow_mut().insert(
+            handle,
+            EnVol {
+                libelle,
+                suite: Suite::Remettre(Box::new(remettre)),
+            },
+        );
+    }
+
     /// The scheduled messages on their way, not to be sent a second time meanwhile.
     pub fn programmes_en_vol(&self) -> Vec<i64> {
         self.en_vol
@@ -2538,6 +2554,18 @@ pub fn wire_reply(
 
             match send.forward_prefill(thread) {
                 Ok((sujet, corps)) => {
+                    liberer_redaction(&fenetre);
+                    // Its files go with it: a forward went without them.
+                    let manquent = match send.forward_attachments(thread) {
+                        Ok((fichiers, manquent)) => {
+                            joindre(&fenetre, fichiers);
+                            manquent
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "forwarded attachments");
+                            false
+                        }
+                    };
                     // Le destinataire reste vide, et le curseur y va : c'est la seule
                     // chose qu'un transfert ne peut pas deviner.
                     fenetre.set_compose_to(Default::default());
@@ -2545,7 +2573,12 @@ pub fn wire_reply(
                     fenetre.set_compose_bcc(Default::default());
                     fenetre.set_compose_subject(sujet.into());
                     fenetre.set_compose_body(corps.into());
-                    fenetre.set_compose_error(Default::default());
+                    fenetre.set_compose_error(if manquent {
+                        "Its attachments are not downloaded yet: open the message once, then forward it again."
+                            .into()
+                    } else {
+                        Default::default()
+                    });
                     fenetre.set_compose_minimised(false);
                     fenetre.set_compose_open(true);
                 }
@@ -3426,9 +3459,11 @@ pub fn wire_account_setup(
                     &store,
                     secrets,
                     &oauth,
-                    &email,
-                    &motdepasse,
-                    google,
+                    Saisie {
+                        email: &email,
+                        motdepasse: &motdepasse,
+                        google,
+                    },
                     now(),
                     move |etape| {
                         let _ = progression.upgrade_in_event_loop(move |fenetre| {
@@ -3693,16 +3728,27 @@ pub fn wire_account_setup(
 /// passe. Le choix n'appartient pas à l'utilisateur : il appartient au serveur, et
 /// lui demander de deviner serait lui demander de connaître la politique de son
 /// hébergeur.
+/// What the add-account screen was given.
+struct Saisie<'a> {
+    email: &'a str,
+    motdepasse: &'a str,
+    /// "Continue with Google" was pressed.
+    google: bool,
+}
+
 async fn ajouter(
     store: &iris_store::Store,
     secrets: Arc<dyn iris_secrets::SecretStore>,
     oauth: &Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
-    email: &str,
-    motdepasse: &str,
-    google: bool,
+    saisie: Saisie<'_>,
     maintenant: iris_types::Timestamp,
     etape: impl Fn(&'static str),
 ) -> iris_types::Result<crate::accounts::AddedAccount> {
+    let Saisie {
+        email,
+        motdepasse,
+        google,
+    } = saisie;
     etape("Recherche de la configuration…");
     // "Continue with Google" says it is a Google account, whatever the domain's mail
     // exchangers say: Workspace behind Proofpoint or Mimecast was taken for a
@@ -4228,7 +4274,18 @@ pub fn wire_invite_answers(
         };
         let moi = adresse_du_compte(&services, message.account);
         match crate::invite::respond(&services, &send, message.account, &moi, &texte, reponse) {
-            Ok(dit) => fenetre.set_toast(dit.into()),
+            Ok((dit, handle, uid)) => {
+                fenetre.set_toast(dit.into());
+                // Not sent after all: the banner offers to answer again.
+                let services = services.clone();
+                if let Some(avis) = AVIS.with(|a| a.borrow().upgrade()) {
+                    avis.suivre(handle, "Your answer".into(), move |_| {
+                        if let Err(e) = services.store.clear_invite_reply(&uid) {
+                            tracing::warn!(error = %e, "forgetting an answer not sent");
+                        }
+                    });
+                }
+            }
             Err(e) => fenetre.set_status(format!("Could not answer: {e}").into()),
         }
         conversation_rendue().clear();
@@ -5926,6 +5983,7 @@ pub fn wire_compose(
     // the bytes are ours: the panel shows names, we keep the files.
     let pieces: Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
+    PIECES.with(|p| *p.borrow_mut() = Some(Arc::clone(&pieces)));
 
     // --- Choosing the sender ---
     {
@@ -6881,6 +6939,42 @@ fn ranger(
         fenetre.set_status("Kept as a draft at the bottom right.".into());
     }
     vider_redaction(fenetre, pieces);
+}
+
+/// The new-message window's attachments: their bytes, which the panel only names.
+type Pieces = Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>;
+
+thread_local! {
+    /// The new-message window's attachments, for what fills it from elsewhere.
+    static PIECES: std::cell::RefCell<Option<Pieces>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Makes the new-message window free for a message started elsewhere (a forward, a
+/// `mailto:` link): what it held is kept as a bar at the foot, attachments with it.
+/// Filled over, a restored draft was lost, and its attachments went with the new
+/// message to other people.
+pub fn liberer_redaction(fenetre: &AppWindow) {
+    let Some(pieces) = PIECES.with(|p| p.borrow().clone()) else {
+        return;
+    };
+    let ecrit = !fenetre.get_compose_to().is_empty()
+        || !fenetre.get_compose_subject().is_empty()
+        || !fenetre.get_compose_body().trim().is_empty()
+        || !pieces.lock().expect("poisoned attachments").is_empty();
+    match CHEMIN_REDUITS.with(|c| c.borrow().clone()) {
+        Some(chemin) if ecrit => ranger(fenetre, &pieces, &chemin),
+        _ => vider_redaction(fenetre, &pieces),
+    }
+}
+
+/// Puts files into the new-message window's attachments.
+pub fn joindre(fenetre: &AppWindow, fichiers: Vec<iris_smtp::Attachment>) {
+    let Some(pieces) = PIECES.with(|p| p.borrow().clone()) else {
+        return;
+    };
+    let mut liste = pieces.lock().expect("poisoned attachments");
+    liste.extend(fichiers);
+    show_attachments(fenetre, &liste);
 }
 
 fn vider_redaction(

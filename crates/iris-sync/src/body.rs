@@ -67,7 +67,10 @@ impl SyncEngine {
 
         // La place est réservée comme pour toute autre opération réseau : un
         // téléchargement de corps ne doit pas contourner le plafond de connexions.
-        let _place = self.pool().acquire(&compte.imap_host).await?;
+        let _place = self
+            .pool()
+            .acquire(&crate::engine::pool_key(&compte))
+            .await?;
 
         // Within the time a whole account's pass is given. Unbounded, a download cut by
         // the machine sleeping waited for ever, holding one of the server's places in

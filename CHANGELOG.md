@@ -13,6 +13,9 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Send later checks the addresses and the attachments' size at once.
 - A message on its way when Iris closes unexpectedly comes back as a draft.
 - Sending works through office relays that need no sign-in.
+- Forwarding keeps the message's attachments, with your signature above the forwarded text.
+- A server that stops answering holds the others up two minutes at most.
+- Several Gmail accounts no longer slow each other down.
 
 ### Fixed
 - Actions a server refuses are tried again, and you are told if they are given up.
@@ -32,6 +35,16 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - A scheduled message being sent can no longer be taken back and sent twice.
 - A scheduled message the server refuses waits for you, not retried every five minutes.
 - You are told when a sent message's copy could not go into Sent.
+- A forward or a mail link no longer writes over the message in the window: it is kept aside.
+- An invitation answer that could not be sent can be given again.
+- Two replies to a message you do not have make one conversation.
+- Search finds every new message, and deleted mail leaves it.
+- Notifications count each new message once, and only what reaches the inbox.
+- A mailbox is never synced twice at the same time.
+- Mail another app marked deleted no longer counts as unread.
+- Rules look at every new message once, and not again when it moves.
+- Your actions reach the server in the order you made them.
+- A message read again keeps its attachment and tracker marks.
 
 ## 4.8.0 — 2026-10-07
 

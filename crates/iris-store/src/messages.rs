@@ -22,6 +22,8 @@ pub struct Inserted {
     pub was_known: bool,
     /// Un fil a été créé pour l'occasion.
     pub thread_created: bool,
+    /// A copy of a message already here, or one back from a move: not new mail.
+    pub came_back: bool,
 }
 
 /// Normalise un sujet pour la comparaison : retire les préfixes de réponse et de
@@ -273,6 +275,23 @@ impl Store {
     }
 
     /// Supprime les messages d'un dossier dont l'UID n'est plus présent côté serveur.
+    /// The local ids of a folder's messages by their UIDs, for what must follow them
+    /// out (the search index).
+    pub fn message_ids_by_uid(&self, folder: FolderId, uids: &[u32]) -> Result<Vec<MessageId>> {
+        self.with_conn(|c| {
+            let mut stmt = c
+                .prepare_cached("SELECT id FROM messages WHERE folder_id = ?1 AND uid = ?2")
+                .map_err(|e| sql_err("préparation", e))?;
+            let mut ids = Vec::with_capacity(uids.len());
+            for uid in uids {
+                if let Ok(id) = stmt.query_row(params![folder.get(), *uid as i64], |r| r.get(0)) {
+                    ids.push(MessageId(id));
+                }
+            }
+            Ok(ids)
+        })
+    }
+
     pub fn delete_messages_by_uid(&self, folder: FolderId, uids: &[u32]) -> Result<usize> {
         if uids.is_empty() {
             return Ok(0);
@@ -737,18 +756,37 @@ fn insert_message_tx_deferred(tx: &Transaction<'_>, m: &NewMessage) -> Result<In
     };
 
     if let Some((id, thread)) = known {
+        // The server's flags, and ours kept: read again, a message lost what only its
+        // body had told (an attachment, a tracker), and a junk mark.
         let mut stmt = tx
-            .prepare_cached("UPDATE messages SET flags = ?1 WHERE id = ?2")
+            .prepare_cached("UPDATE messages SET flags = (?1 & ?3) | (flags & ~?3) WHERE id = ?2")
             .map_err(|e| sql_err("preparation", e))?;
-        stmt.execute(params![m.flags.0 as i64, id])
+        stmt.execute(params![m.flags.0 as i64, id, Flags::PROTOCOL.0 as i64])
             .map_err(|e| sql_err("rafraichissement des drapeaux", e))?;
         return Ok(Inserted {
             message: MessageId(id),
             thread: ThreadId(thread),
             was_known: true,
             thread_created: false,
+            came_back: false,
         });
     }
+
+    // A copy of a message already here (Gmail's All Mail), or one coming back after a
+    // move: not new mail, whatever row it gets.
+    let came_back = match &m.rfc_message_id {
+        Some(id) => {
+            let mut stmt = tx
+                .prepare_cached(
+                    "SELECT EXISTS (SELECT 1 FROM messages WHERE rfc_message_id = ?1)
+                         OR EXISTS (SELECT 1 FROM thread_ghosts WHERE rfc_message_id = ?1)",
+                )
+                .map_err(|e| sql_err("preparation", e))?;
+            stmt.query_row(params![id], |r| r.get::<_, bool>(0))
+                .map_err(|e| sql_err("copies du message", e))?
+        }
+        None => false,
+    };
 
     let (thread, thread_created) = resolve_thread(tx, m)?;
 
@@ -844,6 +882,7 @@ fn insert_message_tx_deferred(tx: &Transaction<'_>, m: &NewMessage) -> Result<In
         thread,
         was_known: false,
         thread_created,
+        came_back,
     })
 }
 
@@ -873,6 +912,29 @@ fn resolve_thread(tx: &Transaction<'_>, m: &NewMessage) -> Result<(ThreadId, boo
             .map_err(|e| sql_err("preparation", e))?;
         for id in m.in_reply_to.iter().chain(m.references.iter()) {
             if let Ok(t) = stmt.query_row(params![id], |r| r.get::<_, i64>(0)) {
+                return Ok((ThreadId(t), false));
+            }
+        }
+
+        // 1b. A known message citing what we cite: two answers to a message not here
+        //     (older than what was synced, deleted, in a folder not read) made two
+        //     threads, and nothing joined them. A first sync, which goes from the
+        //     newest down, made that the common case.
+        let mut par_reference = tx
+            .prepare_cached(
+                "SELECT m.thread_id FROM message_refs r
+                 JOIN messages m ON m.id = r.message_id
+                 WHERE r.ref_id = ?1 LIMIT 1",
+            )
+            .map_err(|e| sql_err("preparation", e))?;
+        let mut par_reponse = tx
+            .prepare_cached("SELECT thread_id FROM messages WHERE in_reply_to = ?1 LIMIT 1")
+            .map_err(|e| sql_err("preparation", e))?;
+        for id in m.in_reply_to.iter().chain(m.references.iter()) {
+            if let Ok(t) = par_reference.query_row(params![id], |r| r.get::<_, i64>(0)) {
+                return Ok((ThreadId(t), false));
+            }
+            if let Ok(t) = par_reponse.query_row(params![id], |r| r.get::<_, i64>(0)) {
                 return Ok((ThreadId(t), false));
             }
         }
@@ -1129,7 +1191,10 @@ pub(crate) fn refresh_thread(tx: &Transaction<'_>, thread: ThreadId) -> Result<(
                 count += 1;
             }
             union |= flags;
-            if flags & (Flags::SEEN.0 as i64) == 0 && non_lus.insert(cle) {
+            // Marked deleted by another client and not purged yet: on its way out, not
+            // mail waiting to be read.
+            let efface = flags & (Flags::DELETED.0 as i64) != 0;
+            if flags & (Flags::SEEN.0 as i64) == 0 && !efface && non_lus.insert(cle) {
                 unread += 1;
             }
             if received > last_activity {
@@ -1542,6 +1607,22 @@ mod tests {
             "l'original doit rejoindre le fil existant"
         );
         assert!(!a.thread_created);
+    }
+
+    #[test]
+    fn two_answers_to_a_message_not_here_are_one_thread() {
+        let f = fixture();
+        let mut une = f.msg("b@x", 2000);
+        une.in_reply_to = Some("absent@x".into());
+        une.references = vec!["absent@x".into()];
+        let mut autre = f.msg("c@x", 3000);
+        autre.in_reply_to = Some("absent@x".into());
+        autre.references = vec!["absent@x".into()];
+
+        let b = f.store.insert_message(&une).unwrap();
+        let c = f.store.insert_message(&autre).unwrap();
+        assert_eq!(b.thread, c.thread);
+        assert!(!c.thread_created);
     }
 
     #[test]

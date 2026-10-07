@@ -923,7 +923,7 @@ fn run_gui(
                         "synchronisation"
                     );
                 }
-                iris_app::home::count_arrivals(rapport.messages_added as u64);
+                iris_app::home::count_arrivals(rapport.inbox_arrivals as u64);
 
                 // Actions the server kept refusing were given up: they looked done
                 // here, so it is said, not only logged.
@@ -940,10 +940,13 @@ fn run_gui(
                 // Le dernier message est relu ici plutôt que remonté par le moteur :
                 // le moteur compte, il ne met pas en forme, et une seule lecture par
                 // tour de synchronisation ne se mesure pas.
-                if rapport.messages_added > 0 && notifications_actives {
+                // New mail in an inbox only, each message once: every new row was
+                // counted, so Gmail's counted twice, sent and archived copies counted,
+                // and each pass of a first sync announced thousands.
+                if rapport.inbox_arrivals > 0 && notifications_actives {
                     if let Some(dernier) = services_sync.store.latest_unread(now()).ok().flatten() {
                         let arrivee = iris_app::notify::Arrival {
-                            count: rapport.messages_added,
+                            count: rapport.inbox_arrivals,
                             sender: dernier.0,
                             subject: dernier.1,
                         };
@@ -1312,6 +1315,8 @@ fn montre_la_fenetre(fenetre: &iris_ui::AppWindow) {
 
 /// Opens a draft filled from a `mailto:` address.
 fn ouvre_le_brouillon(fenetre: &iris_ui::AppWindow, demande: &iris_app::platform::MailtoRequest) {
+    // What the window held is kept aside, attachments with it, not written over.
+    shell::liberer_redaction(fenetre);
     fenetre.set_compose_to(demande.to.as_str().into());
     fenetre.set_compose_cc(demande.cc.as_str().into());
     fenetre.set_compose_bcc(demande.bcc.as_str().into());

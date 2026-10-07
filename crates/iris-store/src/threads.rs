@@ -301,7 +301,8 @@ impl Store {
                    AND f.role NOT IN ('trash', 'junk')",
                 params![
                     iris_types::Flags::SEEN.0 as i64,
-                    iris_types::Flags::SPAM.0 as i64
+                    // Junk, and what another client marked deleted and not purged.
+                    (iris_types::Flags::SPAM.0 | iris_types::Flags::DELETED.0) as i64
                 ],
                 |r| r.get::<_, i64>(0),
             )

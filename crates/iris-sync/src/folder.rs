@@ -55,6 +55,18 @@ pub struct FolderReport {
     pub arrivals: Vec<iris_types::ThreadId>,
     pub flags_updated: usize,
     pub deleted: usize,
+    /// The messages this pass added and removed, for the search index: re-reading the
+    /// folder's 5,000 newest at every arrival indexed some twice and others never,
+    /// and what was deleted stayed searchable.
+    pub new_messages: Vec<iris_types::MessageId>,
+    pub removed_messages: Vec<iris_types::MessageId>,
+    /// Of the new rows, the new mail: not a copy of a message already here (Gmail's
+    /// All Mail), nor one back from a move. What the rules look at, once.
+    pub fresh_messages: Vec<iris_types::MessageId>,
+    /// New mail in the inbox, outside a first sync: what a notification tells of.
+    /// Every new row was counted, so Gmail's mail counted twice, a sent or archived
+    /// copy counted, and a first sync announced thousands.
+    pub inbox_arrivals: usize,
     /// Le dossier a été relu intégralement.
     pub full_resync: bool,
     /// Le serveur avait reconstruit la boîte.
@@ -252,6 +264,18 @@ pub async fn sync_folder(
         store.set_message_extras(folder.id, &extras)?;
         ramenes += lot.len();
         rapport.added += inseres.iter().filter(|i| !i.was_known).count();
+        rapport
+            .new_messages
+            .extend(inseres.iter().filter(|i| !i.was_known).map(|i| i.message));
+        let frais: Vec<_> = inseres
+            .iter()
+            .filter(|i| !i.was_known && !i.came_back)
+            .map(|i| i.message)
+            .collect();
+        if !premiere_synchro && folder.role == iris_store::FolderRole::Inbox {
+            rapport.inbox_arrivals += frais.len();
+        }
+        rapport.fresh_messages.extend(frais);
 
         // Not on a first visit: everything there is old news, not an arrival. The
         // inbox only: mail filed into a folder of one's own is often mail Iris moved
@@ -326,6 +350,7 @@ pub async fn sync_folder(
         } else {
             let disparus = missing_uids(&locaux, &distants);
             if !disparus.is_empty() {
+                rapport.removed_messages = store.message_ids_by_uid(folder.id, &disparus)?;
                 rapport.deleted = store.delete_messages_by_uid(folder.id, &disparus)?;
             }
         }

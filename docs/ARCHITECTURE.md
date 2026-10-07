@@ -871,7 +871,21 @@ Since 4.9.0 (the same audit's high findings):
   Messages on their way are kept in `sending.json` until they leave
   (`noter_en_route`); found there at start, they come back as minimised drafts. A
   scheduled message is checked when scheduled, cannot be taken back while it leaves,
-  and a permanent refusal waits a day (`IssueEnvoi::Echec(_, passager)`).
+  and a permanent refusal waits a day (`IssueEnvoi::Echec(_, passager)`). A forward
+  takes the message's files (`forward_attachments`) and puts the signature above the
+  quote; a forward or a `mailto:` first sets aside what the window held
+  (`liberer_redaction`). An invitation answer not sent is forgotten
+  (`Store::clear_invite_reply`).
+- **Receiving.** A message citing what a known message cites joins its thread (step
+  1b of `resolve_thread`). `FolderReport` gives the new rows (indexed, and only they),
+  the removed ones (taken out of the index), the fresh mail (not a copy nor a return
+  from a move: `Inserted::came_back`, what the rules examine) and `inbox_arrivals`
+  (what a notification counts). Every IMAP read gives up after 120 s of silence
+  (`SILENCE`); an account's pass cannot run twice at once (`begin_pass`); the pool
+  counts connections per mailbox (`pool_key`). `\Deleted` mail is not unread, and a
+  message read again keeps the flags only Iris works out.
+- **Order.** The journal hands an account's operations over up to the first one still
+  in back-off (`pending_ops_where`).
 
 Minimising (3.14.0) takes the message out of the window: `ranger` keeps it as a bar at
 the foot of the window (`REDUITS`, written to `minimised-drafts.json` beside

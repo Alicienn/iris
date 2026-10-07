@@ -171,6 +171,15 @@ impl Store {
         })
     }
 
+    /// Forgets the answer to the invitation `uid`: it did not reach the organiser.
+    pub fn clear_invite_reply(&self, uid: &str) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute("DELETE FROM invite_replies WHERE uid = ?1", [uid])
+                .map(|_| ())
+                .map_err(err("réponse à une invitation"))
+        })
+    }
+
     /// Keeps the answer given to the invitation `uid`, in place of an earlier one.
     pub fn set_invite_reply(&self, uid: &str, partstat: &str, now: Timestamp) -> Result<()> {
         self.with_conn(|c| {

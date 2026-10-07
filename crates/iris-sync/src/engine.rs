@@ -78,6 +78,9 @@ impl Default for EngineConfig {
 pub struct TickReport {
     pub accounts_synced: usize,
     pub messages_added: usize,
+    /// New mail in the inboxes, outside a first sync, each message once: what is
+    /// worth a notification.
+    pub inbox_arrivals: usize,
     pub flags_updated: usize,
     pub messages_deleted: usize,
     pub ops_replayed: usize,
@@ -118,6 +121,32 @@ pub struct SyncEngine {
     /// A marker that reports a fault without naming it leaves the user with nothing
     /// to act on, which is exactly what the exclamation mark in the sidebar was.
     failures: std::sync::RwLock<std::collections::BTreeMap<AccountId, AccountFailure>>,
+    /// The accounts whose pass is under way. Sync all and the scheduled pass could
+    /// both run one account at once: its journal replayed twice, moves made twice
+    /// (and on a server without MOVE, copies made twice).
+    en_cours: std::sync::Mutex<std::collections::HashSet<AccountId>>,
+}
+
+/// What the connection pool counts connections under: the mailbox on its server. By
+/// server name alone, every Gmail account shared three connections between them, and
+/// one's sync starved the others' bodies, which gave up after half a minute. Servers
+/// limit connections per mailbox.
+pub(crate) fn pool_key(compte: &iris_store::Account) -> String {
+    format!("{}#{}", compte.imap_host, compte.email)
+}
+
+/// An account's pass under way, until dropped.
+struct PasseEnCours<'a> {
+    compte: AccountId,
+    tous: &'a std::sync::Mutex<std::collections::HashSet<AccountId>>,
+}
+
+impl Drop for PasseEnCours<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut tous) = self.tous.lock() {
+            tous.remove(&self.compte);
+        }
+    }
 }
 
 /// Why an account last failed.
@@ -257,6 +286,7 @@ impl SyncEngine {
             automation: std::sync::RwLock::new(iris_types::AutomationSettings::default()),
             workflow: None,
             failures: std::sync::RwLock::new(std::collections::BTreeMap::new()),
+            en_cours: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -562,6 +592,10 @@ impl SyncEngine {
         now: Timestamp,
         detect_deletions: bool,
     ) -> Result<AccountReport> {
+        // Already under way: that pass does it.
+        let Some(_passe) = self.begin_pass(account) else {
+            return Ok(AccountReport::default());
+        };
         let limite = self.config.account_timeout;
         match tokio::time::timeout(limite, self.sync_account(account, now, detect_deletions)).await
         {
@@ -571,6 +605,18 @@ impl SyncEngine {
                 limite.as_secs() / 60
             ))),
         }
+    }
+
+    /// Marks an account's pass as under way; `None` if one already is.
+    fn begin_pass(&self, account: AccountId) -> Option<PasseEnCours<'_>> {
+        let mut tous = self.en_cours.lock().ok()?;
+        if !tous.insert(account) {
+            return None;
+        }
+        Some(PasseEnCours {
+            compte: account,
+            tous: &self.en_cours,
+        })
     }
 
     /// Why this account last failed, if it did.
@@ -663,6 +709,7 @@ impl SyncEngine {
                     rapport.flags_updated += bilan.flags_updated;
                     rapport.messages_deleted += bilan.deleted;
                     rapport.ops_replayed += bilan.ops_replayed;
+                    rapport.inbox_arrivals += bilan.inbox_arrivals;
                     rapport
                         .actions_refused
                         .extend(bilan.refused.iter().map(|m| (account, m.clone())));
@@ -709,7 +756,7 @@ impl SyncEngine {
             .account(account)?
             .ok_or_else(|| Error::store(format!("compte {account} introuvable")))?;
 
-        let _place = self.pool.acquire(&compte.imap_host).await?;
+        let _place = self.pool.acquire(&pool_key(&compte)).await?;
 
         self.publish_phase(account, SyncPhase::Connecting);
         let endpoint = if compte.imap_tls {
@@ -818,6 +865,7 @@ impl SyncEngine {
             match sync_folder(conn.as_mut(), &self.store, account, dossier, options).await {
                 Ok(r) => {
                     bilan.added += r.added;
+                    bilan.inbox_arrivals += r.inbox_arrivals;
                     bilan.flags_updated += r.flags_updated;
                     bilan.deleted += r.deleted;
                     // A message that arrives in a thread may bring it back to the
@@ -829,19 +877,22 @@ impl SyncEngine {
                             }
                         }
                     }
+                    if let Err(e) = self.unindex(&r.removed_messages) {
+                        tracing::warn!(error = %e, "taking deleted mail out of the index");
+                    }
                     if r.added > 0 {
                         ajoutes_par_dossier.push(dossier.id);
                         // L'indexation suit immédiatement l'insertion : un message
                         // visible dans la liste mais introuvable à la recherche est
                         // un défaut que l'utilisateur mettra sur le compte de la
                         // recherche, pas sur celui de la synchronisation.
-                        if let Err(e) = self.index_new_messages(dossier.id) {
+                        if let Err(e) = self.index_new_messages(&r.new_messages) {
                             tracing::warn!(error = %e, "indexing");
                         }
                         // Rules run on arrival, not on a schedule: a rule that
                         // archives a newsletter should do it before the user sees
                         // the newsletter, otherwise it only tidies up after them.
-                        self.run_rules_on_new(dossier.id, now);
+                        self.run_rules_on_new(&r.fresh_messages, now);
                     }
                 }
                 // Un dossier illisible — droits insuffisants, boîte partagée
@@ -920,34 +971,57 @@ impl SyncEngine {
     ///
     /// Réindexer une entrée existante la remplace : repasser sur un message déjà
     /// indexé est sans effet, ce qui rend l'opération sûre à répéter.
-    fn index_new_messages(&self, folder: iris_types::FolderId) -> Result<usize> {
-        if self.index.is_none() {
+    fn index_new_messages(&self, ids: &[iris_types::MessageId]) -> Result<usize> {
+        if self.index.is_none() || ids.is_empty() {
             return Ok(0);
         }
-        let messages = self.store.folder_messages_without_body(folder, 5_000)?;
+        let mut messages = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(m) = self.store.message_by_id(*id)? {
+                messages.push(m);
+            }
+        }
         self.index_headers(&messages)
+    }
+
+    /// Takes deleted messages out of the search index.
+    fn unindex(&self, ids: &[iris_types::MessageId]) -> Result<()> {
+        let Some(index) = &self.index else {
+            return Ok(());
+        };
+        if ids.is_empty() {
+            return Ok(());
+        }
+        for id in ids {
+            index.remove_message(*id)?;
+        }
+        index.commit()?;
+        Ok(())
     }
 
     /// Runs the rules over what a folder just received.
     ///
     /// Failures are logged, never propagated: a rule engine problem must not make a
     /// folder look unsynchronisable.
-    fn run_rules_on_new(&self, folder: iris_types::FolderId, now: Timestamp) {
-        if self.workflow.is_none() {
+    ///
+    /// The pass's new mail only, all of it: the folder's 500 newest were read again
+    /// at every arrival, so beyond 500 arrivals the oldest were never examined, and a
+    /// copy coming back from a move, a new row, ran the rules a second time.
+    fn run_rules_on_new(&self, fresh: &[iris_types::MessageId], now: Timestamp) {
+        if self.workflow.is_none() || fresh.is_empty() {
             return;
         }
-        let ids: Vec<iris_types::MessageId> =
-            match self.store.folder_messages_without_body(folder, 500) {
-                Ok(messages) => messages
-                    .iter()
-                    .filter(|m| crate::rules::worth_examining(m.flags))
-                    .map(|m| m.id)
-                    .collect(),
+        let mut ids = Vec::with_capacity(fresh.len());
+        for id in fresh {
+            match self.store.message_by_id(*id) {
+                Ok(Some(m)) if crate::rules::worth_examining(m.flags) => ids.push(m.id),
+                Ok(_) => {}
                 Err(e) => {
                     tracing::warn!(error = %e, "reading for the rules");
                     return;
                 }
-            };
+            }
+        }
 
         match self.apply_rules(&ids, now) {
             Ok(report) if report.changed() => tracing::info!(
@@ -1027,6 +1101,8 @@ pub fn refused_line(n: usize) -> String {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct AccountReport {
     added: usize,
+    /// New mail in the inbox, worth telling of.
+    inbox_arrivals: usize,
     flags_updated: usize,
     deleted: usize,
     ops_replayed: usize,
