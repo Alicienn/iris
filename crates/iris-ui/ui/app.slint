@@ -1418,6 +1418,10 @@ export component AppWindow inherits Window {
     changed modal-open => {
         if (!root.modal-open) {
             shortcuts.focus();
+            // A spreadsheet open: its grid is where the keys go, as they went before.
+            if (root.workspace == 4 && root.note-sheet-open) {
+                SheetGrid.focus-serial += 1;
+            }
         }
     }
 

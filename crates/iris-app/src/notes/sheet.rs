@@ -1301,6 +1301,18 @@ pub(super) fn importer(f: &AppWindow, e: &mut Etat, rel: &str) -> Option<String>
 
 pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
     let g = f.global::<SheetGrid>();
+    // The palettes offered, from the lists the cells' colours are written from.
+    let palette = |liste: &[&str]| -> ModelRc<slint::Color> {
+        ModelRc::new(VecModel::from(
+            liste
+                .iter()
+                .copied()
+                .filter_map(couleur)
+                .collect::<Vec<_>>(),
+        ))
+    };
+    g.set_text_colours(palette(&TEXTES));
+    g.set_fill_colours(palette(&FONDS));
     macro_rules! geste {
         ($installer:ident, |$f:ident, $fe:ident $(, $arg:ident)*| $corps:block) => {{
             let (etat, faible) = (Rc::clone(etat), f.as_weak());

@@ -61,6 +61,10 @@ export global SheetGrid {
     /// What the number format button says.
     in property <string> number;
     in property <bool> frozen;
+    /// The colours a cell's text and fill can take: the cells' own, the same in every
+    /// theme, given by Rust from the list the file's colours come from.
+    in property <[color]> text-colours;
+    in property <[color]> fill-colours;
     // A menu over the window: "", "color", "fill", "number", "more", "sheet".
     in-out property <string> menu;
     in-out property <length> menu-x;
@@ -801,7 +805,7 @@ component Swatch inherits Rectangle {
         viewbox-width: 24;
         viewbox-height: 24;
         commands: "M 5 19 L 19 5";
-        stroke: #d93025;
+        stroke: Tokens.red;
         stroke-width: 1.6px;
     }
     zone := TouchArea {
@@ -844,9 +848,7 @@ export component SheetMenu inherits Rectangle {
                         label: "None";
                         clicked => { root.chosen(SheetGrid.menu + ":none"); }
                     }
-                    for c[i] in SheetGrid.menu == "color"
-                        ? [#d93025, #e8710a, #b88400, #188038, #1a73e8, #8e24aa, #5f6368]
-                        : [#fce8e6, #feefe3, #fef7e0, #e6f4ea, #e8f0fe, #f3e8fd, #eceef0]: Swatch {
+                    for c[i] in SheetGrid.menu == "color" ? SheetGrid.text-colours : SheetGrid.fill-colours: Swatch {
                         colour: c;
                         label: ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Grey"][i];
                         clicked => { root.chosen(SheetGrid.menu + ":" + i); }
