@@ -17,7 +17,7 @@
 
 use crate::engine::SyncEngine;
 use iris_kernel::{Event, EventBus};
-use iris_smtp::{Mailer, Outbox, OutboxEvent, Outgoing, ReplyScope, ReplyTarget, SendHandle};
+use iris_smtp::{Outbox, OutboxEvent, Outgoing, ReplyScope, ReplyTarget, SendHandle};
 use iris_store::FolderRole;
 use iris_types::{
     Address, Error, Flags, Result, RfcMessageId, ThreadId, Timestamp, TransitionCause,
@@ -30,6 +30,9 @@ pub struct SendService {
     engine: Arc<SyncEngine>,
     outbox: Arc<Outbox>,
     bus: EventBus,
+    /// The mailbox each queued message is from, to file it in that mailbox's Sent
+    /// folder once it has gone.
+    senders: std::sync::Mutex<std::collections::HashMap<SendHandle, iris_types::AccountId>>,
 }
 
 impl SendService {
@@ -38,6 +41,7 @@ impl SendService {
             engine,
             outbox,
             bus,
+            senders: Default::default(),
         }
     }
 
@@ -282,7 +286,40 @@ impl SendService {
     /// Met une réponse en file. Elle partira après le délai d'annulation.
     pub fn queue(&self, message: Outgoing) -> Result<SendHandle> {
         message.validate().map_err(Error::Config)?;
-        Ok(self.outbox.queue(message))
+        let compte = sender_account(self.engine.store(), &message.from.addr)
+            .ok()
+            .map(|c| c.id);
+        // Held across the queueing: with no delay the message can be gone, and
+        // `pump_outbox` asking whose it was, before the answer is written down.
+        let mut expediteurs = self.senders.lock().expect("senders poisoned");
+        let handle = self.outbox.queue(message);
+        if let Some(compte) = compte {
+            expediteurs.insert(handle, compte);
+        }
+        Ok(handle)
+    }
+
+    /// The mailbox a queued message is from, forgotten as it is read.
+    fn take_sender(&self, handle: SendHandle) -> Option<iris_types::AccountId> {
+        self.senders
+            .lock()
+            .expect("senders poisoned")
+            .remove(&handle)
+    }
+
+    /// Files a message that has gone in its mailbox's Sent folder.
+    pub async fn file_sent(&self, account: iris_types::AccountId, raw: &[u8]) -> SentOutcome {
+        let mut bilan = SentOutcome::default();
+        match self.append_to_sent(account, raw).await {
+            Ok(true) => bilan.archived = true,
+            Ok(false) => bilan.note = Some("aucun dossier « envoyés » connu".into()),
+            // Un dépôt raté ne remet pas l'envoi en cause : le message est parti.
+            Err(e) => {
+                tracing::warn!(error = %e, "dépôt dans les messages envoyés");
+                bilan.note = Some(format!("copie non déposée : {e}"));
+            }
+        }
+        bilan
     }
 
     /// Retient un message encore en attente.
@@ -304,17 +341,7 @@ impl SendService {
         raw: &[u8],
         now: Timestamp,
     ) -> SentOutcome {
-        let mut bilan = SentOutcome::default();
-
-        match self.append_to_sent(account, raw).await {
-            Ok(true) => bilan.archived = true,
-            Ok(false) => bilan.note = Some("aucun dossier « envoyés » connu".into()),
-            // Un dépôt raté ne remet pas l'envoi en cause : le message est parti.
-            Err(e) => {
-                tracing::warn!(error = %e, "dépôt dans les messages envoyés");
-                bilan.note = Some(format!("copie non déposée : {e}"));
-            }
-        }
+        let mut bilan = self.file_sent(account, raw).await;
 
         match self.mark_waiting(thread, now) {
             Ok(change) => bilan.moved_to_waiting = change,
@@ -326,6 +353,13 @@ impl SendService {
 
     /// Dépose une copie dans le dossier des messages envoyés.
     async fn append_to_sent(&self, account: iris_types::AccountId, raw: &[u8]) -> Result<bool> {
+        // Gmail files what its SMTP server sends in Sent Mail itself: a copy of our own
+        // would be a second one. The next pass brings its copy down.
+        if let Some(compte) = self.engine.store().account(account)? {
+            if server_files_sent_mail(&compte.imap_host) {
+                return Ok(true);
+            }
+        }
         // Un message qu'on vient d'écrire est lu : le marquer autrement ferait
         // apparaître un non-lu dans ses propres messages envoyés.
         self.append_to(account, FolderRole::Sent, raw, Flags::SEEN)
@@ -489,19 +523,30 @@ pub async fn pump_outbox(
     while let Some(evenement) = events.recv().await {
         match evenement {
             OutboxEvent::Sent { handle, outcome } => {
-                let Some((thread, account)) = context.resolve(handle) else {
-                    continue;
+                let expediteur = service.take_sender(handle);
+                // Tied to a thread, it goes to Waiting too. Otherwise — which is how
+                // every message was queued, so none was ever filed — it is filed in
+                // the Sent folder of the mailbox it is from.
+                let bilan = match (context.resolve(handle), expediteur) {
+                    (Some((thread, account)), _) => {
+                        service
+                            .on_sent(thread, account, &outcome.raw, crate::engine::now_utc())
+                            .await
+                    }
+                    (None, Some(account)) => service.file_sent(account, &outcome.raw).await,
+                    (None, None) => continue,
                 };
-                let bilan = service
-                    .on_sent(thread, account, &outcome.raw, crate::engine::now_utc())
-                    .await;
                 context.finished(handle, Ok(bilan));
             }
             OutboxEvent::Failed { handle, error } => {
+                service.take_sender(handle);
                 tracing::warn!(error = %error, "envoi en échec");
                 context.finished(handle, Err(error));
             }
-            OutboxEvent::Cancelled { handle } => context.cancelled(handle),
+            OutboxEvent::Cancelled { handle } => {
+                service.take_sender(handle);
+                context.cancelled(handle);
+            }
             OutboxEvent::Queued { .. } => {}
         }
     }
@@ -578,24 +623,31 @@ impl SendService {
     }
 }
 
-/// Expéditeur retenu pour un compte, construit à la demande.
-pub fn mailer_for(account: &iris_store::Account, password: &str) -> Result<Arc<dyn Mailer>> {
-    let expediteur = if account.smtp_tls {
-        iris_smtp::LettreMailer::tls(
-            &account.smtp_host,
-            account.smtp_port,
-            &account.email,
-            password,
-        )?
-    } else {
-        iris_smtp::LettreMailer::starttls(
-            &account.smtp_host,
-            account.smtp_port,
-            &account.email,
-            password,
-        )?
-    };
-    Ok(Arc::new(expediteur))
+/// The mailbox that sends as `address`: its own, or the one it is an alias of.
+pub fn sender_account(store: &iris_store::Store, address: &str) -> Result<iris_store::Account> {
+    let adresse = address.trim();
+    let comptes = store.accounts()?;
+    if let Some(compte) = comptes
+        .iter()
+        .find(|c| c.email.eq_ignore_ascii_case(adresse))
+    {
+        return Ok(compte.clone());
+    }
+    let proprietaire = store
+        .aliases()?
+        .into_iter()
+        .find(|a| a.address.eq_ignore_ascii_case(adresse))
+        .map(|a| a.account);
+    proprietaire
+        .and_then(|id| comptes.into_iter().find(|c| c.id == id))
+        .ok_or_else(|| Error::Config(format!("no mailbox sends as {adresse}")))
+}
+
+/// Whether the mailbox on `imap_host` keeps a copy of what is sent without being given
+/// one. Gmail does, for every message its SMTP server takes.
+fn server_files_sent_mail(imap_host: &str) -> bool {
+    let hote = imap_host.trim_end_matches('.').to_ascii_lowercase();
+    hote == "imap.gmail.com" || hote == "imap.googlemail.com"
 }
 
 /// A message being written.
@@ -664,6 +716,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gmail_keeps_its_own_sent_copy() {
+        assert!(server_files_sent_mail("imap.gmail.com"));
+        assert!(server_files_sent_mail("IMAP.GMAIL.COM."));
+        assert!(!server_files_sent_mail("mail.example.com"));
+        assert!(!server_files_sent_mail("imap.gmail.com.example.com"));
+    }
+
+    #[test]
     fn une_signature_est_separee_par_la_convention() {
         // « -- » suivi d'une espace et d'un retour à la ligne : quarante ans d'usage, et
         // c'est ce qui dit à un autre client où le message s'arrête. Sans, une réponse
@@ -705,7 +765,7 @@ mod tests {
     use crate::engine::{EngineConfig, StaticCredentials};
     use iris_imap::fake::FakeServer;
     use iris_imap::{Connector, FolderKind};
-    use iris_smtp::FakeMailer;
+    use iris_smtp::{FakeMailer, Mailer};
     use iris_store::{NewAccount, Store};
     use std::time::Duration;
 
@@ -1046,6 +1106,57 @@ mod tests {
         assert_eq!(context.finished_count(), 1);
         let bilan = context.last_outcome().unwrap().unwrap();
         assert!(bilan.moved_to_waiting);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_message_sent_lands_in_its_mailbox_sent_folder() {
+        // Nothing registered it with a thread, as nothing in the application does: it
+        // was sent, and never filed anywhere.
+        let f = fixture();
+        f.synchroniser().await;
+        assert_eq!(f.server.message_count("Sent"), 0);
+
+        let context = Arc::new(InMemorySendContext::default());
+        let message = Outgoing::new(
+            Address::new("Moi@Example.com"),
+            vec![Address::new("someone@example.net")],
+            "Hello",
+        );
+        f.service.queue(message).unwrap();
+
+        let service = Arc::clone(&f.service);
+        let ctx = Arc::clone(&context) as Arc<dyn SendContext>;
+        tokio::spawn(pump_outbox(service, f.events, ctx));
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if context.finished_count() > 0 {
+                break;
+            }
+        }
+
+        assert_eq!(context.finished_count(), 1);
+        assert!(context.last_outcome().unwrap().unwrap().archived);
+        assert_eq!(f.server.message_count("Sent"), 1);
+    }
+
+    #[test]
+    fn an_alias_is_sent_by_the_mailbox_it_belongs_to() {
+        let store = Store::in_memory().unwrap();
+        let compte = store
+            .create_account(
+                &NewAccount::new("moi@example.com", "imap.x.fr", "smtp.x.fr"),
+                Timestamp::EPOCH,
+            )
+            .unwrap();
+        store
+            .add_alias(compte, "ventes@example.com", "Ventes")
+            .unwrap();
+
+        assert_eq!(
+            sender_account(&store, " Ventes@example.com ").unwrap().id,
+            compte
+        );
+        assert!(sender_account(&store, "autre@example.com").is_err());
     }
 
     #[tokio::test]

@@ -68,7 +68,9 @@ A tag carries a red **!** while one of its mailboxes fails to sync, folded or no
 
 **Send as.** Right-click a mailbox, *Send as…*, to give it the other addresses it may
 send from (aliases the server knows, with a name of their own if you like). They
-appear as senders when you write, after the mailbox's own address.
+appear as senders when you write, after the mailbox's own address. A message leaves
+through the outgoing server of the mailbox it is from, signed in as that mailbox (with
+Google or Microsoft for those accounts); an alias goes through the mailbox it belongs to.
 
 Passwords are stored in the Windows credential store.
 

@@ -28,33 +28,44 @@ pub struct LettreMailer {
     domain: String,
 }
 
-impl LettreMailer {
-    /// Construit un expéditeur pour un serveur en TLS direct.
-    pub fn tls(host: &str, port: u16, user: &str, password: &str) -> Result<Self> {
-        let credentials =
-            lettre::transport::smtp::authentication::Credentials::new(user.into(), password.into());
+/// How a mailbox signs in to its outgoing server.
+#[derive(Clone, PartialEq, Eq)]
+pub enum SmtpLogin {
+    Password(String),
+    /// An OAuth access token, for Google and Microsoft (`XOAUTH2`).
+    OAuth2(String),
+}
 
-        let transport = lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
-            .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
-            .port(port)
-            .credentials(credentials)
-            .build();
-
-        Ok(Self {
-            transport,
-            domain: domain_of(user),
+impl std::fmt::Debug for SmtpLogin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never the secret itself, not even in debug output.
+        f.write_str(match self {
+            Self::Password(_) => "Password(…)",
+            Self::OAuth2(_) => "OAuth2(…)",
         })
     }
+}
 
-    /// Construit un expéditeur pour un serveur en `STARTTLS`.
-    pub fn starttls(host: &str, port: u16, user: &str, password: &str) -> Result<Self> {
-        let credentials =
-            lettre::transport::smtp::authentication::Credentials::new(user.into(), password.into());
+impl LettreMailer {
+    /// A sender for one server: TLS from the first byte when `tls`, else `STARTTLS`.
+    pub fn new(host: &str, port: u16, tls: bool, user: &str, login: &SmtpLogin) -> Result<Self> {
+        use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 
-        let transport = lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
-            .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?
+        let (secret, mecanismes) = match login {
+            SmtpLogin::Password(p) => (p, vec![Mechanism::Plain, Mechanism::Login]),
+            SmtpLogin::OAuth2(t) => (t, vec![Mechanism::Xoauth2]),
+        };
+        let builder = if tls {
+            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(host)
+        } else {
+            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(host)
+        }
+        .map_err(|e| Error::network(format!("configuration SMTP : {e}")))?;
+
+        let transport = builder
             .port(port)
-            .credentials(credentials)
+            .credentials(Credentials::new(user.into(), secret.clone()))
+            .authentication(mecanismes)
             .build();
 
         Ok(Self {

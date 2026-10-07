@@ -498,11 +498,8 @@ fn signaler_synchronisation(fenetre: &slint::Weak<iris_ui::AppWindow>, actif: bo
     });
 }
 
-/// Construit le service d'envoi à partir du premier compte actif.
-///
-/// Un seul expéditeur : choisir l'identité d'envoi demande une décision d'interface
-/// qui n'est pas prise, et ouvrir une connexion SMTP par compte coûterait cher pour
-/// rien tant que personne ne peut choisir laquelle utiliser.
+/// Builds the sending service. Each message leaves through the mailbox it is from
+/// (`sending::AccountMailer`), never through whichever mailbox came first.
 fn build_send_service(
     services: &Services,
     runtime: tokio::runtime::Handle,
@@ -510,23 +507,8 @@ fn build_send_service(
     Arc<iris_sync::SendService>,
     tokio::sync::mpsc::UnboundedReceiver<iris_smtp::OutboxEvent>,
 )> {
-    let compte = services
-        .store
-        .accounts()?
-        .into_iter()
-        .find(|c| c.enabled)
-        .ok_or_else(|| iris_types::Error::Config("no account configured".into()))?;
-
-    let motdepasse = services
-        .secrets
-        .get(&compte.email, iris_secrets::SecretKind::Password)?
-        .ok_or_else(|| iris_types::Error::AuthFailed {
-            account: compte.email.clone(),
-        })?;
-
-    let expediteur = iris_sync::send::mailer_for(&compte, motdepasse.expose())?;
     let (outbox, evenements) =
-        iris_smtp::Outbox::new(expediteur, iris_smtp::DEFAULT_DELAY, runtime);
+        iris_smtp::Outbox::new(services.mailer(), iris_smtp::DEFAULT_DELAY, runtime);
 
     Ok((
         Arc::new(iris_sync::SendService::new(

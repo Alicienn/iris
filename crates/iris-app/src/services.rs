@@ -41,9 +41,19 @@ pub struct Services {
     /// Modifiables en cours de route : renseigner un identifiant client ne doit pas
     /// demander de redémarrer.
     pub oauth: Arc<std::sync::RwLock<crate::oauth::OAuthSettings>>,
+    /// How each mailbox signs in, to receive (the engine) and to send (`mailer`).
+    pub credentials: Arc<dyn iris_sync::CredentialsProvider>,
 }
 
 impl Services {
+    /// What sends mail: each message through the mailbox it is from.
+    pub fn mailer(&self) -> Arc<dyn iris_smtp::Mailer> {
+        Arc::new(crate::sending::AccountMailer::new(
+            Arc::clone(&self.store),
+            Arc::clone(&self.credentials),
+        ))
+    }
+
     /// Ouvre ou crée tout ce dont l'application a besoin.
     ///
     /// `master` n'est utilisé qu'en l'absence de trousseau système : c'est le mot de
@@ -67,6 +77,12 @@ impl Services {
             iris_types::AutomationSettings::default(),
         ));
 
+        let credentials: Arc<dyn iris_sync::CredentialsProvider> = Arc::new(StoredCredentials {
+            secrets: Arc::clone(&secrets),
+            store: Arc::clone(&store),
+            oauth: Arc::clone(&oauth),
+        });
+
         // Le moteur reçoit l'index et le magasin de contenus : sans eux, la
         // synchronisation fonctionne mais la recherche ne trouve rien et les corps
         // ne sont jamais téléchargés.
@@ -74,11 +90,7 @@ impl Services {
             SyncEngine::new(
                 Arc::clone(&store),
                 Arc::new(RustlsConnector::new()),
-                Arc::new(StoredCredentials {
-                    secrets: Arc::clone(&secrets),
-                    store: Arc::clone(&store),
-                    oauth: Arc::clone(&oauth),
-                }),
+                Arc::clone(&credentials),
                 bus.clone(),
                 EngineConfig::default(),
             )
@@ -98,6 +110,7 @@ impl Services {
             engine,
             workflow,
             oauth,
+            credentials,
         })
     }
 

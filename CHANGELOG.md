@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.5.0 — 2026-10-07
+
+### Improved
+- Each message is sent through the mailbox it is written from, aliases included.
+
+### Fixed
+- Mailboxes signed in with Google or Microsoft can send mail.
+- Messages you send are kept in the mailbox's Sent folder.
+
 ## 4.4.1 — 2026-10-07
 
 ### Fixed

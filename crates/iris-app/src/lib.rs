@@ -24,6 +24,7 @@ pub mod oauth;
 pub mod paths;
 pub mod platform;
 pub mod plugins;
+pub mod sending;
 pub mod services;
 pub mod settings;
 pub mod shell;

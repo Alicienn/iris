@@ -563,3 +563,9 @@ variant, brought into the application.
       greeting is read before `AUTHENTICATE XOAUTH2`), a message binned on another
       device leaves Inbox at the next pass, not the next deletion scan, and a sync
       failure is written to the log.
+- [x] **S41.14** Each message leaves through its own mailbox (4.5.0):
+      `sending::AccountMailer` picks the account from the `From` (its address or one
+      of its aliases) and signs in to its SMTP server with its password or, for Google
+      and Microsoft, `XOAUTH2`. Before, everything went through the first enabled
+      mailbox. Sent messages are filed in their mailbox's Sent folder (they never
+      were); Gmail's is left to Gmail, which files one itself.

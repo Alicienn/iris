@@ -645,6 +645,22 @@ sending it, never after: recalling a sent message is impossible, and pretending 
 would lie. The delay is a setting (`undo_send_seconds` in `iris.toml`, 5 s by default,
 0 to 30), and each message keeps the delay in force when it was queued.
 
+The outbox's sender is `sending::AccountMailer` (`crates/iris-app/src/sending.rs`,
+since 4.5.0). For each message it finds the mailbox that sends as its `From` — its
+own address, or one of its aliases — reads that mailbox's credentials at that moment
+through the engine's `CredentialsProvider` (a password, or an OAuth token refreshed if
+due), and opens a `lettre` connection to that mailbox's SMTP server: `PLAIN`/`LOGIN`
+with a password, `XOAUTH2` with a token. Until 4.5.0 one sender, built at start-up from
+the first enabled mailbox, carried every message whatever its `From`, and a mailbox
+signed in with Google or Microsoft could not send. Gmail files what its SMTP server
+sends in Sent Mail by itself, so `on_sent` does not append a second copy there
+(`server_files_sent_mail`); the next pass brings Gmail's down.
+
+`SendService::queue` notes which mailbox each message is from (`sender_account`), and
+`pump_outbox` files it in that mailbox's Sent folder once it has gone. Filing depended
+on a `SendContext` tying the send to a thread, which nothing in the application ever
+registered: until 4.5.0 no sent message was copied to Sent by Iris.
+
 Sending closes the compose window at once and clears the saved draft. A notice at the
 bottom of the window counts down; **Undo** cancels the queued message and reopens the
 compose window from what was captured at Send time — recipients, subject, body,
