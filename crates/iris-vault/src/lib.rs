@@ -39,15 +39,17 @@ impl Vault {
         &self.root
     }
 
-    /// The spaces: every visible folder of the root, then the folders elsewhere the
-    /// user added (`externals`), those still there. The first time, a space named
-    /// *Notes* is made so there is always somewhere to write.
+    /// The spaces: the folders of the root Iris made spaces (those with their
+    /// `.iris/space.json`), then the folders elsewhere the user added (`externals`),
+    /// those still there. Other folders the root happens to hold (a project, a clone)
+    /// are not spaces. With none, a space named *Notes* is made so there is always
+    /// somewhere to write.
     pub fn spaces(&self, externals: &[PathBuf]) -> Result<Vec<Space>> {
         let mut dossiers: Vec<PathBuf> = std::fs::read_dir(&self.root)?
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
             .map(|e| e.path())
-            .filter(|p| !space::cache(p))
+            .filter(|p| !space::cache(p) && p.join(".iris").join("space.json").is_file())
             .collect();
         dossiers.sort_by_key(|p| space::cle_de_tri(&space::nom(p)));
         if dossiers.is_empty() && externals.is_empty() {
@@ -113,6 +115,28 @@ mod tests {
             .map(|s| s.config.name)
             .collect();
         assert_eq!(noms, ["Cours", "Notes"]);
+    }
+
+    #[test]
+    fn folders_iris_did_not_make_are_not_spaces() {
+        // The root is also a project's folder: its folders are not spaces.
+        let dir = tempfile::tempdir().unwrap();
+        let racine = dir.path().join("Iris");
+        for d in ["crates", "docs", ".git"] {
+            std::fs::create_dir_all(racine.join(d)).unwrap();
+        }
+        std::fs::write(racine.join("docs").join("README.md"), "# x").unwrap();
+        let v = Vault::open(racine).unwrap();
+        let noms = |v: &Vault| -> Vec<String> {
+            v.spaces(&[])
+                .unwrap()
+                .iter()
+                .map(|s| s.config.name.clone())
+                .collect()
+        };
+        assert_eq!(noms(&v), ["Notes"]);
+        v.create_space("Cours").unwrap();
+        assert_eq!(noms(&v), ["Cours", "Notes"]);
     }
 
     #[test]

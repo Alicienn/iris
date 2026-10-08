@@ -689,3 +689,9 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       web address as a link and a page's HTML as Markdown, folder colours, links to a
       numbered callout or a heading, `Ctrl`+`\` for a note beside, a folder's
       flashcards revised together; a preview of Notes (`apercu_notes`).
+- [x] **S43.8** What the first days of use showed (4.17.0): folders that were not
+      spaces kept out of the list (the default folder held a clone), wrapped words no
+      longer drawn over their neighbours, a new note's title selected and renaming
+      its file as it is typed, a card for what is dragged, a fuller and clearer row
+      menu (Move to…, Copy path, Open with the default app), and the `/` menu with
+      icons, scrolling and a card that plays what each block becomes.

@@ -7,6 +7,7 @@
 //! It is written to its file half a second after the last key, atomically, and read
 //! again when another program changes it.
 
+mod apercu;
 mod bin;
 mod export;
 pub mod render;
@@ -102,6 +103,8 @@ struct Etat {
     services: Services,
     /// The history shown: the note, and when each of its versions was kept.
     historique: Option<(String, Vec<i64>)>,
+    /// What *Move to…* moves, while its folder is picked.
+    deplacement: Option<String>,
 }
 
 /// A revision under way: the cards left, the one shown, and how it went.
@@ -456,6 +459,26 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
     }
 }
 
+/// `k` moved into `dossier` ("" for the top of the space), the links following.
+fn deplacer(f: &AppWindow, e: &mut Etat, k: &str, dossier: &str) {
+    if parent_of(k) == dossier || k == dossier || dossier.starts_with(&format!("{k}/")) {
+        return;
+    }
+    ecrire(f, e);
+    let Some(espace) = e.espace() else { return };
+    match espace.move_to(k, dossier) {
+        Ok(nouveau) => {
+            suivre_deplacement(e, k, &nouveau);
+            if !dossier.is_empty() {
+                e.expanded.insert(dossier.to_string());
+            }
+            montrer_note(f, e);
+        }
+        Err(err) => f.set_status(format!("Could not move it: {err}").into()),
+    }
+    montrer_arbre(f, e);
+}
+
 /// Everything open written and closed: the note, the spreadsheet, the note beside.
 fn fermer_tout(f: &AppWindow, e: &mut Etat) {
     ecrire(f, e);
@@ -517,6 +540,9 @@ fn nouvelle_note(f: &AppWindow, e: &mut Etat, nom: &str, texte: &str) {
             }
             ouvrir(f, e, &rel);
             montrer_arbre(f, e);
+            // The title selected: typing names the note. The field may not be made
+            // yet (no note was open): it then reads `pending` when it is.
+            f.set_note_title_pending(true);
             e.title_serial += 1;
             f.set_note_title_serial(e.title_serial);
         }
@@ -885,6 +911,7 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
                 };
                 f.set_note_completion_highlight(c.highlight as i32);
             }
+            montrer_apercu(f, e);
             true
         }
         "popup-accept" => {
@@ -1084,11 +1111,16 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
                 e.completion = None;
                 f.set_note_completion(ModelRc::default());
             } else {
+                let blocs = matches!(t, iris_notes::complete::Trigger::Block { .. });
                 let donnees: Vec<NoteFoundData> = liste
                     .iter()
                     .enumerate()
                     .map(|(k, c)| NoteFoundData {
-                        key: k.to_string().into(),
+                        // The `/` menu's rows name their block, for their icon.
+                        key: match bloc_du_libelle(&c.label).filter(|_| blocs) {
+                            Some(b) => format!("block:{b}").into(),
+                            None => k.to_string().into(),
+                        },
                         title: c.label.as_str().into(),
                         detail: c.detail.as_str().into(),
                     })
@@ -1101,6 +1133,7 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
                     candidates: liste,
                     highlight: 0,
                 });
+                montrer_apercu(f, e);
             }
         }
         None => {
@@ -1250,6 +1283,47 @@ fn choisir(f: &AppWindow, e: &mut Etat, k: usize) -> bool {
     f.set_note_completion(ModelRc::default());
     remplacer(f, e, c.block, &r.text, r.cursor, r.cursor);
     true
+}
+
+/// The block of the `/` menu a row is (`h1`, `thm`…), by its label.
+fn bloc_du_libelle(label: &str) -> Option<&'static str> {
+    iris_notes::complete::BLOCKS
+        .iter()
+        .find(|(_, nom, _, _)| *nom == label)
+        .map(|(k, _, _, _)| *k)
+}
+
+/// The card beside the `/` menu: the block highlighted, typed then drawn.
+fn montrer_apercu(f: &AppWindow, e: &Etat) {
+    let carte = e.completion.as_ref().and_then(|c| {
+        if !matches!(c.trigger, iris_notes::complete::Trigger::Block { .. }) {
+            return None;
+        }
+        let candidat = c.candidates.get(c.highlight)?;
+        apercu::apercu(bloc_du_libelle(&candidat.label)?)
+    });
+    let p = f.global::<iris_ui::BlockPreview>();
+    let Some(a) = carte else {
+        p.set_family(SharedString::default());
+        return;
+    };
+    // A formula drawn as the note draws it.
+    let image = if a.family == "math" {
+        let encre = f.global::<iris_ui::Tokens>().get_text();
+        render::formula_picture(&a.title, encre, f.window().scale_factor())
+    } else {
+        None
+    };
+    p.set_has_picture(image.is_some());
+    p.set_picture(image.map(|(i, _)| i).unwrap_or_default());
+    p.set_source(a.source.into());
+    p.set_title(a.title.into());
+    p.set_body(a.body.into());
+    p.set_description(a.description.into());
+    p.set_level(a.level);
+    p.set_tint(a.tint);
+    p.set_family(a.family.into());
+    p.set_serial(p.get_serial() + 1);
 }
 
 /// An image on the clipboard, pasted into the note: written to the space's
@@ -2294,6 +2368,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         sheet: None,
         services: services.clone(),
         historique: None,
+        deplacement: None,
     }));
     sheet::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
@@ -2538,6 +2613,44 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 }
             }
             "history" => historique(&f, e, &cle),
+            "open-default" => {
+                if let Some(Ok(p)) = e.espace().map(|s| s.path(&cle)) {
+                    ecrire(&f, e);
+                    if let Err(err) = crate::platform::open_path(&p) {
+                        f.set_status(format!("Could not open it: {err}").into());
+                    }
+                }
+            }
+            "copy-link" | "copy-rel" | "copy-full" => {
+                let nom = cle.rsplit('/').next().unwrap_or(&cle).to_string();
+                let texte = match action.as_str() {
+                    "copy-link" => match genre {
+                        EntryKind::Note => format!("[[{}]]", stem(&cle)),
+                        EntryKind::Sheet | EntryKind::Image => format!("![[{nom}]]"),
+                        _ => format!("[[{nom}]]"),
+                    },
+                    "copy-rel" => cle.clone(),
+                    _ => e
+                        .espace()
+                        .and_then(|s| s.path(&cle).ok())
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                };
+                match arboard::Clipboard::new().and_then(|mut c| c.set_text(texte)) {
+                    Ok(()) => f.set_toast("Copied.".into()),
+                    Err(err) => f.set_status(format!("Could not copy: {err}").into()),
+                }
+            }
+            "move-to" => {
+                f.set_notes_quick_moving(stem(&cle).into());
+                f.set_notes_quick_beside(false);
+                f.set_notes_quick_search(false);
+                f.set_notes_quick_query(SharedString::default());
+                f.set_notes_quick_highlight(0);
+                e.deplacement = Some(cle);
+                f.set_notes_quick_open(true);
+                f.invoke_notes_quick_edited(SharedString::default());
+            }
             "revise" => reviser_dossier(&f, e, &cle),
             a if a.starts_with("colour:") => {
                 let choisie = a
@@ -2640,22 +2753,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
             _ if cible.is_empty() => String::new(),
             _ => parent_of(&cible),
         };
-        if parent_of(&k) == dossier || k == dossier {
-            return;
-        }
-        ecrire(&f, e);
-        let Some(espace) = e.espace() else { return };
-        match espace.move_to(&k, &dossier) {
-            Ok(nouveau) => {
-                suivre_deplacement(e, &k, &nouveau);
-                if !dossier.is_empty() {
-                    e.expanded.insert(dossier);
-                }
-                montrer_note(&f, e);
-            }
-            Err(err) => f.set_status(format!("Could not move it: {err}").into()),
-        }
-        montrer_arbre(&f, e);
+        deplacer(&f, e, &k, &dossier);
     });
     geste!(on_notes_new_note, |f, e| {
         nouvelle_note(&f, e, "Untitled", "");
@@ -2779,6 +2877,46 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     });
     geste!(on_notes_quick_edited, |f, e, q| {
         let Some(espace) = e.espace() else { return };
+        // Move to…: the folders, the top of the space first.
+        if !f.get_notes_quick_moving().is_empty() {
+            let deplace = e.deplacement.clone().unwrap_or_default();
+            let mut dossiers: Vec<String> = espace
+                .folders()
+                .into_iter()
+                .filter(|d| *d != deplace && !d.starts_with(&format!("{deplace}/")))
+                .collect();
+            dossiers.insert(0, String::new());
+            let noms: Vec<String> = dossiers
+                .iter()
+                .map(|d| {
+                    if d.is_empty() {
+                        espace.config.name.clone()
+                    } else {
+                        d.clone()
+                    }
+                })
+                .collect();
+            let ordre: Vec<usize> = if q.trim().is_empty() {
+                (0..dossiers.len()).take(40).collect()
+            } else {
+                let refs: Vec<&str> = noms.iter().map(String::as_str).collect();
+                iris_notes::fuzzy::rank(&q, &refs, 40)
+            };
+            let trouves: Vec<NoteFoundData> = ordre
+                .into_iter()
+                .map(|i| NoteFoundData {
+                    key: format!("dir:{}", dossiers[i]).into(),
+                    title: noms[i].rsplit('/').next().unwrap_or(&noms[i]).into(),
+                    detail: if dossiers[i].is_empty() {
+                        "The top of the space".into()
+                    } else {
+                        dossiers[i].replace('/', " › ").into()
+                    },
+                })
+                .collect();
+            f.set_notes_quick_results(ModelRc::new(VecModel::from(trouves)));
+            return;
+        }
         // Searching the words: the notes holding them, with the line found.
         if f.get_notes_quick_search() {
             let trouves: Vec<NoteFoundData> = if q.trim().is_empty() {
@@ -2825,6 +2963,13 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     geste!(on_notes_quick_chosen, |f, e, k| {
         let a_cote = f.get_notes_quick_beside();
         f.set_notes_quick_beside(false);
+        f.set_notes_quick_moving(SharedString::default());
+        if let Some(dossier) = k.strip_prefix("dir:") {
+            if let Some(deplace) = e.deplacement.take() {
+                deplacer(&f, e, &deplace, dossier);
+            }
+            return;
+        }
         match k.strip_prefix("new:") {
             Some(nom) => nouvelle_note(&f, e, nom, ""),
             // Ctrl+\: beside the note open, to read while writing.
@@ -3096,26 +3241,89 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         noter(&f, e, g);
     });
     geste!(on_note_title_accepted, |f, e, nom| {
-        let Some(note) = &e.note else { return };
-        let rel = note.rel.clone();
-        if nom.trim().is_empty() || nom.trim() == stem(&rel) {
+        TITRE.with(|t| t.borrow_mut().take());
+        renommer_note(&f, e, &nom, false);
+    });
+    // The title typed: the file renamed once typing pauses.
+    {
+        let faible = f.as_weak();
+        f.on_note_title_edited(move |nom| {
+            let faible = faible.clone();
+            // The note whose title is typed: another opened meanwhile is not renamed.
+            let note = ETAT.with(|e| {
+                e.borrow()
+                    .as_ref()
+                    .and_then(|et| et.try_borrow().ok()?.note.as_ref().map(|n| n.rel.clone()))
+            });
+            let minuterie = slint::Timer::default();
+            minuterie.start(slint::TimerMode::SingleShot, RENOMMAGE, move || {
+                let Some(f) = faible.upgrade() else { return };
+                ETAT.with(|e| {
+                    if let Some(etat) = e.borrow().as_ref() {
+                        if let Ok(mut e) = etat.try_borrow_mut() {
+                            if e.note.as_ref().map(|n| &n.rel) == note.as_ref() {
+                                renommer_note(&f, &mut e, &nom, true);
+                            }
+                        }
+                    }
+                });
+            });
+            TITRE.with(|t| *t.borrow_mut() = Some(minuterie));
+        });
+    }
+}
+
+/// How long after the last key of the title the note is renamed.
+const RENOMMAGE: Duration = Duration::from_millis(700);
+
+thread_local! {
+    /// The rename waiting for the title's typing to pause.
+    static TITRE: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
+}
+
+/// The open note renamed `nom`. `en_tapant`: while the title is typed, a name not
+/// usable yet (empty) waits rather than being put back.
+fn renommer_note(f: &AppWindow, e: &mut Etat, nom: &str, en_tapant: bool) {
+    let Some(rel) = e.note.as_ref().map(|n| n.rel.clone()) else {
+        return;
+    };
+    if nom.trim().is_empty() || nom.trim() == stem(&rel) {
+        if !en_tapant {
             f.set_note_title(stem(&rel).into());
-            return;
         }
-        ecrire(&f, e);
-        let Some(espace) = e.espace() else { return };
-        match espace.rename(&rel, &nom) {
-            Ok(nouveau) => {
-                suivre_deplacement(e, &rel, &nouveau);
-                montrer_note(&f, e);
-                montrer_arbre(&f, e);
+        return;
+    }
+    ecrire(f, e);
+    let Some(espace) = e.espace() else { return };
+    match espace.rename(&rel, nom) {
+        Ok(nouveau) => {
+            suivre_deplacement(e, &rel, &nouveau);
+            f.set_note_title(stem(&nouveau).into());
+            let espace_nom = e
+                .espace()
+                .map(|s| s.config.name.clone())
+                .unwrap_or_default();
+            let dossier = parent_of(&nouveau);
+            f.set_note_path(
+                if dossier.is_empty() {
+                    espace_nom
+                } else {
+                    format!("{espace_nom} › {}", dossier.replace('/', " › "))
+                }
+                .into(),
+            );
+            if let Some(dir) = e.espace().map(|s| s.dir().display().to_string()) {
+                crate::settings::update(|s| s.notes_last = format!("{dir}|{nouveau}"));
             }
-            Err(err) => {
-                f.set_status(format!("Could not rename the note: {err}").into());
+            montrer_arbre(f, e);
+        }
+        Err(err) => {
+            f.set_status(format!("Could not rename the note: {err}").into());
+            if !en_tapant {
                 f.set_note_title(stem(&rel).into());
             }
         }
-    });
+    }
 }
 
 #[cfg(test)]

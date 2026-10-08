@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.17.0 — 2026-10-08
+
+### New
+- The / menu shows an icon for each block and, beside it, a short animation of what the block becomes.
+- Right-click a note or folder for Move to…, Copy path, Open with the default app and Version history.
+
+### Improved
+- A new note's title is selected: type to name it, and the file is renamed as you type.
+- Dragging a note or folder shows a card saying where it will go.
+- Menus are easier to read, and deleting is shown in red.
+- The / menu scrolls to follow the arrows.
+
+### Fixed
+- Folders that were not spaces no longer appear as spaces in Notes.
+- Long paragraphs, callouts and code no longer draw over the lines around them.
+
 ## 4.16.0 — 2026-10-08
 
 ### New

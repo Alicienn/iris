@@ -781,6 +781,23 @@ when the view moves past them. Excel files are read with `calamine` and written 
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
 
+**Spaces and their folder** (4.17.0). A folder of the spaces' folder is a space only
+when it holds `.iris/space.json`, which Iris writes when it makes one: the default
+folder (`%USERPROFILE%\Iris`) may already hold something else — on one machine, a
+clone of this repository — and its `crates`, `docs` and `packaging` showed as spaces.
+
+**Wrapped text and its height.** A block's words, callouts, code and tables are given
+their width (`largeur-mots`, from the column's) rather than taking it from their row:
+`StyledText` and `Text` measure their height for a width (`text_layout_info`), and a
+row asked for its height before it had one made them a line tall, the other lines
+drawn over the blocks around.
+
+**The `/` menu's card.** `notes/apercu.rs` says, for each block, what is typed, how
+its result is drawn and what it is for; the `BlockPreview` global carries the one
+highlighted to `BlockPreviewCard`, which types the source then shows the result. It is
+driven by a `Timer` that runs only while the card plays (about 1.4 s), never in a
+loop: an endless animation would keep the software renderer painting.
+
 **Pasting** (4.16.0). `Ctrl`+`V` tries, in order: an image (saved to the attachments),
 a web address over selected words (`[words](url)`), then the clipboard's `HTML
 Format` when it carries formatting (`paste::is_rich`), turned into Markdown by

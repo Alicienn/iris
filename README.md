@@ -368,11 +368,16 @@ hidden `.iris` folder inside it.
 
 **The tree.** Folders, notes, spreadsheets, images and other files, sorted as people
 count ("Chapter 2" before "Chapter 10"). Drag a row onto a folder to move it, or onto
-the empty room below to bring it to the top. Right-click a row for *New note here*,
-*New spreadsheet here*, *New folder here*, *Rename* (`F2`), *Duplicate*, *Pin*,
-*Open beside*, *History…*, *Export as a web page…*, *Print or save as PDF…*,
-*Show in Explorer* and *Delete* (to the Recycle Bin); a folder's menu also gives it a
-colour and revises the flashcards of every note in it. Renaming or moving a note
+the empty room below to bring it to the top: a card under the pointer says where it
+will go. Right-click a row for *Open beside*, *Open with the default app*, *Rename*
+(`F2`), *Duplicate*, *Move to…* (a folder picked by name), *Pin*, *Copy path* (as a
+link for a note, from the space's folder or from the root of the disk), *Version
+history…*, *Export as a web page…*, *Print or save as PDF…*, *Show in Explorer* and
+*Move to the Recycle Bin*; a folder's menu also makes notes, spreadsheets and folders
+in it, gives it a colour and revises the flashcards of every note in it. Only the
+folders Iris made spaces (or that you opened as one) are spaces: other folders the
+spaces' folder holds are left alone. A new note opens with its title selected: what
+you type names it, and the file follows. Renaming or moving a note
 rewrites every link to it. *Filter* narrows the tree by name; `Ctrl`+`O` opens a note
 by name (`Enter` on a name not found makes it), and `Ctrl`+`Shift`+`F` searches the
 words of the space, with `tag:`, `path:` and `is:task`.
@@ -399,7 +404,7 @@ result. Markdown, plus a few marks of Iris's own:
 | `>def `, `>thm `, `>ex `, `>q `, `>! `, `>tip `… | A callout (definition, theorem…), numbered per note | |
 | `Question :: Answer` | A flashcard | |
 | `:::cols` … `:::col` … `:::` | Columns | |
-| `/` | The list of every block | |
+| `/` | The list of every block, each with its icon and, beside it, a short animation of what it becomes | |
 
 Pairs close themselves; lists go on with `Enter`; `Tab` and `Shift`+`Tab` nest;
 `Alt`+`↑`/`↓` move a block and `Ctrl`+`D` duplicates it; `Ctrl`+`Z`/`Ctrl`+`Y` undo and

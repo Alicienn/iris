@@ -12,6 +12,419 @@ import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData, NoteGraphNodeData } from "@iris/types.slint";
 import { SheetView } from "@iris/screens/sheet.slint";
 
+// The block highlighted in the `/` menu, for the card beside it: what is typed, what
+// it becomes (drawn by `family`), and what it is for. Set by Rust.
+export global BlockPreview {
+    in property <string> family;
+    in property <string> source;
+    in property <string> title;
+    in property <string> body;
+    in property <string> description;
+    in property <int> level;
+    in property <color> tint;
+    in property <image> picture;
+    in property <bool> has-picture;
+    /// Raised for each block highlighted: its card plays again, once.
+    in property <int> serial;
+
+    /// The icon of a row of the `/` menu (its key is `block:<name>`).
+    public pure function icon(key: string) -> string {
+        return key == "block:h1" ? Icons.heading-1
+            : key == "block:h2" ? Icons.heading-2
+            : key == "block:h3" ? Icons.heading-3
+            : key == "block:list" ? Icons.list
+            : key == "block:num" ? Icons.list-numbered
+            : key == "block:todo" ? Icons.checkbox
+            : key == "block:quote" ? Icons.quote
+            : key == "block:def" ? Icons.book
+            : key == "block:thm" ? Icons.medal
+            : key == "block:prop" ? Icons.diamond
+            : key == "block:lem" ? Icons.stairs
+            : key == "block:cor" ? Icons.follows
+            : key == "block:proof" ? Icons.proof
+            : key == "block:ex" ? Icons.bulb
+            : key == "block:exo" ? Icons.pencil
+            : key == "block:sol" ? Icons.check-circle
+            : key == "block:q" ? Icons.question
+            : key == "block:important" ? Icons.exclamation
+            : key == "block:summary" ? Icons.summary
+            : key == "block:note" ? Icons.info
+            : key == "block:tip" ? Icons.sparkle
+            : key == "block:warn" ? Icons.warning
+            : key == "block:math" ? Icons.sigma
+            : key == "block:code" ? Icons.code
+            : key == "block:table" ? Icons.table
+            : key == "block:rule" ? Icons.rule
+            : key == "block:cols" ? Icons.columns
+            : key == "block:fold" ? Icons.fold
+            : key == "block:card" ? Icons.cards
+            : key == "block:sheet" ? Icons.table
+            : "";
+    }
+}
+
+// The card beside the `/` menu: the block's source typed, then what it becomes, then
+// a line on what it is for. It plays once for each block highlighted (a timer that
+// stops), never in a loop.
+component BlockPreviewCard inherits Rectangle {
+    property <float> phase: 1;
+    property <int> demande: BlockPreview.serial;
+    changed demande => { root.phase = 0; }
+    Timer {
+        interval: 24ms;
+        running: root.phase < 1;
+        triggered => { root.phase = min(1, root.phase + 0.018); }
+    }
+    // Typing, then the result coming in over it.
+    property <float> tape: clamp(root.phase / 0.42, 0, 1);
+    property <float> rendu: clamp((root.phase - 0.55) / 0.3, 0, 1);
+    // A last touch: a box ticked, a fold opened, an answer shown.
+    property <float> fin: clamp((root.phase - 0.86) / 0.14, 0, 1);
+
+    width: 290px;
+    height: carte.preferred-height;
+    border-radius: Tokens.radius-medium;
+    background: Tokens.surface;
+    border-width: 1px;
+    border-color: Tokens.border;
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: Tokens.shadow-float;
+
+    carte := VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        scene := Rectangle {
+            height: 118px;
+            border-radius: 8px;
+            background: Tokens.surface-low;
+            clip: true;
+
+            // What is typed, appearing as if typed.
+            Rectangle {
+                x: 14px;
+                y: (parent.height - self.height) / 2 - root.rendu * 12px;
+                height: 22px;
+                width: min(source.preferred-width * root.tape, parent.width - 28px);
+                clip: true;
+                opacity: 1 - root.rendu;
+                source := Text {
+                    x: 0;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    text: BlockPreview.source;
+                    font-family: Tokens.font-mono;
+                    font-size: 13px;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle {
+                x: 14px + min(source.preferred-width * root.tape, parent.width - 28px) + 1px;
+                y: (parent.height - self.height) / 2 - root.rendu * 12px;
+                width: 1.5px;
+                height: 16px;
+                background: Tokens.accent;
+                opacity: root.phase < 0.55 ? 1 : 1 - root.rendu;
+            }
+
+            // What it becomes.
+            Rectangle {
+                x: 14px;
+                y: 12px + (1 - root.rendu) * 10px;
+                width: parent.width - 28px;
+                height: parent.height - 24px;
+                opacity: root.rendu;
+
+                if BlockPreview.family == "heading": Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: BlockPreview.title;
+                    font-family: BlockPreview.level == 1 ? Tokens.font-display : Tokens.font-family;
+                    font-size: BlockPreview.level == 1 ? 25px : BlockPreview.level == 2 ? 19px : 15.5px;
+                    font-weight: 700;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if BlockPreview.family == "bullet" || BlockPreview.family == "numbered"
+                    || BlockPreview.family == "task": VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    for ligne[i] in [BlockPreview.title, BlockPreview.body]: HorizontalLayout {
+                        spacing: 8px;
+                        height: 20px;
+                        if BlockPreview.family == "bullet": Text {
+                            width: 12px;
+                            text: "•";
+                            font-size: 14px;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+                        if BlockPreview.family == "numbered": Text {
+                            width: 16px;
+                            text: (i + 1) + ".";
+                            font-size: 13.5px;
+                            color: Tokens.text-secondary;
+                            vertical-alignment: center;
+                        }
+                        if BlockPreview.family == "task": Rectangle {
+                            width: 16px;
+                            Rectangle {
+                                y: 2px;
+                                width: 15px;
+                                height: 15px;
+                                border-radius: 4px;
+                                border-width: 1.5px;
+                                border-color: i == 0 && root.fin > 0.5 ? Tokens.accent : Tokens.border-strong;
+                                background: i == 0 ? Tokens.accent.with-alpha(root.fin) : transparent;
+                                Icon {
+                                    data: Icons.check;
+                                    size: 11px;
+                                    weight: 2.4;
+                                    tint: Tokens.accent-text;
+                                    alpha: i == 0 ? root.fin : 0;
+                                }
+                            }
+                        }
+                        Text {
+                            text: ligne;
+                            font-size: 13.5px;
+                            color: BlockPreview.family == "task" && i == 0 && root.fin > 0.5 ? Tokens.text-muted : Tokens.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+                if BlockPreview.family == "quote": HorizontalLayout {
+                    spacing: 10px;
+                    padding-top: 22px;
+                    padding-bottom: 22px;
+                    Rectangle {
+                        width: 3px;
+                        border-radius: 1.5px;
+                        background: Tokens.border-strong;
+                    }
+                    Text {
+                        text: BlockPreview.title;
+                        font-size: 14px;
+                        font-italic: true;
+                        color: Tokens.text-muted;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                }
+                if BlockPreview.family == "callout": Rectangle {
+                    border-radius: 6px;
+                    background: BlockPreview.tint.transparentize(0.88);
+                    Rectangle {
+                        x: 0;
+                        width: 3px;
+                        border-radius: 1.5px;
+                        background: BlockPreview.tint;
+                    }
+                    VerticalLayout {
+                        padding: 10px;
+                        padding-left: 14px;
+                        spacing: 4px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: BlockPreview.title;
+                                font-size: 13.5px;
+                                font-weight: 700;
+                                color: BlockPreview.tint;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            Icon {
+                                y: 2px;
+                                data: BlockPreview.level == 1 && root.fin < 0.5 ? Icons.chevron-right : Icons.chevron-down;
+                                size: 11px;
+                                tint: BlockPreview.tint;
+                            }
+                        }
+                        // Folded: its words come when the fold opens.
+                        Text {
+                            text: BlockPreview.body;
+                            font-size: 13px;
+                            color: Tokens.text;
+                            wrap: word-wrap;
+                            opacity: BlockPreview.level == 1 ? root.fin : 1;
+                        }
+                    }
+                }
+                if BlockPreview.family == "math": HorizontalLayout {
+                    alignment: center;
+                    if BlockPreview.has-picture: Image {
+                        y: (parent.height - self.height) / 2;
+                        source: BlockPreview.picture;
+                        width: min(self.source.width * 1px / 2, parent.width);
+                        height: self.width * self.source.height / max(1, self.source.width);
+                    }
+                    if !BlockPreview.has-picture: Text {
+                        text: BlockPreview.body;
+                        font-size: 17px;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                    }
+                }
+                if BlockPreview.family == "code": Rectangle {
+                    border-radius: 6px;
+                    background: Tokens.surface;
+                    VerticalLayout {
+                        padding: 10px;
+                        alignment: center;
+                        spacing: 3px;
+                        for l in [BlockPreview.title, BlockPreview.body]: Text {
+                            text: l;
+                            font-family: Tokens.font-mono;
+                            font-size: 12.5px;
+                            color: Tokens.text;
+                        }
+                    }
+                }
+                if BlockPreview.family == "table" || BlockPreview.family == "sheet": VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    if BlockPreview.family == "sheet": HorizontalLayout {
+                        spacing: 6px;
+                        Icon {
+                            data: Icons.table;
+                            size: 13px;
+                            tint: Tokens.text-muted;
+                        }
+                        Text {
+                            text: BlockPreview.title + ".sheet";
+                            font-size: 12px;
+                            color: Tokens.text-muted;
+                        }
+                    }
+                    Rectangle {
+                        height: 66px;
+                        border-radius: 5px;
+                        border-width: 1px;
+                        border-color: Tokens.border;
+                        clip: true;
+                        VerticalLayout {
+                            for rang[r] in BlockPreview.family == "sheet"
+                                ? [["Item", "Price"], ["Books", "86.50"], ["Total", "=SUM"]]
+                                : [["A", "B"], ["1", "2"], ["3", "4"]]: HorizontalLayout {
+                                for cel[c] in rang: Rectangle {
+                                    background: r == 0 ? Tokens.surface : transparent;
+                                    border-width: 0.5px;
+                                    border-color: Tokens.border;
+                                    Text {
+                                        x: 8px;
+                                        text: cel;
+                                        font-size: 12px;
+                                        font-weight: r == 0 ? 600 : 400;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if BlockPreview.family == "rule": VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+                    Text {
+                        text: "Part one ends here.";
+                        font-size: 12.5px;
+                        color: Tokens.text-muted;
+                    }
+                    Rectangle {
+                        height: 1px;
+                        background: Tokens.border-strong;
+                    }
+                    Text {
+                        text: "Part two begins.";
+                        font-size: 12.5px;
+                        color: Tokens.text-muted;
+                    }
+                }
+                if BlockPreview.family == "cols": HorizontalLayout {
+                    spacing: 10px;
+                    padding-top: 14px;
+                    padding-bottom: 14px;
+                    for col in [BlockPreview.title, BlockPreview.body]: Rectangle {
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Tokens.border;
+                        Text {
+                            text: col;
+                            font-size: 13px;
+                            color: Tokens.text;
+                        }
+                    }
+                }
+                if BlockPreview.family == "fold": VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Icon {
+                            y: 3px;
+                            data: root.fin < 0.5 ? Icons.chevron-right : Icons.chevron-down;
+                            size: 11px;
+                            tint: Tokens.text-secondary;
+                        }
+                        Text {
+                            text: BlockPreview.title;
+                            font-size: 13.5px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                        }
+                    }
+                    Text {
+                        text: "      " + BlockPreview.body;
+                        font-size: 13px;
+                        color: Tokens.text-secondary;
+                        opacity: root.fin;
+                    }
+                }
+                if BlockPreview.family == "card": VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: Tokens.surface;
+                        border-width: 1px;
+                        border-color: Tokens.border;
+                        Text {
+                            text: BlockPreview.title;
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                        }
+                    }
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: Tokens.accent.transparentize(0.88);
+                        opacity: root.fin;
+                        Text {
+                            text: BlockPreview.body;
+                            font-size: 14px;
+                            color: Tokens.accent;
+                        }
+                    }
+                }
+            }
+        }
+        Text {
+            text: BlockPreview.description;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+    }
+}
+
 // Notes: Markdown files in spaces, in a tree on the left, the open note on the right,
 // written block by block. The block holding the cursor shows its source; every other
 // block its rendering.
@@ -38,8 +451,10 @@ component TreeRow inherits Rectangle {
     callback menu(string, length, length);
     callback renamed(string, string);
     callback rename-cancelled();
-    /// The row was pulled past a few pixels: it is carried.
-    callback carry-started(string, string);
+    /// The row was pulled past a few pixels: it is carried (its key, name and kind).
+    callback carry-started(string, string, int);
+    /// What is carried came over this folder (true) or left it (false).
+    callback target-changed(string, bool);
     callback carry-moved(length, length);
     callback carry-ended(length, length);
     /// What was carried was let go on this row (a folder, or a note: its folder).
@@ -50,7 +465,9 @@ component TreeRow inherits Rectangle {
         return x >= self.absolute-position.x && x < self.absolute-position.x + self.width
             && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
     }
-    property <bool> targeted: root.carrying && root.folder && root.inside(root.carry-x, root.carry-y);
+    property <bool> targeted: root.carrying && root.folder && !(root.pulled && root.pressed-here)
+        && root.inside(root.carry-x, root.carry-y);
+    changed targeted => { root.target-changed(root.item.name, root.targeted); }
 
     changed drop => {
         if (root.inside(root.drop-x, root.drop-y)) {
@@ -65,6 +482,8 @@ component TreeRow inherits Rectangle {
     background: root.targeted ? Tokens.accent.transparentize(0.8)
         : Nav.background(root.item.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
+    // The row carried stays where it was, faded, while its card follows the pointer.
+    opacity: root.pulled && root.pressed-here && root.carrying ? 0.45 : 1.0;
 
     accessible-role: list-item;
     accessible-label: root.item.name;
@@ -103,7 +522,7 @@ component TreeRow inherits Rectangle {
             if (root.pressed-here && !root.pulled
                 && (abs(self.mouse-x - root.press-x) > 4px || abs(self.mouse-y - root.press-y) > 4px)) {
                 root.pulled = true;
-                root.carry-started(root.item.key, root.item.name);
+                root.carry-started(root.item.key, root.item.name, root.item.kind);
             }
             if (root.pulled) {
                 root.carry-moved(self.absolute-position.x + self.mouse-x,
@@ -145,7 +564,7 @@ component TreeRow inherits Rectangle {
             y: (parent.height - self.height) / 2;
             data: root.item.kind == 0 ? Icons.folder
                 : root.item.kind == 1 ? Icons.notes
-                : root.item.kind == 2 ? Icons.list
+                : root.item.kind == 2 ? Icons.table
                 : root.item.kind == 3 ? Icons.image
                 : Icons.paperclip;
             size: 15px;
@@ -244,6 +663,13 @@ component NoteBlock inherits Rectangle {
         : root.fixe ? 13.5px : 15px;
     property <int> graisse: root.block.kind == "heading" ? 700 : 400;
     property <length> retrait: root.block.indent * 22px;
+    // The width the words have, set rather than left to the row: a text that wraps
+    // takes its height from its width, and a row asked for its height before it has
+    // a width would make it one line, its other lines drawn over the blocks around.
+    property <length> marque: root.block.kind == "bullet" ? 22px
+        : root.block.kind == "numbered" || root.block.kind == "task" ? 26px
+        : root.block.kind == "quote" ? 11px : 0px;
+    property <length> largeur-mots: max(40px, root.available - root.retrait - root.marque);
     property <length> marge-haut: root.block.kind == "heading"
         ? (root.block.level <= 2 ? 14px : 8px) : 2px;
 
@@ -414,7 +840,7 @@ component NoteBlock inherits Rectangle {
 
                 // A callout: its frame, its title line, its words unless folded.
                 if root.block.kind == "callout": Rectangle {
-                    horizontal-stretch: 1;
+                    width: root.largeur-mots;
                     border-radius: Tokens.radius-small;
                     background: root.block.tint.transparentize(0.9);
                     min-height: encadre.preferred-height;
@@ -431,11 +857,11 @@ component NoteBlock inherits Rectangle {
                         HorizontalLayout {
                             spacing: 6px;
                             Text {
+                                width: max(40px, root.largeur-mots - 48px);
                                 text: root.block.number + (root.block.title != "" && root.block.number != "" ? " — " : "") + root.block.title;
                                 font-size: 14px;
                                 font-weight: 700;
                                 color: root.block.tint;
-                                horizontal-stretch: 1;
                                 wrap: word-wrap;
                             }
                             Rectangle {
@@ -456,6 +882,9 @@ component NoteBlock inherits Rectangle {
                             }
                         }
                         if !root.block.folded: StyledText {
+                            width: max(40px, root.largeur-mots - 24px);
+                            min-height: self.preferred-height;
+                            vertical-alignment: top;
                             text: root.block.rich;
                             default-color: Tokens.text;
                             default-font-size: 14.5px;
@@ -467,7 +896,7 @@ component NoteBlock inherits Rectangle {
 
                 // A table: its cells, a grid.
                 if root.block.kind == "table": Rectangle {
-                    horizontal-stretch: 1;
+                    width: root.largeur-mots;
                     min-height: grille.preferred-height;
                     border-width: 1px;
                     border-color: Tokens.border;
@@ -475,7 +904,7 @@ component NoteBlock inherits Rectangle {
                     grille := VerticalLayout {
                         for ligne[r] in root.block.rows: HorizontalLayout {
                             for colonne[k] in root.block.columns: Rectangle {
-                                horizontal-stretch: 1;
+                                width: root.largeur-mots / max(1, root.block.columns);
                                 min-height: cellule.preferred-height + 10px;
                                 background: r == 0 ? Tokens.surface-low : transparent;
                                 border-width: 0.5px;
@@ -499,13 +928,13 @@ component NoteBlock inherits Rectangle {
                 // image once it can be.
                 if root.block.kind == "code" || (root.block.kind == "math" && !root.block.has-picture)
                     || root.block.kind == "properties": Rectangle {
-                    horizontal-stretch: 1;
+                    width: root.largeur-mots;
                     min-height: fixe-texte.preferred-height + 14px;
                     background: Tokens.surface-low;
                     border-radius: Tokens.radius-small;
                     fixe-texte := Text {
                         x: 10px;
-                        width: parent.width - 20px;
+                        width: root.largeur-mots - 20px;
                         text: root.block.title;
                         font-family: Tokens.font-mono;
                         font-size: 13px;
@@ -537,7 +966,9 @@ component NoteBlock inherits Rectangle {
                 if root.block.kind == "paragraph" || root.block.kind == "heading"
                     || root.en-liste || root.block.kind == "quote" || root.block.kind == "flashcard"
                     || root.block.kind == "container" || (root.block.kind == "embed" && !root.block.has-picture): StyledText {
-                    horizontal-stretch: 1;
+                    width: root.largeur-mots;
+                    min-height: self.preferred-height;
+                    vertical-alignment: top;
                     text: root.block.rich;
                     default-color: root.block.kind == "quote" || (root.block.kind == "task" && root.block.done)
                         ? Tokens.text-muted : Tokens.text;
@@ -580,6 +1011,8 @@ export component NotesView inherits Rectangle {
     in property <bool> ctrl-held;
     /// Raised to put the cursor in the title, its words selected (a new note).
     in property <int> title-serial;
+    /// A new note's title waits to be selected, the field not made yet.
+    in-out property <bool> title-pending;
 
     callback space-menu(length, length);
     callback row-clicked(string);
@@ -601,6 +1034,8 @@ export component NotesView inherits Rectangle {
     callback fold-toggled(int);
     callback caret(int, length, length, int, int);
     callback title-accepted(string);
+    /// The title being typed: the file follows once typing pauses.
+    callback title-edited(string);
     /// The keyboard handed back to the shortcuts (Escape in the note).
     callback escaped();
     /// A click below the last block: the end of the note.
@@ -653,6 +1088,9 @@ export component NotesView inherits Rectangle {
     // What is carried in the tree, and where the pointer is.
     property <string> carried;
     property <string> carried-name;
+    property <int> carried-kind;
+    /// The folder letting go would move it into ("" for none under the pointer).
+    property <string> carry-target;
     property <string> dropped-key;
     property <length> carry-x;
     property <length> carry-y;
@@ -763,9 +1201,18 @@ export component NotesView inherits Rectangle {
                         menu(k, x, y) => { root.row-menu(k, x, y); }
                         renamed(k, t) => { root.renamed(k, t); }
                         rename-cancelled => { root.rename-cancelled(); }
-                        carry-started(k, n) => {
+                        carry-started(k, n, genre) => {
                             root.carried = k;
                             root.carried-name = n;
+                            root.carried-kind = genre;
+                            root.carry-target = "";
+                        }
+                        target-changed(nom, dessus) => {
+                            if (dessus) {
+                                root.carry-target = nom;
+                            } else if (root.carry-target == nom) {
+                                root.carry-target = "";
+                            }
                         }
                         carry-moved(x, y) => {
                             root.carry-x = x;
@@ -792,6 +1239,14 @@ export component NotesView inherits Rectangle {
                                 && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
                         }
                         property <bool> sous: root.carried != "" && self.inside(root.carry-x, root.carry-y);
+                        changed sous => {
+                            if (self.sous) {
+                                root.carry-target = root.space >= 0 && root.space < root.spaces.length
+                                    ? root.spaces[root.space].name : "the space";
+                            } else if (root.carried != "") {
+                                root.carry-target = "";
+                            }
+                        }
                         property <int> lache: root.drop;
                         changed lache => {
                             if (self.inside(root.drop-x, root.drop-y) && root.dropped-key != "") {
@@ -928,7 +1383,18 @@ export component NotesView inherits Rectangle {
                                 self.text = root.title;
                                 self.focus();
                                 self.select-all();
+                                root.title-pending = false;
                             }
+                            // A new note opened where none was: the title is made with it,
+                            // its words selected so typing replaces them.
+                            init => {
+                                if (root.title-pending) {
+                                    self.focus();
+                                    self.select-all();
+                                    root.title-pending = false;
+                                }
+                            }
+                            edited => { root.title-edited(self.text); }
                             text: root.title;
                             font-family: Tokens.font-display;
                             font-size: 30px;
@@ -1157,48 +1623,81 @@ export component NotesView inherits Rectangle {
 
     // --- Over the cursor ---
 
-    // The completion list.
+    // The completion list: it scrolls to the row the arrows reach; the `/` menu shows
+    // an icon on each row and, beside it, a card of the block highlighted.
+    property <length> ligne-completion: root.completion.length > 0 && root.completion[0].detail != "" ? 40px : 30px;
     if root.completion.length > 0: Rectangle {
         x: min(root.popup-x - root.absolute-position.x, root.width - 300px);
         y: min(root.popup-y - root.absolute-position.y, root.height - self.height - 8px);
         width: 290px;
-        height: min(liste-completion.preferred-height + 8px, 300px);
+        height: min(liste-completion.preferred-height, 312px);
         border-radius: Tokens.radius-medium;
         background: Tokens.surface;
         border-width: 1px;
         border-color: Tokens.border;
         drop-shadow-blur: 14px;
         drop-shadow-offset-y: 4px;
-        drop-shadow-color: #00000030;
+        drop-shadow-color: Tokens.shadow-float;
         clip: true;
-        liste-completion := VerticalLayout {
-            padding: 4px;
-            for c[i] in root.completion: Rectangle {
-                height: c.detail != "" ? 40px : 30px;
-                border-radius: Tokens.radius-small;
-                background: i == root.completion-highlight ? Tokens.accent : choix-completion.has-hover ? Tokens.surface-hover : transparent;
-                VerticalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
-                    alignment: center;
-                    Text {
-                        text: c.title;
-                        font-size: 13px;
-                        color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text;
-                        overflow: elide;
-                    }
-                    if c.detail != "": Text {
-                        text: c.detail;
-                        font-size: 11px;
-                        color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text-muted;
-                        overflow: elide;
-                    }
+        defile := Flickable {
+            width: parent.width;
+            height: parent.height;
+            viewport-height: liste-completion.preferred-height;
+            property <int> rang: root.completion-highlight;
+            changed rang => {
+                let haut = self.rang * root.ligne-completion + 4px;
+                let bas = haut + root.ligne-completion;
+                if (haut + self.viewport-y < 4px) {
+                    self.viewport-y = 4px - haut;
+                } else if (bas + self.viewport-y > self.height - 4px) {
+                    self.viewport-y = self.height - 4px - bas;
                 }
-                choix-completion := TouchArea {
-                    clicked => { root.completion-chosen(i); }
+            }
+            liste-completion := VerticalLayout {
+                width: defile.width;
+                padding: 4px;
+                for c[i] in root.completion: Rectangle {
+                    height: root.ligne-completion;
+                    border-radius: Tokens.radius-small;
+                    background: i == root.completion-highlight ? Tokens.accent : choix-completion.has-hover ? Tokens.surface-hover : transparent;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        if BlockPreview.icon(c.key) != "": Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: BlockPreview.icon(c.key);
+                            size: 15px;
+                            tint: i == root.completion-highlight ? Tokens.accent-text : Tokens.text-secondary;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: c.title;
+                                font-size: 13px;
+                                color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text;
+                                overflow: elide;
+                            }
+                            if c.detail != "": Text {
+                                text: c.detail;
+                                font-size: 11px;
+                                color: i == root.completion-highlight ? Tokens.accent-text : Tokens.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    choix-completion := TouchArea {
+                        clicked => { root.completion-chosen(i); }
+                    }
                 }
             }
         }
+    }
+    // Beside it, on the side with room.
+    if root.completion.length > 0 && BlockPreview.family != "": BlockPreviewCard {
+        property <length> gauche: min(root.popup-x - root.absolute-position.x, root.width - 300px);
+        x: self.gauche + 290px + 8px + self.width <= root.width ? self.gauche + 298px : max(8px, self.gauche - self.width - 8px);
+        y: min(root.popup-y - root.absolute-position.y, root.height - self.height - 8px);
     }
 
     // The bubble over a selection: the marks, a colour, a link.
@@ -1363,19 +1862,49 @@ export component NotesView inherits Rectangle {
         }
     }
 
-    // What is carried, under the pointer.
+    // What is carried, under the pointer: what it is, and where letting go puts it.
     if root.carried != "": Rectangle {
-        x: root.carry-x - root.absolute-position.x + 12px;
-        y: root.carry-y - root.absolute-position.y + 4px;
-        width: etiquette.preferred-width + 20px;
-        height: 26px;
-        border-radius: Tokens.radius-small;
-        background: Tokens.accent;
-        opacity: 0.9;
-        etiquette := Text {
-            text: root.carried-name;
-            font-size: 12.5px;
-            color: Tokens.accent-text;
+        x: root.carry-x - root.absolute-position.x + 14px;
+        y: root.carry-y - root.absolute-position.y + 10px;
+        width: max(nom-porte.preferred-width + 30px, ou-porte.preferred-width) + 22px;
+        height: root.carry-target != "" ? 48px : 30px;
+        border-radius: 8px;
+        background: Tokens.surface-high;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+        drop-shadow-blur: 14px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: Tokens.shadow-float;
+        VerticalLayout {
+            padding-left: 11px;
+            padding-right: 11px;
+            alignment: center;
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 7px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: root.carried-kind == 0 ? Icons.folder
+                        : root.carried-kind == 1 ? Icons.notes
+                        : root.carried-kind == 2 ? Icons.table
+                        : root.carried-kind == 3 ? Icons.image : Icons.paperclip;
+                    size: 14px;
+                    tint: Tokens.text-secondary;
+                }
+                nom-porte := Text {
+                    text: root.carried-name;
+                    font-size: 12.5px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+            }
+            ou-porte := Text {
+                visible: root.carry-target != "";
+                text: root.carry-target == "" ? "" : "Move into “" + root.carry-target + "”";
+                font-size: 11.5px;
+                color: Tokens.text-muted;
+            }
         }
     }
 }
@@ -1476,12 +2005,27 @@ export component NotesRowMenu inherits Rectangle {
                 }
             }
             if root.kind == 0: MenuSeparator {}
+
+            // Opening it.
+            if root.kind == 1: MenuEntry {
+                icon: Icons.sidebar;
+                label: "Open beside";
+                shortcut: "Ctrl+\\";
+                activated => { root.chosen("beside"); }
+            }
             if root.kind == 4: MenuEntry {
                 icon: Icons.table;
                 label: "Open as a spreadsheet";
                 activated => { root.chosen("import-sheet"); }
             }
-            if root.kind == 4: MenuSeparator {}
+            if root.kind != 0: MenuEntry {
+                icon: Icons.open-external;
+                label: "Open with the default app";
+                activated => { root.chosen("open-default"); }
+            }
+            if root.kind != 0: MenuSeparator {}
+
+            // Arranging it.
             MenuEntry {
                 icon: Icons.pencil;
                 label: "Rename";
@@ -1493,10 +2037,33 @@ export component NotesRowMenu inherits Rectangle {
                 label: "Duplicate";
                 activated => { root.chosen("duplicate"); }
             }
+            MenuEntry {
+                icon: Icons.move-to;
+                label: "Move to…";
+                activated => { root.chosen("move-to"); }
+            }
+            MenuEntry {
+                icon: Icons.star;
+                label: root.pinned ? "Unpin" : "Pin to the top";
+                activated => { root.chosen("pin"); }
+            }
+            MenuSeparator {}
+
+            // Taking it elsewhere.
+            copier := MenuEntry {
+                icon: Icons.copy;
+                label: "Copy path";
+                chevron: true;
+                open: root.sous;
+                changed hovered => {
+                    if (self.hovered) { root.ouvrir-sous(); }
+                }
+                activated => { root.ouvrir-sous(); }
+            }
             if root.kind == 1: MenuEntry {
-                icon: Icons.sidebar;
-                label: "Open beside";
-                activated => { root.chosen("beside"); }
+                icon: Icons.history;
+                label: "Version history…";
+                activated => { root.chosen("history"); }
             }
             if root.kind == 1: MenuEntry {
                 icon: Icons.download;
@@ -1507,16 +2074,6 @@ export component NotesRowMenu inherits Rectangle {
                 icon: Icons.notes;
                 label: "Print or save as PDF…";
                 activated => { root.chosen("print"); }
-            }
-            if root.kind == 1: MenuEntry {
-                icon: Icons.history;
-                label: "History…";
-                activated => { root.chosen("history"); }
-            }
-            MenuEntry {
-                icon: Icons.star;
-                label: root.pinned ? "Unpin" : "Pin to the top";
-                activated => { root.chosen("pin"); }
             }
             MenuEntry {
                 icon: Icons.folder;
@@ -1529,6 +2086,42 @@ export component NotesRowMenu inherits Rectangle {
                 label: "Move to the Recycle Bin";
                 danger: true;
                 activated => { root.chosen("delete"); }
+            }
+        }
+    }
+
+    // Copy path, beside its entry: as a link for a note, from the space, from the disk.
+    property <bool> sous;
+    property <length> sous-x;
+    property <length> sous-y;
+    function ouvrir-sous() {
+        root.sous-x = copier.absolute-position.x - root.absolute-position.x + copier.width + 8px;
+        root.sous-y = copier.absolute-position.y - root.absolute-position.y - 4px;
+        root.sous = true;
+    }
+    if root.sous: MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.sous-x;
+        menu-y: root.sous-y;
+        menu-width: 230px;
+        menu-height: sous-entrees.preferred-height + 8px;
+        sous-entrees := VerticalLayout {
+            padding: 4px;
+            if root.kind != 0: MenuEntry {
+                icon: Icons.link;
+                label: "As a link for a note";
+                activated => { root.chosen("copy-link"); }
+            }
+            MenuEntry {
+                icon: Icons.notes;
+                label: "From the space's folder";
+                activated => { root.chosen("copy-rel"); }
+            }
+            MenuEntry {
+                icon: Icons.folder;
+                label: "From the root of the disk";
+                activated => { root.chosen("copy-full"); }
             }
         }
     }
@@ -1732,6 +2325,8 @@ export component NotesQuickOpen inherits Rectangle {
     in property <int> highlighted;
     /// Searching the notes' words (tag:, path:, is:task) rather than their names.
     in property <bool> search;
+    /// Picking the folder something moves into ("" when not moving).
+    in property <string> moving;
     callback edited(string);
     callback moved(int);
     callback chosen(string);
@@ -1740,7 +2335,8 @@ export component NotesQuickOpen inherits Rectangle {
     Modal {
         width: 100%;
         height: 100%;
-        title: root.search ? "Search the notes" : "Open a note";
+        title: root.moving != "" ? "Move “" + root.moving + "” to…"
+            : root.search ? "Search the notes" : "Open a note";
         card-height: 420px;
         card-width: 520px;
         dismissed => { root.dismissed(); }
@@ -1756,14 +2352,15 @@ export component NotesQuickOpen inherits Rectangle {
                 champ := TextField {
                     width: 100%;
                     icon: Icons.search;
-                    placeholder-text: root.search ? "Words, tag:maths, path:Analyse, is:task" : "Name of a note";
+                    placeholder-text: root.moving != "" ? "Name of a folder"
+                        : root.search ? "Words, tag:maths, path:Analyse, is:task" : "Name of a note";
                     text <=> root.query;
                     init => { self.focus(); }
                     edited(t) => { root.edited(t); }
                     accepted => {
                         if (root.highlighted >= 0 && root.highlighted < root.results.length) {
                             root.chosen(root.results[root.highlighted].key);
-                        } else if (root.query != "" && !root.search) {
+                        } else if (root.query != "" && !root.search && root.moving == "") {
                             root.chosen("new:" + root.query);
                         }
                     }
@@ -1779,7 +2376,7 @@ export component NotesQuickOpen inherits Rectangle {
                     spacing: 10px;
                     Icon {
                         y: (parent.height - self.height) / 2;
-                        data: Icons.notes;
+                        data: root.moving != "" ? Icons.folder : Icons.notes;
                         size: 15px;
                         tint: i == root.highlighted ? Tokens.accent-text : Tokens.text-muted;
                     }
@@ -1804,7 +2401,8 @@ export component NotesQuickOpen inherits Rectangle {
                 }
             }
             if root.results.length == 0 && root.query != "": Text {
-                text: root.search ? "Nothing found." : "No note by that name. Enter makes it.";
+                text: root.moving != "" ? "No folder by that name."
+                    : root.search ? "Nothing found." : "No note by that name. Enter makes it.";
                 font-size: 12.5px;
                 color: Tokens.text-muted;
             }

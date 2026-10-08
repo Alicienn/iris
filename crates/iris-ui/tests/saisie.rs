@@ -486,6 +486,28 @@ fn a_note_s_line_takes_every_key_and_enter_goes_to_rust() {
     );
 }
 
+fn a_new_note_s_title_is_selected_and_typing_names_it() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    let titres = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let titres = Rc::clone(&titres);
+        f.on_note_title_edited(move |t| titres.borrow_mut().push(t.to_string()));
+    }
+    // A new note where none was open: its title field is made with the note.
+    f.set_note_title("Untitled".into());
+    f.set_note_title_pending(true);
+    f.set_note_open(true);
+    taper(&f, "Cours");
+    assert_eq!(
+        titres.borrow().last().map(String::as_str),
+        Some("Cours"),
+        "typing replaces the selected title: {:?}",
+        titres.borrow()
+    );
+    assert!(!f.get_note_title_pending(), "the title was taken");
+}
+
 fn a_spreadsheet_takes_the_keys_and_its_menu_owns_them_until_escape() {
     let f = fenetre();
     ctrl(&f, "4");
@@ -2547,6 +2569,10 @@ fn main() {
         (
             "a_note_s_line_takes_every_key_and_enter_goes_to_rust",
             a_note_s_line_takes_every_key_and_enter_goes_to_rust,
+        ),
+        (
+            "a_new_note_s_title_is_selected_and_typing_names_it",
+            a_new_note_s_title_is_selected_and_typing_names_it,
         ),
         (
             "a_spreadsheet_takes_the_keys_and_its_menu_owns_them_until_escape",

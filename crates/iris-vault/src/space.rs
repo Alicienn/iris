@@ -456,6 +456,36 @@ impl Space {
         sortie
     }
 
+    /// Every folder of the space, by path, sorted.
+    pub fn folders(&self) -> Vec<String> {
+        let mut sortie = Vec::new();
+        let mut pile = vec![String::new()];
+        while let Some(rel) = pile.pop() {
+            let Ok(dossier) = self.path(&rel) else {
+                continue;
+            };
+            let Ok(lecture) = std::fs::read_dir(dossier) else {
+                continue;
+            };
+            for e in lecture.filter_map(|e| e.ok()) {
+                let p = e.path();
+                if cache(&p) || !p.is_dir() {
+                    continue;
+                }
+                let n = nom(&p);
+                let chemin = if rel.is_empty() {
+                    n
+                } else {
+                    format!("{rel}/{n}")
+                };
+                pile.push(chemin.clone());
+                sortie.push(chemin);
+            }
+        }
+        sortie.sort_by_key(|d| cle_de_tri(d));
+        sortie
+    }
+
     /// A fingerprint of everything in the space (names, sizes, times): it changes when
     /// anything does, here or elsewhere, and costs one walk of the folders.
     pub fn fingerprint(&self) -> u64 {
@@ -879,6 +909,28 @@ mod tests {
             std::fs::remove_file(path).or_else(|_| std::fs::remove_dir_all(path))?;
             Ok(())
         }
+    }
+
+    #[test]
+    fn every_folder_listed_hidden_ones_left_out() {
+        let (_d, s) = espace();
+        s.create_folder("", "Analyse").unwrap();
+        s.create_folder("Analyse", "Chapitre 2").unwrap();
+        s.create_folder("Analyse", "Chapitre 10").unwrap();
+        let dossiers = s.folders();
+        assert!(dossiers.contains(&"Analyse/Chapitre 2".to_string()));
+        assert!(dossiers
+            .iter()
+            .all(|d| !d.starts_with('.') && !d.contains("/.")));
+        let deux = dossiers
+            .iter()
+            .position(|d| d == "Analyse/Chapitre 2")
+            .unwrap();
+        let dix = dossiers
+            .iter()
+            .position(|d| d == "Analyse/Chapitre 10")
+            .unwrap();
+        assert!(deux < dix, "{dossiers:?}");
     }
 
     #[test]

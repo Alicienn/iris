@@ -10,13 +10,21 @@ export component MenuEntry inherits Rectangle {
     in property <string> icon;
     in property <string> label;
     in property <string> shortcut;
+    /// A destructive action: red, always, so it is seen before it is pointed at.
     in property <bool> danger;
+    /// It opens a menu of its own, on the right.
+    in property <bool> chevron;
+    /// Its submenu shows: drawn as pointed at.
+    in property <bool> open;
+    out property <bool> hovered: touch.has-hover;
 
     callback activated();
 
     height: 30px;
     border-radius: Tokens.radius-small;
-    background: touch.has-hover ? Tokens.surface-hover : transparent;
+    background: root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
+        : touch.has-hover || root.open ? Tokens.surface-active : transparent;
+    animate background { duration: Tokens.instant; }
 
     accessible-role: button;
     accessible-label: root.label;
@@ -26,18 +34,18 @@ export component MenuEntry inherits Rectangle {
     HorizontalLayout {
         padding-left: 9px;
         padding-right: 9px;
-        spacing: 9px;
+        spacing: 10px;
 
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
             size: 15px;
-            tint: root.danger && touch.has-hover ? Tokens.error : Tokens.text-muted;
+            tint: root.danger ? Tokens.error : Tokens.text-secondary;
         }
         Text {
             text: root.label;
-            font-size: 13px;
-            color: root.danger && touch.has-hover ? Tokens.error : touch.has-hover ? Tokens.text : Tokens.text-secondary;
+            font-size: 13.5px;
+            color: root.danger ? Tokens.error : Tokens.text;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -45,8 +53,15 @@ export component MenuEntry inherits Rectangle {
         if root.shortcut != "": Text {
             text: root.shortcut;
             font-size: 11.5px;
-            color: Tokens.text-muted;
+            color: Tokens.text-faint;
             vertical-alignment: center;
+        }
+        if root.chevron: Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-right;
+            size: 11px;
+            weight: 2;
+            tint: Tokens.text-muted;
         }
     }
 
