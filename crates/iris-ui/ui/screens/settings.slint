@@ -203,6 +203,8 @@ export component SettingsPanel inherits Rectangle {
     in property <string> notes-folder;
     callback notes-folder-open();
     callback notes-folder-change();
+    in-out property <bool> notes-math-preview;
+    callback notes-math-preview-toggled(bool);
     callback restore-choose();
     callback restore-confirmed();
     callback restore-cancelled();
@@ -632,6 +634,14 @@ export component SettingsPanel inherits Rectangle {
                             size: ButtonSize.sm;
                             clicked => { root.notes-folder-change(); }
                         }
+                    }
+                    ToggleRow {
+                        icon: Icons.sigma;
+                        tint: Tokens.purple;
+                        label: "Show formulas as you type them";
+                        hint: "A formula written in LaTeX is drawn under the cursor while you write it.";
+                        value <=> root.notes-math-preview;
+                        toggled(on) => { root.notes-math-preview-toggled(on); }
                     }
                 }
 

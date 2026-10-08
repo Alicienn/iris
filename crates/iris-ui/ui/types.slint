@@ -615,6 +615,14 @@ export struct NoteBlockData {
     cells: [string],
     rows: int,
     columns: int,
+    // A spreadsheet embedded: its columns' widths (pixels, from the sheet), and its long
+    // words cut to one line (`|clip`) rather than wrapped.
+    sheet: bool,
+    widths: [float],
+    widths-total: float,
+    // Where each column ends, from the table's left (sums of `widths`).
+    edges: [float],
+    clip: bool,
 }
 
 // A note found by Quick open or search.

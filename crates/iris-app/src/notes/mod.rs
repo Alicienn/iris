@@ -105,6 +105,13 @@ struct Etat {
     historique: Option<(String, Vec<i64>)>,
     /// What *Move to…* moves, while its folder is picked.
     deplacement: Option<String>,
+    /// The notes open in tabs (by path), and the tab shown.
+    onglets: Vec<String>,
+    onglet: usize,
+    /// The next note opened goes in a tab of its own rather than the one shown.
+    nouvel_onglet: bool,
+    /// The note shown as plain text, in one field, rather than as blocks.
+    source: bool,
 }
 
 /// A revision under way: the cards left, the one shown, and how it went.
@@ -139,15 +146,17 @@ struct Completion {
 
 /// A note's blocks: never none, so an empty note has a line to type on.
 fn blocs_de(text: &str) -> Vec<Block> {
-    let b = block::parse(text);
-    if b.is_empty() {
-        vec![Block {
+    let mut b = block::parse(text);
+    // A note ending with a line break has an empty last line, where the cursor goes
+    // after Enter at the end: a block of nothing (joining the blocks still gives the
+    // text back).
+    if b.is_empty() || text.ends_with('\n') {
+        b.push(Block {
             kind: BlockKind::Blank,
             text: String::new(),
-        }]
-    } else {
-        b
+        });
     }
+    b
 }
 
 /// The folder a path is in ("" for the top).
@@ -298,6 +307,12 @@ fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
         e.signatures.clear();
         return;
     };
+    // As plain text: one field holds it, no block is drawn.
+    if e.source {
+        e.model.set_vec(Vec::new());
+        e.signatures.clear();
+        return;
+    }
     let numeros = render::numbering(&note.blocks);
     let sigs: Vec<u64> = note
         .blocks
@@ -415,9 +430,32 @@ fn ecrire(f: &AppWindow, e: &mut Etat) {
     }
 }
 
+/// The note as plain text in one field (`tout`: everything selected), or back to its
+/// blocks.
+fn mode_texte(f: &AppWindow, e: &mut Etat, texte_brut: bool, tout: bool) {
+    if texte_brut {
+        let Some(texte) = e.note.as_ref().map(|n| n.text.clone()) else {
+            return;
+        };
+        fermer_popups(f, e);
+        sans_focus(f, e);
+        e.source = true;
+        f.set_note_source_text(texte.into());
+        f.set_note_source_select_all(tout);
+        f.set_note_source_serial(f.get_note_source_serial() + 1);
+        f.set_note_source_mode(true);
+        rendre(f, e, true);
+    } else if e.source {
+        e.source = false;
+        f.set_note_source_mode(false);
+        rendre(f, e, true);
+    }
+}
+
 /// Opens a note of the space, writing the one open before.
 fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
     ecrire(f, e);
+    mode_texte(f, e, false, false);
     if EntryKind::of(rel) == EntryKind::Sheet {
         ouvrir_tableur(f, e, rel);
         return;
@@ -454,6 +492,7 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
             crate::nav::note(f, "note", rel);
             fermer_popups(f, e);
             maj_cote(f, e);
+            retenir_onglet(f, e, rel);
         }
         Err(err) => f.set_status(format!("Could not open the note: {err}").into()),
     }
@@ -480,8 +519,15 @@ fn deplacer(f: &AppWindow, e: &mut Etat, k: &str, dossier: &str) {
 }
 
 /// Everything open written and closed: the note, the spreadsheet, the note beside.
+/// The tabs are let go too; the space shown next says which are its own
+/// (`charger_onglets`).
 fn fermer_tout(f: &AppWindow, e: &mut Etat) {
     ecrire(f, e);
+    e.onglets.clear();
+    e.onglet = 0;
+    f.set_notes_tabs(ModelRc::default());
+    e.source = false;
+    f.set_note_source_mode(false);
     if e.sheet.is_some() {
         sheet::fermer(f, e);
     }
@@ -527,6 +573,113 @@ fn ouvrir_tableur(f: &AppWindow, e: &mut Etat, rel: &str) {
         crate::settings::update(|s| s.notes_last = format!("{dir}|{rel}"));
     }
     crate::nav::note(f, "note", rel);
+    retenir_onglet(f, e, rel);
+}
+
+// --- Tabs ------------------------------------------------------------------------------
+
+/// What was opened takes its tab: the one shown (as Obsidian does), its own when it
+/// is open in one already, or a new one when asked.
+fn retenir_onglet(f: &AppWindow, e: &mut Etat, rel: &str) {
+    if let Some(i) = e.onglets.iter().position(|r| r == rel) {
+        e.onglet = i;
+    } else if e.nouvel_onglet || e.onglets.is_empty() {
+        e.onglets.push(rel.to_string());
+        e.onglet = e.onglets.len() - 1;
+    } else {
+        let i = e.onglet.min(e.onglets.len() - 1);
+        e.onglets[i] = rel.to_string();
+        e.onglet = i;
+    }
+    e.nouvel_onglet = false;
+    montrer_onglets(f, e);
+}
+
+fn montrer_onglets(f: &AppWindow, e: &Etat) {
+    let lignes: Vec<NoteFoundData> = e
+        .onglets
+        .iter()
+        .map(|r| NoteFoundData {
+            key: r.as_str().into(),
+            title: stem(r).into(),
+            detail: SharedString::default(),
+        })
+        .collect();
+    f.set_notes_tabs(ModelRc::new(VecModel::from(lignes)));
+    f.set_notes_tab_active(e.onglet as i32);
+    // Kept for the next launch, with the space they belong to (written when changed).
+    if let Some(dir) = e.espace().map(|s| s.dir().display().to_string()) {
+        let prefixe = format!("{dir}|");
+        let onglets: Vec<String> = e.onglets.iter().map(|r| format!("{prefixe}{r}")).collect();
+        let gardes: Vec<String> = crate::settings::current()
+            .notes_tabs
+            .into_iter()
+            .filter(|t| t.starts_with(&prefixe))
+            .collect();
+        if gardes != onglets {
+            crate::settings::update(|s| {
+                s.notes_tabs.retain(|t| !t.starts_with(&prefixe));
+                s.notes_tabs.extend(onglets);
+            });
+        }
+    }
+}
+
+/// The tabs of the space shown, as they were left; the last note open shown.
+fn charger_onglets(e: &mut Etat) {
+    let Some(espace) = e.espace() else {
+        e.onglets.clear();
+        return;
+    };
+    let prefixe = format!("{}|", espace.dir().display());
+    let reglages = crate::settings::current();
+    e.onglets = reglages
+        .notes_tabs
+        .iter()
+        .filter_map(|t| t.strip_prefix(&prefixe))
+        .filter(|r| espace.modified(r).is_some())
+        .map(str::to_string)
+        .collect();
+    e.onglet = reglages
+        .notes_last
+        .strip_prefix(&prefixe)
+        .and_then(|r| e.onglets.iter().position(|o| o == r))
+        .unwrap_or(0);
+}
+
+/// Tab `i` closed: the one beside it shown, or nothing when it was the last.
+fn fermer_onglet(f: &AppWindow, e: &mut Etat, i: usize) {
+    if i >= e.onglets.len() {
+        return;
+    }
+    let affiche = i == e.onglet;
+    e.onglets.remove(i);
+    if e.onglets.is_empty() {
+        fermer_tout(f, e);
+        e.onglet = 0;
+        montrer_note(f, e);
+        montrer_onglets(f, e);
+        return;
+    }
+    if affiche {
+        e.onglet = i.min(e.onglets.len() - 1);
+        let rel = e.onglets[e.onglet].clone();
+        ouvrir(f, e, &rel);
+    } else {
+        if i < e.onglet {
+            e.onglet -= 1;
+        }
+        montrer_onglets(f, e);
+    }
+}
+
+/// Tab `i` shown.
+fn choisir_onglet(f: &AppWindow, e: &mut Etat, i: usize) {
+    if let Some(rel) = e.onglets.get(i).cloned() {
+        e.onglet = i;
+        ouvrir(f, e, &rel);
+        montrer_arbre(f, e);
+    }
 }
 
 /// A new note in the current folder, opened with its title to type.
@@ -897,6 +1050,40 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             mode_focus(f, e);
             true
         }
+        // Tabs, as in a browser and in Obsidian.
+        // Ctrl+A selects the line's words (the field does it); again, the whole note,
+        // as plain text in one field.
+        "ctrl+a" | "ctrl+A" => {
+            if anchor.min(cursor) == 0 && anchor.max(cursor) >= texte.len() && n > 1 {
+                mode_texte(f, e, true, true);
+                true
+            } else {
+                false
+            }
+        }
+        "ctrl+t" | "ctrl+T" => {
+            e.nouvel_onglet = true;
+            nouvelle_note(f, e, "Untitled", "");
+            true
+        }
+        "ctrl+w" | "ctrl+W" => {
+            let i = e.onglet;
+            fermer_onglet(f, e, i);
+            montrer_arbre(f, e);
+            true
+        }
+        "ctrl+tab" | "ctrl+shift+tab" => {
+            let n = e.onglets.len();
+            if n > 1 {
+                let i = if nom == "ctrl+tab" {
+                    (e.onglet + 1) % n
+                } else {
+                    (e.onglet + n - 1) % n
+                };
+                choisir_onglet(f, e, i);
+            }
+            true
+        }
         "ctrl+g" | "ctrl+G" => {
             graphe(f, e);
             true
@@ -1182,6 +1369,14 @@ fn carte(f: &AppWindow, e: &mut Etat, texte: &str, cursor: usize, selection: boo
         }
         return;
     }
+    // A formula being typed: drawn as it is written, unless switched off in Settings.
+    if crate::settings::current().notes_math_preview {
+        let kind = contenu(e, e.caret.block).map(|(k, _)| k);
+        if let Some(source) = kind.and_then(|k| formule_en_cours(&k, texte, cursor)) {
+            carte_formule(f, &source);
+            return;
+        }
+    }
     let noeuds = inline::parse_inline(texte);
     let marques = inline::marks_at(&noeuds, cursor);
     let Some((marque, plage)) = marques.last().cloned() else {
@@ -1241,31 +1436,69 @@ fn carte(f: &AppWindow, e: &mut Etat, texte: &str, cursor: usize, selection: boo
             f.set_note_card_title("Footnote".into());
             f.set_note_card_text(n.into());
         }
-        Mark::Math => {
-            let source = &texte[plage.start + 1..plage.end - 1];
-            f.set_note_card("math".into());
-            f.set_note_card_title(SharedString::default());
-            let encre = f.global::<iris_ui::Tokens>().get_text();
-            // At one pixel a point: the card shows it at its own size.
-            match render::formula_picture(source, encre, 1.0) {
-                Some((image, _)) => {
-                    f.set_note_card_picture(image);
-                    f.set_note_card_text(SharedString::default());
-                }
-                None => {
-                    f.set_note_card_picture(slint::Image::default());
-                    f.set_note_card_text(
-                        format!(
-                            "Not read as LaTeX: {}",
-                            iris_notes::math::to_unicode(source)
-                        )
-                        .into(),
-                    );
-                }
-            }
-        }
+        Mark::Math => carte_formule(f, &texte[plage.start + 1..plage.end - 1]),
         _ => vide(f),
     }
+}
+
+/// The card showing a formula drawn, or why it cannot be.
+fn carte_formule(f: &AppWindow, source: &str) {
+    f.set_note_card("math".into());
+    f.set_note_card_title(SharedString::default());
+    let encre = f.global::<iris_ui::Tokens>().get_text();
+    // At one pixel a point: the card shows it at its own size.
+    match render::formula_picture(source, encre, 1.0) {
+        Some((image, _)) => {
+            f.set_note_card_picture(image);
+            f.set_note_card_text(SharedString::default());
+        }
+        None => {
+            f.set_note_card_picture(slint::Image::default());
+            f.set_note_card_text(
+                format!(
+                    "Not read as LaTeX yet: {}",
+                    iris_notes::math::to_unicode(source)
+                )
+                .into(),
+            );
+        }
+    }
+}
+
+/// The formula being typed at the cursor, for its live preview: a `$$` block's, or
+/// `$…` opened before the cursor on its line and not closed yet.
+fn formule_en_cours(kind: &BlockKind, texte: &str, cursor: usize) -> Option<String> {
+    if *kind == BlockKind::Math {
+        let corps: Vec<&str> = texte
+            .lines()
+            .filter(|l| l.trim() != "$$")
+            .map(|l| l.trim().trim_start_matches("$$").trim_end_matches("$$"))
+            .collect();
+        let f = corps.join("\n");
+        return (!f.trim().is_empty()).then_some(f);
+    }
+    let c = cursor.min(texte.len());
+    if !texte.is_char_boundary(c) {
+        return None;
+    }
+    let debut_ligne = texte[..c].rfind('\n').map_or(0, |k| k + 1);
+    let ligne = &texte[debut_ligne..c];
+    // The `$` not escaped and not doubled, before the cursor: an odd count opens one.
+    let mut ouvert: Option<usize> = None;
+    let b = ligne.as_bytes();
+    let mut k = 0;
+    while k < b.len() {
+        match b[k] {
+            b'\\' => k += 1,
+            b'$' if b.get(k + 1) == Some(&b'$') => k += 1,
+            b'$' => ouvert = if ouvert.is_some() { None } else { Some(k) },
+            _ => {}
+        }
+        k += 1;
+    }
+    let debut = ouvert?;
+    let f = &ligne[debut + 1..];
+    (f.contains('\\') || f.contains('^') || f.contains('_')).then(|| f.to_string())
 }
 
 /// The candidate `k` of the completion list written in place of what was typed.
@@ -2148,6 +2381,9 @@ fn suivre_deplacement(e: &mut Etat, avant: &str, apres: &str) {
     if let Some(s) = &mut e.sheet {
         suivre(&mut s.rel);
     }
+    for o in &mut e.onglets {
+        suivre(o);
+    }
     if let Some(b) = &mut e.beside {
         suivre(b);
     }
@@ -2390,6 +2626,10 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         services: services.clone(),
         historique: None,
         deplacement: None,
+        onglets: Vec::new(),
+        onglet: 0,
+        nouvel_onglet: false,
+        source: false,
     }));
     sheet::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
@@ -2406,12 +2646,15 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 .position(|s| s.dir() == std::path::Path::new(dir))
             {
                 e.space = i;
+                // The tabs as they were left, the last note shown among them.
+                charger_onglets(&mut e);
                 if e.spaces[i].modified(rel).is_some() {
                     let rel = rel.to_string();
                     ouvrir(f, &mut e, &rel);
                 }
             }
         }
+        montrer_onglets(f, &e);
         montrer_espaces(f, &e);
         montrer_arbre(f, &mut e);
     }
@@ -2466,10 +2709,77 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
             e.selected = None;
             e.fingerprint = 0;
             sans_focus(&f, e);
-            montrer_note(&f, e);
+            // Its own tabs, as they were left there; the one shown opened.
+            charger_onglets(e);
+            match e.onglets.get(e.onglet).cloned() {
+                Some(rel) => ouvrir(&f, e, &rel),
+                None => montrer_note(&f, e),
+            }
+            montrer_onglets(&f, e);
             montrer_espaces(&f, e);
             montrer_arbre(&f, e);
         }
+    });
+    // An embedded spreadsheet: a column's width, kept in the sheet; long words cut or
+    // wrapped, kept in the embed (`|clip`).
+    geste!(on_note_col_resized, |f, e, i, col, largeur| {
+        let Some((BlockKind::Embed { target }, _)) = contenu(e, i.max(0) as usize) else {
+            return;
+        };
+        let Some(dir) = e.espace().map(|s| s.dir().to_path_buf()) else {
+            return;
+        };
+        if render::regler_largeur(&target, &dir, col.max(0) as usize, largeur).is_some() {
+            rendre(&f, e, true);
+        }
+    });
+    geste!(on_note_sheet_option, |f, e, i, option| {
+        let i = i.max(0) as usize;
+        let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
+            return;
+        };
+        let nouveau = render::basculer_option(&target, &option);
+        let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
+        let Some(note) = &e.note else { return };
+        let ed = edit::replace_block(&note.blocks, i, &ligne, 0);
+        retenir(e, true);
+        appliquer(&f, e, ed, false, None);
+        sans_focus(&f, e);
+        rendre(&f, e, false);
+    });
+
+    // The note as plain text.
+    geste!(on_note_source_toggled, |f, e| {
+        let ouvrir = !e.source;
+        mode_texte(&f, e, ouvrir, false);
+    });
+    geste!(on_note_source_closed, |f, e| {
+        mode_texte(&f, e, false, false);
+    });
+    geste!(on_note_source_edited, |f, e, texte| {
+        if e.note.as_ref().is_some_and(|n| n.text != texte.as_str()) {
+            retenir(e, false);
+            if let Some(note) = &mut e.note {
+                note.text = texte.to_string();
+                note.blocks = blocs_de(&note.text);
+                note.dirty = true;
+            }
+            f.set_note_status("Editing".into());
+            planifier_ecriture(&f);
+        }
+    });
+
+    // Tabs: one shown, one closed, a new note in a new one.
+    geste!(on_notes_tab_chosen, |f, e, i| {
+        choisir_onglet(&f, e, i.max(0) as usize);
+    });
+    geste!(on_notes_tab_closed, |f, e, i| {
+        fermer_onglet(&f, e, i.max(0) as usize);
+        montrer_arbre(&f, e);
+    });
+    geste!(on_notes_tab_new, |f, e| {
+        e.nouvel_onglet = true;
+        nouvelle_note(&f, e, "Untitled", "");
     });
     geste!(on_notes_space_new, |f, e, nom| {
         match e.vault.create_space(&nom) {
@@ -2673,6 +2983,24 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 f.invoke_notes_quick_edited(SharedString::default());
             }
             "revise" => reviser_dossier(&f, e, &cle),
+            "new-tab" => {
+                e.nouvel_onglet = true;
+                ouvrir(&f, e, &cle);
+                montrer_arbre(&f, e);
+            }
+            // The tree's empty room: what is made goes at the top (`.` is no row, so
+            // the current folder is the space's own).
+            "area" => {
+                e.selected = Some(".".into());
+                montrer_arbre(&f, e);
+            }
+            "reveal-space" => {
+                if let Some(s) = e.espace() {
+                    if let Err(err) = crate::platform::open_path(s.dir()) {
+                        f.set_status(format!("Could not open the folder: {err}").into());
+                    }
+                }
+            }
             a if a.starts_with("colour:") => {
                 let choisie = a
                     .strip_prefix("colour:")
@@ -2735,6 +3063,11 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                     e.beside = None;
                     montrer_a_cote(&f, e);
                 }
+                if e.onglets.iter().any(|r| dedans(r)) {
+                    e.onglets.retain(|r| !dedans(r));
+                    e.onglet = e.onglet.min(e.onglets.len().saturating_sub(1));
+                    montrer_onglets(&f, e);
+                }
                 match e.espace().map(|s| s.delete(&cle, &bin::SystemBin)) {
                     Some(Ok(())) => {
                         f.set_toast(format!("“{}” is in the Recycle Bin.", stem(&cle)).into())
@@ -2786,6 +3119,20 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
             .map(|h| crate::calendar::couleur(h))
             .collect::<Vec<_>>(),
     )));
+
+    // Settings › Notes: formulas drawn as they are typed.
+    f.set_notes_math_preview(crate::settings::current().notes_math_preview);
+    {
+        let faible = f.as_weak();
+        f.on_notes_math_preview_toggled(move |on| {
+            crate::settings::update(|s| s.notes_math_preview = on);
+            if !on {
+                if let Some(f) = faible.upgrade() {
+                    f.set_note_card(SharedString::default());
+                }
+            }
+        });
+    }
 
     // Settings › Notes: where the spaces are.
     f.set_notes_folder(etat.borrow().vault.root().display().to_string().into());
@@ -3364,6 +3711,34 @@ mod tests {
         let b = blocs_de("");
         assert_eq!(b.len(), 1);
         assert_eq!(block::join(&b), "");
+        // After a last line break, an empty line the cursor can go to.
+        let b = blocs_de("Bonjour\n");
+        assert_eq!(b.len(), 2);
+        assert_eq!(block::join(&b), "Bonjour\n");
+        let ed = edit::replace_block(&b, 1, "suite", 5);
+        assert_eq!(ed.text, "Bonjour\nsuite");
+    }
+
+    #[test]
+    fn the_formula_being_typed_is_found() {
+        let p = BlockKind::Paragraph;
+        let t = r"Soit $\frac{a}{b";
+        assert_eq!(
+            formule_en_cours(&p, t, t.len()).as_deref(),
+            Some(r"\frac{a}{b")
+        );
+        // Closed already: the card of the mark shows it.
+        let t = r"Soit $\frac{a}{b}$ et";
+        assert_eq!(formule_en_cours(&p, t, t.len()), None);
+        // Money is not a formula.
+        let t = "It costs $5";
+        assert_eq!(formule_en_cours(&p, t, t.len()), None);
+        let m = BlockKind::Math;
+        assert_eq!(
+            formule_en_cours(&m, "$$\n\\int_0^1 x\n$$", 3).as_deref(),
+            Some(r"\int_0^1 x")
+        );
+        assert_eq!(formule_en_cours(&m, "$$\n\n$$", 3), None);
     }
 
     #[test]

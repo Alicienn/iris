@@ -781,6 +781,19 @@ when the view moves past them. Excel files are read with `calamine` and written 
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
 
+**Tabs, plain text, live formulas** (4.19.0). The tabs are paths (`Etat::onglets`):
+opening a note replaces the one shown unless a new tab was asked
+(`nouvel_onglet`), and they are kept in the settings (`notes_tabs`, by space).
+*Edit as plain text* empties the blocks and gives the whole note to one `TextInput`:
+selecting across lines, `Ctrl`+`A`, copying and pasting are the field's own; its
+edits replace the note's text and are written as usual. The live formula
+(`formule_en_cours`) is a `$$` block's, or the `$…` opened and not closed before the
+cursor, drawn in the card under it. A note ending with a line break has an empty
+last block (`blocs_de`), so Enter at the very end has a line to put the cursor on;
+before, it went back to the end of the line above. An embedded spreadsheet's column
+widths are its sheet's (`col_widths`), changed from the note into the file; `|clip`
+in the embed cuts its long words to one line.
+
 **Marks converted as they are typed** (4.18.0). A one-line heading, list item,
 checkbox or quote is given to the window as its words (`source`) and the mark that
 made it (`prefix`, `render::prefixe`): the field edits the words, the mark is drawn as

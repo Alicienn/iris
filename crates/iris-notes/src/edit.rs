@@ -530,7 +530,13 @@ pub fn split_block(blocks: &[Block], i: usize, stays: &str, goes: &str, cursor: 
     }
     let global = block::start_of(blocks, i) + stays.len() + le.len() + cursor;
     let nouveaux = block::parse(&t);
-    let (bloc, local) = block::locate(&nouveaux, global);
+    // Enter at the very end: the line made is empty and after every block; it is the
+    // one past the last (the editor shows an empty line there).
+    let (bloc, local) = if global >= t.len() && t.ends_with('\n') {
+        (nouveaux.len(), 0)
+    } else {
+        block::locate(&nouveaux, global)
+    };
     NoteEdit {
         text: t,
         block: bloc,
@@ -792,6 +798,11 @@ mod tests {
         let e = split_block(&blocs, 1, "b", "c", 0);
         assert_eq!(e.text, "a\nb\nc\nd");
         assert_eq!((e.block, e.cursor), (2, 0));
+
+        // Enter at the end of the last line: the cursor on the empty line after it.
+        let e = split_block(&block::parse("a"), 0, "a", "", 0);
+        assert_eq!(e.text, "a\n");
+        assert_eq!((e.block, e.cursor), (1, 0));
 
         let e = join_with_previous(&block::parse("a\nb\n"), 1).unwrap();
         assert_eq!(e.text, "ab\n");

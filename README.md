@@ -422,7 +422,10 @@ italic, links, headings, lists, quotes, code and tables.
 
 **Maths.** Formulas are written in LaTeX and drawn as in a book. In maths, `Tab`
 expands a few letters: `//` a fraction, `sq` a root, `sum`, `int`, `lim`, `vec`,
-`mat2`, `mat3`, `cases`; `Tab` again goes to the next blank.
+`mat2`, `mat3`, `cases`; `Tab` again goes to the next blank. While a formula is typed
+(`$…` or a `$$` block), it is drawn under the cursor as it is written; *Settings ›
+Notes* switches that off. Spaces just inside the dollar signs are fine when the formula
+holds a command (`$ \forall x \in E $`).
 
 **Spreadsheets.** A `.sheet` file is a workbook of sheets: type in a cell, `=` for a
 formula (`SUM`, `AVERAGE`, `IF`, `VLOOKUP`, `SUMIF`, `ROUND`, `TODAY` and some forty
@@ -434,7 +437,9 @@ right (`Ctrl`+`R`), and exports to Excel or CSV. Copy and paste go to and from E
 and Google Sheets. *Freeze* keeps the top rows in view; the status line adds up the
 selection. Right-click a `.xlsx` or `.csv` file in the tree for *Open as a
 spreadsheet*. In a note, `![[Budget.sheet]]` (or `![[Budget.sheet#A1:D10]]`) shows its
-values as a table; a click opens it.
+values as a table; a click opens it. Drag a column's edge to widen it (the sheet keeps
+the width), and the cog at its top right cuts long words to one line rather than
+wrapping them (`![[Budget.sheet|clip]]`).
 
 **Courses.** An event's panel offers **Notes**: a note named after it and its day,
 made from the *Cours* template, in a folder for the course (opened again the next
@@ -443,11 +448,20 @@ time). Templates are notes in `_Modèles`, with `{{title}}`, `{{date}}`, `{{time
 folder's menu revises all of its notes': each card comes back sooner or later
 depending on how it went (Again, Hard, Good, Easy, or `1` to `4`).
 
+**Tabs.** Notes open in tabs above the page, as in Obsidian: opening a note shows it
+in the tab you are on, *Open in a new tab* (or `Ctrl`+`T` for a new note) adds one,
+`Ctrl`+`Tab` goes to the next, `Ctrl`+`W` or a middle click closes one. They are
+kept for the next time.
+
 **Reading and more.** `Ctrl`+`R` reads the note with every line drawn and links one
 click away; `F11` is focus mode, the note alone; the side panel lists its outline,
 what mentions it, its tags and length. *Open beside* (or `Ctrl`+`\`, then its name)
-shows a second note to read while writing. `Ctrl`+`G` draws the graph of the links between the notes. *History…* lists
-the versions kept (one per session of editing, the last thirty) and restores one.
+shows a second note to read while writing. `Ctrl`+`G` draws the graph of the links
+between the notes. *History…* lists the versions kept (one per session of editing,
+the last thirty) and restores one. *Edit as plain text* (the `</>` button, or
+`Ctrl`+`A` twice) shows the whole note in one field, to select across its lines with
+the mouse or `Ctrl`+`A`; `Escape` returns to the blocks. Right-click the empty part of
+the column for a new note, spreadsheet or folder, or to open the space's folder.
 
 **With the rest of Iris.** *Copy link for a note*, in a conversation's, an event's or a
 task's menu, copies `[[mail:…]]`, `[[event:…]]` or `[[task:…]]`; in a note, a click
@@ -503,6 +517,7 @@ on school and office networks where many people share one address.
 | `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` / `Ctrl`+`4` | Mail / Calendar / Tasks / Notes |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | In Notes: new note / open a note / search the notes |
 | `Ctrl`+`\` | In Notes: open a note beside |
+| `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | In Notes: new tab / close the tab / next tab |
 | `Ctrl`+`R` / `F11` / `Ctrl`+`G` | In Notes: reading mode / focus mode / graph of links |
 | `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |

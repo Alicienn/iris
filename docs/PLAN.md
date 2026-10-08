@@ -698,3 +698,8 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
 - [x] **S43.9** Block marks converted as they are typed (4.18.0): `# `, `- `, `1. `,
       `[] `, `> ` hidden while the line is written, the block drawn around it;
       Backspace at its start makes it plain text.
+- [x] **S43.10** Tabs and the rest of the first week's list (4.19.0): tabs kept
+      between launches, a menu for the tree's empty room, formulas drawn as they are
+      typed (a setting), embedded sheets with columns to drag and long words cut,
+      the note as plain text for selections across lines, Enter at the end of a note
+      fixed, spaced inline maths read.

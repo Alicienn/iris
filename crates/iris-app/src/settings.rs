@@ -153,6 +153,12 @@ pub struct Settings {
     /// The space and the note open last (`<space folder>|<path>`), to open again.
     #[serde(default)]
     pub notes_last: String,
+    /// A formula drawn under the cursor while it is typed.
+    #[serde(default = "vrai")]
+    pub notes_math_preview: bool,
+    /// The notes open in tabs (`<space folder>|<path>`), in order.
+    #[serde(default)]
+    pub notes_tabs: Vec<String>,
 }
 
 /// The Mac's lights on a Mac, Windows' buttons elsewhere.
@@ -218,6 +224,8 @@ impl Default for Settings {
             notes_root: String::new(),
             notes_spaces: Vec::new(),
             notes_last: String::new(),
+            notes_math_preview: true,
+            notes_tabs: Vec::new(),
         }
     }
 }
@@ -352,6 +360,8 @@ mod tests {
             notes_root: "D:\\Notes".into(),
             notes_spaces: vec!["D:\\Coffre".into()],
             notes_last: "D:\\Notes\\Cours|Analyse/Chapitre 1.md".into(),
+            notes_math_preview: false,
+            notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
         };
 
         reglages.save(&chemin).unwrap();

@@ -262,6 +262,65 @@ pub fn est_tableur(target: &str) -> bool {
     nom.to_ascii_lowercase().ends_with(".sheet")
 }
 
+/// The options after an embed's name: `![[Budget.sheet|clip]]` gives `["clip"]`.
+pub fn options_tableur(target: &str) -> Vec<&str> {
+    target.split('|').skip(1).map(str::trim).collect()
+}
+
+/// An embed with option `option` added, or taken away when it has it.
+pub fn basculer_option(target: &str, option: &str) -> String {
+    let mut parties: Vec<&str> = target.split('|').map(str::trim).collect();
+    let nom = parties.remove(0);
+    if parties.contains(&option) {
+        parties.retain(|p| *p != option);
+    } else {
+        parties.push(option);
+    }
+    std::iter::once(nom)
+        .chain(parties)
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// The file of a spreadsheet embedded, and the range it shows (its first sheet).
+fn feuille_inseree(
+    target: &str,
+    dir: &std::path::Path,
+) -> Option<(std::path::PathBuf, Option<iris_sheets::Range>)> {
+    let sans_options = target.split('|').next().unwrap_or(target);
+    let (nom, plage) = match sans_options.split_once('#') {
+        Some((n, p)) => (n.trim(), iris_sheets::Range::parse(p.trim())),
+        None => (sans_options.trim(), None),
+    };
+    Some((embedded_file(nom, dir)?, plage))
+}
+
+/// The widths of the columns an embedded spreadsheet shows, in pixels, as its sheet
+/// has them.
+pub fn largeurs_tableur(target: &str, dir: &std::path::Path) -> Option<Vec<f32>> {
+    let (chemin, plage) = feuille_inseree(target, dir)?;
+    let book = iris_sheets::Workbook::from_json(&std::fs::read_to_string(chemin).ok()?).ok()?;
+    let s = book.sheets.first()?;
+    let (debut, n) = match plage {
+        Some(p) => (p.start.col, p.width()),
+        None => (0, s.extent().0.clamp(1, TABLEAU_COLONNES)),
+    };
+    Some((debut..debut + n).map(|c| s.col_width(c)).collect())
+}
+
+/// Column `col` of an embedded spreadsheet (counted in what the note shows) given
+/// `width` pixels, in the sheet itself.
+pub fn regler_largeur(target: &str, dir: &std::path::Path, col: usize, width: f32) -> Option<()> {
+    let (chemin, plage) = feuille_inseree(target, dir)?;
+    let mut book =
+        iris_sheets::Workbook::from_json(&std::fs::read_to_string(&chemin).ok()?).ok()?;
+    let debut = plage.map_or(0, |p| p.start.col);
+    let s = book.sheets.first_mut()?;
+    s.col_widths
+        .insert(debut + col as u32, width.clamp(30.0, 1200.0));
+    std::fs::write(&chemin, book.to_json()).ok()
+}
+
 /// The most of a spreadsheet a note shows when no range is given.
 const TABLEAU_LIGNES: u32 = 30;
 const TABLEAU_COLONNES: u32 = 12;
@@ -504,6 +563,21 @@ pub fn render(
             match dir.and_then(|d| tableau_insere(target, d)) {
                 Some((cellules, colonnes)) => {
                     d.kind = "table".into();
+                    d.sheet = true;
+                    d.clip = options_tableur(target).contains(&"clip");
+                    let largeurs = dir
+                        .and_then(|d| largeurs_tableur(target, d))
+                        .unwrap_or_default();
+                    d.widths_total = largeurs.iter().sum();
+                    let bords: Vec<f32> = largeurs
+                        .iter()
+                        .scan(0.0, |s, w| {
+                            *s += w;
+                            Some(*s)
+                        })
+                        .collect();
+                    d.edges = ModelRc::new(VecModel::from(bords));
+                    d.widths = ModelRc::new(VecModel::from(largeurs));
                     d.rows = cellules.len().checked_div(colonnes).unwrap_or(0) as i32;
                     d.columns = colonnes as i32;
                     d.cells = ModelRc::new(VecModel::from(
@@ -613,6 +687,23 @@ mod tests {
         assert_eq!(colonnes, 1);
         assert_eq!(cellules, ["Price", "12"]);
         assert!(tableau_insere("Missing.sheet", dir.path()).is_none());
+        // Its columns' widths, changed from the note into the sheet.
+        assert_eq!(
+            largeurs_tableur("Budget.sheet", dir.path()),
+            Some(vec![100.0, 100.0])
+        );
+        regler_largeur("Budget.sheet|clip", dir.path(), 1, 180.0).unwrap();
+        assert_eq!(
+            largeurs_tableur("Budget.sheet", dir.path()),
+            Some(vec![100.0, 180.0])
+        );
+        assert_eq!(options_tableur("Budget.sheet|clip"), ["clip"]);
+        assert_eq!(basculer_option("Budget.sheet", "clip"), "Budget.sheet|clip");
+        assert_eq!(basculer_option("Budget.sheet|clip", "clip"), "Budget.sheet");
+        assert_eq!(
+            basculer_option("B.sheet#A1:B2|clip|x", "clip"),
+            "B.sheet#A1:B2|x"
+        );
     }
 
     #[test]

@@ -641,6 +641,10 @@ component NoteBlock inherits Rectangle {
     callback link(string);
     callback task-toggled(int);
     callback fold-toggled(int);
+    /// An embedded spreadsheet's column given a width (the sheet's pixels).
+    callback col-resized(int, int, float);
+    /// An embedded spreadsheet's option switched (`clip`).
+    callback sheet-option(int, string);
     /// Where the cursor is in the window, for what pops up there; the cursor and the
     /// anchor, for a selection.
     callback caret(int, length, length, int, int);
@@ -672,6 +676,9 @@ component NoteBlock inherits Rectangle {
     property <length> largeur-mots: max(40px, root.available - root.retrait - root.marque);
     /// The mark that made the block is hidden while it is typed (Rust gives it apart).
     property <bool> masque: root.block.prefix-bytes > 0;
+    /// An embedded spreadsheet's columns narrowed together to fit the column.
+    property <float> echelle: root.block.sheet && root.block.widths-total > 0
+        ? min(1, root.largeur-mots / (root.block.widths-total * 1px)) : 1;
     property <length> marge-haut: root.block.kind == "heading"
         ? (root.block.level <= 2 ? 14px : 8px) : 2px;
 
@@ -684,7 +691,9 @@ component NoteBlock inherits Rectangle {
         // Edited: the source, without the mark that made the block, which is drawn
         // instead (a bullet, a number, a box, a quote's bar; a heading's size).
         if root.focused: Rectangle {
-            min-height: entree.preferred-height;
+            // A plate (code, maths, a table, an embedded sheet) holds its text with room
+            // around it: the field sits 6px in, and the plate is that much taller.
+            min-height: entree.preferred-height + (root.fixe ? 12px : 0px);
             background: root.fixe ? Tokens.surface-low : transparent;
             border-radius: root.fixe ? Tokens.radius-small : 0px;
 
@@ -802,6 +811,10 @@ component NoteBlock inherits Rectangle {
                     // At the end, Delete joins the next block (Rust knows where the end is).
                     if (event.text == Key.Delete && c == a) {
                         return root.key(root.index, "delete", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
+                    // Ctrl+Tab goes from tab to tab; Tab alone nests.
+                    if (ctrl && (event.text == Key.Tab || event.text == Key.Backtab)) {
+                        return root.key(root.index, event.modifiers.shift || event.text == Key.Backtab ? "ctrl+shift+tab" : "ctrl+tab", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
                     if (event.text == Key.Tab) {
                         return root.key(root.index, event.modifiers.shift ? "shift+tab" : "tab", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
@@ -936,16 +949,22 @@ component NoteBlock inherits Rectangle {
                 }
 
                 // A table: its cells, a grid.
+                // An embedded spreadsheet takes its columns' widths from its sheet,
+                // narrowed together when they do not fit.
                 if root.block.kind == "table": Rectangle {
-                    width: root.largeur-mots;
+                    width: root.block.sheet ? min(root.largeur-mots, root.block.widths-total * 1px)
+                        : root.largeur-mots;
                     min-height: grille.preferred-height;
                     border-width: 1px;
                     border-color: Tokens.border;
                     border-radius: Tokens.radius-small;
+                    clip: true;
                     grille := VerticalLayout {
                         for ligne[r] in root.block.rows: HorizontalLayout {
                             for colonne[k] in root.block.columns: Rectangle {
-                                width: root.largeur-mots / max(1, root.block.columns);
+                                width: root.block.sheet && k < root.block.widths.length
+                                    ? root.block.widths[k] * 1px * root.echelle
+                                    : root.largeur-mots / max(1, root.block.columns);
                                 min-height: cellule.preferred-height + 10px;
                                 background: r == 0 ? Tokens.surface-low : transparent;
                                 border-width: 0.5px;
@@ -957,7 +976,8 @@ component NoteBlock inherits Rectangle {
                                     font-size: 13.5px;
                                     font-weight: r == 0 ? 600 : 400;
                                     color: Tokens.text;
-                                    wrap: word-wrap;
+                                    wrap: root.block.clip ? TextWrap.no-wrap : TextWrap.word-wrap;
+                                    overflow: root.block.clip ? TextOverflow.elide : TextOverflow.clip;
                                     vertical-alignment: center;
                                 }
                             }
@@ -1019,11 +1039,43 @@ component NoteBlock inherits Rectangle {
                 }
             }
 
-            // The click that edits; it steps aside while Ctrl is held, for links.
+            // The click that edits; it steps aside while Ctrl is held, for links. It
+            // leaves a checkbox and a callout's fold arrow their own clicks.
             TouchArea {
+                x: root.block.kind == "task" ? root.retrait + 24px : 0px;
+                width: parent.width - self.x - (root.block.kind == "callout" ? 34px : 0px);
                 enabled: !root.ctrl-held && !root.read-only;
                 mouse-cursor: MouseCursor.text;
                 clicked => { root.clicked(root.index); }
+            }
+
+            // An embedded spreadsheet, over the click that edits: its columns' edges
+            // carried to change their widths, and a button for long words.
+            if root.block.sheet: Rectangle {
+                x: root.retrait;
+                width: min(root.largeur-mots, root.block.widths-total * 1px);
+                for bord[k] in root.block.edges: TouchArea {
+                    x: bord * 1px * root.echelle - 4px;
+                    width: 8px;
+                    mouse-cursor: MouseCursor.col-resize;
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up
+                            && k < root.block.widths.length) {
+                            root.col-resized(root.index, k,
+                                max(30, root.block.widths[k] + (self.mouse-x - self.pressed-x) / 1px / root.echelle));
+                        }
+                    }
+                }
+                IconButton {
+                    x: parent.width - self.width - 3px;
+                    y: 3px;
+                    icon: Icons.settings;
+                    label: root.block.clip ? "Wrap long words in their cells" : "Cut long words to one line";
+                    button-size: 22px;
+                    icon-size: 13px;
+                    active: root.block.clip;
+                    clicked => { root.sheet-option(root.index, "clip"); }
+                }
             }
         }
     }
@@ -1059,6 +1111,25 @@ export component NotesView inherits Rectangle {
     callback row-clicked(string);
     callback row-toggled(string);
     callback row-menu(string, length, length);
+    /// A right-click in the tree's empty room.
+    callback area-menu(length, length);
+    /// An embedded spreadsheet's column given a width; one of its options switched.
+    callback col-resized(int, int, float);
+    callback sheet-option(int, string);
+    /// The note as plain text, in one field (Ctrl+A twice, or the toolbar's button).
+    in property <bool> source-mode;
+    in property <string> source-text;
+    in property <int> source-serial;
+    in property <bool> source-select-all;
+    callback source-toggled();
+    callback source-edited(string);
+    callback source-closed();
+    /// The notes open in tabs (key: the note), and the one shown.
+    in property <[NoteFoundData]> tabs;
+    in property <int> tab-active;
+    callback tab-chosen(int);
+    callback tab-closed(int);
+    callback tab-new();
     callback renamed(string, string);
     callback rename-cancelled();
     callback moved(string, string);
@@ -1272,9 +1343,18 @@ export component NotesView inherits Rectangle {
                             }
                         }
                     }
-                    // Let go on the empty room below: the top of the space.
+                    // Let go on the empty room below: the top of the space. It reaches the
+                    // column's foot, and a right-click there offers what can be made.
                     Rectangle {
-                        height: 40px;
+                        height: max(40px, arbre.visible-height - root.tree.length * Nav.row-height - 4px);
+                        TouchArea {
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                                    root.area-menu(self.absolute-position.x + self.mouse-x,
+                                        self.absolute-position.y + self.mouse-y);
+                                }
+                            }
+                        }
                         pure function inside(x: length, y: length) -> bool {
                             return x >= self.absolute-position.x && x < self.absolute-position.x + self.width
                                 && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
@@ -1339,6 +1419,15 @@ export component NotesView inherits Rectangle {
                 }
                 if root.open: IconButton {
                     y: (parent.height - self.height) / 2;
+                    icon: Icons.code;
+                    label: root.source-mode ? "Back to the blocks" : "Edit as plain text";
+                    button-size: 30px;
+                    icon-size: 17px;
+                    active: root.source-mode;
+                    clicked => { root.source-toggled(); }
+                }
+                if root.open: IconButton {
+                    y: (parent.height - self.height) / 2;
                     icon: Icons.eye;
                     label: root.reading ? "Edit" : "Read";
                     shortcut: "Ctrl+R";
@@ -1384,6 +1473,78 @@ export component NotesView inherits Rectangle {
                     tint: Tokens.accent;
                     tinted: true;
                     clicked => { root.new-note(); }
+                }
+            }
+
+            // The notes open in tabs, as in Obsidian: a click shows one, its cross closes
+            // it (a middle click too), + opens a new note in a new one.
+            if root.tabs.length > 0: Rectangle {
+                height: 34px;
+                background: Tokens.surface-low;
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Tokens.border;
+                }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    padding-top: 5px;
+                    spacing: 2px;
+                    alignment: start;
+                    for t[i] in root.tabs: Rectangle {
+                        property <bool> actif: i == root.tab-active;
+                        width: min(200px, max(90px, titre-onglet.preferred-width + 46px));
+                        border-radius: 7px;
+                        background: self.actif ? Tokens.surface
+                            : zone-onglet.has-hover ? Tokens.surface-hover : transparent;
+                        border-width: self.actif ? 1px : 0px;
+                        border-color: Tokens.border;
+                        accessible-role: tab;
+                        accessible-label: t.title;
+                        accessible-item-selected: self.actif;
+                        accessible-action-default => { root.tab-chosen(i); }
+                        zone-onglet := TouchArea {
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.middle && event.kind == PointerEventKind.up) {
+                                    root.tab-closed(i);
+                                }
+                            }
+                            clicked => { root.tab-chosen(i); }
+                        }
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 4px;
+                            spacing: 4px;
+                            titre-onglet := Text {
+                                text: t.title;
+                                font-size: 12.5px;
+                                font-weight: i == root.tab-active ? 600 : 400;
+                                color: i == root.tab-active ? Tokens.text : Tokens.text-secondary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            IconButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.window-close;
+                                label: "Close the tab";
+                                shortcut: "Ctrl+W";
+                                button-size: 20px;
+                                icon-size: 10px;
+                                clicked => { root.tab-closed(i); }
+                            }
+                        }
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2 - 2px;
+                        icon: Icons.plus;
+                        label: "New tab";
+                        shortcut: "Ctrl+T";
+                        button-size: 24px;
+                        icon-size: 13px;
+                        clicked => { root.tab-new(); }
+                    }
                 }
             }
 
@@ -1487,6 +1648,8 @@ export component NotesView inherits Rectangle {
                             link(l) => { root.link-clicked(l); }
                             task-toggled(k) => { root.task-toggled(k); }
                             fold-toggled(k) => { root.fold-toggled(k); }
+                            col-resized(k, c, w) => { root.col-resized(k, c, w); }
+                            sheet-option(k, o) => { root.sheet-option(k, o); }
                             caret(k, x, y, c, a) => {
                                 // The cursor kept in view: the page scrolls to it.
                                 let haut = page.absolute-position.y + 30px;
@@ -1501,6 +1664,50 @@ export component NotesView inherits Rectangle {
                             }
                             popup: i == root.focus-block && (root.completion.length > 0);
                             ctrl-changed(b) => { root.ctrl-changed(b); }
+                        }
+
+                        // The whole note as plain text, in one field: selected with the
+                        // mouse across lines, Ctrl+A, copied, pasted. Escape returns to the
+                        // blocks. (Rust empties the blocks while it shows.)
+                        if root.source-mode: Text {
+                            text: "Plain text — Escape returns to the note's blocks.";
+                            font-size: 11.5px;
+                            color: Tokens.text-muted;
+                        }
+                        if root.source-mode: Rectangle {
+                            min-height: texte-brut.preferred-height + 16px;
+                            texte-brut := TextInput {
+                                y: 8px;
+                                width: parent.width;
+                                text: root.source-text;
+                                font-family: Tokens.font-mono;
+                                font-size: 13.5px;
+                                color: Tokens.text;
+                                wrap: word-wrap;
+                                single-line: false;
+                                selection-background-color: Tokens.accent.transparentize(0.7);
+                                selection-foreground-color: Tokens.text;
+                                accessible-role: text-input;
+                                accessible-label: "The note as plain text";
+                                property <int> serie: root.source-serial;
+                                init => {
+                                    self.focus();
+                                    if (root.source-select-all) { self.select-all(); }
+                                }
+                                changed serie => {
+                                    self.text = root.source-text;
+                                    self.focus();
+                                    if (root.source-select-all) { self.select-all(); }
+                                }
+                                edited => { root.source-edited(self.text); }
+                                key-pressed(event) => {
+                                    if (event.text == Key.Escape) {
+                                        root.source-closed();
+                                        return accept;
+                                    }
+                                    reject
+                                }
+                            }
                         }
 
                         // Below the last block: a click writes at the end.
@@ -2048,6 +2255,12 @@ export component NotesRowMenu inherits Rectangle {
             if root.kind == 0: MenuSeparator {}
 
             // Opening it.
+            if root.kind == 1 || root.kind == 2: MenuEntry {
+                icon: Icons.plus;
+                label: "Open in a new tab";
+                shortcut: "Ctrl+T";
+                activated => { root.chosen("new-tab"); }
+            }
             if root.kind == 1: MenuEntry {
                 icon: Icons.sidebar;
                 label: "Open beside";
@@ -2606,6 +2819,58 @@ export component NotesGraphPanel inherits Rectangle {
                         clicked => { root.chosen(n.key); }
                     }
                 }
+            }
+        }
+    }
+}
+
+// The menu of the tree's empty room: what can be made at the top of the space.
+export component NotesAreaMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    callback chosen(string);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.dismissed();
+            }
+        }
+    }
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 240px;
+        menu-height: entries.preferred-height + 8px;
+        entries := VerticalLayout {
+            padding: 4px;
+            MenuEntry {
+                icon: Icons.plus;
+                label: "New note";
+                shortcut: "Ctrl+N";
+                activated => { root.chosen("new-note"); }
+            }
+            MenuEntry {
+                icon: Icons.table;
+                label: "New spreadsheet";
+                activated => { root.chosen("new-sheet"); }
+            }
+            MenuEntry {
+                icon: Icons.folder;
+                label: "New folder";
+                activated => { root.chosen("new-folder"); }
+            }
+            MenuSeparator { }
+            MenuEntry {
+                icon: Icons.open-external;
+                label: "Open the space's folder";
+                activated => { root.chosen("reveal-space"); }
             }
         }
     }

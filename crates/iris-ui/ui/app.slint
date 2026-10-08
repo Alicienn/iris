@@ -49,7 +49,7 @@ import {
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import {
     NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel,
-    NotesHistoryPanel, NotesGraphPanel, BlockPreview
+    NotesHistoryPanel, NotesGraphPanel, BlockPreview, NotesAreaMenu
 } from "@iris/screens/notes.slint";
 import { SheetGrid, SheetMenu } from "@iris/screens/sheet.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
@@ -523,6 +523,8 @@ export component AppWindow inherits Window {
     in property <string> notes-folder;
     callback notes-folder-open();
     callback notes-folder-change();
+    in-out property <bool> notes-math-preview: true;
+    callback notes-math-preview-toggled(bool);
     callback restore-choose();
     callback restore-confirmed();
     callback restore-cancelled();
@@ -1121,6 +1123,21 @@ export component AppWindow inherits Window {
     callback note-end-clicked();
     /// The menus and windows of the notes.
     in-out property <bool> notes-row-menu-open;
+    in-out property <bool> notes-area-menu-open;
+    in property <[NoteFoundData]> notes-tabs;
+    in property <int> notes-tab-active;
+    callback notes-tab-chosen(int);
+    callback notes-tab-closed(int);
+    callback notes-tab-new();
+    callback note-col-resized(int, int, float);
+    in property <bool> note-source-mode;
+    in property <string> note-source-text;
+    in property <int> note-source-serial;
+    in property <bool> note-source-select-all;
+    callback note-source-toggled();
+    callback note-source-edited(string);
+    callback note-source-closed();
+    callback note-sheet-option(int, string);
     in-out property <string> notes-row-menu-key;
     in-out property <int> notes-row-menu-kind;
     in-out property <bool> notes-row-menu-pinned;
@@ -1415,7 +1432,8 @@ export component AppWindow inherits Window {
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.connect-open
-        || root.notes-row-menu-open || root.notes-space-menu-open || root.notes-name-asked != ""
+        || root.notes-row-menu-open || root.notes-area-menu-open || root.notes-space-menu-open
+        || root.notes-name-asked != ""
         || root.notes-quick-open || root.notes-review-open || SheetGrid.menu != ""
         || root.notes-history-open || root.notes-graph-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
@@ -1627,6 +1645,10 @@ export component AppWindow inherits Window {
                 root.notes-name-asked = "";
                 return accept;
             }
+            if (event.text == Key.Escape && root.notes-area-menu-open) {
+                root.notes-area-menu-open = false;
+                return accept;
+            }
             if (event.text == Key.Escape && root.notes-row-menu-open) {
                 root.notes-row-menu-open = false;
                 return accept;
@@ -1721,6 +1743,19 @@ export component AppWindow inherits Window {
                 }
                 if (event.modifiers.control && (event.text == "g" || event.text == "G")) {
                     root.notes-graph-requested();
+                }
+                // Tabs.
+                if (event.modifiers.control && (event.text == "t" || event.text == "T")) {
+                    root.notes-tab-new();
+                }
+                if (event.modifiers.control && (event.text == "w" || event.text == "W")) {
+                    root.notes-tab-closed(root.notes-tab-active);
+                }
+                if (event.modifiers.control && root.notes-tabs.length > 1
+                    && (event.text == Key.Tab || event.text == Key.Backtab)) {
+                    root.notes-tab-chosen(event.modifiers.shift || event.text == Key.Backtab
+                        ? mod(root.notes-tab-active + root.notes-tabs.length - 1, root.notes-tabs.length)
+                        : mod(root.notes-tab-active + 1, root.notes-tabs.length));
                 }
                 if (event.text == Key.F2 && root.notes-tree.length > 0) {
                     root.notes-row-action("rename", "");
@@ -2458,6 +2493,27 @@ export component AppWindow inherits Window {
             root.notes-row-action("menu", k);
             root.notes-row-menu-open = true;
         }
+        source-mode: root.note-source-mode;
+        source-text: root.note-source-text;
+        source-serial: root.note-source-serial;
+        source-select-all: root.note-source-select-all;
+        source-toggled => { root.note-source-toggled(); }
+        source-edited(t) => { root.note-source-edited(t); }
+        source-closed => { root.note-source-closed(); }
+        col-resized(k, c, w) => { root.note-col-resized(k, c, w); }
+        sheet-option(k, o) => { root.note-sheet-option(k, o); }
+        tabs: root.notes-tabs;
+        tab-active: root.notes-tab-active;
+        tab-chosen(i) => { root.notes-tab-chosen(i); }
+        tab-closed(i) => { root.notes-tab-closed(i); }
+        tab-new => { root.notes-tab-new(); }
+        area-menu(x, y) => {
+            root.notes-row-menu-x = x;
+            root.notes-row-menu-y = y;
+            // What is made goes at the top of the space.
+            root.notes-row-action("area", ".");
+            root.notes-area-menu-open = true;
+        }
         renamed(k, t) => {
             root.notes-renamed(k, t);
             shortcuts.focus();
@@ -2851,6 +2907,23 @@ export component AppWindow inherits Window {
         error: root.subscribe-error;
         subscribe => { root.subscribe-confirmed(); }
         dismissed => { root.subscribe-open = false; }
+    }
+
+    if root.notes-area-menu-open: NotesAreaMenu {
+        width: 100%;
+        height: 100%;
+        menu-x: root.notes-row-menu-x;
+        menu-y: root.notes-row-menu-y;
+        chosen(action) => {
+            root.notes-area-menu-open = false;
+            if (action == "new-folder") {
+                root.notes-name = "";
+                root.notes-name-asked = "folder";
+            } else {
+                root.notes-row-action(action, ".");
+            }
+        }
+        dismissed => { root.notes-area-menu-open = false; }
     }
 
     if root.notes-row-menu-open: NotesRowMenu {
@@ -3425,6 +3498,8 @@ export component AppWindow inherits Window {
         notes-folder: root.notes-folder;
         notes-folder-open => { root.notes-folder-open(); }
         notes-folder-change => { root.notes-folder-change(); }
+        notes-math-preview <=> root.notes-math-preview;
+        notes-math-preview-toggled(on) => { root.notes-math-preview-toggled(on); }
         restore-choose => { root.restore-choose(); }
         restore-confirmed => { root.restore-confirmed(); }
         restore-cancelled => { root.restore-cancelled(); }

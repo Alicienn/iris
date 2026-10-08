@@ -3,6 +3,21 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.19.0 — 2026-10-08
+
+### New
+- Notes open in tabs, as in Obsidian: Ctrl+T, Ctrl+W, Ctrl+Tab, and Open in a new tab in a note's menu.
+- Right-click the empty part of the notes' column to make a note, a spreadsheet or a folder, or open the space's folder.
+- Formulas are drawn under the cursor as you type them; switch it off in Settings › Notes.
+- A spreadsheet in a note has columns you widen by dragging, and a button to cut long words to one line.
+- Edit a note as plain text, to select across lines: press Ctrl+A twice, or the toolbar's button.
+
+### Fixed
+- Enter at the end of a note makes a new line again.
+- Formulas with spaces inside their dollar signs are drawn, in callouts too.
+- Code, formulas and embedded spreadsheets no longer spill out of their plate while edited.
+- A checkbox and a callout's fold arrow take their own click instead of opening the line.
+
 ## 4.18.0 — 2026-10-08
 
 ### Improved

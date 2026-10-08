@@ -429,12 +429,14 @@ fn code(src: &str, i: usize, fin: usize) -> Option<(Node, usize)> {
 }
 
 /// `$x$`: not `$$`, nothing but a non-space just inside, and not money (`$5 and $6`:
-/// a closing `$` followed by a digit does not close).
+/// a closing `$` followed by a digit does not close). Spaces just inside are allowed
+/// when what is inside holds a LaTeX command (`$ \forall x \in E $`): money never does.
 fn maths(src: &str, i: usize, fin: usize) -> Option<(Node, usize)> {
     let r = &src[i..fin];
-    if r.starts_with("$$") || espace(apres(src, i + 1)) {
+    if r.starts_with("$$") {
         return None;
     }
+    let ouvre_sur_espace = espace(apres(src, i + 1));
     let mut k = i + 1;
     while k < fin {
         let ch = src[k..].chars().next()?;
@@ -443,7 +445,14 @@ fn maths(src: &str, i: usize, fin: usize) -> Option<(Node, usize)> {
             continue;
         }
         if ch == '$' {
-            if espace(avant(src, k)) || apres(src, k + 1).is_some_and(|c| c.is_ascii_digit()) {
+            let commande = src[i + 1..k]
+                .split('\\')
+                .skip(1)
+                .any(|s| s.starts_with(|c: char| c.is_ascii_alphabetic()));
+            if ((ouvre_sur_espace || espace(avant(src, k))) && !commande)
+                || apres(src, k + 1).is_some_and(|c| c.is_ascii_digit())
+                || src[i + 1..k].trim().is_empty()
+            {
                 return None;
             }
             return Some((
@@ -1203,6 +1212,14 @@ mod tests {
     #[test]
     fn maths_and_code_keep_their_insides() {
         assert_eq!(marques("$a*b*c$")[0].0, "a*b*c");
+        // Spaces inside, with a command: maths. Money, never.
+        assert_eq!(
+            seul(r"$ \forall x \in \mathbb{R}, \exists \lambda \in [3,4]$"),
+            vec![Mark::Math]
+        );
+        assert!(seul("it costs $ 5 and $ 6").is_empty());
+        assert!(seul("$5 and $6").is_empty());
+        assert!(seul("$ $").is_empty());
         assert_eq!(marques("`**x**`")[0].0, "**x**");
         assert_eq!(marques("``a ` b``")[0].0, "a ` b");
         // The `**` inside code does not close the bold around it.
