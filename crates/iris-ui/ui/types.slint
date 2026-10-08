@@ -590,8 +590,11 @@ export struct NoteBlockData {
     level: int,
     // How deep a list item is.
     indent: int,
-    // The exact source, as typed.
+    // What is edited: the exact source, without the mark that made the block (`# `,
+    // `- `, `- [ ] `, `> `), which is `prefix` (`prefix-bytes` long).
     source: string,
+    prefix: string,
+    prefix-bytes: int,
     // What it shows when not edited: its words with their marks.
     rich: styled-text,
     // A checkbox ticked; a callout folded.

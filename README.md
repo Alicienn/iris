@@ -382,8 +382,12 @@ rewrites every link to it. *Filter* narrows the tree by name; `Ctrl`+`O` opens a
 by name (`Enter` on a name not found makes it), and `Ctrl`+`Shift`+`F` searches the
 words of the space, with `tag:`, `path:` and `is:task`.
 
-**Writing.** The line you are on shows what you typed; every other line shows the
-result. Markdown, plus a few marks of Iris's own:
+**Writing.** Every line shows its result, except the one you are on, which shows the
+marks inside it (`**`, `==`, `[[`…) so they can be changed. The marks that start a
+line are converted as soon as they are typed: `# ` makes a heading, `- ` a list item,
+`1. ` a numbered one, `[] ` a checkbox and `> ` a quote, and you go on writing in it,
+the mark hidden; `Backspace` at its start makes it plain text again. Markdown, plus a
+few marks of Iris's own:
 
 | Typed | Gives | Key |
 |---|---|---|

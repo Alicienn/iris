@@ -695,3 +695,6 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       its file as it is typed, a card for what is dragged, a fuller and clearer row
       menu (Move to…, Copy path, Open with the default app), and the `/` menu with
       icons, scrolling and a card that plays what each block becomes.
+- [x] **S43.9** Block marks converted as they are typed (4.18.0): `# `, `- `, `1. `,
+      `[] `, `> ` hidden while the line is written, the block drawn around it;
+      Backspace at its start makes it plain text.

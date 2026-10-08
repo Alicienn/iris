@@ -486,6 +486,37 @@ fn a_note_s_line_takes_every_key_and_enter_goes_to_rust() {
     );
 }
 
+fn a_heading_is_typed_without_its_hashes() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    let edites = Rc::new(RefCell::new(Vec::<(String, i32)>::new()));
+    {
+        let edites = Rc::clone(&edites);
+        f.on_note_block_edited(move |_, t, c| edites.borrow_mut().push((t.to_string(), c)));
+    }
+    f.set_note_open(true);
+    f.set_note_blocks(ModelRc::new(VecModel::from(vec![iris_ui::NoteBlockData {
+        kind: "heading".into(),
+        level: 2,
+        source: "Limites".into(),
+        prefix: "## ".into(),
+        prefix_bytes: 3,
+        ..Default::default()
+    }])));
+    // The cursor after "## " in the whole source: the start of the words shown.
+    f.set_note_focus_cursor(3);
+    f.set_note_focus_anchor(3);
+    f.set_note_focus(0);
+    f.set_note_focus_serial(1);
+    taper(&f, "Les ");
+    let dernier = edites.borrow().last().cloned();
+    assert_eq!(
+        dernier,
+        Some(("## Les Limites".to_string(), 7)),
+        "the field holds the words; Rust gets the whole line"
+    );
+}
+
 fn a_new_note_s_title_is_selected_and_typing_names_it() {
     let f = fenetre();
     ctrl(&f, "4");
@@ -2569,6 +2600,10 @@ fn main() {
         (
             "a_note_s_line_takes_every_key_and_enter_goes_to_rust",
             a_note_s_line_takes_every_key_and_enter_goes_to_rust,
+        ),
+        (
+            "a_heading_is_typed_without_its_hashes",
+            a_heading_is_typed_without_its_hashes,
         ),
         (
             "a_new_note_s_title_is_selected_and_typing_names_it",

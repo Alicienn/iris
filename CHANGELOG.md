@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.18.0 — 2026-10-08
+
+### Improved
+- Typing # , - , 1. , [] or > turns the line into a heading, a list item, a checkbox or a quote at once, the mark hidden as you write.
+- Backspace at the start of a heading, list item or quote makes it plain text again.
+
 ## 4.17.0 — 2026-10-08
 
 ### New

@@ -594,12 +594,25 @@ fn retenir(e: &mut Etat, force: bool) {
 fn appliquer(f: &AppWindow, e: &mut Etat, edit: NoteEdit, pousser: bool, anchor: Option<usize>) {
     let Some(note) = &mut e.note else { return };
     let avant = note.blocks.len();
+    // The mark that makes the block, hidden while it is typed: when it comes, goes or
+    // changes (`# ` typed, a list ended), the field is given the words again.
+    let marque = |blocs: &[Block], i: usize| {
+        blocs
+            .get(i)
+            .map(|b| {
+                let c = b.content();
+                c[..render::prefixe(&b.kind, c)].to_string()
+            })
+            .unwrap_or_default()
+    };
+    let marque_avant = marque(&note.blocks, edit.block);
     note.text = edit.text;
     note.blocks = blocs_de(&note.text);
     note.dirty = true;
     let structure = note.blocks.len() != avant;
     let block = edit.block.min(note.blocks.len().saturating_sub(1));
-    if pousser || structure || block as i32 != e.focus {
+    let autre_marque = marque(&note.blocks, block) != marque_avant;
+    if pousser || structure || autre_marque || block as i32 != e.focus {
         focaliser(f, e, block, anchor.unwrap_or(edit.cursor), edit.cursor);
     }
     rendre(f, e, false);
@@ -744,6 +757,14 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             true
         }
         "backspace-start" => {
+            // A heading, a list item, a quote: the first Backspace makes it a line of
+            // words again, as in Notion; the next joins it to the line above.
+            let marque = render::prefixe(&kind, &texte);
+            if marque > 0 {
+                let mots = texte[marque..].to_string();
+                remplacer(f, e, i, &mots, 0, 0);
+                return true;
+            }
             let Some(note) = &e.note else { return false };
             match edit::join_with_previous(&note.blocks, i) {
                 Some(ed) => {

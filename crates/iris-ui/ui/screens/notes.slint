@@ -670,6 +670,8 @@ component NoteBlock inherits Rectangle {
         : root.block.kind == "numbered" || root.block.kind == "task" ? 26px
         : root.block.kind == "quote" ? 11px : 0px;
     property <length> largeur-mots: max(40px, root.available - root.retrait - root.marque);
+    /// The mark that made the block is hidden while it is typed (Rust gives it apart).
+    property <bool> masque: root.block.prefix-bytes > 0;
     property <length> marge-haut: root.block.kind == "heading"
         ? (root.block.level <= 2 ? 14px : 8px) : 2px;
 
@@ -679,14 +681,46 @@ component NoteBlock inherits Rectangle {
         padding-top: root.marge-haut;
         padding-bottom: 2px;
 
-        // Edited: the source.
+        // Edited: the source, without the mark that made the block, which is drawn
+        // instead (a bullet, a number, a box, a quote's bar; a heading's size).
         if root.focused: Rectangle {
             min-height: entree.preferred-height;
             background: root.fixe ? Tokens.surface-low : transparent;
             border-radius: root.fixe ? Tokens.radius-small : 0px;
 
+            if root.masque && root.block.kind == "bullet": Text {
+                x: root.retrait;
+                width: 14px;
+                text: root.block.indent == 0 ? "•" : root.block.indent == 1 ? "◦" : "▪";
+                font-size: root.taille;
+                color: Tokens.text-secondary;
+                horizontal-alignment: center;
+            }
+            if root.masque && root.block.kind == "numbered": Text {
+                x: root.retrait;
+                width: 18px;
+                text: root.block.number;
+                font-size: root.taille;
+                color: Tokens.text-secondary;
+                horizontal-alignment: right;
+            }
+            if root.masque && root.block.kind == "task": Check {
+                x: root.retrait + 1px;
+                y: 3px;
+                size: 16px;
+                done: root.block.done;
+                label: "Done";
+                toggled => { root.task-toggled(root.index); }
+            }
+            if root.masque && root.block.kind == "quote": Rectangle {
+                x: root.retrait;
+                width: 3px;
+                border-radius: 1.5px;
+                background: Tokens.border-strong;
+            }
+
             entree := TextInput {
-                x: root.retrait + (root.fixe ? 8px : 0px);
+                x: root.retrait + (root.fixe ? 8px : 0px) + (root.masque ? root.marque : 0px);
                 y: root.fixe ? 6px : 0px;
                 width: parent.width - self.x - (root.fixe ? 8px : 0px);
                 text: root.block.source;
@@ -704,23 +738,28 @@ component NoteBlock inherits Rectangle {
                 property <length> curseur-y;
                 property <int> serie: root.focus-serial;
 
+                // Rust counts in the whole source; the field holds it without its mark.
                 init => {
                     self.focus();
-                    self.set-selection-offsets(root.focus-anchor, root.focus-cursor);
+                    self.set-selection-offsets(max(0, root.focus-anchor - root.block.prefix-bytes),
+                        max(0, root.focus-cursor - root.block.prefix-bytes));
                 }
                 changed serie => {
                     self.text = root.block.source;
                     self.focus();
-                    self.set-selection-offsets(root.focus-anchor, root.focus-cursor);
+                    self.set-selection-offsets(max(0, root.focus-anchor - root.block.prefix-bytes),
+                        max(0, root.focus-cursor - root.block.prefix-bytes));
                 }
                 edited => {
-                    root.edited(root.index, self.text, self.cursor-position-byte-offset);
+                    root.edited(root.index, root.block.prefix + self.text,
+                        self.cursor-position-byte-offset + root.block.prefix-bytes);
                 }
                 cursor-position-changed(p) => {
                     self.curseur-y = p.y;
                     root.caret(root.index, self.absolute-position.x + p.x,
                         self.absolute-position.y + p.y + root.taille * 1.35,
-                        self.cursor-position-byte-offset, self.anchor-position-byte-offset);
+                        self.cursor-position-byte-offset + root.block.prefix-bytes,
+                        self.anchor-position-byte-offset + root.block.prefix-bytes);
                 }
                 key-released(event) => {
                     if (event.text == Key.Control) {
@@ -733,8 +772,10 @@ component NoteBlock inherits Rectangle {
                         root.ctrl-changed(true);
                         return EventResult.reject;
                     }
-                    let c = self.cursor-position-byte-offset;
-                    let a = self.anchor-position-byte-offset;
+                    // At the start of the words (after the hidden mark): the line's start.
+                    let debut = self.cursor-position-byte-offset == 0 && self.anchor-position-byte-offset == 0;
+                    let c = self.cursor-position-byte-offset + root.block.prefix-bytes;
+                    let a = self.anchor-position-byte-offset + root.block.prefix-bytes;
                     let premiere = self.curseur-y < root.taille * 0.8;
                     let derniere = self.curseur-y + root.taille * 1.7 > self.height;
                     // A popup over the cursor takes the keys that choose in it.
@@ -755,7 +796,7 @@ component NoteBlock inherits Rectangle {
                         let nom = ctrl ? "ctrl+enter" : event.modifiers.shift ? "shift+enter" : "enter";
                         return root.key(root.index, nom, c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
-                    if (event.text == Key.Backspace && c == 0 && a == 0) {
+                    if (event.text == Key.Backspace && debut) {
                         return root.key(root.index, "backspace-start", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
                     // At the end, Delete joins the next block (Rust knows where the end is).
@@ -777,7 +818,7 @@ component NoteBlock inherits Rectangle {
                     if (!event.modifiers.shift && event.text == Key.DownArrow && derniere) {
                         return root.key(root.index, "down", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
-                    if (!event.modifiers.shift && event.text == Key.LeftArrow && c == 0 && a == 0) {
+                    if (!event.modifiers.shift && event.text == Key.LeftArrow && debut) {
                         return root.key(root.index, "left-start", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
                     if (!event.modifiers.shift && event.text == Key.RightArrow && c == a) {

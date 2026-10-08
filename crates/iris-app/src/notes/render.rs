@@ -342,6 +342,65 @@ pub fn formula_picture(
     ))
 }
 
+/// How many bytes of a one-line block are the mark that made it — `## `, `- `, `3. `,
+/// `- [ ] `, `> `, with the indent before it — hidden while the line is typed, as
+/// Notion and Obsidian convert them. 0 for a block typed as it is shown.
+pub fn prefixe(kind: &BlockKind, content: &str) -> usize {
+    if content.contains('\n') {
+        return 0;
+    }
+    let retrait = content.len() - content.trim_start_matches([' ', '\t']).len();
+    let r = &content[retrait..];
+    let n = match kind {
+        BlockKind::Heading(_) => {
+            let dieses = r.bytes().take_while(|b| *b == b'#').count();
+            let espaces = r[dieses..].bytes().take_while(|b| *b == b' ').count();
+            if dieses > 0 && espaces > 0 {
+                dieses + espaces
+            } else {
+                0
+            }
+        }
+        BlockKind::Task { .. } => {
+            let marque = ["- [ ] ", "- [x] ", "- [X] ", "* [ ] ", "* [x] ", "+ [ ] "]
+                .iter()
+                .find(|m| r.starts_with(**m));
+            marque.map_or(0, |m| m.len())
+        }
+        BlockKind::Bullet { .. } => {
+            if ["- ", "* ", "+ "].iter().any(|m| r.starts_with(m)) {
+                2
+            } else {
+                0
+            }
+        }
+        BlockKind::Numbered { .. } => {
+            let chiffres = r.bytes().take_while(u8::is_ascii_digit).count();
+            let reste = &r[chiffres..];
+            if chiffres > 0 && (reste.starts_with(". ") || reste.starts_with(") ")) {
+                chiffres + 2
+            } else {
+                0
+            }
+        }
+        BlockKind::Quote if !r.starts_with("> [!") => {
+            if r.starts_with("> ") {
+                2
+            } else if r.starts_with('>') {
+                1
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    };
+    if n == 0 {
+        0
+    } else {
+        retrait + n
+    }
+}
+
 /// A block as the editor shows it. `number`: what [`numbering`] gave it; `dir`: the
 /// space, for the pictures it embeds; `formula` draws display maths.
 pub fn render(
@@ -352,8 +411,13 @@ pub fn render(
     formula: Formula<'_>,
 ) -> NoteBlockData {
     let content = block.content();
+    // What is edited: the words, without the mark that made the block (`# `, `- `…),
+    // drawn as the block is (a heading's size, a bullet, a box) while it is typed.
+    let p = prefixe(&block.kind, content);
     let mut d = NoteBlockData {
-        source: content.into(),
+        source: content[p..].into(),
+        prefix: content[..p].into(),
+        prefix_bytes: p as i32,
         number: number.into(),
         ..Default::default()
     };
@@ -494,6 +558,25 @@ pub fn render(
 mod tests {
     use super::*;
     use iris_notes::block::parse;
+
+    #[test]
+    fn the_marks_that_make_a_block_are_hidden_while_typing() {
+        let p = |s: &str| {
+            let b = parse(s).remove(0);
+            let n = prefixe(&b.kind, b.content());
+            (b.content()[..n].to_string(), b.content()[n..].to_string())
+        };
+        assert_eq!(p("## Limites"), ("## ".into(), "Limites".into()));
+        assert_eq!(p("- item"), ("- ".into(), "item".into()));
+        assert_eq!(p("  - sous-point"), ("  - ".into(), "sous-point".into()));
+        assert_eq!(p("12. douze"), ("12. ".into(), "douze".into()));
+        assert_eq!(p("- [x] fait"), ("- [x] ".into(), "fait".into()));
+        assert_eq!(p("> citation"), ("> ".into(), "citation".into()));
+        assert_eq!(p("Un paragraphe"), (String::new(), "Un paragraphe".into()));
+        // Several lines, a callout: typed as they are.
+        assert_eq!(p("> a\n> b").0, "");
+        assert_eq!(p("> [!def] Limite\n> x").0, "");
+    }
 
     #[test]
     fn anchors_name_numbered_callouts_and_headings() {

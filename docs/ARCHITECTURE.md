@@ -781,6 +781,15 @@ when the view moves past them. Excel files are read with `calamine` and written 
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
 
+**Marks converted as they are typed** (4.18.0). A one-line heading, list item,
+checkbox or quote is given to the window as its words (`source`) and the mark that
+made it (`prefix`, `render::prefixe`): the field edits the words, the mark is drawn as
+the block is (a bullet, a number, a box, a bar, a heading's size), and the field hands
+Rust back `prefix + words` with offsets moved by the mark's length, so every edit
+stays in whole-source terms. When the mark of the block being typed comes, goes or
+changes, `appliquer` gives the field its words again. Inline marks (`**`, `==`) stay
+visible on the line being typed: Slint's `TextInput` draws one style only.
+
 **Spaces and their folder** (4.17.0). A folder of the spaces' folder is a space only
 when it holds `.iris/space.json`, which Iris writes when it makes one: the default
 folder (`%USERPROFILE%\Iris`) may already hold something else — on one machine, a
