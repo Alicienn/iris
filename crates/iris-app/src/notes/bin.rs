@@ -1,6 +1,8 @@
 //! Deleted notes go to the Windows Recycle Bin, where Explorer can bring them back.
 
-use iris_types::{Error, Result};
+#[cfg(windows)]
+use iris_types::Error;
+use iris_types::Result;
 use std::path::Path;
 
 /// The Recycle Bin of the system.
