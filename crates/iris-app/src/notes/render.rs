@@ -346,16 +346,16 @@ pub fn largeurs_tableur(target: &str, dir: &std::path::Path) -> Option<Vec<f32>>
     Some((debut..debut + n).map(|c| s.col_width(c)).collect())
 }
 
-/// How much of a sheet a note shows when its embed gives no range: what it uses and an
-/// empty row under it to type in; an empty sheet, a small grid to start.
+/// How much of a sheet a note shows when its embed gives no range: what it uses, never
+/// an empty row; an empty sheet, one row of cells to start typing in.
 fn etendue_montree(s: &iris_sheets::Sheet) -> (u32, u32) {
     let (cols, rows) = s.extent();
     if cols == 0 || rows == 0 {
-        return (3, 3);
+        return (3, 1);
     }
     (
         cols.clamp(1, TABLEAU_COLONNES),
-        (rows + 1).clamp(1, TABLEAU_LIGNES),
+        rows.clamp(1, TABLEAU_LIGNES),
     )
 }
 
@@ -725,21 +725,21 @@ mod tests {
         assert!(est_tableur("Budget.sheet"));
         assert!(est_tableur("Budget.sheet#A1:B2|50%"));
         assert!(!est_tableur("Budget.png"));
-        // What it uses, and an empty row under it to type in.
+        // What it uses, no empty row under it.
         let (cellules, colonnes) = tableau_insere("Budget.sheet", dir.path()).unwrap();
         assert_eq!(colonnes, 2);
-        assert_eq!(cellules, ["Item", "Price", "Book", "12", "", "24", "", ""]);
+        assert_eq!(cellules, ["Item", "Price", "Book", "12", "", "24"]);
         // The cell the note shows at a row and a column, in the file.
         let (_, origine) = origine_inseree("Budget.sheet#B2:C3", dir.path()).unwrap();
         assert_eq!(origine, iris_sheets::Addr::new(1, 1));
-        // An empty sheet: a small grid to start typing in.
+        // An empty sheet: one row of cells to start typing in.
         std::fs::write(
             dir.path().join("Vide.sheet"),
             iris_sheets::Workbook::default().to_json(),
         )
         .unwrap();
         let (cellules, colonnes) = tableau_insere("Vide.sheet", dir.path()).unwrap();
-        assert_eq!((cellules.len(), colonnes), (9, 3));
+        assert_eq!((cellules.len(), colonnes), (3, 3));
         let (cellules, colonnes) = tableau_insere("Budget.sheet#B1:B2", dir.path()).unwrap();
         assert_eq!(colonnes, 1);
         assert_eq!(cellules, ["Price", "12"]);

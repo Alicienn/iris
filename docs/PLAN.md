@@ -721,3 +721,9 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       cursor and one selection across the note; one `FocusScope` for the keys; the line
       written shows its marks dimmed and its words styled; inline formulas drawn in
       their lines on their baseline.
+- [x] **S43.13** The editor's first round (4.21.1, 4.22.0): each style's piece of a run
+      drawn alone; a mark open only while the cursor touches it; a selection reads as
+      printed, a table or a picture selected whole; pictures resized by their corners
+      and dragged elsewhere; spreadsheets without empty rows; `@` links a note, note
+      links as bubbles opening with a click; a link pasted over words keeps them; a
+      link to a spreadsheet opens it.

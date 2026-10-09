@@ -3,6 +3,23 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.22.0 — 2026-10-09
+
+### New
+- Type @ and a few letters to link a note of the space; links to notes show as bubbles that open the note with a click.
+- A pasted picture shows at once: click it to resize it by its corners, drag it elsewhere, or press Delete to remove it.
+
+### Improved
+- A mark turns back into its result as soon as the cursor leaves it, not only when you change lines.
+- Selecting across a spreadsheet, a table or a picture selects it whole, drawn as it reads.
+- A spreadsheet in a note shows only the rows it uses.
+- A link pasted over selected words keeps the words and makes them the link, for web addresses and notes alike.
+- LaTeX's commands are offered only inside a formula, after a $ even with spaces before the cursor.
+
+### Fixed
+- A link to a spreadsheet opens it instead of making a note of the same name.
+- Web links starting with http:// open from a note.
+
 ## 4.21.1 — 2026-10-09
 
 ### Fixed

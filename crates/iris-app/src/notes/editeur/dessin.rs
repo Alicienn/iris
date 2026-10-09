@@ -76,15 +76,53 @@ fn source_entiere(content: &str, base: Pinceau, plat: bool, cx: &Contexte) -> Ri
     r
 }
 
+/// A picture embedded, decoded once per file and kept while the file does not change.
+fn image_de(chemin: &std::path::Path) -> Option<slint::Image> {
+    thread_local! {
+        static IMAGES: std::cell::RefCell<
+            std::collections::HashMap<std::path::PathBuf, (Option<std::time::SystemTime>, slint::Image)>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    let quand = std::fs::metadata(chemin).and_then(|m| m.modified()).ok();
+    if let Some(img) = IMAGES.with_borrow(|m| {
+        m.get(chemin)
+            .filter(|(q, _)| *q == quand)
+            .map(|(_, i)| i.clone())
+    }) {
+        return Some(img);
+    }
+    let img = render::picture(chemin)?;
+    IMAGES.with_borrow_mut(|m| {
+        if m.len() > 64 {
+            m.clear();
+        }
+        m.insert(chemin.to_path_buf(), (quand, img.clone()));
+    });
+    Some(img)
+}
+
+/// The width an embed asks its picture to be drawn at (`![[a.png|300]]`).
+pub fn largeur_demandee(target: &str) -> Option<f32> {
+    target
+        .split('|')
+        .skip(1)
+        .find_map(|o| o.trim().parse::<f32>().ok())
+        .filter(|w| *w >= 16.0)
+}
+
 /// A block laid out. `numero`: what the note's numbering gave it (a callout's
-/// "Theorem 2", a list item's "3."); `actif`: it is the block being written.
-pub fn bloc(b: &Block, numero: &str, actif: bool, cx: &Contexte) -> BlocVu {
+/// "Theorem 2", a list item's "3."); `actif`: the cursor's offset in it when it is the
+/// block being written.
+pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> BlocVu {
+    let curseur = actif;
+    let actif = curseur.is_some();
     let content = b.content();
     let c = cx.couleurs;
     let mut d = Dessin::default();
     let mut zones = Vec::new();
     let mut cibles = Vec::new();
     let mut grille = None;
+    let mut objet = None;
     let base = Pinceau {
         couleur: c.texte,
         ..Default::default()
@@ -228,25 +266,37 @@ pub fn bloc(b: &Block, numero: &str, actif: bool, cx: &Contexte) -> BlocVu {
             ));
             19.0
         }
-        BlockKind::Embed { target } if !actif && render::est_tableur(target) => {
+        // An embedded spreadsheet is drawn whether the cursor is on it or not: it is
+        // one thing, selected as a whole (its frame says so), as a table in Word.
+        BlockKind::Embed { target } if render::est_tableur(target) => {
             match tableur(target, &mut d, &mut cibles, cx) {
                 Some((h, g)) => {
+                    if actif {
+                        let largeur: f32 = g.largeurs.iter().sum::<f32>() * g.echelle;
+                        d.cadre(-3.0, -1.0, largeur + 6.0, h - 2.0, 0, c.accent, 2.0, 8.0);
+                    }
                     grille = Some(g);
                     h
                 }
-                None => ligne_simple(b, numero, false, &mut zones, &mut d, &mut cibles, cx),
+                None => ligne_simple(b, numero, curseur, &mut zones, &mut d, &mut cibles, cx),
             }
         }
-        BlockKind::Embed { target } if !actif && render::is_picture(target) => {
+        // A picture is drawn, never its mark; the cursor on it selects it, with
+        // handles at its corners to resize it, and it is dragged elsewhere whole.
+        BlockKind::Embed { target } if render::is_picture(target) => {
             let image = cx
                 .dir
                 .and_then(|dir| render::embedded_file(target, dir))
-                .and_then(|p| render::picture(&p));
+                .and_then(|p| image_de(&p));
             match image {
                 Some(img) => {
                     let taille = img.size();
-                    let iw = (taille.width as f32).min(w);
-                    let ih = taille.height as f32 * iw / (taille.width as f32).max(1.0);
+                    let naturelle = taille.width as f32;
+                    let iw = largeur_demandee(target)
+                        .unwrap_or(naturelle)
+                        .min(w)
+                        .max(16.0);
+                    let ih = taille.height as f32 * iw / naturelle.max(1.0);
                     d.images.push(iris_ui::NoteImageData {
                         x: 0.0,
                         y: 4.0,
@@ -254,12 +304,48 @@ pub fn bloc(b: &Block, numero: &str, actif: bool, cx: &Contexte) -> BlocVu {
                         h: ih,
                         image: img,
                     });
+                    cibles.push(Cible {
+                        x: 0.0,
+                        y: 4.0,
+                        w: iw,
+                        h: ih,
+                        action: Action::Image,
+                        curseur: 3,
+                    });
+                    if actif {
+                        d.cadre(-2.0, 2.0, iw + 4.0, ih + 4.0, 0, c.accent, 2.0, 2.0);
+                        for (k, (px, py)) in
+                            [(0.0, 4.0), (iw, 4.0), (0.0, 4.0 + ih), (iw, 4.0 + ih)]
+                                .into_iter()
+                                .enumerate()
+                        {
+                            d.cadre(
+                                px - 5.0,
+                                py - 5.0,
+                                10.0,
+                                10.0,
+                                0xffff_ffff,
+                                c.accent,
+                                1.5,
+                                2.0,
+                            );
+                            cibles.push(Cible {
+                                x: px - 7.0,
+                                y: py - 7.0,
+                                w: 14.0,
+                                h: 14.0,
+                                action: Action::Poignee(k as u8),
+                                curseur: 2,
+                            });
+                        }
+                    }
+                    objet = Some((0.0, 4.0, iw, ih));
                     ih + 8.0
                 }
-                None => ligne_simple(b, numero, false, &mut zones, &mut d, &mut cibles, cx),
+                None => ligne_simple(b, numero, curseur, &mut zones, &mut d, &mut cibles, cx),
             }
         }
-        _ => ligne_simple(b, numero, actif, &mut zones, &mut d, &mut cibles, cx),
+        _ => ligne_simple(b, numero, curseur, &mut zones, &mut d, &mut cibles, cx),
     };
 
     BlocVu {
@@ -268,6 +354,7 @@ pub fn bloc(b: &Block, numero: &str, actif: bool, cx: &Contexte) -> BlocVu {
         zones,
         cibles,
         grille,
+        objet,
         marque,
     }
 }
@@ -329,7 +416,7 @@ fn corps_multiligne(content: &str, kind: &BlockKind, p: Pinceau, cx: &Contexte) 
 fn ligne_simple(
     b: &Block,
     numero: &str,
-    actif: bool,
+    actif: Option<usize>,
     zones: &mut Vec<Zone>,
     d: &mut Dessin,
     cibles: &mut Vec<Cible>,
@@ -361,8 +448,17 @@ fn ligne_simple(
     };
     // The mark that starts the line is hidden either way: drawn as what it makes.
     let mots = &content[p..];
-    let mut r = if actif {
-        riche::source(mots, base, c)
+    let mut r = if let Some(curseur) = actif {
+        // Written: only the mark the cursor touches shows its signs.
+        riche::ecriture(
+            mots,
+            base,
+            curseur.saturating_sub(p),
+            taille,
+            cx.echelle,
+            c,
+            cx.formule,
+        )
     } else {
         let mut r = riche::rendu(mots, base, taille, cx.echelle, c, cx.formule);
         if fait {

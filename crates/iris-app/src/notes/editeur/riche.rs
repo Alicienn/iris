@@ -70,11 +70,14 @@ impl Couleurs {
     }
 }
 
-/// A formula drawn inside a line: where it goes in the shown text, its picture and its
-/// size in logical pixels, and its baseline from its top.
+/// Something drawn inside a line: a formula's picture, or a link's icon at the end of
+/// its bubble. Where it goes in the shown text, its size in logical pixels, and its
+/// baseline from its top.
 pub struct Formule {
     pub index: usize,
-    pub image: slint::Image,
+    pub image: Option<slint::Image>,
+    /// An icon of `Icons` instead of a picture, on a bubble of this colour.
+    pub icone: Option<(&'static str, u32)>,
     pub largeur: f32,
     pub hauteur: f32,
     pub ligne_de_base: f32,
@@ -346,10 +349,51 @@ pub fn rendu(
 ) -> Riche {
     let noeuds = inline::parse_inline(src);
     let mut r = Riche::default();
-    ecrire(&noeuds, base, taille, echelle, c, formule, &mut r);
+    let rien: &[Range<usize>] = &[];
+    ecrire(
+        &noeuds, base, taille, echelle, c, formule, rien, src, &mut r,
+    );
     r
 }
 
+/// The line being written: each mark as it reads, except the one the cursor touches
+/// (`curseur`, at its edge or inside), which shows its source — its signs dimmed, its
+/// words in their style — so it can be changed; moving away converts it again.
+pub fn ecriture(
+    src: &str,
+    base: Pinceau,
+    curseur: usize,
+    taille: f32,
+    echelle: f32,
+    c: &Couleurs,
+    formule: Dessinateur<'_>,
+) -> Riche {
+    let noeuds = inline::parse_inline(src);
+    // The marks the cursor touches, outermost first.
+    let ouvertes: Vec<Range<usize>> = inline::marks_at(&noeuds, curseur)
+        .into_iter()
+        .map(|(_, r)| r)
+        .collect();
+    let mut r = Riche::default();
+    ecrire(
+        &noeuds, base, taille, echelle, c, formule, &ouvertes, src, &mut r,
+    );
+    r
+}
+
+/// The source of `plage` shown as written, styled as the line written is.
+fn pousser_source(r: &mut Riche, src: &str, plage: Range<usize>, base: Pinceau, c: &Couleurs) {
+    let s = source(src, base, c);
+    for (rg, p) in s.styles {
+        let a = rg.start.max(plage.start);
+        let b = rg.end.min(plage.end);
+        if a < b {
+            r.pousser(&src[a..b], a..b, p);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn ecrire(
     noeuds: &[Node],
     p: Pinceau,
@@ -357,11 +401,17 @@ fn ecrire(
     echelle: f32,
     c: &Couleurs,
     formule: Dessinateur<'_>,
+    ouvertes: &[Range<usize>],
+    src: &str,
     r: &mut Riche,
 ) {
     for n in noeuds {
         match n {
             Node::Text { text, range } => r.pousser(text, range.clone(), p),
+            Node::Mark { range, .. } if ouvertes.first() == Some(range) => {
+                // The mark the cursor is at: written out.
+                pousser_source(r, src, range.clone(), p, c);
+            }
             Node::Mark {
                 mark,
                 children,
@@ -381,13 +431,16 @@ fn ecrire(
                                     largeur: dessin.width as f32 / e,
                                     hauteur: dessin.height as f32 / e,
                                     ligne_de_base: dessin.baseline as f32 / e,
-                                    image: slint::Image::from_rgba8(slint::SharedPixelBuffer::<
-                                        slint::Rgba8Pixel,
-                                    >::clone_from_slice(
-                                        &dessin.rgba,
-                                        dessin.width,
-                                        dessin.height,
-                                    )),
+                                    icone: None,
+                                    image: Some(
+                                        slint::Image::from_rgba8(slint::SharedPixelBuffer::<
+                                            slint::Rgba8Pixel,
+                                        >::clone_from_slice(
+                                            &dessin.rgba,
+                                            dessin.width,
+                                            dessin.height,
+                                        )),
+                                    ),
                                 });
                                 r.carte.push(Troncon {
                                     affiche: index..index,
@@ -428,7 +481,46 @@ fn ecrire(
                         ));
                         continue;
                     }
-                    _ => ecrire(children, q, taille, echelle, c, formule, r),
+                    // A link to a note: a bubble, its name and an arrow out, a click
+                    // away from the note.
+                    Mark::NoteLink { embed: false, .. } => {
+                        let mut bulle = q;
+                        bulle.fond = (c.accent & 0x00ff_ffff) | 0x2600_0000;
+                        let interieures = ouvertes.get(1..).unwrap_or(&[]);
+                        ecrire(
+                            children,
+                            bulle,
+                            taille,
+                            echelle,
+                            c,
+                            formule,
+                            interieures,
+                            src,
+                            r,
+                        );
+                        r.formules.push(Formule {
+                            index: r.texte.len(),
+                            image: None,
+                            icone: Some(("open-external", bulle.fond)),
+                            largeur: taille * 0.95,
+                            hauteur: taille * 0.8,
+                            ligne_de_base: taille * 0.8,
+                        });
+                    }
+                    _ => {
+                        let interieures = ouvertes.get(1..).unwrap_or(&[]);
+                        ecrire(
+                            children,
+                            q,
+                            taille,
+                            echelle,
+                            c,
+                            formule,
+                            interieures,
+                            src,
+                            r,
+                        )
+                    }
                 }
                 let fin = r.texte.len();
                 let cible = match mark {
@@ -504,6 +596,19 @@ mod tests {
         assert_eq!(r.vers_affiche(2), 2);
         assert_eq!(r.lien(8).map(|l| l.starts_with("iris-note:")), Some(true));
         assert_eq!(r.vers_source(r.texte.len()), 25);
+    }
+
+    #[test]
+    fn only_the_mark_the_cursor_touches_shows_its_signs() {
+        let c = couleurs();
+        let rien = |_: &str, _: f32| None;
+        let src = "a **b** c **d**";
+        let r = ecriture(src, Pinceau::default(), 4, 15.0, 1.0, &c, &rien);
+        assert_eq!(r.texte, "a **b** c d", "in the first bold: its stars show");
+        let r = ecriture(src, Pinceau::default(), 9, 15.0, 1.0, &c, &rien);
+        assert_eq!(r.texte, "a b c d", "between them: both read as bold");
+        // The cursor still maps to the source.
+        assert_eq!(r.vers_source(r.vers_affiche(8)), 8);
     }
 
     #[test]

@@ -106,8 +106,13 @@ pub fn trigger_at(text: &str, cursor: usize) -> Option<Trigger> {
             query: mot[1..].to_string(),
             start,
         }),
-        Some('@') if mot[1..].chars().all(|c| c.is_alphanumeric() || c == '-') => {
-            Some(Trigger::Date {
+        // `@` mentions a note of the space: what is chosen is written as its link.
+        Some('@')
+            if mot[1..]
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_') =>
+        {
+            Some(Trigger::Note {
                 query: mot[1..].to_string(),
                 start,
             })
@@ -382,11 +387,12 @@ mod tests {
             })
         );
         assert_eq!(
-            trigger_at("rdv @dem", 8),
-            Some(Trigger::Date {
-                query: "dem".into(),
-                start: 4
-            })
+            trigger_at("voir @lim", 9),
+            Some(Trigger::Note {
+                query: "lim".into(),
+                start: 5
+            }),
+            "@ mentions a note"
         );
         assert_eq!(
             trigger_at("$x \\al", 6),

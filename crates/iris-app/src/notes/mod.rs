@@ -1253,6 +1253,26 @@ fn touche_web(f: &AppWindow, e: &mut Etat, i: usize, texte: &str, cursor: usize,
     remplacer(f, e, i, &r.text, r.anchor, r.cursor);
 }
 
+/// Whether the cursor is in maths being typed: a `$$` block, or after a `$` opened on
+/// its line and not closed before it (whatever spaces lie between), as `$ \fr`.
+fn maths_ouvertes(kind: &BlockKind, texte: &str, cursor: usize) -> bool {
+    match kind {
+        BlockKind::Math => return true,
+        BlockKind::Code { .. } => return false,
+        _ => {}
+    }
+    let mut c = cursor.min(texte.len());
+    while !texte.is_char_boundary(c) {
+        c -= 1;
+    }
+    let avant = &texte[..c];
+    let ligne = &avant[avant.rfind('\n').map_or(0, |k| k + 1)..];
+    // `$` not escaped; a `$$` opening a formula of its own counts as one `$`.
+    let dollars = ligne.matches('$').count() as i64 - ligne.matches("\\$").count() as i64;
+    let blocs = ligne.matches("$$").count() as i64;
+    (dollars - blocs).rem_euclid(2) == 1
+}
+
 /// Whether the cursor is in maths: a `$$` block, or `$…$` in a line.
 fn dans_les_maths(kind: &BlockKind, texte: &str, cursor: usize) -> bool {
     if *kind == BlockKind::Math {
@@ -1402,7 +1422,15 @@ fn apres_curseur(f: &AppWindow, e: &mut Etat) {
     let declencheur = if selection {
         None
     } else {
-        iris_notes::complete::trigger_at(&texte, cursor)
+        // LaTeX's commands are offered in maths only: a `$$` block, or after a `$`
+        // opened on the line and not closed yet, spaces between or not.
+        let kind = contenu(e, block).map(|(k, _)| k);
+        iris_notes::complete::trigger_at(&texte, cursor).filter(|t| {
+            !matches!(t, iris_notes::complete::Trigger::Command { .. })
+                || kind
+                    .as_ref()
+                    .is_some_and(|k| maths_ouvertes(k, &texte, cursor))
+        })
     };
     match declencheur {
         Some(t) => {
@@ -1753,8 +1781,8 @@ fn coller_texte(f: &AppWindow, e: &mut Etat, i: usize, cursor: usize, anchor: us
     }
     if debut < fin {
         if let Ok(t) = presse.get_text() {
-            if iris_notes::paste::is_url(&t) {
-                let lien = format!("[{}]({})", &texte[debut..fin], t.trim());
+            // A link pasted over words: the words stay, made the link.
+            if let Some(lien) = lien_sur_mots(e, t.trim(), &texte[debut..fin]) {
                 let nouveau = format!("{}{lien}{}", &texte[..debut], &texte[fin..]);
                 let c = debut + lien.len();
                 remplacer(f, e, i, &nouveau, c, c);
@@ -1776,6 +1804,54 @@ fn coller_texte(f: &AppWindow, e: &mut Etat, i: usize, cursor: usize, anchor: us
     let c = debut + md.len();
     remplacer(f, e, i, &nouveau, c, c);
     true
+}
+
+/// The selected `mots` made a link to what was copied: a web address
+/// (`[words](https://…)`), a link to a note or a file of the space (`[[Budget.sheet]]`,
+/// as *Copy link* gives it), or the name of one. `None`: the clipboard holds no link.
+fn lien_sur_mots(e: &Etat, colle: &str, mots: &str) -> Option<String> {
+    if colle.is_empty() || colle.contains('\n') || mots.contains('\n') {
+        return None;
+    }
+    if iris_notes::paste::is_url(colle) {
+        return Some(format!("[{mots}]({colle})"));
+    }
+    if let Some(dedans) = colle.strip_prefix("[[").and_then(|r| r.strip_suffix("]]")) {
+        let cible = dedans.split('|').next().unwrap_or(dedans).trim();
+        if !cible.is_empty() && !cible.contains("]]") {
+            return Some(format!("[[{cible}|{mots}]]"));
+        }
+    }
+    // The name of a note or a file of the space.
+    let espace = e.espace()?;
+    let connu = render::embedded_file(colle, espace.dir()).is_some()
+        || espace
+            .notes()
+            .iter()
+            .any(|n| stem(n).eq_ignore_ascii_case(colle));
+    connu.then(|| format!("[[{colle}|{mots}]]"))
+}
+
+/// Picture block `i` drawn `largeur` pixels wide: the width written in its embed
+/// (`![[a.png|320]]`), its other options kept.
+fn largeur_image(f: &AppWindow, e: &mut Etat, i: usize, largeur: f32) {
+    let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
+        return;
+    };
+    let mut parties: Vec<String> = target.split('|').map(|p| p.trim().to_string()).collect();
+    let nom = parties.remove(0);
+    parties.retain(|p| p.parse::<f32>().is_err());
+    parties.insert(0, nom);
+    parties.push(format!("{}", largeur.round() as i64));
+    let nouveau = parties.join("|");
+    let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
+    if ligne == texte {
+        return;
+    }
+    let Some(note) = &e.note else { return };
+    let ed = edit::replace_block(&note.blocks, i, &ligne, 0);
+    retenir(e, true);
+    appliquer(f, e, ed, true, None);
 }
 
 /// A mark, a colour or a link from the bubble or the colour card, on the selection
@@ -2142,6 +2218,25 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
             }
             return;
         }
+        // A file of the space that is not a note (a spreadsheet, a picture) is opened as
+        // it is, never made into a note of the same name.
+        let fichier = if nom.to_ascii_lowercase().ends_with(".md") {
+            None
+        } else {
+            e.espace().and_then(|s| {
+                let chemin = render::embedded_file(&nom, s.dir())?;
+                Some((s.rel(&chemin)?, chemin))
+            })
+        };
+        if let Some((rel, chemin)) = fichier {
+            if EntryKind::of(&rel) == EntryKind::Sheet {
+                ouvrir(f, e, &rel);
+                montrer_arbre(f, e);
+            } else if let Err(err) = crate::platform::open_path(&chemin) {
+                f.set_status(format!("Could not open the file: {err}").into());
+            }
+            return;
+        }
         let Some(espace) = e.espace() else { return };
         let notes = espace.notes();
         let trouvee = notes
@@ -2173,12 +2268,12 @@ fn suivre(f: &AppWindow, e: &mut Etat, lien: &str) {
         f.set_notes_filter(t.as_str().into());
         e.filter = t;
         montrer_arbre(f, e);
-    } else if lien.starts_with("https://") {
+    } else if lien.starts_with("https://") || lien.starts_with("http://") {
         if let Err(err) = crate::platform::open_url(lien) {
             f.set_status(format!("Could not open the link: {err}").into());
         }
     } else {
-        f.set_status("Only secure web links (https://) are opened.".into());
+        f.set_status("Only web links (http:// and https://) are opened.".into());
     }
 }
 
@@ -3769,6 +3864,20 @@ mod tests {
         assert_eq!(block::join(&b), "Bonjour\n");
         let ed = edit::replace_block(&b, 1, "suite", 5);
         assert_eq!(ed.text, "Bonjour\nsuite");
+    }
+
+    #[test]
+    fn latex_is_offered_between_dollars_only() {
+        let p = BlockKind::Paragraph;
+        assert!(maths_ouvertes(&p, r"soit $ \fr", 10), "spaces after the $");
+        assert!(maths_ouvertes(&p, r"soit $  \al", 11));
+        assert!(
+            !maths_ouvertes(&p, r"soit $x$ \fr", 12),
+            "the formula is closed"
+        );
+        assert!(!maths_ouvertes(&p, r"le \fr", 6), "no $ at all");
+        assert!(maths_ouvertes(&p, r"$$ \int", 7));
+        assert!(maths_ouvertes(&BlockKind::Math, r"\fr", 3));
     }
 
     #[test]

@@ -773,10 +773,19 @@ triple clicks, drags, Up and Down at a remembered left, Home and End, Ctrl and a
 are all measured in those layouts (`parley::Cursor`, `Selection`), and the cursor and
 the selection are rectangles drawn over the page. One `FocusScope` the size of the
 note takes every key and hands it to Rust: a focused item is never out of view, so
-Slint never takes the keyboard back. The block holding the cursor shows its source,
-each inline mark dimmed and the words between in their style (`riche::source`), so
-what is typed is seen to be read; the mark that starts a one-line block stays hidden
-and drawn as what it makes. The others read as printed (`riche::rendu`): marks gone,
+Slint never takes the keyboard back. In the block holding the cursor, the inline mark
+the cursor touches shows its source, its signs dimmed and its words in their style
+(`riche::ecriture`); every other mark reads as printed, so a mark converts as soon as
+the cursor leaves it (the block is laid out again at each move, its signature holding
+the cursor's offset). The mark that starts a one-line block stays hidden and drawn as
+what it makes. While a selection is not empty no block is written: everything reads as
+printed and a table, a spreadsheet or a picture is selected whole. Pictures and
+embedded spreadsheets are things rather than words: the cursor on one selects it (a
+frame, and a picture's corner handles), Delete removes its line, typing starts a line
+under it; a picture's corner carried writes its width in the embed (`|320`), and the
+picture carried moves its line (`edit::move_block_to`). Pieces of a shaping run in
+different styles are told apart by counting their glyphs over the run's clusters
+(`texte_des_glyphes`), each drawing only its own words. The others read as printed (`riche::rendu`): marks gone,
 links in the accent colour, and inline formulas drawn by `iris-math` as pictures in the
 line — parley inline boxes, the picture's baseline (from the TeX layout) on the
 text's, the lines under one that hangs low moved down. A map of each shown run to its

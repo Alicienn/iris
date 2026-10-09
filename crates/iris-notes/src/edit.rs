@@ -851,9 +851,57 @@ pub fn move_blocks(blocks: &[Block], first: usize, last: usize, up: bool) -> Opt
     })
 }
 
+/// Block `i` carried to just before block `j` (`blocks.len()`: after the last), as a
+/// picture dragged elsewhere in the note; the cursor at its start where it lands.
+/// `None` when it would not move.
+pub fn move_block_to(blocks: &[Block], i: usize, j: usize) -> Option<NoteEdit> {
+    if i >= blocks.len() || j > blocks.len() || j == i || j == i + 1 {
+        return None;
+    }
+    let le = line_ending_of(&block::join(blocks));
+    let mut contenus: Vec<String> = blocks.iter().map(|b| b.content().to_string()).collect();
+    let derniere_fin = blocks
+        .last()
+        .map(|b| b.line_ending().to_string())
+        .unwrap_or_default();
+    let porte = contenus.remove(i);
+    let ou = if j > i { j - 1 } else { j };
+    contenus.insert(ou, porte);
+    let n = contenus.len();
+    let mut t = String::new();
+    let mut global = 0;
+    for (k, c) in contenus.iter().enumerate() {
+        if k == ou {
+            global = t.len();
+        }
+        t.push_str(c);
+        t.push_str(if k + 1 == n { &derniere_fin } else { le });
+    }
+    let (bloc, local) = place(&t, global);
+    Some(NoteEdit {
+        text: t,
+        block: bloc,
+        cursor: local,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_block_is_carried_elsewhere() {
+        let blocs = block::parse("a\n![[i.png]]\nb\nc");
+        let e = move_block_to(&blocs, 1, 4).unwrap();
+        assert_eq!(e.text, "a\nb\nc\n![[i.png]]");
+        assert_eq!(e.block, 3);
+        let e = move_block_to(&blocs, 1, 0).unwrap();
+        assert_eq!(e.text, "![[i.png]]\na\nb\nc");
+        assert!(
+            move_block_to(&blocs, 1, 2).is_none(),
+            "just after itself: it stays"
+        );
+    }
 
     #[test]
     fn signs_are_made_as_they_are_typed() {

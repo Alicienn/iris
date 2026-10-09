@@ -36,6 +36,15 @@ enum Glisse {
         colonne: usize,
         x0: f32,
     },
+    /// Carrying a picture elsewhere in the note, from where it was pressed.
+    Image { bloc: usize, y0: f32 },
+    /// Carrying a picture's corner to resize it, from its width when pressed.
+    Taille {
+        bloc: usize,
+        coin: u8,
+        x0: f32,
+        largeur: f32,
+    },
 }
 
 /// The editor's state.
@@ -52,6 +61,9 @@ pub(super) struct Editeur {
     x_voulu: Option<f32>,
     glisse: Option<Glisse>,
     clic: Option<(Instant, f32, f32, u32)>,
+    /// While a picture is carried: where it would go (the note's coordinates), or the
+    /// rectangle it would take once resized.
+    repere: Option<(f32, f32, f32, f32)>,
     pub modele: Rc<VecModel<NoteViewBlock>>,
 }
 
@@ -68,6 +80,7 @@ impl Editeur {
             x_voulu: None,
             glisse: None,
             clic: None,
+            repere: None,
             modele: Rc::new(VecModel::default()),
         }
     }
@@ -172,7 +185,11 @@ pub(super) fn vue(f: &AppWindow, e: &mut Etat, tout: bool) {
         formule: &formule,
         formule_bloc: &formule_bloc,
     };
-    let actif = if e.reading { None } else { actif(e) };
+    // While words are selected every block reads as printed: the selection covers
+    // what is seen, a table as a table, as in Word.
+    let (a, b) = e.ed.bornes();
+    let actif = if e.reading || a != b { None } else { actif(e) };
+    let (_, local_tete) = block::locate(&note.blocks, e.ed.tete.min(note.text.len()));
     let numeros = render::numbering(&note.blocks);
     let n = note.blocks.len();
     let tout = tout || e.ed.vue.len() != n;
@@ -183,13 +200,15 @@ pub(super) fn vue(f: &AppWindow, e: &mut Etat, tout: bool) {
     }
     let mut changes = Vec::new();
     for (i, (b, num)) in note.blocks.iter().zip(&numeros).enumerate() {
+        // The block written depends on where its cursor is (the mark it touches).
+        let curseur = (actif == Some(i)).then_some(local_tete);
         let sig = signature(b, num)
-            ^ if actif == Some(i) { 0x9e37_79b9 } else { 0 }
+            ^ curseur.map_or(0, |c| 0x9e37_79b9_7f4a_7c15 ^ (c as u64).rotate_left(29))
             ^ u64::from(e.ed.largeur.to_bits()).rotate_left(17);
         if !tout && e.ed.sigs.get(i) == Some(&sig) {
             continue;
         }
-        let bv = dessin::bloc(b, num, actif == Some(i), &cx);
+        let bv = dessin::bloc(b, num, curseur, &cx);
         let d = donnees(&bv);
         if tout {
             e.ed.vue.push(bv);
@@ -313,6 +332,14 @@ pub(super) fn montrer(f: &AppWindow, e: &mut Etat) {
             }
         }
     }
+    // A picture carried: where it would go, or the size it would take.
+    if let Some((x, y, w, h)) = e.ed.repere {
+        if h <= 3.0 {
+            marques.push(rect(x, y, w, h.max(2.0), couleurs.accent, 1.0, 0, 0.0));
+        } else {
+            marques.push(rect(x, y, w, h, 0, 2.0, couleurs.accent, 2.0));
+        }
+    }
     let Some(i) = actif(e).filter(|_| !e.reading && e.note.is_some()) else {
         f.set_note_caret_visible(false);
         f.set_note_marks(ModelRc::new(VecModel::from(marques)));
@@ -328,6 +355,22 @@ pub(super) fn montrer(f: &AppWindow, e: &mut Etat) {
             let n = contenu(e, k).map_or(0, |(_, t)| t.len());
             let de = if k == ia { la } else { 0 };
             let a_ = if k == ib { lb } else { n };
+            // A table, a spreadsheet, a picture, a formula drawn: selected whole.
+            if bv.zones.is_empty() || bv.grille.is_some() || bv.objet.is_some() {
+                if de == 0 && a_ >= n {
+                    marques.push(rect(
+                        -4.0,
+                        e.ed.ys[k],
+                        e.ed.largeur + 8.0,
+                        bv.hauteur,
+                        couleurs.selection,
+                        4.0,
+                        0,
+                        0.0,
+                    ));
+                }
+                continue;
+            }
             for (x, y, w, h) in bv.rectangles(de, a_) {
                 marques.push(rect(
                     x,
@@ -390,12 +433,19 @@ pub(super) fn placer(f: &AppWindow, e: &mut Etat, ancre: usize, tete: usize) {
     e.ed.ancre = ancre;
     e.ed.tete = tete;
     let (bi, _) = situer(e, tete);
-    let change = e.focus != bi as i32;
     e.focus = bi as i32;
-    if change {
-        vue(f, e, false);
-    }
+    // The block written follows the cursor, mark by mark: only what changed is laid out
+    // again.
+    vue(f, e, false);
     montrer(f, e);
+}
+
+/// Whether block `i` is one thing rather than words: a picture or a spreadsheet,
+/// selected whole by the cursor.
+fn objet(e: &Etat, i: usize) -> bool {
+    e.ed.vue
+        .get(i)
+        .is_some_and(|bv| bv.objet.is_some() || bv.grille.is_some())
 }
 
 /// The keyboard to the editor.
@@ -636,6 +686,11 @@ fn vertical(f: &AppWindow, e: &mut Etat, haut: bool, etendre: bool, lignes: usiz
         let Some(bv) = e.ed.vue.get(bj) else { break };
         let yj = e.ed.ys[bj];
         let Some(lj) = bv.point(xg, yc - yj) else {
+            // A picture or a spreadsheet on the way: the cursor stops on it, whole.
+            if objet(e, bj) && bj != bi {
+                cible = Some(debut(e, bj));
+                break;
+            }
             yc = if haut {
                 yj - 1.0
             } else {
@@ -693,6 +748,62 @@ fn bout(f: &AppWindow, e: &mut Etat, fin: bool, etendre: bool, note_entiere: boo
     e.ed.x_voulu = None;
     let ancre = if etendre { e.ed.ancre } else { p };
     placer(f, e, ancre, p);
+}
+
+/// A key while the cursor is on picture or spreadsheet `i`: Backspace and Delete take it
+/// away, Enter or a character starts a line under it, the arrows leave it, Ctrl+C and
+/// Ctrl+X copy its line. `None`: the key means what it always does.
+fn sur_objet(f: &AppWindow, e: &mut Etat, i: usize, bas: &str, nom: &str) -> Option<bool> {
+    let n = e.note.as_ref().map_or(0, |n| n.blocks.len());
+    let fin = debut(e, i) + contenu(e, i).map_or(0, |(_, t)| t.len());
+    match bas {
+        "backspace" | "delete" => {
+            let note = e.note.as_ref()?;
+            let ed = edit::replace_blocks(&note.blocks, i, i, "");
+            retenir(e, true);
+            appliquer(f, e, ed, true, None);
+            Some(true)
+        }
+        "enter" => {
+            remplacer_plage(f, e, fin, fin, "\n", fin + 1);
+            Some(true)
+        }
+        "up" | "left" => {
+            if i > 0 {
+                let p = debut(e, i - 1) + contenu(e, i - 1).map_or(0, |(_, t)| t.len());
+                placer(f, e, p, p);
+            }
+            Some(true)
+        }
+        "down" | "right" => {
+            if i + 1 < n {
+                let p = debut(e, i + 1) + marque(e, i + 1);
+                placer(f, e, p, p);
+            }
+            Some(true)
+        }
+        "ctrl+c" | "ctrl+x" => {
+            if let (Some((_, t)), Ok(mut p)) = (contenu(e, i), arboard::Clipboard::new()) {
+                let _ = p.set_text(t);
+            }
+            if bas == "ctrl+x" {
+                return sur_objet(f, e, i, "delete", nom);
+            }
+            Some(true)
+        }
+        _ => {
+            let t = nom.strip_prefix("type:")?;
+            if t.chars()
+                .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c))
+            {
+                return Some(false);
+            }
+            // Typing on it writes a new line under it.
+            let ajout = format!("\n{t}");
+            remplacer_plage(f, e, fin, fin, &ajout, fin + ajout.len());
+            Some(true)
+        }
+    }
 }
 
 /// The clipboard's text.
@@ -760,6 +871,12 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
         .trim_start_matches("alt+")
         .trim_start_matches("shift+");
     let alt = bas.contains("alt+");
+    // The cursor on a picture or a spreadsheet: it is one thing.
+    if a == b && objet(e, i) {
+        if let Some(pris) = sur_objet(f, e, i, &bas, nom) {
+            return pris;
+        }
+    }
     if !alt {
         match base {
             "left" | "right" => {
@@ -947,18 +1064,39 @@ pub(super) fn presse(f: &AppWindow, e: &mut Etat, x: f32, y: f32, shift: bool, c
                 super::option_tableur(f, e, bi, "clip");
                 return;
             }
+            Action::Image => {
+                if !e.reading {
+                    cellules::quitter(f, e);
+                    let p = debut(e, bi);
+                    placer(f, e, p, p);
+                    e.ed.glisse = Some(Glisse::Image { bloc: bi, y0: y });
+                    clavier(f);
+                }
+                return;
+            }
+            Action::Poignee(coin) => {
+                let largeur = e.ed.vue[bi].objet.map_or(100.0, |o| o.2);
+                e.ed.glisse = Some(Glisse::Taille {
+                    bloc: bi,
+                    coin,
+                    x0: x,
+                    largeur,
+                });
+                return;
+            }
         }
     }
-    // A link: with Ctrl while writing, with a click while reading.
-    if ctrl || e.reading {
-        if let Some(lien) = e.ed.vue[bi].lien(x, yb) {
+    // A link: a note's bubble with a click; any other with Ctrl, or a click while
+    // reading.
+    if let Some(lien) = e.ed.vue[bi].lien(x, yb) {
+        if ctrl || e.reading || lien.starts_with("iris-note:") {
             f.set_notes_ctrl_held(false);
             super::suivre(f, e, &lien);
             return;
         }
-        if e.reading {
-            return;
-        }
+    }
+    if e.reading {
+        return;
     }
     cellules::quitter(f, e);
     let local = e.ed.vue[bi].point(x, yb).unwrap_or(e.ed.vue[bi].marque);
@@ -1034,19 +1172,107 @@ pub(super) fn glisse(f: &AppWindow, e: &mut Etat, x: f32, y: f32) {
                 }
             }
         }
+        Some(Glisse::Image { bloc, y0 }) => {
+            // Where it would go: the gap between the blocks nearest the pointer.
+            if (y - y0).abs() < 6.0 {
+                e.ed.repere = None;
+            } else {
+                let j = insertion(e, y);
+                let yj = e.ed.ys.get(j).copied().unwrap_or_else(|| hauteur_totale(e));
+                e.ed.repere =
+                    (j != bloc && j != bloc + 1).then_some((0.0, yj - 1.0, e.ed.largeur, 2.0));
+            }
+            montrer(f, e);
+        }
+        Some(Glisse::Taille {
+            bloc,
+            coin,
+            x0,
+            largeur,
+        }) => {
+            if let Some((ox, oy, ow, oh)) = e.ed.vue.get(bloc).and_then(|b| b.objet) {
+                let w = taille_tiree(coin, x - x0, largeur, e.ed.largeur);
+                let h = oh * w / ow.max(1.0);
+                let x = if coin % 2 == 0 { ox + ow - w } else { ox };
+                e.ed.repere = Some((x, e.ed.ys[bloc] + oy, w, h));
+                montrer(f, e);
+            }
+        }
         _ => {}
     }
 }
 
+/// A picture's width as its corner `coin` is carried by `dx` (the right corners widen
+/// it to the right, the left ones to the left), between 32 pixels and the column.
+fn taille_tiree(coin: u8, dx: f32, largeur: f32, colonne: f32) -> f32 {
+    let signe = if coin % 2 == 1 { 1.0 } else { -1.0 };
+    (largeur + signe * dx).clamp(32.0, colonne.max(32.0))
+}
+
+/// The note's height.
+fn hauteur_totale(e: &Etat) -> f32 {
+    e.ed.ys.last().copied().unwrap_or(0.0) + e.ed.vue.last().map_or(0.0, |b| b.hauteur)
+}
+
+/// The block a picture dropped at `y` goes before (the number of blocks: after the
+/// last).
+fn insertion(e: &Etat, y: f32) -> usize {
+    for (k, (yk, bv)) in e.ed.ys.iter().zip(&e.ed.vue).enumerate() {
+        if y < yk + bv.hauteur / 2.0 {
+            return k;
+        }
+    }
+    e.ed.vue.len()
+}
+
 /// The pointer let go.
-pub(super) fn lache(f: &AppWindow, e: &mut Etat, x: f32, _y: f32) {
-    if let Some(Glisse::Bord { bloc, colonne, x0 }) = e.ed.glisse.take() {
-        let Some(g) = e.ed.vue.get(bloc).and_then(|b| b.grille.clone()) else {
-            return;
-        };
-        let largeur =
-            g.largeurs.get(colonne).copied().unwrap_or(100.0) + (x - x0) / g.echelle.max(0.05);
-        super::regler_colonne(f, e, bloc, colonne, largeur.max(30.0));
+pub(super) fn lache(f: &AppWindow, e: &mut Etat, x: f32, y: f32) {
+    let repere = e.ed.repere.take();
+    match e.ed.glisse.take() {
+        Some(Glisse::Bord { bloc, colonne, x0 }) => {
+            let Some(g) = e.ed.vue.get(bloc).and_then(|b| b.grille.clone()) else {
+                return;
+            };
+            let largeur =
+                g.largeurs.get(colonne).copied().unwrap_or(100.0) + (x - x0) / g.echelle.max(0.05);
+            super::regler_colonne(f, e, bloc, colonne, largeur.max(30.0));
+        }
+        // A picture dropped elsewhere: its line moves there.
+        Some(Glisse::Image { bloc, .. }) if repere.is_some() => {
+            let Some(note) = &e.note else { return };
+            // The empty line the editor adds after a final line break is no block.
+            let n = note.blocks.len()
+                - usize::from(
+                    note.text.ends_with('\n')
+                        && note.blocks.last().is_some_and(|b| b.text.is_empty()),
+                );
+            let j = insertion(e, y).min(n);
+            let Some(ed) = edit::move_block_to(&note.blocks[..n], bloc, j) else {
+                montrer(f, e);
+                return;
+            };
+            retenir(e, true);
+            appliquer(f, e, ed, true, None);
+        }
+        // A picture resized: the width written in its embed (`![[a.png|320]]`).
+        Some(Glisse::Taille {
+            bloc,
+            coin,
+            x0,
+            largeur,
+        }) => {
+            let w = taille_tiree(coin, x - x0, largeur, e.ed.largeur).round();
+            if (w - largeur).abs() >= 1.0 {
+                super::largeur_image(f, e, bloc, w);
+            } else {
+                montrer(f, e);
+            }
+        }
+        _ => {
+            if repere.is_some() {
+                montrer(f, e);
+            }
+        }
     }
 }
 
@@ -1060,7 +1286,10 @@ pub(super) fn survol(f: &AppWindow, e: &Etat, x: f32, y: f32) {
     let bv = &e.ed.vue[bi];
     let forme = if let Some(c) = bv.cible(x, yb) {
         c.curseur
-    } else if (e.reading || f.get_notes_ctrl_held()) && bv.lien(x, yb).is_some() {
+    } else if bv
+        .lien(x, yb)
+        .is_some_and(|l| e.reading || f.get_notes_ctrl_held() || l.starts_with("iris-note:"))
+    {
         1
     } else if e.reading {
         3

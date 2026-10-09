@@ -455,14 +455,32 @@ pub fn poser(
                     }
                 }
                 PositionedLayoutItem::InlineBox(b) => {
-                    if let Some(f) = riche.formules.get(b.id as usize) {
+                    let Some(f) = riche.formules.get(b.id as usize) else {
+                        continue;
+                    };
+                    let (bx, by) = (x + b.x / e, y + s + b.y / e);
+                    if let Some(image) = &f.image {
                         d.images.push(NoteImageData {
-                            x: x + b.x / e,
-                            y: y + s + b.y / e,
+                            x: bx,
+                            y: by,
                             w: f.largeur,
                             h: f.hauteur,
-                            image: f.image.clone(),
+                            image: image.clone(),
                         });
+                    }
+                    if let Some((nom, fond)) = f.icone {
+                        // The end of a link's bubble: its colour behind, an arrow out.
+                        d.rect(
+                            bx - 1.0,
+                            y + haut + 1.0,
+                            f.largeur + 1.0,
+                            bas - haut - 2.0,
+                            fond,
+                            3.0,
+                        );
+                        let t = (f.largeur - 4.0).max(8.0);
+                        let teinte = (fond & 0x00ff_ffff) | 0xff00_0000;
+                        d.icone(bx + 1.0, y + haut + (bas - haut - t) / 2.0, t, nom, teinte);
                     }
                 }
             }
@@ -547,6 +565,11 @@ pub enum Action {
     /// An embedded spreadsheet's buttons.
     OuvrirTableur,
     CouperMots,
+    /// A picture: selected by a click, carried elsewhere by a drag.
+    Image,
+    /// A selected picture's corner (0 top left, 1 top right, 2 bottom left, 3 bottom
+    /// right), carried to resize it.
+    Poignee(u8),
 }
 
 /// A place of a block that does something when clicked.
@@ -580,6 +603,8 @@ pub struct BlocVu {
     pub zones: Vec<Zone>,
     pub cibles: Vec<Cible>,
     pub grille: Option<Grille>,
+    /// A picture's rectangle (block coordinates), for its handles.
+    pub objet: Option<(f32, f32, f32, f32)>,
     /// The bytes at its start hidden while it is written (`## `, `- `), where the cursor
     /// never goes.
     pub marque: usize,

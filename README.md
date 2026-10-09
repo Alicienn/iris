@@ -385,9 +385,10 @@ rewrites every link to it. *Filter* narrows the tree by name; `Ctrl`+`O` opens a
 by name (`Enter` on a name not found makes it), and `Ctrl`+`Shift`+`F` searches the
 words of the space, with `tag:`, `path:` and `is:task`.
 
-**Writing.** Every line shows its result, formulas drawn inside it, except the one you
-are on, which shows the marks inside it (`**`, `==`, `$`, `[[`…) dimmed, the words
-between already in their style, so you see what is read as you type it. The marks that start a
+**Writing.** Every line shows its result, formulas drawn inside it. On the line you are
+on, only the mark the cursor touches (`**`, `==`, `$`, `[[`…) shows its signs, dimmed,
+its words already in their style; step out of it and it reads as printed again. Links
+to notes are bubbles, their name and an arrow out: a click opens the note. The marks that start a
 line are converted as soon as they are typed: `# ` makes a heading, `- ` a list item,
 `1. ` a numbered one, `[] ` a checkbox and `> ` a quote, and you go on writing in it,
 the mark hidden; `Backspace` at its start makes it plain text again. Markdown, plus a
@@ -407,7 +408,8 @@ few marks of Iris's own:
 | `[[#thm-2]]`, `[[Note#def-1]]`, `[[#Heading]]` | A link to a numbered callout or a heading | |
 | `[text](https://…)` | A web link (to the address copied, if any) | `Ctrl`+`K` |
 | `->`, `<-`, `<->`, `=>`, `<=>`, `!=`, `<=`, `>=` | `→` `←` `↔` `⇒` `⇔` `≠` `≤` `≥`, outside code and maths | `Ctrl`+`Z` keeps the characters |
-| `#tag`, `@2026-10-08`, `^[text]` | A tag, a date, a footnote | typing `#`, `@` |
+| `@Note` | A link to a note of the space, found as you type its name | typing `@` |
+| `#tag`, `@2026-10-08`, `^[text]` | A tag, a date, a footnote | typing `#` |
 | `# ` … `###### ` | Headings | `Ctrl`+`H` cycles |
 | `- `, `1. `, `[] ` | Bullets, numbers, a checkbox | `Ctrl`+`Enter` ticks |
 | `>def `, `>thm `, `>ex `, `>q `, `>! `, `>tip `… | A callout (definition, theorem…), numbered per note | |
@@ -423,15 +425,20 @@ rest of the note. Selecting words shows a bubble of formats, each naming its key
 
 **Selecting.** The note is one text: drag across it, `Shift`-click, `Shift` and the
 arrows, a double click for a word, a triple click for a line, `Ctrl`+`A` for all of
-it — formulas, tables, pictures and theorems are selected with the words. `Ctrl`+`C`
-copies the Markdown, `Ctrl`+`X`, `Ctrl`+`V`, `Delete` and typing replace it; across
-several blocks, `Alt`+`↑`/`↓` moves them, `Tab` nests them and `Ctrl`+`D` writes them
-twice.
+it — formulas, tables, pictures and theorems are selected with the words, drawn as
+they read. `Ctrl`+`C` copies the Markdown, `Ctrl`+`X`, `Ctrl`+`V`, `Delete` and typing
+replace it; across several blocks, `Alt`+`↑`/`↓` moves them, `Tab` nests them and
+`Ctrl`+`D` writes them twice.
+
 Typing `[[`, `#`, `@`, `\` (in maths), `/` or `{` opens a list at the cursor. With the
 cursor in a link, a card shows the start of its note (*Open* goes there); in a
 footnote, its text; in a formula, its drawing. An image pasted with `Ctrl`+`V` is
-saved in the space's `_Fichiers` folder and shown in the note; a web address pasted
-over selected words links them; text copied from a page or a document keeps its bold,
+saved in the space's `_Fichiers` folder and shown in the note, never its mark: a click
+selects it, its corners resize it (`![[image.png|320]]`), a drag carries it elsewhere,
+`Delete` takes it away. A spreadsheet in a note is one thing too: the arrows stop on
+it, and typing there starts a line under it. A link pasted over selected words — a web
+address, or a note's or a file's (`[[Budget.sheet]]`, as *Copy link* gives it) — makes
+them that link, the words kept; text copied from a page or a document keeps its bold,
 italic, links, headings, lists, quotes, code and tables.
 
 **Maths.** Formulas are written in LaTeX and drawn as in a book. In maths, `Tab`
@@ -451,8 +458,8 @@ right (`Ctrl`+`R`), and exports to Excel or CSV. Copy and paste go to and from E
 and Google Sheets. *Freeze* keeps the top rows in view; the status line adds up the
 selection. Right-click a `.xlsx` or `.csv` file in the tree for *Open as a
 spreadsheet*. In a note, `![[Budget.sheet]]` (or `![[Budget.sheet#A1:D10]]`) shows its
-values as a table, with an empty row under the last to type in (`/sheet` makes a new
-one, a small grid). Click a cell to select it (`Shift`-click or `Shift` and an arrow for
+values as a table, only the rows it uses (`/sheet` makes a new one, a row of empty
+cells). Click a cell to select it (`Shift`-click or `Shift` and an arrow for
 more): type or `Enter` to write in it (`Enter`, `Tab` to finish, `Escape` to drop it),
 `Ctrl`+`C`/`X`/`V` copy, cut and paste, `Delete` clears, `Ctrl`+`Z` takes the last
 change back. Every change is written in the spreadsheet itself. The button at its top
