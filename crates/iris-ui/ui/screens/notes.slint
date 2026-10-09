@@ -9,7 +9,7 @@ import { EmptyState, Modal } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
-import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData, NoteGraphNodeData } from "@iris/types.slint";
+import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData } from "@iris/types.slint";
 import { SheetView } from "@iris/screens/sheet.slint";
 
 // The block highlighted in the `/` menu, for the card beside it: what is typed, what
@@ -98,6 +98,22 @@ export global NoteSelect {
     in-out property <int> edit-cursor;
     /// Raised by Rust to hand the keyboard to the cells.
     in-out property <int> cells-serial;
+    /// Where the cell typed in is, in the editor.
+    in-out property <length> edit-x;
+    in-out property <length> edit-y;
+    in-out property <length> edit-w;
+    in-out property <length> edit-h;
+
+    /// The icons the editor draws, by name.
+    public pure function icon(name: string) -> string {
+        return name == "check" ? Icons.check
+            : name == "chevron-right" ? Icons.chevron-right
+            : name == "chevron-down" ? Icons.chevron-down
+            : name == "settings" ? Icons.settings
+            : name == "open-external" ? Icons.open-external
+            : name == "link" ? Icons.link
+            : "";
+    }
     callback cell-pressed(int, int, int, bool);
     callback cell-double-clicked(int, int, int);
     /// A key while cells are selected (`ctrl+c`, `up`, `type:x`…): true when used.
@@ -123,7 +139,10 @@ export global NoteSelect {
             : event.text == Key.Backspace ? "backspace"
             : event.text == Key.Home ? "home"
             : event.text == Key.End ? "end"
+            : event.text == Key.PageUp ? "pageup"
+            : event.text == Key.PageDown ? "pagedown"
             : event.text == Key.F2 ? "f2"
+            : event.text == Key.F11 ? "f11"
             : "";
         if (base != "") {
             return prefixe + (event.text == Key.Backtab && !event.modifiers.shift ? "shift+" : "") + base;
@@ -1387,8 +1406,31 @@ export component NotesView inherits Rectangle {
     // selection, a card about what the cursor is in (a link, a colour, a footnote, maths).
     in property <[NoteFoundData]> completion;
     in property <int> completion-highlight;
-    in property <length> popup-x;
-    in property <length> popup-y;
+    // Where the cursor is in the window (the editor sets them), for what pops up.
+    property <length> popup-x;
+    property <length> popup-y;
+
+    // The editor: the note drawn (`view`, `view-height` tall), the selection (`marks`)
+    // and the cursor, all laid out by Rust.
+    in property <[NoteViewBlock]> view;
+    in property <length> view-height;
+    in property <[NoteRectData]> marks;
+    in property <length> caret-x;
+    in property <length> caret-y;
+    in property <length> caret-h;
+    in property <bool> caret-visible;
+    /// Raised when the cursor moved: the page scrolls to it, what pops up follows.
+    in property <int> caret-serial;
+    /// Raised to give the keyboard to the editor.
+    in property <int> canvas-focus-serial;
+    /// The pointer's shape over the note: 0 text, 1 a hand, 2 a column's edge, 3 an arrow.
+    in property <int> canvas-cursor;
+    callback canvas-width(length);
+    callback canvas-pressed(length, length, bool, bool);
+    callback canvas-dragged(length, length);
+    callback canvas-released(length, length);
+    callback canvas-hovered(length, length);
+    callback canvas-key(string) -> bool;
     in property <bool> bubble;
     /// "", "link", "colour", "footnote", "math".
     in property <string> card;
@@ -1440,28 +1482,6 @@ export component NotesView inherits Rectangle {
     property <length> drop-y;
 
     background: Tokens.surface;
-
-    // The keys while whole blocks are selected: copied, cut, deleted, moved, nested.
-    // Beneath everything, so it never takes a click; Rust hands it the keyboard.
-    FocusScope {
-        x: 0;
-        y: 0;
-        width: 1px;
-        height: 1px;
-        focus-on-click: false;
-        property <int> serie: NoteSelect.blocks-serial;
-        changed serie => { self.focus(); }
-        key-pressed(event) => {
-            let nom = NoteSelect.key-name(event);
-            if (nom == "") { return reject; }
-            let pris = NoteSelect.blocks-key(nom);
-            if (nom == "escape") {
-                root.escaped();
-                return accept;
-            }
-            return pris ? accept : reject;
-        }
-    }
 
     HorizontalLayout {
         if !root.focus-mode: SidebarFrame {
@@ -1878,45 +1898,189 @@ export component NotesView inherits Rectangle {
                         }
                         Rectangle { height: 14px; }
 
-                        for b[i] in root.blocks: NoteBlock {
-                            block: b;
-                            index: i;
-                            focused: i == root.focus-block && !root.reading;
-                            read-only: root.reading;
-                            main: true;
-                            selected: i >= NoteSelect.first && i <= NoteSelect.last;
-                            available: min(760px, page.visible-width) - 72px;
-                            focus-serial: root.focus-serial;
-                            focus-cursor: root.focus-cursor;
-                            focus-anchor: root.focus-anchor;
-                            ctrl-held: root.ctrl-held;
-                            edited(k, t, c) => { root.block-edited(k, t, c); }
-                            key(k, n, c, a, p, d) => {
-                                if (n == "escape") {
-                                    root.escaped();
-                                }
-                                return root.block-key(k, n, c, a, p, d);
-                            }
-                            clicked(k) => { root.block-clicked(k); }
-                            link(l) => { root.link-clicked(l); }
-                            task-toggled(k) => { root.task-toggled(k); }
-                            fold-toggled(k) => { root.fold-toggled(k); }
-                            col-resized(k, c, w) => { root.col-resized(k, c, w); }
-                            sheet-option(k, o) => { root.sheet-option(k, o); }
-                            caret(k, x, y, c, a) => {
+                        // The note, drawn as Rust laid it out: one surface for the whole
+                        // text, its cursor and its selection; every key and click goes to
+                        // Rust, which knows where each character is.
+                        if !root.source-mode: Rectangle {
+                            height: max(root.view-height, 40px);
+                            property <length> largeur: min(760px, page.visible-width) - 72px;
+                            init => { root.canvas-width(self.largeur); }
+                            changed largeur => { root.canvas-width(self.largeur); }
+
+                            // Where the cursor is, in the window: what pops up goes there.
+                            property <int> curseur-serie: root.caret-serial;
+                            changed curseur-serie => {
+                                root.popup-x = self.absolute-position.x + root.caret-x;
+                                root.popup-y = self.absolute-position.y + root.caret-y + root.caret-h + 2px;
                                 // The cursor kept in view: the page scrolls to it.
-                                let haut = page.absolute-position.y + 30px;
-                                let bas = page.absolute-position.y + page.visible-height - 30px;
-                                let plancher = min(0px, page.visible-height - page.viewport-height);
-                                if (y > bas) {
-                                    page.viewport-y = max(plancher, page.viewport-y - (y - bas));
-                                } else if (y - 40px < haut) {
-                                    page.viewport-y = min(0px, page.viewport-y + (haut - (y - 40px)));
+                                if (root.caret-visible) {
+                                    let haut = -page.viewport-y + 30px;
+                                    let bas = -page.viewport-y + page.visible-height - 30px;
+                                    let y-page = self.y + root.caret-y;
+                                    let plancher = min(0px, page.visible-height - page.viewport-height);
+                                    if (y-page + root.caret-h > bas) {
+                                        page.viewport-y = max(plancher, -(y-page + root.caret-h + 30px - page.visible-height));
+                                    } else if (y-page < haut) {
+                                        page.viewport-y = min(0px, -(y-page - 30px));
+                                    }
                                 }
-                                root.caret(k, x, y, c, a);
                             }
-                            popup: i == root.focus-block && (root.completion.length > 0);
-                            ctrl-changed(b) => { root.ctrl-changed(b); }
+
+                            clavier := FocusScope {
+                                focus-on-click: false;
+                                property <int> serie: root.canvas-focus-serial;
+                                changed serie => { self.focus(); }
+                                key-pressed(event) => {
+                                    if (event.text == Key.Control) {
+                                        root.ctrl-changed(true);
+                                        return reject;
+                                    }
+                                    let nom = NoteSelect.key-name(event);
+                                    if (nom == "") { return reject; }
+                                    let pris = root.canvas-key(nom);
+                                    if (nom == "escape") {
+                                        root.escaped();
+                                        return accept;
+                                    }
+                                    return pris ? accept : reject;
+                                }
+                                key-released(event) => {
+                                    if (event.text == Key.Control) {
+                                        root.ctrl-changed(false);
+                                    }
+                                    reject
+                                }
+
+                                for b in root.view: Rectangle {
+                                    y: b.y;
+                                    height: b.h;
+                                    for r in b.rects: Rectangle {
+                                        x: r.x;
+                                        y: r.y;
+                                        width: r.w;
+                                        height: r.h;
+                                        background: r.color;
+                                        border-radius: r.radius;
+                                        border-color: r.border;
+                                        border-width: r.border-width;
+                                    }
+                                    for p in b.images: Image {
+                                        x: p.x;
+                                        y: p.y;
+                                        width: p.w;
+                                        height: p.h;
+                                        source: p.image;
+                                    }
+                                    for t in b.runs: Text {
+                                        x: t.x;
+                                        y: t.y;
+                                        height: t.h;
+                                        text: t.text;
+                                        font-size: t.size;
+                                        font-weight: t.weight;
+                                        font-italic: t.italic;
+                                        font-family: t.family == 1 ? Tokens.font-mono
+                                            : t.family == 2 ? Tokens.font-display : Tokens.font-family;
+                                        color: t.color;
+                                        wrap: no-wrap;
+                                        vertical-alignment: top;
+                                    }
+                                    for ic in b.icons: Icon {
+                                        x: ic.x;
+                                        y: ic.y;
+                                        width: ic.size;
+                                        height: ic.size;
+                                        size: ic.size;
+                                        data: NoteSelect.icon(ic.name);
+                                        tint: ic.tint;
+                                    }
+                                }
+
+                                // The selection, over the words, and the cursor.
+                                for s in root.marks: Rectangle {
+                                    x: s.x;
+                                    y: s.y;
+                                    width: s.w;
+                                    height: s.h;
+                                    background: s.color;
+                                    border-radius: s.radius;
+                                }
+                                if root.caret-visible && !root.reading: Rectangle {
+                                    x: root.caret-x;
+                                    y: root.caret-y;
+                                    width: 1.5px;
+                                    height: root.caret-h;
+                                    background: Tokens.text;
+                                }
+
+                                // Clicks, drags and the pointer's shape, all measured by Rust.
+                                TouchArea {
+                                    mouse-cursor: root.canvas-cursor == 1 ? MouseCursor.pointer
+                                        : root.canvas-cursor == 2 ? MouseCursor.col-resize
+                                        : root.canvas-cursor == 3 ? MouseCursor.default : MouseCursor.text;
+                                    pointer-event(event) => {
+                                        if (event.button != PointerEventButton.left) { return; }
+                                        if (event.kind == PointerEventKind.down) {
+                                            clavier.focus();
+                                            root.canvas-pressed(self.mouse-x, self.mouse-y,
+                                                event.modifiers.shift, event.modifiers.control);
+                                        } else if (event.kind == PointerEventKind.up) {
+                                            root.canvas-released(self.mouse-x, self.mouse-y);
+                                        }
+                                    }
+                                    moved => {
+                                        if (self.pressed) {
+                                            root.canvas-dragged(self.mouse-x, self.mouse-y);
+                                        }
+                                    }
+                                    property <length> survol-x: self.mouse-x;
+                                    property <length> survol-y: self.mouse-y;
+                                    changed survol-y => {
+                                        if (!self.pressed && self.has-hover) { root.canvas-hovered(self.mouse-x, self.mouse-y); }
+                                    }
+                                    changed survol-x => {
+                                        if (!self.pressed && self.has-hover) { root.canvas-hovered(self.mouse-x, self.mouse-y); }
+                                    }
+                                }
+
+                                // A spreadsheet's cell typed in, over its cell.
+                                if NoteSelect.editing: TextInput {
+                                    x: NoteSelect.edit-x + 6px;
+                                    y: NoteSelect.edit-y;
+                                    width: max(20px, NoteSelect.edit-w - 12px);
+                                    height: NoteSelect.edit-h;
+                                    text: NoteSelect.edit-text;
+                                    font-size: 13.5px;
+                                    color: Tokens.text;
+                                    vertical-alignment: center;
+                                    single-line: true;
+                                    selection-background-color: Tokens.accent.transparentize(0.7);
+                                    selection-foreground-color: Tokens.text;
+                                    accessible-role: text-input;
+                                    accessible-label: "Cell";
+                                    init => {
+                                        self.focus();
+                                        self.set-selection-offsets(NoteSelect.edit-cursor, NoteSelect.edit-cursor);
+                                    }
+                                    edited => { NoteSelect.edit-text = self.text; }
+                                    // Clicked away: what was typed is kept.
+                                    changed has-focus => {
+                                        if (!self.has-focus) {
+                                            NoteSelect.cell-committed(NoteSelect.sheet-block, NoteSelect.row, NoteSelect.col, self.text, "left");
+                                        }
+                                    }
+                                    key-pressed(event) => {
+                                        let nom = NoteSelect.key-name(event);
+                                        if (nom == "enter" || nom == "shift+enter" || nom == "tab" || nom == "shift+tab"
+                                            || nom == "escape") {
+                                            NoteSelect.cell-committed(NoteSelect.sheet-block, NoteSelect.row, NoteSelect.col, self.text, nom);
+                                            clavier.focus();
+                                            return accept;
+                                        }
+                                        reject
+                                    }
+                                }
+                            }
                         }
 
                         // The whole note as plain text, in one field: selected with the

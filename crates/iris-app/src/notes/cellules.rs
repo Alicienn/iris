@@ -10,7 +10,7 @@ use iris_notes::block::BlockKind;
 use iris_sheets::cell::{Addr, Range};
 use iris_sheets::Workbook;
 use iris_ui::{AppWindow, NoteSelect};
-use slint::{ComponentHandle, Model, SharedString};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -47,8 +47,20 @@ fn cible(e: &Etat, i: usize) -> Option<String> {
 
 /// How many rows and columns the note shows of block `i`.
 fn taille(e: &Etat, i: usize) -> Option<(u32, u32)> {
-    let d = e.model.row_data(i)?;
-    (d.rows > 0 && d.columns > 0).then_some((d.rows as u32, d.columns as u32))
+    let g = e.ed.vue.get(i)?.grille.as_ref()?;
+    (g.lignes > 0 && g.colonnes > 0).then_some((g.lignes, g.colonnes))
+}
+
+/// The cells selected: first and last rows, first and last columns, the active cell.
+pub(super) fn bornes(ch: &Choix) -> (u32, u32, u32, u32, u32, u32) {
+    (
+        ch.anchor.0.min(ch.cursor.0),
+        ch.anchor.0.max(ch.cursor.0),
+        ch.anchor.1.min(ch.cursor.1),
+        ch.anchor.1.max(ch.cursor.1),
+        ch.cursor.0,
+        ch.cursor.1,
+    )
 }
 
 /// The file of block `i`'s spreadsheet (as the space names it) and the cell its table
@@ -100,8 +112,13 @@ fn ecrire(f: &AppWindow, e: &mut Etat, rel: &str, avant: &Workbook, book: &Workb
     super::rendre_tableurs(f, e);
 }
 
-/// The selection given to the window.
-pub(super) fn montrer(f: &AppWindow, e: &Etat) {
+/// The selection given to the window (its rectangles drawn with the editor's).
+pub(super) fn montrer(f: &AppWindow, e: &mut Etat) {
+    donner(f, e);
+    super::saisie::montrer(f, e);
+}
+
+fn donner(f: &AppWindow, e: &Etat) {
     let g = f.global::<NoteSelect>();
     match e.cellules.choix {
         Some(c) => {
@@ -155,10 +172,9 @@ pub(super) fn choisir(f: &AppWindow, e: &mut Etat, i: usize, r: u32, c: u32, ete
             ch.editing = false;
         }
     }
-    // The line's cursor and blocks selected let go.
+    // The line's cursor and its selection let go.
     super::fermer_popups(f, e);
     sans_focus(f, e);
-    super::blocs::effacer(f, e);
     let anchor = match e.cellules.choix {
         Some(ch) if etendre && ch.block == i => ch.anchor,
         _ => (r, c),

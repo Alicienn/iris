@@ -45,6 +45,9 @@ iris-math = { path = "../iris-math" }
 iris-sheets = { path = "../iris-sheets" }
 # An image pasted into a note: read from the clipboard, written as PNG beside it.
 arboard = { version = "3", default-features = false, features = ["image-data"] }
+# The notes' editor lays its text out as Slint does (the same version, already in the
+# tree through Slint), to know where every character is.
+parley = "0.11"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 iris-caldav = { workspace = true }
 # L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.

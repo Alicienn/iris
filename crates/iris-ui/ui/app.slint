@@ -8,7 +8,7 @@ import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
-    NoteFoundData, NoteGraphNodeData
+    NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -1065,8 +1065,23 @@ export component AppWindow inherits Window {
     callback note-caret(int, length, length, int, int);
     in property <[NoteFoundData]> note-completion;
     in property <int> note-completion-highlight;
-    in property <length> note-popup-x;
-    in property <length> note-popup-y;
+    // The note's editor: what it draws, its selection and cursor, and what reaches it.
+    in property <[NoteViewBlock]> note-view;
+    in property <length> note-view-height;
+    in property <[NoteRectData]> note-marks;
+    in property <length> note-caret-x;
+    in property <length> note-caret-y;
+    in property <length> note-caret-h;
+    in property <bool> note-caret-visible;
+    in property <int> note-caret-serial;
+    in property <int> note-canvas-focus-serial;
+    in property <int> note-canvas-cursor;
+    callback note-canvas-width(length);
+    callback note-canvas-pressed(length, length, bool, bool);
+    callback note-canvas-dragged(length, length);
+    callback note-canvas-released(length, length);
+    callback note-canvas-hovered(length, length);
+    callback note-canvas-key(string) -> bool;
     in property <bool> note-bubble;
     in property <string> note-card;
     in property <string> note-card-title;
@@ -2569,8 +2584,34 @@ export component AppWindow inherits Window {
         caret(k, x, y, c, a) => { root.note-caret(k, x, y, c, a); }
         completion: root.note-completion;
         completion-highlight: root.note-completion-highlight;
-        popup-x: root.note-popup-x;
-        popup-y: root.note-popup-y;
+        view: root.note-view;
+        view-height: root.note-view-height;
+        marks: root.note-marks;
+        caret-x: root.note-caret-x;
+        caret-y: root.note-caret-y;
+        caret-h: root.note-caret-h;
+        caret-visible: root.note-caret-visible;
+        caret-serial: root.note-caret-serial;
+        canvas-focus-serial: root.note-canvas-focus-serial;
+        canvas-cursor: root.note-canvas-cursor;
+        canvas-width(w) => { root.note-canvas-width(w); }
+        canvas-pressed(x, y, s, c) => { root.note-canvas-pressed(x, y, s, c); }
+        canvas-dragged(x, y) => { root.note-canvas-dragged(x, y); }
+        canvas-released(x, y) => { root.note-canvas-released(x, y); }
+        canvas-hovered(x, y) => { root.note-canvas-hovered(x, y); }
+        canvas-key(n) => {
+            if (n == "ctrl+o" || n == "ctrl+\\") {
+                root.notes-quick-beside = n == "ctrl+\\";
+                root.notes-quick-moving = "";
+                root.notes-quick-search = false;
+                root.notes-quick-query = "";
+                root.notes-quick-highlight = 0;
+                root.notes-quick-open = true;
+                root.notes-quick-edited("");
+                return true;
+            }
+            return root.note-canvas-key(n);
+        }
         bubble: root.note-bubble;
         card: root.note-card;
         card-title: root.note-card-title;

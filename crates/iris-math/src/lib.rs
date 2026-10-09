@@ -16,6 +16,8 @@ pub struct Picture {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    /// The formula's baseline, in pixels from the top: where the text around it sits.
+    pub baseline: u32,
 }
 
 impl std::fmt::Debug for Picture {
@@ -77,7 +79,7 @@ pub fn render(latex: &str, style: Style) -> Result<Picture, String> {
 
 fn dessiner(latex: &str, style: Style) -> Result<Picture, String> {
     use latex_rust::font::MathFont;
-    use latex_rust::render::png::{latex_to_png, PngBackground, PngOptions};
+    use latex_rust::render::png::{PngBackground, PngOptions};
     let police = MathFont::stix_two_math().map_err(|e| format!("{e:?}"))?;
     let mut options = PngOptions::new();
     // Points at 72 per inch, the screen at 96 logical pixels per inch.
@@ -86,15 +88,36 @@ fn dessiner(latex: &str, style: Style) -> Result<Picture, String> {
     options.color = latex_rust::Color::rgb(style.colour[0], style.colour[1], style.colour[2]);
     options.background = PngBackground::Transparent;
     options.display = style.display;
-    let png = latex_to_png(latex, &police, &options).map_err(|e| lisible(&format!("{e:?}")))?;
+    // Laid out here rather than by `latex_to_png`, for the height above the baseline.
+    let arbre = latex_rust::parse(latex)
+        .map_err(|e| lisible(&format!("{e:?}")))
+        .and_then(|ast| {
+            latex_rust::layout(
+                &ast,
+                &police,
+                if style.display {
+                    latex_rust::MathStyle::Display
+                } else {
+                    latex_rust::MathStyle::Text
+                },
+            )
+            .map_err(|e| lisible(&format!("{e:?}")))
+        })?;
+    let png = latex_rust::render_png(&arbre, &police, &options)
+        .map_err(|e| lisible(&format!("{e:?}")))?;
     let decode = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
         .map_err(|e| e.to_string())?
         .to_rgba8();
     let (width, height) = decode.dimensions();
+    // An em is the text's size in pixels (`size` × 0.75 pt at 96 × `scale` dpi).
+    let em = style.size * (96.0 * style.scale.max(0.5)).round() / 96.0;
+    let haut = f32::from_bits(arbre.height.to_ieee32_bits());
+    let baseline = ((haut * em).round().max(0.0) as u32).min(height);
     Ok(Picture {
         width,
         height,
         rgba: decode.into_raw(),
+        baseline,
     })
 }
 
@@ -121,6 +144,8 @@ mod tests {
     fn a_fraction_is_drawn() {
         let p = render(r"\frac{a+b}{2} = \int_0^1 f(x)\,dx", style()).unwrap();
         assert!(p.width > 20 && p.height > 10, "{p:?}");
+        // A fraction stands on its bar: there is ink below the baseline.
+        assert!(p.baseline > 0 && p.baseline < p.height, "{}", p.baseline);
         assert_eq!(p.rgba.len(), (p.width * p.height * 4) as usize);
         // Some pixels are ink.
         assert!(p.rgba.chunks(4).any(|px| px[3] > 0));

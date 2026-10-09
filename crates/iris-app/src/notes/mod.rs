@@ -11,8 +11,10 @@ mod apercu;
 mod bin;
 mod blocs;
 mod cellules;
+mod editeur;
 mod export;
 pub mod render;
+mod saisie;
 mod sheet;
 
 use crate::services::Services;
@@ -21,7 +23,7 @@ use iris_notes::edit::{self, Enter, NoteEdit};
 use iris_notes::inline::{Colour, Palette};
 use iris_ui::{AppWindow, NoteBlockData, NoteFoundData, NoteSpaceData, NoteTreeRowData};
 use iris_vault::{EntryKind, Space, Vault, WriteOutcome};
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -75,12 +77,10 @@ struct Etat {
     selected: Option<String>,
     filter: String,
     note: Option<Ouverte>,
+    /// The block holding the cursor (-1: none).
     focus: i32,
-    serial: i32,
     title_serial: i32,
     fingerprint: u64,
-    model: Rc<VecModel<NoteBlockData>>,
-    signatures: Vec<u64>,
     palette: Palette,
     tree_keys: Vec<(String, EntryKind)>,
     /// Where the cursor is: its block, its offset, the selection's anchor, and its
@@ -114,10 +114,10 @@ struct Etat {
     nouvel_onglet: bool,
     /// The note shown as plain text, in one field, rather than as blocks.
     source: bool,
-    /// Whole blocks selected: where the selection started and where it ends.
-    blocs: Option<(usize, usize)>,
     /// The cells of an embedded spreadsheet selected, and what they copied.
     cellules: cellules::Cellules,
+    /// The editor: the blocks laid out, the cursor and the selection.
+    ed: saisie::Editeur,
 }
 
 /// A revision under way: the cards left, the one shown, and how it went.
@@ -299,98 +299,47 @@ fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
     f.set_notes_tree(ModelRc::new(VecModel::from(lignes)));
 }
 
-/// The note's blocks to the window: all of them when their number changed or `tout`,
-/// else only those whose rendering changed.
+/// The note laid out again and drawn — every block when `tout`, else those that
+/// changed — with its cursor and selection.
 fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
-    let dir = e.espace().map(|s| s.dir().to_path_buf());
-    let dir = dir.as_deref();
-    // Formulas in the text's own colour, at the screen's scale.
-    let encre = f.global::<iris_ui::Tokens>().get_text();
-    let echelle = f.window().scale_factor();
-    let formule = move |latex: &str| render::formula_picture(latex, encre, echelle);
-    let Some(note) = &e.note else {
-        e.model.set_vec(Vec::new());
-        e.signatures.clear();
-        return;
-    };
-    // As plain text: one field holds it, no block is drawn.
-    if e.source {
-        e.model.set_vec(Vec::new());
-        e.signatures.clear();
-        return;
+    saisie::vue(f, e, tout);
+    saisie::montrer(f, e);
+    if let Some(note) = &e.note {
+        f.set_note_status(if note.dirty { "Editing" } else { "" }.into());
     }
-    let numeros = render::numbering(&note.blocks);
-    let sigs: Vec<u64> = note
-        .blocks
-        .iter()
-        .zip(&numeros)
-        .map(|(b, n)| signature(b, n))
-        .collect();
-    if tout || sigs.len() != e.model.row_count() {
-        let lignes: Vec<NoteBlockData> = note
-            .blocks
-            .iter()
-            .zip(&numeros)
-            .map(|(b, n)| render::render(b, n, &e.palette, dir, &formule))
-            .collect();
-        e.model.set_vec(lignes);
-    } else {
-        for (i, (b, n)) in note.blocks.iter().zip(&numeros).enumerate() {
-            if e.signatures.get(i) != Some(&sigs[i]) {
-                e.model
-                    .set_row_data(i, render::render(b, n, &e.palette, dir, &formule));
-            }
-        }
-    }
-    e.signatures = sigs;
-    f.set_note_status(if note.dirty { "Editing" } else { "" }.into());
 }
 
 /// The spreadsheets the note embeds drawn again, after their files changed.
 fn rendre_tableurs(f: &AppWindow, e: &mut Etat) {
-    let dir = e.espace().map(|s| s.dir().to_path_buf());
-    let encre = f.global::<iris_ui::Tokens>().get_text();
-    let echelle = f.window().scale_factor();
-    let formule = move |latex: &str| render::formula_picture(latex, encre, echelle);
-    let Some(note) = &e.note else { return };
-    if e.source || e.model.row_count() != note.blocks.len() {
-        return;
-    }
-    let numeros = render::numbering(&note.blocks);
-    for (i, (b, n)) in note.blocks.iter().zip(&numeros).enumerate() {
-        if matches!(&b.kind, BlockKind::Embed { target } if render::est_tableur(target)) {
-            e.model.set_row_data(
-                i,
-                render::render(b, n, &e.palette, dir.as_deref(), &formule),
-            );
-        }
-    }
+    rendre(f, e, true);
 }
 
-/// Puts the cursor in block `block` at `cursor` (`anchor` for a selection), the
-/// block's source given to its field again.
+/// Puts the cursor in block `block` at `cursor` (`anchor` for a selection, both offsets
+/// in the block's source), and the keyboard in the note.
 fn focaliser(f: &AppWindow, e: &mut Etat, block: usize, anchor: usize, cursor: usize) {
-    // Writing again: blocks and cells selected let go (a cell typed in kept).
+    // Writing again: cells selected let go (a cell typed in kept).
     cellules::quitter(f, e);
-    blocs::effacer(f, e);
-    e.focus = block as i32;
-    e.serial += 1;
-    f.set_note_focus_cursor(cursor as i32);
-    f.set_note_focus_anchor(anchor as i32);
-    f.set_note_focus(e.focus);
-    f.set_note_focus_serial(e.serial);
+    let debut = e
+        .note
+        .as_ref()
+        .map_or(0, |n| block::start_of(&n.blocks, block));
+    let n = contenu(e, block).map_or(0, |(_, t)| t.len());
+    saisie::placer(f, e, debut + anchor.min(n), debut + cursor.min(n));
+    saisie::clavier(f);
 }
 
 fn sans_focus(f: &AppWindow, e: &mut Etat) {
     e.focus = -1;
-    f.set_note_focus(-1);
+    f.set_note_caret_visible(false);
+    f.set_note_marks(ModelRc::default());
 }
 
 fn montrer_note(f: &AppWindow, e: &mut Etat) {
     // Another note: nothing of the last one stays selected.
-    e.blocs = None;
     e.cellules.choix = None;
-    blocs::montrer(f, e);
+    e.focus = -1;
+    e.ed.ancre = 0;
+    e.ed.tete = 0;
     cellules::montrer(f, e);
     match &e.note {
         Some(n) => {
@@ -560,7 +509,6 @@ fn deplacer(f: &AppWindow, e: &mut Etat, k: &str, dossier: &str) {
 /// (`charger_onglets`).
 fn fermer_tout(f: &AppWindow, e: &mut Etat) {
     cellules::quitter(f, e);
-    blocs::effacer(f, e);
     ecrire(f, e);
     e.onglets.clear();
     e.onglet = 0;
@@ -783,30 +731,16 @@ fn retenir(e: &mut Etat, force: bool) {
 }
 
 /// The note's text replaced, its blocks parsed again, the window told.
-fn appliquer(f: &AppWindow, e: &mut Etat, edit: NoteEdit, pousser: bool, anchor: Option<usize>) {
+/// `_pousser` is kept from when a field held the line and was given its text again only
+/// when asked: the editor now follows every change.
+fn appliquer(f: &AppWindow, e: &mut Etat, edit: NoteEdit, _pousser: bool, anchor: Option<usize>) {
     let Some(note) = &mut e.note else { return };
-    let avant = note.blocks.len();
-    // The mark that makes the block, hidden while it is typed: when it comes, goes or
-    // changes (`# ` typed, a list ended), the field is given the words again.
-    let marque = |blocs: &[Block], i: usize| {
-        blocs
-            .get(i)
-            .map(|b| {
-                let c = b.content();
-                c[..render::prefixe(&b.kind, c)].to_string()
-            })
-            .unwrap_or_default()
-    };
-    let marque_avant = marque(&note.blocks, edit.block);
     note.text = edit.text;
     note.blocks = blocs_de(&note.text);
     note.dirty = true;
-    let structure = note.blocks.len() != avant;
     let block = edit.block.min(note.blocks.len().saturating_sub(1));
-    let autre_marque = marque(&note.blocks, block) != marque_avant;
-    if pousser || structure || autre_marque || block as i32 != e.focus {
-        focaliser(f, e, block, anchor.unwrap_or(edit.cursor), edit.cursor);
-    }
+    // The cursor follows every change: the editor holds it, not a field.
+    focaliser(f, e, block, anchor.unwrap_or(edit.cursor), edit.cursor);
     rendre(f, e, false);
     planifier_ecriture(f);
 }
@@ -1097,22 +1031,6 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             mode_focus(f, e);
             true
         }
-        // Ctrl+A selects the line's words (the field does it); again, every block of
-        // the note, formulas, tables and theorems with the words.
-        "ctrl+a" | "ctrl+A" => {
-            let marque = render::prefixe(&kind, &texte);
-            if anchor.min(cursor) <= marque && anchor.max(cursor) >= texte.len() && n > 1 {
-                blocs::choisir(f, e, 0, n - 1);
-                true
-            } else {
-                false
-            }
-        }
-        // Shift and an arrow past the line's edge: whole blocks.
-        "shift+up" | "shift+down" => {
-            let marque = render::prefixe(&kind, &texte);
-            blocs::depuis_la_ligne(f, e, i, &texte, cursor, marque, nom == "shift+up")
-        }
         // Tabs, as in a browser and in Obsidian.
         "ctrl+t" | "ctrl+T" => {
             e.nouvel_onglet = true;
@@ -1217,6 +1135,113 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
 }
 
 // --- What pops up over the cursor -----------------------------------------------------
+
+/// Block `i`'s checkbox ticked or unticked (its task too, when it has one). The cursor
+/// stays where it was.
+fn cocher(f: &AppWindow, e: &mut Etat, i: usize) {
+    let Some((_, t)) = contenu(e, i) else { return };
+    let n = edit::toggle_task(&t);
+    let Some(note) = &e.note else { return };
+    let ed = edit::replace_block(&note.blocks, i, &n, 0);
+    let garde = (e.focus, e.ed.ancre, e.ed.tete);
+    let delta = n.len() as isize - t.len() as isize;
+    retenir(e, true);
+    appliquer(f, e, ed, false, None);
+    cocher_tache(e, &n);
+    // Back where the cursor was (moved by the box's width when it was after it).
+    if garde.0 >= 0 {
+        let debut = e.note.as_ref().map_or(0, |n| block::start_of(&n.blocks, i));
+        let suivre = |p: usize| {
+            if p > debut {
+                (p as isize + delta).max(0) as usize
+            } else {
+                p
+            }
+        };
+        saisie::placer(f, e, suivre(garde.1), suivre(garde.2));
+    } else {
+        sans_focus(f, e);
+        rendre(f, e, false);
+    }
+}
+
+/// Block `i`'s callout folded or unfolded.
+fn plier(f: &AppWindow, e: &mut Etat, i: usize) {
+    let Some((BlockKind::Callout { folded, .. }, t)) = contenu(e, i) else {
+        return;
+    };
+    let premiere = t.lines().next().unwrap_or("");
+    let Some(fin) = premiere.find(']') else {
+        return;
+    };
+    let apres = &premiere[fin + 1..];
+    let nouvelle = match folded {
+        Some(true) => format!(
+            "{}{}",
+            &premiere[..=fin],
+            apres.strip_prefix('-').unwrap_or(apres)
+        ),
+        _ => format!(
+            "{}-{}",
+            &premiere[..=fin],
+            apres.strip_prefix('+').unwrap_or(apres)
+        ),
+    };
+    let reste = &t[premiere.len()..];
+    let n = format!("{nouvelle}{reste}");
+    let Some(note) = &e.note else { return };
+    let ed = edit::replace_block(&note.blocks, i, &n, 0);
+    retenir(e, true);
+    appliquer(f, e, ed, false, None);
+    // A callout folded is read, not written.
+    sans_focus(f, e);
+    rendre(f, e, false);
+}
+
+/// An embedded spreadsheet's option switched (`clip`), or the spreadsheet opened
+/// (`open`).
+fn option_tableur(f: &AppWindow, e: &mut Etat, i: usize, option: &str) {
+    let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
+        return;
+    };
+    if option == "open" {
+        let nom = target
+            .split(['|', '#'])
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let rel = e
+            .espace()
+            .and_then(|s| render::embedded_file(&nom, s.dir()).and_then(|p| s.rel(&p)));
+        if let Some(rel) = rel {
+            ouvrir(f, e, &rel);
+            montrer_arbre(f, e);
+        }
+        return;
+    }
+    let nouveau = render::basculer_option(&target, option);
+    let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
+    let Some(note) = &e.note else { return };
+    let ed = edit::replace_block(&note.blocks, i, &ligne, 0);
+    retenir(e, true);
+    appliquer(f, e, ed, false, None);
+    sans_focus(f, e);
+    rendre(f, e, false);
+}
+
+/// An embedded spreadsheet's column `col` (as the note shows it) given `largeur` pixels.
+fn regler_colonne(f: &AppWindow, e: &mut Etat, i: usize, col: usize, largeur: f32) {
+    let Some((BlockKind::Embed { target }, _)) = contenu(e, i) else {
+        return;
+    };
+    let Some(dir) = e.espace().map(|s| s.dir().to_path_buf()) else {
+        return;
+    };
+    if render::regler_largeur(&target, &dir, col, largeur).is_some() {
+        rendre(f, e, true);
+    }
+}
 
 /// The words of block `i` between `anchor` and `cursor` made a web link, to the
 /// address copied when there is one (Ctrl+K, the bubble's button).
@@ -1359,15 +1384,13 @@ fn candidats(
 /// What pops up after the text or the cursor moved: the completion list for what is
 /// being typed, the bubble over a selection, a card about what the cursor is in.
 fn apres_curseur(f: &AppWindow, e: &mut Etat) {
+    // Where it pops up is the window's: the editor gives it the cursor's place.
     let Curseur {
         block,
         cursor,
         anchor,
-        x,
-        y,
+        ..
     } = e.caret;
-    f.set_note_popup_x(x);
-    f.set_note_popup_y(y);
     let texte = match contenu(e, block) {
         Some((_, t)) if e.focus == block as i32 && !e.reading => t,
         _ => {
@@ -2670,8 +2693,6 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
             return;
         }
     };
-    let model = Rc::new(VecModel::<NoteBlockData>::default());
-    f.set_note_blocks(ModelRc::from(Rc::clone(&model)));
     let etat = Rc::new(RefCell::new(Etat {
         vault,
         spaces: Vec::new(),
@@ -2681,11 +2702,8 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         filter: String::new(),
         note: None,
         focus: -1,
-        serial: 0,
         title_serial: 0,
         fingerprint: 0,
-        model,
-        signatures: Vec::new(),
         palette: Palette::default(),
         tree_keys: Vec::new(),
         caret: Curseur::default(),
@@ -2704,12 +2722,12 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         onglet: 0,
         nouvel_onglet: false,
         source: false,
-        blocs: None,
         cellules: cellules::Cellules::default(),
+        ed: saisie::Editeur::nouveau(),
     }));
     sheet::wire(f, &etat);
-    blocs::wire(f, &etat);
     cellules::wire(f, &etat);
+    saisie::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
 
     // The spaces, and the note open last.
@@ -2801,46 +2819,10 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     // An embedded spreadsheet: a column's width, kept in the sheet; long words cut or
     // wrapped, kept in the embed (`|clip`).
     geste!(on_note_col_resized, |f, e, i, col, largeur| {
-        let Some((BlockKind::Embed { target }, _)) = contenu(e, i.max(0) as usize) else {
-            return;
-        };
-        let Some(dir) = e.espace().map(|s| s.dir().to_path_buf()) else {
-            return;
-        };
-        if render::regler_largeur(&target, &dir, col.max(0) as usize, largeur).is_some() {
-            rendre(&f, e, true);
-        }
+        regler_colonne(&f, e, i.max(0) as usize, col.max(0) as usize, largeur);
     });
     geste!(on_note_sheet_option, |f, e, i, option| {
-        let i = i.max(0) as usize;
-        let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
-            return;
-        };
-        // Its button to open it, in place of the note.
-        if option == "open" {
-            let nom = target
-                .split(['|', '#'])
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let rel = e
-                .espace()
-                .and_then(|s| render::embedded_file(&nom, s.dir()).and_then(|p| s.rel(&p)));
-            if let Some(rel) = rel {
-                ouvrir(&f, e, &rel);
-                montrer_arbre(&f, e);
-            }
-            return;
-        }
-        let nouveau = render::basculer_option(&target, &option);
-        let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
-        let Some(note) = &e.note else { return };
-        let ed = edit::replace_block(&note.blocks, i, &ligne, 0);
-        retenir(e, true);
-        appliquer(&f, e, ed, false, None);
-        sans_focus(&f, e);
-        rendre(&f, e, false);
+        option_tableur(&f, e, i.max(0) as usize, &option);
     });
 
     // The note as plain text.
@@ -3553,44 +3535,10 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         suivre(&f, e, &lien);
     });
     geste!(on_note_task_toggled, |f, e, i| {
-        let i = i.max(0) as usize;
-        if let Some((_, t)) = contenu(e, i) {
-            let n = edit::toggle_task(&t);
-            let Some(note) = &e.note else { return };
-            let ed = edit::replace_block(&note.blocks, i, &n, 0);
-            retenir(e, true);
-            appliquer(&f, e, ed, false, None);
-            cocher_tache(e, &n);
-        }
+        cocher(&f, e, i.max(0) as usize);
     });
     geste!(on_note_fold_toggled, |f, e, i| {
-        let i = i.max(0) as usize;
-        let Some((BlockKind::Callout { folded, .. }, t)) = contenu(e, i) else {
-            return;
-        };
-        let premiere = t.lines().next().unwrap_or("");
-        let Some(fin) = premiere.find(']') else {
-            return;
-        };
-        let apres = &premiere[fin + 1..];
-        let nouvelle = match folded {
-            Some(true) => format!(
-                "{}{}",
-                &premiere[..=fin],
-                apres.strip_prefix('-').unwrap_or(apres)
-            ),
-            _ => format!(
-                "{}-{}",
-                &premiere[..=fin],
-                apres.strip_prefix('+').unwrap_or(apres)
-            ),
-        };
-        let reste = &t[premiere.len()..];
-        let n = format!("{nouvelle}{reste}");
-        let Some(note) = &e.note else { return };
-        let ed = edit::replace_block(&note.blocks, i, &n, 0);
-        retenir(e, true);
-        appliquer(&f, e, ed, false, None);
+        plier(&f, e, i.max(0) as usize);
     });
     geste!(on_note_caret, |f, e, i, x, y, curseur, ancre| {
         e.caret = Curseur {

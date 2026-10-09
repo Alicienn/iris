@@ -104,7 +104,7 @@ fn sans_chevrons(content: &str, skip: usize) -> String {
 }
 
 /// A fenced block's inside, its fences off.
-fn interieur(content: &str) -> String {
+pub fn interieur(content: &str) -> String {
     let lignes: Vec<&str> = content.lines().collect();
     if lignes.len() <= 1 {
         return content

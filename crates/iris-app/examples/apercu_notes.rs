@@ -34,6 +34,7 @@ tags: [analyse, suites]
 # Limites de suites
 
 Une suite $(u_n)$ **converge** vers $\\ell$ si elle s'en approche __autant qu'on veut__. #analyse
+Une fraction dans la ligne : $\\frac{1}{2} = 3\\lambda / 2$, et ==ce qui compte==.
 
 > [!def] Convergence
 > $(u_n)$ converge vers $\\ell \\in \\mathbb{R}$ si pour tout $\\varepsilon > 0$, il existe $N$ tel que $n \\geq N \\Rightarrow |u_n - \\ell| < \\varepsilon$.
@@ -55,6 +56,8 @@ $$
 |---|---|
 | $1/n$ | $0$ |
 | $(1+1/n)^n$ | $e$ |
+
+![[Budget.sheet]]
 
 - [ ] Refaire l'exercice 3 [[task:1]]
 - [x] Relire le cours
@@ -192,25 +195,38 @@ fn main() {
                 2 => {
                     capture(&f, sortie.join("notes-editeur.png"));
                     f.invoke_note_side_toggled();
-                    f.invoke_note_reading_toggled();
+                    // The cursor in the line with formulas: its marks show.
+                    f.invoke_note_canvas_pressed(300.0, 60.0, false, false);
+                    f.invoke_note_canvas_released(300.0, 60.0);
                 }
                 3 => {
+                    capture(&f, sortie.join("notes-ecriture.png"));
+                    // A selection from a line into the theorem below.
+                    f.invoke_note_canvas_pressed(120.0, 60.0, false, false);
+                    f.invoke_note_canvas_dragged(200.0, 260.0);
+                    f.invoke_note_canvas_released(200.0, 260.0);
+                }
+                4 => {
+                    capture(&f, sortie.join("notes-selection.png"));
+                    f.invoke_note_reading_toggled();
+                }
+                5 => {
                     capture(&f, sortie.join("notes-lecture.png"));
                     f.invoke_note_reading_toggled();
                     f.invoke_notes_quick_chosen("Analyse/Budget.sheet".into());
                 }
-                4 => {
+                6 => {
                     capture(&f, sortie.join("notes-tableur.png"));
                     f.invoke_notes_quick_chosen("Analyse/Limites de suites.md".into());
                     f.invoke_notes_graph_requested();
                 }
-                5 => {
+                7 => {
                     capture(&f, sortie.join("notes-graphe.png"));
                     f.set_notes_graph_open(false);
                     f.invoke_note_revise();
                     f.invoke_notes_review_reveal();
                 }
-                6 => {
+                8 => {
                     capture(&f, sortie.join("notes-revision.png"));
                     let _ = slint::quit_event_loop();
                 }

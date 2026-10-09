@@ -478,61 +478,60 @@ fn ctrl_4_opens_the_notes_and_escape_closes_their_menus() {
     assert!(!f.get_notes_quick_open(), "Escape closes Quick open");
 }
 
+/// The keys the note's editor hands Rust, recorded (and taken).
+fn cles_de_la_note(f: &AppWindow) -> Rc<RefCell<Vec<String>>> {
+    let cles = Rc::new(RefCell::new(Vec::<String>::new()));
+    let c = Rc::clone(&cles);
+    f.on_note_canvas_key(move |n| {
+        c.borrow_mut().push(n.to_string());
+        true
+    });
+    cles
+}
+
+/// A note of `n` lines of words, as Rust lays it out for the editor.
+fn des_lignes(f: &AppWindow, n: usize) {
+    let blocs: Vec<iris_ui::NoteViewBlock> = (0..n)
+        .map(|k| iris_ui::NoteViewBlock {
+            y: k as f32 * 24.0,
+            h: 24.0,
+            runs: ModelRc::new(VecModel::from(vec![iris_ui::NoteRunData {
+                x: 0.0,
+                y: 2.0,
+                h: 20.0,
+                text: format!("Ligne {k}").into(),
+                size: 15.0,
+                weight: 400,
+                ..Default::default()
+            }])),
+            ..Default::default()
+        })
+        .collect();
+    f.set_note_open(true);
+    f.set_note_view(ModelRc::new(VecModel::from(blocs)));
+    f.set_note_view_height(n as f32 * 24.0);
+}
+
 fn a_note_s_line_takes_every_key_and_enter_goes_to_rust() {
     let f = fenetre();
     ctrl(&f, "4");
-    let edites = Rc::new(RefCell::new(Vec::<String>::new()));
-    {
-        let edites = Rc::clone(&edites);
-        f.on_note_block_edited(move |_, t, _| edites.borrow_mut().push(t.to_string()));
-    }
-    let cles = Rc::new(RefCell::new(Vec::<String>::new()));
-    {
-        let cles = Rc::clone(&cles);
-        f.on_note_block_key(move |_, n, _, _, _, _| {
-            cles.borrow_mut().push(n.to_string());
-            n == "enter"
-        });
-    }
-    f.set_note_open(true);
-    f.set_note_blocks(ModelRc::new(VecModel::from(vec![iris_ui::NoteBlockData {
-        kind: "paragraph".into(),
-        ..Default::default()
-    }])));
-    f.set_note_focus(0);
-    f.set_note_focus_serial(1);
+    let cles = cles_de_la_note(&f);
+    des_lignes(&f, 3);
+    construire(&f);
+    f.set_note_canvas_focus_serial(1);
     // AltGr's characters too, as an AZERTY keyboard gives them.
     taper(&f, "Hé@€");
-    assert_eq!(
-        edites.borrow().last().map(String::as_str),
-        Some("Hé@€"),
-        "the line takes the keys"
-    );
     let entree = SharedString::from(slint::platform::Key::Return);
     f.window().dispatch_event(WindowEvent::KeyPressed {
         text: entree.clone(),
     });
     f.window()
         .dispatch_event(WindowEvent::KeyReleased { text: entree });
-    assert!(
-        cles.borrow().iter().any(|k| k == "enter"),
-        "Enter is Rust's: {:?}",
-        cles.borrow()
+    assert_eq!(
+        *cles.borrow(),
+        ["type:H", "type:é", "type:@", "type:€", "enter"],
+        "every key is Rust's, Enter too"
     );
-}
-
-/// A note of `n` lines of words.
-fn des_lignes(f: &AppWindow, n: usize) {
-    let blocs: Vec<iris_ui::NoteBlockData> = (0..n)
-        .map(|k| iris_ui::NoteBlockData {
-            kind: "paragraph".into(),
-            source: format!("Ligne {k}").into(),
-            rich: slint::StyledText::from_plain_text(&format!("Ligne {k}")),
-            ..Default::default()
-        })
-        .collect();
-    f.set_note_open(true);
-    f.set_note_blocks(ModelRc::new(VecModel::from(blocs)));
 }
 
 /// The window's items made, as a frame drawn makes them.
@@ -545,133 +544,83 @@ fn construire(f: &AppWindow) {
 fn a_line_made_below_the_page_keeps_the_keyboard() {
     let f = fenetre();
     ctrl(&f, "4");
-    let edites = Rc::new(RefCell::new(Vec::<i32>::new()));
-    {
-        let edites = Rc::clone(&edites);
-        f.on_note_block_edited(move |i, _, _| edites.borrow_mut().push(i));
-    }
-    // Enter at the end of a long note: the new line is below what shows.
+    let cles = cles_de_la_note(&f);
+    // Enter at the end of a long note: the cursor is below what shows.
     des_lignes(&f, 80);
-    f.set_note_focus(79);
-    f.set_note_focus_serial(1);
     construire(&f);
-    testing::mock_elapsed_time(std::time::Duration::from_millis(20));
+    f.set_note_canvas_focus_serial(1);
+    f.set_note_caret_y(79.0 * 24.0);
+    f.set_note_caret_h(20.0);
+    f.set_note_caret_visible(true);
+    f.set_note_caret_serial(1);
+    construire(&f);
     taper(&f, "x");
+    taper(&f, "y");
     assert_eq!(
-        edites.borrow().last().copied(),
-        Some(79),
-        "the page scrolls to the new line, which keeps the keys: {:?}",
-        edites.borrow()
+        *cles.borrow(),
+        ["type:x", "type:y"],
+        "the note keeps the keys wherever its cursor is"
     );
 }
 
-fn an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys() {
+fn a_click_in_a_note_reaches_rust_and_gives_it_the_keys() {
     let f = fenetre();
     ctrl(&f, "4");
-    let g = f.global::<iris_ui::NoteSelect>();
-    let choisies = Rc::new(RefCell::new(Vec::<(i32, i32, i32)>::new()));
+    let cles = cles_de_la_note(&f);
+    let clics = Rc::new(RefCell::new(0));
     {
-        let (choisies, faible) = (Rc::clone(&choisies), f.as_weak());
-        g.on_cell_pressed(move |i, r, c, _| {
-            choisies.borrow_mut().push((i, r, c));
-            // As Rust does: the cell selected, the keyboard to the cells.
-            let f = faible.unwrap();
-            let g = f.global::<iris_ui::NoteSelect>();
-            g.set_r1(r);
-            g.set_r2(r);
-            g.set_c1(c);
-            g.set_c2(c);
-            g.set_row(r);
-            g.set_col(c);
-            g.set_sheet_block(i);
-            g.set_cells_serial(g.get_cells_serial() + 1);
-        });
+        let clics = Rc::clone(&clics);
+        f.on_note_canvas_pressed(move |_, _, _, _| *clics.borrow_mut() += 1);
     }
-    let cles = Rc::new(RefCell::new(Vec::<String>::new()));
-    {
-        let cles = Rc::clone(&cles);
-        g.on_cell_key(move |n| {
-            cles.borrow_mut().push(n.to_string());
-            true
-        });
-    }
-    let cellules: Vec<SharedString> = ["Poste", "Montant", "Loyer", "800"]
-        .into_iter()
-        .map(SharedString::from)
-        .collect();
-    f.set_note_open(true);
-    f.set_note_blocks(ModelRc::new(VecModel::from(vec![
-        iris_ui::NoteBlockData {
-            kind: "paragraph".into(),
-            source: "Budget".into(),
-            rich: slint::StyledText::from_plain_text("Budget"),
-            ..Default::default()
-        },
-        iris_ui::NoteBlockData {
-            kind: "table".into(),
-            sheet: true,
-            rows: 2,
-            columns: 2,
-            cells: ModelRc::new(VecModel::from(cellules)),
-            widths: ModelRc::new(VecModel::from(vec![120.0f32, 120.0])),
-            widths_total: 240.0,
-            edges: ModelRc::new(VecModel::from(vec![120.0f32, 240.0])),
-            ..Default::default()
-        },
-    ])));
-    // The line above is being written: one click on a cell takes it.
-    f.set_note_focus(0);
-    f.set_note_focus_serial(1);
-    let montant = testing::ElementQuery::from_root(&f)
+    des_lignes(&f, 5);
+    let ligne = testing::ElementQuery::from_root(&f)
         .match_descendants()
         .find_all()
         .into_iter()
-        .find(|e| e.accessible_label().as_deref() == Some("800"))
-        .expect("the cell 800 is drawn");
-    clic(&montant);
-    assert_eq!(
-        *choisies.borrow(),
-        vec![(1, 1, 1)],
-        "the click chose the cell"
-    );
-    construire(&f);
-    taper(&f, "4");
-    ctrl(&f, "c");
-    assert_eq!(
-        *cles.borrow(),
-        vec!["type:4".to_string(), "ctrl+c".to_string()],
-        "the cells take the keys"
-    );
+        .find(|e| e.accessible_label().as_deref() == Some("Ligne 2"))
+        .expect("the line is drawn");
+    // The title is being typed: one click on the note is enough.
+    clic(&ligne);
+    assert_eq!(*clics.borrow(), 1, "the click reached the note");
+    taper(&f, "a");
+    assert_eq!(*cles.borrow(), ["type:a"], "and the keys went with it");
 }
 
-fn a_heading_is_typed_without_its_hashes() {
+fn an_embedded_spreadsheet_s_cell_is_typed_in_over_it() {
     let f = fenetre();
     ctrl(&f, "4");
-    let edites = Rc::new(RefCell::new(Vec::<(String, i32)>::new()));
+    let g = f.global::<iris_ui::NoteSelect>();
+    let validees = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
     {
-        let edites = Rc::clone(&edites);
-        f.on_note_block_edited(move |_, t, c| edites.borrow_mut().push((t.to_string(), c)));
+        let validees = Rc::clone(&validees);
+        g.on_cell_committed(move |_, _, _, t, comment| {
+            validees
+                .borrow_mut()
+                .push((t.to_string(), comment.to_string()));
+        });
     }
-    f.set_note_open(true);
-    f.set_note_blocks(ModelRc::new(VecModel::from(vec![iris_ui::NoteBlockData {
-        kind: "heading".into(),
-        level: 2,
-        source: "Limites".into(),
-        prefix: "## ".into(),
-        prefix_bytes: 3,
-        ..Default::default()
-    }])));
-    // The cursor after "## " in the whole source: the start of the words shown.
-    f.set_note_focus_cursor(3);
-    f.set_note_focus_anchor(3);
-    f.set_note_focus(0);
-    f.set_note_focus_serial(1);
-    taper(&f, "Les ");
-    let dernier = edites.borrow().last().cloned();
+    des_lignes(&f, 4);
+    // As Rust does when a cell is double-clicked: its input, over the cell.
+    g.set_sheet_block(1);
+    g.set_edit_x(0.0);
+    g.set_edit_y(24.0);
+    g.set_edit_w(120.0);
+    g.set_edit_h(24.0);
+    g.set_edit_text("800".into());
+    g.set_edit_cursor(3);
+    g.set_editing(true);
+    construire(&f);
+    taper(&f, "5");
+    let entree = SharedString::from(slint::platform::Key::Return);
+    f.window().dispatch_event(WindowEvent::KeyPressed {
+        text: entree.clone(),
+    });
+    f.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: entree });
     assert_eq!(
-        dernier,
-        Some(("## Les Limites".to_string(), 7)),
-        "the field holds the words; Rust gets the whole line"
+        *validees.borrow(),
+        vec![("8005".to_string(), "enter".to_string())],
+        "the cell takes the keys, and Enter ends it"
     );
 }
 
@@ -2764,12 +2713,12 @@ fn main() {
             a_line_made_below_the_page_keeps_the_keyboard,
         ),
         (
-            "an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys",
-            an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys,
+            "a_click_in_a_note_reaches_rust_and_gives_it_the_keys",
+            a_click_in_a_note_reaches_rust_and_gives_it_the_keys,
         ),
         (
-            "a_heading_is_typed_without_its_hashes",
-            a_heading_is_typed_without_its_hashes,
+            "an_embedded_spreadsheet_s_cell_is_typed_in_over_it",
+            an_embedded_spreadsheet_s_cell_is_typed_in_over_it,
         ),
         (
             "a_new_note_s_title_is_selected_and_typing_names_it",

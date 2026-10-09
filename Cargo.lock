@@ -3624,6 +3624,7 @@ dependencies = [
  "iris-vault",
  "iris-viewmodel",
  "iris-workflow",
+ "parley",
  "reqwest",
  "rfd",
  "ring",

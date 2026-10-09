@@ -629,6 +629,64 @@ export struct NoteBlockData {
     clip: bool,
 }
 
+// The note's editor draws what Rust lays out: words placed where Rust measured them
+// (parley, as Slint itself lays text out), rectangles, pictures and icons. Positions
+// are in the block, in logical pixels.
+
+// A run of words in one style, on one line.
+export struct NoteRunData {
+    x: length,
+    y: length,
+    h: length,
+    text: string,
+    size: length,
+    weight: int,
+    italic: bool,
+    // 0: the text's font, 1: fixed-width, 2: the display font (large titles).
+    family: int,
+    color: color,
+}
+
+// A rectangle: a highlight, a plate, a bar, a rule, a cell, a box to tick.
+export struct NoteRectData {
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    color: color,
+    radius: length,
+    border: color,
+    border-width: length,
+}
+
+// A picture: a formula, an embedded image.
+export struct NoteImageData {
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    image: image,
+}
+
+// An icon (a tick, a fold arrow, a button's), by its name in `Icons`.
+export struct NoteIconData {
+    x: length,
+    y: length,
+    size: length,
+    name: string,
+    tint: color,
+}
+
+// A block of the note as the editor draws it, at its height in the page.
+export struct NoteViewBlock {
+    y: length,
+    h: length,
+    runs: [NoteRunData],
+    rects: [NoteRectData],
+    images: [NoteImageData],
+    icons: [NoteIconData],
+}
+
 // A note found by Quick open or search.
 export struct NoteFoundData {
     key: string,
