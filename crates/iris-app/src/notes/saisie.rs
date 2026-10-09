@@ -362,8 +362,6 @@ pub(super) fn montrer(f: &AppWindow, e: &mut Etat) {
         block: bi,
         cursor: local,
         anchor: if ba == bi { la } else { local },
-        x: 0.0,
-        y: 0.0,
     };
     let _ = i;
     super::apres_curseur(f, e);

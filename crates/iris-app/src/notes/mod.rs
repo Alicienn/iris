@@ -131,14 +131,12 @@ struct Revision {
     again: usize,
 }
 
-/// Where the cursor is.
+/// Where the cursor is: its block, and the cursor and the anchor in it.
 #[derive(Debug, Default, Clone, Copy)]
 struct Curseur {
     block: usize,
     cursor: usize,
     anchor: usize,
-    x: f32,
-    y: f32,
 }
 
 /// A completion list: what is being typed, what is offered, what is chosen.
@@ -3540,13 +3538,11 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     geste!(on_note_fold_toggled, |f, e, i| {
         plier(&f, e, i.max(0) as usize);
     });
-    geste!(on_note_caret, |f, e, i, x, y, curseur, ancre| {
+    geste!(on_note_caret, |f, e, i, _x, _y, curseur, ancre| {
         e.caret = Curseur {
             block: i.max(0) as usize,
             cursor: curseur.max(0) as usize,
             anchor: ancre.max(0) as usize,
-            x,
-            y,
         };
         apres_curseur(&f, e);
     });

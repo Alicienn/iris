@@ -549,13 +549,7 @@ impl BlocVu {
         let mut meilleure: Option<(usize, usize, usize)> = None;
         for (k, z) in self.zones.iter().enumerate() {
             let (a, b) = z.etendue();
-            let distance = if local < a {
-                a - local
-            } else if local > b {
-                local - b
-            } else {
-                0
-            };
+            let distance = a.saturating_sub(local).max(local.saturating_sub(b));
             if meilleure.is_none_or(|(_, _, d)| distance < d) {
                 meilleure = Some((k, z.riche.vers_affiche(local.clamp(a, b)), distance));
             }
