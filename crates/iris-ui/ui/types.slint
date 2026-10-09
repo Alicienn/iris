@@ -734,3 +734,75 @@ export struct SheetHeaderData {
     label: string,
     selected: bool,
 }
+
+// A day of a habit (or, in the year, a month of it).
+export struct HabitCellData {
+    // 0 missed, 1 done, 2 partial, 3 a rest day, 4 today still to do, 5 to come,
+    // 6 before the habit existed.
+    state: int,
+    // How much of it: the part done for a partial day, the rate for a month.
+    fraction: float,
+    // YYYY-MM-DD, what a click ticks; empty for what cannot be ticked.
+    day: string,
+    // For a screen reader and the hover: "Wed 7 Oct, done".
+    label: string,
+}
+
+// A row of the habits' page: a habit, or the title of a group of them.
+export struct HabitData {
+    // 0 a habit, 1 a group's title.
+    kind: int,
+    id: int,
+    // The habit's name, or the group's: "Every day", "Some days", "Less of".
+    title: string,
+    // What it is: "20 pages a day · Read 12 books".
+    subtitle: string,
+    // The word of its icon: "book".
+    icon: string,
+    color: color,
+    cells: [HabitCellData],
+    // At the right: "12 days", "2 of 3", "best 9"; a group's title: "Streak".
+    streak: string,
+    // A flame before the streak, in colour while it runs.
+    flame: bool,
+    hot: bool,
+    done-today: bool,
+    due-today: bool,
+    selected: bool,
+}
+
+// The habit chosen, in the panel on the right.
+export struct HabitDetailData {
+    id: int,
+    title: string,
+    icon: string,
+    color: color,
+    // "20 pages a day, at any hour."
+    sentence: string,
+    streak: int,
+    // "days in a row", "weeks in a row".
+    streak-label: string,
+    best: int,
+    // "86%", or "—" before there is anything to say.
+    rate: string,
+    // The last six months, a column a week, Monday at the top.
+    grid: [HabitCellData],
+    // "142 days".
+    grid-count: string,
+    // The months under the grid.
+    months: [string],
+    has-goal: bool,
+    goal-id: int,
+    goal-title: string,
+    goal-color: color,
+    // "7 of 12 · on track".
+    goal-line: string,
+    schedule: string,
+    reminder: string,
+    // "Do more", "Do less".
+    kind: string,
+    // A habit with an amount: how much, of what, and what today holds.
+    amount: int,
+    unit: string,
+    today-amount: int,
+}

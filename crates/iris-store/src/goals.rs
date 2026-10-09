@@ -172,11 +172,13 @@ impl Store {
         })
     }
 
-    /// Deletes a goal, its log and its milestones. Its tasks stay, without it.
+    /// Deletes a goal, its log and its milestones. Its tasks and habits stay, without it.
     pub fn delete_goal(&self, id: i64) -> Result<()> {
         self.with_tx(|tx| {
             // The foreign key would do it; saying so here does not depend on it.
             tx.execute("UPDATE tasks SET goal_id = NULL WHERE goal_id = ?1", [id])
+                .map_err(err("suppression d'un objectif"))?;
+            tx.execute("UPDATE habits SET goal_id = NULL WHERE goal_id = ?1", [id])
                 .map_err(err("suppression d'un objectif"))?;
             tx.execute("DELETE FROM goals WHERE id = ?1", [id])
                 .map(|_| ())

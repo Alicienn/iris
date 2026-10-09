@@ -22,6 +22,7 @@ the first afternoon, and never forgive".
 | Calendar | Month, week and day, an event typed straight into a free slot, events dragged and stretched, today's tasks dragged onto the week, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event, calendars kept both ways with iCloud, Fastmail, Nextcloud or Google (CalDAV, 4.13.0) as Thunderbird and Apple Calendar do |
 | Tasks | One-line entry, lists, subtasks, reminders, repeating tasks, a review of the week, tasks made from conversations and events, undo, the day's tasks laid into the calendar's free time in one click (4.13.0) |
 | Goals | A target or milestones by a date, the pace needed, time blocked weekly in the calendar — none of the four mail clients has them |
+| Habits | Ticked day by day, every day, some days or a few times a week, with streaks and a reminder (5.0.0) — none of the four has them either |
 | Drafts | Saved to the server's Drafts folder, asked for when a started message is closed |
 | Home | A start page for the day: one sentence on what waits, the next three events and tasks |
 | Navigation | Back and forward across mailboxes, folders, views and workspaces, mouse buttons included |

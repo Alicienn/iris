@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 24;
+pub const CURRENT_VERSION: i64 = 25;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -138,7 +138,47 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "the mailboxes a folder was made for",
         sql: SCHEMA_V24,
     },
+    Migration {
+        version: 25,
+        name: "habits",
+        sql: SCHEMA_V25,
+    },
 ];
+
+/// Habits, and the days they were kept.
+///
+/// - `kind`: `build` (do more of it) or `quit` (do less: ticked when the day was kept).
+/// - `schedule`: `daily`, `days:1010100` (Monday first), or `week:3` (three days a
+///   week, any of them).
+/// - `amount` and `unit`: what makes a day done (20 pages); 0 and empty for none. A
+///   check holds the amount done that day.
+/// - `remind_minute`: the minute of the day to be reminded at if not done;
+///   `reminded_day` the last day that reminder was given.
+const SCHEMA_V25: &str = "
+CREATE TABLE habits (
+    id            INTEGER PRIMARY KEY,
+    title         TEXT NOT NULL,
+    icon          TEXT NOT NULL DEFAULT 'sparkle',
+    color         TEXT NOT NULL,
+    kind          TEXT NOT NULL DEFAULT 'build',
+    schedule      TEXT NOT NULL DEFAULT 'daily',
+    amount        INTEGER NOT NULL DEFAULT 0,
+    unit          TEXT NOT NULL DEFAULT '',
+    goal_id       INTEGER REFERENCES goals(id) ON DELETE SET NULL,
+    remind_minute INTEGER,
+    reminded_day  TEXT,
+    position      INTEGER NOT NULL DEFAULT 0,
+    created_at    INTEGER NOT NULL,
+    archived_at   INTEGER
+);
+
+CREATE TABLE habit_checks (
+    habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+    day      TEXT NOT NULL,
+    amount   INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (habit_id, day)
+) WITHOUT ROWID;
+";
 
 /// The mailboxes a folder of one's own was made for, by the name it is shown under
 /// (`Devis`, never `INBOX.Devis`). No row for a name: every mailbox, as before. Its

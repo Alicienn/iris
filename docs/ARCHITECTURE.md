@@ -2,7 +2,8 @@
 
 A desktop mail client, written in Rust, designed to hold **a hundred mailboxes and a
 million messages** on one machine without ever ceasing to be immediate. Beside the mail
-sit a calendar, a task list and notes, built on the same principles.
+sit a calendar, a task list, notes and Growth (habits and goals), built on the same
+principles.
 
 Three stances set it apart:
 
@@ -182,7 +183,7 @@ contract of the one before it.
   View model     iris-viewmodel                              testable without UI
   Domain         iris-workflow · iris-thread · iris-rules    pure, no I/O
                  iris-search · iris-mime
-                 iris-calendar · iris-tasks
+                 iris-calendar · iris-tasks · iris-growth
                  iris-notes · iris-sheets · iris-math
   Data           iris-store (SQLite) · iris-index (Tantivy)  local truth
                  iris-blobs (zstd + LRU)
@@ -268,7 +269,7 @@ property**, not by discipline:
 
 Stated here so they are decided rather than discovered:
 
-- **Calendar, tasks and Home read SQLite on the display thread.** Their state lives on
+- **Calendar, tasks, Growth and Home read SQLite on the display thread.** Their state lives on
   the UI thread and their queries are small and bounded (a visible period, a list, a
   handful of counts), but they break invariant 1 in letter. Moving them behind the view
   model is the fix if a large calendar ever shows up in a frame time.
@@ -290,14 +291,15 @@ Stated here so they are decided rather than discovered:
 
 ## Interface
 
-Four workspaces share one window, switched with `Ctrl`+`0` to `Ctrl`+`3` or from the
+Six workspaces share one window, switched with `Ctrl`+`0` to `Ctrl`+`5` or from the
 switcher at the top of each place's side column: **Home**, **Mail**, **Calendar**,
-**Tasks** (4.0.0, after Apple's own apps; the rail and title strip of 3.x are gone).
+**Tasks** (4.0.0, after Apple's own apps; the rail and title strip of 3.x are gone),
+**Notes** (4.15.0, workspace 4) and **Growth** (5.0.0, workspace 5).
 The window chrome lives in `shell/chrome.slint`:
 
 - `SidebarFrame` is a place's side column: `SidebarHead` (the window's lights on a Mac
   setting, else the Iris badge, the "Trio" mark of `assets/iris.ico` drawn in paths;
-  back and forward; the four-place switcher), the
+  back and forward; the five-place switcher), the
   place's own rows. Its foot, `SidebarFoot` (settings, the palette), is drawn by the
   status bar in its stretch under the column (`side`), on the window's bottom edge.
 - `WindowToolbar` is the 52 px bar over a place's content: it moves the window
@@ -890,6 +892,38 @@ against the callouts' numbering as drawn, then the headings.
 `[[task:<id>]]` on its line: ticking the line ticks the task (`tasks::toggle_done`),
 and opening the note ticks the lines whose tasks were done meanwhile.
 
+## Growth
+
+Growth (5.0.0, workspace 5, `Ctrl`+`5`) holds the habits and the goals, which left the
+Tasks column. Design: `docs/superpowers/specs/2026-10-09-iris-growth-design.md`.
+
+`iris-growth` is pure, as `iris-tasks` is:
+
+- `habits` reads a habit's `Schedule` (`daily`, `days:1010100` Monday first, `week:3`
+  for three days a week, any of them) and says what each day shows (`Day`: done,
+  partial, missed, rest, today still to do, to come, before the habit), the streak and
+  the best one (`Streak`: due days in a row from today, today not done yet breaking
+  nothing; in weeks for `week:N`), and the rate over a stretch (today left out until
+  it is done). Less than a habit's amount is partial: shown, not a kept day.
+- `quick` reads a habit typed in one line (`Read 20 pages every day`, `Run 3 times a
+  week`, `Gym on mon, wed and fri`, `No phone in bed`), conservative as the tasks'
+  quick entry is: three-letter day names only after *on*, the rest left in the name,
+  the icon guessed from the words.
+
+The application side (`crates/iris-app/src/growth.rs`) fills the habits' page by the
+week, the month or the year (`cellules`), the panel (`detail`: six months as 182 days,
+a column a week), the column's count and Home's widget (`fill_home`), and answers the
+gestures. A day is ticked with the habit's whole amount (`basculer`); the panel's −
+and + move today's amount by a quarter of it. Reminders use a 30-second timer, as the
+tasks' do: a habit due today, not done, past its minute and not reminded today is
+notified once (`reminded_day`).
+
+A goal's page is still the tasks' own (`Vue::Goal`, steps, the add bar, a step's
+details): in Growth, `app.slint` draws `TasksView` with `embedded` (no column) beside
+Growth's column, and choosing a goal there hands `goal:{id}` to the tasks. Coming back
+to Tasks while a goal is shown returns to the view Tasks had before (`avant_objectif`).
+Back and forward know Growth's places (`Place::growth`).
+
 ## Sending, and undoing a send
 
 The outbox (`crates/iris-smtp/src/outbox.rs`) holds each message for a delay **before**
@@ -1253,14 +1287,15 @@ which keeps that term off any index, and a test pins the plan
 | 22 | `unsubscribed`: the senders one has left the mailing list of, by address (4.12.0) |
 | 23 | `calendar_accounts`; `account_id`, `remote_href`, `read_only` on calendars; `href`, `etag`, `remote_ics`, `dirty` on events; `calendar_tombstones` (4.13.0) |
 | 24 | `folder_accounts`: the mailboxes a folder of one's own was made for, by its shown name; none means every mailbox (4.14.0) |
+| 25 | `habits` (schedule, amount, goal, reminder) and `habit_checks` (a day kept, and how much) (5.0.0) |
 
 A new table or column always arrives as a new migration.
 
 **Backups of one's own data** (4.12.0, `iris-store/src/backup.rs`,
 `iris-app/src/backup.rs`). Mail comes back from its servers; calendars, events and
-what is set beside them, task lists, tasks and goals do not. Once a day (looked at a
+what is set beside them, task lists, tasks, goals and habits do not. Once a day (looked at a
 minute after launch, then every hour) `back_up_personal` attaches a new file and copies
-those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
+those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals, habits and their days) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
 an `about` row (schema version, time); the file is written as `.partial` and renamed.
 They sit in `data/backups/personal-YYYY-MM-DD.db`, fourteen kept. `restore_personal`
 empties the same tables children first and fills them parents first from the backup,

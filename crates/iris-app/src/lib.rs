@@ -14,6 +14,7 @@ pub mod controller;
 pub mod draft;
 pub mod folders;
 pub mod goals;
+pub mod growth;
 pub mod home;
 pub mod invite;
 pub mod later;

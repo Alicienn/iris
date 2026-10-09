@@ -1,0 +1,211 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { HabitData, HabitDetailData, GoalData } from "@iris/types.slint";
+import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
+import { Segmented } from "@iris/controls/choice.slint";
+import { Nav, NavItem, SectionRow, SectionTitle } from "@iris/lists/nav.slint";
+import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { GoalRow } from "@iris/screens/goals.slint";
+import { HabitsPage, HabitPanel } from "@iris/screens/habits.slint";
+
+// Growth: who one wants to become, beside what there is to do. Its column holds the
+// day's habits and the goals; the habits fill the rest. A goal's page is the tasks'
+// own, drawn beside this column by the window.
+
+/// Growth's side column.
+export component GrowthSidebar inherits SidebarFrame {
+    /// 0 the habits, 1 a goal or all of them.
+    in property <int> page;
+    in property <string> habits-count;
+    in property <[GoalData]> goals;
+    /// All the goals are shown.
+    in property <bool> goals-shown;
+    callback place-chosen(string);
+    callback new-goal();
+
+    SectionRow { text: "Today"; }
+    NavItem {
+        label: "Habits";
+        icon: Icons.sprout;
+        icon-tint: Tokens.green;
+        count: root.habits-count;
+        selected: root.page == 0;
+        clicked => { root.place-chosen("habits"); }
+    }
+
+    // The goals, their title leading to all of them, as the tasks had them.
+    HorizontalLayout {
+        height: 31px;
+        padding-left: 8px;
+        padding-right: 0px;
+        padding-top: 12px;
+        padding-bottom: 4px;
+        Rectangle {
+            horizontal-stretch: 1;
+            accessible-role: button;
+            accessible-label: "All goals";
+            accessible-action-default => { root.place-chosen("goals"); }
+            SectionTitle {
+                x: 0;
+                height: parent.height;
+                text: "Goals";
+                color: tous.has-hover || (root.page == 1 && root.goals-shown) ? Tokens.text : Tokens.text-muted;
+            }
+            tous := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.place-chosen("goals"); }
+            }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.plus;
+            label: "New goal";
+            button-size: 20px;
+            icon-size: 14px;
+            clicked => { root.new-goal(); }
+        }
+    }
+    for g in root.goals: GoalRow {
+        goal: {
+            id: g.id,
+            title: g.title,
+            why: g.why,
+            color: g.color,
+            milestones: g.milestones,
+            done: g.done,
+            target: g.target,
+            of-label: g.of-label,
+            due-label: g.due-label,
+            due-short: g.due-short,
+            status: g.status,
+            badge: g.badge,
+            pace: g.pace,
+            fraction: g.fraction,
+            expected: g.expected,
+            ring: g.ring,
+            open-steps: g.open-steps,
+            // On the habits' page no goal is the one shown.
+            selected: g.selected && root.page == 1,
+        };
+        chosen(id) => { root.place-chosen("goal:" + id); }
+    }
+    if root.goals.length == 0: HorizontalLayout {
+        height: 28px;
+        padding-left: 8px;
+        Text {
+            text: "No goal yet.";
+            font-size: 12.5px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle { vertical-stretch: 1; }
+}
+
+export component GrowthView inherits Rectangle {
+    in property <int> page;
+    in property <int> mode;
+    in property <string> title;
+    in property <string> dates;
+    in property <string> note;
+    in property <string> count;
+    in property <string> habits-count;
+    in property <[HabitData]> rows;
+    in property <[string]> labels;
+    in property <int> today;
+    in property <bool> has-detail;
+    in property <HabitDetailData> detail;
+    in-out property <string> add-text;
+    in property <int> focus-add-request;
+    in property <[GoalData]> goals;
+    in property <bool> goals-shown;
+
+    callback place-chosen(string);
+    callback new-goal();
+    callback mode-chosen(int);
+    callback new-habit();
+    callback selected(int);
+    callback cell-clicked(int, string);
+    callback add(string);
+    callback edit();
+    callback delete();
+    callback closed();
+    callback goal-opened(int);
+    callback amount-step(int);
+
+    background: Tokens.surface;
+
+    HorizontalLayout {
+        GrowthSidebar {
+            page: root.page;
+            habits-count: root.habits-count;
+            goals: root.goals;
+            goals-shown: root.goals-shown;
+            place-chosen(k) => { root.place-chosen(k); }
+            new-goal => { root.new-goal(); }
+        }
+
+        if root.page == 0: VerticalLayout {
+            horizontal-stretch: 1;
+            WindowToolbar {
+                Text {
+                    text: "Habits";
+                    font-family: Tokens.font-display;
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.count;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Segmented {
+                    y: (parent.height - self.height) / 2;
+                    options: ["Week", "Month", "Year"];
+                    selected: root.mode;
+                    chosen(i) => { root.mode-chosen(i); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "New habit";
+                    icon: Icons.plus;
+                    kind: ButtonKind.primary;
+                    size: ButtonSize.sm;
+                    clicked => { root.new-habit(); }
+                }
+            }
+            HorizontalLayout {
+                vertical-stretch: 1;
+                HabitsPage {
+                    horizontal-stretch: 1;
+                    focus-request: root.focus-add-request;
+                    title: root.title;
+                    dates: root.dates;
+                    note: root.note;
+                    rows: root.rows;
+                    labels: root.labels;
+                    today: root.today;
+                    mode: root.mode;
+                    add-text <=> root.add-text;
+                    selected(id) => { root.selected(id); }
+                    cell-clicked(id, d) => { root.cell-clicked(id, d); }
+                    add(t) => { root.add(t); }
+                }
+                if root.has-detail: HabitPanel {
+                    detail: root.detail;
+                    edit => { root.edit(); }
+                    delete => { root.delete(); }
+                    closed => { root.closed(); }
+                    goal-opened(id) => { root.goal-opened(id); }
+                    amount-step(n) => { root.amount-step(n); }
+                }
+            }
+        }
+    }
+}

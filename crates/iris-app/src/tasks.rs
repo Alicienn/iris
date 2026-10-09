@@ -96,6 +96,16 @@ struct Etat {
     a_estimer: Option<i64>,
     /// The task just added, to slide in once at the next drawing of the column.
     nouvelle: Option<i64>,
+    /// The view Tasks showed before a goal was opened in Growth: where Tasks comes
+    /// back to, since goals no longer show there.
+    avant_objectif: Option<Vue>,
+}
+
+impl Vue {
+    /// A goal's page or all of them: what Growth shows with the tasks' own view.
+    fn de_croissance(self) -> bool {
+        matches!(self, Vue::Goal(_) | Vue::Goals)
+    }
 }
 
 /// A task and its subtasks as they are before a delete, to put them back.
@@ -1629,6 +1639,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         creneaux: Vec::new(),
         a_estimer: None,
         nouvelle: None,
+        avant_objectif: None,
     }));
     f.set_task_reminders(ModelRc::new(VecModel::from(
         REMINDERS
@@ -1667,11 +1678,19 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         })
     };
 
-    // L'onglet se remplit quand on y arrive.
+    // L'onglet se remplit quand on y arrive ; Growth aussi, pour sa colonne d'objectifs
+    // et la page d'un objectif. Back in Tasks after a goal shown in Growth, the view
+    // shown before it.
     {
-        let redessiner = Rc::clone(&redessiner);
+        let (redessiner, etat) = (Rc::clone(&redessiner), Rc::clone(&etat));
         crate::workspace::follow(f, move |w| {
             if w == 2 {
+                let mut e = etat.borrow_mut();
+                if e.vue.de_croissance() {
+                    e.vue = e.avant_objectif.take().unwrap_or(Vue::Today);
+                }
+            }
+            if w == 2 || w == crate::growth::WORKSPACE {
                 redessiner();
             }
         });
@@ -1701,6 +1720,9 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         |cle| {
             if let Some(v) = Vue::depuis(&cle) {
                 let mut e = etat.borrow_mut();
+                if v.de_croissance() && !e.vue.de_croissance() {
+                    e.avant_objectif = Some(e.vue);
+                }
                 e.vue = v;
                 e.mois = None;
                 // Elsewhere, the question about the last task added is not asked.

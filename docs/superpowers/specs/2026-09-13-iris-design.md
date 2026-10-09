@@ -379,3 +379,6 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   4.21.0 the note's editor is Iris's own rather than one Slint field per line: Rust
   lays every block out with parley and Slint draws the result, so the cursor and the
   selection run across blocks and formulas are drawn inside their lines.
+- **A sixth place, Growth** (5.0.0): habits, and the goals moved out of Tasks, with a
+  pure domain crate of their own (`iris-growth`). Like the calendar and tasks, it came
+  from use; nothing in it is counted on the user's behalf.

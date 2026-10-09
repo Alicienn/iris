@@ -19,6 +19,7 @@ mod backup;
 mod caldav;
 mod calendar;
 mod goals;
+mod habits;
 mod journal;
 mod messages;
 mod migrations;
@@ -36,6 +37,7 @@ pub use backup::{backup_info, BackupInfo};
 pub use caldav::{CalendarAccount, ObjectState, OutgoingObject, Tombstone};
 pub use calendar::{NewEvent, StoredCalendar, StoredEvent};
 pub use goals::{Goal, GoalEntry, GoalKind, Milestone, NewGoal};
+pub use habits::{Habit, HabitCheck, NewHabit};
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Contact, Filters, Folder, FolderRole, ListCursor, ListQuery, NewAccount,

@@ -1985,6 +1985,82 @@ fn un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo() {
     assert_eq!(*modifs.borrow(), 1);
 }
 
+fn ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude() {
+    let f = fenetre();
+    let touches = Rc::new(RefCell::new(Vec::<String>::new()));
+    let choisies = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let cochees = Rc::new(RefCell::new(0));
+    let mouvements = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let jours = Rc::new(RefCell::new(Vec::<(i32, String)>::new()));
+    let ajouts = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |k| t.borrow_mut().push(k.to_string()));
+        let c = Rc::clone(&choisies);
+        f.on_habit_selected(move |id| c.borrow_mut().push(id));
+        let c = Rc::clone(&cochees);
+        f.on_habit_toggle_selected(move || *c.borrow_mut() += 1);
+        let m = Rc::clone(&mouvements);
+        f.on_habit_move(move |n| m.borrow_mut().push(n));
+        let j = Rc::clone(&jours);
+        f.on_habit_cell_clicked(move |id, d| j.borrow_mut().push((id, d.to_string())));
+        let a = Rc::clone(&ajouts);
+        f.on_habit_quick_add(move |t| a.borrow_mut().push(t.to_string()));
+    }
+
+    ctrl(&f, "5");
+    assert_eq!(f.get_workspace(), 5, "Ctrl+5 opens Growth");
+    let jour = |d: &str, etat: i32| iris_ui::HabitCellData {
+        state: etat,
+        day: d.into(),
+        label: format!("{d}, missed").into(),
+        ..Default::default()
+    };
+    f.set_growth_rows(ModelRc::new(VecModel::from(vec![
+        iris_ui::HabitData {
+            kind: 1,
+            title: "Every day".into(),
+            ..Default::default()
+        },
+        iris_ui::HabitData {
+            kind: 0,
+            id: 7,
+            title: "Read".into(),
+            icon: "book".into(),
+            cells: ModelRc::new(VecModel::from(vec![
+                jour("2026-10-05", 0),
+                jour("2026-10-06", 4),
+            ])),
+            ..Default::default()
+        },
+    ])));
+
+    taper(&f, "e");
+    assert!(
+        touches.borrow().is_empty(),
+        "no key reaches the mail behind Growth"
+    );
+
+    // A click on the row chooses it and hands the keyboard back: space ticks today.
+    clic(&par_role(&f, testing::AccessibleRole::ListItem, "Read"));
+    assert_eq!(*choisies.borrow(), [7]);
+    taper(&f, " ");
+    assert_eq!(*cochees.borrow(), 1);
+    taper(&f, "j");
+    assert_eq!(*mouvements.borrow(), [1]);
+
+    // A circle ticks its own day, without choosing the row again.
+    clic(&bouton(&f, "2026-10-05, missed"));
+    assert_eq!(*jours.borrow(), [(7, "2026-10-05".to_string())]);
+    assert_eq!(choisies.borrow().len(), 1);
+
+    // N puts the cursor in the line that adds a habit.
+    taper(&f, "n");
+    taper(&f, "Run 3 times a week\n");
+    assert_eq!(*ajouts.borrow(), ["Run 3 times a week"]);
+    assert!(touches.borrow().is_empty());
+}
+
 fn un_profil_s_importe_depuis_l_ajout_de_compte() {
     let f = fenetre();
     let demandes = Rc::new(RefCell::new(0));
@@ -2631,6 +2707,10 @@ fn main() {
         (
             "un_profil_s_importe_depuis_l_ajout_de_compte",
             un_profil_s_importe_depuis_l_ajout_de_compte,
+        ),
+        (
+            "ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude",
+            ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude,
         ),
         (
             "echap_quitte_la_lecture_en_plein_ecran",

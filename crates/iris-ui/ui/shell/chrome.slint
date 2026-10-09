@@ -9,7 +9,7 @@ import { Icon, Icons } from "@iris/base/icons.slint";
 //
 // What they share lives in this global, set by the window and read by every place.
 export global Chrome {
-    /// Which place shows: 0 mail, 1 calendar, 2 tasks, 3 Home.
+    /// Which place shows: 0 mail, 1 calendar, 2 tasks, 3 Home, 4 Growth.
     in-out property <int> workspace: 0;
     /// The window's buttons as on a Mac (the three lights, top left), or as on
     /// Windows (minimise, maximise, close at the right of the toolbar).
@@ -361,7 +361,7 @@ export component SidebarHead inherits VerticalLayout {
         }
     }
 
-    // The four places: Home, Mail, Calendar, Tasks.
+    // The five places: Home, Mail, Calendar, Tasks, Growth.
     Rectangle {
         height: 30px;
         border-radius: 8px;
@@ -374,6 +374,7 @@ export component SidebarHead inherits VerticalLayout {
             PlaceTab { icon: Icons.calendar; label: "Calendar"; shortcut: "Ctrl+2"; place: 1; }
             PlaceTab { icon: Icons.list; label: "Tasks"; shortcut: "Ctrl+3"; place: 2; badge: Chrome.tasks-badge; }
             PlaceTab { icon: Icons.notes; label: "Notes"; shortcut: "Ctrl+4"; place: 4; }
+            PlaceTab { icon: Icons.sprout; label: "Growth"; shortcut: "Ctrl+5"; place: 5; }
         }
     }
     Rectangle { height: 12px; }

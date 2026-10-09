@@ -3,6 +3,20 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 5.0.0 — 2026-10-09
+
+### New
+- Growth, a new place after Notes (Ctrl+5), for your habits and your goals.
+- Habits: every day, on some days or a few times a week, with an amount if you like.
+- Tick a habit's day in its week, and see its streak, its best one and its last six months.
+- Habits you want to do less of, ticked when the day was kept.
+- Type a habit in one line: "Read 20 pages every day", "Run 3 times a week".
+- A habit can remind you at an hour when it is not done yet, and support a goal.
+- Home shows today's habits; a click ticks one.
+
+### Improved
+- Goals now live in Growth, beside your habits.
+
 ## 4.22.0 — 2026-10-09
 
 ### New

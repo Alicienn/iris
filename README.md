@@ -31,6 +31,7 @@
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
 | <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, subtasks and reminders, typed in one line, with the conversations they came from one click away. |
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Notes.** Markdown notes in folders of your own, written as they look, with LaTeX, links, flashcards and spreadsheets. |
+| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Growth.** Habits ticked day by day, with their streaks, and goals with the pace they need. |
 
 ## Install
 
@@ -96,9 +97,10 @@ beside *Accounts* shows them all in one list instead.
 
 ## Getting around
 
-Each place has its side column, and at its top five buttons go from one to another:
-**Home**, **Mail**, **Calendar**, **Tasks** (a dot when tasks are due) and **Notes**. Back and
-forward sit just above them. At the column's foot, the settings (`Ctrl`+`,`) and search
+Each place has its side column, and at its top six buttons go from one to another:
+**Home**, **Mail**, **Calendar**, **Tasks** (a dot when tasks are due), **Notes** and
+**Growth**. Back and forward sit just above them. At the column's foot, the settings
+(`Ctrl`+`,`) and search
 and commands (`Ctrl`+`K`: every command at once, narrowed as you type).
 
 *Settings* opens as a page beside the side column, its settings in groups; **Done**
@@ -119,6 +121,8 @@ Iris opens on **Home**: the date, a greeting with your first name (set it in
 - **Goal**: the first goal under way, its ring and whether it is on track.
 - **Today**: the tasks due today or late; a circle ticks one off.
 - **To answer**: the first conversations of To do, and how many wait for an answer.
+- **Habits**: today's habits, a disc each; a click ticks one, and the longest streak
+  under way is named under them.
 - **This week**: the tasks done, a bar a day, and your inbox zero streak.
 - **Notes**: the notes you changed last, and how many flashcards are due.
 
@@ -223,7 +227,7 @@ A conversation deleted from the results leaves them.
 
 The back and forward buttons of your mouse, the two arrows at the top of the side column,
 or `Alt`+`←` and `Alt`+`→` go back to the places you visited (a mailbox, a folder, a tab,
-a list of tasks, the calendar) and forward again, as in a browser.
+a list of tasks, the calendar, your habits or a goal) and forward again, as in a browser.
 
 ## Calendar
 
@@ -284,7 +288,7 @@ arrow keys move to the previous or next period.
 
 Open **Tasks** at the top of the side column, or with `Ctrl`+`3`. Four tiles open
 **Today**, **Upcoming**, **All tasks** and **From mail**, each with its count; your
-lists and goals follow.
+lists follow. Goals are in [Growth](#growth).
 
 - Type a task in one line in the field at the bottom and press `Enter`. Iris reads the
   date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work
@@ -322,20 +326,6 @@ lists and goals follow.
 - In the mail, `T` (or *Add to tasks* in a conversation's right-click menu) turns the
   conversation into a task. *Open message* in the task brings it back.
 
-### Goals
-
-A goal is something to reach by a day: *Send 10 internship applications by the 17th*.
-**+** beside *Goals* in the column on the left creates one, measured by a number or by
-milestones. Its page shows where you stand, the pace you need ("6 to go in 18 days:
-about 2 a week") and whether you are on track; **Log one** counts a step (with a word
-on what you did, if you like), or tick the milestones as you reach them. What you add
-on a goal's page is a step toward it.
-**Make time for it** blocks time in your calendar on the days you choose, every week
-until the goal's day. Today points to the goals behind or due this week. Iris counts
-nothing on its own. Click a goal's title to rename it (`Enter` keeps it, `Escape` the
-old one); the pencil beside it changes the rest: its target, its day, what it is for.
-How a goal is measured stays as it was set.
-
 ### Repeating tasks and the week
 
 *Repeats* in a task's details makes it come back: every day, every weekday, every
@@ -348,7 +338,7 @@ put off, what is due next week, what was done since Monday, and the goals under 
 
 ### Backups and export
 
-Your calendars, tasks and goals exist only on this computer, so Iris copies them every
+Your calendars, tasks, goals and habits exist only on this computer, so Iris copies them every
 day to the `backups` folder beside its data and keeps the last fourteen days.
 *Settings › Your calendars and tasks* shows when the last copy was made, makes one now,
 opens the folder, and **restores** one: Iris says what it holds and asks first, and
@@ -494,6 +484,53 @@ task's menu, copies `[[mail:…]]`, `[[event:…]]` or `[[task:…]]`; in a note
 opens it. `Ctrl`+`Shift`+`T` on a checkbox makes it a task: ticking one ticks the
 other.
 
+## Growth
+
+Open **Growth**, the sprout at the top of the side column, or press `Ctrl`+`5`. Its
+column holds **Habits**, with how many of today's are done, and your **Goals**.
+
+### Habits
+
+A habit is something you want to keep doing: read, run, Spanish. The page shows the
+week, a circle a day: filled in the habit's colour when you did it, half filled when
+you did some of it, a dash on a day it is not wanted, a blue ring for today still to
+do. Click a circle to tick that day (today or before), or choose a habit and press
+`Space` for today. At the right, the streak: the days in a row, with a flame while it
+runs. A missed day breaks the streak, but it is never owed: a habit is only ever about
+today. *Week*, *Month* and *Year* at the top show more at once.
+
+- Type a habit in one line in the field at the bottom (`N` puts the cursor there) and
+  press `Enter`: `Read 20 pages every day`, `Run 3 times a week`, `Spanish 15 min on
+  weekdays`, `Gym on mon, wed and fri`. A line starting with *No* or *Stop* is a habit
+  to do less of: `No phone in bed`.
+- **New habit** sets everything: its icon and colour, *Do more* or *Do less*, how often
+  (every day, some days, or so many times a week, any days), how much each time (20
+  pages), the goal it supports, and a reminder hour: Iris reminds you then if it is
+  not done yet.
+- Choose a habit to see its details: days in a row, its best streak, the last thirty
+  days, the last six months day by day, and the goal it supports. A habit with an
+  amount counts what you did today with **−** and **+**. The pencil changes it;
+  **Delete habit** deletes it and its days.
+- Habits are grouped *Every day*, *Some days* and *Less of*. Those you want a few
+  times a week say how many this week (`2 of 3`), and their streak is in weeks.
+
+In Habits: `N` adds one, `J` / `K` or the arrows to move, `Space` done today (or not),
+`Escape` closes the details.
+
+### Goals
+
+A goal is something to reach by a day: *Send 10 internship applications by the 17th*.
+**+** beside *Goals* in Growth's column creates one, measured by a number or by
+milestones. Its page shows where you stand, the pace you need ("6 to go in 18 days:
+about 2 a week") and whether you are on track; **Log one** counts a step (with a word
+on what you did, if you like), or tick the milestones as you reach them. What you add
+on a goal's page is a step toward it, and a task in Tasks.
+**Make time for it** blocks time in your calendar on the days you choose, every week
+until the goal's day. Today, in Tasks, points to the goals behind or due this week.
+Iris counts nothing on its own. Click a goal's title to rename it (`Enter` keeps it,
+`Escape` the old one); the pencil beside it changes the rest: its target, its day,
+what it is for. How a goal is measured stays as it was set.
+
 ## Sending
 
 Sending closes the message window at once. For a few seconds, a notice at the bottom
@@ -541,6 +578,7 @@ on school and office networks where many people share one address.
 | `T` | Add the conversation to tasks |
 | `Ctrl`+`0` | Home |
 | `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` / `Ctrl`+`4` | Mail / Calendar / Tasks / Notes |
+| `Ctrl`+`5` | Growth |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | In Notes: new note / open a note / search the notes |
 | `Ctrl`+`\` | In Notes: open a note beside |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | In Notes: new tab / close the tab / next tab |

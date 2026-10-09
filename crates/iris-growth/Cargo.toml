@@ -1,0 +1,13 @@
+[package]
+name = "iris-growth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Growth without input or output: when a habit is due, what a day of it says, its
+# streaks and its rate, and a habit read from one line. Tested without a base or a
+# window.
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

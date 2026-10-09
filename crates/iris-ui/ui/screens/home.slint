@@ -1,9 +1,9 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Icon, Icons, IconButton, HabitIcons } from "@iris/base/icons.slint";
 import { Avatar } from "@iris/base/atoms.slint";
 import { Check } from "@iris/controls/choice.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
-import { HomeItemData, GoalData, AccountRowData } from "@iris/types.slint";
+import { HomeItemData, GoalData, AccountRowData, HabitData } from "@iris/types.slint";
 import { JoinButton } from "@iris/controls/video.slint";
 import { Nav, NavItem, SectionRow } from "@iris/lists/nav.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
@@ -101,6 +101,11 @@ export component HomeView inherits Rectangle {
     in property <[float]> week-bars;
     in property <int> week-today;
     in property <int> streak;
+    /// Today's habits, "2 of 4", and the longest streak under way.
+    in property <[HabitData]> habits;
+    in property <string> habits-figure;
+    in property <string> habits-foot;
+    callback habit-toggled(int);
     /// Every mailbox; for one that stopped syncing, `problem` is the sentence to show.
     in property <[AccountRowData]> accounts;
     in property <string> last-sync;
@@ -153,8 +158,14 @@ export component HomeView inherits Rectangle {
                 clicked => { root.opened("tasks"); }
             }
             NavItem {
+                label: "Habits";
+                icon: Icons.sprout;
+                count: root.habits-figure;
+                clicked => { root.opened("habits"); }
+            }
+            NavItem {
                 label: "Goals";
-                icon: Icons.sparkle;
+                icon: Icons.flag;
                 clicked => { root.opened("goals"); }
             }
             if root.accounts.length > 0: SectionRow { text: "Mailboxes"; }
@@ -221,9 +232,11 @@ export component HomeView inherits Rectangle {
                 vertical-stretch: 1;
                 mouse-drag-pan-enabled: false;
                 viewport-width: self.visible-width;
-                // A readable width, centred; three columns of widgets in it.
+                // A readable width, centred; three columns of widgets in it, four in
+                // the second row.
                 property <length> largeur: min(980px, self.visible-width - 96px);
                 property <length> colonne: (self.largeur - 32px) / 3;
+                property <length> quart: (self.largeur - 48px) / 4;
 
                 VerticalLayout {
                     x: (page.visible-width - page.largeur) / 2;
@@ -470,7 +483,7 @@ export component HomeView inherits Rectangle {
 
                         // Today's tasks: late first, then by the hour.
                         Widget {
-                            width: page.colonne;
+                            width: page.quart;
                             title: "Today";
                             tint: Tokens.accent;
                             label: "Open Tasks";
@@ -536,7 +549,7 @@ export component HomeView inherits Rectangle {
 
                         // The mail to answer: the first conversations of To do.
                         Widget {
-                            width: page.colonne;
+                            width: page.quart;
                             title: "To answer";
                             tint: Tokens.accent;
                             label: "Open Mail";
@@ -595,9 +608,80 @@ export component HomeView inherits Rectangle {
                             }
                         }
 
+                        // Today's habits: a disc each, in its colour once kept; a
+                        // click ticks it.
+                        Widget {
+                            width: page.quart;
+                            title: "Habits";
+                            tint: Tokens.green;
+                            label: "Open Habits";
+                            figure: root.habits-figure;
+                            opened => { root.opened("habits"); }
+
+                            HorizontalLayout {
+                                height: 66px;
+                                spacing: 4px;
+                                alignment: space-around;
+                                for h in root.habits: VerticalLayout {
+                                    spacing: 6px;
+                                    width: 46px;
+                                    Rectangle {
+                                        x: (parent.width - self.width) / 2;
+                                        width: 40px;
+                                        height: 40px;
+                                        border-radius: 20px;
+                                        background: h.done-today ? h.color : disque.has-hover ? h.color.transparentize(0.88) : transparent;
+                                        border-width: h.done-today ? 0px : 2.5px;
+                                        border-color: h.color;
+                                        accessible-role: checkbox;
+                                        accessible-label: h.title;
+                                        accessible-checked: h.done-today;
+                                        accessible-action-default => { root.habit-toggled(h.id); }
+                                        Icon {
+                                            data: HabitIcons.path(h.icon);
+                                            size: 18px;
+                                            weight: 1.8;
+                                            tint: h.done-today ? #ffffff : h.color;
+                                        }
+                                        disque := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.habit-toggled(h.id); }
+                                        }
+                                    }
+                                    Text {
+                                        text: h.title;
+                                        font-size: 11.5px;
+                                        color: Tokens.text-muted;
+                                        horizontal-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                            if root.habits.length == 0: Text {
+                                text: "No habit for today.";
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                                wrap: word-wrap;
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            if root.habits-foot != "": HorizontalLayout {
+                                spacing: 4px;
+                                alignment: start;
+                                Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    data: Icons.flame;
+                                    size: 12px;
+                                    filled: true;
+                                    weight: 0;
+                                    tint: Tokens.orange;
+                                }
+                                Foot { text: root.habits-foot; }
+                            }
+                        }
+
                         // The week: tasks done, a bar a day.
                         Widget {
-                            width: page.colonne;
+                            width: page.quart;
                             title: "This week";
                             tint: Tokens.green;
                             label: "Open the week in Tasks";

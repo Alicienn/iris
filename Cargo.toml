@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "4.22.0"
+version = "5.0.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -35,6 +35,7 @@ iris-plugins = { path = "crates/iris-plugins" }
 iris-calendar = { path = "crates/iris-calendar" }
 iris-caldav = { path = "crates/iris-caldav" }
 iris-tasks = { path = "crates/iris-tasks" }
+iris-growth = { path = "crates/iris-growth" }
 
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

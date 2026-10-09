@@ -18,7 +18,7 @@ const PROFONDEUR: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
-    /// 0 mail, 1 calendar, 2 tasks, 3 Home.
+    /// 0 mail, 1 calendar, 2 tasks, 3 Home, 4 Notes, 5 Growth.
     pub workspace: i32,
     /// The mailbox shown, 0 for all of them.
     pub account: i32,
@@ -34,6 +34,8 @@ pub struct Place {
     pub calendar: i32,
     /// The note open, by its path in its space.
     pub note: String,
+    /// What Growth shows: "habits", "goals", "goal:3".
+    pub growth: String,
 }
 
 impl Place {
@@ -47,6 +49,7 @@ impl Place {
             tasks: "today".into(),
             calendar,
             note: String::new(),
+            growth: "habits".into(),
         }
     }
 
@@ -91,6 +94,10 @@ impl Place {
             "note" => {
                 p.workspace = 4;
                 p.note = value.to_string();
+            }
+            "growth" => {
+                p.workspace = 5;
+                p.growth = value.to_string();
             }
             _ => return None,
         }
@@ -210,6 +217,9 @@ fn aller(f: &AppWindow, from: &Place, to: &Place) {
     }
     if to.note != from.note && !to.note.is_empty() {
         f.invoke_notes_quick_chosen(to.note.as_str().into());
+    }
+    if to.growth != from.growth {
+        f.invoke_growth_place_chosen(to.growth.as_str().into());
     }
     if to.workspace != from.workspace {
         f.set_workspace(to.workspace);

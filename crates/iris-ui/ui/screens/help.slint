@@ -42,6 +42,7 @@ export component ShortcutsHelp inherits Modal {
         { keys: ["?"], what: "This list" },
         { keys: ["Ctrl", "0"], what: "Home" },
         { keys: ["Ctrl", "1 · 2 · 3"], what: "Mail, calendar, tasks" },
+        { keys: ["Ctrl", "4 · 5"], what: "Notes, growth" },
         { keys: ["Ctrl", "K"], what: "Command palette" },
         { keys: ["Alt", "← →"], what: "Back, forward" },
         { keys: ["Ctrl", ","], what: "Settings" },
@@ -75,6 +76,10 @@ export component ShortcutsHelp inherits Modal {
         { keys: ["D"], what: "Due date" },
         { keys: ["Del"], what: "Delete" },
         { keys: ["Ctrl", "Z"], what: "Bring back what was deleted" },
+        { keys: [], what: "Habits" },
+        { keys: ["N"], what: "Add a habit in one line" },
+        { keys: ["J", "K"], what: "Next, previous habit" },
+        { keys: ["Space"], what: "Done today, or not" },
     ];
 
     ScrollView {

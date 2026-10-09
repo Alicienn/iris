@@ -400,6 +400,7 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     f.set_home_week_done(semaine.done);
     f.set_home_week_bars(ModelRc::new(VecModel::from(semaine.bars)));
     f.set_home_week_today(semaine.today);
+    crate::growth::fill_home(f, services);
 }
 
 /// The conversations in the To do queue, over every mailbox, read or not: what the
@@ -481,11 +482,8 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
                     vers(&f, 2);
                     f.invoke_task_place_chosen("today".into());
                 }
-                "goals" => {
-                    crate::nav::note(&f, "tasks", "goals");
-                    vers(&f, 2);
-                    f.invoke_task_place_chosen("goals".into());
-                }
+                // Goals and habits live in Growth.
+                "goals" | "habits" => crate::growth::open(&f, &cible),
                 "calendar" => vers(&f, 1),
                 "notes" => vers(&f, 4),
                 _ => vers(&f, 0),
@@ -504,10 +502,14 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
         let faible = f.as_weak();
         f.on_home_goal_opened(move |id| {
             let Some(f) = faible.upgrade() else { return };
-            let place = format!("goal:{id}");
-            crate::nav::note(&f, "tasks", &place);
-            vers(&f, 2);
-            f.invoke_task_place_chosen(place.into());
+            crate::growth::open(&f, &format!("goal:{id}"));
+        });
+    }
+    {
+        let (services, redessiner) = (services.clone(), Rc::clone(&redessiner));
+        f.on_home_habit_toggled(move |id| {
+            crate::growth::toggle_today(&services, id as i64);
+            redessiner();
         });
     }
     {

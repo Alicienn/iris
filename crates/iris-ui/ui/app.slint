@@ -8,7 +8,8 @@ import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
-    NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData
+    NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData,
+    HabitData, HabitCellData, HabitDetailData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -42,6 +43,8 @@ import {
     TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker
 } from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
+import { NewHabitPanel, HabitDeletePanel } from "@iris/screens/habits.slint";
+import { GrowthView } from "@iris/screens/growth.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu, EventContextMenu,
     CalendarRenamePanel, CalendarDeletePanel, ConnectCalendarsPanel
@@ -888,7 +891,12 @@ export component AppWindow inherits Window {
     in property <int> home-week-done;
     in property <[float]> home-week-bars;
     in property <int> home-week-today;
-    /// A way out: "mail", "tasks", "calendar", "goals".
+    /// Today's habits: a disc each, how many are done ("2 of 4"), the longest streak.
+    in property <[HabitData]> home-habits;
+    in property <string> home-habits-figure;
+    in property <string> home-habits-foot;
+    callback home-habit-toggled(int);
+    /// A way out: "mail", "tasks", "calendar", "goals", "habits".
     callback home-open(string);
     callback home-thread-opened(int);
     callback home-goal-opened(int);
@@ -1234,6 +1242,59 @@ export component AppWindow inherits Window {
     callback goal-time-confirmed();
     in-out property <bool> goal-delete-open;
     callback goal-delete-confirmed();
+    // --- Growth ---
+    /// What Growth shows beside its column: 0 the habits, 1 a goal or all of them
+    /// (drawn by the tasks' own view, its column hidden).
+    in-out property <int> growth-page;
+    /// The habits by 0 the week, 1 the month, 2 the year.
+    in-out property <int> growth-mode;
+    in property <string> growth-title;
+    in property <string> growth-dates;
+    in property <string> growth-note;
+    /// "2 of 4 today", in the toolbar; "2 of 4" in the column.
+    in property <string> growth-count;
+    in property <string> growth-habits-count;
+    in property <[HabitData]> growth-rows;
+    in property <[string]> growth-labels;
+    in property <int> growth-today;
+    in property <bool> growth-has-detail;
+    in property <HabitDetailData> growth-detail;
+    in-out property <string> growth-add-text;
+    /// Raised to put the cursor in the line that adds a habit.
+    in-out property <int> growth-focus-add;
+    callback growth-place-chosen(string);
+    callback growth-mode-chosen(int);
+    callback habit-selected(int);
+    callback habit-cell-clicked(int, string);
+    callback habit-toggle-selected();
+    callback habit-move(int);
+    callback habit-detail-closed();
+    callback habit-quick-add(string);
+    callback habit-goal-opened(int);
+    callback habit-amount-step(int);
+    /// New habit: Rust fills the window's fields, then opens it; Edit fills it with the
+    /// habit shown.
+    callback habit-new-requested();
+    callback habit-edit-requested();
+    in-out property <bool> habit-new-open;
+    in property <bool> habit-new-editing;
+    in-out property <string> habit-new-title;
+    in-out property <int> habit-new-icon;
+    in-out property <int> habit-new-color;
+    in property <[color]> habit-colors;
+    in-out property <int> habit-new-kind;
+    in-out property <int> habit-new-often;
+    in property <[bool]> habit-new-days;
+    in-out property <string> habit-new-times;
+    in-out property <string> habit-new-amount;
+    in-out property <string> habit-new-unit;
+    in-out property <int> habit-new-goal;
+    in-out property <string> habit-new-remind;
+    in property <string> habit-new-error;
+    callback habit-new-day-toggled(int);
+    callback habit-new-confirmed();
+    in-out property <bool> habit-delete-open;
+    callback habit-delete-confirmed();
     // --- When to do a task ---
     /// Later: which task, where its menu goes; Rust fills the title and opens it.
     in-out property <int> task-later-id;
@@ -1463,7 +1524,8 @@ export component AppWindow inherits Window {
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
-        || root.task-later-open || root.task-slot-open;
+        || root.task-later-open || root.task-slot-open
+        || root.habit-new-open || root.habit-delete-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -1502,12 +1564,14 @@ export component AppWindow inherits Window {
                 root.notes-ctrl-held = true;
                 return reject;
             }
-            // Home, mail, calendar, tasks and notes, from anywhere but an open window.
+            // Home, mail, calendar, tasks, notes and growth, from anywhere but an open
+            // window.
             if (event.modifiers.control && !root.modal-open
                 && (event.text == "0" || event.text == "1" || event.text == "2"
-                    || event.text == "3" || event.text == "4")) {
+                    || event.text == "3" || event.text == "4" || event.text == "5")) {
                 root.workspace = event.text == "0" ? 3 : event.text == "1" ? 0
-                    : event.text == "2" ? 1 : event.text == "3" ? 2 : 4;
+                    : event.text == "2" ? 1 : event.text == "3" ? 2
+                    : event.text == "4" ? 4 : 5;
                 root.workspace-changed(root.workspace);
                 return accept;
             }
@@ -1807,8 +1871,19 @@ export component AppWindow inherits Window {
                 if (event.text == Key.RightArrow) { root.calendar-navigate(1); }
                 return accept;
             }
-            // The tasks have their own keys too.
-            if (root.workspace == 2) {
+            // Growth's habits: N puts the cursor in the line that adds one, the arrows
+            // move, space ticks today.
+            if (root.workspace == 5 && root.growth-page == 0) {
+                if (event.text == "n") { root.growth-focus-add += 1; }
+                if (event.text == Key.DownArrow || event.text == "j") { root.habit-move(1); }
+                if (event.text == Key.UpArrow || event.text == "k") { root.habit-move(-1); }
+                if (event.text == " ") { root.habit-toggle-selected(); }
+                if (event.text == Key.Escape && root.growth-has-detail) { root.habit-detail-closed(); }
+                return accept;
+            }
+            // The tasks have their own keys too, and so has a goal's page in Growth,
+            // which is theirs.
+            if (root.workspace == 2 || root.workspace == 5) {
                 if (event.text == "z" && event.modifiers.control) {
                     root.task-undo();
                     return accept;
@@ -2352,11 +2427,23 @@ export component AppWindow inherits Window {
         }
     }
 
-    if root.workspace == 2: TasksView {
-        x: 0px;
+    // The tasks; in Growth, a goal's page beside Growth's own column.
+    if root.workspace == 2 || (root.workspace == 5 && root.growth-page == 1): TasksView {
+        x: root.workspace == 5 ? 232px : 0px;
         y: 0px;
-        width: parent.width;
+        width: parent.width - self.x;
         height: parent.height - 30px;
+        embedded: root.workspace == 5;
+        // From Today's nudges in Tasks too: the goal opens in Growth.
+        goal-chosen(k) => {
+            root.navigated("growth", k);
+            root.growth-place-chosen(k);
+            if (root.workspace != 5) {
+                root.workspace = 5;
+                root.workspace-changed(5);
+            }
+            shortcuts.focus();
+        }
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
         overview: root.task-overview;
@@ -2684,6 +2771,62 @@ export component AppWindow inherits Window {
         task-toggled(id) => { root.home-task-toggled(id); }
         event-opened(k) => { root.home-event-opened(k); }
         join(u) => { root.open-link(u); }
+        habits: root.home-habits;
+        habits-figure: root.home-habits-figure;
+        habits-foot: root.home-habits-foot;
+        habit-toggled(id) => { root.home-habit-toggled(id); }
+    }
+
+    // Growth: its column, and the habits beside it. A goal's page is the tasks' view
+    // above, drawn beside the column alone.
+    if root.workspace == 5: GrowthView {
+        x: 0px;
+        y: 0px;
+        width: root.growth-page == 0 ? parent.width : 232px;
+        height: parent.height - 30px;
+        page: root.growth-page;
+        mode: root.growth-mode;
+        title: root.growth-title;
+        dates: root.growth-dates;
+        note: root.growth-note;
+        count: root.growth-count;
+        habits-count: root.growth-habits-count;
+        rows: root.growth-rows;
+        labels: root.growth-labels;
+        today: root.growth-today;
+        has-detail: root.growth-has-detail;
+        detail: root.growth-detail;
+        add-text <=> root.growth-add-text;
+        focus-add-request: root.growth-focus-add;
+        goals: root.goals;
+        goals-shown: root.task-page == 2;
+        place-chosen(k) => {
+            root.growth-place-chosen(k);
+            root.navigated("growth", k);
+            shortcuts.focus();
+        }
+        new-goal => { root.goal-new-requested(); }
+        mode-chosen(m) => { root.growth-mode-chosen(m); }
+        new-habit => { root.habit-new-requested(); }
+        // Choosing a habit with the mouse hands the keyboard back to the shortcuts:
+        // space then ticks it.
+        selected(id) => {
+            root.habit-selected(id);
+            shortcuts.focus();
+        }
+        cell-clicked(id, d) => { root.habit-cell-clicked(id, d); }
+        add(t) => { root.habit-quick-add(t); }
+        edit => { root.habit-edit-requested(); }
+        delete => { root.habit-delete-open = true; }
+        closed => {
+            root.habit-detail-closed();
+            shortcuts.focus();
+        }
+        goal-opened(id) => {
+            root.habit-goal-opened(id);
+            shortcuts.focus();
+        }
+        amount-step(n) => { root.habit-amount-step(n); }
     }
 
     if root.task-list-menu-open: TaskListMenu {
@@ -2796,6 +2939,40 @@ export component AppWindow inherits Window {
             root.goal-delete-confirmed();
         }
         dismissed => { root.goal-delete-open = false; }
+    }
+
+    if root.habit-new-open: NewHabitPanel {
+        width: 100%;
+        height: 100%;
+        title <=> root.habit-new-title;
+        icon <=> root.habit-new-icon;
+        hue <=> root.habit-new-color;
+        colors: root.habit-colors;
+        kind <=> root.habit-new-kind;
+        often <=> root.habit-new-often;
+        days: root.habit-new-days;
+        times <=> root.habit-new-times;
+        amount <=> root.habit-new-amount;
+        unit <=> root.habit-new-unit;
+        goals: root.goal-names;
+        goal <=> root.habit-new-goal;
+        remind <=> root.habit-new-remind;
+        error: root.habit-new-error;
+        editing: root.habit-new-editing;
+        day-toggled(i) => { root.habit-new-day-toggled(i); }
+        confirmed => { root.habit-new-confirmed(); }
+        dismissed => { root.habit-new-open = false; }
+    }
+
+    if root.habit-delete-open: HabitDeletePanel {
+        width: 100%;
+        height: 100%;
+        name: root.growth-detail.title;
+        confirmed => {
+            root.habit-delete-open = false;
+            root.habit-delete-confirmed();
+        }
+        dismissed => { root.habit-delete-open = false; }
     }
 
     if root.event-detail-open: EventDetailPanel {

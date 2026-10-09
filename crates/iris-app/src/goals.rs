@@ -127,6 +127,17 @@ pub fn for_home(services: &Services) -> Option<GoalData> {
         .find(|g| g.status != 2)
 }
 
+/// Goal `id` as the interface shows it, for a habit that supports it.
+pub fn for_id(services: &Services, id: i64) -> Option<GoalData> {
+    let today = Local::now().date_naive();
+    services
+        .store
+        .goal(id)
+        .ok()
+        .flatten()
+        .map(|g| donnees(services, &g, today, false))
+}
+
 /// Should Today point to this goal? Behind and near its day or well behind, or due
 /// within the week.
 fn a_pousser(p: &Pace) -> bool {

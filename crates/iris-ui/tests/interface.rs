@@ -1338,15 +1338,9 @@ fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
 }
 
 fn un_objectif_se_choisit_et_se_journalise() {
+    // Goals live in Growth's column; a goal's page is the tasks' own beside it.
     let f = fenetre();
-    f.set_workspace(2);
-    f.set_task_places(modele(vec![iris_ui::TaskPlaceData {
-        key: "list:1".into(),
-        name: "My tasks".into(),
-        is_list: true,
-        list_id: 1,
-        ..Default::default()
-    }]));
+    f.set_workspace(5);
     let objectif = iris_ui::GoalData {
         id: 3,
         title: "Send 10 applications".into(),
@@ -1360,7 +1354,7 @@ fn un_objectif_se_choisit_et_se_journalise() {
     let notes = Rc::new(RefCell::new(Vec::<String>::new()));
     {
         let l = Rc::clone(&lieux);
-        f.on_task_place_chosen(move |k| l.borrow_mut().push(k.to_string()));
+        f.on_growth_place_chosen(move |k| l.borrow_mut().push(k.to_string()));
         let n = Rc::clone(&notes);
         f.on_goal_logged(move |t| n.borrow_mut().push(t.to_string()));
     }
@@ -1372,6 +1366,7 @@ fn un_objectif_se_choisit_et_se_journalise() {
     assert_eq!(*lieux.borrow(), ["goal:3"]);
 
     // On it, "Log one" logs one, with what was written.
+    f.set_growth_page(1);
     f.set_task_page(1);
     f.set_goal(objectif);
     f.set_goal_note("Studio Nord".into());

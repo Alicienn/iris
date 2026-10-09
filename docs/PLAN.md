@@ -727,3 +727,22 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       and dragged elsewhere; spreadsheets without empty rows; `@` links a note, note
       links as bubbles opening with a click; a link pasted over words keeps them; a
       link to a spreadsheet opens it.
+
+## E43 — Growth (5.0.0–)
+
+A sixth place, after Notes, for who one wants to become: habits, goals, the balance between the
+areas of one's life, the week reviewed. Design:
+[2026-10-09-iris-growth-design.md](superpowers/specs/2026-10-09-iris-growth-design.md).
+
+- [x] **S43.1** The place (5.0.0): the switcher's sixth segment, `Ctrl`+`5`, its column
+      (Habits, Goals), its keys, Back and forward (`Place::growth`).
+- [x] **S43.2** Habits (5.0.0): every day, some days or so many a week, an amount,
+      *do less of*; the week, the month and the year as circles; streaks, best, rate,
+      six months in the panel; a line typed into a habit (`iris-growth`); a reminder;
+      the goal it supports. Migration 25, in the daily backup.
+- [x] **S43.3** Goals moved from the Tasks column to Growth's (5.0.0): their page is the
+      tasks' own, drawn beside Growth's column.
+- [x] **S43.4** Home's Habits widget (5.0.0): today's habits ticked from Home.
+- [ ] **S43.5** Compass (5.1.0): areas of life, monthly scores and the wheel, time by
+      area, cycles of twelve weeks.
+- [ ] **S43.6** Weekly review, wins, and today's three on Home (5.2.0).

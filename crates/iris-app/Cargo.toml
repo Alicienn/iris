@@ -25,6 +25,7 @@ iris-blobs = { workspace = true }
 iris-index = { workspace = true }
 iris-mime = { workspace = true }
 iris-tasks = { workspace = true }
+iris-growth = { workspace = true }
 iris-imap = { workspace = true }
 iris-smtp = { workspace = true }
 iris-sync = { workspace = true }

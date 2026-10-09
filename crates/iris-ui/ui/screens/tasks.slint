@@ -4,12 +4,12 @@ import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
 import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
 import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
-import { Nav, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
+import { Nav, SectionRow } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { DateButton, DatePicker } from "@iris/screens/calendar-panels.slint";
-import { GoalRow, GoalPage, GoalsOverview, GoalNudges } from "@iris/screens/goals.slint";
+import { GoalPage, GoalsOverview, GoalNudges } from "@iris/screens/goals.slint";
 import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData, TaskTokenData,
     TaskOverviewData, GoalData, GoalLogData
@@ -1312,6 +1312,11 @@ export component TasksView inherits Rectangle {
     in-out property <string> goal-note;
     in property <[string]> goal-names;
 
+    /// Drawn in Growth, beside Growth's own column: no column of its own.
+    in property <bool> embedded;
+    /// A goal, or all of them ("goal:3", "goals"), chosen from Today's nudges or the
+    /// page of all goals: they live in Growth.
+    callback goal-chosen(string);
     callback new-goal();
     callback goal-logged(string);
     callback goal-entry-removed(int);
@@ -1383,9 +1388,9 @@ export component TasksView inherits Rectangle {
     changed focus-add-request => { ajout.focus-field(); }
 
     HorizontalLayout {
-        // --- Left: the window's sidebar: the smart views as tiles, then the lists,
-        // the goals, and the week ---
-        SidebarFrame {
+        // --- Left: the window's sidebar: the smart views as tiles, then the lists
+        // and the week. The goals moved to Growth's column. ---
+        if !root.embedded: SidebarFrame {
             // Today, Upcoming, All tasks, From mail: four tiles, two by two, as
             // Reminders has them.
             if root.places.length >= 4: VerticalLayout {
@@ -1424,45 +1429,6 @@ export component TasksView inherits Rectangle {
             }
 
             for place[i] in root.places: VerticalLayout {
-                // Before the lists: the goals, their title leading to all of them.
-                if place.is-list && (i == 0 || !root.places[i - 1].is-list): VerticalLayout {
-                    // As SectionRow, its title a button to all the goals.
-                    HorizontalLayout {
-                        height: 31px;
-                        padding-left: 8px;
-                        padding-right: 0px;
-                        padding-top: 12px;
-                        padding-bottom: 4px;
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            accessible-role: button;
-                            accessible-label: "All goals";
-                            accessible-action-default => { root.place-chosen("goals"); }
-                            SectionTitle {
-                                x: 0;
-                                height: parent.height;
-                                text: "Goals";
-                                color: tous.has-hover || root.page == 2 ? Tokens.text : Tokens.text-muted;
-                            }
-                            tous := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.place-chosen("goals"); }
-                            }
-                        }
-                        IconButton {
-                            y: (parent.height - self.height) / 2;
-                            icon: Icons.plus;
-                            label: "New goal";
-                            button-size: 20px;
-                            icon-size: 14px;
-                            clicked => { root.new-goal(); }
-                        }
-                    }
-                    for g in root.goals: GoalRow {
-                        goal: g;
-                        chosen(id) => { root.place-chosen("goal:" + id); }
-                    }
-                }
                 // A title above the first list, with the way to make another.
                 if place.is-list && (i == 0 || !root.places[i - 1].is-list): SectionRow {
                     text: "My Lists";
@@ -1575,7 +1541,7 @@ export component TasksView inherits Rectangle {
         if root.page == 2: GoalsOverview {
             vertical-stretch: 1;
             goals: root.goals;
-            chosen(id) => { root.place-chosen("goal:" + id); }
+            chosen(id) => { root.goal-chosen("goal:" + id); }
             new-goal => { root.new-goal(); }
         }
 
@@ -1680,7 +1646,7 @@ export component TasksView inherits Rectangle {
                 padding-bottom: 10px;
                 GoalNudges {
                     goals: root.nudges;
-                    chosen(id) => { root.place-chosen("goal:" + id); }
+                    chosen(id) => { root.goal-chosen("goal:" + id); }
                 }
             }
             if root.nudges.length > 0: Hairline {}
@@ -1815,8 +1781,9 @@ export component TasksView inherits Rectangle {
 
     // Its length, asked over the add bar, centred on the middle column.
     if root.asking != "" && root.page != 2: EstimateBubble {
-        property <length> milieu: root.width - 232px - (root.has-detail ? 384px : 0px);
-        x: 232px + (self.milieu - self.width) / 2;
+        property <length> colonne: root.embedded ? 0px : 232px;
+        property <length> milieu: root.width - self.colonne - (root.has-detail ? 384px : 0px);
+        x: self.colonne + (self.milieu - self.width) / 2;
         y: root.height - 18px - 50px - 8px - self.height;
         task: root.asking;
         chosen(m) => { root.asked-estimate(m); }
