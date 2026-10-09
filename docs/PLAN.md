@@ -728,21 +728,23 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       links as bubbles opening with a click; a link pasted over words keeps them; a
       link to a spreadsheet opens it.
 
-## E43 — Growth (5.0.0–)
+## E44 — Growth (5.0.0–)
 
-A sixth place, after Notes, for who one wants to become: habits, goals, the balance between the
-areas of one's life, the week reviewed. Design:
+A sixth place, after Notes, for who one wants to become: habits, goals, the balance
+between the areas of one's life, the week reviewed. Design:
 [2026-10-09-iris-growth-design.md](superpowers/specs/2026-10-09-iris-growth-design.md).
 
-- [x] **S43.1** The place (5.0.0): the switcher's sixth segment, `Ctrl`+`5`, its column
-      (Habits, Goals), its keys, Back and forward (`Place::growth`).
-- [x] **S43.2** Habits (5.0.0): every day, some days or so many a week, an amount,
+- [x] **S44.1** The place (5.0.0): the switcher's sixth segment, `Ctrl`+`5`, its column
+      (Habits, Compass, Goals), its keys, Back and forward (`Place::growth`).
+- [x] **S44.2** Habits (5.0.0): every day, some days or so many a week, an amount,
       *do less of*; the week, the month and the year as circles; streaks, best, rate,
       six months in the panel; a line typed into a habit (`iris-growth`); a reminder;
       the goal it supports. Migration 25, in the daily backup.
-- [x] **S43.3** Goals moved from the Tasks column to Growth's (5.0.0): their page is the
+- [x] **S44.3** Goals moved from the Tasks column to Growth's (5.0.0): their page is the
       tasks' own, drawn beside Growth's column.
-- [x] **S43.4** Home's Habits widget (5.0.0): today's habits ticked from Home.
-- [ ] **S43.5** Compass (5.1.0): areas of life, monthly scores and the wheel, time by
-      area, cycles of twelve weeks.
-- [ ] **S43.6** Weekly review, wins, and today's three on Home (5.2.0).
+- [x] **S44.4** Home's Habits widget (5.0.0): today's habits ticked from Home.
+- [x] **S44.5** Compass (5.0.0): areas of life holding goals, habits and lists, scored
+      by hand each month on a wheel over last month's; their time this month against
+      the time wanted; cycles of weeks with their goals and what was planned, done; a
+      vision. Migration 26, in the daily backup.
+- [ ] **S44.6** Weekly review, wins, and today's three on Home.

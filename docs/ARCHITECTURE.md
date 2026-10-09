@@ -924,6 +924,18 @@ Growth's column, and choosing a goal there hands `goal:{id}` to the tasks. Comin
 to Tasks while a goal is shown returns to the view Tasks had before (`avant_objectif`).
 Back and forward know Growth's places (`Place::growth`).
 
+**The compass** (5.0.0, `crates/iris-app/src/compass.rs`, `screens/compass.slint`).
+Areas of life (migration 26, six to start), each holding goals, habits and task lists
+(`area_id` on each, set from the area's window). A score from 1 to 10 a month, by
+hand (`area_scores`); the wheel is `iris_growth::compass`: a polygon of this month's
+scores over last month's on a 240-unit grid, the rings and spokes behind, stroked and
+filled paths only. An area's time this month (`temps_du_mois`) is the length of the
+tasks done in its lists or for its goals (half an hour when not said) and the
+occurrences gone by of the time blocked for its goals (`…-goal-{id}@iris`), against
+`wanted_minutes`. A cycle (`cycles`, `cycle_goals`) runs so many weeks from a Monday;
+*what you planned, done* is its goals' steps done against where their steady pace
+would be (`GoalData::expected`). The vision is one row of one's own words.
+
 ## Sending, and undoing a send
 
 The outbox (`crates/iris-smtp/src/outbox.rs`) holds each message for a delay **before**
@@ -1288,14 +1300,15 @@ which keeps that term off any index, and a test pins the plan
 | 23 | `calendar_accounts`; `account_id`, `remote_href`, `read_only` on calendars; `href`, `etag`, `remote_ics`, `dirty` on events; `calendar_tombstones` (4.13.0) |
 | 24 | `folder_accounts`: the mailboxes a folder of one's own was made for, by its shown name; none means every mailbox (4.14.0) |
 | 25 | `habits` (schedule, amount, goal, reminder) and `habit_checks` (a day kept, and how much) (5.0.0) |
+| 26 | `areas` (six to start), `area_id` on goals, habits and task lists, `area_scores` by month, `cycles` and `cycle_goals`, `vision` (5.0.0) |
 
 A new table or column always arrives as a new migration.
 
 **Backups of one's own data** (4.12.0, `iris-store/src/backup.rs`,
 `iris-app/src/backup.rs`). Mail comes back from its servers; calendars, events and
-what is set beside them, task lists, tasks, goals and habits do not. Once a day (looked at a
+what is set beside them, task lists, tasks, goals, habits and the compass do not. Once a day (looked at a
 minute after launch, then every hour) `back_up_personal` attaches a new file and copies
-those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals, habits and their days) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
+those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals, habits and their days, the compass's areas, scores, cycles and vision) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
 an `about` row (schema version, time); the file is written as `.partial` and renamed.
 They sit in `data/backups/personal-YYYY-MM-DD.db`, fourteen kept. `restore_personal`
 empties the same tables children first and fills them parents first from the backup,

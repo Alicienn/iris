@@ -754,6 +754,7 @@ fn run_gui(
     iris_app::caldav::wire_caldav(&fenetre, &services, runtime.handle().clone());
     iris_app::tasks::wire_tasks(&fenetre, &services, Arc::clone(&controller));
     iris_app::growth::wire_growth(&fenetre, &services);
+    iris_app::compass::wire_compass(&fenetre, &services);
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui

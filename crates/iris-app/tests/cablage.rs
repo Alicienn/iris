@@ -64,6 +64,7 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
         "crates/iris-app/src/calendar.rs",
         "crates/iris-app/src/tasks.rs",
         "crates/iris-app/src/growth.rs",
+        "crates/iris-app/src/compass.rs",
         "crates/iris-app/src/tags.rs",
         "crates/iris-app/src/workspace.rs",
         "crates/iris-app/src/home.rs",

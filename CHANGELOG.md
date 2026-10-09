@@ -6,13 +6,18 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 ## 5.0.0 — 2026-10-09
 
 ### New
-- Growth, a new place after Notes (Ctrl+5), for your habits and your goals.
+- Growth, a new place after Notes (Ctrl+5), for your habits, your goals and the balance of your life.
 - Habits: every day, on some days or a few times a week, with an amount if you like.
 - Tick a habit's day in its week, and see its streak, its best one and its last six months.
 - Habits you want to do less of, ticked when the day was kept.
 - Type a habit in one line: "Read 20 pages every day", "Run 3 times a week".
 - A habit can remind you at an hour when it is not done yet, and support a goal.
 - Home shows today's habits; a click ticks one.
+- The Compass: the areas of your life, each scored from 1 to 10 once a month, on a wheel beside last month's.
+- See the time each area got this month against the time you want to give it.
+- Put your goals, habits and task lists in an area.
+- Cycles of twelve weeks: choose a few goals, and see the weeks pass and how much of what you planned is done.
+- A page for your vision, in your own words.
 
 ### Improved
 - Goals now live in Growth, beside your habits.

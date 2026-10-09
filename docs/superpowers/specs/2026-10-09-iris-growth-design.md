@@ -97,7 +97,7 @@ habit_checks(habit_id → habits ON DELETE CASCADE, day 'YYYY-MM-DD', amount,
 - Keys in Growth: `N` new habit, `J`/`K` and the arrows move, `Space` ticks today,
   `Escape` closes the details.
 
-## 4. Compass (phase 2, 5.1.0)
+## 4. Compass (phase 2, shipped with the habits in 5.0.0)
 
 - **Areas of life**: six to start (Studies & career, Health, Relationships, Mind, Money,
   Fun), each with a colour and an icon; renamed, added, removed. A goal, a habit and a
@@ -116,7 +116,7 @@ habit_checks(habit_id → habits ON DELETE CASCADE, day 'YYYY-MM-DD', amount,
   and habits, its time bar); *Areas · Vision · Cycles* (Vision: a page of one's own
   words; Cycles: past and next cycles); *Score this month*.
 
-## 5. Review and wins (phase 3, 5.2.0)
+## 5. Review and wins (phase 3, 5.1.0)
 
 - **Wins**: a line written by hand, dated (`wins`); a goal reached and a milestone
   ticked are offered as wins, never added on their own. *Wins* in the column lists
@@ -137,5 +137,6 @@ habit_checks(habit_id → habits ON DELETE CASCADE, day 'YYYY-MM-DD', amount,
 - `README.md`: a *Growth* section, `Ctrl`+`5`, the keys of Growth, Home's widget.
 - `docs/ARCHITECTURE.md`: `iris-growth` in the domain layer, the place, migrations
   25–27, the reminder timer.
-- Version: 5.0.0 (goals move out of the Tasks column: a habit broken), then 5.1.0 and
-  5.2.0.
+- Version: 5.0.0 (goals move out of the Tasks column: a habit broken) for the habits
+  and the compass, which were ready before 5.0.0 was published; then 5.1.0 for the
+  review.

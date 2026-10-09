@@ -1,12 +1,14 @@
-//! Un aperçu de la Croissance (habitudes, objectifs) et de l'accueil, sur des données
-//! inventées, capturé en images.
+//! Un aperçu de la Croissance (habitudes, objectifs, boussole) et de l'accueil, sur
+//! des données inventées, capturé en images.
 //!
 //! ```text
 //! $env:SLINT_BACKEND="winit-software"; cargo run -p iris-app --no-default-features --example apercu_croissance -- <dossier>
 //! ```
 //!
 //! Écrit `habitudes.png`, `habitudes-mois.png`, `habitudes-annee.png`,
-//! `habitude-nouvelle.png`, `croissance-objectif.png` et `accueil-habitudes.png`.
+//! `habitude-nouvelle.png`, `croissance-objectif.png`, `accueil-habitudes.png`, puis
+//! `boussole.png`, `boussole-notes.png`, `boussole-domaine.png`, `boussole-cycles.png`
+//! et `boussole-vision.png`.
 
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use iris_app::services::Services;
@@ -199,6 +201,113 @@ fn main() {
         }
     }
 
+    // The compass: goals and habits in areas, scores this month and the last, a cycle
+    // under way, the time wanted.
+    use iris_store::AreaOf;
+    let domaines = services.store.areas().unwrap();
+    let domaine = |nom: &str| domaines.iter().find(|a| a.name == nom).unwrap().clone();
+    let (etudes, sante, liens, esprit, argent, loisirs) = (
+        domaine("Studies & career"),
+        domaine("Health"),
+        domaine("Relationships"),
+        domaine("Mind"),
+        domaine("Money"),
+        domaine("Fun"),
+    );
+    for (genre, id, a) in [
+        (AreaOf::Goal, stages, etudes.id),
+        (AreaOf::Goal, livres, esprit.id),
+        (AreaOf::Goal, course, sante.id),
+        (AreaOf::Habit, lire, esprit.id),
+        (AreaOf::Habit, courir, sante.id),
+        (AreaOf::Habit, eau, sante.id),
+        (AreaOf::Habit, espagnol, esprit.id),
+    ] {
+        services.store.set_area_of(genre, id, Some(a)).unwrap();
+    }
+    for (a, heures) in [
+        (&etudes, 20),
+        (&sante, 8),
+        (&liens, 6),
+        (&esprit, 8),
+        (&argent, 2),
+        (&loisirs, 6),
+    ] {
+        let mut a = a.clone();
+        a.wanted_minutes = heures * 60;
+        services.store.update_area(&a).unwrap();
+    }
+    let ce_mois = iris_growth::compass::month_key(aujourdhui);
+    let avant =
+        iris_growth::compass::month_key(aujourdhui.with_day(1).unwrap() - Duration::days(1));
+    for (a, maintenant, precedent) in [
+        (&etudes, 8, 6),
+        (&sante, 6, 5),
+        (&liens, 5, 6),
+        (&esprit, 7, 6),
+        (&argent, 4, 4),
+        (&loisirs, 7, 8),
+    ] {
+        let t = iris_types::Timestamp::EPOCH;
+        services
+            .store
+            .set_area_score(a.id, &ce_mois, maintenant, t)
+            .unwrap();
+        services
+            .store
+            .set_area_score(a.id, &avant, precedent, t)
+            .unwrap();
+    }
+    let travail = services
+        .store
+        .create_task_list("Applications", "#af52de", il_y_a(30))
+        .unwrap();
+    services
+        .store
+        .set_area_of(AreaOf::TaskList, travail, Some(etudes.id))
+        .unwrap();
+    for (k, (titre, minutes)) in [
+        ("Write to Studio Nord", 90),
+        ("Update the CV", 120),
+        ("Call Bloc Studio", 30),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = services
+            .store
+            .insert_task(
+                &iris_store::NewTask {
+                    list_id: travail,
+                    title: titre.into(),
+                    estimate: Some(minutes),
+                    ..Default::default()
+                },
+                il_y_a(10),
+            )
+            .unwrap();
+        services
+            .store
+            .set_task_done(id, Some(il_y_a(k as i64)))
+            .unwrap();
+    }
+    let lundi = iris_growth::habits::monday(aujourdhui) - Duration::days(28);
+    services
+        .store
+        .save_cycle(
+            None,
+            "Land the internship, run 10 km",
+            &jour(lundi),
+            12,
+            &[stages, course],
+            il_y_a(28),
+        )
+        .unwrap();
+    services
+        .store
+        .set_vision("Calm, curious and useful. Someone who finishes what they start.")
+        .unwrap();
+
     let f = iris_ui::AppWindow::new().unwrap();
     f.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
     // IRIS_THEME=dark captures the dark theme.
@@ -215,11 +324,13 @@ fn main() {
     iris_app::calendar::wire_calendar(&f, &services, runtime.handle().clone());
     iris_app::tasks::wire_tasks(&f, &services, std::sync::Arc::clone(&controller));
     iris_app::growth::wire_growth(&f, &services);
+    iris_app::compass::wire_compass(&f, &services);
     iris_app::home::wire_home(&f, &services, controller);
     f.set_workspace(iris_app::growth::WORKSPACE);
     f.invoke_workspace_changed(iris_app::growth::WORKSPACE);
     f.show().unwrap();
 
+    let sante_id = sante.id as i32;
     let suffixe = if sombre { "-sombre" } else { "" };
     let nom = move |n: &str| sortie.join(format!("{n}{suffixe}.png"));
     let etapes = slint::Timer::default();
@@ -259,6 +370,30 @@ fn main() {
                 }
                 7 => {
                     capture(&f, nom("accueil-habitudes"));
+                    f.set_workspace(iris_app::growth::WORKSPACE);
+                    f.invoke_workspace_changed(iris_app::growth::WORKSPACE);
+                    f.invoke_growth_place_chosen("compass".into());
+                }
+                8 => {
+                    capture(&f, nom("boussole"));
+                    f.invoke_compass_score_requested();
+                }
+                9 => {
+                    capture(&f, nom("boussole-notes"));
+                    f.set_compass_score_open(false);
+                    f.invoke_area_opened(sante_id);
+                }
+                10 => {
+                    capture(&f, nom("boussole-domaine"));
+                    f.set_area_edit_open(false);
+                    f.invoke_compass_tab_chosen(2);
+                }
+                11 => {
+                    capture(&f, nom("boussole-cycles"));
+                    f.invoke_compass_tab_chosen(1);
+                }
+                12 => {
+                    capture(&f, nom("boussole-vision"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}

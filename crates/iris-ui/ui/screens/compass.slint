@@ -1,0 +1,914 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton, HabitIcons } from "@iris/base/icons.slint";
+import { AreaData, CycleRowData, PickData } from "@iris/types.slint";
+import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
+import { Check, CheckShape } from "@iris/controls/choice.slint";
+import { TextField, TextArea } from "@iris/controls/field.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { HabitTile } from "@iris/screens/habits.slint";
+
+// The compass: the areas of one's life, how one scores them this month against the
+// last, the time they got, and the cycle of twelve weeks under way.
+
+/// A white card on the grey page, as the mockup's.
+component Card inherits Rectangle {
+    border-radius: 14px;
+    background: Tokens.surface-high;
+    border-width: 1px;
+    border-color: Tokens.border.transparentize(0.5);
+    drop-shadow-blur: Tokens.shadow-card-blur;
+    drop-shadow-offset-y: Tokens.shadow-card-y;
+    drop-shadow-color: Tokens.shadow-card;
+}
+
+/// The cycle under way: its name, its twelve weeks, what was planned and done.
+component CycleStrip inherits Card {
+    in property <string> name;
+    in property <string> sub;
+    in property <[int]> segments;
+    in property <string> score;
+    in property <string> score-label;
+    callback opened();
+
+    height: 64px;
+    accessible-role: button;
+    accessible-label: root.name;
+    accessible-action-default => { root.opened(); }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(); }
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 20px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 0;
+            min-width: 220px;
+            Text {
+                text: root.name;
+                font-family: Tokens.font-display;
+                font-size: 17px;
+                font-weight: 700;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.sub;
+                font-size: 12px;
+                color: Tokens.text-muted;
+            }
+        }
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            for s in root.segments: Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: 8px;
+                border-radius: 4px;
+                background: s == 0 ? Tokens.border : Tokens.accent;
+                opacity: s == 2 ? 0.45 : 1.0;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Text {
+                text: root.score;
+                font-family: Tokens.font-display;
+                font-size: 22px;
+                font-weight: 700;
+                color: Tokens.green;
+                horizontal-alignment: right;
+            }
+            Text {
+                text: root.score-label;
+                font-size: 11.5px;
+                color: Tokens.text-muted;
+                horizontal-alignment: right;
+            }
+        }
+    }
+}
+
+/// This month's scores over last month's, an axis an area.
+component Wheel inherits Card {
+    in property <string> grid;
+    in property <string> now;
+    in property <string> before;
+    in property <string> scored;
+    in property <[AreaData]> areas;
+
+    property <length> cote: 290px;
+    property <float> echelle: self.cote / 240px;
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 4px;
+        HorizontalLayout {
+            Text {
+                text: "Balance";
+                font-size: 13px;
+                font-weight: 600;
+                color: Tokens.text;
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: root.scored;
+                font-size: 12px;
+                color: Tokens.text-muted;
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: root.cote;
+                height: root.cote;
+                Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 240;
+                    viewbox-height: 240;
+                    commands: root.grid;
+                    stroke: Tokens.border;
+                    stroke-width: 1px;
+                    fill: transparent;
+                }
+                if root.before != "": Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 240;
+                    viewbox-height: 240;
+                    commands: root.before;
+                    stroke: Tokens.text-faint;
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                }
+                if root.now != "": Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 240;
+                    viewbox-height: 240;
+                    commands: root.now;
+                    stroke: Tokens.accent;
+                    stroke-width: 2.2px;
+                    stroke-line-join: round;
+                    fill: Tokens.accent.transparentize(0.82);
+                }
+                for a in root.areas: Rectangle {
+                    visible: a.score > 0;
+                    x: a.dot-x * root.echelle * 1px - 3.5px;
+                    y: a.dot-y * root.echelle * 1px - 3.5px;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
+                    background: Tokens.accent;
+                }
+                for a in root.areas: Text {
+                    x: a.label-x * root.echelle * 1px - 50px;
+                    y: a.label-y * root.echelle * 1px - 8px;
+                    width: 100px;
+                    height: 16px;
+                    text: a.short;
+                    font-size: 10.5px;
+                    font-weight: 600;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 14px;
+            HorizontalLayout {
+                spacing: 5px;
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 14px;
+                    height: 3px;
+                    border-radius: 1.5px;
+                    background: Tokens.accent;
+                }
+                Text {
+                    text: "This month";
+                    font-size: 11.5px;
+                    color: Tokens.text-muted;
+                }
+            }
+            HorizontalLayout {
+                spacing: 5px;
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 14px;
+                    height: 3px;
+                    border-radius: 1.5px;
+                    background: Tokens.text-faint;
+                }
+                Text {
+                    text: "Last month";
+                    font-size: 11.5px;
+                    color: Tokens.text-muted;
+                }
+            }
+        }
+    }
+}
+
+/// An area: its score, what it holds, the time it got against the time wanted.
+component AreaCard inherits Card {
+    in property <AreaData> area;
+    callback opened(int);
+
+    height: 98px;
+    accessible-role: button;
+    accessible-label: root.area.name;
+    accessible-description: root.area.line;
+    accessible-action-default => { root.opened(root.area.id); }
+    carte := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.area.id); }
+    }
+    border-color: carte.has-hover ? Tokens.border-strong : Tokens.border.transparentize(0.5);
+
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 11px;
+        padding-bottom: 11px;
+        spacing: 5px;
+        HorizontalLayout {
+            spacing: 8px;
+            height: 24px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                background: root.area.color;
+                Icon {
+                    data: HabitIcons.path(root.area.icon);
+                    size: 13px;
+                    weight: 1.9;
+                    tint: Tokens.accent-text;
+                }
+            }
+            Text {
+                text: root.area.name;
+                font-size: 13.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            HorizontalLayout {
+                horizontal-stretch: 0;
+                Text {
+                    text: root.area.score-label;
+                    font-family: Tokens.font-display;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "/10";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Tokens.text-faint;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        Text {
+            text: root.area.line;
+            font-size: 12px;
+            font-weight: root.area.warn ? 600 : 400;
+            color: root.area.warn ? Tokens.orange : Tokens.text-muted;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            height: 14px;
+            Text {
+                text: root.area.hours;
+                font-size: 11.5px;
+                color: Tokens.text-muted;
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: root.area.wanted;
+                font-size: 11.5px;
+                color: Tokens.text-muted;
+            }
+        }
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: Tokens.group;
+            Rectangle {
+                x: 0;
+                width: parent.width * clamp(root.area.fraction, 0, 1);
+                border-radius: 3px;
+                background: root.area.color;
+            }
+            if root.area.mark >= 0: Rectangle {
+                x: parent.width * clamp(root.area.mark, 0, 1) - 1px;
+                y: -3px;
+                width: 2px;
+                height: 12px;
+                border-radius: 1px;
+                background: Tokens.text-muted;
+            }
+        }
+    }
+}
+
+/// A cycle in the list of them.
+component CycleRow inherits Rectangle {
+    in property <CycleRowData> cycle;
+    callback opened(int);
+
+    height: 54px;
+    border-radius: 10px;
+    background: ligne.has-hover ? Tokens.surface-hover : transparent;
+    accessible-role: button;
+    accessible-label: root.cycle.name;
+    accessible-action-default => { root.opened(root.cycle.id); }
+    ligne := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(root.cycle.id); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background: root.cycle.state == 1 ? Tokens.accent : root.cycle.state == 2 ? Tokens.green : Tokens.border-strong;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.cycle.name;
+                font-size: 13.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.cycle.dates + " · " + root.cycle.goals;
+                font-size: 12px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+        Text {
+            text: root.cycle.score;
+            font-size: 13px;
+            font-weight: 600;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+    Rectangle {
+        x: 34px;
+        y: parent.height - 1px;
+        width: parent.width - 46px;
+        height: 1px;
+        background: Tokens.border;
+    }
+}
+
+/// The compass page: the areas (the cycle, the wheel, a card each), the vision, or the
+/// cycles.
+export component CompassPage inherits Rectangle {
+    /// 0 the areas, 1 the vision, 2 the cycles.
+    in property <int> tab;
+    in property <bool> has-cycle;
+    in property <string> cycle-name;
+    in property <string> cycle-sub;
+    in property <[int]> cycle-segments;
+    in property <string> cycle-score;
+    in property <string> cycle-score-label;
+    in property <string> wheel-grid;
+    in property <string> wheel-now;
+    in property <string> wheel-before;
+    in property <string> wheel-scored;
+    in property <[AreaData]> areas;
+    in-out property <string> vision;
+    in property <[CycleRowData]> cycles;
+    callback area-opened(int);
+    callback area-new();
+    callback cycle-opened(int);
+    callback cycle-new();
+    callback vision-edited(string);
+
+    background: Tokens.background;
+
+    if root.tab == 0: ScrollView {
+        width: 100%;
+        height: 100%;
+        mouse-drag-pan-enabled: false;
+        viewport-width: self.visible-width;
+        VerticalLayout {
+            width: parent.width;
+            alignment: start;
+            padding-left: 36px;
+            padding-right: 36px;
+            padding-top: 18px;
+            padding-bottom: 24px;
+            spacing: 14px;
+            if root.has-cycle: CycleStrip {
+                name: root.cycle-name;
+                sub: root.cycle-sub;
+                segments: root.cycle-segments;
+                score: root.cycle-score;
+                score-label: root.cycle-score-label;
+                opened => { root.cycle-opened(-1); }
+            }
+            if !root.has-cycle: Card {
+                height: 54px;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 12px;
+                    Text {
+                        text: "No cycle under way. Twelve weeks, two or three goals: start one.";
+                        font-size: 13px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                    Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "New cycle";
+                        size: ButtonSize.sm;
+                        clicked => { root.cycle-new(); }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 16px;
+                Wheel {
+                    width: 330px;
+                    height: 380px;
+                    grid: root.wheel-grid;
+                    now: root.wheel-now;
+                    before: root.wheel-before;
+                    scored: root.wheel-scored;
+                    areas: root.areas;
+                }
+                VerticalLayout {
+                    spacing: 12px;
+                    horizontal-stretch: 1;
+                    alignment: start;
+                    for k in ceil(root.areas.length / 2): HorizontalLayout {
+                        spacing: 12px;
+                        AreaCard {
+                            horizontal-stretch: 1;
+                            area: root.areas[k * 2];
+                            opened(id) => { root.area-opened(id); }
+                        }
+                        if k * 2 + 1 < root.areas.length: AreaCard {
+                            horizontal-stretch: 1;
+                            area: root.areas[k * 2 + 1];
+                            opened(id) => { root.area-opened(id); }
+                        }
+                        if k * 2 + 1 >= root.areas.length: Rectangle { horizontal-stretch: 1; }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        Link {
+                            text: "Add an area";
+                            clicked => { root.area-new(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The vision: who one wants to become, in one's own words.
+    if root.tab == 1: VerticalLayout {
+        padding-left: 36px;
+        padding-right: 36px;
+        padding-top: 18px;
+        padding-bottom: 24px;
+        spacing: 10px;
+        Text {
+            text: "Who do you want to become? A few lines, read again at each review.";
+            font-size: 13px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+        TextArea {
+            vertical-stretch: 1;
+            font-size: 15px;
+            accessible-label: "Vision";
+            placeholder-text: "In five years, I…";
+            text <=> root.vision;
+            edited(t) => { root.vision-edited(t); }
+        }
+    }
+
+    // The cycles: the one under way, the next, the past ones.
+    if root.tab == 2: VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 24px;
+        spacing: 0px;
+        alignment: start;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-bottom: 8px;
+            Text {
+                text: "Twelve weeks at a time, a few goals each.";
+                font-size: 13px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "New cycle";
+                icon: Icons.plus;
+                size: ButtonSize.sm;
+                clicked => { root.cycle-new(); }
+            }
+        }
+        for c in root.cycles: CycleRow {
+            cycle: c;
+            opened(id) => { root.cycle-opened(id); }
+        }
+        if root.cycles.length == 0: Text {
+            height: 80px;
+            text: "No cycle yet.";
+            font-size: 13px;
+            color: Tokens.text-muted;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// Score this month: each area from 1 to 10.
+export component ScorePanel inherits Rectangle {
+    in property <[AreaData]> areas;
+    in property <string> month;
+    callback scored(int, int);
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Score " + root.month;
+        close-label: "Done";
+        card-width: 560px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: "How is each area of your life going, from 1 to 10? Only you can say.";
+            font-size: 12.5px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+        for a in root.areas: HorizontalLayout {
+            height: 34px;
+            spacing: 6px;
+            HabitTile {
+                y: (parent.height - self.height) / 2;
+                size: 24px;
+                icon: a.icon;
+                tint: a.color;
+            }
+            Text {
+                width: 150px;
+                text: a.name;
+                font-size: 13px;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            for n in 10: Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                background: a.score == n + 1 ? a.color : note.has-hover ? Tokens.surface-active : Tokens.group;
+                accessible-role: button;
+                accessible-label: a.name + " " + (n + 1);
+                accessible-item-selected: a.score == n + 1;
+                accessible-action-default => { root.scored(a.id, n + 1); }
+                Text {
+                    text: n + 1;
+                    font-size: 11.5px;
+                    font-weight: 600;
+                    color: a.score == n + 1 ? Tokens.accent-text : Tokens.text-secondary;
+                }
+                note := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.scored(a.id, a.score == n + 1 ? 0 : n + 1); }
+                }
+            }
+        }
+        ModalFooter {
+            Button {
+                text: "Done";
+                kind: ButtonKind.primary;
+                clicked => { root.dismissed(); }
+            }
+        }
+    }
+}
+
+/// A list of things to tick: goals, habits, lists.
+component Picks inherits VerticalLayout {
+    in property <[PickData]> picks;
+    callback toggled(int);
+    spacing: 0px;
+    for p[i] in root.picks: HorizontalLayout {
+        height: 28px;
+        spacing: 8px;
+        Check {
+            y: (parent.height - self.height) / 2;
+            shape: CheckShape.square;
+            size: 16px;
+            tint: p.color;
+            done: p.on;
+            label: p.name;
+            toggled => { root.toggled(i); }
+        }
+        Text {
+            text: p.name;
+            font-size: 13px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: p.kind == 0 ? "Goal" : p.kind == 1 ? "Habit" : "List";
+            font-size: 11.5px;
+            color: Tokens.text-faint;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// An area: its name, icon and colour, the hours a month wanted, what it holds.
+export component AreaPanel inherits Rectangle {
+    in-out property <string> name;
+    in-out property <int> icon;
+    in-out property <int> hue;
+    in property <[color]> colors;
+    in-out property <string> hours;
+    in property <[PickData]> picks;
+    in property <bool> is-new;
+    in property <string> error;
+    callback pick-toggled(int);
+    callback confirmed();
+    callback delete();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: root.is-new ? "New area" : root.name;
+        close-label: "Cancel";
+        card-width: 520px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        TextField {
+            accessible-label: "Area";
+            placeholder-text: "Health, Family, Studies";
+            font-size: 15px;
+            text <=> root.name;
+            init => { if (root.is-new) { self.focus(); } }
+            accepted => { root.confirmed(); }
+        }
+        HorizontalLayout {
+            height: 30px;
+            spacing: 4px;
+            for w[i] in HabitIcons.words: Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                background: i == root.icon ? root.colors[root.hue] : choix.has-hover ? Tokens.surface-active : Tokens.group;
+                accessible-role: button;
+                accessible-label: w;
+                accessible-item-selected: i == root.icon;
+                accessible-action-default => { root.icon = i; }
+                Icon {
+                    data: HabitIcons.path(w);
+                    size: 13px;
+                    weight: 1.8;
+                    tint: i == root.icon ? Tokens.accent-text : Tokens.text-muted;
+                }
+                choix := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.icon = i; }
+                }
+            }
+        }
+        HorizontalLayout {
+            height: 26px;
+            spacing: 8px;
+            for c[i] in root.colors: Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                background: c;
+                border-width: i == root.hue ? 2px : 0px;
+                border-color: Tokens.panel;
+                accessible-role: button;
+                accessible-label: "Colour " + (i + 1);
+                accessible-action-default => { root.hue = i; }
+                if i == root.hue: Rectangle {
+                    width: parent.width + 6px;
+                    height: parent.height + 6px;
+                    border-radius: self.width / 2;
+                    border-width: 1.5px;
+                    border-color: c;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.hue = i; }
+                }
+            }
+            Rectangle {}
+        }
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                text: "Hours a month";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 64px;
+                accessible-label: "Hours a month";
+                placeholder-text: "8";
+                text <=> root.hours;
+            }
+            Text {
+                text: "you want to give it";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            Rectangle {}
+        }
+        if root.picks.length > 0: Text {
+            text: "What belongs to it";
+            font-size: 12px;
+            font-weight: 600;
+            color: Tokens.text-muted;
+        }
+        if root.picks.length > 0: ScrollView {
+            height: min(220px, picks.preferred-height);
+            mouse-drag-pan-enabled: false;
+            viewport-width: self.visible-width;
+            picks := Picks {
+                width: parent.width;
+                picks: root.picks;
+                toggled(i) => { root.pick-toggled(i); }
+            }
+        }
+        if root.error != "": Text {
+            text: root.error;
+            font-size: 12px;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+        ModalFooter {
+            if !root.is-new: Button {
+                text: "Delete area";
+                kind: ButtonKind.danger;
+                clicked => { root.delete(); }
+            }
+            Button {
+                text: root.is-new ? "Add area" : "Save";
+                kind: ButtonKind.primary;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
+/// A cycle: its name, its first Monday, how many weeks, its goals.
+export component CyclePanel inherits Rectangle {
+    in-out property <string> name;
+    in-out property <string> start;
+    in-out property <string> weeks;
+    in property <[PickData]> goals;
+    in property <bool> is-new;
+    in property <string> error;
+    callback goal-toggled(int);
+    callback confirmed();
+    callback delete();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: root.is-new ? "New cycle" : "Cycle";
+        close-label: "Cancel";
+        card-width: 520px;
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        TextField {
+            accessible-label: "Cycle";
+            placeholder-text: "Land the internship, run 10 km";
+            font-size: 15px;
+            text <=> root.name;
+            init => { self.focus(); }
+            accepted => { root.confirmed(); }
+        }
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+            Text {
+                width: 80px;
+                text: "Starts";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 120px;
+                accessible-label: "Starts";
+                placeholder-text: "2026-10-12";
+                text <=> root.start;
+            }
+            Text {
+                text: "for";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            TextField {
+                width: 50px;
+                accessible-label: "Weeks";
+                text <=> root.weeks;
+            }
+            Text {
+                text: "weeks";
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            Rectangle {}
+        }
+        Text {
+            text: root.goals.length > 0 ? "Its goals" : "Make a goal first: a cycle is a few goals given twelve weeks.";
+            font-size: 12px;
+            font-weight: 600;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+        if root.goals.length > 0: ScrollView {
+            height: min(220px, buts.preferred-height);
+            mouse-drag-pan-enabled: false;
+            viewport-width: self.visible-width;
+            buts := Picks {
+                width: parent.width;
+                picks: root.goals;
+                toggled(i) => { root.goal-toggled(i); }
+            }
+        }
+        if root.error != "": Text {
+            text: root.error;
+            font-size: 12px;
+            color: Tokens.error;
+            wrap: word-wrap;
+        }
+        ModalFooter {
+            if !root.is-new: Button {
+                text: "Delete cycle";
+                kind: ButtonKind.danger;
+                clicked => { root.delete(); }
+            }
+            Button {
+                text: root.is-new ? "Start cycle" : "Save";
+                kind: ButtonKind.primary;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}

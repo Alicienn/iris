@@ -338,7 +338,7 @@ put off, what is due next week, what was done since Monday, and the goals under 
 
 ### Backups and export
 
-Your calendars, tasks, goals and habits exist only on this computer, so Iris copies them every
+Your calendars, tasks, goals, habits and compass exist only on this computer, so Iris copies them every
 day to the `backups` folder beside its data and keeps the last fourteen days.
 *Settings › Your calendars and tasks* shows when the last copy was made, makes one now,
 opens the folder, and **restores** one: Iris says what it holds and asks first, and
@@ -487,7 +487,8 @@ other.
 ## Growth
 
 Open **Growth**, the sprout at the top of the side column, or press `Ctrl`+`5`. Its
-column holds **Habits**, with how many of today's are done, and your **Goals**.
+column holds **Habits**, with how many of today's are done, the **Compass**, and your
+**Goals**.
 
 ### Habits
 
@@ -516,6 +517,25 @@ today. *Week*, *Month* and *Year* at the top show more at once.
 
 In Habits: `N` adds one, `J` / `K` or the arrows to move, `Space` done today (or not),
 `Escape` closes the details.
+
+### Compass
+
+The areas of your life (*Studies & career*, *Health*, *Relationships*, *Mind*, *Money*,
+*Fun* to start), on a wheel.
+
+- **Score this month** gives each area a score from 1 to 10, as you feel it; the wheel
+  draws this month's scores over last month's. Iris never scores for you.
+- Each area has a card: its score, the goal or habits in it (in orange when a goal is
+  behind), and its time this month: the tasks done in its lists or for its goals
+  (their length, half an hour when not said) and the time blocked for its goals, with
+  a mark at the hours a month you want to give it.
+- Click a card to rename the area, change its icon and colour, say how many hours a
+  month you want to give it, and tick the goals, habits and task lists that belong to
+  it. **Add an area** makes another.
+- **Cycles**: twelve weeks (or as many as you like) from a Monday, with the goals you
+  chose for them. The strip at the top shows the weeks gone and *what you planned,
+  done*: the steps of its goals done, against where a steady pace would be.
+- **Vision**: a page for who you want to become, in your own words.
 
 ### Goals
 

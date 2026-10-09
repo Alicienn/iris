@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 25;
+pub const CURRENT_VERSION: i64 = 26;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -143,7 +143,67 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "habits",
         sql: SCHEMA_V25,
     },
+    Migration {
+        version: 26,
+        name: "the compass: areas of life, scores, cycles, vision",
+        sql: SCHEMA_V26,
+    },
 ];
+
+/// The compass.
+///
+/// - `areas`: the areas of one's life, six to start; `wanted_minutes` the time a month
+///   one wants to give each. Goals, habits and task lists may belong to one.
+/// - `area_scores`: a score from 1 to 10 given by hand, by area and month (`2026-10`).
+/// - `cycles`: so many weeks from a Monday, with the goals chosen for them.
+/// - `vision`: one row, one's own words.
+const SCHEMA_V26: &str = "
+CREATE TABLE areas (
+    id             INTEGER PRIMARY KEY,
+    name           TEXT NOT NULL,
+    icon           TEXT NOT NULL DEFAULT 'sparkle',
+    color          TEXT NOT NULL,
+    wanted_minutes INTEGER NOT NULL DEFAULT 0,
+    position       INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO areas (name, icon, color, position) VALUES
+    ('Studies & career', 'cap', '#af52de', 1),
+    ('Health', 'heart', '#34c759', 2),
+    ('Relationships', 'chat', '#ff2d55', 3),
+    ('Mind', 'leaf', '#ff9500', 4),
+    ('Money', 'coin', '#30b0c7', 5),
+    ('Fun', 'music', '#5856d6', 6);
+
+ALTER TABLE goals ADD COLUMN area_id INTEGER REFERENCES areas(id) ON DELETE SET NULL;
+ALTER TABLE habits ADD COLUMN area_id INTEGER REFERENCES areas(id) ON DELETE SET NULL;
+ALTER TABLE task_lists ADD COLUMN area_id INTEGER REFERENCES areas(id) ON DELETE SET NULL;
+
+CREATE TABLE area_scores (
+    area_id INTEGER NOT NULL REFERENCES areas(id) ON DELETE CASCADE,
+    month   TEXT NOT NULL,
+    score   INTEGER NOT NULL,
+    at      INTEGER NOT NULL,
+    PRIMARY KEY (area_id, month)
+) WITHOUT ROWID;
+
+CREATE TABLE cycles (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    start_day  TEXT NOT NULL,
+    weeks      INTEGER NOT NULL DEFAULT 12,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE cycle_goals (
+    cycle_id INTEGER NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+    goal_id  INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    PRIMARY KEY (cycle_id, goal_id)
+) WITHOUT ROWID;
+
+CREATE TABLE vision (
+    id   INTEGER PRIMARY KEY CHECK (id = 1),
+    text TEXT NOT NULL DEFAULT ''
+);
+";
 
 /// Habits, and the days they were kept.
 ///

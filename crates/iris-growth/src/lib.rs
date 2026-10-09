@@ -5,12 +5,15 @@
 //!
 //! - [`habits`] says when a habit is due, what each day of it shows, its streaks and
 //!   its rate;
-//! - [`quick`] reads a habit typed in one line: "Read 20 pages every day".
+//! - [`quick`] reads a habit typed in one line: "Read 20 pages every day";
+//! - [`compass`] draws the wheel of the areas of one's life, and knows the weeks of a
+//!   cycle.
 //!
 //! Nothing here counts on the user's behalf: the days done are the ones ticked.
 
 #![forbid(unsafe_code)]
 
+pub mod compass;
 pub mod habits;
 pub mod quick;
 

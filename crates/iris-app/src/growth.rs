@@ -431,14 +431,14 @@ fn remplir(f: &AppWindow, services: &Services, etat: &mut Etat) {
 
     let mut lignes = Vec::new();
     etat.ordre.clear();
-    for g in 0..3 {
+    for (g, nom) in GROUPES.iter().enumerate() {
         let du_groupe: Vec<&Une> = habitudes.iter().filter(|u| groupe(u) == g).collect();
         if du_groupe.is_empty() {
             continue;
         }
         lignes.push(HabitData {
             kind: 1,
-            title: GROUPES[g].into(),
+            title: (*nom).into(),
             streak: if g == 1 && etat.mode == 0 {
                 "This week".into()
             } else {
@@ -789,11 +789,16 @@ pub fn wire_growth(f: &AppWindow, services: &Services) {
         [services, etat, redessiner, f],
         on_growth_place_chosen,
         |cle| {
-            if cle == "habits" {
-                f.set_growth_page(0);
-            } else {
-                f.set_growth_page(1);
-                f.invoke_task_place_chosen(cle);
+            match cle.as_str() {
+                "habits" => f.set_growth_page(0),
+                "compass" => {
+                    f.set_growth_page(2);
+                    crate::compass::remplir(f, services);
+                }
+                _ => {
+                    f.set_growth_page(1);
+                    f.invoke_task_place_chosen(cle);
+                }
             }
             redessiner();
         }

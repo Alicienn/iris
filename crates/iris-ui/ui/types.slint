@@ -806,3 +806,53 @@ export struct HabitDetailData {
     unit: string,
     today-amount: int,
 }
+
+// An area of one's life, on the compass.
+export struct AreaData {
+    id: int,
+    name: string,
+    // Its first word, on the wheel: "Studies".
+    short: string,
+    icon: string,
+    color: color,
+    // This month's score, 1 to 10; 0 not scored. Its label: "8", "–".
+    score: int,
+    score-label: string,
+    last-score: int,
+    // What it holds: "10 applications · 6/10"; in orange when a goal in it is behind.
+    line: string,
+    warn: bool,
+    // "18 h this month", "wanted 20 h".
+    hours: string,
+    wanted: string,
+    // The time bar: how full, and where the time wanted is (-1 for none).
+    fraction: float,
+    mark: float,
+    // On the wheel's 240-unit grid: its score's point, and its name's.
+    dot-x: float,
+    dot-y: float,
+    label-x: float,
+    label-y: float,
+}
+
+// A cycle in the list of them.
+export struct CycleRowData {
+    id: int,
+    name: string,
+    dates: string,
+    goals: string,
+    // 0 to come, 1 under way, 2 over.
+    state: int,
+    score: string,
+}
+
+// Something to tick in a window: a goal, a habit, a list, a task.
+export struct PickData {
+    id: int,
+    name: string,
+    hint: string,
+    color: color,
+    on: bool,
+    // 0 a goal, 1 a habit, 2 a list.
+    kind: int,
+}

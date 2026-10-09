@@ -10,6 +10,7 @@ pub mod backup;
 pub mod caldav;
 pub mod calendar;
 pub mod changelog;
+pub mod compass;
 pub mod controller;
 pub mod draft;
 pub mod folders;

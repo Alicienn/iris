@@ -1,6 +1,6 @@
 //! What exists only here, kept apart: calendars and events with what is set beside
 //! them (notes, colours, call links, invitation answers), task lists and tasks, goals,
-//! habits and the days they were kept.
+//! habits and the days they were kept, the compass (areas, scores, cycles, vision).
 //!
 //! Mail comes back from its servers; these do not, and a damaged or lost base took
 //! them with it. A backup is a small SQLite file holding copies of those tables and a
@@ -24,6 +24,9 @@ const TABLES: &[&str] = &[
     "event_colors",
     "event_links",
     "invite_replies",
+    "areas",
+    "area_scores",
+    "vision",
     "task_lists",
     "goals",
     "goal_entries",
@@ -31,6 +34,8 @@ const TABLES: &[&str] = &[
     "tasks",
     "habits",
     "habit_checks",
+    "cycles",
+    "cycle_goals",
 ];
 
 /// What a backup holds, to say so before restoring it.

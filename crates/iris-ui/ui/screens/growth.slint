@@ -1,12 +1,13 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
-import { HabitData, HabitDetailData, GoalData } from "@iris/types.slint";
+import { HabitData, HabitDetailData, GoalData, AreaData, CycleRowData } from "@iris/types.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Segmented } from "@iris/controls/choice.slint";
 import { Nav, NavItem, SectionRow, SectionTitle } from "@iris/lists/nav.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import { GoalRow } from "@iris/screens/goals.slint";
 import { HabitsPage, HabitPanel } from "@iris/screens/habits.slint";
+import { CompassPage } from "@iris/screens/compass.slint";
 
 // Growth: who one wants to become, beside what there is to do. Its column holds the
 // day's habits and the goals; the habits fill the rest. A goal's page is the tasks'
@@ -14,9 +15,12 @@ import { HabitsPage, HabitPanel } from "@iris/screens/habits.slint";
 
 /// Growth's side column.
 export component GrowthSidebar inherits SidebarFrame {
-    /// 0 the habits, 1 a goal or all of them.
+    /// 0 the habits, 1 a goal or all of them, 2 the compass.
     in property <int> page;
     in property <string> habits-count;
+    /// The compass's row: "Cycle 3", "week 5/12".
+    in property <string> compass-label;
+    in property <string> compass-count;
     in property <[GoalData]> goals;
     /// All the goals are shown.
     in property <bool> goals-shown;
@@ -31,6 +35,15 @@ export component GrowthSidebar inherits SidebarFrame {
         count: root.habits-count;
         selected: root.page == 0;
         clicked => { root.place-chosen("habits"); }
+    }
+
+    SectionRow { text: "Compass"; }
+    NavItem {
+        label: root.compass-label;
+        icon: Icons.compass;
+        count: root.compass-count;
+        selected: root.page == 2;
+        clicked => { root.place-chosen("compass"); }
     }
 
     // The goals, their title leading to all of them, as the tasks had them.
@@ -120,9 +133,34 @@ export component GrowthView inherits Rectangle {
     in property <int> focus-add-request;
     in property <[GoalData]> goals;
     in property <bool> goals-shown;
+    // The compass.
+    in property <string> compass-label;
+    in property <string> compass-count;
+    in property <int> compass-tab;
+    in property <string> compass-sub;
+    in property <bool> has-cycle;
+    in property <string> cycle-name;
+    in property <string> cycle-sub;
+    in property <[int]> cycle-segments;
+    in property <string> cycle-score;
+    in property <string> cycle-score-label;
+    in property <string> wheel-grid;
+    in property <string> wheel-now;
+    in property <string> wheel-before;
+    in property <string> wheel-scored;
+    in property <[AreaData]> areas;
+    in-out property <string> vision;
+    in property <[CycleRowData]> cycles;
 
     callback place-chosen(string);
     callback new-goal();
+    callback compass-tab-chosen(int);
+    callback score-requested();
+    callback area-opened(int);
+    callback area-new();
+    callback cycle-opened(int);
+    callback cycle-new();
+    callback vision-edited(string);
     callback mode-chosen(int);
     callback new-habit();
     callback selected(int);
@@ -140,6 +178,8 @@ export component GrowthView inherits Rectangle {
         GrowthSidebar {
             page: root.page;
             habits-count: root.habits-count;
+            compass-label: root.compass-label;
+            compass-count: root.compass-count;
             goals: root.goals;
             goals-shown: root.goals-shown;
             place-chosen(k) => { root.place-chosen(k); }
@@ -205,6 +245,62 @@ export component GrowthView inherits Rectangle {
                     goal-opened(id) => { root.goal-opened(id); }
                     amount-step(n) => { root.amount-step(n); }
                 }
+            }
+        }
+
+        if root.page == 2: VerticalLayout {
+            horizontal-stretch: 1;
+            WindowToolbar {
+                Text {
+                    text: "Compass";
+                    font-family: Tokens.font-display;
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.compass-sub;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Segmented {
+                    y: (parent.height - self.height) / 2;
+                    options: ["Areas", "Vision", "Cycles"];
+                    selected: root.compass-tab;
+                    chosen(i) => { root.compass-tab-chosen(i); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Score this month";
+                    size: ButtonSize.sm;
+                    clicked => { root.score-requested(); }
+                }
+            }
+            CompassPage {
+                vertical-stretch: 1;
+                tab: root.compass-tab;
+                has-cycle: root.has-cycle;
+                cycle-name: root.cycle-name;
+                cycle-sub: root.cycle-sub;
+                cycle-segments: root.cycle-segments;
+                cycle-score: root.cycle-score;
+                cycle-score-label: root.cycle-score-label;
+                wheel-grid: root.wheel-grid;
+                wheel-now: root.wheel-now;
+                wheel-before: root.wheel-before;
+                wheel-scored: root.wheel-scored;
+                areas: root.areas;
+                vision <=> root.vision;
+                cycles: root.cycles;
+                area-opened(id) => { root.area-opened(id); }
+                area-new => { root.area-new(); }
+                cycle-opened(id) => { root.cycle-opened(id); }
+                cycle-new => { root.cycle-new(); }
+                vision-edited(t) => { root.vision-edited(t); }
             }
         }
     }

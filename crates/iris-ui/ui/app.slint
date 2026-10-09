@@ -9,7 +9,7 @@ import {
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
     NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData,
-    HabitData, HabitCellData, HabitDetailData
+    HabitData, HabitCellData, HabitDetailData, AreaData, CycleRowData, PickData
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
@@ -45,6 +45,7 @@ import {
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import { NewHabitPanel, HabitDeletePanel } from "@iris/screens/habits.slint";
 import { GrowthView } from "@iris/screens/growth.slint";
+import { ScorePanel, AreaPanel, CyclePanel } from "@iris/screens/compass.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu, EventContextMenu,
     CalendarRenamePanel, CalendarDeletePanel, ConnectCalendarsPanel
@@ -1295,6 +1296,56 @@ export component AppWindow inherits Window {
     callback habit-new-confirmed();
     in-out property <bool> habit-delete-open;
     callback habit-delete-confirmed();
+    // --- The compass, in Growth ---
+    in property <string> growth-compass-label: "Areas of life";
+    in property <string> growth-compass-count;
+    /// 0 the areas, 1 the vision, 2 the cycles.
+    in-out property <int> compass-tab;
+    in property <string> compass-sub;
+    in property <bool> compass-has-cycle;
+    in property <string> compass-cycle-name;
+    in property <string> compass-cycle-sub;
+    in property <[int]> compass-cycle-segments;
+    in property <string> compass-cycle-score;
+    in property <string> compass-cycle-score-label;
+    in property <string> compass-wheel-grid;
+    in property <string> compass-wheel-now;
+    in property <string> compass-wheel-before;
+    in property <string> compass-wheel-scored;
+    in property <[AreaData]> compass-areas;
+    in-out property <string> compass-vision;
+    in property <[CycleRowData]> compass-cycles;
+    in property <string> compass-month;
+    callback compass-tab-chosen(int);
+    callback compass-score-requested();
+    in-out property <bool> compass-score-open;
+    callback area-scored(int, int);
+    callback area-opened(int);
+    callback area-new();
+    in-out property <bool> area-edit-open;
+    in property <bool> area-edit-new;
+    in-out property <string> area-edit-name;
+    in-out property <int> area-edit-icon;
+    in-out property <int> area-edit-color;
+    in-out property <string> area-edit-hours;
+    in property <[PickData]> area-edit-picks;
+    in property <string> area-edit-error;
+    callback area-pick-toggled(int);
+    callback area-edit-confirmed();
+    callback area-delete();
+    callback cycle-opened(int);
+    callback cycle-new();
+    in-out property <bool> cycle-edit-open;
+    in property <bool> cycle-edit-new;
+    in-out property <string> cycle-edit-name;
+    in-out property <string> cycle-edit-start;
+    in-out property <string> cycle-edit-weeks;
+    in property <[PickData]> cycle-edit-goals;
+    in property <string> cycle-edit-error;
+    callback cycle-goal-toggled(int);
+    callback cycle-edit-confirmed();
+    callback cycle-delete();
+    callback vision-edited(string);
     // --- When to do a task ---
     /// Later: which task, where its menu goes; Rust fills the title and opens it.
     in-out property <int> task-later-id;
@@ -1525,7 +1576,8 @@ export component AppWindow inherits Window {
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
         || root.task-later-open || root.task-slot-open
-        || root.habit-new-open || root.habit-delete-open;
+        || root.habit-new-open || root.habit-delete-open
+        || root.compass-score-open || root.area-edit-open || root.cycle-edit-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
     // with a field that no longer exists, and the next key goes nowhere.
@@ -1873,12 +1925,15 @@ export component AppWindow inherits Window {
             }
             // Growth's habits: N puts the cursor in the line that adds one, the arrows
             // move, space ticks today.
-            if (root.workspace == 5 && root.growth-page == 0) {
-                if (event.text == "n") { root.growth-focus-add += 1; }
-                if (event.text == Key.DownArrow || event.text == "j") { root.habit-move(1); }
-                if (event.text == Key.UpArrow || event.text == "k") { root.habit-move(-1); }
-                if (event.text == " ") { root.habit-toggle-selected(); }
-                if (event.text == Key.Escape && root.growth-has-detail) { root.habit-detail-closed(); }
+            // The compass and the rest of Growth have no keys of their own.
+            if (root.workspace == 5 && root.growth-page != 1) {
+                if (root.growth-page == 0) {
+                    if (event.text == "n") { root.growth-focus-add += 1; }
+                    if (event.text == Key.DownArrow || event.text == "j") { root.habit-move(1); }
+                    if (event.text == Key.UpArrow || event.text == "k") { root.habit-move(-1); }
+                    if (event.text == " ") { root.habit-toggle-selected(); }
+                    if (event.text == Key.Escape && root.growth-has-detail) { root.habit-detail-closed(); }
+                }
                 return accept;
             }
             // The tasks have their own keys too, and so has a goal's page in Growth,
@@ -2782,7 +2837,7 @@ export component AppWindow inherits Window {
     if root.workspace == 5: GrowthView {
         x: 0px;
         y: 0px;
-        width: root.growth-page == 0 ? parent.width : 232px;
+        width: root.growth-page == 1 ? 232px : parent.width;
         height: parent.height - 30px;
         page: root.growth-page;
         mode: root.growth-mode;
@@ -2800,6 +2855,30 @@ export component AppWindow inherits Window {
         focus-add-request: root.growth-focus-add;
         goals: root.goals;
         goals-shown: root.task-page == 2;
+        compass-label: root.growth-compass-label;
+        compass-count: root.growth-compass-count;
+        compass-tab: root.compass-tab;
+        compass-sub: root.compass-sub;
+        has-cycle: root.compass-has-cycle;
+        cycle-name: root.compass-cycle-name;
+        cycle-sub: root.compass-cycle-sub;
+        cycle-segments: root.compass-cycle-segments;
+        cycle-score: root.compass-cycle-score;
+        cycle-score-label: root.compass-cycle-score-label;
+        wheel-grid: root.compass-wheel-grid;
+        wheel-now: root.compass-wheel-now;
+        wheel-before: root.compass-wheel-before;
+        wheel-scored: root.compass-wheel-scored;
+        areas: root.compass-areas;
+        vision <=> root.compass-vision;
+        cycles: root.compass-cycles;
+        compass-tab-chosen(t) => { root.compass-tab-chosen(t); }
+        score-requested => { root.compass-score-requested(); }
+        area-opened(id) => { root.area-opened(id); }
+        area-new => { root.area-new(); }
+        cycle-opened(id) => { root.cycle-opened(id); }
+        cycle-new => { root.cycle-new(); }
+        vision-edited(t) => { root.vision-edited(t); }
         place-chosen(k) => {
             root.growth-place-chosen(k);
             root.navigated("growth", k);
@@ -2962,6 +3041,47 @@ export component AppWindow inherits Window {
         day-toggled(i) => { root.habit-new-day-toggled(i); }
         confirmed => { root.habit-new-confirmed(); }
         dismissed => { root.habit-new-open = false; }
+    }
+
+    if root.compass-score-open: ScorePanel {
+        width: 100%;
+        height: 100%;
+        areas: root.compass-areas;
+        month: root.compass-month;
+        scored(id, n) => { root.area-scored(id, n); }
+        dismissed => { root.compass-score-open = false; }
+    }
+
+    if root.area-edit-open: AreaPanel {
+        width: 100%;
+        height: 100%;
+        name <=> root.area-edit-name;
+        icon <=> root.area-edit-icon;
+        hue <=> root.area-edit-color;
+        colors: root.habit-colors;
+        hours <=> root.area-edit-hours;
+        picks: root.area-edit-picks;
+        is-new: root.area-edit-new;
+        error: root.area-edit-error;
+        pick-toggled(i) => { root.area-pick-toggled(i); }
+        confirmed => { root.area-edit-confirmed(); }
+        delete => { root.area-delete(); }
+        dismissed => { root.area-edit-open = false; }
+    }
+
+    if root.cycle-edit-open: CyclePanel {
+        width: 100%;
+        height: 100%;
+        name <=> root.cycle-edit-name;
+        start <=> root.cycle-edit-start;
+        weeks <=> root.cycle-edit-weeks;
+        goals: root.cycle-edit-goals;
+        is-new: root.cycle-edit-new;
+        error: root.cycle-edit-error;
+        goal-toggled(i) => { root.cycle-goal-toggled(i); }
+        confirmed => { root.cycle-edit-confirmed(); }
+        delete => { root.cycle-delete(); }
+        dismissed => { root.cycle-edit-open = false; }
     }
 
     if root.habit-delete-open: HabitDeletePanel {

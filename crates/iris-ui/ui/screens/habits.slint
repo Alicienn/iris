@@ -27,7 +27,7 @@ export component HabitTile inherits Rectangle {
         data: HabitIcons.path(root.icon);
         size: root.size * 0.54;
         weight: 1.8;
-        tint: #ffffff;
+        tint: Tokens.accent-text;
     }
 }
 
@@ -652,7 +652,7 @@ export component HabitPanel inherits DetailPanel {
                         data: Icons.flag;
                         size: 13px;
                         weight: 2;
-                        tint: #ffffff;
+                        tint: Tokens.accent-text;
                     }
                 }
                 VerticalLayout {
@@ -790,7 +790,7 @@ export component NewHabitPanel inherits Rectangle {
                         data: HabitIcons.path(w);
                         size: 14px;
                         weight: 1.8;
-                        tint: i == root.icon ? #ffffff : Tokens.text-muted;
+                        tint: i == root.icon ? Tokens.accent-text : Tokens.text-muted;
                     }
                     choix := TouchArea {
                         mouse-cursor: pointer;
