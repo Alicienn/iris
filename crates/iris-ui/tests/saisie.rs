@@ -486,6 +486,128 @@ fn a_note_s_line_takes_every_key_and_enter_goes_to_rust() {
     );
 }
 
+/// A note of `n` lines of words.
+fn des_lignes(f: &AppWindow, n: usize) {
+    let blocs: Vec<iris_ui::NoteBlockData> = (0..n)
+        .map(|k| iris_ui::NoteBlockData {
+            kind: "paragraph".into(),
+            source: format!("Ligne {k}").into(),
+            rich: slint::StyledText::from_plain_text(&format!("Ligne {k}")),
+            ..Default::default()
+        })
+        .collect();
+    f.set_note_open(true);
+    f.set_note_blocks(ModelRc::new(VecModel::from(blocs)));
+}
+
+/// The window's items made, as a frame drawn makes them.
+fn construire(f: &AppWindow) {
+    let _ = testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .find_all();
+}
+
+fn a_line_made_below_the_page_keeps_the_keyboard() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    let edites = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let edites = Rc::clone(&edites);
+        f.on_note_block_edited(move |i, _, _| edites.borrow_mut().push(i));
+    }
+    // Enter at the end of a long note: the new line is below what shows.
+    des_lignes(&f, 80);
+    f.set_note_focus(79);
+    f.set_note_focus_serial(1);
+    construire(&f);
+    testing::mock_elapsed_time(std::time::Duration::from_millis(20));
+    taper(&f, "x");
+    assert_eq!(
+        edites.borrow().last().copied(),
+        Some(79),
+        "the page scrolls to the new line, which keeps the keys: {:?}",
+        edites.borrow()
+    );
+}
+
+fn an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys() {
+    let f = fenetre();
+    ctrl(&f, "4");
+    let g = f.global::<iris_ui::NoteSelect>();
+    let choisies = Rc::new(RefCell::new(Vec::<(i32, i32, i32)>::new()));
+    {
+        let (choisies, faible) = (Rc::clone(&choisies), f.as_weak());
+        g.on_cell_pressed(move |i, r, c, _| {
+            choisies.borrow_mut().push((i, r, c));
+            // As Rust does: the cell selected, the keyboard to the cells.
+            let g = faible.unwrap().global::<iris_ui::NoteSelect>();
+            g.set_r1(r);
+            g.set_r2(r);
+            g.set_c1(c);
+            g.set_c2(c);
+            g.set_row(r);
+            g.set_col(c);
+            g.set_sheet_block(i);
+            g.set_cells_serial(g.get_cells_serial() + 1);
+        });
+    }
+    let cles = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let cles = Rc::clone(&cles);
+        g.on_cell_key(move |n| {
+            cles.borrow_mut().push(n.to_string());
+            true
+        });
+    }
+    let cellules: Vec<SharedString> = ["Poste", "Montant", "Loyer", "800"]
+        .into_iter()
+        .map(SharedString::from)
+        .collect();
+    f.set_note_open(true);
+    f.set_note_blocks(ModelRc::new(VecModel::from(vec![
+        iris_ui::NoteBlockData {
+            kind: "paragraph".into(),
+            source: "Budget".into(),
+            rich: slint::StyledText::from_plain_text("Budget"),
+            ..Default::default()
+        },
+        iris_ui::NoteBlockData {
+            kind: "table".into(),
+            sheet: true,
+            rows: 2,
+            columns: 2,
+            cells: ModelRc::new(VecModel::from(cellules)),
+            widths: ModelRc::new(VecModel::from(vec![120.0f32, 120.0])),
+            widths_total: 240.0,
+            edges: ModelRc::new(VecModel::from(vec![120.0f32, 240.0])),
+            ..Default::default()
+        },
+    ])));
+    // The line above is being written: one click on a cell takes it.
+    f.set_note_focus(0);
+    f.set_note_focus_serial(1);
+    let montant = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some("800"))
+        .expect("the cell 800 is drawn");
+    clic(&montant);
+    assert_eq!(
+        *choisies.borrow(),
+        vec![(1, 1, 1)],
+        "the click chose the cell"
+    );
+    construire(&f);
+    taper(&f, "4");
+    ctrl(&f, "c");
+    assert_eq!(
+        *cles.borrow(),
+        vec!["type:4".to_string(), "ctrl+c".to_string()],
+        "the cells take the keys"
+    );
+}
+
 fn a_heading_is_typed_without_its_hashes() {
     let f = fenetre();
     ctrl(&f, "4");
@@ -2600,6 +2722,14 @@ fn main() {
         (
             "a_note_s_line_takes_every_key_and_enter_goes_to_rust",
             a_note_s_line_takes_every_key_and_enter_goes_to_rust,
+        ),
+        (
+            "a_line_made_below_the_page_keeps_the_keyboard",
+            a_line_made_below_the_page_keeps_the_keyboard,
+        ),
+        (
+            "an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys",
+            an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys,
         ),
         (
             "a_heading_is_typed_without_its_hashes",

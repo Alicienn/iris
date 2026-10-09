@@ -391,17 +391,18 @@ few marks of Iris's own:
 
 | Typed | Gives | Key |
 |---|---|---|
-| `**x**`, `*x*` | Bold, italic | `Ctrl`+`B`, `Ctrl`+`I` |
+| `**x**`, `*x*` or `_x_` | Bold, italic | `Ctrl`+`B`, `Ctrl`+`I` |
 | `__x__` | Underline | `Ctrl`+`U` |
 | `--x--` | Strikethrough | `Ctrl`+`Shift`+`X` |
 | `==x==`, `=={g}x==` | Highlight, in a colour | `Ctrl`+`Shift`+`H` |
 | `{r}x{/}` | Coloured text: `r` `o` `y` `g` `b` `p` `n` (grey) | `Ctrl`+`Shift`+`1`…`7`, or `Ctrl`+`Shift`+`C` for the picker |
 | `x^2^`, `H~2~O` | Superscript, subscript | `Ctrl`+`.`, `Ctrl`+`,` |
 | `` `x` `` | Code | `Ctrl`+`E` |
-| `$x$`, `$$` on a line | A formula in the line, a formula on its own | `Ctrl`+`M` |
-| `[[Note]]`, `[[Note#Heading]]`, `[[Note\|text]]` | A link to a note | typing `[[` |
+| `$x$`, `$$` on a line | A formula in the line, a formula on its own (`Enter` after `$$` closes it) | `Ctrl`+`M` |
+| `[[Note]]`, `[[Note#Heading]]`, `[[Note\|text]]` | A link to a note | typing `[[`, `Ctrl`+`L` |
 | `[[#thm-2]]`, `[[Note#def-1]]`, `[[#Heading]]` | A link to a numbered callout or a heading | |
-| `[text](https://…)` | A web link | `Ctrl`+`L` |
+| `[text](https://…)` | A web link (to the address copied, if any) | `Ctrl`+`K` |
+| `->`, `<-`, `<->`, `=>`, `<=>`, `!=`, `<=`, `>=` | `→` `←` `↔` `⇒` `⇔` `≠` `≤` `≥`, outside code and maths | `Ctrl`+`Z` keeps the characters |
 | `#tag`, `@2026-10-08`, `^[text]` | A tag, a date, a footnote | typing `#`, `@` |
 | `# ` … `###### ` | Headings | `Ctrl`+`H` cycles |
 | `- `, `1. `, `[] ` | Bullets, numbers, a checkbox | `Ctrl`+`Enter` ticks |
@@ -410,9 +411,17 @@ few marks of Iris's own:
 | `:::cols` … `:::col` … `:::` | Columns | |
 | `/` | The list of every block, each with its icon and, beside it, a short animation of what it becomes | |
 
-Pairs close themselves; lists go on with `Enter`; `Tab` and `Shift`+`Tab` nest;
-`Alt`+`↑`/`↓` move a block and `Ctrl`+`D` duplicates it; `Ctrl`+`Z`/`Ctrl`+`Y` undo and
-redo. Selecting words shows a bubble of formats, each naming its key when pointed at.
+Pairs close themselves; lists go on with `Enter` and number themselves; `Tab` and
+`Shift`+`Tab` nest; `Alt`+`↑`/`↓` move a block and `Ctrl`+`D` duplicates it;
+`Ctrl`+`Z`/`Ctrl`+`Y` undo and redo. `Enter` after ` ``` `, `$$` or `:::fold` makes the
+whole block, closed, with the cursor inside; one left open is just a line, never the
+rest of the note. Selecting words shows a bubble of formats, each naming its key when pointed at.
+
+**Selecting blocks.** Drag from one block to another, `Shift`-click a block, press
+`Shift`+`↑`/`↓` past the first or last line, or `Ctrl`+`A` twice: whole blocks are
+selected, formulas, tables, pictures and theorems with the words. `Ctrl`+`C`,
+`Ctrl`+`X`, `Ctrl`+`V`, `Delete`, `Alt`+`↑`/`↓`, `Tab` and `Ctrl`+`D` act on all of
+them; `Escape`, an arrow or `Enter` returns to writing.
 Typing `[[`, `#`, `@`, `\` (in maths), `/` or `{` opens a list at the cursor. With the
 cursor in a link, a card shows the start of its note (*Open* goes there); in a
 footnote, its text; in a formula, its drawing. An image pasted with `Ctrl`+`V` is
@@ -437,9 +446,14 @@ right (`Ctrl`+`R`), and exports to Excel or CSV. Copy and paste go to and from E
 and Google Sheets. *Freeze* keeps the top rows in view; the status line adds up the
 selection. Right-click a `.xlsx` or `.csv` file in the tree for *Open as a
 spreadsheet*. In a note, `![[Budget.sheet]]` (or `![[Budget.sheet#A1:D10]]`) shows its
-values as a table; a click opens it. Drag a column's edge to widen it (the sheet keeps
-the width), and the cog at its top right cuts long words to one line rather than
-wrapping them (`![[Budget.sheet|clip]]`).
+values as a table, with an empty row under the last to type in (`/sheet` makes a new
+one, a small grid). Click a cell to select it (`Shift`-click or `Shift` and an arrow for
+more): type or `Enter` to write in it (`Enter`, `Tab` to finish, `Escape` to drop it),
+`Ctrl`+`C`/`X`/`V` copy, cut and paste, `Delete` clears, `Ctrl`+`Z` takes the last
+change back. Every change is written in the spreadsheet itself. The button at its top
+right opens it whole. Drag a column's edge to widen it (the sheet keeps the width), and
+the cog cuts long words to one line rather than wrapping them
+(`![[Budget.sheet|clip]]`).
 
 **Courses.** An event's panel offers **Notes**: a note named after it and its day,
 made from the *Cours* template, in a folder for the course (opened again the next
@@ -458,9 +472,9 @@ click away; `F11` is focus mode, the note alone; the side panel lists its outlin
 what mentions it, its tags and length. *Open beside* (or `Ctrl`+`\`, then its name)
 shows a second note to read while writing. `Ctrl`+`G` draws the graph of the links
 between the notes. *History…* lists the versions kept (one per session of editing,
-the last thirty) and restores one. *Edit as plain text* (the `</>` button, or
-`Ctrl`+`A` twice) shows the whole note in one field, to select across its lines with
-the mouse or `Ctrl`+`A`; `Escape` returns to the blocks. Right-click the empty part of
+the last thirty) and restores one. *Edit as plain text* (the `</>` button) shows the
+whole note in one field, to select across its lines with the mouse or `Ctrl`+`A`;
+`Escape` returns to the blocks. Right-click the empty part of
 the column for a new note, spreadsheet or folder, or to open the space's folder.
 
 **With the rest of Iris.** *Copy link for a note*, in a conversation's, an event's or a
@@ -519,6 +533,8 @@ on school and office networks where many people share one address.
 | `Ctrl`+`\` | In Notes: open a note beside |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | In Notes: new tab / close the tab / next tab |
 | `Ctrl`+`R` / `F11` / `Ctrl`+`G` | In Notes: reading mode / focus mode / graph of links |
+| `Ctrl`+`A` twice / `Shift`+`↑`/`↓` | In Notes: select whole blocks |
+| `Ctrl`+`K` | In a note: make the words a web link |
 | `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |
 | `Ctrl`+`,` | Settings |

@@ -391,7 +391,11 @@ pub(super) fn montrer_selection(f: &AppWindow, fe: &mut Feuille) {
 /// What a cell shows in the formula bar and when typed in: its formula, or its value
 /// written as typed (a date as a date).
 fn saisie_de(fe: &Feuille, a: Addr) -> String {
-    let s = fe.feuille();
+    saisie_dans(fe.feuille(), a, &fe.locale)
+}
+
+/// [`saisie_de`] for any sheet: also what a spreadsheet embedded in a note types in.
+pub(super) fn saisie_dans(s: &iris_sheets::Sheet, a: Addr, locale: &Locale) -> String {
     let brut = s.input(a);
     if brut.starts_with('=') {
         return brut.to_string();
@@ -401,13 +405,13 @@ fn saisie_de(fe: &Feuille, a: Addr) -> String {
         (
             NumberFormat::Date | NumberFormat::Time | NumberFormat::DateTime,
             v @ Value::Number(_),
-        ) => display(&v, &fmt, &fe.locale),
+        ) => display(&v, &fmt, locale),
         (NumberFormat::Percent, Value::Number(n)) => {
             format!("{}%", iris_sheets::eval::general(n * 100.0))
-                .replace('.', &fe.locale.decimal.to_string())
+                .replace('.', &locale.decimal.to_string())
         }
         (_, Value::Number(n)) => {
-            iris_sheets::eval::general(n).replace('.', &fe.locale.decimal.to_string())
+            iris_sheets::eval::general(n).replace('.', &locale.decimal.to_string())
         }
         _ => brut.to_string(),
     }
@@ -473,13 +477,17 @@ fn montrer_feuilles(f: &AppWindow, fe: &Feuille) {
 /// What was typed, put in cell `a`: a formula as typed, a date or a number read as
 /// the user writes them (and its format suggested), else the text.
 fn poser(fe: &mut Feuille, a: Addr, texte: &str) {
-    let fmt = fe.feuille().format(a);
-    let s = &mut fe.book.sheets[fe.sheet];
+    poser_dans(&mut fe.book.sheets[fe.sheet], a, texte, &fe.locale);
+}
+
+/// [`poser`] for any sheet: also what is typed in a spreadsheet embedded in a note.
+pub(super) fn poser_dans(s: &mut iris_sheets::Sheet, a: Addr, texte: &str, locale: &Locale) {
+    let fmt = s.format(a);
     if texte.starts_with('=') || fmt.number == NumberFormat::Text || texte.trim().is_empty() {
         s.set_input(a, texte);
         return;
     }
-    if let Some((n, genre)) = iris_sheets::format::read_date(texte, &fe.locale) {
+    if let Some((n, genre)) = iris_sheets::format::read_date(texte, locale) {
         s.set_input(a, &iris_sheets::eval::general(n));
         if !matches!(
             fmt.number,
@@ -490,7 +498,7 @@ fn poser(fe: &mut Feuille, a: Addr, texte: &str) {
         return;
     }
     // A number typed with the user's decimal sign.
-    let lu = if fe.locale.decimal == ',' {
+    let lu = if locale.decimal == ',' {
         iris_sheets::format::read_number(texte)
     } else {
         iris_sheets::format::read_number(&texte.replace(',', ""))

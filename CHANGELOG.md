@@ -3,6 +3,27 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.20.0 — 2026-10-09
+
+### New
+- Click a cell of a spreadsheet in a note to select it: type in it, copy, cut, paste or clear it, and the spreadsheet itself changes.
+- Select whole blocks, formulas, tables and theorems included: drag across them, Shift-click, Shift and an arrow past a line, or Ctrl+A twice.
+- Selected blocks are copied, cut, deleted, moved with Alt and an arrow, nested with Tab or duplicated with Ctrl+D together.
+- Ctrl+K makes the selected words a web link, to the address you copied when there is one.
+- Typing ->, =>, !=, <= or >= writes →, ⇒, ≠, ≤ or ≥ (Ctrl+Z gives the characters back).
+- A new spreadsheet in a note shows a grid to type in, and every spreadsheet an empty row under its last.
+
+### Improved
+- Enter after $$, three backticks or :::fold closes the block and puts you inside it; typing them no longer turns the rest of the note into code or maths.
+- Numbered lists count on by themselves, even when an item is removed or every item is typed 1.
+- Enter at the start of a heading or a ticked box adds a line above and keeps it as it was.
+- _Words_ between underscores are in italics, as in Markdown.
+- A highlight or a colour inside another closes where it should.
+- A spreadsheet in a note opens from its own button; a click beside it writes its line.
+
+### Fixed
+- Enter on a line at the foot of the page no longer loses the cursor.
+
 ## 4.19.0 — 2026-10-08
 
 ### New

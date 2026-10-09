@@ -703,3 +703,11 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       typed (a setting), embedded sheets with columns to drag and long words cut,
       the note as plain text for selections across lines, Enter at the end of a note
       fixed, spaced inline maths read.
+- [x] **S43.11** Selecting and a review of the marks (4.20.0): an embedded
+      spreadsheet's cells selected, typed in, copied, cut, pasted and cleared in the
+      file itself; whole blocks selected by dragging, Shift and a click or an arrow,
+      `Ctrl`+`A` twice, and copied, cut, moved, nested, duplicated together; a line made
+      below the page keeps the keys; fences left open stay a line and Enter closes
+      them; lists numbered as drawn; Enter at the start of a heading or a ticked box;
+      `_italic_`, nested colours, highlights past `a == b`; `Ctrl`+`K` web links;
+      `->`, `=>`, `!=`, `<=`, `>=` made into signs.

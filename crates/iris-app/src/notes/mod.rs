@@ -9,6 +9,8 @@
 
 mod apercu;
 mod bin;
+mod blocs;
+mod cellules;
 mod export;
 pub mod render;
 mod sheet;
@@ -112,6 +114,10 @@ struct Etat {
     nouvel_onglet: bool,
     /// The note shown as plain text, in one field, rather than as blocks.
     source: bool,
+    /// Whole blocks selected: where the selection started and where it ends.
+    blocs: Option<(usize, usize)>,
+    /// The cells of an embedded spreadsheet selected, and what they copied.
+    cellules: cellules::Cellules,
 }
 
 /// A revision under way: the cards left, the one shown, and how it went.
@@ -340,9 +346,33 @@ fn rendre(f: &AppWindow, e: &mut Etat, tout: bool) {
     f.set_note_status(if note.dirty { "Editing" } else { "" }.into());
 }
 
+/// The spreadsheets the note embeds drawn again, after their files changed.
+fn rendre_tableurs(f: &AppWindow, e: &mut Etat) {
+    let dir = e.espace().map(|s| s.dir().to_path_buf());
+    let encre = f.global::<iris_ui::Tokens>().get_text();
+    let echelle = f.window().scale_factor();
+    let formule = move |latex: &str| render::formula_picture(latex, encre, echelle);
+    let Some(note) = &e.note else { return };
+    if e.source || e.model.row_count() != note.blocks.len() {
+        return;
+    }
+    let numeros = render::numbering(&note.blocks);
+    for (i, (b, n)) in note.blocks.iter().zip(&numeros).enumerate() {
+        if matches!(&b.kind, BlockKind::Embed { target } if render::est_tableur(target)) {
+            e.model.set_row_data(
+                i,
+                render::render(b, n, &e.palette, dir.as_deref(), &formule),
+            );
+        }
+    }
+}
+
 /// Puts the cursor in block `block` at `cursor` (`anchor` for a selection), the
 /// block's source given to its field again.
 fn focaliser(f: &AppWindow, e: &mut Etat, block: usize, anchor: usize, cursor: usize) {
+    // Writing again: blocks and cells selected let go (a cell typed in kept).
+    cellules::quitter(f, e);
+    blocs::effacer(f, e);
     e.focus = block as i32;
     e.serial += 1;
     f.set_note_focus_cursor(cursor as i32);
@@ -357,6 +387,11 @@ fn sans_focus(f: &AppWindow, e: &mut Etat) {
 }
 
 fn montrer_note(f: &AppWindow, e: &mut Etat) {
+    // Another note: nothing of the last one stays selected.
+    e.blocs = None;
+    e.cellules.choix = None;
+    blocs::montrer(f, e);
+    cellules::montrer(f, e);
     match &e.note {
         Some(n) => {
             f.set_note_open(true);
@@ -454,6 +489,8 @@ fn mode_texte(f: &AppWindow, e: &mut Etat, texte_brut: bool, tout: bool) {
 
 /// Opens a note of the space, writing the one open before.
 fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
+    // A cell of an embedded spreadsheet typed in is kept before the note goes.
+    cellules::quitter(f, e);
     ecrire(f, e);
     mode_texte(f, e, false, false);
     if EntryKind::of(rel) == EntryKind::Sheet {
@@ -522,6 +559,8 @@ fn deplacer(f: &AppWindow, e: &mut Etat, k: &str, dossier: &str) {
 /// The tabs are let go too; the space shown next says which are its own
 /// (`charger_onglets`).
 fn fermer_tout(f: &AppWindow, e: &mut Etat) {
+    cellules::quitter(f, e);
+    blocs::effacer(f, e);
     ecrire(f, e);
     e.onglets.clear();
     e.onglet = 0;
@@ -869,6 +908,14 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             true
         }
         "enter" | "shift+enter" => {
+            // A line opening a block that is not closed (`$$`, ```` ``` ````, `:::fold`):
+            // the block made whole, the cursor inside.
+            if nom == "enter" && kind == BlockKind::Paragraph {
+                if let Some(r) = edit::close_fence(&texte, cursor) {
+                    remplacer(f, e, i, &r.text, r.cursor, r.cursor);
+                    return true;
+                }
+            }
             let Some(note) = &e.note else { return false };
             let resultat = if nom == "shift+enter" && !kind.is_multiline() {
                 Enter::Split {
@@ -1050,17 +1097,23 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             mode_focus(f, e);
             true
         }
-        // Tabs, as in a browser and in Obsidian.
-        // Ctrl+A selects the line's words (the field does it); again, the whole note,
-        // as plain text in one field.
+        // Ctrl+A selects the line's words (the field does it); again, every block of
+        // the note, formulas, tables and theorems with the words.
         "ctrl+a" | "ctrl+A" => {
-            if anchor.min(cursor) == 0 && anchor.max(cursor) >= texte.len() && n > 1 {
-                mode_texte(f, e, true, true);
+            let marque = render::prefixe(&kind, &texte);
+            if anchor.min(cursor) <= marque && anchor.max(cursor) >= texte.len() && n > 1 {
+                blocs::choisir(f, e, 0, n - 1);
                 true
             } else {
                 false
             }
         }
+        // Shift and an arrow past the line's edge: whole blocks.
+        "shift+up" | "shift+down" => {
+            let marque = render::prefixe(&kind, &texte);
+            blocs::depuis_la_ligne(f, e, i, &texte, cursor, marque, nom == "shift+up")
+        }
+        // Tabs, as in a browser and in Obsidian.
         "ctrl+t" | "ctrl+T" => {
             e.nouvel_onglet = true;
             nouvelle_note(f, e, "Untitled", "");
@@ -1108,6 +1161,12 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
         }
         "ctrl+v" | "ctrl+V" => {
             coller_image(f, e, i, cursor) || coller_texte(f, e, i, cursor, anchor)
+        }
+        // Ctrl+K, as in Notion and Obsidian: the words a web link, to the address
+        // copied when there is one.
+        "ctrl+k" | "ctrl+K" => {
+            touche_web(f, e, i, &texte, cursor, anchor);
+            true
         }
         "popup-up" | "popup-down" => {
             if let Some(c) = &mut e.completion {
@@ -1158,6 +1217,18 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
 }
 
 // --- What pops up over the cursor -----------------------------------------------------
+
+/// The words of block `i` between `anchor` and `cursor` made a web link, to the
+/// address copied when there is one (Ctrl+K, the bubble's button).
+fn touche_web(f: &AppWindow, e: &mut Etat, i: usize, texte: &str, cursor: usize, anchor: usize) {
+    let adresse = arboard::Clipboard::new()
+        .ok()
+        .and_then(|mut p| p.get_text().ok())
+        .map(|t| t.trim().to_string())
+        .filter(|t| iris_notes::paste::is_url(t));
+    let r = edit::web_link(texte, anchor, cursor, adresse.as_deref());
+    remplacer(f, e, i, &r.text, r.anchor, r.cursor);
+}
 
 /// Whether the cursor is in maths: a `$$` block, or `$…$` in a line.
 fn dans_les_maths(kind: &BlockKind, texte: &str, cursor: usize) -> bool {
@@ -1704,6 +1775,9 @@ fn formater(f: &AppWindow, e: &mut Etat, action: &str) {
         f.set_note_card_title("Colour".into());
         f.set_note_card_text(SharedString::default());
         return;
+    }
+    if action == "weblink" {
+        return touche_web(f, e, block, &texte, cursor, anchor);
     }
     let r = match action.strip_prefix("colour:") {
         Some(reste) => {
@@ -2630,8 +2704,12 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         onglet: 0,
         nouvel_onglet: false,
         source: false,
+        blocs: None,
+        cellules: cellules::Cellules::default(),
     }));
     sheet::wire(f, &etat);
+    blocs::wire(f, &etat);
+    cellules::wire(f, &etat);
     ETAT.with(|e| *e.borrow_mut() = Some(Rc::clone(&etat)));
 
     // The spaces, and the note open last.
@@ -2738,6 +2816,23 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
             return;
         };
+        // Its button to open it, in place of the note.
+        if option == "open" {
+            let nom = target
+                .split(['|', '#'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let rel = e
+                .espace()
+                .and_then(|s| render::embedded_file(&nom, s.dir()).and_then(|p| s.rel(&p)));
+            if let Some(rel) = rel {
+                ouvrir(&f, e, &rel);
+                montrer_arbre(&f, e);
+            }
+            return;
+        }
         let nouveau = render::basculer_option(&target, &option);
         let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
         let Some(note) = &e.note else { return };
@@ -3360,10 +3455,40 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         if i >= note.blocks.len() {
             return;
         }
-        let ed = edit::replace_block(&note.blocks, i, &texte, curseur.max(0) as usize);
-        let (bloc, position) = (ed.block, ed.cursor);
+        let curseur = curseur.max(0) as usize;
+        // A sign just typed (`->`, `=>`, `!=`, `<=`) made as it is drawn, outside code
+        // and maths; Ctrl+Z gives the characters back.
+        let signe = match contenu(e, i) {
+            Some((kind, avant))
+                if !matches!(
+                    kind,
+                    BlockKind::Code { .. }
+                        | BlockKind::Math
+                        | BlockKind::Table
+                        | BlockKind::Properties
+                ) && texte.len() == avant.len() + 1 =>
+            {
+                edit::typographic(&texte, curseur)
+            }
+            _ => None,
+        };
+        let ed = edit::replace_block(&note.blocks, i, &texte, curseur);
+        let (mut bloc, mut position) = (ed.block, ed.cursor);
         retenir(e, false);
         appliquer(&f, e, ed, false, None);
+        if let Some(r) = signe {
+            // Only while the line is still what was typed (its block the same).
+            if let Some(note) = e.note.as_ref().filter(|n| {
+                n.blocks
+                    .get(bloc)
+                    .is_some_and(|b| b.content() == texte.as_str())
+            }) {
+                let ed = edit::replace_block(&note.blocks, bloc, &r.text, r.cursor);
+                (bloc, position) = (ed.block, ed.cursor);
+                retenir(e, true);
+                appliquer(&f, e, ed, true, None);
+            }
+        }
         e.caret.block = bloc;
         e.caret.cursor = position;
         e.caret.anchor = position;
@@ -3390,25 +3515,8 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
     }
     geste!(on_note_block_clicked, |f, e, i| {
         let i = i.max(0) as usize;
-        // A spreadsheet embedded: a click opens it (the arrows reach its line).
-        if let Some((BlockKind::Embed { target }, _)) = contenu(e, i) {
-            if render::est_tableur(&target) {
-                let nom = target
-                    .split(['|', '#'])
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                let rel = e
-                    .espace()
-                    .and_then(|s| render::embedded_file(&nom, s.dir()).and_then(|p| s.rel(&p)));
-                if let Some(rel) = rel {
-                    ouvrir(&f, e, &rel);
-                    montrer_arbre(&f, e);
-                    return;
-                }
-            }
-        }
+        // A spreadsheet embedded keeps its clicks for its cells; beside them, a click
+        // writes its line.
         let fin = contenu(e, i).map_or(0, |(_, t)| t.len());
         focaliser(&f, e, i, fin, fin);
         rendre(&f, e, false);

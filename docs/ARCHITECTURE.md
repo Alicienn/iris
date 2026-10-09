@@ -781,6 +781,33 @@ when the view moves past them. Excel files are read with `calamine` and written 
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
 
+**Blocks and cells selected** (4.20.0). The `NoteSelect` global (`screens/notes.slint`)
+carries what is selected beyond a line's words, so neither travels through the
+window's properties. Whole blocks (`notes/blocs.rs`, `Etat::blocs`, an anchor and a
+head) are chosen by a drag — the block pressed reports the pointer's height, and the
+block under it reports itself (`changed` on `NoteSelect.drag-y`) — by Shift and a
+click, by Shift and an arrow past a line, or by `Ctrl`+`A` twice; a `FocusScope` under
+the whole page takes their keys, and every operation is a pure function of
+`iris_notes::edit` (`blocks_text`, `replace_blocks`, `move_blocks`). An embedded
+spreadsheet's cells (`notes/cellules.rs`) are counted as the note shows them and
+moved by the embed's range (`render::origine_inseree`) into the file's; each change
+reads the `.sheet` file, changes it with the spreadsheet's own `poser_dans`, writes it
+back through `Space::write` (its time checked, a conflict kept beside), keeps the
+contents before for `Ctrl`+`Z`, and draws the note's spreadsheets again
+(`rendre_tableurs`). The cell typed in is a `TextInput` in the cell; the grid's
+`FocusScope` sits under the cells, so a click on one reaches it.
+
+**A line out of view keeps the keys.** Slint takes the keyboard from a focused item
+outside its clip at the next key (`process_key_input`), and a block made by `Enter`
+at the foot of the page was there until something scrolled. The block typed in now
+reports its cursor once laid out (a 1 ms `Timer` after it is made or given the
+cursor), which scrolls the page to it before the next key.
+
+**Fences left open** (4.20.0). A ` ``` `, `$$` or `:::kind` line with no closing one
+is a line of its own (`block::classer`), not the start of a block running to the end of
+the note: typing one no longer turns everything under it into code or maths for a
+moment. `Enter` at its end (`edit::close_fence`) writes the closing line.
+
 **Tabs, plain text, live formulas** (4.19.0). The tabs are paths (`Etat::onglets`):
 opening a note replaces the one shown unless a new tab was asked
 (`nouvel_onglet`), and they are kept in the settings (`notes_tabs`, by space).

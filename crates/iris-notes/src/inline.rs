@@ -316,6 +316,8 @@ fn reconnaitre(src: &str, i: usize, fin: usize) -> Option<(Node, usize)> {
         '*' if reste.starts_with("**") => entoure(src, i, fin, "**", Mark::Bold, true, false),
         '*' => entoure(src, i, fin, "*", Mark::Italic, false, false),
         '_' if reste.starts_with("__") => entoure(src, i, fin, "__", Mark::Underline, false, false),
+        // `_italic_`, as Markdown and Obsidian write it too (never inside a word).
+        '_' => entoure(src, i, fin, "_", Mark::Italic, false, false),
         '-' if reste.starts_with("--") && !reste.starts_with("---") => {
             entoure(src, i, fin, "--", Mark::Strike, false, false)
         }
@@ -610,7 +612,33 @@ fn couleur(src: &str, i: usize, fin: usize) -> Option<(Node, usize)> {
     let fermeture = r.find('}')?;
     let teinte = Colour::from_code(&r[1..fermeture])?;
     let debut = i + fermeture + 1;
-    let pos = src[debut..fin].find("{/}")?;
+    // Its own `{/}`: a colour opened inside closes first.
+    let mut profondeur = 1;
+    let mut k = debut;
+    let pos = loop {
+        let r = src.get(k..fin)?;
+        if r.is_empty() {
+            return None;
+        }
+        if r.starts_with("{/}") {
+            profondeur -= 1;
+            if profondeur == 0 {
+                break k - debut;
+            }
+            k += 3;
+            continue;
+        }
+        if r.starts_with('{') {
+            if let Some(f) = r.find('}') {
+                if Colour::from_code(&r[1..f]).is_some() {
+                    profondeur += 1;
+                    k += f + 1;
+                    continue;
+                }
+            }
+        }
+        k += r.chars().next().map_or(1, char::len_utf8);
+    };
     let mut enfants = Vec::new();
     analyser(src, debut, debut + pos, &mut enfants);
     let longueur = fermeture + 1 + pos + 3;
@@ -641,10 +669,15 @@ fn surligne(src: &str, i: usize, fin: usize) -> Option<(Node, usize)> {
     if espace(apres(src, debut)) {
         return None;
     }
-    let pos = src[debut..fin].find("==")?;
-    if pos == 0 || espace(avant(src, debut + pos)) {
-        return None;
-    }
+    // The first `==` that can close: not one with a space before it (`a == b`).
+    let mut depuis = debut;
+    let pos = loop {
+        let p = depuis - debut + src[depuis..fin].find("==")?;
+        if p > 0 && !espace(avant(src, debut + p)) {
+            break p;
+        }
+        depuis = debut + p + 1;
+    };
     let mut enfants = Vec::new();
     analyser(src, debut, debut + pos, &mut enfants);
     let longueur = saut + pos + 2;
@@ -1136,6 +1169,27 @@ mod tests {
             )]
         );
         assert_eq!(seul("^[note]"), vec![Mark::Footnote]);
+    }
+
+    #[test]
+    fn marks_find_their_own_end() {
+        // `_italic_` as Markdown writes it; never inside a word.
+        assert_eq!(seul("_x_"), vec![Mark::Italic]);
+        assert!(seul("snake_case_name").is_empty());
+        // A highlight closes past an `==` that cannot (`a == b`).
+        let s = marques("==a == b== c");
+        assert_eq!(s[0], ("a == b".into(), vec![Mark::Highlight(None)]));
+        // A colour inside a colour: each closes on its own `{/}`.
+        let s = marques("{r}a {b}b{/} c{/}");
+        assert_eq!(s[0], ("a ".into(), vec![Mark::Colour(Colour::Red)]));
+        assert_eq!(
+            s[1],
+            (
+                "b".into(),
+                vec![Mark::Colour(Colour::Red), Mark::Colour(Colour::Blue)]
+            )
+        );
+        assert_eq!(s[2], (" c".into(), vec![Mark::Colour(Colour::Red)]));
     }
 
     #[test]

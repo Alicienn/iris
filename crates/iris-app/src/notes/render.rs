@@ -174,21 +174,46 @@ pub fn table_cells(content: &str) -> (Vec<String>, usize) {
 /// What a callout of a kind is numbered, counting from the top of the note.
 pub fn numbering(blocks: &[Block]) -> Vec<String> {
     let mut compteurs: std::collections::HashMap<String, u32> = Default::default();
+    // A numbered list counts on from its first item, at each depth, as Markdown draws
+    // it: an item taken out or typed `1.` again does not break the count.
+    let mut listes: [Option<u32>; 10] = [None; 10];
     blocks
         .iter()
-        .map(|b| match &b.kind {
-            BlockKind::Callout { kind, .. } => {
-                let (label, _, numerote) = callout_label(kind);
-                if numerote {
-                    let n = compteurs.entry(label.to_string()).or_insert(0);
-                    *n += 1;
-                    format!("{label} {n}")
-                } else {
-                    label.to_string()
+        .map(|b| {
+            match &b.kind {
+                BlockKind::Numbered { indent, .. }
+                | BlockKind::Bullet { indent }
+                | BlockKind::Task { indent, .. } => {
+                    // What is nested under an earlier item starts again.
+                    let d = (*indent as usize).min(listes.len() - 1);
+                    listes[d + 1..].fill(None);
+                    if !matches!(b.kind, BlockKind::Numbered { .. }) {
+                        listes[d] = None;
+                    }
                 }
+                // A list goes on over an empty line; anything else ends it.
+                BlockKind::Blank => {}
+                _ => listes = [None; 10],
             }
-            BlockKind::Numbered { n, .. } => format!("{n}."),
-            _ => String::new(),
+            match &b.kind {
+                BlockKind::Callout { kind, .. } => {
+                    let (label, _, numerote) = callout_label(kind);
+                    if numerote {
+                        let n = compteurs.entry(label.to_string()).or_insert(0);
+                        *n += 1;
+                        format!("{label} {n}")
+                    } else {
+                        label.to_string()
+                    }
+                }
+                BlockKind::Numbered { indent, n } => {
+                    let d = (*indent as usize).min(listes.len() - 1);
+                    let k = listes[d].unwrap_or(*n);
+                    listes[d] = Some(k + 1);
+                    format!("{k}.")
+                }
+                _ => String::new(),
+            }
         })
         .collect()
 }
@@ -295,6 +320,19 @@ fn feuille_inseree(
     Some((embedded_file(nom, dir)?, plage))
 }
 
+/// The file of a spreadsheet embedded and the cell its table starts at: what the note
+/// shows at row `r`, column `c` is that cell moved by `(c, r)`.
+pub fn origine_inseree(
+    target: &str,
+    dir: &std::path::Path,
+) -> Option<(std::path::PathBuf, iris_sheets::Addr)> {
+    let (chemin, plage) = feuille_inseree(target, dir)?;
+    Some((
+        chemin,
+        plage.map_or(iris_sheets::Addr::new(0, 0), |p| p.start),
+    ))
+}
+
 /// The widths of the columns an embedded spreadsheet shows, in pixels, as its sheet
 /// has them.
 pub fn largeurs_tableur(target: &str, dir: &std::path::Path) -> Option<Vec<f32>> {
@@ -303,9 +341,22 @@ pub fn largeurs_tableur(target: &str, dir: &std::path::Path) -> Option<Vec<f32>>
     let s = book.sheets.first()?;
     let (debut, n) = match plage {
         Some(p) => (p.start.col, p.width()),
-        None => (0, s.extent().0.clamp(1, TABLEAU_COLONNES)),
+        None => (0, etendue_montree(s).0),
     };
     Some((debut..debut + n).map(|c| s.col_width(c)).collect())
+}
+
+/// How much of a sheet a note shows when its embed gives no range: what it uses and an
+/// empty row under it to type in; an empty sheet, a small grid to start.
+fn etendue_montree(s: &iris_sheets::Sheet) -> (u32, u32) {
+    let (cols, rows) = s.extent();
+    if cols == 0 || rows == 0 {
+        return (3, 3);
+    }
+    (
+        cols.clamp(1, TABLEAU_COLONNES),
+        (rows + 1).clamp(1, TABLEAU_LIGNES),
+    )
 }
 
 /// Column `col` of an embedded spreadsheet (counted in what the note shows) given
@@ -340,16 +391,10 @@ pub fn tableau_insere(target: &str, dir: &std::path::Path) -> Option<(Vec<String
     let plage = match plage {
         Some(p) => p,
         None => {
-            let (cols, rows) = feuille.extent();
-            if cols == 0 || rows == 0 {
-                return None;
-            }
+            let (cols, rows) = etendue_montree(feuille);
             iris_sheets::Range::new(
                 iris_sheets::Addr::new(0, 0),
-                iris_sheets::Addr::new(
-                    cols.min(TABLEAU_COLONNES) - 1,
-                    rows.min(TABLEAU_LIGNES) - 1,
-                ),
+                iris_sheets::Addr::new(cols - 1, rows - 1),
             )
         }
     };
@@ -680,9 +725,21 @@ mod tests {
         assert!(est_tableur("Budget.sheet"));
         assert!(est_tableur("Budget.sheet#A1:B2|50%"));
         assert!(!est_tableur("Budget.png"));
+        // What it uses, and an empty row under it to type in.
         let (cellules, colonnes) = tableau_insere("Budget.sheet", dir.path()).unwrap();
         assert_eq!(colonnes, 2);
-        assert_eq!(cellules, ["Item", "Price", "Book", "12", "", "24"]);
+        assert_eq!(cellules, ["Item", "Price", "Book", "12", "", "24", "", ""]);
+        // The cell the note shows at a row and a column, in the file.
+        let (_, origine) = origine_inseree("Budget.sheet#B2:C3", dir.path()).unwrap();
+        assert_eq!(origine, iris_sheets::Addr::new(1, 1));
+        // An empty sheet: a small grid to start typing in.
+        std::fs::write(
+            dir.path().join("Vide.sheet"),
+            iris_sheets::Workbook::default().to_json(),
+        )
+        .unwrap();
+        let (cellules, colonnes) = tableau_insere("Vide.sheet", dir.path()).unwrap();
+        assert_eq!((cellules.len(), colonnes), (9, 3));
         let (cellules, colonnes) = tableau_insere("Budget.sheet#B1:B2", dir.path()).unwrap();
         assert_eq!(colonnes, 1);
         assert_eq!(cellules, ["Price", "12"]);
@@ -748,6 +805,15 @@ mod tests {
         assert_eq!(
             non_vides,
             ["Definition 1", "Theorem 1", "Definition 2", "Proof"]
+        );
+    }
+
+    #[test]
+    fn numbered_lists_count_on_from_their_first_item() {
+        let blocs = parse("1. a\n1. b\n  1. c\n  5. d\n4. e\n\n1. f\nfin\n1. g\n");
+        assert_eq!(
+            numbering(&blocs),
+            ["1.", "2.", "1.", "2.", "3.", "", "4.", "", "1."]
         );
     }
 }

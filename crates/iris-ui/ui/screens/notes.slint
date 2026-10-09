@@ -63,6 +63,79 @@ export global BlockPreview {
     }
 }
 
+// What is selected in the open note beyond a line's words: whole blocks (dragged
+// across, Shift and a click, Ctrl+A twice, Shift and an arrow at a block's edge), or
+// cells of an embedded spreadsheet. Rust holds it; the blocks draw it, and the keys
+// reach it here.
+export global NoteSelect {
+    /// The blocks selected, first to last (-1: none).
+    in-out property <int> first: -1;
+    in-out property <int> last: -1;
+    /// Raised by Rust to hand the keyboard to the blocks selected.
+    in-out property <int> blocks-serial;
+    /// While the mouse is dragged from a block: that block, and where the pointer is
+    /// (in the window).
+    in-out property <int> drag-from: -1;
+    in-out property <length> drag-y;
+    /// The block the pointer is over while dragging; a Shift and a click on a block.
+    callback drag(int, int);
+    callback shift-clicked(int);
+    /// A key while blocks are selected (`ctrl+c`, `delete`, `shift+up`…): true when used.
+    callback blocks-key(string) -> bool;
+
+    /// The embedded spreadsheet whose cells are selected (its block; -1: none), the
+    /// cells selected (rows and columns as the note shows them) and the active one.
+    in-out property <int> sheet-block: -1;
+    in-out property <int> r1;
+    in-out property <int> c1;
+    in-out property <int> r2;
+    in-out property <int> c2;
+    in-out property <int> row;
+    in-out property <int> col;
+    /// The active cell typed in, what it holds, and where the cursor starts in it.
+    in-out property <bool> editing;
+    in-out property <string> edit-text;
+    in-out property <int> edit-cursor;
+    /// Raised by Rust to hand the keyboard to the cells.
+    in-out property <int> cells-serial;
+    callback cell-pressed(int, int, int, bool);
+    callback cell-double-clicked(int, int, int);
+    /// A key while cells are selected (`ctrl+c`, `up`, `type:x`…): true when used.
+    callback cell-key(string) -> bool;
+    /// The cell typed in (block, row, column) is done: what it holds, and how
+    /// (`enter`, `tab`, `shift+tab`, `shift+enter`, `left`); `escape` drops what was typed.
+    callback cell-committed(int, int, int, string, string);
+
+    /// A key's name as Rust reads it: `ctrl+shift+up`, `delete`, `type:é`.
+    public pure function key-name(event: KeyEvent) -> string {
+        let ctrl = event.modifiers.control && !event.modifiers.alt;
+        let prefixe = (ctrl ? "ctrl+" : "") + (event.modifiers.alt && !event.modifiers.control ? "alt+" : "")
+            + (event.modifiers.shift ? "shift+" : "");
+        let base = event.text == Key.UpArrow ? "up"
+            : event.text == Key.DownArrow ? "down"
+            : event.text == Key.LeftArrow ? "left"
+            : event.text == Key.RightArrow ? "right"
+            : event.text == Key.Return ? "enter"
+            : event.text == Key.Tab ? "tab"
+            : event.text == Key.Backtab ? "tab"
+            : event.text == Key.Escape ? "escape"
+            : event.text == Key.Delete ? "delete"
+            : event.text == Key.Backspace ? "backspace"
+            : event.text == Key.Home ? "home"
+            : event.text == Key.End ? "end"
+            : event.text == Key.F2 ? "f2"
+            : "";
+        if (base != "") {
+            return prefixe + (event.text == Key.Backtab && !event.modifiers.shift ? "shift+" : "") + base;
+        }
+        if (event.text == "" || event.text == Key.Control || event.text == Key.Shift || event.text == Key.Alt) {
+            return "";
+        }
+        // A character: typed as it is, unless Ctrl goes with it (AltGr is Ctrl+Alt).
+        return ctrl ? prefixe + event.text : "type:" + event.text;
+    }
+}
+
 // The card beside the `/` menu: the block's source typed, then what it becomes, then
 // a line on what it is for. It plays once for each block highlighted (a timer that
 // stops), never in a loop.
@@ -656,6 +729,32 @@ component NoteBlock inherits Rectangle {
     in property <bool> read-only;
     /// How wide the note's column is, for pictures.
     in property <length> available: 640px;
+    /// A block of the note being written (not one beside): it can be selected whole.
+    in property <bool> main;
+    /// Selected whole (with others, or alone).
+    in property <bool> selected;
+
+    // Selected whole: tinted, as Notion does.
+    background: root.selected ? Tokens.accent.transparentize(0.84) : transparent;
+    border-radius: Tokens.radius-small;
+
+    // Dragged across from another block: this one is where the pointer is.
+    property <length> survol: NoteSelect.drag-y;
+    changed survol => {
+        if (root.main && NoteSelect.drag-from >= 0 && root.survol >= root.absolute-position.y
+            && root.survol < root.absolute-position.y + root.height) {
+            NoteSelect.drag(NoteSelect.drag-from, root.index);
+        }
+    }
+
+    /// The embedded spreadsheet's cell (row `r`, column `k`) is selected, or active.
+    pure function cellule-choisie(r: int, k: int) -> bool {
+        return NoteSelect.sheet-block == root.index && r >= NoteSelect.r1 && r <= NoteSelect.r2
+            && k >= NoteSelect.c1 && k <= NoteSelect.c2;
+    }
+    pure function cellule-active(r: int, k: int) -> bool {
+        return NoteSelect.sheet-block == root.index && r == NoteSelect.row && k == NoteSelect.col;
+    }
 
     property <bool> en-liste: root.block.kind == "bullet" || root.block.kind == "numbered"
         || root.block.kind == "task";
@@ -744,6 +843,7 @@ component NoteBlock inherits Rectangle {
 
                 // Where the cursor is, line-wise: the first and the last lines send Up
                 // and Down to the blocks around.
+                property <length> curseur-x;
                 property <length> curseur-y;
                 property <int> serie: root.focus-serial;
 
@@ -752,18 +852,21 @@ component NoteBlock inherits Rectangle {
                     self.focus();
                     self.set-selection-offsets(max(0, root.focus-anchor - root.block.prefix-bytes),
                         max(0, root.focus-cursor - root.block.prefix-bytes));
+                    en-vue.running = true;
                 }
                 changed serie => {
                     self.text = root.block.source;
                     self.focus();
                     self.set-selection-offsets(max(0, root.focus-anchor - root.block.prefix-bytes),
                         max(0, root.focus-cursor - root.block.prefix-bytes));
+                    en-vue.running = true;
                 }
                 edited => {
                     root.edited(root.index, root.block.prefix + self.text,
                         self.cursor-position-byte-offset + root.block.prefix-bytes);
                 }
                 cursor-position-changed(p) => {
+                    self.curseur-x = p.x;
                     self.curseur-y = p.y;
                     root.caret(root.index, self.absolute-position.x + p.x,
                         self.absolute-position.y + p.y + root.taille * 1.35,
@@ -825,6 +928,12 @@ component NoteBlock inherits Rectangle {
                     if (event.modifiers.alt && !event.modifiers.control && event.text == Key.DownArrow) {
                         return root.key(root.index, "alt+down", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
+                    // Shift and an arrow at the block's edge: whole blocks selected
+                    // (Rust lets the field have it while its words are not all taken).
+                    if (event.modifiers.shift && !event.modifiers.control && !event.modifiers.alt
+                        && ((event.text == Key.UpArrow && premiere) || (event.text == Key.DownArrow && derniere))) {
+                        return root.key(root.index, event.text == Key.UpArrow ? "shift+up" : "shift+down", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
+                    }
                     if (!event.modifiers.shift && event.text == Key.UpArrow && premiere) {
                         return root.key(root.index, "up", c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
@@ -848,6 +957,21 @@ component NoteBlock inherits Rectangle {
                         return root.key(root.index, event.text, c, a, premiere, derniere) ? EventResult.accept : EventResult.reject;
                     }
                     EventResult.reject
+                }
+            }
+
+            // The field kept in view once it is laid out: a line made at the foot of the
+            // page is scrolled to before the next key, which a field out of view would
+            // lose (Slint takes the keyboard from it).
+            en-vue := Timer {
+                interval: 1ms;
+                running: false;
+                triggered => {
+                    self.running = false;
+                    root.caret(root.index, entree.absolute-position.x + entree.curseur-x,
+                        entree.absolute-position.y + entree.curseur-y + root.taille * 1.35,
+                        entree.cursor-position-byte-offset + root.block.prefix-bytes,
+                        entree.anchor-position-byte-offset + root.block.prefix-bytes);
                 }
             }
         }
@@ -959,6 +1083,27 @@ component NoteBlock inherits Rectangle {
                     border-color: Tokens.border;
                     border-radius: Tokens.radius-small;
                     clip: true;
+
+                    // The keys while cells are selected: beneath the cells, so it never
+                    // takes their clicks; Rust hands it the keyboard.
+                    if NoteSelect.sheet-block == root.index && !NoteSelect.editing: FocusScope {
+                        focus-on-click: false;
+                        property <int> serie: NoteSelect.cells-serial;
+                        init => { self.focus(); }
+                        changed serie => { self.focus(); }
+                        key-pressed(event) => {
+                            let nom = NoteSelect.key-name(event);
+                            if (nom == "") { return reject; }
+                            if (nom == "escape") {
+                                // The cells let go, the keyboard back to the shortcuts.
+                                NoteSelect.cell-key(nom);
+                                root.key(root.index, "escape", 0, 0, false, false);
+                                return accept;
+                            }
+                            return NoteSelect.cell-key(nom) ? accept : reject;
+                        }
+                    }
+
                     grille := VerticalLayout {
                         for ligne[r] in root.block.rows: HorizontalLayout {
                             for colonne[k] in root.block.columns: Rectangle {
@@ -966,9 +1111,10 @@ component NoteBlock inherits Rectangle {
                                     ? root.block.widths[k] * 1px * root.echelle
                                     : root.largeur-mots / max(1, root.block.columns);
                                 min-height: cellule.preferred-height + 10px;
-                                background: r == 0 ? Tokens.surface-low : transparent;
-                                border-width: 0.5px;
-                                border-color: Tokens.border;
+                                background: root.cellule-choisie(r, k) ? Tokens.accent.transparentize(0.85)
+                                    : r == 0 ? Tokens.surface-low : transparent;
+                                border-width: root.cellule-active(r, k) ? 2px : 0.5px;
+                                border-color: root.cellule-active(r, k) ? Tokens.accent : Tokens.border;
                                 cellule := Text {
                                     x: 8px;
                                     width: parent.width - 16px;
@@ -979,6 +1125,51 @@ component NoteBlock inherits Rectangle {
                                     wrap: root.block.clip ? TextWrap.no-wrap : TextWrap.word-wrap;
                                     overflow: root.block.clip ? TextOverflow.elide : TextOverflow.clip;
                                     vertical-alignment: center;
+                                    visible: !(NoteSelect.editing && root.cellule-active(r, k));
+                                }
+                                // A spreadsheet's cell: a click selects it (Shift: up to
+                                // it), a double click types in it.
+                                if root.block.sheet && !root.read-only: TouchArea {
+                                    pointer-event(event) => {
+                                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                            NoteSelect.cell-pressed(root.index, r, k, event.modifiers.shift);
+                                        }
+                                    }
+                                    double-clicked => { NoteSelect.cell-double-clicked(root.index, r, k); }
+                                }
+                                // Typed in: the cell's input (a formula as written).
+                                if NoteSelect.editing && root.cellule-active(r, k): TextInput {
+                                    x: 6px;
+                                    width: parent.width - 12px;
+                                    text: NoteSelect.edit-text;
+                                    font-size: 13.5px;
+                                    color: Tokens.text;
+                                    vertical-alignment: center;
+                                    single-line: true;
+                                    selection-background-color: Tokens.accent.transparentize(0.7);
+                                    selection-foreground-color: Tokens.text;
+                                    accessible-role: text-input;
+                                    accessible-label: "Cell";
+                                    init => {
+                                        self.focus();
+                                        self.set-selection-offsets(NoteSelect.edit-cursor, NoteSelect.edit-cursor);
+                                    }
+                                    edited => { NoteSelect.edit-text = self.text; }
+                                    // Clicked away: what was typed is kept.
+                                    changed has-focus => {
+                                        if (!self.has-focus) {
+                                            NoteSelect.cell-committed(root.index, r, k, self.text, "left");
+                                        }
+                                    }
+                                    key-pressed(event) => {
+                                        let nom = NoteSelect.key-name(event);
+                                        if (nom == "enter" || nom == "shift+enter" || nom == "tab" || nom == "shift+tab"
+                                            || nom == "escape") {
+                                            NoteSelect.cell-committed(root.index, r, k, self.text, nom);
+                                            return accept;
+                                        }
+                                        reject
+                                    }
                                 }
                             }
                         }
@@ -1040,17 +1231,46 @@ component NoteBlock inherits Rectangle {
             }
 
             // The click that edits; it steps aside while Ctrl is held, for links. It
-            // leaves a checkbox and a callout's fold arrow their own clicks.
+            // leaves a checkbox, a callout's fold arrow and a spreadsheet's cells their
+            // own clicks. Dragged to another block, it selects the blocks between; with
+            // Shift, a click selects up to this block.
             TouchArea {
-                x: root.block.kind == "task" ? root.retrait + 24px : 0px;
-                width: parent.width - self.x - (root.block.kind == "callout" ? 34px : 0px);
+                property <bool> traine;
+                x: root.block.kind == "task" ? root.retrait + 24px
+                    : root.block.sheet ? root.retrait + min(root.largeur-mots, root.block.widths-total * 1px)
+                    : 0px;
+                width: max(0px, parent.width - self.x - (root.block.kind == "callout" ? 34px : 0px));
                 enabled: !root.ctrl-held && !root.read-only;
                 mouse-cursor: MouseCursor.text;
-                clicked => { root.clicked(root.index); }
+                pointer-event(event) => {
+                    if (event.button != PointerEventButton.left) { return; }
+                    if (event.kind == PointerEventKind.down) {
+                        self.traine = false;
+                        if (event.modifiers.shift && root.main) {
+                            self.traine = true;
+                            NoteSelect.shift-clicked(root.index);
+                        }
+                    } else if (event.kind == PointerEventKind.up && NoteSelect.drag-from >= 0) {
+                        NoteSelect.drag-from = -1;
+                    }
+                }
+                moved => {
+                    if (self.pressed && root.main
+                        && (self.mouse-y < 0px || self.mouse-y > self.height || self.traine)) {
+                        self.traine = true;
+                        NoteSelect.drag-from = root.index;
+                        NoteSelect.drag-y = self.absolute-position.y + self.mouse-y;
+                    }
+                }
+                clicked => {
+                    if (!self.traine) {
+                        root.clicked(root.index);
+                    }
+                }
             }
 
             // An embedded spreadsheet, over the click that edits: its columns' edges
-            // carried to change their widths, and a button for long words.
+            // carried to change their widths, a button to open it, and one for long words.
             if root.block.sheet: Rectangle {
                 x: root.retrait;
                 width: min(root.largeur-mots, root.block.widths-total * 1px);
@@ -1060,11 +1280,20 @@ component NoteBlock inherits Rectangle {
                     mouse-cursor: MouseCursor.col-resize;
                     pointer-event(event) => {
                         if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up
-                            && k < root.block.widths.length) {
+                            && k < root.block.widths.length && self.mouse-x != self.pressed-x) {
                             root.col-resized(root.index, k,
                                 max(30, root.block.widths[k] + (self.mouse-x - self.pressed-x) / 1px / root.echelle));
                         }
                     }
+                }
+                IconButton {
+                    x: parent.width - 2 * self.width - 5px;
+                    y: 3px;
+                    icon: Icons.open-external;
+                    label: "Open the spreadsheet";
+                    button-size: 22px;
+                    icon-size: 13px;
+                    clicked => { root.sheet-option(root.index, "open"); }
                 }
                 IconButton {
                     x: parent.width - self.width - 3px;
@@ -1116,7 +1345,7 @@ export component NotesView inherits Rectangle {
     /// An embedded spreadsheet's column given a width; one of its options switched.
     callback col-resized(int, int, float);
     callback sheet-option(int, string);
-    /// The note as plain text, in one field (Ctrl+A twice, or the toolbar's button).
+    /// The note as plain text, in one field (the toolbar's button).
     in property <bool> source-mode;
     in property <string> source-text;
     in property <int> source-serial;
@@ -1211,6 +1440,28 @@ export component NotesView inherits Rectangle {
     property <length> drop-y;
 
     background: Tokens.surface;
+
+    // The keys while whole blocks are selected: copied, cut, deleted, moved, nested.
+    // Beneath everything, so it never takes a click; Rust hands it the keyboard.
+    FocusScope {
+        x: 0;
+        y: 0;
+        width: 1px;
+        height: 1px;
+        focus-on-click: false;
+        property <int> serie: NoteSelect.blocks-serial;
+        changed serie => { self.focus(); }
+        key-pressed(event) => {
+            let nom = NoteSelect.key-name(event);
+            if (nom == "") { return reject; }
+            let pris = NoteSelect.blocks-key(nom);
+            if (nom == "escape") {
+                root.escaped();
+                return accept;
+            }
+            return pris ? accept : reject;
+        }
+    }
 
     HorizontalLayout {
         if !root.focus-mode: SidebarFrame {
@@ -1632,6 +1883,8 @@ export component NotesView inherits Rectangle {
                             index: i;
                             focused: i == root.focus-block && !root.reading;
                             read-only: root.reading;
+                            main: true;
+                            selected: i >= NoteSelect.first && i <= NoteSelect.last;
                             available: min(760px, page.visible-width) - 72px;
                             focus-serial: root.focus-serial;
                             focus-cursor: root.focus-cursor;
@@ -1974,6 +2227,7 @@ export component NotesView inherits Rectangle {
                 { k: "code", t: "</>", l: "Code", s: "Ctrl+E" },
                 { k: "math", t: "∑", l: "Maths", s: "Ctrl+M" },
                 { k: "link", t: "[[", l: "Link to a note", s: "Ctrl+L" },
+                { k: "weblink", t: "↗", l: "Web link", s: "Ctrl+K" },
                 { k: "colour", t: "A", l: "Colour", s: "Ctrl+Shift+1…7" },
             ]: Rectangle {
                 y: 4px;

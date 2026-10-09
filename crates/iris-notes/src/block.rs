@@ -182,7 +182,9 @@ fn classer(lignes: &[&str], i: usize) -> (BlockKind, usize) {
         }
     }
 
-    // A fenced code block, up to its closing fence.
+    // A fenced code block, up to its closing fence. One that is never closed is a line
+    // of its own: typing ` ``` ` does not turn the rest of the note into code (Enter
+    // closes it, `edit::close_fence`).
     if let Some(barriere) = ouverture_de_code(t) {
         let lang = t.trim_start_matches(barriere.0).trim().to_string();
         let fin = (i + 1..lignes.len()).find(|&k| {
@@ -191,20 +193,22 @@ fn classer(lignes: &[&str], i: usize) -> (BlockKind, usize) {
                 && f.chars().take_while(|c| *c == barriere.1).count() >= barriere.0.len()
                 && f.trim_start_matches(barriere.1).trim().is_empty()
         });
-        return (
-            BlockKind::Code { lang },
-            fin.map_or(lignes.len() - i, |f| f - i + 1),
-        );
+        if let Some(fin) = fin {
+            return (BlockKind::Code { lang }, fin - i + 1);
+        }
     }
 
-    // Display maths: `$$` alone, or `$$ … $$` on one line.
+    // Display maths: `$$` alone up to its `$$`, or `$$ … $$` on one line; never closed,
+    // a line of its own.
     if let Some(reste) = t.strip_prefix("$$") {
         let reste = reste.trim_end();
         if reste.len() >= 2 && reste.ends_with("$$") {
             return (BlockKind::Math, 1);
         }
         let fin = (i + 1..lignes.len()).find(|&k| nu(lignes[k]).trim_end().ends_with("$$"));
-        return (BlockKind::Math, fin.map_or(lignes.len() - i, |f| f - i + 1));
+        if let Some(fin) = fin {
+            return (BlockKind::Math, fin - i + 1);
+        }
     }
 
     // A container: `:::kind Title`, up to its `:::`, nested ones counted.
@@ -229,10 +233,9 @@ fn classer(lignes: &[&str], i: usize) -> (BlockKind, usize) {
                     profondeur += 1;
                 }
             }
-            return (
-                BlockKind::Container { kind, title },
-                fin.map_or(lignes.len() - i, |f| f - i + 1),
-            );
+            if let Some(fin) = fin {
+                return (BlockKind::Container { kind, title }, fin - i + 1);
+            }
         }
     }
 
@@ -484,6 +487,21 @@ mod tests {
         assert_eq!(blocs[2].text, "```py\nx\n```\n");
         assert_eq!(blocs[3].kind, BlockKind::Math);
         assert_eq!(blocs[3].text, "$$\na\n$$\n");
+    }
+
+    #[test]
+    fn a_fence_never_closed_is_a_line_of_its_own() {
+        use BlockKind::*;
+        // Typing ``` or $$ above the rest does not turn it into code or maths.
+        assert_eq!(kinds("```\nfin\n"), vec![Paragraph, Paragraph]);
+        assert_eq!(kinds("$$\n# T\n"), vec![Paragraph, Heading(1)]);
+        assert_eq!(kinds(":::fold X\na\n"), vec![Paragraph, Paragraph]);
+        assert_eq!(
+            kinds("```\nx\n```\n"),
+            vec![Code {
+                lang: String::new()
+            }]
+        );
     }
 
     #[test]

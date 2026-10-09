@@ -272,6 +272,91 @@ pub fn line_start_conversion(text: &str, cursor: usize) -> Option<Edit> {
     )))
 }
 
+/// The signs two characters make as they are typed, the longer first: `->` an arrow,
+/// `=>` an implication, `!=`, `<=`, `>=`; `<->` and `<=>` both ways.
+const SIGNES: &[(&str, &str)] = &[
+    ("←>", "↔"),
+    ("≤>", "⇔"),
+    ("->", "→"),
+    ("<-", "←"),
+    ("=>", "⇒"),
+    ("!=", "≠"),
+    ("<=", "≤"),
+    (">=", "≥"),
+];
+
+/// What the characters just before `cursor` become once typed (`->` → `→`), outside
+/// code and inline maths. `None`: they stay.
+pub fn typographic(content: &str, cursor: usize) -> Option<Edit> {
+    let cursor = limite(content, cursor);
+    let avant = &content[..cursor];
+    let ligne = &avant[avant.rfind('\n').map_or(0, |k| k + 1)..];
+    // In `code` or `$maths$` being typed: as typed.
+    let dollars = ligne.matches('$').count() - ligne.matches("\\$").count();
+    if dollars % 2 == 1 || ligne.matches('`').count() % 2 == 1 {
+        return None;
+    }
+    let (de, vers) = SIGNES.iter().find(|(de, _)| avant.ends_with(de))?;
+    // `\->` keeps the characters.
+    if avant[..avant.len() - de.len()].ends_with('\\') {
+        return None;
+    }
+    let debut = cursor - de.len();
+    let t = format!("{}{vers}{}", &content[..debut], &content[cursor..]);
+    Some(Edit::at(t, debut + vers.len()))
+}
+
+/// `[words](address)`: the selection made a link to `url` (the clipboard's, when it
+/// holds one), or the pair with the cursor where to type.
+pub fn web_link(content: &str, anchor: usize, cursor: usize, url: Option<&str>) -> Edit {
+    let (s, e) = bornes(limite(content, anchor), limite(content, cursor));
+    let mots = &content[s..e];
+    let adresse = url.unwrap_or("");
+    let t = format!("{}[{mots}]({adresse}){}", &content[..s], &content[e..]);
+    // Words and an address: after the link; words only: in the parentheses; nothing:
+    // in the brackets.
+    let c = if mots.is_empty() {
+        s + 1
+    } else if adresse.is_empty() {
+        s + mots.len() + 3
+    } else {
+        s + mots.len() + adresse.len() + 4
+    };
+    Edit::at(t, c)
+}
+
+/// Enter at the end of a line that opens a block and is not closed — `$$`, ` ``` `,
+/// ` ```rust `, `~~~`, `:::fold Title` — makes the whole block, closed, the cursor on
+/// the empty line inside, as the `/` menu writes it.
+pub fn close_fence(content: &str, cursor: usize) -> Option<Edit> {
+    if cursor < content.len() || content.contains('\n') {
+        return None;
+    }
+    let t = content.trim_end();
+    let retrait = &t[..t.len() - t.trim_start().len()];
+    let l = t.trim_start();
+    let fermeture = if l == "$$" {
+        "$$".to_string()
+    } else if l.starts_with("```") || l.starts_with("~~~") {
+        let c = l.chars().next()?;
+        let barriere: String = l.chars().take_while(|x| *x == c).collect();
+        // A run of the fence's character after its language is no fence.
+        if l[barriere.len()..].contains(c) {
+            return None;
+        }
+        barriere
+    } else if let Some(genre) = l.strip_prefix(":::") {
+        if genre.trim().is_empty() || genre.starts_with(':') {
+            return None;
+        }
+        ":::".to_string()
+    } else {
+        return None;
+    };
+    let texte = format!("{t}\n{retrait}\n{retrait}{fermeture}");
+    Some(Edit::at(texte, t.len() + 1 + retrait.len()))
+}
+
 /// What Enter does in a block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Enter {
@@ -350,24 +435,52 @@ pub fn on_enter(kind: &BlockKind, content: &str, cursor: usize) -> Enter {
             Enter::Insert(Edit::at(t, cursor + 3))
         }
         _ => {
+            // At the start of a heading's words (its `## ` is hidden): an empty line
+            // above, the heading kept whole, rather than its words made a paragraph.
+            if let BlockKind::Heading(_) = kind {
+                let retrait = content.len() - content.trim_start_matches([' ', '\t']).len();
+                let r = &content[retrait..];
+                let dieses = r.bytes().take_while(|b| *b == b'#').count();
+                let marque =
+                    retrait + dieses + r[dieses..].bytes().take_while(|b| *b == b' ').count();
+                if cursor <= marque && !content[marque..].trim().is_empty() {
+                    return Enter::Split {
+                        stays: String::new(),
+                        goes: content.to_string(),
+                        cursor: marque,
+                    };
+                }
+            }
             if let Some((longueur, suivant)) = prefixe_de_liste(content) {
+                let longueur = longueur.min(content.len());
                 // An empty item ends the list: its prefix goes.
-                if content[longueur.min(content.len())..].trim().is_empty()
-                    && cursor >= longueur.min(content.len())
-                {
+                if content[longueur..].trim().is_empty() && cursor >= longueur {
                     return Enter::Split {
                         stays: String::new(),
                         goes: String::new(),
                         cursor: 0,
                     };
                 }
-                if cursor >= longueur {
+                // At the start of the item's words: an empty item above, this one kept
+                // whole (a ticked box stays ticked).
+                if cursor <= longueur {
+                    let marque = &content[..longueur];
+                    let vide = if marque.contains("[x]") || marque.contains("[X]") {
+                        suivant
+                    } else {
+                        marque.to_string()
+                    };
                     return Enter::Split {
-                        stays: content[..cursor].to_string(),
-                        goes: format!("{suivant}{}", &content[cursor..]),
-                        cursor: suivant.len(),
+                        stays: vide,
+                        goes: content.to_string(),
+                        cursor: longueur,
                     };
                 }
+                return Enter::Split {
+                    stays: content[..cursor].to_string(),
+                    goes: format!("{suivant}{}", &content[cursor..]),
+                    cursor: suivant.len(),
+                };
             }
             Enter::Split {
                 stays: content[..cursor].to_string(),
@@ -437,6 +550,16 @@ pub fn auto_pair(content: &str, anchor: usize, cursor: usize, typed: char) -> Op
         '(' => ')',
         '[' => ']',
         '{' => '}',
+        '$' if s == e && !content[e..].starts_with('$') => {
+            // On an empty line `$` is typed alone (`$$` there opens a maths block, which
+            // a pair would make at once, the lines below drawn as maths); after an odd
+            // number of them, it closes the formula.
+            let ouverts = content[..e].matches('$').count() - content[..e].matches("\\$").count();
+            if content.is_empty() || ouverts % 2 == 1 {
+                return None;
+            }
+            '$'
+        }
         '$' => '$',
         '`' => '`',
         ')' | ']' | '}' => {
@@ -622,9 +745,231 @@ pub fn duplicate_block(blocks: &[Block], i: usize) -> NoteEdit {
     }
 }
 
+// --- Blocks selected whole -------------------------------------------------------------
+
+/// Where `global` falls in `text` once parsed again: past the end of a text ending with
+/// a line break, the empty line after the last block (as [`split_block`] does).
+fn place(text: &str, global: usize) -> (usize, usize) {
+    let nouveaux = block::parse(text);
+    if global >= text.len() && text.ends_with('\n') {
+        (nouveaux.len(), 0)
+    } else {
+        block::locate(&nouveaux, global)
+    }
+}
+
+/// The source of blocks `first` to `last`, without the last one's line ending: what
+/// copying them gives.
+pub fn blocks_text(blocks: &[Block], first: usize, last: usize) -> String {
+    let last = last.min(blocks.len().saturating_sub(1));
+    if first > last || blocks.is_empty() {
+        return String::new();
+    }
+    let mut t = String::new();
+    for (k, b) in blocks[first..=last].iter().enumerate() {
+        if first + k == last {
+            t.push_str(b.content());
+        } else {
+            t.push_str(&b.text);
+        }
+    }
+    t
+}
+
+/// Blocks `first` to `last` replaced by `text` (nothing: taken out), the cursor at the
+/// end of what went in.
+pub fn replace_blocks(blocks: &[Block], first: usize, last: usize, text: &str) -> NoteEdit {
+    let last = last.min(blocks.len().saturating_sub(1));
+    let le = line_ending_of(&block::join(blocks));
+    let mut t = String::new();
+    let mut global = 0;
+    for (k, b) in blocks.iter().enumerate() {
+        if k < first || k > last {
+            t.push_str(&b.text);
+            continue;
+        }
+        if k == first && !text.is_empty() {
+            t.push_str(text);
+            global = t.len();
+            // The line ending of the last block replaced, or one when it had none and
+            // something follows.
+            let fin = blocks[last].line_ending();
+            t.push_str(if fin.is_empty() && last + 1 < blocks.len() {
+                le
+            } else {
+                fin
+            });
+        } else if k == first {
+            global = t.len();
+        }
+    }
+    let (bloc, local) = place(&t, global);
+    NoteEdit {
+        text: t,
+        block: bloc,
+        cursor: local,
+    }
+}
+
+/// Blocks `first` to `last` moved one place up or down together; the cursor at the
+/// start of the first of them, where it lands.
+pub fn move_blocks(blocks: &[Block], first: usize, last: usize, up: bool) -> Option<NoteEdit> {
+    if first > last || last >= blocks.len() {
+        return None;
+    }
+    if (up && first == 0) || (!up && last + 1 >= blocks.len()) {
+        return None;
+    }
+    let le = line_ending_of(&block::join(blocks));
+    let mut contenus: Vec<String> = blocks.iter().map(|b| b.content().to_string()).collect();
+    let derniere_fin = blocks
+        .last()
+        .map(|b| b.line_ending().to_string())
+        .unwrap_or_default();
+    let nouveau_premier = if up {
+        contenus[first - 1..=last].rotate_left(1);
+        first - 1
+    } else {
+        contenus[first..=last + 1].rotate_right(1);
+        first + 1
+    };
+    let n = contenus.len();
+    let mut t = String::new();
+    let mut global = 0;
+    for (k, c) in contenus.iter().enumerate() {
+        if k == nouveau_premier {
+            global = t.len();
+        }
+        t.push_str(c);
+        t.push_str(if k + 1 == n { &derniere_fin } else { le });
+    }
+    let (bloc, local) = place(&t, global);
+    Some(NoteEdit {
+        text: t,
+        block: bloc,
+        cursor: local,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signs_are_made_as_they_are_typed() {
+        let e = typographic("a -> b", 4).unwrap();
+        assert_eq!(e.text, "a → b");
+        assert_eq!(e.cursor, 2 + "→".len());
+        assert_eq!(typographic("x >=", 4).unwrap().text, "x ≥");
+        assert_eq!(typographic("A ≤>", "A ≤>".len()).unwrap().text, "A ⇔");
+        assert!(typographic("$a->", 4).is_none(), "in maths, as typed");
+        assert!(typographic("`a->", 4).is_none(), "in code, as typed");
+        assert!(typographic(r"a \->", 5).is_none());
+        assert!(typographic("a - b", 5).is_none());
+    }
+
+    #[test]
+    fn a_web_link_is_made_around_words() {
+        let e = web_link("voir ici", 5, 8, Some("https://example.com"));
+        assert_eq!(e.text, "voir [ici](https://example.com)");
+        assert_eq!(e.cursor, e.text.len());
+        let e = web_link("voir ici", 5, 8, None);
+        assert_eq!(e.text, "voir [ici]()");
+        assert_eq!(e.cursor, 11);
+        let e = web_link("a", 1, 1, None);
+        assert_eq!((e.text.as_str(), e.cursor), ("a[]()", 2));
+    }
+
+    #[test]
+    fn enter_after_an_opening_line_closes_its_block() {
+        let e = close_fence("$$", 2).unwrap();
+        assert_eq!(e.text, "$$\n\n$$");
+        assert_eq!(e.cursor, 3);
+        let e = close_fence("```rust", 7).unwrap();
+        assert_eq!(e.text, "```rust\n\n```");
+        assert_eq!(e.cursor, 8);
+        assert_eq!(close_fence("~~~~", 4).unwrap().text, "~~~~\n\n~~~~");
+        assert_eq!(
+            close_fence(":::fold Plus", 12).unwrap().text,
+            ":::fold Plus\n\n:::"
+        );
+        assert!(close_fence("$$x$$", 5).is_none());
+        assert!(close_fence("```a```", 7).is_none());
+        assert!(close_fence(":::", 3).is_none());
+        assert!(close_fence("$$", 1).is_none(), "only at the line's end");
+    }
+
+    #[test]
+    fn enter_at_the_start_of_a_heading_or_an_item_keeps_it_whole() {
+        assert_eq!(
+            on_enter(&BlockKind::Heading(2), "## Titre", 3),
+            Enter::Split {
+                stays: String::new(),
+                goes: "## Titre".into(),
+                cursor: 3
+            }
+        );
+        assert_eq!(
+            on_enter(
+                &BlockKind::Task {
+                    indent: 0,
+                    done: true
+                },
+                "- [x] fait",
+                6
+            ),
+            Enter::Split {
+                stays: "- [ ] ".into(),
+                goes: "- [x] fait".into(),
+                cursor: 6
+            }
+        );
+        assert_eq!(
+            on_enter(&BlockKind::Numbered { indent: 0, n: 3 }, "3. trois", 3),
+            Enter::Split {
+                stays: "3. ".into(),
+                goes: "3. trois".into(),
+                cursor: 3
+            }
+        );
+    }
+
+    #[test]
+    fn a_dollar_opens_a_formula_or_a_maths_block() {
+        assert!(auto_pair("", 0, 0, '$').is_none(), "`$$` can be typed");
+        assert!(auto_pair("$", 1, 1, '$').is_none());
+        assert!(auto_pair("$x", 2, 2, '$').is_none(), "it closes `$x`");
+        assert_eq!(auto_pair("a ", 2, 2, '$').unwrap().text, "a $$");
+    }
+
+    #[test]
+    fn blocks_selected_whole_are_copied_replaced_and_moved() {
+        let blocs = block::parse("# A\n$$\nx\n$$\n- b\nc");
+        assert_eq!(blocks_text(&blocs, 1, 2), "$$\nx\n$$\n- b");
+        assert_eq!(blocks_text(&blocs, 3, 3), "c");
+
+        let e = replace_blocks(&blocs, 1, 2, "");
+        assert_eq!(e.text, "# A\nc");
+        assert_eq!((e.block, e.cursor), (1, 0));
+        let e = replace_blocks(&blocs, 1, 2, "new");
+        assert_eq!(e.text, "# A\nnew\nc");
+        assert_eq!((e.block, e.cursor), (1, 3));
+        // The last block, which had no line ending, replaced: none added.
+        let e = replace_blocks(&blocs, 3, 3, "d");
+        assert_eq!(e.text, "# A\n$$\nx\n$$\n- b\nd");
+        // Everything taken out.
+        let e = replace_blocks(&blocs, 0, 3, "");
+        assert_eq!(e.text, "");
+
+        let e = move_blocks(&blocs, 1, 2, true).unwrap();
+        assert_eq!(e.text, "$$\nx\n$$\n- b\n# A\nc");
+        assert_eq!(e.block, 0);
+        let e = move_blocks(&blocs, 0, 1, false).unwrap();
+        assert_eq!(e.text, "- b\n# A\n$$\nx\n$$\nc");
+        assert_eq!(e.block, 1);
+        assert!(move_blocks(&blocs, 0, 1, true).is_none());
+        assert!(move_blocks(&blocs, 2, 3, false).is_none());
+    }
 
     #[test]
     fn a_mark_wraps_and_unwraps_a_selection() {

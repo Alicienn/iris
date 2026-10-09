@@ -373,4 +373,6 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   `2026-10-07-iris-notes-design.md`; against it, reading mode draws blocks rather than
   a page through Blitz, a second note opens beside read-only rather than in a split
   editor (opened with Ctrl+\ or its menu), and the space is polled for changes rather
-  than watched.
+  than watched. Since 4.20.0 a fence never closed (` ``` `, `$$`, `:::`) is a line of
+  its own rather than a block running to the end of the note, as CommonMark has it,
+  so typing one does not turn the rest into code; Enter after it closes it.
