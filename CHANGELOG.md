@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.20.1 — 2026-10-09
+
+### Fixed
+- Links in messages open with a click: web links in your browser, mail addresses in a new message.
+- Links in messages look like links, without first clicking Show.
+- Web links whose address carries several parameters now go to the right page.
+
 ## 4.20.0 — 2026-10-09
 
 ### New

@@ -657,7 +657,7 @@ their server.
       all, its view, counts, moves and Mark all as read keep to them. Migration 24.
       The tree's orange mark spares such folders, counts enabled mailboxes only, and
       says on how many a folder is (4.14.1).
-- [x] **S42.6** A message's links followed: a click on a link of a newsletter's painted
+- [x] **S42.6** A message's links followed (4.20.1): a click on a link of a newsletter's painted
       body hit-tests its layout (`TiledDocument::link_at`), a pointing hand over it; a
       text body draws its links as links (`StyledText` from escaped markdown), before
       *Show* as after. `http(s)://` opens in the browser, `mailto:` in a new message,
