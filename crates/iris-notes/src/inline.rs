@@ -350,6 +350,10 @@ fn entoure(
     if !dans_un_mot && mot(avant(src, i)) {
         return None;
     }
+    // `_` just after another (`\__`, `a__`) opens nothing.
+    if delim == "_" && avant(src, i) == Some('_') {
+        return None;
+    }
     // Not the start of a longer run of the same character: `***` is bold then italic.
     let premier = delim.chars().next()?;
     if delim.len() == 1 && apres(src, debut_interieur) == Some(premier) {

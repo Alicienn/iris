@@ -345,10 +345,10 @@ pub fn close_fence(content: &str, cursor: usize) -> Option<Edit> {
             return None;
         }
         barriere
-    } else if let Some(genre) = l.strip_prefix(":::") {
-        if genre.trim().is_empty() || genre.starts_with(':') {
-            return None;
-        }
+    } else if l
+        .strip_prefix(":::")
+        .is_some_and(|genre| !genre.trim().is_empty() && !genre.starts_with(':'))
+    {
         ":::".to_string()
     } else {
         return None;
