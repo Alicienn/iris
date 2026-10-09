@@ -540,7 +540,8 @@ fn an_embedded_spreadsheet_s_cells_are_chosen_and_take_the_keys() {
         g.on_cell_pressed(move |i, r, c, _| {
             choisies.borrow_mut().push((i, r, c));
             // As Rust does: the cell selected, the keyboard to the cells.
-            let g = faible.unwrap().global::<iris_ui::NoteSelect>();
+            let f = faible.unwrap();
+            let g = f.global::<iris_ui::NoteSelect>();
             g.set_r1(r);
             g.set_r2(r);
             g.set_c1(c);
