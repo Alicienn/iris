@@ -387,12 +387,22 @@ pub fn poser(
         let m = ligne.metrics();
         let haut = m.block_min_coord / e + s;
         let bas = m.block_max_coord / e + s;
+        // A shaping run holds every style of its font: each style's piece of it is
+        // found by its glyphs, counted from the run's start.
+        let mut run_courant: Option<usize> = None;
+        let mut consommes = 0usize;
         for item in ligne.items() {
             match item {
                 PositionedLayoutItem::GlyphRun(gr) => {
                     let run = gr.run();
                     let p = gr.style().brush;
-                    let plage = run.text_range();
+                    if run_courant != Some(run.index()) {
+                        run_courant = Some(run.index());
+                        consommes = 0;
+                    }
+                    let n = gr.glyphs().count();
+                    let plage = texte_des_glyphes(run, consommes, n);
+                    consommes += n;
                     let texte = riche
                         .texte
                         .get(plage)
@@ -473,6 +483,38 @@ pub fn poser(
         decalages,
         hauteur,
         echelle: e,
+    }
+}
+
+/// The text of glyphs `debut` to `debut + n` of a run (in visual order): the clusters
+/// those glyphs belong to.
+fn texte_des_glyphes(
+    run: &parley::Run<'_, Pinceau>,
+    debut: usize,
+    n: usize,
+) -> std::ops::Range<usize> {
+    let fin = debut + n;
+    let mut k = 0usize;
+    let mut a = usize::MAX;
+    let mut b = 0usize;
+    for c in run.visual_clusters() {
+        let g = c.glyphs().count();
+        // A cluster belongs to the piece holding its first glyph (one with none, such
+        // as a line break, to the piece it falls in).
+        if k >= debut && (k < fin || (g == 0 && k == fin && n == 0)) {
+            let r = c.text_range();
+            a = a.min(r.start);
+            b = b.max(r.end);
+        }
+        k += g;
+        if k >= fin && a != usize::MAX {
+            break;
+        }
+    }
+    if a == usize::MAX {
+        0..0
+    } else {
+        a..b
     }
 }
 

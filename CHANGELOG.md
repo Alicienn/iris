@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.21.1 — 2026-10-09
+
+### Fixed
+- Words in a note are no longer drawn over one another where their style changes.
+
 ## 4.21.0 — 2026-10-09
 
 ### New
