@@ -177,6 +177,9 @@ some of your mailboxes (switched-off ones aside) without having been made for so
 pointing at it says on how many it is.
 
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
+Links in a message are drawn as links, remote images shown or not: a click opens a web
+link (`http://`, `https://`) in your browser and a mail address (`mailto:`) in a new
+message. Any other kind of link is not followed.
 
 A message from a mailing list offers **Unsubscribe** beside its sender. Iris asks once
 on the spot, then tells the list directly when it allows it, or sends the message it
@@ -553,6 +556,8 @@ Hover over any button to see its shortcut, or press `?` for all of them.
   registration.
 - A message's attachments can weigh 25 MB together, the limit of most servers.
 - Replies and forwards are introduced in English ("On …, … wrote:").
+- In a message shown as plain text (most mail written by people), the words of a
+  paragraph that holds a link cannot be selected with the mouse.
 - Outlook and Microsoft 365 calendars cannot be connected (Microsoft offers no CalDAV);
   their published link can be subscribed to, read-only.
 - Notes are not synced between computers by Iris: put a space in a synced folder

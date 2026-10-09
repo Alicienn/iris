@@ -426,6 +426,25 @@ impl TiledDocument for BlitzDocument {
     fn selected_text(&self) -> Option<String> {
         self.document.get_selected_text()
     }
+
+    /// The `<a href>` around what is under the point: the hit is a word, an image or a
+    /// box inside the link, so the link is found by going up from it.
+    fn link_at(&self, x: f32, y: f32) -> Option<String> {
+        use blitz_dom::local_name;
+
+        let touche = self.document.hit(x / self.scale, y / self.scale)?;
+        let mut noeud = Some(touche.node_id);
+        while let Some(id) = noeud {
+            let n = self.document.get_node(id)?;
+            if n.is_element_with_tag_name(&local_name!("a")) {
+                if let Some(href) = n.attr(local_name!("href")) {
+                    return crate::openable_link(href).map(str::to_owned);
+                }
+            }
+            noeud = n.parent;
+        }
+        None
+    }
 }
 
 /// Compose une image prémultipliée sur du blanc, en place.
@@ -616,6 +635,19 @@ mod tests {
             sombres.len() >= 4,
             "both tables keep their border: {sombres:?}"
         );
+    }
+
+    #[test]
+    fn a_link_is_found_under_its_words_and_nowhere_else() {
+        let d = document(
+            "<body style='margin:0;font:16px sans-serif'>             <div style='height:40px'><a href='https://example.com/offer?a=1&amp;b=2'>             <span>The offer</span></a></div>             <div style='height:40px'><a href='javascript:alert(1)'>Not this</a></div>             <div style='height:40px'>No link here</div></body>",
+        );
+        assert_eq!(
+            d.link_at(10.0, 10.0).as_deref(),
+            Some("https://example.com/offer?a=1&b=2")
+        );
+        assert_eq!(d.link_at(10.0, 50.0), None, "a script is never a link");
+        assert_eq!(d.link_at(10.0, 90.0), None);
     }
 
     #[test]

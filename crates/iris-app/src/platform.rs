@@ -478,13 +478,24 @@ pub fn open_path(path: &std::path::Path) -> iris_types::Result<()> {
     }
 }
 
-/// Opens a web link (a video call) in the browser, or the app that claims it.
+/// Opens a web link (a video call, a link in a message) in the browser, or the app
+/// that claims it.
 ///
-/// Only `https://` links, whole: anything else is refused rather than handed to the
-/// system, which would run a file or a program just as readily.
+/// Only `https://` and `http://` links, whole: anything else is refused rather than
+/// handed to the system, which would run a file or a program just as readily.
 pub fn open_url(url: &str) -> iris_types::Result<()> {
     let url = url.trim();
-    if !url.starts_with("https://") || url.chars().any(|c| c.is_whitespace() || c == '"') {
+    let web = ["https://", "http://"].iter().any(|p| {
+        url.len() > p.len()
+            && url
+                .get(..p.len())
+                .is_some_and(|debut| debut.eq_ignore_ascii_case(p))
+    });
+    if !web
+        || url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '"')
+    {
         return Err(iris_types::Error::other(format!("not a web link: {url}")));
     }
     #[cfg(windows)]

@@ -1171,7 +1171,7 @@ fn run_gui(
     // de composition, et remplir les champs avant qu'ils existent les remplirait pour
     // rien.
     if let Some(demande) = mailto {
-        ouvre_le_brouillon(&fenetre, &demande);
+        shell::open_mailto_draft(&fenetre, &demande);
     }
 
     // A later launch of Iris shows this window, with the address it came with.
@@ -1185,7 +1185,7 @@ fn run_gui(
                 if let Some(demande) = iris_app::single::take_pending_mailto(&cache)
                     .and_then(|a| iris_app::platform::MailtoRequest::parse(&a))
                 {
-                    ouvre_le_brouillon(&fenetre, &demande);
+                    shell::open_mailto_draft(&fenetre, &demande);
                 }
             });
         });
@@ -1359,19 +1359,4 @@ fn montre_la_fenetre(fenetre: &iris_ui::AppWindow) {
     shell::came_back(fenetre);
     fenetre.window().set_fullscreen(false);
     iris_app::single::bring_to_front();
-}
-
-/// Opens a draft filled from a `mailto:` address.
-fn ouvre_le_brouillon(fenetre: &iris_ui::AppWindow, demande: &iris_app::platform::MailtoRequest) {
-    // What the window held is kept aside, attachments with it, not written over.
-    shell::liberer_redaction(fenetre);
-    fenetre.set_compose_to(demande.to.as_str().into());
-    fenetre.set_compose_cc(demande.cc.as_str().into());
-    fenetre.set_compose_bcc(demande.bcc.as_str().into());
-    fenetre.set_compose_subject(demande.subject.as_str().into());
-    fenetre.set_compose_body(demande.body.as_str().into());
-    // Les copies sont dépliées seulement si elles portent quelque chose : un
-    // « mailto: » nu ne doit pas ouvrir deux champs vides de plus.
-    fenetre.set_compose_show_cc(!demande.cc.is_empty() || !demande.bcc.is_empty());
-    fenetre.set_compose_open(true);
 }

@@ -24,8 +24,40 @@ component SelectableText inherits TextInput {
     text-cursor-width: 0px;
 }
 
+// Words with a link in them: drawn with their marks, the links in the accent, and a
+// click on one handed up. Only those blocks: the others stay text that can be selected.
+//
+// Given its width by the frame around it and its height from that width: wrapped text
+// asked for its height before it had a width came out a line tall, the other lines
+// drawn over the blocks below (see "Wrapped text and its height").
+component LinkedText inherits Rectangle {
+    in property <styled-text> text;
+    in property <length> font-size: Tokens.size-body;
+    in property <string> font-family;
+    in property <color> text-color: Tokens.text;
+    callback link(string);
+
+    height: mots.preferred-height;
+
+    mots := StyledText {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: self.preferred-height;
+        vertical-alignment: top;
+        text: root.text;
+        default-color: root.text-color;
+        default-font-size: root.font-size;
+        default-font-family: root.font-family;
+        link-color: Tokens.accent;
+        link-clicked(l) => { root.link(l); }
+    }
+}
+
 component MessageBlock inherits Rectangle {
     in property <MessageBlockData> block;
+    /// A link of the block clicked: its target, as the message wrote it.
+    callback link(string);
 
     height: layout.preferred-height;
 
@@ -83,11 +115,17 @@ component MessageBlock inherits Rectangle {
             }
         }
 
-        if root.block.kind == "heading": SelectableText {
+        if root.block.kind == "heading" && !root.block.has-link: SelectableText {
             text: root.block.text;
             font-size: Tokens.size-title + (3 - min(root.block.level, 3)) * 2px;
             font-weight: Tokens.weight-bold;
             color: Tokens.text;
+        }
+
+        if root.block.kind == "heading" && root.block.has-link: LinkedText {
+            text: root.block.rich;
+            font-size: Tokens.size-title + (3 - min(root.block.level, 3)) * 2px;
+            link(l) => { root.link(l); }
         }
 
         if root.block.kind == "code": Rectangle {
@@ -113,10 +151,15 @@ component MessageBlock inherits Rectangle {
                 width: 2px;
                 background: Tokens.border-strong;
             }
-            SelectableText {
+            if !root.block.has-link: SelectableText {
                 text: root.block.text;
                 font-size: Tokens.size-body;
                 color: Tokens.text-muted;
+            }
+            if root.block.has-link: LinkedText {
+                text: root.block.rich;
+                text-color: Tokens.text-muted;
+                link(l) => { root.link(l); }
             }
         }
 
@@ -127,29 +170,47 @@ component MessageBlock inherits Rectangle {
                 text: "•";
                 color: Tokens.text-secondary;
             }
-            SelectableText {
+            if !root.block.has-link: SelectableText {
                 text: root.block.text;
                 font-size: Tokens.size-body;
                 color: Tokens.text;
+            }
+            if root.block.has-link: LinkedText {
+                text: root.block.rich;
+                link(l) => { root.link(l); }
             }
         }
 
         // Wrapped, like the rest. Unwrapped, a newsletter laid out in one table made a
         // single line tens of thousands of pixels long; the card around it grew as wide,
         // and the renderer stopped the application drawing its rounded corner.
-        if root.block.kind == "table": SelectableText {
+        if root.block.kind == "table" && !root.block.has-link: SelectableText {
             text: root.block.text;
             font-family: Tokens.font-mono;
             font-size: Tokens.size-small;
             color: Tokens.text-secondary;
         }
 
-        if root.block.kind == "paragraph": SelectableText {
+        if root.block.kind == "table" && root.block.has-link: LinkedText {
+            text: root.block.rich;
+            font-family: Tokens.font-mono;
+            font-size: Tokens.size-small;
+            text-color: Tokens.text-secondary;
+            link(l) => { root.link(l); }
+        }
+
+        if root.block.kind == "paragraph" && !root.block.has-link: SelectableText {
             text: root.block.text;
             font-size: Tokens.size-body;
             font-weight: root.block.bold ? Tokens.weight-bold : Tokens.weight-body;
             font-italic: root.block.italic;
             color: Tokens.text;
+        }
+
+        // Bold and italic are in the words' own marks.
+        if root.block.kind == "paragraph" && root.block.has-link: LinkedText {
+            text: root.block.rich;
+            link(l) => { root.link(l); }
         }
     }
 }
@@ -283,6 +344,16 @@ component BodyTile inherits Rectangle {
     /// Pressed (0) or dragged to (1), as fractions of the tile across and down; a
     /// drag past the tile gives fractions beyond 0 and 1.
     callback select(float, float, int);
+    /// A click that dragged nothing, at fractions of the tile: a link there opens.
+    callback link(float, float);
+    /// Whether a link is under the pointer, at fractions of the tile.
+    callback link-at(float, float) -> bool;
+
+    accessible-role: image;
+    accessible-label: "Message body";
+
+    // A pointing hand over a link, the text cursor elsewhere.
+    property <bool> over-link;
 
     // Only once laid out. Before the first layout every tile is zero pixels wide,
     // hence zero high, and they all sit at the top: every one of them looked near,
@@ -333,18 +404,34 @@ component BodyTile inherits Rectangle {
         image-fit: fill;
     }
 
-    // Text selected as on a page: pressed, then dragged, even past the tile.
+    // Text selected as on a page: pressed, then dragged, even past the tile. A click
+    // that selected nothing follows the link under it (Rust tells which: a drag that
+    // ends inside the tile is a click too, and leaves words selected).
     TouchArea {
-        mouse-cursor: text;
+        mouse-cursor: root.over-link ? MouseCursor.pointer : MouseCursor.text;
         pointer-event(event) => {
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down
                 && root.width > 0 && root.height > 0) {
                 root.select(self.mouse-x / root.width, self.mouse-y / root.height, 0);
             }
+            if (event.kind == PointerEventKind.move && !self.pressed
+                && root.width > 0 && root.height > 0) {
+                root.over-link = root.link-at(self.mouse-x / root.width, self.mouse-y / root.height);
+            }
         }
         moved => {
             if (self.pressed && root.width > 0 && root.height > 0) {
                 root.select(self.mouse-x / root.width, self.mouse-y / root.height, 1);
+            }
+        }
+        clicked => {
+            if (root.width > 0 && root.height > 0) {
+                root.link(self.mouse-x / root.width, self.mouse-y / root.height);
+            }
+        }
+        changed has-hover => {
+            if (!self.has-hover) {
+                root.over-link = false;
             }
         }
     }
@@ -842,6 +929,12 @@ export component ConversationView inherits VerticalLayout {
     /// Words chosen with the mouse in a body painted by the full engine: (message id,
     /// tile, where across and down the tile as fractions, 0 pressed / 1 dragged).
     callback body-select(int, int, float, float, int);
+    /// A click that selected nothing in a body painted by the full engine, and whether a
+    /// link is under the pointer there: (message id, tile, fractions across and down).
+    callback body-link(int, int, float, float);
+    callback body-link-at(int, int, float, float) -> bool;
+    /// A link clicked in a text body: its target, as the message wrote it.
+    callback message-link(string);
     /// A key the message's text had no use for, to hand to the shortcuts.
     callback keys-left(string);
     /// No tile asks for pixels while this is set: the window is hidden, and what was
@@ -1172,6 +1265,8 @@ export component ConversationView inherits VerticalLayout {
                             wanted => { root.body-tile-wanted(message.id, t); }
                             released => { root.body-tile-released(message.id, t); }
                             select(fx, fy, phase) => { root.body-select(message.id, t, fx, fy, phase); }
+                            link(fx, fy) => { root.body-link(message.id, t, fx, fy); }
+                            link-at(fx, fy) => { return root.body-link-at(message.id, t, fx, fy); }
                             resized(w) => {
                                 if (t == 0) {
                                     root.body-width-changed(w);
@@ -1193,6 +1288,7 @@ export component ConversationView inherits VerticalLayout {
                         spacing: 10px;
                         for block in message.blocks: MessageBlock {
                             block: block;
+                            link(l) => { root.message-link(l); }
                         }
 
                         // Le corps est arrivé et ne donne rien à lire : une page

@@ -105,6 +105,33 @@ pub trait TiledDocument: std::fmt::Debug {
     fn selected_text(&self) -> Option<String> {
         None
     }
+
+    /// The link under a point of the document, in physical pixels from its top left,
+    /// when it is one a click may follow (see [`openable_link`]).
+    fn link_at(&self, _x: f32, _y: f32) -> Option<String> {
+        None
+    }
+}
+
+/// A link a click in a message may follow: a web page (`http://`, `https://`) or an
+/// address to write to (`mailto:`), whole, trimmed; `None` for anything else.
+///
+/// A message is written by a stranger. A relative link has nothing to be relative to,
+/// and any other scheme — a file, a program, `javascript:` — would be handed to the
+/// system, which runs what it is given just as readily as it opens a page.
+pub fn openable_link(href: &str) -> Option<&str> {
+    let lien = href.trim();
+    let schema = |prefixe: &str| {
+        lien.len() > prefixe.len()
+            && lien
+                .get(..prefixe.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(prefixe))
+    };
+    let bon = schema("https://") || schema("http://") || schema("mailto:");
+    (bon && !lien
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '"'))
+    .then_some(lien)
 }
 
 /// Où un moteur dépose ses pixels.
@@ -456,6 +483,34 @@ mod tests {
         assert_eq!(d.tile_extent(0), 8);
         assert_eq!(d.tile_extent(2), 4);
         assert_eq!(d.tile_extent(3), 0);
+    }
+
+    #[test]
+    fn only_web_and_mail_links_are_followed() {
+        assert_eq!(
+            openable_link(" https://example.com/a?b=1&c=2 "),
+            Some("https://example.com/a?b=1&c=2")
+        );
+        assert_eq!(
+            openable_link("HTTP://example.com"),
+            Some("HTTP://example.com")
+        );
+        assert_eq!(
+            openable_link("mailto:marie@example.com"),
+            Some("mailto:marie@example.com")
+        );
+        for refuse in [
+            "javascript:alert(1)",
+            "file:///C:/Windows/System32/calc.exe",
+            "/relative/page",
+            "cid:logo",
+            "https://",
+            "https://example.com/a b",
+            "https://example.com/\"x",
+            "",
+        ] {
+            assert_eq!(openable_link(refuse), None, "{refuse}");
+        }
     }
 
     #[test]

@@ -257,7 +257,9 @@ pub fn parse(html: &str) -> RichText {
                     if fermante {
                         lien = None;
                     } else {
-                        lien = attribute(balise, "href");
+                        // `&amp;` between the parameters of an address is how
+                        // HTML writes `&`; left as it is, the link went elsewhere.
+                        lien = attribute(balise, "href").map(|h| decode_entities(&h));
                     }
                 }
                 "br" => spans.push(Inline::plain("\n")),
@@ -570,6 +572,18 @@ mod tests {
         let lien = spans.iter().find(|s| s.link.is_some()).expect("un lien");
         assert_eq!(lien.link.as_deref(), Some("https://exemple.fr"));
         assert_eq!(lien.text, "le devis");
+    }
+
+    #[test]
+    fn a_link_s_ampersands_are_read_as_html_writes_them() {
+        let doc = parse(r#"<p><a href="https://example.com/?a=1&amp;b=2">offer</a></p>"#);
+        let Block::Paragraph(spans) = &doc.blocks[0] else {
+            panic!()
+        };
+        assert_eq!(
+            spans[0].link.as_deref(),
+            Some("https://example.com/?a=1&b=2")
+        );
     }
 
     #[test]

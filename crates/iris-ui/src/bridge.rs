@@ -120,7 +120,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                     .find_map(|s| s.link.clone())
                     .unwrap_or_default()
                     .into(),
-                ..Default::default()
+                ..with_links(spans)
             },
             Block::Heading { level, spans } => MessageBlockData {
                 kind: "heading".into(),
@@ -130,7 +130,16 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: true,
                 italic: false,
                 link: SharedString::default(),
-                ..Default::default()
+                // A heading is bold, its links too.
+                ..with_links(
+                    &spans
+                        .iter()
+                        .map(|s| iris_htmlview::Inline {
+                            bold: true,
+                            ..s.clone()
+                        })
+                        .collect::<Vec<_>>(),
+                )
             },
             Block::ListItem { depth, spans, .. } => MessageBlockData {
                 kind: "list".into(),
@@ -140,7 +149,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
-                ..Default::default()
+                ..with_links(spans)
             },
             Block::Quote { depth, spans } => MessageBlockData {
                 kind: "quote".into(),
@@ -150,7 +159,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 bold: false,
                 italic: false,
                 link: SharedString::default(),
-                ..Default::default()
+                ..with_links(spans)
             },
             Block::Code(text) => MessageBlockData {
                 kind: "code".into(),
@@ -205,27 +214,173 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                     .unwrap_or_default(),
                 has_picture: pixels.is_some(),
             },
-            Block::TableRow(cells) => MessageBlockData {
-                kind: "table".into(),
-                text: cells
-                    .iter()
-                    .map(|c| join(c))
-                    .collect::<Vec<_>>()
-                    .join("    ")
-                    .into(),
-                level: 0,
-                depth: 0,
-                bold: false,
-                italic: false,
-                link: SharedString::default(),
-                ..Default::default()
-            },
+            Block::TableRow(cells) => {
+                // The cells side by side, as the plain text shows them.
+                let mut spans: Vec<iris_htmlview::Inline> = Vec::new();
+                for (i, cellule) in cells.iter().enumerate() {
+                    if i > 0 {
+                        spans.push(iris_htmlview::Inline::plain("    "));
+                    }
+                    spans.extend(cellule.iter().cloned());
+                }
+                MessageBlockData {
+                    kind: "table".into(),
+                    text: join(&spans).into(),
+                    level: 0,
+                    depth: 0,
+                    bold: false,
+                    italic: false,
+                    link: SharedString::default(),
+                    ..with_links(&spans)
+                }
+            }
         })
         .collect()
 }
 
 fn join(spans: &[iris_htmlview::Inline]) -> String {
     spans.iter().map(|s| s.text.as_str()).collect()
+}
+
+/// A block whose words carry a link a click may follow: its words as Slint's markdown
+/// (`rich`, `has_link`), so that the link is drawn as one and answers the click. The
+/// rest of the block is filled by the caller. A block without a link stays plain text,
+/// which can be selected.
+fn with_links(spans: &[iris_htmlview::Inline]) -> MessageBlockData {
+    match links_markdown(spans).and_then(|md| slint::StyledText::from_markdown(&md).ok()) {
+        Some(rich) => MessageBlockData {
+            rich,
+            has_link: true,
+            ..Default::default()
+        },
+        None => MessageBlockData::default(),
+    }
+}
+
+/// The words of a block as Slint's markdown, `None` when none of them is a link a
+/// click may follow.
+///
+/// Everything the sender wrote is escaped: the words are shown as written, never read
+/// as markup. Only what this function adds is markdown — the links, and bold and
+/// italic where they can be written without changing a character.
+fn links_markdown(spans: &[iris_htmlview::Inline]) -> Option<String> {
+    let lien_de = |s: &iris_htmlview::Inline| {
+        s.link
+            .as_deref()
+            .and_then(iris_htmlview::openable_link)
+            .map(str::to_owned)
+    };
+    if !spans.iter().any(|s| lien_de(s).is_some()) {
+        return None;
+    }
+
+    // Neighbours that look alike and lead to the same place are one run.
+    let mut runs: Vec<(bool, bool, Option<String>, String)> = Vec::new();
+    for s in spans {
+        let lien = lien_de(s);
+        let meme = runs
+            .last()
+            .is_some_and(|r| r.0 == s.bold && r.1 == s.italic && r.2 == lien);
+        if !meme {
+            runs.push((s.bold, s.italic, lien, String::new()));
+        }
+        if let Some(r) = runs.last_mut() {
+            r.3.push_str(&s.text);
+        }
+    }
+
+    let mut md = String::new();
+    for (bold, italic, lien, texte) in &runs {
+        // A line break inside a link or a bold run would cut it in two paragraphs
+        // with the mark open: each line is marked on its own.
+        for (i, ligne) in texte.replace('\r', "").split('\n').enumerate() {
+            if i > 0 {
+                md.push('\n');
+            }
+            let morceau = run_markdown(ligne, *bold, *italic, lien.as_deref(), &md);
+            md.push_str(&morceau);
+        }
+    }
+
+    // Leading spaces would make a line code; an empty line would vanish between two
+    // paragraphs, where the plain text shows it.
+    let lignes: Vec<&str> = md
+        .split('\n')
+        .map(|l| {
+            let l = l.trim_start_matches([' ', '\t']);
+            if l.trim().is_empty() {
+                "\u{a0}"
+            } else {
+                l
+            }
+        })
+        .collect();
+    Some(lignes.join("\n"))
+}
+
+/// One line of a run: its words escaped, marked bold or italic, made a link.
+fn run_markdown(texte: &str, bold: bool, italic: bool, lien: Option<&str>, avant: &str) -> String {
+    let coeur = texte.trim();
+    if coeur.is_empty() {
+        return texte.to_owned();
+    }
+    let debut = &texte[..texte.len() - texte.trim_start().len()];
+    let fin = &texte[texte.trim_end().len()..];
+
+    // Emphasis only opens before a letter and closes after one, and never right
+    // against the mark of the run before: where it could not, the words stay plain
+    // rather than show their asterisks.
+    let bords = coeur.chars().next().is_some_and(char::is_alphanumeric)
+        && coeur.chars().last().is_some_and(char::is_alphanumeric);
+    let colle = debut.is_empty() && avant.ends_with('*');
+    let marque = match (bold, italic) {
+        _ if !bords || colle => "",
+        (true, true) => "***",
+        (true, false) => "**",
+        (false, true) => "*",
+        (false, false) => "",
+    };
+
+    let mut corps = format!("{marque}{}{marque}", escape_markdown(coeur));
+    if let Some(cible) = lien {
+        corps = format!("[{corps}]({})", escape_target(cible));
+    }
+    format!("{debut}{corps}{fin}")
+}
+
+/// Text Slint's markdown reads literally: every ASCII punctuation escaped, and Slint's
+/// interpolation placeholder taken out.
+fn escape_markdown(texte: &str) -> String {
+    let mut sortie = String::with_capacity(texte.len() + 8);
+    for c in texte.chars() {
+        if c == '\u{e541}' {
+            continue;
+        }
+        if c.is_ascii_punctuation() {
+            sortie.push('\\');
+        }
+        sortie.push(c);
+    }
+    sortie
+}
+
+/// A link target as a markdown link holds it: what would end it or be read as an
+/// entity escaped (the escapes are undone when the link is followed).
+fn escape_target(cible: &str) -> String {
+    let mut sortie = String::with_capacity(cible.len() + 8);
+    for c in cible.chars() {
+        if c == '\u{e541}' {
+            continue;
+        }
+        if matches!(
+            c,
+            '\\' | '(' | ')' | '<' | '>' | '[' | ']' | '&' | '"' | '\''
+        ) {
+            sortie.push('\\');
+        }
+        sortie.push(c);
+    }
+    sortie
 }
 
 /// Une image que le message transportait lui-meme, prete a dessiner.
@@ -665,6 +820,73 @@ mod tests {
         let blocs = message_blocks(&rich);
         assert!(blocs[0].text.as_str().contains("Janvier"));
         assert!(blocs[0].text.as_str().contains("1200 €"));
+    }
+
+    fn mot(texte: &str, lien: Option<&str>, bold: bool) -> Inline {
+        Inline {
+            bold,
+            link: lien.map(str::to_owned),
+            ..Inline::plain(texte)
+        }
+    }
+
+    #[test]
+    fn a_link_is_written_as_one_and_the_words_around_it_as_they_are() {
+        let md = links_markdown(&[
+            mot("See *the* offer: ", None, false),
+            mot("here", Some("https://example.com/a_(b)?x=1&y=2"), false),
+            mot(".", None, false),
+        ])
+        .expect("a link");
+        assert_eq!(
+            md,
+            r"See \*the\* offer\: [here](https://example.com/a_\(b\)?x=1\&y=2)\."
+        );
+        assert!(slint::StyledText::from_markdown(&md).is_ok());
+    }
+
+    #[test]
+    fn bold_holds_the_words_not_the_spaces_and_lines_keep_their_breaks() {
+        let md = links_markdown(&[
+            mot("Read ", None, false),
+            mot(" this ", Some("https://example.com"), true),
+            mot("\n  next\n\nend", None, false),
+        ])
+        .expect("a link");
+        assert_eq!(
+            md,
+            "Read  [**this**](https://example.com) \nnext\n\u{a0}\nend"
+        );
+        assert!(slint::StyledText::from_markdown(&md).is_ok());
+    }
+
+    #[test]
+    fn a_block_without_a_link_to_follow_stays_selectable_text() {
+        assert_eq!(links_markdown(&[mot("Hello", None, false)]), None);
+        assert_eq!(
+            links_markdown(&[mot("x", Some("javascript:alert(1)"), false)]),
+            None
+        );
+        let rich = RichText {
+            blocks: vec![
+                Block::Paragraph(vec![mot("Plain", None, false)]),
+                Block::ListItem {
+                    depth: 1,
+                    ordered: false,
+                    spans: vec![mot("Write", Some("mailto:marie@example.com"), false)],
+                },
+                Block::TableRow(vec![
+                    vec![mot("Order", None, false)],
+                    vec![mot("Track it", Some("https://example.com/t"), false)],
+                ]),
+            ],
+            blocked_images: 0,
+        };
+        let blocs = message_blocks(&rich);
+        assert!(!blocs[0].has_link);
+        assert!(blocs[1].has_link, "a list item with a link");
+        assert!(blocs[2].has_link, "a table row with a link");
+        assert_eq!(blocs[2].text.as_str(), "Order    Track it");
     }
 
     #[test]

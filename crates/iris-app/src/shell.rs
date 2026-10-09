@@ -1377,11 +1377,7 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
             let Some(ouvert) = corps.get_mut(&(message as i64)) else {
                 return;
             };
-            let index = index.max(0) as usize;
-            let (largeur, _) = ouvert.document.size();
-            let x = fx * largeur as f32;
-            let y = index as f32 * ouvert.document.tile_height() as f32
-                + fy * ouvert.document.tile_extent(index) as f32;
+            let (x, y) = point_du_document(ouvert.document.as_ref(), index, fx, fy);
             let change = if phase == 0 {
                 ouvert.document.select_from(x, y)
             } else {
@@ -1391,6 +1387,49 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
                 repeindre(ouvert);
             }
         });
+    });
+
+    // The pointer over a link of a painted body: a pointing hand.
+    fenetre.on_body_link_at(|message, index, fx, fy| {
+        CORPS.with(|c| {
+            let corps = c.borrow();
+            corps.get(&(message as i64)).is_some_and(|ouvert| {
+                let (x, y) = point_du_document(ouvert.document.as_ref(), index, fx, fy);
+                ouvert.document.link_at(x, y).is_some()
+            })
+        })
+    });
+
+    // A click on a link of a painted body opens it, unless the click ended a drag
+    // that selected words: those are being chosen, not followed.
+    let faible = fenetre.as_weak();
+    fenetre.on_body_link(move |message, index, fx, fy| {
+        let lien = CORPS.with(|c| {
+            let corps = c.borrow();
+            let ouvert = corps.get(&(message as i64))?;
+            if ouvert
+                .document
+                .selected_text()
+                .is_some_and(|t| !t.trim().is_empty())
+            {
+                return None;
+            }
+            let (x, y) = point_du_document(ouvert.document.as_ref(), index, fx, fy);
+            ouvert.document.link_at(x, y)
+        });
+        // Opened once the document is let go: a draft may be opened, and with it
+        // anything that looks at the bodies again.
+        if let (Some(f), Some(lien)) = (faible.upgrade(), lien) {
+            open_message_link(&f, &lien);
+        }
+    });
+
+    // A link clicked in a message shown as text.
+    let faible = fenetre.as_weak();
+    fenetre.on_message_link(move |lien| {
+        if let Some(f) = faible.upgrade() {
+            open_message_link(&f, &lien);
+        }
     });
 
     fenetre.on_body_tile_released(|message, index| {
@@ -1409,6 +1448,60 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
             }
         });
     });
+}
+
+/// A point of a tile, given as fractions across and down it, in the whole document's
+/// pixels: a drag past its tile goes on into the next.
+fn point_du_document(
+    document: &dyn iris_htmlview::TiledDocument,
+    index: i32,
+    fx: f32,
+    fy: f32,
+) -> (f32, f32) {
+    let index = index.max(0) as usize;
+    let (largeur, _) = document.size();
+    let x = fx * largeur as f32;
+    let y = index as f32 * document.tile_height() as f32 + fy * document.tile_extent(index) as f32;
+    (x, y)
+}
+
+/// Follows a link clicked in a message: a web page opens in the browser, an address
+/// opens a draft to it. Anything else stays where it is, and the status line says so.
+pub fn open_message_link(fenetre: &AppWindow, lien: &str) {
+    let Some(lien) = iris_htmlview::openable_link(lien) else {
+        fenetre.set_status("Only web and mail links are opened from a message.".into());
+        return;
+    };
+    if lien
+        .get(..7)
+        .is_some_and(|s| s.eq_ignore_ascii_case("mailto:"))
+    {
+        if let Some(demande) =
+            crate::platform::MailtoRequest::parse(&format!("mailto:{}", &lien[7..]))
+        {
+            open_mailto_draft(fenetre, &demande);
+        }
+        return;
+    }
+    if let Err(e) = crate::platform::open_url(lien) {
+        fenetre.set_status(format!("Could not open the link: {e}").into());
+    }
+}
+
+/// Opens a draft filled from a `mailto:` address.
+pub fn open_mailto_draft(fenetre: &AppWindow, demande: &crate::platform::MailtoRequest) {
+    // What the window held is kept aside, attachments with it, not written over.
+    liberer_redaction(fenetre);
+    fenetre.set_compose_to(demande.to.as_str().into());
+    fenetre.set_compose_cc(demande.cc.as_str().into());
+    fenetre.set_compose_bcc(demande.bcc.as_str().into());
+    fenetre.set_compose_subject(demande.subject.as_str().into());
+    fenetre.set_compose_body(demande.body.as_str().into());
+    // Les copies sont dépliées seulement si elles portent quelque chose : un
+    // « mailto: » nu ne doit pas ouvrir deux champs vides de plus.
+    fenetre.set_compose_show_cc(!demande.cc.is_empty() || !demande.bcc.is_empty());
+    fenetre.set_compose_minimised(false);
+    fenetre.set_compose_open(true);
 }
 
 /// Paints again the tiles of a body that are on show, after its selection changed.

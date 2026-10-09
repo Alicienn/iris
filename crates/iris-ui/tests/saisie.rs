@@ -272,12 +272,17 @@ fn cc_et_bcc_se_replient_sauf_ce_qui_est_rempli() {
 // --- Les corps peints par tuiles ---
 
 fn corps_en_tuiles(f: &AppWindow, tuiles: usize) {
+    corps_en_tuiles_de(f, tuiles, 1.0);
+}
+
+/// `tuiles` tiles, each `aspect` times as high as it is wide.
+fn corps_en_tuiles_de(f: &AppWindow, tuiles: usize, aspect: f32) {
     use iris_ui::{BodyTileData, MessageData};
     let tuiles: Vec<BodyTileData> = (0..tuiles)
         .map(|_| BodyTileData {
             image: slint::Image::default(),
             ready: false,
-            aspect: 1.0,
+            aspect,
         })
         .collect();
     let message = MessageData {
@@ -364,6 +369,36 @@ fn defiler_demande_les_suivantes_et_rend_les_precedentes() {
     assert!(
         j.iter().any(|e| !e.2 && e.1 == 0),
         "la première est rendue : {j:?}"
+    );
+}
+
+fn a_click_on_a_painted_body_asks_for_the_link_under_it() {
+    // A click that drags nothing reaches Rust with the message, the tile and where in
+    // it: that is how a link of a newsletter opens. It was only ever a selection.
+    let f = fenetre();
+    corps_en_tuiles_de(&f, 2, 0.2);
+    let clics = Rc::new(RefCell::new(Vec::new()));
+    {
+        let c = Rc::clone(&clics);
+        f.on_body_link(move |m, t, x, y| c.borrow_mut().push((m, t, x, y)));
+    }
+    let tuile = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Image)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some("Message body"))
+        .expect("the first tile of the body");
+
+    clic(&tuile);
+
+    let clics = clics.borrow();
+    assert_eq!(clics.len(), 1, "one click, one question: {clics:?}");
+    let (m, t, x, y) = clics[0];
+    assert_eq!((m, t), (7, 0));
+    assert!(
+        (x - 0.5).abs() < 0.05 && (y - 0.5).abs() < 0.05,
+        "the middle of the tile: {x}, {y}"
     );
 }
 
@@ -2887,6 +2922,10 @@ fn main() {
         (
             "un_champ_d_une_ligne_ne_grandit_pas",
             un_champ_d_une_ligne_ne_grandit_pas,
+        ),
+        (
+            "a_click_on_a_painted_body_asks_for_the_link_under_it",
+            a_click_on_a_painted_body_asks_for_the_link_under_it,
         ),
     ];
 

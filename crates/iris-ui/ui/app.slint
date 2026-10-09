@@ -844,6 +844,12 @@ export component AppWindow inherits Window {
     /// Words chosen with the mouse in a body painted by the full engine: (message,
     /// tile, fractions across and down it, 0 pressed / 1 dragged).
     callback body-select(int, int, float, float, int);
+    /// A click that selected nothing in such a body, and whether a link is under the
+    /// pointer there: (message, tile, fractions across and down it).
+    callback body-link(int, int, float, float);
+    callback body-link-at(int, int, float, float) -> bool;
+    /// A link clicked in a message shown as text: its target, as the message wrote it.
+    callback message-link(string);
     /// Ctrl+C with the shortcuts: what is selected in a message goes to the clipboard.
     callback copy-requested();
     /// A key to send again, once the shortcuts have the keyboard.
@@ -2217,6 +2223,9 @@ export component AppWindow inherits Window {
                     body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
                     body-tile-released(m, t) => { root.body-tile-released(m, t); }
                     body-select(m, t, x, y, p) => { root.body-select(m, t, x, y, p); }
+                    body-link(m, t, x, y) => { root.body-link(m, t, x, y); }
+                    body-link-at(m, t, x, y) => { return root.body-link-at(m, t, x, y); }
+                    message-link(l) => { root.message-link(l); }
                     // The text had no use for the key: the shortcuts get it, and
                     // the keyboard with it.
                     keys-left(t) => {

@@ -530,6 +530,20 @@ These rules come from bugs users hit, and each has a scenario in
   the document for its words and puts them on the clipboard through a hidden text
   field (`copy-text`), the only way to it Slint offers. It used to be read as `C`,
   *New message*.
+- **Following a message's links.** A link is followed only if it is `http://`,
+  `https://` or `mailto:` (`iris_htmlview::openable_link`): a web link goes to
+  `platform::open_url`, a mail address to a draft (`shell::open_mailto_draft`, the path
+  `iris mailto:` takes too). In a Blitz body, a tile's `TouchArea` sends a click
+  (`body-link`) and, on hover, a question (`body-link-at`, for the pointing hand);
+  Rust turns the point into document pixels as for a selection, and
+  `TiledDocument::link_at` hit-tests the layout and walks up to the `<a href>`. A click
+  that ends a drag with words selected is a selection, not a link. In a rich-text body
+  a block holding a link is drawn by a `StyledText` (`LinkedText`) from markdown built
+  in `bridge.rs`, where every character the sender wrote is escaped and only the links,
+  bold and italic are markup; its `link-clicked` goes up as `message-link`. Those
+  blocks cannot be selected, the others stay `SelectableText`. Until then a link was
+  a click on nothing in a Blitz body, and plain words in a rich-text one: links only
+  appeared once *Show* sent the message to Blitz, where they still did nothing.
 - `?` opens the list of keys (`screens/help.slint`), a modal like the others.
 - **The palette (`Ctrl`+`K`)** asks Rust for its list when it opens and at each key
   (`palette-query-changed`, filtered by `commands::filter`). The callback was declared
