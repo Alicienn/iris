@@ -80,9 +80,8 @@ fn rapport(nom: &str) -> f32 {
                 ));
                 let mut l = b.build("Hg");
                 l.break_all_lines(None);
-                l.lines()
-                    .next()
-                    .map(|ligne| ligne.metrics().line_height / 100.0)
+                let hauteur = l.lines().next().map(|ligne| ligne.metrics().line_height);
+                hauteur.map(|h| h / 100.0)
             })
         })
         .filter(|r| r.is_finite() && *r > 0.5)
