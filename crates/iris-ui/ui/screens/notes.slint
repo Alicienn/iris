@@ -1910,8 +1910,6 @@ export component NotesView inherits Rectangle {
                             // Where the cursor is, in the window: what pops up goes there.
                             property <int> curseur-serie: root.caret-serial;
                             changed curseur-serie => {
-                                root.popup-x = self.absolute-position.x + root.caret-x;
-                                root.popup-y = self.absolute-position.y + root.caret-y + root.caret-h + 2px;
                                 // The cursor kept in view: the page scrolls to it.
                                 if (root.caret-visible) {
                                     let haut = -page.viewport-y + 30px;
@@ -1924,6 +1922,9 @@ export component NotesView inherits Rectangle {
                                         page.viewport-y = min(0px, -(y-page - 30px));
                                     }
                                 }
+                                // What pops up goes under the cursor, where it is now.
+                                root.popup-x = self.absolute-position.x + root.caret-x;
+                                root.popup-y = self.absolute-position.y + root.caret-y + root.caret-h + 2px;
                             }
 
                             clavier := FocusScope {
