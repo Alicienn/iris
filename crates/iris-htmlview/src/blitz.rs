@@ -436,7 +436,9 @@ impl TiledDocument for BlitzDocument {
         let mut noeud = Some(touche.node_id);
         while let Some(id) = noeud {
             let n = self.document.get_node(id)?;
-            if n.is_element_with_tag_name(&local_name!("a")) {
+            if n.element_data()
+                .is_some_and(|el| el.name.local == local_name!("a"))
+            {
                 if let Some(href) = n.attr(local_name!("href")) {
                     return crate::openable_link(href).map(str::to_owned);
                 }

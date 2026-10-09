@@ -213,6 +213,7 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                     .and_then(|p| image_incrustee(p.width, p.height, &p.rgba))
                     .unwrap_or_default(),
                 has_picture: pixels.is_some(),
+                ..Default::default()
             },
             Block::TableRow(cells) => {
                 // The cells side by side, as the plain text shows them.
