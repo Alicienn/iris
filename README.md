@@ -385,8 +385,9 @@ rewrites every link to it. *Filter* narrows the tree by name; `Ctrl`+`O` opens a
 by name (`Enter` on a name not found makes it), and `Ctrl`+`Shift`+`F` searches the
 words of the space, with `tag:`, `path:` and `is:task`.
 
-**Writing.** Every line shows its result, except the one you are on, which shows the
-marks inside it (`**`, `==`, `[[`…) so they can be changed. The marks that start a
+**Writing.** Every line shows its result, formulas drawn inside it, except the one you
+are on, which shows the marks inside it (`**`, `==`, `$`, `[[`…) dimmed, the words
+between already in their style, so you see what is read as you type it. The marks that start a
 line are converted as soon as they are typed: `# ` makes a heading, `- ` a list item,
 `1. ` a numbered one, `[] ` a checkbox and `> ` a quote, and you go on writing in it,
 the mark hidden; `Backspace` at its start makes it plain text again. Markdown, plus a
@@ -420,11 +421,12 @@ Pairs close themselves; lists go on with `Enter` and number themselves; `Tab` an
 whole block, closed, with the cursor inside; one left open is just a line, never the
 rest of the note. Selecting words shows a bubble of formats, each naming its key when pointed at.
 
-**Selecting blocks.** Drag from one block to another, `Shift`-click a block, press
-`Shift`+`↑`/`↓` past the first or last line, or `Ctrl`+`A` twice: whole blocks are
-selected, formulas, tables, pictures and theorems with the words. `Ctrl`+`C`,
-`Ctrl`+`X`, `Ctrl`+`V`, `Delete`, `Alt`+`↑`/`↓`, `Tab` and `Ctrl`+`D` act on all of
-them; `Escape`, an arrow or `Enter` returns to writing.
+**Selecting.** The note is one text: drag across it, `Shift`-click, `Shift` and the
+arrows, a double click for a word, a triple click for a line, `Ctrl`+`A` for all of
+it — formulas, tables, pictures and theorems are selected with the words. `Ctrl`+`C`
+copies the Markdown, `Ctrl`+`X`, `Ctrl`+`V`, `Delete` and typing replace it; across
+several blocks, `Alt`+`↑`/`↓` moves them, `Tab` nests them and `Ctrl`+`D` writes them
+twice.
 Typing `[[`, `#`, `@`, `\` (in maths), `/` or `{` opens a list at the cursor. With the
 cursor in a link, a card shows the start of its note (*Open* goes there); in a
 footnote, its text; in a formula, its drawing. An image pasted with `Ctrl`+`V` is
@@ -536,7 +538,7 @@ on school and office networks where many people share one address.
 | `Ctrl`+`\` | In Notes: open a note beside |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | In Notes: new tab / close the tab / next tab |
 | `Ctrl`+`R` / `F11` / `Ctrl`+`G` | In Notes: reading mode / focus mode / graph of links |
-| `Ctrl`+`A` twice / `Shift`+`↑`/`↓` | In Notes: select whole blocks |
+| `Ctrl`+`A` / `Shift`+arrows | In a note: select all of it / from the cursor |
 | `Ctrl`+`K` | In a note: make the words a web link |
 | `Alt`+`←` / `Alt`+`→` | Back / Forward |
 | `F5` | Sync all accounts |
@@ -563,6 +565,8 @@ Hover over any button to see its shortcut, or press `?` for all of them.
 - Notes are not synced between computers by Iris: put a space in a synced folder
   (OneDrive, Dropbox) to have it elsewhere. Files dropped from Explorer are not taken
   into the tree yet: copy them into the space's folder.
+- In a note, keyboards that compose with an input method (Chinese, Japanese, Korean)
+  do not type yet; dead keys (`^` then `e`) and AltGr do.
 - Spreadsheets have no charts, merged cells or conditional formats; an Excel file
   keeps its values, formulas, number formats and column widths, not its charts.
 

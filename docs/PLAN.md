@@ -716,3 +716,8 @@ Spec: `docs/superpowers/specs/2026-10-07-iris-notes-design.md`; plan:
       them; lists numbered as drawn; Enter at the start of a heading or a ticked box;
       `_italic_`, nested colours, highlights past `a == b`; `Ctrl`+`K` web links;
       `->`, `=>`, `!=`, `<=`, `>=` made into signs.
+- [x] **S43.12** An editor of its own (4.21.0): every block laid out by parley (as Slint
+      lays text out) and drawn by Slint as placed words, rectangles and pictures; one
+      cursor and one selection across the note; one `FocusScope` for the keys; the line
+      written shows its marks dimmed and its words styled; inline formulas drawn in
+      their lines on their baseline.

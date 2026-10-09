@@ -144,6 +144,8 @@ fn donner(f: &AppWindow, e: &Etat) {
 fn clavier(f: &AppWindow) {
     let g = f.global::<NoteSelect>();
     g.set_cells_serial(g.get_cells_serial() + 1);
+    // The editor's keys go to the cells while they are selected.
+    super::saisie::clavier(f);
 }
 
 /// The cells let go, what was being typed kept.

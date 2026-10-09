@@ -2064,9 +2064,11 @@ export component NotesView inherits Rectangle {
                                         self.set-selection-offsets(NoteSelect.edit-cursor, NoteSelect.edit-cursor);
                                     }
                                     edited => { NoteSelect.edit-text = self.text; }
+                                    // Ended by a key: the focus it then gives away is no click.
+                                    property <bool> fini;
                                     // Clicked away: what was typed is kept.
                                     changed has-focus => {
-                                        if (!self.has-focus) {
+                                        if (!self.has-focus && !self.fini) {
                                             NoteSelect.cell-committed(NoteSelect.sheet-block, NoteSelect.row, NoteSelect.col, self.text, "left");
                                         }
                                     }
@@ -2074,6 +2076,7 @@ export component NotesView inherits Rectangle {
                                         let nom = NoteSelect.key-name(event);
                                         if (nom == "enter" || nom == "shift+enter" || nom == "tab" || nom == "shift+tab"
                                             || nom == "escape") {
+                                            self.fini = true;
                                             NoteSelect.cell-committed(NoteSelect.sheet-block, NoteSelect.row, NoteSelect.col, self.text, nom);
                                             clavier.focus();
                                             return accept;

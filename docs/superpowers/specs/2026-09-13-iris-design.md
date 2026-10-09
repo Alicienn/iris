@@ -375,4 +375,7 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   editor (opened with Ctrl+\ or its menu), and the space is polled for changes rather
   than watched. Since 4.20.0 a fence never closed (` ``` `, `$$`, `:::`) is a line of
   its own rather than a block running to the end of the note, as CommonMark has it,
-  so typing one does not turn the rest into code; Enter after it closes it.
+  so typing one does not turn the rest into code; Enter after it closes it. Since
+  4.21.0 the note's editor is Iris's own rather than one Slint field per line: Rust
+  lays every block out with parley and Slint draws the result, so the cursor and the
+  selection run across blocks and formulas are drawn inside their lines.

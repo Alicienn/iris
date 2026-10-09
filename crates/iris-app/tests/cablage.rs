@@ -70,6 +70,7 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
         "crates/iris-app/src/backup.rs",
         "crates/iris-app/src/caldav.rs",
         "crates/iris-app/src/notes/mod.rs",
+        "crates/iris-app/src/notes/saisie.rs",
     ]
     .iter()
     .map(|p| std::fs::read_to_string(racine.join(p)).unwrap_or_else(|e| panic!("{p}: {e}")))

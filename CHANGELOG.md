@@ -3,6 +3,19 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 4.21.0 — 2026-10-09
+
+### New
+- Notes have an editor of their own: select across the whole note with the mouse or Shift and the arrows, formulas, tables and theorems included.
+- Formulas are drawn inside their line, as in a book, and no longer only under the cursor.
+- The line you are writing shows its marks dimmed and its words already bold, coloured or highlighted, so you see each mark is read.
+
+### Improved
+- A double click selects a word and a triple click a line; Up and Down keep their place from line to line.
+
+### Fixed
+- Enter on an empty line no longer loses the cursor.
+
 ## 4.20.1 — 2026-10-09
 
 ### Fixed

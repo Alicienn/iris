@@ -756,13 +756,33 @@ losing a byte (`join` gives the file back exactly, a test over every block kind 
 it). Every key that changes a note goes through a pure function of `iris_notes::edit`
 (`toggle_mark`, `on_enter`, `indent`, `move_block`…) that returns the new text and the
 cursor; the note is parsed again and only the blocks whose rendering changed (a hash of
-their kind, text and number) are given back to the window. The block holding the cursor
-shows its source in a `TextInput`, the others their rendering in `StyledText` (bold,
-italic, underline, strikethrough, code, links, colours; highlight is coloured text,
-`StyledText` drawing no background). Iris's own marks (`__u__`, `--s--`, `{r}…{/}`,
-`=={g}…==`, `^sup^`, `~sub~`) are read by `inline::parse_inline` into a tree of marks
-and written to Slint's markdown by `to_slint_markdown`. Undo keeps whole-text
-snapshots, keys closer than 700 ms being one step.
+their kind, text, number, whether they hold the cursor, and the column's width) are
+laid out and given back to the window. Iris's own marks (`__u__`, `--s--`, `{r}…{/}`,
+`=={g}…==`, `^sup^`, `~sub~`) are read by `inline::parse_inline` into a tree of marks.
+Undo keeps whole-text snapshots, keys closer than 700 ms being one step.
+
+**The editor** (4.21.0). There is no `TextInput` in a note. Every block is laid out in
+Rust by parley — the library Slint lays its own text out with, the same version and
+the same system fonts (`notes/editeur`) — and Slint draws what comes out: runs of words
+placed where they were measured (`NoteRunData`, a `Text` each, so the letters are
+Slint's own), rectangles (highlights, plates, bars, cells, boxes to tick), pictures
+(formulas, images) and icons, in a `NoteViewBlock` per block. Rust therefore knows
+where every character is: one cursor and one selection (byte offsets in the note,
+`saisie::Editeur`) run across blocks, formulas and tables included; clicks, double and
+triple clicks, drags, Up and Down at a remembered left, Home and End, Ctrl and an arrow
+are all measured in those layouts (`parley::Cursor`, `Selection`), and the cursor and
+the selection are rectangles drawn over the page. One `FocusScope` the size of the
+note takes every key and hands it to Rust: a focused item is never out of view, so
+Slint never takes the keyboard back. The block holding the cursor shows its source,
+each inline mark dimmed and the words between in their style (`riche::source`), so
+what is typed is seen to be read; the mark that starts a one-line block stays hidden
+and drawn as what it makes. The others read as printed (`riche::rendu`): marks gone,
+links in the accent colour, and inline formulas drawn by `iris-math` as pictures in the
+line — parley inline boxes, the picture's baseline (from the TeX layout) on the
+text's, the lines under one that hangs low moved down. A map of each shown run to its
+source (`Troncon`) turns a click on a read line into a place in the source. What a key
+means for the note (Enter continuing a list, a mark around words, Tab nesting) is still
+`touche`, block by block; the editor types, deletes, moves and selects.
 
 **Files.** `Space::write` writes beside the file and renames over it; if the file
 changed on the disk since it was read, the other version is kept beside it as a
@@ -777,8 +797,9 @@ the Recycle Bin (`SHFileOperationW` with `FOF_ALLOWUNDO`, behind `RecycleBin` so
 use a folder). Renaming or moving rewrites every `[[link]]` to what moved.
 
 **Formulas** are drawn by `iris-math` at the size and colour of the text and the
-screen's scale; inline maths shows as Unicode in the line (`math::to_unicode`) and as a
-drawing in the card under the cursor. Pages made for keeping or printing
+screen's scale, with their baseline; inline maths is drawn in its line (Unicode, from
+`math::to_unicode`, only when LaTeX cannot be read), and as a drawing in the card under
+the cursor while it is typed. Pages made for keeping or printing
 (`notes/export.rs`) carry their formulas and pictures inside as `data:` PNGs.
 
 **Spreadsheets.** `iris-sheets` keeps what was typed in each cell; values are
@@ -795,27 +816,17 @@ when the view moves past them. Excel files are read with `calamine` and written 
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
 
-**Blocks and cells selected** (4.20.0). The `NoteSelect` global (`screens/notes.slint`)
-carries what is selected beyond a line's words, so neither travels through the
-window's properties. Whole blocks (`notes/blocs.rs`, `Etat::blocs`, an anchor and a
-head) are chosen by a drag — the block pressed reports the pointer's height, and the
-block under it reports itself (`changed` on `NoteSelect.drag-y`) — by Shift and a
-click, by Shift and an arrow past a line, or by `Ctrl`+`A` twice; a `FocusScope` under
-the whole page takes their keys, and every operation is a pure function of
-`iris_notes::edit` (`blocks_text`, `replace_blocks`, `move_blocks`). An embedded
-spreadsheet's cells (`notes/cellules.rs`) are counted as the note shows them and
-moved by the embed's range (`render::origine_inseree`) into the file's; each change
-reads the `.sheet` file, changes it with the spreadsheet's own `poser_dans`, writes it
-back through `Space::write` (its time checked, a conflict kept beside), keeps the
-contents before for `Ctrl`+`Z`, and draws the note's spreadsheets again
-(`rendre_tableurs`). The cell typed in is a `TextInput` in the cell; the grid's
-`FocusScope` sits under the cells, so a click on one reaches it.
-
-**A line out of view keeps the keys.** Slint takes the keyboard from a focused item
-outside its clip at the next key (`process_key_input`), and a block made by `Enter`
-at the foot of the page was there until something scrolled. The block typed in now
-reports its cursor once laid out (a 1 ms `Timer` after it is made or given the
-cursor), which scrolls the page to it before the next key.
+**Blocks and cells selected** (4.20.0, drawn by the editor since 4.21.0). A selection
+running over several blocks makes Alt and an arrow, Tab and Ctrl+D act on those blocks
+whole (`notes/blocs.rs`, pure functions of `iris_notes::edit`: `move_blocks`,
+`indent`, `blocks_text`). An embedded spreadsheet's cells (`notes/cellules.rs`) are
+counted as the note shows them and moved by the embed's range
+(`render::origine_inseree`) into the file's; each change reads the `.sheet` file,
+changes it with the spreadsheet's own `poser_dans`, writes it back through
+`Space::write` (its time checked, a conflict kept beside), keeps the contents before
+for `Ctrl`+`Z`, and lays the note's spreadsheets out again. The cells are the editor's
+click targets (`editeur::Grille`); the cell typed in is a `TextInput` placed over its
+cell (`NoteSelect.edit-x`…).
 
 **Fences left open** (4.20.0). A ` ``` `, `$$` or `:::kind` line with no closing one
 is a line of its own (`block::classer`), not the start of a block running to the end of
@@ -835,14 +846,10 @@ before, it went back to the end of the line above. An embedded spreadsheet's col
 widths are its sheet's (`col_widths`), changed from the note into the file; `|clip`
 in the embed cuts its long words to one line.
 
-**Marks converted as they are typed** (4.18.0). A one-line heading, list item,
-checkbox or quote is given to the window as its words (`source`) and the mark that
-made it (`prefix`, `render::prefixe`): the field edits the words, the mark is drawn as
-the block is (a bullet, a number, a box, a bar, a heading's size), and the field hands
-Rust back `prefix + words` with offsets moved by the mark's length, so every edit
-stays in whole-source terms. When the mark of the block being typed comes, goes or
-changes, `appliquer` gives the field its words again. Inline marks (`**`, `==`) stay
-visible on the line being typed: Slint's `TextInput` draws one style only.
+**Marks converted as they are typed** (4.18.0). The mark that makes a one-line
+heading, list item, checkbox or quote (`render::prefixe`) is hidden while the line is
+typed, and drawn as the block is (a bullet, a number, a box, a bar, a heading's size);
+the cursor never goes into it, and Backspace at its edge takes it away.
 
 **Spaces and their folder** (4.17.0). A folder of the spaces' folder is a space only
 when it holds `.iris/space.json`, which Iris writes when it makes one: the default
