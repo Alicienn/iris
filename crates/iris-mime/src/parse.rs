@@ -146,9 +146,7 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
                 // pièce jointe pour l'utilisateur, même si elle en est une pour MIME.
                 // Only that: Apple Mail sends a PDF "inline", Outlook gives every
                 // attachment a Content-ID, and neither is drawn anywhere in the body.
-                inline: part
-                    .content_id()
-                    .is_some_and(|cid| montree_dans_le_corps(cid)),
+                inline: part.content_id().is_some_and(&montree_dans_le_corps),
                 filename,
                 blob: None,
             }
