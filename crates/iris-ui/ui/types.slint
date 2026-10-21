@@ -115,6 +115,9 @@ export struct MessageBlockData {
     // A block with a link a click may follow: its words as markdown, the links drawn
     // as links. A block without one is plain text, which can be selected.
     has-link: bool,
+    // When the block leads to one place only: that link (`link`) and the words that
+    // show it, for the menu a right-click opens. Empty when it has several.
+    link-text: string,
     rich: styled-text,
     // L'image, quand le message la transportait lui-même. Vide sinon : une image
     // distante n'est pas allée la chercher, et une image bloquée ne le sera pas.

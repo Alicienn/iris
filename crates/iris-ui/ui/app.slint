@@ -29,7 +29,7 @@ import { ThreadListView, ThreadContextMenu, SortMenu } from "@iris/screens/list.
 import { Sidebar, AccountContextMenu } from "@iris/screens/sidebar.slint";
 import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, EmptyFolderPanel }
     from "@iris/screens/folders.slint";
-import { ConversationView, ReaderMenu } from "@iris/screens/conversation.slint";
+import { ConversationView, ReaderMenu, LinkMenu } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
@@ -856,6 +856,22 @@ export component AppWindow inherits Window {
     callback message-link(string);
     /// Ctrl+C with the shortcuts: what is selected in a message goes to the clipboard.
     callback copy-requested();
+    /// A right-click in a body painted by the full engine: (message, tile, fractions
+    /// across and down it, the point in the window). Rust opens the link menu.
+    callback body-menu(int, int, float, float, length, length);
+    /// The link of the words of a text body under the pointer, and those words: what
+    /// a right-click there acts on (main.rs). Empty when there is none.
+    in-out property <string> hovered-link;
+    in-out property <string> hovered-link-text;
+    /// The menu a right-click in a message opens (see `LinkMenu`), filled by Rust.
+    in-out property <bool> link-menu-open;
+    in-out property <string> link-menu-kind;
+    in-out property <string> link-menu-target;
+    in-out property <string> link-menu-text;
+    in-out property <bool> link-menu-selection;
+    in-out property <length> link-menu-x;
+    in-out property <length> link-menu-y;
+    callback link-menu-chosen(string);
     /// A key to send again, once the shortcuts have the keyboard.
     callback key-redispatch(string);
     /// The width message bodies are shown at, as the reader reports it.
@@ -1557,7 +1573,7 @@ export component AppWindow inherits Window {
     ///
     /// The shortcuts used to go straight through. With the new-message window open
     /// and no field clicked yet, "e" marked as done the thread displayed behind it.
-    property <bool> modal-open: (root.compose-open && !root.compose-minimised)
+    out property <bool> modal-open: (root.compose-open && !root.compose-minimised)
         || root.settings-open || root.modules-open || root.add-account-open
         || root.problem-open || root.source-open || root.signature-open || root.alias-open
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
@@ -1612,6 +1628,7 @@ export component AppWindow inherits Window {
         }
         key-pressed(event) => {
             // Ctrl held over a drawn note: its links take the click.
+        || root.link-menu-open
             if (event.text == Key.Control) {
                 root.notes-ctrl-held = true;
                 return reject;
@@ -1721,6 +1738,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.task-list-delete-open) {
                 root.task-list-delete-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.link-menu-open) {
+                root.link-menu-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.empty-folder-open) {
@@ -2420,6 +2441,18 @@ export component AppWindow inherits Window {
         now-day: root.calendar-now-day;
         navigate(n) => { root.calendar-navigate(n); }
         today => { root.calendar-today(); }
+                    body-menu(m, t, fx, fy, x, y) => { root.body-menu(m, t, fx, fy, x, y); }
+                    // Left, it is forgotten only if it was still this block's: the
+                    // next block may have said it was under the pointer first.
+                    message-link-hovered(on, l, t) => {
+                        if (on) {
+                            root.hovered-link = l;
+                            root.hovered-link-text = t;
+                        } else if (root.hovered-link == l) {
+                            root.hovered-link = "";
+                            root.hovered-link-text = "";
+                        }
+                    }
         mode-chosen(m) => {
             root.calendar-mode-chosen(m);
             root.navigated("calendar-mode", "\{m}");
@@ -3703,6 +3736,21 @@ export component AppWindow inherits Window {
         source: root.source-text;
         unavailable: root.source-unavailable;
         dismissed => { root.source-open = false; }
+    }
+
+    if root.link-menu-open: LinkMenu {
+        width: 100%;
+        height: 100%;
+        kind: root.link-menu-kind;
+        link-text: root.link-menu-text;
+        has-selection: root.link-menu-selection;
+        menu-x: root.link-menu-x;
+        menu-y: root.link-menu-y;
+        chosen(c) => { root.link-menu-chosen(c); }
+        dismissed => {
+            root.link-menu-open = false;
+            shortcuts.focus();
+        }
     }
 
     if root.alias-open: AliasPanel {

@@ -388,11 +388,21 @@ fn make_snippet(body: &str, query: &str) -> String {
     let debut = if terme.is_empty() {
         0
     } else {
-        body.to_lowercase()
+        // The body lowercased, and for each of its characters the one of the body it
+        // came from: "İ" lowercases to two, so positions in the copy are not the
+        // body's, and slicing the body with them cut a character in two.
+        let mut minuscules = String::with_capacity(body.len());
+        let mut origine = Vec::with_capacity(corps.len());
+        for (i, c) in corps.iter().enumerate() {
+            for m in c.to_lowercase() {
+                minuscules.push(m);
+                origine.push(i);
+            }
+        }
+        minuscules
             .find(&terme)
-            // Position en caractères, et non en octets : couper au milieu d'un
-            // caractère accentué produirait un extrait invalide.
-            .map(|byte_pos| body[..byte_pos].chars().count())
+            .map(|octet| minuscules[..octet].chars().count())
+            .and_then(|pos| origine.get(pos).copied())
             .map(|pos| pos.saturating_sub(WINDOW / 3))
             .unwrap_or(0)
     };
@@ -586,6 +596,15 @@ mod tests {
         let corps = "é".repeat(400) + " cible";
         let extrait = make_snippet(&corps, "cible");
         assert!(extrait.contains("cible"));
+    }
+
+    #[test]
+    fn a_capital_dotted_i_does_not_shift_the_snippet() {
+        // "İ" lowercases to two characters: positions in the lowercased copy used to
+        // cut the body inside a character.
+        let corps = "İSTANBUL ".repeat(60) + "toplantı yarın";
+        let extrait = make_snippet(&corps, "toplantı");
+        assert!(extrait.contains("toplantı"), "{extrait}");
     }
 
     #[test]

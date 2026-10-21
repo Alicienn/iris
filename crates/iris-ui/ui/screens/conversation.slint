@@ -35,22 +35,39 @@ component LinkedText inherits Rectangle {
     in property <length> font-size: Tokens.size-body;
     in property <string> font-family;
     in property <color> text-color: Tokens.text;
+    /// The one link of the block and its words, empty when it has several.
+    in property <string> target;
+    in property <string> target-text;
     callback link(string);
+    /// The pointer came over the words (true) or left them, with the block's link.
+    callback hovered(bool, string, string);
 
     height: mots.preferred-height;
 
-    mots := StyledText {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: self.preferred-height;
-        vertical-alignment: top;
-        text: root.text;
-        default-color: root.text-color;
-        default-font-size: root.font-size;
-        default-font-family: root.font-family;
-        link-color: Tokens.accent;
-        link-clicked(l) => { root.link(l); }
+    // The words take every press, the right button's too, before anything around
+    // them sees it: this area only tells which block is under the pointer, and the
+    // window's own events (main.rs) open the menu of its link on a right-click.
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        changed has-hover => { root.hovered(self.has-hover, root.target, root.target-text); }
+        // Said again at every move: the window forgets it at each one (main.rs).
+        changed mouse-x => { if (self.has-hover) { root.hovered(true, root.target, root.target-text); } }
+        changed mouse-y => { if (self.has-hover) { root.hovered(true, root.target, root.target-text); } }
+
+        mots := StyledText {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: self.preferred-height;
+            vertical-alignment: top;
+            text: root.text;
+            default-color: root.text-color;
+            default-font-size: root.font-size;
+            default-font-family: root.font-family;
+            link-color: Tokens.accent;
+            link-clicked(l) => { root.link(l); }
+        }
     }
 }
 
@@ -58,6 +75,8 @@ component MessageBlock inherits Rectangle {
     in property <MessageBlockData> block;
     /// A link of the block clicked: its target, as the message wrote it.
     callback link(string);
+    /// The pointer over words with a link, or leaving them: (over, link, its words).
+    callback link-hovered(bool, string, string);
 
     height: layout.preferred-height;
 
@@ -126,6 +145,9 @@ component MessageBlock inherits Rectangle {
             text: root.block.rich;
             font-size: Tokens.size-title + (3 - min(root.block.level, 3)) * 2px;
             link(l) => { root.link(l); }
+            target: root.block.link;
+            target-text: root.block.link-text;
+            hovered(on, l, t) => { root.link-hovered(on, l, t); }
         }
 
         if root.block.kind == "code": Rectangle {
@@ -160,6 +182,9 @@ component MessageBlock inherits Rectangle {
                 text: root.block.rich;
                 text-color: Tokens.text-muted;
                 link(l) => { root.link(l); }
+                target: root.block.link;
+                target-text: root.block.link-text;
+                hovered(on, l, t) => { root.link-hovered(on, l, t); }
             }
         }
 
@@ -178,6 +203,9 @@ component MessageBlock inherits Rectangle {
             if root.block.has-link: LinkedText {
                 text: root.block.rich;
                 link(l) => { root.link(l); }
+                target: root.block.link;
+                target-text: root.block.link-text;
+                hovered(on, l, t) => { root.link-hovered(on, l, t); }
             }
         }
 
@@ -197,6 +225,9 @@ component MessageBlock inherits Rectangle {
             font-size: Tokens.size-small;
             text-color: Tokens.text-secondary;
             link(l) => { root.link(l); }
+            target: root.block.link;
+            target-text: root.block.link-text;
+            hovered(on, l, t) => { root.link-hovered(on, l, t); }
         }
 
         if root.block.kind == "paragraph" && !root.block.has-link: SelectableText {
@@ -211,6 +242,9 @@ component MessageBlock inherits Rectangle {
         if root.block.kind == "paragraph" && root.block.has-link: LinkedText {
             text: root.block.rich;
             link(l) => { root.link(l); }
+            target: root.block.link;
+            target-text: root.block.link-text;
+            hovered(on, l, t) => { root.link-hovered(on, l, t); }
         }
     }
 }
@@ -348,6 +382,8 @@ component BodyTile inherits Rectangle {
     callback link(float, float);
     /// Whether a link is under the pointer, at fractions of the tile.
     callback link-at(float, float) -> bool;
+    /// A right-click, at fractions of the tile and at a point of the window.
+    callback menu(float, float, length, length);
 
     accessible-role: image;
     accessible-label: "Message body";
@@ -413,6 +449,12 @@ component BodyTile inherits Rectangle {
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down
                 && root.width > 0 && root.height > 0) {
                 root.select(self.mouse-x / root.width, self.mouse-y / root.height, 0);
+            }
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down
+                && root.width > 0 && root.height > 0) {
+                root.menu(self.mouse-x / root.width, self.mouse-y / root.height,
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
             }
             if (event.kind == PointerEventKind.move && !self.pressed
                 && root.width > 0 && root.height > 0) {
@@ -856,6 +898,80 @@ export component ReaderMenu inherits Rectangle {
     }
 }
 
+// What a right-click in a message offers: the link under the pointer, the words
+// selected. Rust fills it and acts on the choice (`chosen`: "open", "copy-link",
+// "copy-text", "copy-selection").
+export component LinkMenu inherits Rectangle {
+    /// "web", "mail", or empty when no link is under the pointer.
+    in property <string> kind;
+    /// The words of the link, empty for a picture.
+    in property <string> link-text;
+    in property <bool> has-selection;
+    in property <length> menu-x;
+    in property <length> menu-y;
+
+    callback chosen(string);
+    callback dismissed();
+
+    // A click outside closes it, a right-click too.
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.dismissed();
+            }
+        }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 230px;
+        menu-height: entrees.preferred-height + 8px;
+
+        entrees := VerticalLayout {
+            padding: 4px;
+
+            if root.kind == "web": MenuEntry {
+                icon: Icons.open-external;
+                label: "Open link";
+                activated => { root.chosen("open"); root.dismissed(); }
+            }
+            if root.kind == "web": MenuEntry {
+                icon: Icons.link;
+                label: "Copy link address";
+                activated => { root.chosen("copy-link"); root.dismissed(); }
+            }
+            if root.kind == "mail": MenuEntry {
+                icon: Icons.pencil;
+                label: "Write to this address";
+                activated => { root.chosen("open"); root.dismissed(); }
+            }
+            if root.kind == "mail": MenuEntry {
+                icon: Icons.envelope-closed;
+                label: "Copy email address";
+                activated => { root.chosen("copy-link"); root.dismissed(); }
+            }
+            if root.kind != "" && root.link-text != "": MenuEntry {
+                icon: Icons.copy;
+                label: "Copy link text";
+                activated => { root.chosen("copy-text"); root.dismissed(); }
+            }
+            if root.kind != "" && root.has-selection: MenuSeparator {}
+            if root.has-selection: MenuEntry {
+                icon: Icons.copy;
+                label: "Copy";
+                shortcut: "Ctrl+C";
+                activated => { root.chosen("copy-selection"); root.dismissed(); }
+            }
+        }
+    }
+}
+
 // La colonne de lecture, avec la réponse intégrée au bas du fil.
 export component ConversationView inherits VerticalLayout {
     /// Le message le plus récent : c'est lui que l'en-tête et la barre d'actions
@@ -935,6 +1051,11 @@ export component ConversationView inherits VerticalLayout {
     callback body-link-at(int, int, float, float) -> bool;
     /// A link clicked in a text body: its target, as the message wrote it.
     callback message-link(string);
+    /// The pointer over words of a text body with one link, or leaving them.
+    callback message-link-hovered(bool, string, string);
+    /// A right-click in a body painted by the full engine: (message id, tile,
+    /// fractions across and down, the point in the window).
+    callback body-menu(int, int, float, float, length, length);
     /// A key the message's text had no use for, to hand to the shortcuts.
     callback keys-left(string);
     /// No tile asks for pixels while this is set: the window is hidden, and what was
@@ -1267,6 +1388,7 @@ export component ConversationView inherits VerticalLayout {
                             select(fx, fy, phase) => { root.body-select(message.id, t, fx, fy, phase); }
                             link(fx, fy) => { root.body-link(message.id, t, fx, fy); }
                             link-at(fx, fy) => { return root.body-link-at(message.id, t, fx, fy); }
+                            menu(fx, fy, x, y) => { root.body-menu(message.id, t, fx, fy, x, y); }
                             resized(w) => {
                                 if (t == 0) {
                                     root.body-width-changed(w);
@@ -1289,6 +1411,7 @@ export component ConversationView inherits VerticalLayout {
                         for block in message.blocks: MessageBlock {
                             block: block;
                             link(l) => { root.message-link(l); }
+                            link-hovered(on, l, t) => { root.message-link-hovered(on, l, t); }
                         }
 
                         // Le corps est arrivé et ne donne rien à lire : une page

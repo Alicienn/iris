@@ -183,7 +183,12 @@ pointing at it says on how many it is.
 Select a message's words with the mouse as on any page, and copy them with `Ctrl`+`C`.
 Links in a message are drawn as links, remote images shown or not: a click opens a web
 link (`http://`, `https://`) in your browser and a mail address (`mailto:`) in a new
-message. Any other kind of link is not followed.
+message. Any other kind of link is not followed. Right-click a link to open it, copy
+its address or copy its text, or selected words to copy them. In a message shown as
+plain text, where a paragraph holds several links, only a click tells them apart.
+
+An attachment you open or save is marked as come from the internet, as a browser marks
+a download: Windows warns before running a program or a macro it carries.
 
 A message from a mailing list offers **Unsubscribe** beside its sender. Iris asks once
 on the spot, then tells the list directly when it allows it, or sends the message it

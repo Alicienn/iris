@@ -1432,6 +1432,49 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
         }
     });
 
+    // A right-click in a painted body: the link under it, the words selected.
+    let faible = fenetre.as_weak();
+    fenetre.on_body_menu(move |message, index, fx, fy, x, y| {
+        let trouve = CORPS.with(|c| {
+            let corps = c.borrow();
+            let ouvert = corps.get(&(message as i64))?;
+            let (px, py) = point_du_document(ouvert.document.as_ref(), index, fx, fy);
+            let lien = ouvert.document.link_at(px, py).unwrap_or_default();
+            let mots = ouvert.document.link_text_at(px, py).unwrap_or_default();
+            let choisi = ouvert
+                .document
+                .selected_text()
+                .is_some_and(|t| !t.trim().is_empty());
+            Some((lien, mots, choisi))
+        });
+        if let (Some(f), Some((lien, mots, choisi))) = (faible.upgrade(), trouve) {
+            open_link_menu(&f, &lien, &mots, choisi, x, y);
+        }
+    });
+
+    let faible = fenetre.as_weak();
+    fenetre.on_link_menu_chosen(move |choix| {
+        let Some(f) = faible.upgrade() else {
+            return;
+        };
+        let lien = f.get_link_menu_target().to_string();
+        let copier = |texte: &str| {
+            f.invoke_copy_text(texte.into());
+            f.set_status("Copied.".into());
+        };
+        match choix.as_str() {
+            "open" => open_message_link(&f, &lien),
+            "copy-link" => copier(&copied_link(&lien)),
+            "copy-text" => copier(f.get_link_menu_text().as_str()),
+            "copy-selection" => {
+                if let Some(texte) = selected_body_text() {
+                    copier(&texte);
+                }
+            }
+            _ => {}
+        }
+    });
+
     fenetre.on_body_tile_released(|message, index| {
         CORPS.with(|c| {
             let corps = c.borrow();
@@ -1486,6 +1529,56 @@ pub fn open_message_link(fenetre: &AppWindow, lien: &str) {
     if let Err(e) = crate::platform::open_url(lien) {
         fenetre.set_status(format!("Could not open the link: {e}").into());
     }
+}
+
+/// Opens the menu of a right-click in a message, at a point of the window: what can be
+/// done with the link there (`lien`, its words `mots`) and with the words selected.
+/// Nothing opens when there is neither.
+pub fn open_link_menu(fenetre: &AppWindow, lien: &str, mots: &str, choisi: bool, x: f32, y: f32) {
+    let lien = iris_htmlview::openable_link(lien).unwrap_or_default();
+    let genre = if lien.is_empty() {
+        ""
+    } else if lien
+        .get(..7)
+        .is_some_and(|s| s.eq_ignore_ascii_case("mailto:"))
+    {
+        "mail"
+    } else {
+        "web"
+    };
+    if genre.is_empty() && !choisi {
+        return;
+    }
+    // Words that only repeat the address add nothing to copy.
+    let mots = mots.trim();
+    let mots = if mots == lien || mots == copied_link(lien) {
+        ""
+    } else {
+        mots
+    };
+    fenetre.set_link_menu_kind(genre.into());
+    fenetre.set_link_menu_target(lien.into());
+    fenetre.set_link_menu_text(mots.into());
+    fenetre.set_link_menu_selection(choisi);
+    fenetre.set_link_menu_x(x);
+    fenetre.set_link_menu_y(y);
+    fenetre.set_link_menu_open(true);
+}
+
+/// What "Copy" puts on the clipboard for a link: a web address whole, a `mailto:` as
+/// the addresses alone, decoded, without what it asks to write.
+fn copied_link(lien: &str) -> String {
+    if lien
+        .get(..7)
+        .is_some_and(|s| s.eq_ignore_ascii_case("mailto:"))
+    {
+        if let Some(demande) =
+            crate::platform::MailtoRequest::parse(&format!("mailto:{}", &lien[7..]))
+        {
+            return demande.to;
+        }
+    }
+    lien.to_owned()
 }
 
 /// Opens a draft filled from a `mailto:` address.
@@ -4594,7 +4687,27 @@ fn enregistrer_piece(
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&destination, octets)?;
+    marquer_comme_venu_d_internet(&destination);
     Ok(destination)
+}
+
+/// Marks a file as come from the internet, as a browser does a download: Windows then
+/// warns before running it (SmartScreen, Office's protected view). Without the mark, an
+/// attachment opened from Iris ran as if it had been made on this computer.
+///
+/// Best effort: a disk that keeps no such mark (FAT, a network share) still gets the
+/// file.
+fn marquer_comme_venu_d_internet(chemin: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        let mut flux = chemin.as_os_str().to_owned();
+        flux.push(":Zone.Identifier");
+        if let Err(e) = std::fs::write(&flux, "[ZoneTransfer]\r\nZoneId=3\r\n") {
+            tracing::warn!(error = %e, "marking an attachment as from the internet");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = chemin;
 }
 
 /// Le nom, le type et les octets d'une pièce jointe du dernier message du fil.
@@ -4733,13 +4846,26 @@ fn nom_sur(nom: &str) -> String {
     let dernier = nom.rsplit(['/', '\\']).next().unwrap_or(nom).trim();
     let nettoye: String = dernier
         .chars()
-        .filter(|c| !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'))
+        .filter(|c| !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control())
         .collect();
 
     match nettoye.trim_matches('.').trim() {
         "" => "piece-jointe".to_string(),
+        // "NUL", "CON", "COM1"… are devices on Windows, with any extension: saving
+        // there reported success and wrote nothing.
+        propre if nom_reserve(propre) => format!("_{propre}"),
         propre => propre.to_string(),
     }
+}
+
+/// A name Windows keeps for a device, whatever follows its first dot.
+fn nom_reserve(nom: &str) -> bool {
+    let racine = nom.split('.').next().unwrap_or(nom).trim_end();
+    let racine = racine.to_ascii_uppercase();
+    matches!(racine.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((racine.starts_with("COM") || racine.starts_with("LPT"))
+            && racine.len() == 4
+            && racine[3..].chars().all(|c| c.is_ascii_digit() && c != '0'))
 }
 
 /// Wires the window controls that replaced the system frame.
@@ -7978,6 +8104,16 @@ mod tests {
     #[test]
     fn les_caracteres_interdits_sont_retires() {
         assert_eq!(nom_sur("fact:ure?.pdf"), "facture.pdf");
+        assert_eq!(nom_sur("devis\u{7}\t.pdf"), "devis.pdf");
+    }
+
+    #[test]
+    fn a_device_name_is_saved_as_a_file() {
+        assert_eq!(nom_sur("NUL"), "_NUL");
+        assert_eq!(nom_sur("con.txt"), "_con.txt");
+        assert_eq!(nom_sur("COM1.pdf"), "_COM1.pdf");
+        assert_eq!(nom_sur("COM0.pdf"), "COM0.pdf");
+        assert_eq!(nom_sur("console.pdf"), "console.pdf");
     }
 
     #[test]

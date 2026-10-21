@@ -111,6 +111,12 @@ pub trait TiledDocument: std::fmt::Debug {
     fn link_at(&self, _x: f32, _y: f32) -> Option<String> {
         None
     }
+
+    /// The words the link under a point shows (empty for a picture), when
+    /// [`TiledDocument::link_at`] finds one there.
+    fn link_text_at(&self, _x: f32, _y: f32) -> Option<String> {
+        None
+    }
 }
 
 /// A link a click in a message may follow: a web page (`http://`, `https://`) or an

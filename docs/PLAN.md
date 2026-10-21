@@ -748,3 +748,17 @@ between the areas of one's life, the week reviewed. Design:
       the time wanted; cycles of weeks with their goals and what was planned, done; a
       vision. Migration 26, in the daily backup.
 - [ ] **S44.6** Weekly review, wins, and today's three on Home.
+
+## E45 — The mail, looked over (5.1.0)
+
+- [x] **S45.1** Links open in the browser every time: through `ShellExecuteW`, not
+      `explorer.exe`, which opened the Documents folder for links with a comma (5.1.0).
+- [x] **S45.2** A right-click menu on a message's links and selected words: open, copy
+      the address, copy the text, copy the selection (5.1.0).
+- [x] **S45.3** Fixes from a review of the mail (5.1.0): no crash on Turkish capitals
+      (HTML sanitising, spam markers, search snippets) nor on `%` before a wide
+      character in a `mailto:`; attachments sent inline or with a Content-ID listed;
+      attachments marked as from the internet; device names (`NUL`, `CON`…) and control
+      characters out of saved file names.
+- [ ] **S45.4** *Show images* loads remote images (the feature is off in the build), off
+      the interface's thread.

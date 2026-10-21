@@ -457,17 +457,7 @@ pub use windows_impl::{
 pub fn open_path(path: &std::path::Path) -> iris_types::Result<()> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        // Par l'explorateur plutôt que par `cmd /c start` : ce dernier passe le chemin
-        // à un interpréteur de commandes, où une esperluette dans un nom de fichier
-        // devient un séparateur d'instructions.
-        const SANS_FENETRE: u32 = 0x0800_0000;
-        std::process::Command::new("explorer.exe")
-            .arg(path)
-            .creation_flags(SANS_FENETRE)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| iris_types::Error::other(format!("ouverture : {e}")))
+        shell_open(path.as_os_str())
     }
     #[cfg(not(windows))]
     {
@@ -500,20 +490,67 @@ pub fn open_url(url: &str) -> iris_types::Result<()> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        const SANS_FENETRE: u32 = 0x0800_0000;
-        std::process::Command::new("explorer.exe")
-            .arg(url)
-            .creation_flags(SANS_FENETRE)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| iris_types::Error::other(format!("ouverture : {e}")))
+        shell_open(std::ffi::OsStr::new(url))
     }
     #[cfg(not(windows))]
     {
         Err(iris_types::Error::other(
             "opening links is only wired up on Windows",
         ))
+    }
+}
+
+/// Hands a file or a web link to the shell, as a double-click would.
+///
+/// Through `ShellExecuteW`, never `explorer.exe <target>`: Explorer reads its command
+/// line as its own switches, split at commas, and a link it cannot make sense of (a
+/// tracking link with a comma in it, a long one) opens the Documents folder instead.
+/// Nor `cmd /c start`, where an ampersand ends the command. Here the target is one
+/// string, passed as it is.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn shell_open(target: &std::ffi::OsStr) -> iris_types::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Com::{
+        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+    };
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let cible: Vec<u16> = target.encode_wide().chain(std::iter::once(0)).collect();
+    let verbe: Vec<u16> = "open\0".encode_utf16().collect();
+    // The shell may hand the target to an extension that needs COM on this thread.
+    // SAFETY: no reserved pointer; balanced by `CoUninitialize` below when it succeeded
+    // (S_OK or S_FALSE), left alone when the thread already runs another model.
+    let com = unsafe {
+        CoInitializeEx(
+            std::ptr::null(),
+            (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32,
+        )
+    };
+    // SAFETY: both strings are zero-terminated and outlive the call; no window, no
+    // parameters, no directory.
+    let code = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verbe.as_ptr(),
+            cible.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    } as isize;
+    if com >= 0 {
+        // SAFETY: pairs with the successful `CoInitializeEx` above, on the same thread.
+        unsafe { CoUninitialize() };
+    }
+    // Above 32 is success; at or below, one of the shell's error codes.
+    if code > 32 {
+        Ok(())
+    } else {
+        Err(iris_types::Error::other(format!(
+            "the system could not open it (code {code})"
+        )))
     }
 }
 
@@ -595,14 +632,16 @@ fn decode(texte: &str) -> String {
     while i < octets.len() {
         match octets[i] {
             b'%' if i + 2 < octets.len() => {
-                match u8::from_str_radix(&texte[i + 1..i + 3], 16) {
-                    Ok(o) => {
-                        out.push(o);
+                // Read on the bytes: "%€" would slice the text inside the euro sign.
+                let chiffre = |o: u8| (o as char).to_digit(16);
+                match (chiffre(octets[i + 1]), chiffre(octets[i + 2])) {
+                    (Some(fort), Some(faible)) => {
+                        out.push((fort * 16 + faible) as u8);
                         i += 3;
                     }
                     // Un pourcent qui n'introduit pas deux chiffres hexadécimaux est
                     // un pourcent. Le supprimer perdrait un caractère du sujet.
-                    Err(_) => {
+                    _ => {
                         out.push(b'%');
                         i += 1;
                     }
@@ -647,6 +686,12 @@ mod tests {
     fn le_plus_vaut_une_espace() {
         let m = MailtoRequest::parse("mailto:a@x.fr?subject=deux+mots").unwrap();
         assert_eq!(m.subject, "deux mots");
+    }
+
+    #[test]
+    fn a_percent_before_a_wide_character_stays_a_percent() {
+        let m = MailtoRequest::parse("mailto:a@example.com?subject=50%€").unwrap();
+        assert_eq!(m.subject, "50%€");
     }
 
     #[test]

@@ -115,11 +115,6 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 depth: 0,
                 bold: spans.iter().all(|s| s.bold) && !spans.is_empty(),
                 italic: spans.iter().all(|s| s.italic) && !spans.is_empty(),
-                link: spans
-                    .iter()
-                    .find_map(|s| s.link.clone())
-                    .unwrap_or_default()
-                    .into(),
                 ..with_links(spans)
             },
             Block::Heading { level, spans } => MessageBlockData {
@@ -129,7 +124,6 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 depth: 0,
                 bold: true,
                 italic: false,
-                link: SharedString::default(),
                 // A heading is bold, its links too.
                 ..with_links(
                     &spans
@@ -148,7 +142,6 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 depth: *depth as i32,
                 bold: false,
                 italic: false,
-                link: SharedString::default(),
                 ..with_links(spans)
             },
             Block::Quote { depth, spans } => MessageBlockData {
@@ -158,7 +151,6 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                 depth: *depth as i32,
                 bold: false,
                 italic: false,
-                link: SharedString::default(),
                 ..with_links(spans)
             },
             Block::Code(text) => MessageBlockData {
@@ -231,7 +223,6 @@ pub fn message_blocks(rich: &RichText) -> Vec<MessageBlockData> {
                     depth: 0,
                     bold: false,
                     italic: false,
-                    link: SharedString::default(),
                     ..with_links(&spans)
                 }
             }
@@ -247,13 +238,35 @@ fn join(spans: &[iris_htmlview::Inline]) -> String {
 /// (`rich`, `has_link`), so that the link is drawn as one and answers the click. The
 /// rest of the block is filled by the caller. A block without a link stays plain text,
 /// which can be selected.
+///
+/// A block that leads to one place only also carries it in `link` and `link_text`,
+/// for the menu a right-click on it opens (the words drawn cannot say which of several
+/// links is under the pointer).
 fn with_links(spans: &[iris_htmlview::Inline]) -> MessageBlockData {
     match links_markdown(spans).and_then(|md| slint::StyledText::from_markdown(&md).ok()) {
-        Some(rich) => MessageBlockData {
-            rich,
-            has_link: true,
-            ..Default::default()
-        },
+        Some(rich) => {
+            let liens: Vec<(&str, &str)> = spans
+                .iter()
+                .filter_map(|s| {
+                    let lien = s.link.as_deref().and_then(iris_htmlview::openable_link)?;
+                    Some((lien, s.text.as_str()))
+                })
+                .collect();
+            let seul = liens
+                .first()
+                .filter(|(premier, _)| liens.iter().all(|(l, _)| l == premier))
+                .map(|(l, _)| *l);
+            let mots: String = seul
+                .map(|_| liens.iter().map(|(_, t)| *t).collect())
+                .unwrap_or_default();
+            MessageBlockData {
+                rich,
+                has_link: true,
+                link: seul.unwrap_or_default().into(),
+                link_text: mots.split_whitespace().collect::<Vec<_>>().join(" ").into(),
+                ..Default::default()
+            }
+        }
         None => MessageBlockData::default(),
     }
 }

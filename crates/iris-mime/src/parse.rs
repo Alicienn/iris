@@ -111,9 +111,20 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
             .then(|| part.text_contents().map(str::to_string))
             .flatten()
     });
-    let html_body = message
-        .body_html(0)
-        .map(|c| sanitize::sanitize_with(&c, allow_remote_images));
+    let html_brut = message.body_html(0);
+    let html_body = html_brut
+        .as_deref()
+        .map(|c| sanitize::sanitize_with(c, allow_remote_images));
+    // The `cid:` the body shows, lowercased: a part is drawn in the body only if it
+    // is one of them.
+    let html_minuscule = html_brut
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let montree_dans_le_corps = |cid: &str| {
+        let cid = cid.trim().trim_matches(['<', '>']).to_ascii_lowercase();
+        !cid.is_empty() && html_minuscule.contains(&format!("cid:{cid}"))
+    };
 
     let attachments: Vec<AttachmentMeta> = message
         .attachments()
@@ -133,10 +144,11 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
                 size: part.contents().len() as u64,
                 // Une partie référencée par `cid:` depuis le corps n'est pas une
                 // pièce jointe pour l'utilisateur, même si elle en est une pour MIME.
-                inline: part.content_id().is_some()
-                    || part
-                        .content_disposition()
-                        .is_some_and(|d| d.ctype().eq_ignore_ascii_case("inline")),
+                // Only that: Apple Mail sends a PDF "inline", Outlook gives every
+                // attachment a Content-ID, and neither is drawn anywhere in the body.
+                inline: part
+                    .content_id()
+                    .is_some_and(|cid| montree_dans_le_corps(cid)),
                 filename,
                 blob: None,
             }
@@ -494,6 +506,41 @@ iVBORw0KGgo=\r\n\
             "un logo de signature ne doit pas apparaître comme pièce jointe"
         );
         assert!(!p.derived_flags.contains(iris_types::Flags::HAS_ATTACHMENT));
+    }
+
+    #[test]
+    fn a_document_sent_inline_or_with_a_content_id_is_still_an_attachment() {
+        // Apple Mail marks a PDF "inline"; Outlook gives every part a Content-ID. The
+        // body draws neither, so both are attachments to the person reading.
+        let raw = b"Subject: Devis\r\n\
+Content-Type: multipart/mixed; boundary=\"sep\"\r\n\
+\r\n\
+--sep\r\n\
+Content-Type: text/html\r\n\
+\r\n\
+<p>Voici le devis.</p><img src=\"cid:logo\">\r\n\
+--sep\r\n\
+Content-Type: application/pdf; name=\"devis.pdf\"\r\n\
+Content-Disposition: inline; filename=\"devis.pdf\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+JVBERi0xLjQK\r\n\
+--sep\r\n\
+Content-Type: application/pdf; name=\"plan.pdf\"\r\n\
+Content-Disposition: attachment; filename=\"plan.pdf\"\r\n\
+Content-ID: <part2@example.com>\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+JVBERi0xLjQK\r\n\
+--sep--\r\n";
+        let p = parse(raw).unwrap();
+        assert_eq!(p.attachments.len(), 2);
+        assert!(
+            p.attachments.iter().all(|a| !a.inline),
+            "{:?}",
+            p.attachments
+        );
+        assert!(p.derived_flags.contains(iris_types::Flags::HAS_ATTACHMENT));
     }
 
     #[test]

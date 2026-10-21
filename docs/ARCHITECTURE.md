@@ -546,6 +546,24 @@ These rules come from bugs users hit, and each has a scenario in
   blocks cannot be selected, the others stay `SelectableText`. Until then a link was
   a click on nothing in a Blitz body, and plain words in a rich-text one: links only
   appeared once *Show* sent the message to Blitz, where they still did nothing.
+  `platform::open_url` and `open_path` hand the target to `ShellExecuteW` (5.1.0).
+  They ran `explorer.exe <target>`, which reads its command line as its own switches,
+  split at commas: a tracking link it could not parse opened the Documents folder.
+- **The link menu (5.1.0).** A right-click in a Blitz tile sends `body-menu`; Rust asks
+  the document for `link_at`, `link_text_at` (the `<a>`'s text content) and the
+  selection, and `shell::open_link_menu` fills `LinkMenu`. In a rich-text body the
+  `StyledText` accepts every press, the right button's too, so nothing beneath or
+  around it sees one: a `TouchArea` wrapping it only reports, at each move, the block's
+  link (`bridge.rs` sets `link` and `link-text` when a block leads to one place only)
+  as `hovered-link`, and the window's own winit events (`main.rs`, beside the back and
+  forward buttons) open the menu one turn of the loop after a right press. Each move
+  clears `hovered-link` first, so words that went away with their message never leave
+  it set.
+- **Attachments written to disk** get a `Zone.Identifier` stream (`ZoneId=3`), the
+  mark of a download, so SmartScreen and Office's protected view treat them as from
+  the internet. A part is *inline*, hidden from the attachment cards, only when the
+  HTML body names its `Content-ID` in a `cid:` (5.1.0): Apple Mail sends PDFs
+  `inline`, Outlook gives every part a Content-ID.
 - `?` opens the list of keys (`screens/help.slint`), a modal like the others.
 - **The palette (`Ctrl`+`K`)** asks Rust for its list when it opens and at each key
   (`palette-query-changed`, filtered by `commands::filter`). The callback was declared

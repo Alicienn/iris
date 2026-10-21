@@ -210,7 +210,9 @@ fn inventory(html: &str) -> Inventory {
 /// Extrait grossièrement les balises `img`. Suffisant pour l'inventaire : on cherche
 /// des indices, pas à interpréter le document — c'est le rôle du moteur de rendu.
 fn img_tags(html: &str) -> Vec<String> {
-    let lower = html.to_lowercase();
+    // ASCII only, so that its positions are the document's: a full lowercasing makes
+    // "İ" three bytes where it was two.
+    let lower = html.to_ascii_lowercase();
     let mut out = Vec::new();
     let mut from = 0;
     while let Some(start) = lower[from..].find("<img") {
@@ -408,6 +410,14 @@ mod tests {
     fn un_domaine_de_pistage_connu_est_signale() {
         let s = sanitize(r#"<img src="https://mailtrack.io/trace/abc" width="60" height="60">"#);
         assert_eq!(s.trackers[0].reason, TrackerReason::KnownDomain);
+    }
+
+    #[test]
+    fn capitals_that_lowercase_longer_do_not_shift_the_images() {
+        // "İ" is two bytes and lowercases to three: positions taken in a lowercased
+        // copy fell past the end of the document.
+        let s = sanitize(r#"<p>İİİİİİİİİİİİ</p><img src="https://cdn.example.com/a.png">"#);
+        assert!(s.has_remote_content());
     }
 
     #[test]

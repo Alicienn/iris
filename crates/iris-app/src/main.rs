@@ -1321,33 +1321,71 @@ fn arrondir_les_coins(fenetre: &iris_ui::AppWindow) {
 /// Read from the window's own events rather than from the interface: every row and
 /// button under the pointer would otherwise take the press before a handler beneath
 /// them could see it.
+///
+/// A right-click on the words of a message shown as text opens the menu of their link
+/// the same way: the words take the press themselves, and nothing beneath them sees it.
 fn ecoute_les_boutons_de_la_souris(fenetre: &iris_ui::AppWindow) {
     use slint::winit_030::winit::event::{ElementState, MouseButton, WindowEvent};
     use slint::winit_030::{EventResult, WinitWindowAccessor};
     let faible = fenetre.as_weak();
-    fenetre.window().on_winit_window_event(move |_, evenement| {
-        if let WindowEvent::MouseInput {
-            state: ElementState::Pressed,
-            button,
-            ..
-        } = evenement
-        {
-            let sens = match button {
-                MouseButton::Back => Some(false),
-                MouseButton::Forward => Some(true),
-                _ => None,
-            };
-            if let (Some(avant), Some(f)) = (sens, faible.upgrade()) {
-                if avant {
-                    iris_app::nav::forward(&f);
-                } else {
-                    iris_app::nav::back(&f);
+    // Where the pointer is, in the window's logical pixels.
+    let pointeur = std::cell::Cell::new((0.0f32, 0.0f32));
+    fenetre
+        .window()
+        .on_winit_window_event(move |fenetre_slint, evenement| {
+            if let WindowEvent::CursorMoved { position, .. } = evenement {
+                let echelle = f64::from(fenetre_slint.scale_factor().max(0.1));
+                pointeur.set(((position.x / echelle) as f32, (position.y / echelle) as f32));
+                // The words under the pointer say so again at every move (conversation.slint):
+                // words that went away with their message never say they were left.
+                if let Some(f) = faible.upgrade() {
+                    f.set_hovered_link("".into());
                 }
-                return EventResult::PreventDefault;
             }
-        }
-        EventResult::Propagate
-    });
+            if let WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } = evenement
+            {
+                let (x, y) = pointeur.get();
+                // Looked at once the press has gone by: the words have had their turn to
+                // say they are under the pointer, a menu the press opened elsewhere is up,
+                // and the press does not land on this menu's own veil and close it.
+                let faible = faible.clone();
+                slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+                    let Some(f) = faible.upgrade() else {
+                        return;
+                    };
+                    let lien = f.get_hovered_link();
+                    if !lien.is_empty() && !f.get_modal_open() {
+                        let mots = f.get_hovered_link_text();
+                        shell::open_link_menu(&f, &lien, &mots, false, x, y);
+                    }
+                });
+            }
+            if let WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button,
+                ..
+            } = evenement
+            {
+                let sens = match button {
+                    MouseButton::Back => Some(false),
+                    MouseButton::Forward => Some(true),
+                    _ => None,
+                };
+                if let (Some(avant), Some(f)) = (sens, faible.upgrade()) {
+                    if avant {
+                        iris_app::nav::forward(&f);
+                    } else {
+                        iris_app::nav::back(&f);
+                    }
+                    return EventResult::PreventDefault;
+                }
+            }
+            EventResult::Propagate
+        });
 }
 
 /// Brings the window back from the notification area, or from the taskbar, in front.

@@ -76,12 +76,15 @@ fn affirmative(value: &str) -> bool {
 /// that pushes the actual subject off the end of the line.
 pub fn strip_marker(subject: &str) -> String {
     let trimmed = subject.trim();
-    let lower = trimmed.to_lowercase();
 
+    // Compared on the subject itself: a lowercased copy can be longer than it ("İ"
+    // becomes two characters), and its positions then fall inside the subject's.
     for marker in SUBJECT_MARKERS {
-        if let Some(rest) = lower.strip_prefix(marker) {
-            let cut = trimmed.len() - rest.len();
-            return trimmed[cut..].trim_start().to_string();
+        if trimmed
+            .get(..marker.len())
+            .is_some_and(|debut| debut.eq_ignore_ascii_case(marker))
+        {
+            return trimmed[marker.len()..].trim_start().to_string();
         }
     }
     trimmed.to_string()
@@ -180,6 +183,15 @@ mod tests {
             strip_marker("  Quote for the cylinders  "),
             "Quote for the cylinders"
         );
+    }
+
+    #[test]
+    fn a_subject_in_turkish_capitals_keeps_its_words() {
+        assert_eq!(
+            strip_marker("[SPAM] İNDİRİM! İLK SİPARİŞİNİZE ÖZEL"),
+            "İNDİRİM! İLK SİPARİŞİNİZE ÖZEL"
+        );
+        assert_eq!(strip_marker("İİİİİİİİ"), "İİİİİİİİ");
     }
 
     #[test]

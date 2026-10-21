@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 5.1.0 — 2026-10-21
+
+### New
+- Right-click a link in a message to open it, copy its address or copy its text.
+- Right-click selected words in a message to copy them.
+
+### Improved
+- Attachments you open are marked as downloaded, so Windows warns before running anything risky.
+
+### Fixed
+- Links in messages always open in your browser, never the Documents folder.
+- PDFs and photos sent from an iPhone or Outlook show as attachments again.
+- Iris no longer closes on messages or searches with Turkish capital letters.
+- Iris no longer closes on some mail address links with a % in them.
+- Attachments named like a Windows device (NUL, CON…) are saved properly.
+
 ## 5.0.0 — 2026-10-09
 
 ### New

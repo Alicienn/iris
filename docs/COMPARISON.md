@@ -75,4 +75,4 @@ folder and marking it read, opening an attachment, a calendar with invitations a
 banner over their message (added, updated, cancelled) and answered from it (Accept,
 Maybe, Decline), sending later, sorting by sender, subject or size, aliases to send as, `mailto:` links,
 system notifications, starting at login, selecting and copying a message's words, a
-list of the keys.
+list of the keys, a link's right-click menu (open, copy its address or its text, 5.1.0).
