@@ -1580,6 +1580,7 @@ export component AppWindow inherits Window {
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.empty-folder-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
+        || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.connect-open
         || root.notes-row-menu-open || root.notes-area-menu-open || root.notes-space-menu-open
@@ -1628,7 +1629,6 @@ export component AppWindow inherits Window {
         }
         key-pressed(event) => {
             // Ctrl held over a drawn note: its links take the click.
-        || root.link-menu-open
             if (event.text == Key.Control) {
                 root.notes-ctrl-held = true;
                 return reject;
@@ -2392,6 +2392,18 @@ export component AppWindow inherits Window {
                     body-link(m, t, x, y) => { root.body-link(m, t, x, y); }
                     body-link-at(m, t, x, y) => { return root.body-link-at(m, t, x, y); }
                     message-link(l) => { root.message-link(l); }
+                    body-menu(m, t, fx, fy, x, y) => { root.body-menu(m, t, fx, fy, x, y); }
+                    // Left, it is forgotten only if it was still this block's: the
+                    // next block may have said it was under the pointer first.
+                    message-link-hovered(on, l, t) => {
+                        if (on) {
+                            root.hovered-link = l;
+                            root.hovered-link-text = t;
+                        } else if (root.hovered-link == l) {
+                            root.hovered-link = "";
+                            root.hovered-link-text = "";
+                        }
+                    }
                     // The text had no use for the key: the shortcuts get it, and
                     // the keyboard with it.
                     keys-left(t) => {
@@ -2441,18 +2453,6 @@ export component AppWindow inherits Window {
         now-day: root.calendar-now-day;
         navigate(n) => { root.calendar-navigate(n); }
         today => { root.calendar-today(); }
-                    body-menu(m, t, fx, fy, x, y) => { root.body-menu(m, t, fx, fy, x, y); }
-                    // Left, it is forgotten only if it was still this block's: the
-                    // next block may have said it was under the pointer first.
-                    message-link-hovered(on, l, t) => {
-                        if (on) {
-                            root.hovered-link = l;
-                            root.hovered-link-text = t;
-                        } else if (root.hovered-link == l) {
-                            root.hovered-link = "";
-                            root.hovered-link-text = "";
-                        }
-                    }
         mode-chosen(m) => {
             root.calendar-mode-chosen(m);
             root.navigated("calendar-mode", "\{m}");
@@ -3637,6 +3637,21 @@ export component AppWindow inherits Window {
         reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
     }
 
+    if root.link-menu-open: LinkMenu {
+        width: 100%;
+        height: 100%;
+        kind: root.link-menu-kind;
+        link-text: root.link-menu-text;
+        has-selection: root.link-menu-selection;
+        menu-x: root.link-menu-x;
+        menu-y: root.link-menu-y;
+        chosen(c) => { root.link-menu-chosen(c); }
+        dismissed => {
+            root.link-menu-open = false;
+            shortcuts.focus();
+        }
+    }
+
     // The reading toolbar's menus: until when to snooze, and the rarer actions. They
     // act on the conversation being read.
     if root.reader-menu != "": ReaderMenu {
@@ -3736,21 +3751,6 @@ export component AppWindow inherits Window {
         source: root.source-text;
         unavailable: root.source-unavailable;
         dismissed => { root.source-open = false; }
-    }
-
-    if root.link-menu-open: LinkMenu {
-        width: 100%;
-        height: 100%;
-        kind: root.link-menu-kind;
-        link-text: root.link-menu-text;
-        has-selection: root.link-menu-selection;
-        menu-x: root.link-menu-x;
-        menu-y: root.link-menu-y;
-        chosen(c) => { root.link-menu-chosen(c); }
-        dismissed => {
-            root.link-menu-open = false;
-            shortcuts.focus();
-        }
     }
 
     if root.alias-open: AliasPanel {
