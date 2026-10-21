@@ -1,0 +1,15 @@
+# Cargo settings for the CI's test jobs only (`cargo test --config .github/cargo-ci.toml`).
+#
+# Neither the profile used on this machine nor the binary that ships changes: the
+# release build in ci.yml does not read this file.
+
+# The dependencies at opt-level 1 rather than the 2 of `profile.dev.package."*"`. The
+# tests take forty seconds; compiling some six hundred crates optimised took thirty
+# minutes of every run. Level 1 still keeps zstd, tantivy and the renderer usable.
+[profile.dev.package."*"]
+opt-level = 1
+
+# LLVM's linker rather than Microsoft's: nine integration-test binaries each link the
+# whole application or interface. Ignored on macOS.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

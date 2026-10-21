@@ -5,7 +5,7 @@
 # tests en dernier, parce qu'ils sont les plus longs.
 #
 # Windows only: it is what ships, and Release follows this workflow. macOS runs the
-# same tests in `macos.yml`, beside it, without holding a release back.
+# same tests in `macos.yml`, once a day, without holding a release back.
 
 name: CI
 
@@ -43,6 +43,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Saved even when the job fails: by default a red run saved nothing, the
+          # fix pushed after it compiled every crate again, and a cache left unused
+          # for a week is gone. From main only, so other runs cannot push it out of
+          # the repository's 10 GB.
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Format
         run: cargo fmt --all --check
@@ -52,7 +59,7 @@ jobs:
 
   # macOS runs the same tests in `macos.yml`, a workflow of its own: Release waits for
   # this one, and the installer is Windows-only, so it no longer waits for macOS —
-  # which took up to twenty minutes longer than everything here.
+  # which took up to twenty minutes longer than everything here. It runs once a day.
   tests:
     name: Tests (windows-latest)
     runs-on: windows-latest
@@ -65,6 +72,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Saved even when the job fails: by default a red run saved nothing, the
+          # fix pushed after it compiled every crate again, and a cache left unused
+          # for a week is gone. From main only, so other runs cannot push it out of
+          # the repository's 10 GB.
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Le rendu HTML complet demande un périphérique graphique. Les tests savent
       # s'en passer — `BlitzRenderer::is_available` le vérifie — mais compiler la
@@ -76,12 +90,14 @@ jobs:
       # ran the doc-tests, and there are none; clippy `--all-targets` already checks
       # that the examples compile. The build is the same command with `--no-run`, so
       # the tests reuse all of it; `cargo build` built the binary, which no test runs.
+      # `cargo-ci.toml`: lighter optimisation of the dependencies and a faster linker,
+      # for these tests only (see the file).
       - name: Compilation
-        run: cargo test --workspace --no-default-features --lib --tests --no-run
+        run: cargo test --config .github/cargo-ci.toml --workspace --no-default-features --lib --tests --no-run
 
       - name: Tests
         # Every failing binary reported in one run, not only the first.
-        run: cargo test --workspace --no-default-features --lib --tests --no-fail-fast
+        run: cargo test --config .github/cargo-ci.toml --workspace --no-default-features --lib --tests --no-fail-fast
 
   # Le binaire complet, avec le moteur de rendu, sur la plateforme prioritaire.
   # Il ne s'exécute pas ici : sans écran, il n'y a rien à ouvrir. On vérifie qu'il
@@ -93,6 +109,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Saved even when the job fails: by default a red run saved nothing, the
+          # fix pushed after it compiled every crate again, and a cache left unused
+          # for a week is gone. From main only, so other runs cannot push it out of
+          # the repository's 10 GB.
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Compilation en release
         run: cargo build --release -p iris-app

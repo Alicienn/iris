@@ -33,8 +33,13 @@ manager. Lost, it can be replaced: new pair, new secret, new public key in
 `update.rs`. Copies installed before the change then refuse updates signed with the new
 key, and have to be updated once by hand from the release page.
 
-Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` beside it
-and do not hold a release back; a failure there still shows red on the commit.
+Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
+(04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
+
+The test jobs read `.github/cargo-ci.toml`: dependencies at opt-level 1 instead of 2,
+and `rust-lld` as the Windows linker. The release binary does not, so what ships is
+built as before. Every job's cache is saved even when it fails, from `main` only: a
+red run used to save nothing, and the fix pushed after it compiled everything again.
 
 CI itself (`.github/workflows/ci.yml`) skips pushes that only touch `docs/`, a README
 or `CLAUDE.md`, so such a push publishes nothing either. It can be run by hand from the
