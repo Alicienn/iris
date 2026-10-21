@@ -452,8 +452,9 @@ impl BlitzDocument {
             {
                 if let Some(href) = n.attr(local_name!("href")) {
                     let lien = crate::openable_link(href)?.to_owned();
-                    let texte = n.text_content().split_whitespace().collect::<Vec<_>>();
-                    return Some((lien, texte.join(" ")));
+                    let texte = n.text_content();
+                    let mots: Vec<&str> = texte.split_whitespace().collect();
+                    return Some((lien, mots.join(" ")));
                 }
             }
             noeud = n.parent;
