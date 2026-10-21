@@ -198,7 +198,8 @@ mod tests {
              Message-ID: <{sujet}@x>\r\n\
              MIME-Version: 1.0\r\n\
              Content-Type: multipart/mixed; boundary=\"SEP\"\r\n\r\n\
-             --SEP\r\nContent-Type: text/plain\r\n\r\nVoici le devis.\r\n\
+             --SEP\r\nContent-Type: text/html\r\n\r\n\
+             <p>Voici le devis.</p><img src=\"cid:logo\">\r\n\
              --SEP\r\nContent-Type: application/pdf\r\n\
              Content-Disposition: attachment; filename=\"devis.pdf\"\r\n\r\n\
              %PDF-faux\r\n\
