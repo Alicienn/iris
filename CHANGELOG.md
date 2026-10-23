@@ -3,6 +3,14 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.1.0 — 2026-10-23
+
+### Improved
+- Your goals are back in Tasks, under Habits, with + to add one.
+
+### Removed
+- Growth is no longer a place of its own, nor Ctrl+5.
+
 ## 6.0.0 — 2026-10-23
 
 ### New

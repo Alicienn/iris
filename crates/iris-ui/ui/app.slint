@@ -47,7 +47,6 @@ import {
 } from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import { NewHabitPanel, HabitDeletePanel, HabitsView } from "@iris/screens/habits.slint";
-import { GrowthView } from "@iris/screens/growth.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu, EventContextMenu,
     CalendarRenamePanel, CalendarDeletePanel, ConnectCalendarsPanel
@@ -1271,9 +1270,6 @@ export component AppWindow inherits Window {
     callback goal-time-confirmed();
     in-out property <bool> goal-delete-open;
     callback goal-delete-confirmed();
-    // --- Growth: its column of goals; a goal's page, or all of them, is drawn by the
-    // tasks' own view beside it, its column hidden ---
-    callback growth-place-chosen(string);
     // --- The habits, a place of Tasks ---
     /// Tasks shows its habits rather than a view of its tasks.
     in-out property <bool> tasks-habits;
@@ -1595,14 +1591,12 @@ export component AppWindow inherits Window {
                 root.notes-ctrl-held = true;
                 return reject;
             }
-            // Home, mail, calendar, tasks, notes and growth, from anywhere but an open
-            // window.
+            // Home, mail, calendar, tasks and notes, from anywhere but an open window.
             if (event.modifiers.control && !root.modal-open
                 && (event.text == "0" || event.text == "1" || event.text == "2"
-                    || event.text == "3" || event.text == "4" || event.text == "5")) {
+                    || event.text == "3" || event.text == "4")) {
                 root.workspace = event.text == "0" ? 3 : event.text == "1" ? 0
-                    : event.text == "2" ? 1 : event.text == "3" ? 2
-                    : event.text == "4" ? 4 : 5;
+                    : event.text == "2" ? 1 : event.text == "3" ? 2 : 4;
                 root.workspace-changed(root.workspace);
                 return accept;
             }
@@ -1921,9 +1915,8 @@ export component AppWindow inherits Window {
                 if (event.text == Key.Escape && root.habits-has-detail) { root.habit-detail-closed(); }
                 return accept;
             }
-            // The tasks have their own keys too, and so has a goal's page in Growth,
-            // which is theirs.
-            if (root.workspace == 2 || root.workspace == 5) {
+            // The tasks have their own keys too, a goal's page among them.
+            if (root.workspace == 2) {
                 if (event.text == "z" && event.modifiers.control) {
                     root.task-undo();
                     return accept;
@@ -2513,27 +2506,16 @@ export component AppWindow inherits Window {
         }
     }
 
-    // The tasks; in Growth, a goal's page beside Growth's own column. While the
-    // habits show, only the tasks' column, the habits beside it.
-    if root.workspace == 2 || root.workspace == 5: TasksView {
-        x: root.workspace == 5 ? 232px : 0px;
+    // The tasks, the goals among them. While the habits show, only the tasks'
+    // column, the habits beside it.
+    if root.workspace == 2: TasksView {
+        x: 0px;
         y: 0px;
-        width: root.workspace == 2 && root.tasks-habits ? 232px : parent.width - self.x;
+        width: root.tasks-habits ? 232px : parent.width;
         height: parent.height - 30px;
-        embedded: root.workspace == 5;
-        column-only: root.workspace == 2 && root.tasks-habits;
+        column-only: root.tasks-habits;
         habits-shown: root.tasks-habits;
         habits-count: root.habits-nav-count;
-        // From Today's nudges in Tasks too: the goal opens in Growth.
-        goal-chosen(k) => {
-            root.navigated("growth", k);
-            root.growth-place-chosen(k);
-            if (root.workspace != 5) {
-                root.workspace = 5;
-                root.workspace-changed(5);
-            }
-            shortcuts.focus();
-        }
         title: root.tasks-title;
         subtitle: root.tasks-subtitle;
         overview: root.task-overview;
@@ -2867,23 +2849,6 @@ export component AppWindow inherits Window {
         habits-figure: root.home-habits-figure;
         habits-foot: root.home-habits-foot;
         habit-toggled(id) => { root.home-habit-toggled(id); }
-    }
-
-    // Growth: its column of goals. A goal's page, or all of them, is the tasks' view
-    // above, drawn beside the column alone.
-    if root.workspace == 5: GrowthView {
-        x: 0px;
-        y: 0px;
-        width: 232px;
-        height: parent.height - 30px;
-        goals: root.goals;
-        goals-shown: root.task-page == 2;
-        place-chosen(k) => {
-            root.growth-place-chosen(k);
-            root.navigated("growth", k);
-            shortcuts.focus();
-        }
-        new-goal => { root.goal-new-requested(); }
     }
 
     // The habits, in Tasks: beside the tasks' column, drawn alone above.

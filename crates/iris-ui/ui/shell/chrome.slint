@@ -3,13 +3,13 @@ import { Icon, Icons } from "@iris/base/icons.slint";
 
 // The window's frame, in the manner of Apple's own apps: no title bar of its own.
 // Each place of Iris has a sidebar and a toolbar; the sidebar's head holds the window's
-// buttons (Mac) or the Iris mark (Windows), back and forward, and the four places; the
+// buttons (Mac) or the Iris mark (Windows), back and forward, and the five places; the
 // toolbar holds what acts on the place, and on Windows the window's three buttons at
 // its right end. Both move the window when dragged.
 //
 // What they share lives in this global, set by the window and read by every place.
 export global Chrome {
-    /// Which place shows: 0 mail, 1 calendar, 2 tasks, 3 Home, 4 Growth.
+    /// Which place shows: 0 mail, 1 calendar, 2 tasks, 3 Home, 4 Notes.
     in-out property <int> workspace: 0;
     /// The window's buttons as on a Mac (the three lights, top left), or as on
     /// Windows (minimise, maximise, close at the right of the toolbar).
@@ -335,7 +335,6 @@ export component SidebarHead inherits VerticalLayout {
         { icon: Icons.calendar, label: "Calendar", shortcut: "Ctrl+2", place: 1 },
         { icon: Icons.list, label: "Tasks", shortcut: "Ctrl+3", place: 2 },
         { icon: Icons.notes, label: "Notes", shortcut: "Ctrl+4", place: 4 },
-        { icon: Icons.sprout, label: "Growth", shortcut: "Ctrl+5", place: 5 },
     ];
     pure function badge(place: int) -> int {
         return place == 0 ? Chrome.mail-badge : place == 2 ? Chrome.tasks-badge : 0;
@@ -413,7 +412,7 @@ export component SidebarHead inherits VerticalLayout {
         }
     }
 
-    // The places: Home, Mail, Calendar, Tasks, Notes, Growth. Side by side, or one
+    // The places: Home, Mail, Calendar, Tasks, Notes. Side by side, or one
     // under the other in a folded column.
     Rectangle {
         height: root.compact ? root.places.length * 26px + 4px : 30px;

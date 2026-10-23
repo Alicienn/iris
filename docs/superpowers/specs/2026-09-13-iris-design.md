@@ -384,3 +384,5 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   from use; nothing in it is counted on the user's behalf. Since 6.0.0 the habits are
   a place of Tasks and Growth holds the goals only; the compass (areas of life,
   monthly scores, cycles, vision) was dropped, its tables left unused in the base.
+  Since 6.1.0 there is no Growth place: the goals are back in the Tasks column, beside
+  the habits, and the window has five places again.

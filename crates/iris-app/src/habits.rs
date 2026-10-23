@@ -981,7 +981,7 @@ pub fn wire_habits(f: &AppWindow, services: &Services) {
         [services, etat, redessiner, f],
         on_habit_goal_opened,
         |id| {
-            crate::growth::open(f, &format!("goal:{id}"));
+            crate::tasks::open(f, &format!("goal:{id}"));
         }
     );
     geste!([services, etat, redessiner, f], on_habit_amount_step, |n| {

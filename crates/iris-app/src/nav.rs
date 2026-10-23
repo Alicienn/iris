@@ -18,7 +18,7 @@ const PROFONDEUR: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
-    /// 0 mail, 1 calendar, 2 tasks, 3 Home, 4 Notes, 5 Growth.
+    /// 0 mail, 1 calendar, 2 tasks, 3 Home, 4 Notes.
     pub workspace: i32,
     /// The mailbox shown, 0 for all of them.
     pub account: i32,
@@ -28,14 +28,12 @@ pub struct Place {
     pub folder: String,
     /// To do, Waiting, Done.
     pub tab: i32,
-    /// The view of the tasks: "today", "list:3", "habits"…
+    /// The view of the tasks: "today", "list:3", "habits", "goal:3"…
     pub tasks: String,
     /// The calendar: 0 month, 1 week, 2 day.
     pub calendar: i32,
     /// The note open, by its path in its space.
     pub note: String,
-    /// What Growth shows: "goals", "goal:3".
-    pub growth: String,
 }
 
 impl Place {
@@ -49,7 +47,6 @@ impl Place {
             tasks: "today".into(),
             calendar,
             note: String::new(),
-            growth: "goals".into(),
         }
     }
 
@@ -94,10 +91,6 @@ impl Place {
             "note" => {
                 p.workspace = 4;
                 p.note = value.to_string();
-            }
-            "growth" => {
-                p.workspace = 5;
-                p.growth = value.to_string();
             }
             _ => return None,
         }
@@ -217,9 +210,6 @@ fn aller(f: &AppWindow, from: &Place, to: &Place) {
     }
     if to.note != from.note && !to.note.is_empty() {
         f.invoke_notes_quick_chosen(to.note.as_str().into());
-    }
-    if to.growth != from.growth {
-        f.invoke_growth_place_chosen(to.growth.as_str().into());
     }
     if to.workspace != from.workspace {
         f.set_workspace(to.workspace);
@@ -352,5 +342,12 @@ mod tests {
         let liste = h.current.after("tasks", "list:2").unwrap();
         h.visit(liste);
         assert_eq!(h.back().map(|p| p.tasks), Some("habits".to_string()));
+    }
+
+    #[test]
+    fn a_goal_is_a_place_of_the_tasks() {
+        let p = Place::start(3, 1).after("tasks", "goal:3").unwrap();
+        assert_eq!((p.workspace, p.tasks.as_str()), (2, "goal:3"));
+        assert!(p.after("growth", "goals").is_none());
     }
 }

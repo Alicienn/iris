@@ -750,6 +750,8 @@ between the areas of one's life, the week reviewed. Design:
 - [ ] **S44.6** Weekly review, wins, and today's three on Home.
 - [x] **S44.7** Growth narrowed (6.0.0): the compass dropped (its tables left unused),
       the habits moved to Tasks as a place under the tiles; Growth opens on the goals.
+- [x] **S44.8** Growth removed as a place (6.1.0): the goals are a section of the Tasks
+      column again, under Habits; five places, `Ctrl`+`0` to `Ctrl`+`4`.
 
 ## E45 — The mail, looked over (5.1.0)
 

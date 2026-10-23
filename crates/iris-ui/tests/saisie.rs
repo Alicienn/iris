@@ -2827,7 +2827,7 @@ fn replier_les_comptes_garde_la_fenetre_entiere() {
 
     // The head's controls fit the strip, none drawn over another.
     let mut boites = vec![bouton(&f, "Back"), bouton(&f, "Forward")];
-    for place in ["Home", "Mail", "Calendar", "Tasks", "Notes", "Growth"] {
+    for place in ["Home", "Mail", "Calendar", "Tasks", "Notes"] {
         boites.push(par_role(&f, testing::AccessibleRole::Tab, place));
     }
     let cases: Vec<(String, f32, f32, f32, f32)> = boites

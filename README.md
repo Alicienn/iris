@@ -31,7 +31,7 @@
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
 | <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, subtasks and reminders, typed in one line, with the conversations they came from one click away. |
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Notes.** Markdown notes in folders of your own, written as they look, with LaTeX, links, flashcards and spreadsheets. |
-| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Growth.** Goals with the pace they need; habits, ticked day by day in Tasks, with their streaks. |
+| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Goals and habits.** In Tasks: goals with the pace they need, habits ticked day by day with their streaks. |
 
 ## Install
 
@@ -97,9 +97,9 @@ beside *Accounts* shows them all in one list instead.
 
 ## Getting around
 
-Each place has its side column, and at its top six buttons go from one to another:
-**Home**, **Mail**, **Calendar**, **Tasks** (a dot when tasks are due), **Notes** and
-**Growth**. Back and forward sit just above them. At the column's foot, the settings
+Each place has its side column, and at its top five buttons go from one to another:
+**Home**, **Mail**, **Calendar**, **Tasks** (a dot when tasks are due) and **Notes**.
+Back and forward sit just above them. At the column's foot, the settings
 (`Ctrl`+`,`) and search
 and commands (`Ctrl`+`K`: every command at once, narrowed as you type).
 
@@ -311,8 +311,8 @@ arrow keys move to the previous or next period.
 
 Open **Tasks** at the top of the side column, or with `Ctrl`+`3`. Four tiles open
 **Today**, **Upcoming**, **All tasks** and **From mail**, each with its count; your
-lists follow. **Habits**, under the tiles, says how many of today's are done. Goals are
-in [Growth](#growth).
+lists follow. **Habits**, under the tiles, says how many of today's are done, and your
+[goals](#goals) come under it.
 
 - Type a task in one line in the field at the bottom and press `Enter`. Iris reads the
   date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work
@@ -359,6 +359,20 @@ done late comes back after today, never in the past.
 
 *This week*, in the column on the left, looks back and ahead: what is late, what was
 put off, what is due next week, what was done since Monday, and the goals under way.
+
+### Goals
+
+A goal is something to reach by a day: *Send 10 internship applications by the 17th*.
+**+** beside *Goals* in the Tasks column creates one, measured by a number or by
+milestones; *Goals* itself shows them all. Its page shows where you stand, the pace you
+need ("6 to go in 18 days: about 2 a week") and whether you are on track; **Log one**
+counts a step (with a word on what you did, if you like), or tick the milestones as you
+reach them. What you add on a goal's page is a step toward it, and a task.
+**Make time for it** blocks time in your calendar on the days you choose, every week
+until the goal's day. Today points to the goals behind or due this week.
+Iris counts nothing on its own. Click a goal's title to rename it (`Enter` keeps it,
+`Escape` the old one); the pencil beside it changes the rest: its target, its day,
+what it is for. How a goal is measured stays as it was set.
 
 ### Habits
 
@@ -536,26 +550,6 @@ task's menu, copies `[[mail:…]]`, `[[event:…]]` or `[[task:…]]`; in a note
 opens it. `Ctrl`+`Shift`+`T` on a checkbox makes it a task: ticking one ticks the
 other.
 
-## Growth
-
-Open **Growth**, the sprout at the top of the side column, or press `Ctrl`+`5`. Its
-column holds your **Goals**; it opens on all of them. Habits are in
-[Tasks](#habits).
-
-### Goals
-
-A goal is something to reach by a day: *Send 10 internship applications by the 17th*.
-**+** beside *Goals* in Growth's column creates one, measured by a number or by
-milestones. Its page shows where you stand, the pace you need ("6 to go in 18 days:
-about 2 a week") and whether you are on track; **Log one** counts a step (with a word
-on what you did, if you like), or tick the milestones as you reach them. What you add
-on a goal's page is a step toward it, and a task in Tasks.
-**Make time for it** blocks time in your calendar on the days you choose, every week
-until the goal's day. Today, in Tasks, points to the goals behind or due this week.
-Iris counts nothing on its own. Click a goal's title to rename it (`Enter` keeps it,
-`Escape` the old one); the pencil beside it changes the rest: its target, its day,
-what it is for. How a goal is measured stays as it was set.
-
 ## Sending
 
 Sending closes the message window at once. For a few seconds, a notice at the bottom
@@ -604,7 +598,6 @@ on school and office networks where many people share one address.
 | `T` | Add the conversation to tasks |
 | `Ctrl`+`0` | Home |
 | `Ctrl`+`1` / `Ctrl`+`2` / `Ctrl`+`3` / `Ctrl`+`4` | Mail / Calendar / Tasks / Notes |
-| `Ctrl`+`5` | Growth |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | In Notes: new note / open a note / search the notes |
 | `Ctrl`+`\` | In Notes: open a note beside |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | In Notes: new tab / close the tab / next tab |

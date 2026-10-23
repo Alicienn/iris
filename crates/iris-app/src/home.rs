@@ -482,8 +482,8 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
                     vers(&f, 2);
                     f.invoke_task_place_chosen("today".into());
                 }
-                // The goals live in Growth, the habits in Tasks.
-                "goals" => crate::growth::open(&f, &cible),
+                // The goals and the habits live in Tasks.
+                "goals" => crate::tasks::open(&f, &cible),
                 "habits" => crate::habits::open(&f),
                 "calendar" => vers(&f, 1),
                 "notes" => vers(&f, 4),
@@ -503,7 +503,7 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
         let faible = f.as_weak();
         f.on_home_goal_opened(move |id| {
             let Some(f) = faible.upgrade() else { return };
-            crate::growth::open(&f, &format!("goal:{id}"));
+            crate::tasks::open(&f, &format!("goal:{id}"));
         });
     }
     {

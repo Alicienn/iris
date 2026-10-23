@@ -96,16 +96,6 @@ struct Etat {
     a_estimer: Option<i64>,
     /// The task just added, to slide in once at the next drawing of the column.
     nouvelle: Option<i64>,
-    /// The view Tasks showed before a goal was opened in Growth: where Tasks comes
-    /// back to, since goals no longer show there.
-    avant_objectif: Option<Vue>,
-}
-
-impl Vue {
-    /// A goal's page or all of them: what Growth shows with the tasks' own view.
-    fn de_croissance(self) -> bool {
-        matches!(self, Vue::Goal(_) | Vue::Goals)
-    }
 }
 
 /// A task and its subtasks as they are before a delete, to put them back.
@@ -116,6 +106,19 @@ fn avec_ses_etapes(services: &Services, id: i64) -> Vec<StoredTask> {
     let mut tout = vec![t];
     tout.extend(services.store.subtasks(id).unwrap_or_default());
     tout
+}
+
+/// The tasks' place in the window: after the mail (0) and the calendar (1).
+pub const WORKSPACE: i32 = 2;
+
+/// Opens Tasks on `place` ("goals", "goal:3", "today"…), as one step back.
+pub fn open(f: &AppWindow, place: &str) {
+    crate::nav::note(f, "tasks", place);
+    f.invoke_task_place_chosen(place.into());
+    if f.get_workspace() != WORKSPACE {
+        f.set_workspace(WORKSPACE);
+        f.invoke_workspace_changed(WORKSPACE);
+    }
 }
 
 /// Shows a task in the Tasks tab, among all of them, opened on the right.
@@ -991,14 +994,16 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         }
     }
     // The goals: the side column, a goal's page or all of them, the nudges on Today.
+    // While the habits show, no goal is the one chosen in the column.
+    let habitudes = f.get_tasks_habits();
     crate::goals::remplir(
         f,
         services,
         match etat.vue {
-            Vue::Goal(id) => Some(id),
+            Vue::Goal(id) if !habitudes => Some(id),
             _ => None,
         },
-        etat.vue == Vue::Goals,
+        etat.vue == Vue::Goals && !habitudes,
         etat.vue == Vue::Today,
         etat.vue == Vue::Week,
     );
@@ -1012,7 +1017,6 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
 
     // --- La colonne de gauche. While the habits show, none of the views is the one
     // chosen.
-    let habitudes = f.get_tasks_habits();
     let mut lieux = vec![
         (
             Vue::Today,
@@ -1641,7 +1645,6 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         creneaux: Vec::new(),
         a_estimer: None,
         nouvelle: None,
-        avant_objectif: None,
     }));
     f.set_task_reminders(ModelRc::new(VecModel::from(
         REMINDERS
@@ -1680,27 +1683,11 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         })
     };
 
-    // L'onglet se remplit quand on y arrive ; Growth aussi, pour sa colonne d'objectifs
-    // et la page d'un objectif. Back in Tasks after a goal shown in Growth, the view
-    // shown before it.
+    // L'onglet se remplit quand on y arrive, sa colonne d'objectifs comprise.
     {
-        let (redessiner, etat) = (Rc::clone(&redessiner), Rc::clone(&etat));
+        let redessiner = Rc::clone(&redessiner);
         crate::workspace::follow(f, move |w| {
-            if w == 2 {
-                let mut e = etat.borrow_mut();
-                if e.vue.de_croissance() {
-                    e.vue = e.avant_objectif.take().unwrap_or(Vue::Today);
-                }
-            }
-            // Growth shows nothing but goals: all of them, when none was chosen.
-            if w == crate::growth::WORKSPACE {
-                let mut e = etat.borrow_mut();
-                if !e.vue.de_croissance() {
-                    e.avant_objectif = Some(e.vue);
-                    e.vue = Vue::Goals;
-                }
-            }
-            if w == 2 || w == crate::growth::WORKSPACE {
+            if w == WORKSPACE {
                 redessiner();
             }
         });
@@ -1742,14 +1729,9 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 return;
             }
             if let Some(v) = Vue::depuis(&cle) {
-                // A goal is shown in Growth: the habits stay what Tasks shows.
-                if !v.de_croissance() {
-                    f.set_tasks_habits(false);
-                }
+                // A view, a list or a goal: the habits give way to it.
+                f.set_tasks_habits(false);
                 let mut e = etat.borrow_mut();
-                if v.de_croissance() && !e.vue.de_croissance() {
-                    e.avant_objectif = Some(e.vue);
-                }
                 e.vue = v;
                 e.mois = None;
                 // Elsewhere, the question about the last task added is not asked.

@@ -1,4 +1,4 @@
-//! Un aperçu des habitudes (dans les tâches), des objectifs (la Croissance) et de
+//! Un aperçu des habitudes et des objectifs (dans les tâches) et de
 //! l'accueil, sur des données inventées, capturé en images.
 //!
 //! ```text
@@ -6,7 +6,7 @@
 //! ```
 //!
 //! Écrit `habitudes.png`, `habitudes-mois.png`, `habitudes-annee.png`,
-//! `habitude-nouvelle.png`, `croissance-objectif.png` et `accueil-habitudes.png`.
+//! `habitude-nouvelle.png`, `taches-objectif.png` et `accueil-habitudes.png`.
 
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use iris_app::services::Services;
@@ -215,9 +215,8 @@ fn main() {
     iris_app::calendar::wire_calendar(&f, &services, runtime.handle().clone());
     iris_app::tasks::wire_tasks(&f, &services, std::sync::Arc::clone(&controller));
     iris_app::habits::wire_habits(&f, &services);
-    iris_app::growth::wire_growth(&f);
     iris_app::home::wire_home(&f, &services, controller);
-    // The habits are a place of Tasks.
+    // The habits and the goals are places of Tasks.
     iris_app::habits::open(&f);
     f.show().unwrap();
 
@@ -251,10 +250,10 @@ fn main() {
                 5 => {
                     capture(&f, nom("habitude-nouvelle"));
                     f.set_habit_new_open(false);
-                    iris_app::growth::open(&f, &format!("goal:{stages}"));
+                    iris_app::tasks::open(&f, &format!("goal:{stages}"));
                 }
                 6 => {
-                    capture(&f, nom("croissance-objectif"));
+                    capture(&f, nom("taches-objectif"));
                     f.set_workspace(3);
                     f.invoke_workspace_changed(3);
                 }

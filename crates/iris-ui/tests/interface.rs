@@ -207,11 +207,11 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
 // --- Les onglets ---
 
 /// Les onglets des files, sans ceux du sélecteur de lieux (Home, Mail, Calendar,
-/// Tasks, Notes, Growth), qui ont le même rôle et désignent autre chose.
+/// Tasks, Notes), qui ont le même rôle et désignent autre chose.
 fn onglets_des_files(f: &AppWindow) -> Vec<String> {
     libelles(f, testing::AccessibleRole::Tab)
         .into_iter()
-        .filter(|l| !["Home", "Mail", "Calendar", "Tasks", "Notes", "Growth"].contains(&l.as_str()))
+        .filter(|l| !["Home", "Mail", "Calendar", "Tasks", "Notes"].contains(&l.as_str()))
         .collect()
 }
 
@@ -1338,9 +1338,9 @@ fn le_bouton_de_lecture_dit_ce_qu_il_va_faire() {
 }
 
 fn un_objectif_se_choisit_et_se_journalise() {
-    // Goals live in Growth's column; a goal's page is the tasks' own beside it.
+    // Goals live in the tasks' column, their pages in the tasks' middle.
     let f = fenetre();
-    f.set_workspace(5);
+    f.set_workspace(2);
     let objectif = iris_ui::GoalData {
         id: 3,
         title: "Send 10 applications".into(),
@@ -1354,7 +1354,7 @@ fn un_objectif_se_choisit_et_se_journalise() {
     let notes = Rc::new(RefCell::new(Vec::<String>::new()));
     {
         let l = Rc::clone(&lieux);
-        f.on_growth_place_chosen(move |k| l.borrow_mut().push(k.to_string()));
+        f.on_task_place_chosen(move |k| l.borrow_mut().push(k.to_string()));
         let n = Rc::clone(&notes);
         f.on_goal_logged(move |t| n.borrow_mut().push(t.to_string()));
     }

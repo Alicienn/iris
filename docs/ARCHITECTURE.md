@@ -2,7 +2,7 @@
 
 A desktop mail client, written in Rust, designed to hold **a hundred mailboxes and a
 million messages** on one machine without ever ceasing to be immediate. Beside the mail
-sit a calendar, a task list with habits, notes and Growth (goals), built on the same
+sit a calendar, a task list with goals and habits, and notes, built on the same
 principles.
 
 Three stances set it apart:
@@ -269,7 +269,7 @@ property**, not by discipline:
 
 Stated here so they are decided rather than discovered:
 
-- **Calendar, tasks, Growth and Home read SQLite on the display thread.** Their state lives on
+- **Calendar, tasks (goals and habits included) and Home read SQLite on the display thread.** Their state lives on
   the UI thread and their queries are small and bounded (a visible period, a list, a
   handful of counts), but they break invariant 1 in letter. Moving them behind the view
   model is the fix if a large calendar ever shows up in a frame time.
@@ -291,10 +291,11 @@ Stated here so they are decided rather than discovered:
 
 ## Interface
 
-Six workspaces share one window, switched with `Ctrl`+`0` to `Ctrl`+`5` or from the
+Five workspaces share one window, switched with `Ctrl`+`0` to `Ctrl`+`4` or from the
 switcher at the top of each place's side column: **Home**, **Mail**, **Calendar**,
-**Tasks** (4.0.0, after Apple's own apps; the rail and title strip of 3.x are gone),
-**Notes** (4.15.0, workspace 4) and **Growth** (5.0.0, workspace 5).
+**Tasks** (4.0.0, after Apple's own apps; the rail and title strip of 3.x are gone;
+goals and habits since 6.1.0) and **Notes** (4.15.0, workspace 4). **Growth** (5.0.0,
+workspace 5) was removed in 6.1.0.
 The window chrome lives in `shell/chrome.slint`:
 
 - `SidebarFrame` is a place's side column: `SidebarHead` (the window's lights on a Mac
@@ -931,11 +932,13 @@ against the callouts' numbering as drawn, then the headings.
 `[[task:<id>]]` on its line: ticking the line ticks the task (`tasks::toggle_done`),
 and opening the note ticks the lines whose tasks were done meanwhile.
 
-## Growth
+## Goals and habits
 
-Growth (5.0.0, workspace 5, `Ctrl`+`5`) holds the goals, which left the Tasks column.
-Design: `docs/superpowers/specs/2026-10-09-iris-growth-design.md`. Since 6.0.0 the
-habits are a place of Tasks (below) and the compass is gone.
+Growth (5.0.0, workspace 5, `Ctrl`+`5`) held the habits, the goals and the compass.
+Design: `docs/superpowers/specs/2026-10-09-iris-growth-design.md`. 6.0.0 moved the
+habits to Tasks and dropped the compass; 6.1.0 removed the place itself and put the
+goals back in the Tasks column. Workspace 5 no longer exists; nothing persisted it
+(the window starts on Home or the mail, and the history of places lives in memory).
 
 `iris-growth` is pure, as `iris-tasks` is:
 
@@ -965,11 +968,10 @@ and `app.slint` then draws `TasksView` with `column-only` (its 232px column) and
 it as a tasks place, so `Place::after` needed no new kind; Home's widget opens it
 through `habits::open`.
 
-A goal's page is still the tasks' own (`Vue::Goal`, steps, the add bar, a step's
-details): in Growth, `app.slint` draws `TasksView` with `embedded` (no column) beside
-Growth's column, and choosing a goal there hands `goal:{id}` to the tasks. Growth opens
-on all the goals. Coming back to Tasks while a goal is shown returns to the view Tasks
-had before (`avant_objectif`). Back and forward know Growth's places (`Place::growth`).
+A goal's page is the tasks' own view (`Vue::Goal`, steps, the add bar, a step's
+details), and the goals are a section of the Tasks column (6.1.0): its title is the
+place `"goals"`, each row `goal:{id}`, recorded by Back and forward as tasks places.
+Home, a habit's goal and Today's nudges open them through `tasks::open`.
 
 **The compass** (5.0.0, removed in 6.0.0). Areas of life, monthly scores, cycles and
 the vision were dropped from the interface and the code; their tables (migration 26)
