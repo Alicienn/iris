@@ -217,6 +217,9 @@ fn a_sent_message_leaves_new_message_empty() {
     assert!(!f.get_compose_open(), "Send closes the window");
     // New message, again: what the fields show, not only what the window holds.
     f.set_compose_open(true);
+    // One turn of the loop, as the window has before it is drawn: the address fields
+    // turn what they hold into chips in a `changed` handler.
+    slint::platform::update_timers_and_animations();
     assert_eq!(f.get_compose_to().as_str(), "");
     assert_eq!(f.get_compose_subject().as_str(), "");
     assert_eq!(

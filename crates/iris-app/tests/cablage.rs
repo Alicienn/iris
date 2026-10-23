@@ -115,5 +115,6 @@ fn le_test_reconnait_bien_un_rappel() {
          lecture ne marche plus",
         rappels.len()
     );
-    assert!(rappels.contains("reply-all"), "celui qui manquait");
+    // « reply-all », celui qui manquait, a laissé place à « reply-requested » (6.0.0).
+    assert!(rappels.contains("reply-requested"), "celui qui répond");
 }
