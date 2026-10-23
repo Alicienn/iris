@@ -233,9 +233,10 @@ component Field inherits VerticalLayout {
     function typed(t: string) {
         if (root.puces) {
             let suite = ComposeRecipients.typing(root.head, t);
+            // Each field of the local is read once: Slint's generated Rust moves them.
             root.head = suite.head;
             root.pending = suite.pending;
-            root.value = ComposeRecipients.joined(suite.head, suite.pending);
+            root.value = ComposeRecipients.joined(root.head, root.pending);
         } else {
             root.value = t;
         }
