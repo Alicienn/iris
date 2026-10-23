@@ -1448,7 +1448,8 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
             Some((lien, mots, choisi))
         });
         if let (Some(f), Some((lien, mots, choisi))) = (faible.upgrade(), trouve) {
-            open_link_menu(&f, &lien, &mots, choisi, x, y);
+            // Over a body, the menu always opens: Copy and Select all are there.
+            open_menu(&f, &lien, &mots, choisi, message, x, y);
         }
     });
 
@@ -1471,7 +1472,20 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
                     copier(&texte);
                 }
             }
+            "select-all" => select_all_of_body(i64::from(f.get_link_menu_message())),
             _ => {}
+        }
+    });
+
+    // Every word of a message shown as text, selected from its menu, then copied.
+    let faible = fenetre.as_weak();
+    fenetre.on_copy_message_text(move |message| {
+        let Some(f) = faible.upgrade() else {
+            return;
+        };
+        if let Some(texte) = message_text(&f, message) {
+            f.invoke_copy_text(texte.into());
+            f.set_status("Copied.".into());
         }
     });
 
@@ -1535,6 +1549,21 @@ pub fn open_message_link(fenetre: &AppWindow, lien: &str) {
 /// done with the link there (`lien`, its words `mots`) and with the words selected.
 /// Nothing opens when there is neither.
 pub fn open_link_menu(fenetre: &AppWindow, lien: &str, mots: &str, choisi: bool, x: f32, y: f32) {
+    open_menu(fenetre, lien, mots, choisi, -1, x, y);
+}
+
+/// The same menu, over the body of `message` painted by the full engine (-1 for
+/// none): there it always opens, with Copy (dimmed when nothing is selected) and
+/// Select all.
+fn open_menu(
+    fenetre: &AppWindow,
+    lien: &str,
+    mots: &str,
+    choisi: bool,
+    message: i32,
+    x: f32,
+    y: f32,
+) {
     let lien = iris_htmlview::openable_link(lien).unwrap_or_default();
     let genre = if lien.is_empty() {
         ""
@@ -1546,7 +1575,7 @@ pub fn open_link_menu(fenetre: &AppWindow, lien: &str, mots: &str, choisi: bool,
     } else {
         "web"
     };
-    if genre.is_empty() && !choisi {
+    if genre.is_empty() && !choisi && message < 0 {
         return;
     }
     // Words that only repeat the address add nothing to copy.
@@ -1560,9 +1589,42 @@ pub fn open_link_menu(fenetre: &AppWindow, lien: &str, mots: &str, choisi: bool,
     fenetre.set_link_menu_target(lien.into());
     fenetre.set_link_menu_text(mots.into());
     fenetre.set_link_menu_selection(choisi);
+    fenetre.set_link_menu_message(message);
+    fenetre.set_link_menu_text_body(false);
     fenetre.set_link_menu_x(x);
     fenetre.set_link_menu_y(y);
     fenetre.set_link_menu_open(true);
+}
+
+/// "Select all" in a body painted by the full engine: every word of it, and nothing
+/// in the others, so that Ctrl+C copies this one.
+fn select_all_of_body(message: i64) {
+    CORPS.with(|c| {
+        for (id, ouvert) in c.borrow_mut().iter_mut() {
+            let change = if *id == message {
+                ouvert.document.select_all()
+            } else {
+                ouvert.document.clear_selection()
+            };
+            if change {
+                repeindre(ouvert);
+            }
+        }
+    });
+}
+
+/// The words of a message shown as text, block after block, as they read: what
+/// Copy puts on the clipboard after Select all.
+fn message_text(fenetre: &AppWindow, message: i32) -> Option<String> {
+    let vue = fenetre.get_messages().iter().find(|m| m.id == message)?;
+    let texte = vue
+        .blocks
+        .iter()
+        .map(|b| b.text.to_string())
+        .filter(|t| !t.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    (!texte.is_empty()).then_some(texte)
 }
 
 /// What "Copy" puts on the clipboard for a link: a web address whole, a `mailto:` as
@@ -2003,13 +2065,30 @@ fn corps_du_message(
 
     // HTML first when both are offered: it is what the sender laid out. The parser has
     // already sanitised it, so nothing here needs to sanitise it again.
+    // A message written as text is laid out from its text, its quotations drawn as
+    // such (`>` lines), not from the HTML the parser made of it, every line a `<br/>`.
+    // It has nothing remote to show, so it stays with the rich-text renderer.
+    if let (true, Some(texte)) = (analyse.html_is_text, &analyse.text_body) {
+        return renderer
+            .render_for(
+                &iris_htmlview::plain_text_to_html(texte),
+                false,
+                largeur,
+                echelle,
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "rendering the body failed");
+                apercu()
+            });
+    }
+
     let html = match (&analyse.html_body, &analyse.text_body) {
         // Les images que le message transporte lui-même sont remises dans le corps.
         // Une signature d'entreprise est un logo joint au message et référencé par
         // `cid:` : rien ne peut aller le chercher, il est déjà là, et sans cela toutes
         // les signatures HTML s'affichaient sans leur image.
         (Some(sanitized), _) => iris_mime::inline_images(&sanitized.html, &analyse.inline_parts),
-        (None, Some(texte)) => plain_text_to_html(texte),
+        (None, Some(texte)) => iris_htmlview::plain_text_to_html(texte),
         // A message with neither part is not broken — a bare attachment carrier looks
         // exactly like this — so the preview stands in rather than an error.
         (None, None) => return apercu(),
@@ -2021,27 +2100,6 @@ fn corps_du_message(
             tracing::warn!(error = %e, "rendering the body failed");
             apercu()
         })
-}
-
-/// Wraps a plain-text body so the HTML renderer can lay it out.
-///
-/// Plain text is not HTML, and feeding it in raw would collapse every line break and
-/// swallow anything between angle brackets — which in mail is usually an address.
-fn plain_text_to_html(texte: &str) -> String {
-    let mut out = String::with_capacity(texte.len() + 64);
-    out.push_str("<div style=\"white-space:pre-wrap\">");
-
-    for c in texte.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            c => out.push(c),
-        }
-    }
-
-    out.push_str("</div>");
-    out
 }
 
 /// Enveloppe permettant de renvoyer un instantané vers la boucle d'interface.
@@ -2652,68 +2710,130 @@ pub fn wire_send_notice(fenetre: &AppWindow, send: Arc<SendService>) -> Rc<AvisE
     avis
 }
 
-/// Compose et met en file une réponse, à l'expéditeur ou à tous.
-///
-/// Les deux boutons font le même travail à un mot près, et ce mot est la seule chose
-/// qui les distingue : qui reçoit. Écrire deux fois la même trentaine de lignes, c'est
-/// s'assurer qu'un jour l'un des deux corrigera un défaut que l'autre gardera.
-fn envoyer_reponse(
-    fenetre: &AppWindow,
-    send: &iris_sync::SendService,
-    avis: &Rc<AvisEnvoi>,
-    selection: &Arc<std::sync::Mutex<Option<iris_types::ThreadId>>>,
-    portee: iris_smtp::ReplyScope,
-) {
-    let texte = fenetre.get_reply_text().to_string();
-    if texte.trim().is_empty() {
-        return;
-    }
-    let Some(thread) = *selection.lock().expect("sélection") else {
-        return;
-    };
+/// The conversation the composer is answering, while it answers one.
+#[derive(Clone)]
+struct EnReponse {
+    /// The reply as Iris starts it: its threading (`In-Reply-To`, `References`), and
+    /// the quote that goes under what is written (`text_body`), as a reply always
+    /// carried it.
+    modele: iris_smtp::Outgoing,
+    /// The others of the conversation, whom Reply all puts in copy.
+    autres: Vec<String>,
+    /// Reply all is on.
+    tous: bool,
+    /// Its earlier messages, newest first, as the composer shows them.
+    historique: Vec<iris_ui::QuotedMessageData>,
+}
 
-    let message = match send.compose_reply(thread, &texte, portee) {
-        Ok(m) => m,
+thread_local! {
+    static EN_REPONSE: std::cell::RefCell<Option<EnReponse>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Shows in the composer the conversation it answers, or that it answers none.
+fn montrer_reponse(fenetre: &AppWindow, reponse: Option<&EnReponse>) {
+    fenetre.set_compose_replying(reponse.is_some());
+    fenetre.set_compose_reply_all(reponse.is_some_and(|r| r.tous));
+    fenetre.set_compose_can_reply_all(reponse.is_some_and(|r| !r.autres.is_empty()));
+    fenetre.set_compose_history(ModelRc::new(VecModel::from(
+        reponse.map(|r| r.historique.clone()).unwrap_or_default(),
+    )));
+}
+
+/// The composer answers nothing any more.
+fn oublier_reponse(fenetre: &AppWindow) {
+    EN_REPONSE.with(|r| *r.borrow_mut() = None);
+    montrer_reponse(fenetre, None);
+}
+
+/// A date of the composer's conversation, in the writer's time: "Tue 3 Oct 2026, 09:12".
+fn date_citee(t: iris_types::Timestamp) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(t.millis())
+        .earliest()
+        .map(|d| d.format("%a %-d %b %Y, %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// Opens the composer on a reply to a conversation: from the mailbox it came to, to
+/// its sender (their reply address when they gave one) or to everyone, its subject
+/// once prefixed, and the conversation under the body. The cursor goes to the body:
+/// whom it goes to is already written.
+///
+/// It replaced the reply box under the thread, which sent without showing whom to,
+/// had no room to write, and could not add a copy or a file.
+fn ouvrir_reponse(fenetre: &AppWindow, send: &SendService, thread: ThreadIdent, tous: bool) {
+    let modele = match send.reply_prefill(thread, iris_smtp::ReplyScope::Sender) {
+        Ok((_, m)) => m,
         Err(e) => {
-            tracing::warn!(error = %e, "composing the reply");
+            tracing::warn!(error = %e, "preparing the reply");
             fenetre.set_status(format!("Cannot reply: {e}").into());
             return;
         }
     };
-
-    // Le champ se vide. Le texte revient s'il est annulé ou n'est pas parti : dans le
-    // champ si ce fil est encore ouvert et le champ vide ; sinon en bas à droite,
-    // adressé, plutôt que dans la réponse d'un autre fil, qui l'enverrait à d'autres.
-    let retour = {
-        let selection = Arc::clone(selection);
-        let garde = crate::draft::Draft {
-            to: liste_adresses(&message.to),
-            cc: liste_adresses(&message.cc),
-            bcc: String::new(),
-            subject: message.subject.clone(),
-            body: texte.clone(),
-            lost_attachments: 0,
-            sender: message.from.addr.clone(),
-        };
-        move |fenetre: &AppWindow| {
-            let meme_fil = *selection.lock().expect("sélection") == Some(thread);
-            if meme_fil && fenetre.get_reply_text().trim().is_empty() {
-                fenetre.set_reply_text(garde.body.into());
-            } else {
-                garder_en_bas(
-                    fenetre,
-                    Reduit {
-                        brouillon: garde,
-                        pieces: Vec::new(),
-                    },
-                );
-            }
-        }
+    let a_qui: Vec<String> = modele
+        .to
+        .iter()
+        .map(iris_ui::recipients::entry_of)
+        .collect();
+    // Everyone else the conversation went to, without one's own addresses.
+    let autres: Vec<String> = match send.reply_prefill(thread, iris_smtp::ReplyScope::All) {
+        Ok((_, tout)) => tout
+            .to
+            .iter()
+            .chain(&tout.cc)
+            .map(iris_ui::recipients::entry_of)
+            .filter(|e| !a_qui.iter().any(|a| iris_ui::recipients::same(a, e)))
+            .collect(),
+        Err(_) => Vec::new(),
     };
-    match avis.envoyer(fenetre, message, "Sending your reply".into(), retour) {
-        Ok(()) => fenetre.set_reply_text(Default::default()),
-        Err(e) => fenetre.set_status(format!("Send refused: {e}").into()),
-    }
+    let historique: Vec<iris_ui::QuotedMessageData> = send
+        .thread_history(thread)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| iris_ui::QuotedMessageData {
+            from: m.from.into(),
+            date: date_citee(m.date).into(),
+            text: m.text.into(),
+        })
+        .collect();
+
+    // What the window held goes down to a bar of its own first.
+    liberer_redaction(fenetre);
+    let copies = if tous && !autres.is_empty() {
+        iris_ui::recipients::join(&autres)
+    } else {
+        String::new()
+    };
+    fenetre.set_compose_to(iris_ui::recipients::join(&a_qui).into());
+    fenetre.set_compose_show_cc(!copies.is_empty());
+    fenetre.set_compose_cc(copies.into());
+    fenetre.set_compose_bcc(Default::default());
+    fenetre.set_compose_subject(modele.subject.as_str().into());
+    fenetre.set_compose_body(Default::default());
+    fenetre.set_compose_error(Default::default());
+    choisir_expediteur(fenetre, &modele.from.addr);
+    let reponse = EnReponse {
+        modele,
+        tous: tous && !autres.is_empty(),
+        autres,
+        historique,
+    };
+    montrer_reponse(fenetre, Some(&reponse));
+    EN_REPONSE.with(|r| *r.borrow_mut() = Some(reponse));
+    fenetre.set_compose_minimised(false);
+    fenetre.set_compose_open(true);
+}
+
+/// A message written in the composer, threaded as the reply it is: under the
+/// conversation it answers, the message answered quoted under what is written (after
+/// the signature), as every reply was sent.
+fn en_reponse(mut message: iris_smtp::Outgoing, reponse: &EnReponse) -> iris_smtp::Outgoing {
+    message.in_reply_to = reponse.modele.in_reply_to.clone();
+    message.references = reponse.modele.references.clone();
+    message.text_body.push_str(&reponse.modele.text_body);
+    message
 }
 
 /// Addresses as the composer's fields take them: plain addresses, comma separated.
@@ -2725,30 +2845,60 @@ fn liste_adresses(adresses: &[iris_types::Address]) -> String {
         .join(", ")
 }
 
-/// Branche la zone de réponse.
+/// Branche les réponses : Reply, Reply all et Forward ouvrent l'éditeur, prérempli.
 pub fn wire_reply(
     fenetre: &AppWindow,
     send: Arc<SendService>,
-    avis: Rc<AvisEnvoi>,
     selection: Arc<std::sync::Mutex<Option<ThreadIdent>>>,
 ) {
     {
         let send = Arc::clone(&send);
-        let avis = Rc::clone(&avis);
         let selection = Arc::clone(&selection);
         let faible = fenetre.as_weak();
 
-        fenetre.on_send_reply(move || {
+        fenetre.on_reply_requested(move |tous| {
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            envoyer_reponse(
-                &fenetre,
-                &send,
-                &avis,
-                &selection,
-                iris_smtp::ReplyScope::Sender,
-            );
+            let Some(thread) = *selection.lock().expect("sélection") else {
+                return;
+            };
+            ouvrir_reponse(&fenetre, &send, thread, tous);
+        });
+    }
+
+    // Reply all, in the composer: the others of the conversation in copy, or out of
+    // it again. What was added by hand stays.
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_reply_all_toggled(move |tous| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let Some(autres) = EN_REPONSE.with(|r| {
+                r.borrow_mut().as_mut().map(|r| {
+                    r.tous = tous;
+                    r.autres.clone()
+                })
+            }) else {
+                return;
+            };
+            let mut copies = iris_ui::recipients::entries(&fenetre.get_compose_cc());
+            if tous {
+                for a in autres {
+                    if !copies.iter().any(|c| iris_ui::recipients::same(c, &a)) {
+                        copies.push(a);
+                    }
+                }
+            } else {
+                copies.retain(|c| !autres.iter().any(|a| iris_ui::recipients::same(a, c)));
+            }
+            let texte = iris_ui::recipients::join(&copies);
+            if !texte.is_empty() {
+                fenetre.set_compose_show_cc(true);
+            }
+            fenetre.set_compose_cc(texte.into());
+            fenetre.set_compose_reply_all(tous);
         });
     }
 
@@ -2803,69 +2953,6 @@ pub fn wire_reply(
                 }
                 Err(e) => fenetre.set_status(format!("Cannot forward: {e}").into()),
             }
-        });
-    }
-
-    // Whom Send and Reply all will write to, worked out as sending would, for the
-    // buttons to say it when pointed at.
-    {
-        let send = Arc::clone(&send);
-        let selection = Arc::clone(&selection);
-        let faible = fenetre.as_weak();
-        fenetre.on_reply_recipients_wanted(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let thread = *selection.lock().expect("sélection");
-            let ligne = |adresses: &[iris_types::Address]| -> slint::SharedString {
-                adresses
-                    .iter()
-                    .map(|a| a.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-                    .into()
-            };
-            let pour = |portee| {
-                thread
-                    .and_then(|t| send.compose_reply(t, " ", portee).ok())
-                    .map(|m| (ligne(&m.to), ligne(&m.cc), ligne(&m.bcc)))
-                    .unwrap_or_default()
-            };
-            let (a, cc, cci) = pour(iris_smtp::ReplyScope::Sender);
-            fenetre.set_reply_to(a);
-            fenetre.set_reply_cc(cc);
-            fenetre.set_reply_bcc(cci);
-            let (a, cc, cci) = pour(iris_smtp::ReplyScope::All);
-            fenetre.set_reply_all_to(a);
-            fenetre.set_reply_all_cc(cc);
-            fenetre.set_reply_all_bcc(cci);
-        });
-    }
-
-    // « Reply all », qui n'était relié à rien.
-    //
-    // Le bouton était déclaré dans l'interface, transmis depuis la vue de conversation
-    // jusqu'à la fenêtre, et s'arrêtait là : aucun gestionnaire en Rust. Cliquer dessus
-    // ne faisait rien du tout, sans message ni trace. C'était le seul orphelin des cent
-    // trois rappels déclarés — le test qui balaie les autres est juste en dessous, pour
-    // que ce soit le dernier.
-    {
-        let send = Arc::clone(&send);
-        let avis = Rc::clone(&avis);
-        let selection = Arc::clone(&selection);
-        let faible = fenetre.as_weak();
-
-        fenetre.on_reply_all(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            envoyer_reponse(
-                &fenetre,
-                &send,
-                &avis,
-                &selection,
-                iris_smtp::ReplyScope::All,
-            );
         });
     }
 }
@@ -4991,10 +5078,13 @@ pub fn wire_window_controls(fenetre: &AppWindow) {
 pub fn refresh_folders(fenetre: &AppWindow, services: &Services) {
     let dossiers = services.store.unified_folders().unwrap_or_default();
     let arbre = crate::folders::tree(&dossiers);
+    let plies = crate::settings::current().folded_folders;
 
-    let lignes: Vec<FolderNodeData> = arbre
-        .iter()
-        .map(|n| FolderNodeData {
+    let lignes: Vec<FolderNodeData> = crate::folders::visible(&arbre, &plies)
+        .into_iter()
+        .map(|(n, enfants, replie)| FolderNodeData {
+            has_children: enfants,
+            folded: replie,
             path: n.key.as_str().into(),
             name: n.name.as_str().into(),
             depth: n.depth as i32,
@@ -5150,6 +5240,25 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
         let controller = Arc::clone(&controller);
         fenetre.on_folder_selected(move |choix| {
             controller.send(Request::ShowScope(scope_depuis(choix.as_str())));
+        });
+    }
+    {
+        // Folded or unfolded, and remembered across restarts with the other settings.
+        let services = services.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_folder_fold_toggled(move |clef| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let clef = clef.to_string();
+            crate::settings::update(|s| {
+                if let Some(i) = s.folded_folders.iter().position(|k| *k == clef) {
+                    s.folded_folders.remove(i);
+                } else {
+                    s.folded_folders.push(clef);
+                }
+            });
+            refresh_folders(&fenetre, &services);
         });
     }
     {
@@ -6490,6 +6599,9 @@ pub fn wire_compose(
     avis: Rc<AvisEnvoi>,
     runtime: tokio::runtime::Handle,
 ) {
+    // The address fields make each recipient a chip.
+    iris_ui::recipients::install(fenetre);
+
     // Which mailboxes can send, and as which addresses (their aliases after them).
     charger_expediteurs(fenetre, services);
 
@@ -6536,8 +6648,12 @@ pub fn wire_compose(
     // Closed with nothing in it: there is nothing left to keep, here or on disk.
     {
         let chemin = chemin_brouillon.clone();
+        let faible = fenetre.as_weak();
         fenetre.on_compose_dismissed(move || {
             let _ = crate::draft::Draft::clear(&chemin);
+            if let Some(fenetre) = faible.upgrade() {
+                oublier_reponse(&fenetre);
+            }
         });
     }
 
@@ -6844,8 +6960,16 @@ pub fn wire_compose(
                 attachments: pieces.lock().expect("poisoned attachments").clone(),
             };
 
+            // A reply, under the conversation it answers.
+            let reponse = EN_REPONSE.with(|r| r.borrow().clone());
             let message = match send.compose_full(&brouillon) {
-                Ok(m) => en_tant_que(m, &exp),
+                Ok(m) => {
+                    let m = en_tant_que(m, &exp);
+                    match &reponse {
+                        Some(r) => en_reponse(m, r),
+                        None => m,
+                    }
+                }
                 Err(e) => {
                     fenetre.set_compose_error(e.to_string().into());
                     return;
@@ -6903,6 +7027,9 @@ pub fn wire_compose(
                     choisir_expediteur(fenetre, &expediteur);
                     show_attachments(fenetre, &jointes);
                     *pieces.lock().expect("poisoned attachments") = jointes;
+                    // Still the reply it was, under its conversation.
+                    montrer_reponse(fenetre, reponse.as_ref());
+                    EN_REPONSE.with(|r| *r.borrow_mut() = reponse);
                     fenetre.set_compose_minimised(false);
                     fenetre.set_compose_open(true);
                 }
@@ -7075,6 +7202,7 @@ pub fn wire_compose(
                 fenetre.set_status("That message is no longer waiting.".into());
                 return;
             };
+            oublier_reponse(&fenetre);
             fenetre.set_compose_to(d.to.into());
             fenetre.set_compose_cc(d.cc.as_str().into());
             fenetre.set_compose_bcc(d.bcc.as_str().into());
@@ -7514,6 +7642,8 @@ pub fn clear_compose(fenetre: &AppWindow) {
     fenetre.set_compose_subject(Default::default());
     fenetre.set_compose_body(Default::default());
     fenetre.set_compose_error(Default::default());
+    // Nor does it answer anything any more: the next message is a new one.
+    oublier_reponse(fenetre);
 }
 
 /// Wires the modules screen: rules and plugins.

@@ -748,6 +748,8 @@ between the areas of one's life, the week reviewed. Design:
       the time wanted; cycles of weeks with their goals and what was planned, done; a
       vision. Migration 26, in the daily backup.
 - [ ] **S44.6** Weekly review, wins, and today's three on Home.
+- [x] **S44.7** Growth narrowed (6.0.0): the compass dropped (its tables left unused),
+      the habits moved to Tasks as a place under the tiles; Growth opens on the goals.
 
 ## E45 — The mail, looked over (5.1.0)
 
@@ -762,3 +764,17 @@ between the areas of one's life, the week reviewed. Design:
       characters out of saved file names.
 - [ ] **S45.4** *Show images* loads remote images (the feature is off in the build), off
       the interface's thread.
+
+## E46 — Replying, and the mail column (6.0.0)
+
+- [x] **S46.1** One Reply button opening the composer filled in (sender, subject,
+      threading), Reply all and Forward beside it, `Ctrl`+`R` / `Ctrl`+`Shift`+`R`; the
+      conversation shown under the body; Expand; Send names its recipients; address
+      chips in To, Cc and Bcc.
+- [x] **S46.2** Right-click in a message: Copy the selection, Select all; `Ctrl`+`C`
+      reaches a plain-text selection.
+- [x] **S46.3** `>` quotes in plain-text mail drawn as quotations, a bar per level.
+- [x] **S46.4** Subfolders folded away, remembered; the right-clicked conversation
+      outlined while its menu is open.
+- [x] **S46.5** Folding the accounts column no longer cuts the window's height nor
+      crowds its head.

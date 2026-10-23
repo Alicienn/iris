@@ -124,6 +124,9 @@ pub struct Settings {
     /// The tags whose accounts are folded away in the accounts column.
     #[serde(default)]
     pub folded_tags: Vec<i64>,
+    /// The folders whose subfolders are folded away in the folders' column, by key.
+    #[serde(default)]
+    pub folded_folders: Vec<String>,
     /// Iris opens on the Home screen. Off, it opens on the mail; Home stays one click
     /// away on the name in the title bar.
     #[serde(default = "vrai")]
@@ -215,6 +218,7 @@ impl Default for Settings {
             undo_send_seconds: cinq(),
             accounts_by_tag: true,
             folded_tags: Vec::new(),
+            folded_folders: Vec::new(),
             home_at_startup: true,
             calendar_view: semaine(),
             inbox_zero_day: String::new(),
@@ -351,6 +355,7 @@ mod tests {
             undo_send_seconds: 12,
             accounts_by_tag: false,
             folded_tags: vec![3, 7],
+            folded_folders: vec!["INBOX.Clients".into()],
             home_at_startup: false,
             calendar_view: 0,
             inbox_zero_day: "2026-10-01".into(),

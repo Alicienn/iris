@@ -493,6 +493,12 @@ export component Sidebar inherits Rectangle {
         if !root.collapsed: Rectangle { height: 12px; }
         @children
 
+        // Folded, the folders go and this takes their room. Every other row here has
+        // a fixed height and the accounts' list a maximum, so without one part free to
+        // grow the column had a maximum height, the row of columns beside it took the
+        // smallest maximum, and the window was shrunk to it.
+        if root.collapsed: Rectangle { vertical-stretch: 1; }
+
         // --- Foot: how fresh the mail is, and what runs the column ---
         // (Settings are on the rail, always one click away.)
         Rectangle { height: 1px; background: Tokens.border; }

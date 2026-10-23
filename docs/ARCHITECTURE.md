@@ -2,7 +2,7 @@
 
 A desktop mail client, written in Rust, designed to hold **a hundred mailboxes and a
 million messages** on one machine without ever ceasing to be immediate. Beside the mail
-sit a calendar, a task list, notes and Growth (habits and goals), built on the same
+sit a calendar, a task list with habits, notes and Growth (goals), built on the same
 principles.
 
 Three stances set it apart:
@@ -302,6 +302,12 @@ The window chrome lives in `shell/chrome.slint`:
   back and forward; the five-place switcher), the
   place's own rows. Its foot, `SidebarFoot` (settings, the palette), is drawn by the
   status bar in its stretch under the column (`side`), on the window's bottom edge.
+  With `compact` (the mail's accounts column folded to 64 px, 6.0.0) the head stacks
+  the mark, back and forward, and the places in one column, and a stretch under the
+  rows keeps the column as tall as the window: without one, the folded column had a
+  maximum height and the row of columns cut the window to it.
+- The mail's folder column hides the subfolders of a folded folder
+  (`folders::visible`); the folded paths are the setting `folded_folders`.
 - `WindowToolbar` is the 52 px bar over a place's content: it moves the window
   (double click maximises), holds the place's actions, and ends on Windows' three
   buttons unless the Mac's lights are chosen (*Settings › Window buttons*,
@@ -476,7 +482,8 @@ recording off. The mouse's buttons, two arrows at the top of the side column, `A
 Mail is three columns (236, 380 and the rest, redrawn in 3.1.0 after the web design):
 accounts with the folders under them (one column since 2.0.0, with an outlined **New
 message** at its top and, at its foot, when the mail last synced), the work queue, and
-the conversation with its toolbar and a built-in reply. Above the list sit the search
+the conversation with its toolbar and a Reply button (the built-in reply box was
+replaced by the composer in 6.0.0). Above the list sit the search
 box, the queues as pills (`QueueTabs`) and the filter chips, over a hairline. Rows run
 edge to edge with a hairline under each, two lines (56 px at normal density, 45
 compact, 73 comfortable with the excerpt on a third line); the chosen one takes the
@@ -559,6 +566,20 @@ These rules come from bugs users hit, and each has a scenario in
   forward buttons) open the menu one turn of the loop after a right press. Each move
   clears `hovered-link` first, so words that went away with their message never leave
   it set.
+- **Copy and Select all (6.0.0).** A right-click in a Blitz tile opens the menu
+  whatever is under it (`shell::open_menu`): *Copy* (dimmed with nothing selected,
+  `MenuEntry.enabled`) and *Select all* (`TiledDocument::select_all`, first text block
+  to last in layout order). In a rich-text body each block is its own
+  `SelectableText`; the `MessageText` global keeps the selection while the menu holds
+  the keyboard, a `TouchArea` beneath the words takes the right press, and the words'
+  `FocusScope` passes modifier keys on, so `Ctrl`+`C` reaches the selection. Select
+  all there copies the whole message from Rust (`message_text`, blocks joined by blank
+  lines).
+- **Plain-text quotes (6.0.0).** mail-parser makes an HTML body of a text-only message;
+  `iris_mime::Parsed::html_is_text` says so, and the reader then builds the body from
+  the text with `iris_htmlview::plain_text_to_html`: nested `<blockquote type="cite">`
+  per `>` level (`quote_level`), markers removed, remote content off, drawn by the
+  rich-text renderer with one rounded bar per level. The stored text is untouched.
 - **Attachments written to disk** get a `Zone.Identifier` stream (`ZoneId=3`), the
   mark of a download, so SmartScreen and Office's protected view treat them as from
   the internet. A part is *inline*, hidden from the attachment cards, only when the
@@ -912,8 +933,9 @@ and opening the note ticks the lines whose tasks were done meanwhile.
 
 ## Growth
 
-Growth (5.0.0, workspace 5, `Ctrl`+`5`) holds the habits and the goals, which left the
-Tasks column. Design: `docs/superpowers/specs/2026-10-09-iris-growth-design.md`.
+Growth (5.0.0, workspace 5, `Ctrl`+`5`) holds the goals, which left the Tasks column.
+Design: `docs/superpowers/specs/2026-10-09-iris-growth-design.md`. Since 6.0.0 the
+habits are a place of Tasks (below) and the compass is gone.
 
 `iris-growth` is pure, as `iris-tasks` is:
 
@@ -928,7 +950,7 @@ Tasks column. Design: `docs/superpowers/specs/2026-10-09-iris-growth-design.md`.
   quick entry is: three-letter day names only after *on*, the rest left in the name,
   the icon guessed from the words.
 
-The application side (`crates/iris-app/src/growth.rs`) fills the habits' page by the
+The application side (`crates/iris-app/src/habits.rs`) fills the habits' page by the
 week, the month or the year (`cellules`), the panel (`detail`: six months as 182 days,
 a column a week), the column's count and Home's widget (`fill_home`), and answers the
 gestures. A day is ticked with the habit's whole amount (`basculer`); the panel's −
@@ -936,23 +958,23 @@ and + move today's amount by a quarter of it. Reminders use a 30-second timer, a
 tasks' do: a habit due today, not done, past its minute and not reminded today is
 notified once (`reminded_day`).
 
+The habits are the tasks' place `"habits"` (6.0.0): choosing it sets `tasks-habits`,
+and `app.slint` then draws `TasksView` with `column-only` (its 232px column) and
+`HabitsView` (`screens/habits.slint`) beside it. The habit keys (`N`, `J`/`K`,
+`Space`, `Escape`) go ahead of the task keys while it shows. Back and forward record
+it as a tasks place, so `Place::after` needed no new kind; Home's widget opens it
+through `habits::open`.
+
 A goal's page is still the tasks' own (`Vue::Goal`, steps, the add bar, a step's
 details): in Growth, `app.slint` draws `TasksView` with `embedded` (no column) beside
-Growth's column, and choosing a goal there hands `goal:{id}` to the tasks. Coming back
-to Tasks while a goal is shown returns to the view Tasks had before (`avant_objectif`).
-Back and forward know Growth's places (`Place::growth`).
+Growth's column, and choosing a goal there hands `goal:{id}` to the tasks. Growth opens
+on all the goals. Coming back to Tasks while a goal is shown returns to the view Tasks
+had before (`avant_objectif`). Back and forward know Growth's places (`Place::growth`).
 
-**The compass** (5.0.0, `crates/iris-app/src/compass.rs`, `screens/compass.slint`).
-Areas of life (migration 26, six to start), each holding goals, habits and task lists
-(`area_id` on each, set from the area's window). A score from 1 to 10 a month, by
-hand (`area_scores`); the wheel is `iris_growth::compass`: a polygon of this month's
-scores over last month's on a 240-unit grid, the rings and spokes behind, stroked and
-filled paths only. An area's time this month (`temps_du_mois`) is the length of the
-tasks done in its lists or for its goals (half an hour when not said) and the
-occurrences gone by of the time blocked for its goals (`…-goal-{id}@iris`), against
-`wanted_minutes`. A cycle (`cycles`, `cycle_goals`) runs so many weeks from a Monday;
-*what you planned, done* is its goals' steps done against where their steady pace
-would be (`GoalData::expected`). The vision is one row of one's own words.
+**The compass** (5.0.0, removed in 6.0.0). Areas of life, monthly scores, cycles and
+the vision were dropped from the interface and the code; their tables (migration 26)
+and `area_id` columns stay in the base, unused, and are still copied by the daily
+backup so a restore keeps them.
 
 ## Sending, and undoing a send
 
@@ -988,8 +1010,7 @@ queued (`en_vol`) with what puts it back, until `pump_outbox` hands the outcome 
 `SendTracker` in `main.rs`, which passes it to the window's thread
 (`shell::envoi_termine`). *Message sent.* is said then, not when the countdown ends; a
 failure is said and puts the message back — in the compose window, or as a bar at the
-foot of the window when the compose window holds another message, and a reply into
-its box only if its conversation is still the one open. Until then the failure was
+foot of the window when the compose window holds another message. Until then the failure was
 only logged, under a window saying *Message sent.* over a text already cleared.
 
 Cancelling is decided under the outbox's lock: the send goes only if it still finds
@@ -1256,8 +1277,23 @@ bar's place and grown a turn later: the window's corners are worked out from its
 fixed shapes, not from the size being animated, so it rises and grows at once.
 What the window held when a bar is opened goes down to a bar of its own first.
 
-The reply box's Send and Reply all say, when pointed at, whom they write to: worked
-out by `SendService::compose_reply` as sending would, when another conversation shows.
+**Replying in the composer (6.0.0).** Reply, Reply all and Forward open the compose
+window; the reply box under the conversation is gone. `SendService::reply_prefill`
+(sharing `reply_base` with `compose_reply`) gives the account, the recipients, the
+subject and the threading headers, and `SendService::thread_history` up to twenty
+earlier messages, newest first, each cut to its own words (`iris_sync::own_words`:
+quoted lines, "On … wrote:" and forwarded blocks out, 4000 characters at most). The
+reply's context lives in a thread-local of `shell.rs` (`EN_REPONSE`) until the message
+is sent, dropped or minimised; `compose_send` then threads it and quotes the original as
+the old reply did, and Undo puts the context back. A reply minimised or scheduled loses
+it and falls back to `compose_full`'s guess. *Reply all* in the composer adds the other
+recipients as Cc, the user's own addresses left out.
+
+Recipients are chips: the fields keep the comma-separated string the send path reads,
+and the `ComposeRecipients` global's pure callbacks (`iris_ui::recipients`, in Rust)
+split it into chips, join it back and say which entries are not addresses. Send's
+tooltip lists To, Cc and Bcc from the same strings. *Expand* grows the compose window
+for that opening only.
 
 ---
 
@@ -1318,7 +1354,7 @@ which keeps that term off any index, and a test pins the plan
 | 23 | `calendar_accounts`; `account_id`, `remote_href`, `read_only` on calendars; `href`, `etag`, `remote_ics`, `dirty` on events; `calendar_tombstones` (4.13.0) |
 | 24 | `folder_accounts`: the mailboxes a folder of one's own was made for, by its shown name; none means every mailbox (4.14.0) |
 | 25 | `habits` (schedule, amount, goal, reminder) and `habit_checks` (a day kept, and how much) (5.0.0) |
-| 26 | `areas` (six to start), `area_id` on goals, habits and task lists, `area_scores` by month, `cycles` and `cycle_goals`, `vision` (5.0.0) |
+| 26 | `areas` (six to start), `area_id` on goals, habits and task lists, `area_scores` by month, `cycles` and `cycle_goals`, `vision` (5.0.0; unused since 6.0.0) |
 
 A new table or column always arrives as a new migration.
 

@@ -1,50 +1,21 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
-import { HabitData, HabitDetailData, GoalData, AreaData, CycleRowData } from "@iris/types.slint";
-import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
-import { Segmented } from "@iris/controls/choice.slint";
-import { Nav, NavItem, SectionRow, SectionTitle } from "@iris/lists/nav.slint";
-import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { Icons, IconButton } from "@iris/base/icons.slint";
+import { GoalData } from "@iris/types.slint";
+import { SectionTitle } from "@iris/lists/nav.slint";
+import { SidebarFrame } from "@iris/shell/chrome.slint";
 import { GoalRow } from "@iris/screens/goals.slint";
-import { HabitsPage, HabitPanel } from "@iris/screens/habits.slint";
-import { CompassPage } from "@iris/screens/compass.slint";
 
 // Growth: who one wants to become, beside what there is to do. Its column holds the
-// day's habits and the goals; the habits fill the rest. A goal's page is the tasks'
-// own, drawn beside this column by the window.
+// goals; a goal's page, or all of them, is the tasks' own, drawn beside this column by
+// the window.
 
 /// Growth's side column.
 export component GrowthSidebar inherits SidebarFrame {
-    /// 0 the habits, 1 a goal or all of them, 2 the compass.
-    in property <int> page;
-    in property <string> habits-count;
-    /// The compass's row: "Cycle 3", "week 5/12".
-    in property <string> compass-label;
-    in property <string> compass-count;
     in property <[GoalData]> goals;
     /// All the goals are shown.
     in property <bool> goals-shown;
     callback place-chosen(string);
     callback new-goal();
-
-    SectionRow { text: "Today"; }
-    NavItem {
-        label: "Habits";
-        icon: Icons.sprout;
-        icon-tint: Tokens.green;
-        count: root.habits-count;
-        selected: root.page == 0;
-        clicked => { root.place-chosen("habits"); }
-    }
-
-    SectionRow { text: "Compass"; }
-    NavItem {
-        label: root.compass-label;
-        icon: Icons.compass;
-        count: root.compass-count;
-        selected: root.page == 2;
-        clicked => { root.place-chosen("compass"); }
-    }
 
     // The goals, their title leading to all of them, as the tasks had them.
     HorizontalLayout {
@@ -62,7 +33,7 @@ export component GrowthSidebar inherits SidebarFrame {
                 x: 0;
                 height: parent.height;
                 text: "Goals";
-                color: tous.has-hover || (root.page == 1 && root.goals-shown) ? Tokens.text : Tokens.text-muted;
+                color: tous.has-hover || root.goals-shown ? Tokens.text : Tokens.text-muted;
             }
             tous := TouchArea {
                 mouse-cursor: pointer;
@@ -79,27 +50,7 @@ export component GrowthSidebar inherits SidebarFrame {
         }
     }
     for g in root.goals: GoalRow {
-        goal: {
-            id: g.id,
-            title: g.title,
-            why: g.why,
-            color: g.color,
-            milestones: g.milestones,
-            done: g.done,
-            target: g.target,
-            of-label: g.of-label,
-            due-label: g.due-label,
-            due-short: g.due-short,
-            status: g.status,
-            badge: g.badge,
-            pace: g.pace,
-            fraction: g.fraction,
-            expected: g.expected,
-            ring: g.ring,
-            open-steps: g.open-steps,
-            // On the habits' page no goal is the one shown.
-            selected: g.selected && root.page == 1,
-        };
+        goal: g;
         chosen(id) => { root.place-chosen("goal:" + id); }
     }
     if root.goals.length == 0: HorizontalLayout {
@@ -117,191 +68,20 @@ export component GrowthSidebar inherits SidebarFrame {
 }
 
 export component GrowthView inherits Rectangle {
-    in property <int> page;
-    in property <int> mode;
-    in property <string> title;
-    in property <string> dates;
-    in property <string> note;
-    in property <string> count;
-    in property <string> habits-count;
-    in property <[HabitData]> rows;
-    in property <[string]> labels;
-    in property <int> today;
-    in property <bool> has-detail;
-    in property <HabitDetailData> detail;
-    in-out property <string> add-text;
-    in property <int> focus-add-request;
     in property <[GoalData]> goals;
     in property <bool> goals-shown;
-    // The compass.
-    in property <string> compass-label;
-    in property <string> compass-count;
-    in property <int> compass-tab;
-    in property <string> compass-sub;
-    in property <bool> has-cycle;
-    in property <string> cycle-name;
-    in property <string> cycle-sub;
-    in property <[int]> cycle-segments;
-    in property <string> cycle-score;
-    in property <string> cycle-score-label;
-    in property <string> wheel-grid;
-    in property <string> wheel-now;
-    in property <string> wheel-before;
-    in property <string> wheel-scored;
-    in property <[AreaData]> areas;
-    in-out property <string> vision;
-    in property <[CycleRowData]> cycles;
 
     callback place-chosen(string);
     callback new-goal();
-    callback compass-tab-chosen(int);
-    callback score-requested();
-    callback area-opened(int);
-    callback area-new();
-    callback cycle-opened(int);
-    callback cycle-new();
-    callback vision-edited(string);
-    callback mode-chosen(int);
-    callback new-habit();
-    callback selected(int);
-    callback cell-clicked(int, string);
-    callback add(string);
-    callback edit();
-    callback delete();
-    callback closed();
-    callback goal-opened(int);
-    callback amount-step(int);
 
     background: Tokens.surface;
 
     HorizontalLayout {
         GrowthSidebar {
-            page: root.page;
-            habits-count: root.habits-count;
-            compass-label: root.compass-label;
-            compass-count: root.compass-count;
             goals: root.goals;
             goals-shown: root.goals-shown;
             place-chosen(k) => { root.place-chosen(k); }
             new-goal => { root.new-goal(); }
-        }
-
-        if root.page == 0: VerticalLayout {
-            horizontal-stretch: 1;
-            WindowToolbar {
-                Text {
-                    text: "Habits";
-                    font-family: Tokens.font-display;
-                    font-size: 15px;
-                    font-weight: 600;
-                    color: Tokens.text;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: root.count;
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; }
-                Segmented {
-                    y: (parent.height - self.height) / 2;
-                    options: ["Week", "Month", "Year"];
-                    selected: root.mode;
-                    chosen(i) => { root.mode-chosen(i); }
-                }
-                Rectangle { horizontal-stretch: 1; }
-                Button {
-                    y: (parent.height - self.height) / 2;
-                    text: "New habit";
-                    icon: Icons.plus;
-                    kind: ButtonKind.primary;
-                    size: ButtonSize.sm;
-                    clicked => { root.new-habit(); }
-                }
-            }
-            HorizontalLayout {
-                vertical-stretch: 1;
-                HabitsPage {
-                    horizontal-stretch: 1;
-                    focus-request: root.focus-add-request;
-                    title: root.title;
-                    dates: root.dates;
-                    note: root.note;
-                    rows: root.rows;
-                    labels: root.labels;
-                    today: root.today;
-                    mode: root.mode;
-                    add-text <=> root.add-text;
-                    selected(id) => { root.selected(id); }
-                    cell-clicked(id, d) => { root.cell-clicked(id, d); }
-                    add(t) => { root.add(t); }
-                }
-                if root.has-detail: HabitPanel {
-                    detail: root.detail;
-                    edit => { root.edit(); }
-                    delete => { root.delete(); }
-                    closed => { root.closed(); }
-                    goal-opened(id) => { root.goal-opened(id); }
-                    amount-step(n) => { root.amount-step(n); }
-                }
-            }
-        }
-
-        if root.page == 2: VerticalLayout {
-            horizontal-stretch: 1;
-            WindowToolbar {
-                Text {
-                    text: "Compass";
-                    font-family: Tokens.font-display;
-                    font-size: 15px;
-                    font-weight: 600;
-                    color: Tokens.text;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: root.compass-sub;
-                    font-size: 12px;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; }
-                Segmented {
-                    y: (parent.height - self.height) / 2;
-                    options: ["Areas", "Vision", "Cycles"];
-                    selected: root.compass-tab;
-                    chosen(i) => { root.compass-tab-chosen(i); }
-                }
-                Rectangle { horizontal-stretch: 1; }
-                Button {
-                    y: (parent.height - self.height) / 2;
-                    text: "Score this month";
-                    size: ButtonSize.sm;
-                    clicked => { root.score-requested(); }
-                }
-            }
-            CompassPage {
-                vertical-stretch: 1;
-                tab: root.compass-tab;
-                has-cycle: root.has-cycle;
-                cycle-name: root.cycle-name;
-                cycle-sub: root.cycle-sub;
-                cycle-segments: root.cycle-segments;
-                cycle-score: root.cycle-score;
-                cycle-score-label: root.cycle-score-label;
-                wheel-grid: root.wheel-grid;
-                wheel-now: root.wheel-now;
-                wheel-before: root.wheel-before;
-                wheel-scored: root.wheel-scored;
-                areas: root.areas;
-                vision <=> root.vision;
-                cycles: root.cycles;
-                area-opened(id) => { root.area-opened(id); }
-                area-new => { root.area-new(); }
-                cycle-opened(id) => { root.cycle-opened(id); }
-                cycle-new => { root.cycle-new(); }
-                vision-edited(t) => { root.vision-edited(t); }
-            }
         }
     }
 }

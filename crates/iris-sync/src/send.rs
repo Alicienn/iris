@@ -321,6 +321,82 @@ impl SendService {
         body: &str,
         scope: ReplyScope,
     ) -> Result<Outgoing> {
+        let (compte, mut reponse) = self.reply_base(thread, scope)?;
+        // Le texte de l'utilisateur passe devant la citation, qui suit. La signature
+        // s'intercale entre les deux : sous ce qu'on vient d'écrire, au-dessus de ce
+        // qu'on cite. La mettre tout en bas la placerait après le message de
+        // l'interlocuteur, où personne ne la cherche.
+        reponse.text_body = format!(
+            "{}{}",
+            avec_signature(body, &compte.signature),
+            reponse.text_body
+        );
+        Ok(reponse)
+    }
+
+    /// A reply as the composer starts it: the mailbox it leaves from, and the message
+    /// with its sender, recipients, subject and threading, whose `text_body` is only
+    /// the quote that goes under what is written (no signature: sending adds it, above
+    /// the quote, as [`compose_reply`](Self::compose_reply) does).
+    pub fn reply_prefill(
+        &self,
+        thread: ThreadId,
+        scope: ReplyScope,
+    ) -> Result<(iris_types::AccountId, Outgoing)> {
+        let (compte, reponse) = self.reply_base(thread, scope)?;
+        Ok((compte.id, reponse))
+    }
+
+    /// What the conversation said before a reply, newest first, for the composer to
+    /// show under what is being written: who wrote, when, and their own words (what
+    /// they quoted of the earlier messages left out, since those follow).
+    pub fn thread_history(&self, thread: ThreadId) -> Result<Vec<PastMessage>> {
+        const AU_PLUS: usize = 20;
+        let messages = self.engine.store().thread_messages(thread)?;
+        let mut vus = std::collections::HashSet::new();
+        let mut sortie = Vec::new();
+        for m in messages.iter().rev() {
+            if m.flags.contains(Flags::DRAFT) {
+                continue;
+            }
+            // Each message once (Gmail lists it in the inbox and in All Mail), from
+            // the copy whose body is downloaded.
+            let copie = match m.rfc_message_id.as_deref() {
+                Some(id) => {
+                    if !vus.insert(id.to_string()) {
+                        continue;
+                    }
+                    messages
+                        .iter()
+                        .find(|x| x.rfc_message_id.as_deref() == Some(id) && x.body_blob.is_some())
+                        .unwrap_or(m)
+                }
+                None => m,
+            };
+            let from = if copie.from_name.trim().is_empty() {
+                copie.from_addr.clone()
+            } else {
+                copie.from_name.trim().to_string()
+            };
+            sortie.push(PastMessage {
+                from,
+                date: copie.received,
+                text: own_words(&self.original_body(copie)),
+            });
+            if sortie.len() == AU_PLUS {
+                break;
+            }
+        }
+        Ok(sortie)
+    }
+
+    /// The account a reply leaves from and the bare reply: recipients, subject,
+    /// threading, and the quote as its body.
+    fn reply_base(
+        &self,
+        thread: ThreadId,
+        scope: ReplyScope,
+    ) -> Result<(iris_store::Account, Outgoing)> {
         let messages = self.engine.store().thread_messages(thread)?;
         let dernier = reply_target(self.engine.store(), &messages)?
             .ok_or_else(|| Error::store(format!("fil {thread} vide")))?;
@@ -350,17 +426,8 @@ impl SendService {
 
         let identite = reply_identity(self.engine.store(), &compte, &messages)?;
 
-        let mut reponse = iris_smtp::reply(&cible, &identite, scope);
-        // Le texte de l'utilisateur passe devant la citation, qui suit. La signature
-        // s'intercale entre les deux : sous ce qu'on vient d'écrire, au-dessus de ce
-        // qu'on cite. La mettre tout en bas la placerait après le message de
-        // l'interlocuteur, où personne ne la cherche.
-        reponse.text_body = format!(
-            "{}{}",
-            avec_signature(body, &compte.signature),
-            reponse.text_body
-        );
-        Ok(reponse)
+        let reponse = iris_smtp::reply(&cible, &identite, scope);
+        Ok((compte, reponse))
     }
 
     /// De quoi préremplir l'éditeur pour transférer un fil : le sujet et la citation.
@@ -1112,6 +1179,67 @@ pub struct Draft {
     pub attachments: Vec<iris_smtp::Attachment>,
 }
 
+/// An earlier message of a conversation, as the composer shows it under a reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PastMessage {
+    /// The sender's name, or their address when they gave none.
+    pub from: String,
+    pub date: iris_types::Timestamp,
+    /// Their own words: see [`own_words`].
+    pub text: String,
+}
+
+/// A message's own words: what it quotes of earlier ones left out (the lines in `>`,
+/// the "On …, … wrote:" line that opens them, and everything from an Outlook
+/// "-----Original Message-----" on), blank lines run together, and cut short past a
+/// few thousand characters.
+pub fn own_words(text: &str) -> String {
+    const LIMITE: usize = 4000;
+    let lignes: Vec<&str> = text.lines().collect();
+    let mut gardees: Vec<&str> = Vec::new();
+    for (i, ligne) in lignes.iter().enumerate() {
+        let t = ligne.trim();
+        if t.starts_with('>') {
+            continue;
+        }
+        if t.eq_ignore_ascii_case("-----Original Message-----") {
+            break;
+        }
+        // The line that opens a quote: it ends with a colon, and the next line with
+        // something in it is quoted.
+        let ouvre_citation = t.ends_with(':')
+            && lignes[i + 1..]
+                .iter()
+                .find(|l| !l.trim().is_empty())
+                .is_some_and(|l| l.trim_start().starts_with('>'));
+        if ouvre_citation {
+            continue;
+        }
+        gardees.push(ligne.trim_end());
+    }
+
+    let mut sortie = String::new();
+    let mut blanc = false;
+    for ligne in gardees {
+        if ligne.trim().is_empty() {
+            blanc = true;
+            continue;
+        }
+        if !sortie.is_empty() {
+            sortie.push('\n');
+            if blanc {
+                sortie.push('\n');
+            }
+        }
+        blanc = false;
+        sortie.push_str(ligne);
+    }
+    if sortie.chars().count() > LIMITE {
+        sortie = sortie.chars().take(LIMITE).collect::<String>() + "…";
+    }
+    sortie
+}
+
 impl Draft {
     /// An empty draft for one mailbox.
     pub fn new(account: iris_types::AccountId) -> Self {
@@ -1195,6 +1323,19 @@ mod tests {
         assert_eq!(bons.len(), 2);
         assert_eq!(bons[0].name.as_deref(), Some("Dupont, Marie"));
         assert_eq!(bons[0].addr, "marie@example.com");
+    }
+
+    #[test]
+    fn a_message_s_own_words_leave_out_what_it_quotes() {
+        let texte = "Thanks, see you Monday.\r\n\r\n\r\nPaul\r\n\r\nOn Tue 3 Oct 2026 at 09:12, Marie wrote:\r\n> Shall we meet?\r\n>\r\n> Marie\r\n";
+        assert_eq!(own_words(texte), "Thanks, see you Monday.\n\nPaul");
+        let outlook = "Yes.\n\n-----Original Message-----\nFrom: marie@example.com\nShall we?";
+        assert_eq!(own_words(outlook), "Yes.");
+        // A colon that opens no quote stays.
+        assert_eq!(
+            own_words("Two things:\n- one\n- two"),
+            "Two things:\n- one\n- two"
+        );
     }
 
     #[test]

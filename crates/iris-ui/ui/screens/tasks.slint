@@ -4,7 +4,7 @@ import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
 import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
 import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
-import { Nav, SectionRow } from "@iris/lists/nav.slint";
+import { Nav, NavItem, SectionRow } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
@@ -1135,8 +1135,11 @@ component AddBar inherits Rectangle {
     callback edited(string);
     callback add(string);
     callback answered(string);
+    /// Raised to put the cursor in the line.
+    in property <int> focus-request;
 
     public function focus-field() { champ.focus(); }
+    changed focus-request => { champ.focus(); }
 
     // As Reminders' "New reminder": no box, the accent's plus where a circle would be,
     // a hairline over it; a soft plate while it is typed in.
@@ -1314,6 +1317,12 @@ export component TasksView inherits Rectangle {
 
     /// Drawn in Growth, beside Growth's own column: no column of its own.
     in property <bool> embedded;
+    /// Only the column: the habits are shown, drawn by the window beside it.
+    in property <bool> column-only;
+    /// The habits are the place chosen in the column, and how many of today's are
+    /// done ("2 of 4").
+    in property <bool> habits-shown;
+    in property <string> habits-count;
     /// A goal, or all of them ("goal:3", "goals"), chosen from Today's nudges or the
     /// page of all goals: they live in Growth.
     callback goal-chosen(string);
@@ -1385,7 +1394,6 @@ export component TasksView inherits Rectangle {
     // A list is a white page, as in Reminders; a goal's cards stand on the grey ground.
     background: root.page == 0 ? Tokens.surface : Tokens.background;
 
-    changed focus-add-request => { ajout.focus-field(); }
 
     HorizontalLayout {
         // --- Left: the window's sidebar: the smart views as tiles, then the lists
@@ -1428,6 +1436,16 @@ export component TasksView inherits Rectangle {
                 }
             }
 
+            // The habits: a circle a day, beside the tasks.
+            NavItem {
+                label: "Habits";
+                icon: Icons.sprout;
+                icon-tint: Tokens.green;
+                count: root.habits-count;
+                selected: root.habits-shown;
+                clicked => { root.place-chosen("habits"); }
+            }
+
             for place[i] in root.places: VerticalLayout {
                 // A title above the first list, with the way to make another.
                 if place.is-list && (i == 0 || !root.places[i - 1].is-list): SectionRow {
@@ -1462,8 +1480,9 @@ export component TasksView inherits Rectangle {
         // --- Middle: the day, what there is to do, and the line to add more; or a
         // goal; or all of them ---
         // The toolbar runs over the page and the task's panel alike: the window's
-        // buttons stay in its corner.
-        VerticalLayout {
+        // buttons stay in its corner. While the habits show, the window draws them
+        // beside the column instead.
+        if !root.column-only: VerticalLayout {
             horizontal-stretch: 1;
 
             // The window's toolbar: a new task. Over a goal's grey page, the page's
@@ -1725,6 +1744,7 @@ export component TasksView inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
                 ajout := AddBar {
                     horizontal-stretch: 1000;
+                    focus-request: root.focus-add-request;
                     max-width: root.page == 0 ? 776px : 100000px;
                     text <=> root.add-text;
                     hint: root.add-hint;
@@ -1780,7 +1800,7 @@ export component TasksView inherits Rectangle {
     }
 
     // Its length, asked over the add bar, centred on the middle column.
-    if root.asking != "" && root.page != 2: EstimateBubble {
+    if root.asking != "" && root.page != 2 && !root.column-only: EstimateBubble {
         property <length> colonne: root.embedded ? 0px : 232px;
         property <length> milieu: root.width - self.colonne - (root.has-detail ? 384px : 0px);
         x: self.colonne + (self.milieu - self.width) / 2;

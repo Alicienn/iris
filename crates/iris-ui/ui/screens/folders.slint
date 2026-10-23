@@ -13,9 +13,10 @@ import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 
 // Une ligne de l'arborescence.
 //
-// L'indentation est la seule chose qui dise la hiérarchie : pas de triangle de
-// dépliage. Une arborescence de courrier fait deux niveaux dans la quasi-totalité des
-// cas, et un dossier replié est un dossier qu'on ne trouve pas.
+// L'indentation dit la hiérarchie. A folder with folders under it also has a small
+// chevron in the indent before its icon, which folds them away: a tree of a few
+// dozen clients' folders is otherwise a column to scroll past. Folded is remembered;
+// unfolded is how every tree starts, since a folded folder is one you do not find.
 component FolderRow inherits Rectangle {
     in property <FolderNodeData> node;
     in property <bool> selected;
@@ -23,6 +24,10 @@ component FolderRow inherits Rectangle {
 
     callback clicked();
     callback dropped();
+    /// The chevron: the folders under this one folded away, or back.
+    callback fold-toggled();
+    /// Where the chevron's zone ends: a click left of it folds, anywhere else opens.
+    property <length> pli: root.node.depth * 14px + 13px;
 
     /// On some mailboxes only, and not made so on purpose: worth a mark.
     property <bool> absent-elsewhere: !root.node.permanent && !root.node.restricted
@@ -75,6 +80,29 @@ component FolderRow inherits Rectangle {
     accessible-description: root.node.count + " conversations, on "
         + root.node.accounts + " mailboxes";
     accessible-action-default => { root.clicked(); }
+
+    // In the indent, before the icon: the icons of a level stay in one column whether
+    // or not a folder has some under it. Drawn only; the row's touch area reads where
+    // it was hit, as a tag's title does in the accounts.
+    if root.node.has-children: Rectangle {
+        x: root.node.depth * 14px;
+        y: (parent.height - self.height) / 2;
+        width: 11px;
+        height: 18px;
+        border-radius: 3px;
+        background: touch.has-hover && touch.mouse-x < root.pli
+            ? Tokens.surface-active : transparent;
+
+        accessible-role: button;
+        accessible-label: (root.node.folded ? "Unfold " : "Fold ") + root.node.name;
+        accessible-action-default => { root.fold-toggled(); }
+
+        Icon {
+            data: root.node.folded ? Icons.chevron-right : Icons.chevron-down;
+            size: 10px;
+            tint: Nav.count-ink(root.selected);
+        }
+    }
 
     HorizontalLayout {
         padding-left: 9px + root.node.depth * 14px;
@@ -134,7 +162,13 @@ component FolderRow inherits Rectangle {
                     self.absolute-position.y + self.mouse-y);
             }
         }
-        clicked => { root.clicked(); }
+        clicked => {
+            if (root.node.has-children && self.mouse-x < root.pli) {
+                root.fold-toggled();
+            } else {
+                root.clicked();
+            }
+        }
     }
 
     // The mark says why when the row is pointed at: the row's touch area is on top of
@@ -160,6 +194,7 @@ export component FolderTree inherits VerticalLayout {
     callback scheduled-requested();
     callback folder-dropped(string);
     callback folder-menu(string, length, length);
+    callback folder-fold-toggled(string);
 
     spacing: 1px;
 
@@ -244,6 +279,7 @@ export component FolderTree inherits VerticalLayout {
             selected: node.path == root.selected-path;
             clicked => { root.folder-selected(node.path); }
             dropped => { root.folder-dropped(node.path); }
+            fold-toggled => { root.folder-fold-toggled(node.path); }
             context-menu(mx, my) => { root.folder-menu(node.path, mx, my); }
         }
     }

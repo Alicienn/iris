@@ -1,5 +1,4 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { TextArea } from "@iris/controls/field.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MessageData, MessageBlockData, BodyTileData, AttachmentData } from "@iris/types.slint";
 import { LoadingLine } from "@iris/base/spinner.slint";
@@ -9,6 +8,23 @@ import { Toolbar } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { Avatar } from "@iris/base/atoms.slint";
 
+// What is selected in the messages shown as text, for the menu of a right-click.
+//
+// Each block of a message is a text of its own, and a text forgets its selection the
+// moment it loses the keyboard — which closing the menu does. So the block holding a
+// selection keeps where it runs, and copies it when asked, after it has let go.
+export global MessageText {
+    /// Words are selected in a block of a text message.
+    in-out property <bool> has-selection;
+    /// Raised by each block that takes the selection: the block holding the latest
+    /// number holds it.
+    in-out property <int> holder;
+    /// Raised to have the holder put its selection on the clipboard.
+    in-out property <int> copy-serial;
+    /// The message every block of which "Select all" selected, -1 for none.
+    in-out property <int> all-selected: -1;
+}
+
 // Un bloc du corps du message.
 //
 // Le corps arrive déjà découpé en blocs par le moteur de rendu : l'interface ne voit
@@ -16,12 +32,71 @@ import { Avatar } from "@iris/base/atoms.slint";
 // Words of a message: read as text, and selected with the mouse like any text, then
 // copied. Never written into: the keys it has no use for go on to the shortcuts.
 component SelectableText inherits TextInput {
+    /// The message the words belong to, for "Select all".
+    in property <int> message: -1;
+
     read-only: true;
     single-line: false;
     wrap: word-wrap;
     selection-background-color: Tokens.accent.transparentize(0.7);
     selection-foreground-color: Tokens.text;
     text-cursor-width: 0px;
+
+    // Words highlighted here, while this block has the keyboard.
+    property <bool> live: root.has-focus
+        && root.anchor-position-byte-offset != root.cursor-position-byte-offset;
+    // This block's number when it last took the selection, and where it ran.
+    property <int> ticket;
+    property <int> kept-anchor;
+    property <int> kept-cursor;
+
+    changed live => {
+        if (root.live) {
+            MessageText.holder += 1;
+            root.ticket = MessageText.holder;
+            MessageText.has-selection = true;
+            root.keep();
+        } else if (root.ticket == MessageText.holder) {
+            MessageText.has-selection = false;
+        }
+    }
+    changed anchor-position-byte-offset => { root.keep(); }
+    changed cursor-position-byte-offset => { root.keep(); }
+
+    function keep() {
+        if (root.live) {
+            root.kept-anchor = root.anchor-position-byte-offset;
+            root.kept-cursor = root.cursor-position-byte-offset;
+        }
+        // Words chosen by hand end a "Select all".
+        if (root.has-focus) {
+            MessageText.all-selected = -1;
+        }
+    }
+
+    // Copied once the menu has closed and taken the keyboard, from what was kept.
+    property <int> copy-serial: MessageText.copy-serial;
+    changed copy-serial => {
+        if (root.ticket > 0 && root.ticket == MessageText.holder
+            && root.kept-anchor != root.kept-cursor) {
+            root.set-selection-offsets(root.kept-anchor, root.kept-cursor);
+            root.copy();
+            if (!root.has-focus) {
+                root.clear-selection();
+            }
+        }
+    }
+
+    // "Select all" highlights every block of the message; anything else chosen clears
+    // them. The block with the keyboard keeps what is being chosen in it.
+    property <bool> whole: root.message >= 0 && MessageText.all-selected == root.message;
+    changed whole => {
+        if (root.whole) {
+            root.select-all();
+        } else if (!root.has-focus) {
+            root.clear-selection();
+        }
+    }
 }
 
 // Words with a link in them: drawn with their marks, the links in the accent, and a
@@ -73,6 +148,8 @@ component LinkedText inherits Rectangle {
 
 component MessageBlock inherits Rectangle {
     in property <MessageBlockData> block;
+    /// The message the block belongs to.
+    in property <int> message: -1;
     /// A link of the block clicked: its target, as the message wrote it.
     callback link(string);
     /// The pointer over words with a link, or leaving them: (over, link, its words).
@@ -135,6 +212,7 @@ component MessageBlock inherits Rectangle {
         }
 
         if root.block.kind == "heading" && !root.block.has-link: SelectableText {
+            message: root.message;
             text: root.block.text;
             font-size: Tokens.size-title + (3 - min(root.block.level, 3)) * 2px;
             font-weight: Tokens.weight-bold;
@@ -155,6 +233,7 @@ component MessageBlock inherits Rectangle {
             border-radius: Tokens.radius-small;
             height: code-text.preferred-height + Tokens.space-4;
             code-text := SelectableText {
+                message: root.message;
                 x: Tokens.space-2;
                 y: Tokens.space-2;
                 width: parent.width - Tokens.space-4;
@@ -167,13 +246,20 @@ component MessageBlock inherits Rectangle {
 
         // Une citation est repliée par défaut au-delà du premier niveau : dans un fil
         // de dix réponses, afficher les neuf précédentes noie la seule ligne utile.
+        // A bar per level of quoting, rounded, in the accent kept faint: what was
+        // quoted reads as set aside, the deeper the further in.
         if root.block.kind == "quote": HorizontalLayout {
-            spacing: Tokens.space-2;
-            Rectangle {
-                width: 2px;
-                background: Tokens.border-strong;
+            spacing: Tokens.space-3;
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                for niveau in max(1, root.block.depth): Rectangle {
+                    width: 3px;
+                    border-radius: 1.5px;
+                    background: Tokens.accent.transparentize(0.6);
+                }
             }
             if !root.block.has-link: SelectableText {
+                message: root.message;
                 text: root.block.text;
                 font-size: Tokens.size-body;
                 color: Tokens.text-muted;
@@ -196,6 +282,7 @@ component MessageBlock inherits Rectangle {
                 color: Tokens.text-secondary;
             }
             if !root.block.has-link: SelectableText {
+                message: root.message;
                 text: root.block.text;
                 font-size: Tokens.size-body;
                 color: Tokens.text;
@@ -213,6 +300,7 @@ component MessageBlock inherits Rectangle {
         // single line tens of thousands of pixels long; the card around it grew as wide,
         // and the renderer stopped the application drawing its rounded corner.
         if root.block.kind == "table" && !root.block.has-link: SelectableText {
+            message: root.message;
             text: root.block.text;
             font-family: Tokens.font-mono;
             font-size: Tokens.size-small;
@@ -231,6 +319,7 @@ component MessageBlock inherits Rectangle {
         }
 
         if root.block.kind == "paragraph" && !root.block.has-link: SelectableText {
+            message: root.message;
             text: root.block.text;
             font-size: Tokens.size-body;
             font-weight: root.block.bold ? Tokens.weight-bold : Tokens.weight-body;
@@ -647,52 +736,6 @@ component Attachments inherits VerticalLayout {
 // What the reading toolbar's menus hold: until when to snooze, and the rarer actions.
 // An invitation over the message that carries it: what, when, and where it stands in
 // the calendar, with the one thing to do about it.
-// A button of the reply box that says, when pointed at, to whom it sends: the To, Cc
-// and Bcc lines apart.
-component RecipientsButton inherits Rectangle {
-    in property <string> text;
-    in property <string> icon;
-    in property <ButtonKind> kind;
-    in property <bool> enabled;
-    in property <string> to;
-    in property <string> cc;
-    in property <string> bcc;
-    callback clicked();
-
-    // The button sizes itself; the frame follows it. Given the frame's width back,
-    // the button read its own width through it and both came out at nothing, Send
-    // and Reply all drawn over each other.
-    width: bouton.width;
-    height: bouton.height;
-    bouton := Button {
-        x: 0;
-        y: 0;
-        text: root.text;
-        icon: root.icon;
-        kind: root.kind;
-        size: ButtonSize.sm;
-        enabled: root.enabled;
-        label: root.to == "" ? root.text : root.text + " to " + root.to
-            + (root.cc == "" ? "" : ", copy to " + root.cc)
-            + (root.bcc == "" ? "" : ", blind copy to " + root.bcc);
-        clicked => { root.clicked(); }
-    }
-    // One tooltip per element: each case on a clear layer of its own over the button
-    // (no touch area, so the click still reaches it).
-    if root.to != "" && root.cc == "" && root.bcc == "": Rectangle {
-        Tooltip { text: @markdown("To: \{root.to}"); }
-    }
-    if root.to != "" && root.cc != "" && root.bcc == "": Rectangle {
-        Tooltip { text: @markdown("To: \{root.to}\n\nCc: \{root.cc}"); }
-    }
-    if root.to != "" && root.cc == "" && root.bcc != "": Rectangle {
-        Tooltip { text: @markdown("To: \{root.to}\n\nBcc: \{root.bcc}"); }
-    }
-    if root.to != "" && root.cc != "" && root.bcc != "": Rectangle {
-        Tooltip { text: @markdown("To: \{root.to}\n\nCc: \{root.cc}\n\nBcc: \{root.bcc}"); }
-    }
-}
-
 component InviteBanner inherits Rectangle {
     /// 1 not in the calendar, 2 in it, 3 changed since, 4 cancelled but still in it,
     /// 5 cancelled and not in it.
@@ -819,6 +862,8 @@ export component ReaderMenu inherits Rectangle {
 
     callback snooze(string);
     callback forward-thread();
+    /// Answer in the composer: the sender, or everyone (true).
+    callback reply(bool);
     callback toggle-unread();
     callback view-source();
     callback dismissed();
@@ -864,6 +909,38 @@ export component ReaderMenu inherits Rectangle {
         }
     }
 
+    // The ways to answer, from the chevron beside Reply under the thread: it rises
+    // above the button, its left edge on the button's.
+    if root.kind == "reply": MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y - self.menu-height;
+        menu-width: 220px;
+        menu-height: reponses.preferred-height + 8px;
+
+        reponses := VerticalLayout {
+            padding: 4px;
+            MenuEntry {
+                icon: Icons.reply;
+                label: "Reply";
+                shortcut: "Ctrl+R";
+                activated => { root.reply(false); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.reply-all;
+                label: "Reply all";
+                shortcut: "Ctrl+Shift+R";
+                activated => { root.reply(true); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.forward;
+                label: "Forward";
+                activated => { root.forward-thread(); root.dismissed(); }
+            }
+        }
+    }
+
     if root.kind == "more": MenuSurface {
         available-width: root.width;
         available-height: root.height;
@@ -899,14 +976,16 @@ export component ReaderMenu inherits Rectangle {
 }
 
 // What a right-click in a message offers: the link under the pointer, the words
-// selected. Rust fills it and acts on the choice (`chosen`: "open", "copy-link",
-// "copy-text", "copy-selection").
+// selected, all the words. Rust fills it and acts on the choice (`chosen`: "open",
+// "copy-link", "copy-text", "copy-selection", "select-all").
 export component LinkMenu inherits Rectangle {
     /// "web", "mail", or empty when no link is under the pointer.
     in property <string> kind;
     /// The words of the link, empty for a picture.
     in property <string> link-text;
     in property <bool> has-selection;
+    /// Opened over the body of a message: Copy and Select all are offered.
+    in property <bool> body;
     in property <length> menu-x;
     in property <length> menu-y;
 
@@ -961,12 +1040,19 @@ export component LinkMenu inherits Rectangle {
                 label: "Copy link text";
                 activated => { root.chosen("copy-text"); root.dismissed(); }
             }
-            if root.kind != "" && root.has-selection: MenuSeparator {}
-            if root.has-selection: MenuEntry {
+            if root.kind != "" && (root.has-selection || root.body): MenuSeparator {}
+            // Over a body, Copy is always there, dimmed while nothing is selected.
+            if root.has-selection || root.body: MenuEntry {
                 icon: Icons.copy;
                 label: "Copy";
                 shortcut: "Ctrl+C";
+                enabled: root.has-selection;
                 activated => { root.chosen("copy-selection"); root.dismissed(); }
+            }
+            if root.body: MenuEntry {
+                icon: Icons.align-left;
+                label: "Select all";
+                activated => { root.chosen("select-all"); root.dismissed(); }
             }
         }
     }
@@ -980,16 +1066,6 @@ export component ConversationView inherits VerticalLayout {
     /// Le fil entier, du plus ancien au plus récent.
     in property <[MessageData]> messages;
     in property <bool> empty: true;
-    in-out property <string> reply-text;
-    /// Whom Send and Reply all write to, each line apart (addresses joined by commas).
-    in property <string> reply-to;
-    in property <string> reply-cc;
-    in property <string> reply-bcc;
-    in property <string> reply-all-to;
-    in property <string> reply-all-cc;
-    in property <string> reply-all-bcc;
-    /// Another conversation is shown: its reply's recipients are asked for.
-    callback reply-recipients-wanted();
 
     in property <bool> starred;
     /// The mailbox the conversation came to.
@@ -1007,9 +1083,12 @@ export component ConversationView inherits VerticalLayout {
     /// How wide the thread runs at most; centred beyond.
     in property <length> column: 900px;
 
-    callback send();
+    /// Answer the conversation in the composer: the sender, or everyone (true).
+    callback reply(bool);
+    /// The other ways to answer (Reply all, Forward), and where the menu's bottom left
+    /// goes (in the window).
+    callback reply-menu(length, length);
     callback load-images();
-    callback reply-all();
     callback save-attachment(int);
     callback open-attachment(int);
     /// The invitation a message carries: into the calendar (message id), or opened
@@ -1058,6 +1137,9 @@ export component ConversationView inherits VerticalLayout {
     callback body-menu(int, int, float, float, length, length);
     /// A key the message's text had no use for, to hand to the shortcuts.
     callback keys-left(string);
+    /// A right-click in a body shown as text, away from a link: (message id, the point
+    /// in the window). What is selected is in `MessageText`.
+    callback text-menu(int, length, length);
     /// No tile asks for pixels while this is set: the window is hidden, and what was
     /// painted has been given back.
     in property <bool> bodies-suspended;
@@ -1069,7 +1151,9 @@ export component ConversationView inherits VerticalLayout {
     changed courant => {
         root.entree = 0;
         arrivee.running = true;
-        root.reply-recipients-wanted();
+        // What was selected went with the thread.
+        MessageText.has-selection = false;
+        MessageText.all-selected = -1;
     }
     arrivee := Timer {
         interval: 16ms;
@@ -1400,16 +1484,42 @@ export component ConversationView inherits VerticalLayout {
                     // Text bodies sit under the name, clear of the face.
                     // The words can be selected; what the keyboard does meanwhile that
                     // text has no use for (e, j, r…) goes on to the shortcuts.
-                    if message.expanded && !message.body-loading && !message.body-is-image: FocusScope {
+                    if message.expanded && !message.body-loading && !message.body-is-image: corps := FocusScope {
                     key-pressed(event) => {
+                        // A modifier alone waits for its key, here: Ctrl, then C, copies
+                        // the words selected. Handed on, it took the keyboard and the
+                        // selection with it before the C came.
+                        if (event.text == Key.Control || event.text == Key.Shift
+                            || event.text == Key.Alt || event.text == Key.Meta) {
+                            return reject;
+                        }
                         root.keys-left(event.text);
                         accept
+                    }
+                    // Beneath the words: what they leave. A right-click opens the
+                    // menu of the body without taking the keyboard from the words,
+                    // which would forget their selection; a click between them hands
+                    // the keyboard here, as it did before.
+                    TouchArea {
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                if (event.button == PointerEventButton.right) {
+                                    root.text-menu(message.id,
+                                        self.absolute-position.x + self.mouse-x,
+                                        self.absolute-position.y + self.mouse-y);
+                                } else if (event.button == PointerEventButton.left) {
+                                    MessageText.all-selected = -1;
+                                    corps.focus();
+                                }
+                            }
+                        }
                     }
                     VerticalLayout {
                         padding-left: 0px;
                         spacing: 10px;
                         for block in message.blocks: MessageBlock {
                             block: block;
+                            message: message.id;
                             link(l) => { root.message-link(l); }
                             link-hovered(on, l, t) => { root.message-link-hovered(on, l, t); }
                         }
@@ -1443,66 +1553,36 @@ export component ConversationView inherits VerticalLayout {
             }
         }
 
-        // La réponse est intégrée au bas du fil, jamais dans une fenêtre à part :
-        // répondre est le geste qui fait avancer le workflow, il ne doit rien
-        // recouvrir.
-        // One line until it is written in; it grows with what is written, up to a
-        // few lines. It lines up with the thread above it.
+        // Answering, under the thread and lined up with it: Reply opens the composer
+        // filled in (the sender, the subject, the conversation under the body), where
+        // there is room to write and to see whom it goes to. The chevron offers the
+        // other ways: Reply all, Forward.
         Rectangle {
             vertical-stretch: 0;
-            height: root.reply-text == "" ? 84px : 160px;
+            height: 52px;
 
-            Rectangle {
+            HorizontalLayout {
                 x: max(32px, (root.width - root.column) / 2);
                 width: min(root.column, root.width - 64px);
-                border-radius: 10px;
-                border-width: 1px;
-                border-color: champ.has-focus ? Tokens.accent : Tokens.border-strong;
-                background: Tokens.surface;
+                padding-top: 8px;
+                padding-bottom: 16px;
+                spacing: 2px;
+                alignment: start;
 
-                // The buttons clear of the rounded border: 10 px all round.
-                VerticalLayout {
-                    padding: 10px;
-                    padding-left: 12px;
-                    padding-top: 4px;
-                    spacing: 0px;
-
-                    champ := TextArea {
-                        bare: true;
-                        accessible-label: "Your reply";
-                        text <=> root.reply-text;
-                        placeholder-text: "Reply to " + root.message.from + "…";
-                        font-size: Tokens.size-body;
-                        min-height: 36px;
-                    }
-
-                    HorizontalLayout {
-                        spacing: 6px;
-                        alignment: end;
-                        height: 28px;
-                        // Each says, pointed at, to whom it sends.
-                        RecipientsButton {
-                            text: "Reply all";
-                            icon: Icons.reply-all;
-                            kind: ButtonKind.secondary;
-                            enabled: root.reply-text != "";
-                            to: root.reply-all-to;
-                            cc: root.reply-all-cc;
-                            bcc: root.reply-all-bcc;
-                            clicked => { root.reply-all(); }
-                        }
-                        // Sent, the reply leaves the field; the notice at the bottom
-                        // of the window can take it back for a few seconds.
-                        RecipientsButton {
-                            text: "Send";
-                            icon: Icons.send;
-                            kind: ButtonKind.primary;
-                            enabled: root.reply-text != "";
-                            to: root.reply-to;
-                            cc: root.reply-cc;
-                            bcc: root.reply-bcc;
-                            clicked => { root.send(); }
-                        }
+                repondre := Button {
+                    text: "Reply";
+                    icon: Icons.reply;
+                    shortcut: "Ctrl+R";
+                    clicked => { root.reply(false); }
+                }
+                autres-reponses := IconButton {
+                    icon: Icons.chevron-down;
+                    label: "More ways to reply";
+                    button-size: 28px;
+                    icon-size: 14px;
+                    clicked => {
+                        root.reply-menu(repondre.absolute-position.x,
+                            repondre.absolute-position.y - 6px);
                     }
                 }
             }

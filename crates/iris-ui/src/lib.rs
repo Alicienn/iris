@@ -22,6 +22,7 @@ pub mod bridge;
 pub mod commands;
 pub mod format;
 pub mod keymap;
+pub mod recipients;
 
 pub use commands::{builtin_commands, Command, CommandKind};
 pub use keymap::{KeyOutcome, Keymap};

@@ -427,6 +427,16 @@ impl TiledDocument for BlitzDocument {
         self.document.get_selected_text()
     }
 
+    /// From the start of the first run of words laid out to the end of the last.
+    fn select_all(&mut self) -> bool {
+        let Some((premier, dernier, longueur)) = self.extremites_du_texte() else {
+            return false;
+        };
+        self.document
+            .set_text_selection(premier, 0, dernier, longueur);
+        true
+    }
+
     /// The `<a href>` around what is under the point: the hit is a word, an image or a
     /// box inside the link, so the link is found by going up from it.
     fn link_at(&self, x: f32, y: f32) -> Option<String> {
@@ -460,6 +470,43 @@ impl BlitzDocument {
             noeud = n.parent;
         }
         None
+    }
+
+    /// The first and the last node that lay out words, in reading order, and the
+    /// length of the last one's text: where "Select all" starts and ends.
+    ///
+    /// Walked in layout order, which is the order the words are read in, with a
+    /// stack rather than recursion: a newsletter nested a thousand deep stays off the
+    /// call stack.
+    fn extremites_du_texte(&self) -> Option<(blitz_dom::NodeId, blitz_dom::NodeId, usize)> {
+        let mut premier = None;
+        let mut dernier = None;
+        let mut pile = vec![self.document.root_node().id];
+        while let Some(id) = pile.pop() {
+            let Some(noeud) = self.document.get_node(id) else {
+                continue;
+            };
+            if noeud.flags.is_inline_root() {
+                if let Some(mots) = noeud
+                    .element_data()
+                    .and_then(|el| el.inline_layout_data.as_ref())
+                {
+                    if !mots.text.trim().is_empty() {
+                        if premier.is_none() {
+                            premier = Some(id);
+                        }
+                        dernier = Some((id, mots.text.len()));
+                    }
+                }
+            }
+            let enfants = noeud.layout_children.borrow();
+            match enfants.as_deref() {
+                Some(e) => pile.extend(e.iter().rev().copied()),
+                None => pile.extend(noeud.children.iter().rev().copied()),
+            }
+        }
+        let (dernier, longueur) = dernier?;
+        Some((premier?, dernier, longueur))
     }
 }
 
@@ -666,6 +713,28 @@ mod tests {
         assert_eq!(d.link_at(10.0, 90.0), None);
         assert_eq!(d.link_text_at(10.0, 10.0).as_deref(), Some("The offer"));
         assert_eq!(d.link_text_at(10.0, 50.0), None);
+    }
+
+    #[test]
+    fn select_all_takes_every_word_from_the_first_to_the_last() {
+        let mut d = document(
+            "<p>First words</p><div><p>In the middle</p></div><blockquote>Quoted</blockquote><p>Last words</p>",
+        );
+        assert!(d.selected_text().is_none());
+        assert!(d.select_all());
+        let texte = d.selected_text().expect("something is selected");
+        for mots in ["First words", "In the middle", "Quoted", "Last words"] {
+            assert!(texte.contains(mots), "{mots:?} missing from {texte:?}");
+        }
+        assert!(d.clear_selection());
+        assert!(d.selected_text().is_none());
+    }
+
+    #[test]
+    fn select_all_in_a_document_without_words_selects_nothing() {
+        let mut d = document("<div style='height:40px'></div>");
+        assert!(!d.select_all());
+        assert!(d.selected_text().is_none());
     }
 
     #[test]

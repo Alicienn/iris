@@ -165,6 +165,66 @@ fn un_clic_d_un_champ_a_l_autre_sans_suggestions() {
     assert_eq!(f.get_compose_to().as_str(), "b");
 }
 
+fn touche(f: &AppWindow, k: slint::platform::Key) {
+    let text: SharedString = k.into();
+    f.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    f.window().dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+fn une_virgule_fait_une_pastille_et_retour_la_reprend() {
+    // Each address typed becomes a chip once a comma ends it; the text behind stays
+    // what sending reads. Backspace in the empty line takes the last chip back, and
+    // a chip's cross takes it out.
+    let f = fenetre();
+    iris_ui::recipients::install(&f);
+    composer(&f);
+    clic(&champ(&f, "To"));
+    taper(&f, "marie@example.com,");
+    assert_eq!(f.get_compose_to().as_str(), "marie@example.com");
+    assert!(
+        testing::ElementHandle::find_by_accessible_label(&f, "Remove marie@example.com")
+            .next()
+            .is_some(),
+        "the address is a chip"
+    );
+
+    taper(&f, "paul@example.com,");
+    assert_eq!(
+        f.get_compose_to().as_str(),
+        "marie@example.com, paul@example.com"
+    );
+
+    touche(&f, slint::platform::Key::Backspace);
+    assert_eq!(f.get_compose_to().as_str(), "marie@example.com");
+
+    clic(&bouton(&f, "Remove marie@example.com"));
+    assert_eq!(f.get_compose_to().as_str(), "");
+}
+
+fn un_clic_entre_dans_le_champ_a_ses_pastilles_du_premier_coup() {
+    // A reply's sender is already a chip: one click in To from Subject puts the
+    // cursor there, and a space after a whole address makes it a chip too.
+    let f = fenetre();
+    iris_ui::recipients::install(&f);
+    f.set_compose_to("marie@example.com".into());
+    composer(&f);
+    clic(&champ(&f, "Subject"));
+    taper(&f, "Devis");
+    clic(&champ(&f, "To"));
+    taper(&f, "paul@example.com ");
+    assert_eq!(f.get_compose_subject().as_str(), "Devis");
+    assert_eq!(
+        f.get_compose_to().as_str(),
+        "marie@example.com, paul@example.com"
+    );
+    assert!(
+        testing::ElementHandle::find_by_accessible_label(&f, "Remove paul@example.com")
+            .next()
+            .is_some()
+    );
+}
+
 fn new_message_rouvre_en_grand_une_fenetre_reduite() {
     // Minimising takes the message down to a bar of its own (Rust keeps it), so the
     // window is free for another; New message then opens it full size.
@@ -400,6 +460,78 @@ fn a_click_on_a_painted_body_asks_for_the_link_under_it() {
         (x - 0.5).abs() < 0.05 && (y - 0.5).abs() < 0.05,
         "the middle of the tile: {x}, {y}"
     );
+}
+
+// --- A body shown as text ---
+
+const MOTS: &str = "Lunch on Friday works for me.";
+
+fn corps_en_texte(f: &AppWindow) -> testing::ElementHandle {
+    use iris_ui::{MessageBlockData, MessageData};
+    let bloc = MessageBlockData {
+        kind: "paragraph".into(),
+        text: MOTS.into(),
+        ..Default::default()
+    };
+    let message = MessageData {
+        id: 7,
+        from: "Marie".into(),
+        subject: "Lunch".into(),
+        expanded: true,
+        blocks: ModelRc::new(VecModel::from(vec![bloc])),
+        ..Default::default()
+    };
+    f.set_conversation_empty(false);
+    f.set_message(message.clone());
+    f.set_messages(ModelRc::new(VecModel::from(vec![message])));
+    slint::platform::update_timers_and_animations();
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::TextInput)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_value().as_deref() == Some(MOTS))
+        .expect("the words of the message")
+}
+
+fn a_right_click_on_selected_words_offers_copy_and_select_all() {
+    let f = fenetre();
+    let copies = Rc::new(RefCell::new(Vec::new()));
+    {
+        let c = Rc::clone(&copies);
+        f.on_copy_message_text(move |m| c.borrow_mut().push(m));
+    }
+    let mots = corps_en_texte(&f);
+
+    // Words selected with the keyboard in the message, then a right-click on them.
+    clic(&mots);
+    ctrl(&f, "a");
+    slint::platform::update_timers_and_animations();
+    clic_droit(&f, centre(&mots));
+    assert!(f.get_link_menu_open(), "the right-click opens the menu");
+    assert!(
+        f.get_link_menu_selection(),
+        "Copy is offered: words are selected"
+    );
+    assert_eq!(f.get_link_menu_message(), 7);
+    assert!(f.get_modal_open(), "the menu owns the keyboard");
+
+    // The words kept the keyboard: Escape still closes the menu.
+    echap(&f);
+    assert!(!f.get_link_menu_open(), "Escape closes the menu");
+    slint::platform::update_timers_and_animations();
+
+    // Nothing selected any more: the menu opens all the same, Copy dimmed.
+    clic_droit(&f, centre(&mots));
+    assert!(f.get_link_menu_open());
+    assert!(!f.get_link_menu_selection(), "nothing is selected");
+
+    // Select all, then Ctrl+C with the shortcuts: every word of the message.
+    clic(&bouton(&f, "Select all"));
+    assert!(!f.get_link_menu_open(), "choosing closes the menu");
+    slint::platform::update_timers_and_animations();
+    ctrl(&f, "c");
+    assert_eq!(*copies.borrow(), [7], "Ctrl+C copies the whole message");
 }
 
 // --- L'agenda ---
@@ -1985,7 +2117,7 @@ fn un_objectif_se_renomme_par_son_titre_et_se_modifie_au_stylo() {
     assert_eq!(*modifs.borrow(), 1);
 }
 
-fn ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude() {
+fn les_habitudes_des_taches_ou_l_espace_coche_l_habitude() {
     let f = fenetre();
     let touches = Rc::new(RefCell::new(Vec::<String>::new()));
     let choisies = Rc::new(RefCell::new(Vec::<i32>::new()));
@@ -2008,15 +2140,18 @@ fn ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude() {
         f.on_habit_quick_add(move |t| a.borrow_mut().push(t.to_string()));
     }
 
-    ctrl(&f, "5");
-    assert_eq!(f.get_workspace(), 5, "Ctrl+5 opens Growth");
+    // The habits are a place of Tasks: "Habits" in its column shows them.
+    ctrl(&f, "3");
+    assert_eq!(f.get_workspace(), 2, "Ctrl+3 opens Tasks");
+    clic(&par_role(&f, testing::AccessibleRole::ListItem, "Habits"));
+    assert!(f.get_tasks_habits(), "Habits in Tasks' column shows them");
     let jour = |d: &str, etat: i32| iris_ui::HabitCellData {
         state: etat,
         day: d.into(),
         label: format!("{d}, missed").into(),
         ..Default::default()
     };
-    f.set_growth_rows(ModelRc::new(VecModel::from(vec![
+    f.set_habits_rows(ModelRc::new(VecModel::from(vec![
         iris_ui::HabitData {
             kind: 1,
             title: "Every day".into(),
@@ -2038,7 +2173,7 @@ fn ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude() {
     taper(&f, "e");
     assert!(
         touches.borrow().is_empty(),
-        "no key reaches the mail behind Growth"
+        "no key reaches the mail behind the habits"
     );
 
     // A click on the row chooses it and hands the keyboard back: space ticks today.
@@ -2664,10 +2799,124 @@ fn un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites() {
     assert_eq!(*fermes.borrow(), 1, "Escape closes the window");
 }
 
+// --- The accounts column folded ---
+
+fn bas(e: &testing::ElementHandle) -> f32 {
+    e.absolute_position().y + e.size().height
+}
+
+fn replier_les_comptes_garde_la_fenetre_entiere() {
+    let f = fenetre();
+    deux_comptes(&f);
+    let taille = f.window().size();
+    let pied = bas(&bouton(&f, "Collapse the accounts"));
+
+    clic(&bouton(&f, "Collapse the accounts"));
+    testing::mock_elapsed_time(std::time::Duration::from_millis(400));
+    slint::platform::update_timers_and_animations();
+    assert!(f.get_sidebar_collapsed());
+    assert_eq!(f.window().size(), taille, "the window keeps its size");
+    // With the folders gone, nothing in the column could grow: it had a maximum
+    // height, and the whole row of columns was cut to it.
+    let deplier = bouton(&f, "Show account names");
+    assert!(
+        (bas(&deplier) - pied).abs() < 1.0,
+        "the folded column still reaches the bottom: {} against {pied}",
+        bas(&deplier)
+    );
+
+    // The head's controls fit the strip, none drawn over another.
+    let mut boites = vec![bouton(&f, "Back"), bouton(&f, "Forward")];
+    for place in ["Home", "Mail", "Calendar", "Tasks", "Notes", "Growth"] {
+        boites.push(par_role(&f, testing::AccessibleRole::Tab, place));
+    }
+    let cases: Vec<(String, f32, f32, f32, f32)> = boites
+        .iter()
+        .map(|b| {
+            let (p, t) = (b.absolute_position(), b.size());
+            (
+                b.accessible_label().unwrap_or_default().to_string(),
+                p.x,
+                p.y,
+                t.width,
+                t.height,
+            )
+        })
+        .collect();
+    for (nom, x, _, l, _) in &cases {
+        assert!(
+            *x >= 0.0 && x + l <= 64.5,
+            "{nom} is outside the strip: {x} + {l}"
+        );
+    }
+    for (i, a) in cases.iter().enumerate() {
+        for b in &cases[i + 1..] {
+            let a_part = a.1 + a.3 <= b.1 + 0.5
+                || b.1 + b.3 <= a.1 + 0.5
+                || a.2 + a.4 <= b.2 + 0.5
+                || b.2 + b.4 <= a.2 + 0.5;
+            assert!(a_part, "{} is drawn over {}", a.0, b.0);
+        }
+    }
+
+    clic(&deplier);
+    testing::mock_elapsed_time(std::time::Duration::from_millis(400));
+    slint::platform::update_timers_and_animations();
+    assert!(!f.get_sidebar_collapsed());
+    assert_eq!(f.window().size(), taille);
+    assert!((bas(&bouton(&f, "Collapse the accounts")) - pied).abs() < 1.0);
+}
+
+// --- Subfolders folded away ---
+
+fn le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre() {
+    let f = fenetre();
+    let dossier =
+        |chemin: &str, nom: &str, profondeur: i32, enfants: bool| iris_ui::FolderNodeData {
+            path: chemin.into(),
+            name: nom.into(),
+            depth: profondeur,
+            has_children: enfants,
+            ..Default::default()
+        };
+    f.set_folders(ModelRc::new(VecModel::from(vec![
+        dossier("Clients", "Clients", 0, true),
+        dossier("Clients.Acme", "Acme", 1, false),
+    ])));
+    let plies = Rc::new(RefCell::new(Vec::<String>::new()));
+    let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let p = Rc::clone(&plies);
+        f.on_folder_fold_toggled(move |c| p.borrow_mut().push(c.to_string()));
+        let o = Rc::clone(&ouverts);
+        f.on_folder_selected(move |c| o.borrow_mut().push(c.to_string()));
+    }
+
+    clic(&bouton(&f, "Fold Clients"));
+    assert_eq!(*plies.borrow(), ["Clients"], "the chevron folds");
+    assert!(ouverts.borrow().is_empty(), "and does not open the folder");
+
+    clic(&par_role(&f, testing::AccessibleRole::ListItem, "Clients"));
+    assert_eq!(
+        *ouverts.borrow(),
+        ["Clients"],
+        "the name opens it, first click"
+    );
+    assert_eq!(plies.borrow().len(), 1);
+}
+
 fn main() {
     testing::init_no_event_loop();
 
     let scenarios: Vec<(&str, fn())> = vec![
+        (
+            "replier_les_comptes_garde_la_fenetre_entiere",
+            replier_les_comptes_garde_la_fenetre_entiere,
+        ),
+        (
+            "le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre",
+            le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre,
+        ),
         (
             "un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites",
             un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites,
@@ -2709,8 +2958,8 @@ fn main() {
             un_profil_s_importe_depuis_l_ajout_de_compte,
         ),
         (
-            "ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude",
-            ctrl_5_ouvre_la_croissance_ou_l_espace_coche_l_habitude,
+            "les_habitudes_des_taches_ou_l_espace_coche_l_habitude",
+            les_habitudes_des_taches_ou_l_espace_coche_l_habitude,
         ),
         (
             "echap_quitte_la_lecture_en_plein_ecran",
@@ -2767,6 +3016,14 @@ fn main() {
         (
             "un_clic_d_un_champ_a_l_autre_sans_suggestions",
             un_clic_d_un_champ_a_l_autre_sans_suggestions,
+        ),
+        (
+            "une_virgule_fait_une_pastille_et_retour_la_reprend",
+            une_virgule_fait_une_pastille_et_retour_la_reprend,
+        ),
+        (
+            "un_clic_entre_dans_le_champ_a_ses_pastilles_du_premier_coup",
+            un_clic_entre_dans_le_champ_a_ses_pastilles_du_premier_coup,
         ),
         (
             "ctrl_2_ouvre_l_agenda_et_ses_touches_ne_touchent_pas_le_courrier",
@@ -2955,6 +3212,10 @@ fn main() {
         (
             "a_click_on_a_painted_body_asks_for_the_link_under_it",
             a_click_on_a_painted_body_asks_for_the_link_under_it,
+        ),
+        (
+            "a_right_click_on_selected_words_offers_copy_and_select_all",
+            a_right_click_on_selected_words_offers_copy_and_select_all,
         ),
     ];
 

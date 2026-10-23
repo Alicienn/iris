@@ -31,7 +31,7 @@
 | <img src="docs/assets/icons/calendar.svg" width="20" alt=""> | **Calendar.** Month, week and day views next to your mail, reminders, and calendars you follow by link. |
 | <img src="docs/assets/icons/check-circle.svg" width="20" alt=""> | **Tasks.** Lists, subtasks and reminders, typed in one line, with the conversations they came from one click away. |
 | <img src="docs/assets/icons/layers.svg" width="20" alt=""> | **Notes.** Markdown notes in folders of your own, written as they look, with LaTeX, links, flashcards and spreadsheets. |
-| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Growth.** Habits ticked day by day, with their streaks, and goals with the pace they need. |
+| <img src="docs/assets/icons/sun.svg" width="20" alt=""> | **Growth.** Goals with the pace they need; habits, ticked day by day in Tasks, with their streaks. |
 
 ## Install
 
@@ -133,7 +133,10 @@ instead, switch off *Open Iris on Home* in *Settings*.
 ## Mail
 
 The side column holds your accounts (grouped by tag, each tag with its colour and what
-its mailboxes have to do) and, under them, the folders. The magnifier beside *Accounts*
+its mailboxes have to do) and, under them, the folders; the arrow beside a folder with
+subfolders folds them away, and Iris remembers it. The panel button beside
+*Accounts* folds the column to a narrow strip, back and forward and the places stacked
+in it. The magnifier beside *Accounts*
 opens a field to find one by its address. Its foot says when the mail last synced.
 
 One toolbar runs above the list and the reader: where you are and how much is to do,
@@ -184,8 +187,14 @@ Select a message's words with the mouse as on any page, and copy them with `Ctrl
 Links in a message are drawn as links, remote images shown or not: a click opens a web
 link (`http://`, `https://`) in your browser and a mail address (`mailto:`) in a new
 message. Any other kind of link is not followed. Right-click a link to open it, copy
-its address or copy its text, or selected words to copy them. In a message shown as
-plain text, where a paragraph holds several links, only a click tells them apart.
+its address or copy its text; right-click anywhere else in a message to **Copy** the
+words you selected or **Select all** of it. In a message shown as plain text, where a
+paragraph holds several links, only a click tells them apart. Lines of plain-text mail
+starting with `>` are shown as quotations, a bar for each level; what is stored,
+replied and forwarded keeps them as they were.
+
+Right-click a conversation in the list for its menu; the conversation it acts on is
+outlined while the menu is open.
 
 An attachment you open or save is marked as come from the internet, as a browser marks
 a download: Windows warns before running a program or a macro it carries.
@@ -212,8 +221,17 @@ sender, subject or size (the biggest message first) instead, for the three queue
 
 Minimise a message you are writing and it becomes a bar at the bottom right, kept as a
 draft on this computer (even if Iris closes); **New message** then starts another, and
-a click on a bar brings its message back. In the reply box under a conversation, point
-at **Send** or **Reply all** to see who it goes to.
+a click on a bar brings its message back.
+
+**Reply** under a conversation (`Ctrl`+`R`) opens the composer filled in: from the
+mailbox the message came to, to its sender only, with *Re:* before the subject. The
+arrow beside it offers **Reply all** (`Ctrl`+`Shift`+`R`) and **Forward**; *Reply all*
+in the composer adds everyone else as Cc, or takes them back. The earlier messages of
+the conversation show under what you write, a bar for each, newest first. In *To*, *Cc*
+and *Bcc* an address becomes a chip once you type a comma, a space or `Enter`, pick a
+suggestion or leave the field; × or `Backspace` removes it, and one that is not an
+address shows in red. **Expand** makes the composer larger; point at **Send** to see
+exactly who will receive the message.
 
 The clock beside **Send** sends later: this evening (before five), tomorrow morning or
 afternoon, or Monday morning. The message waits in Iris, so Iris must be running when
@@ -293,7 +311,8 @@ arrow keys move to the previous or next period.
 
 Open **Tasks** at the top of the side column, or with `Ctrl`+`3`. Four tiles open
 **Today**, **Upcoming**, **All tasks** and **From mail**, each with its count; your
-lists follow. Goals are in [Growth](#growth).
+lists follow. **Habits**, under the tiles, says how many of today's are done. Goals are
+in [Growth](#growth).
 
 - Type a task in one line in the field at the bottom and press `Enter`. Iris reads the
   date, the time, the list and the priority out of it: `tomorrow 9am Call Marie #Work
@@ -341,9 +360,37 @@ done late comes back after today, never in the past.
 *This week*, in the column on the left, looks back and ahead: what is late, what was
 put off, what is due next week, what was done since Monday, and the goals under way.
 
+### Habits
+
+A habit is something you want to keep doing: read, run, Spanish. The page shows the
+week, a circle a day: filled in the habit's colour when you did it, half filled when
+you did some of it, a dash on a day it is not wanted, a blue ring for today still to
+do. Click a circle to tick that day (today or before), or choose a habit and press
+`Space` for today. At the right, the streak: the days in a row, with a flame while it
+runs. A missed day breaks the streak, but it is never owed: a habit is only ever about
+today. *Week*, *Month* and *Year* at the top show more at once.
+
+- Type a habit in one line in the field at the bottom (`N` puts the cursor there) and
+  press `Enter`: `Read 20 pages every day`, `Run 3 times a week`, `Spanish 15 min on
+  weekdays`, `Gym on mon, wed and fri`. A line starting with *No* or *Stop* is a habit
+  to do less of: `No phone in bed`.
+- **New habit** sets everything: its icon and colour, *Do more* or *Do less*, how often
+  (every day, some days, or so many times a week, any days), how much each time (20
+  pages), the goal it supports, and a reminder hour: Iris reminds you then if it is
+  not done yet.
+- Choose a habit to see its details: days in a row, its best streak, the last thirty
+  days, the last six months day by day, and the goal it supports. A habit with an
+  amount counts what you did today with **−** and **+**. The pencil changes it;
+  **Delete habit** deletes it and its days.
+- Habits are grouped *Every day*, *Some days* and *Less of*. Those you want a few
+  times a week say how many this week (`2 of 3`), and their streak is in weeks.
+
+In Habits: `N` adds one, `J` / `K` or the arrows to move, `Space` done today (or not),
+`Escape` closes the details.
+
 ### Backups and export
 
-Your calendars, tasks, goals, habits and compass exist only on this computer, so Iris copies them every
+Your calendars, tasks, goals and habits exist only on this computer, so Iris copies them every
 day to the `backups` folder beside its data and keeps the last fourteen days.
 *Settings › Your calendars and tasks* shows when the last copy was made, makes one now,
 opens the folder, and **restores** one: Iris says what it holds and asks first, and
@@ -492,55 +539,8 @@ other.
 ## Growth
 
 Open **Growth**, the sprout at the top of the side column, or press `Ctrl`+`5`. Its
-column holds **Habits**, with how many of today's are done, the **Compass**, and your
-**Goals**.
-
-### Habits
-
-A habit is something you want to keep doing: read, run, Spanish. The page shows the
-week, a circle a day: filled in the habit's colour when you did it, half filled when
-you did some of it, a dash on a day it is not wanted, a blue ring for today still to
-do. Click a circle to tick that day (today or before), or choose a habit and press
-`Space` for today. At the right, the streak: the days in a row, with a flame while it
-runs. A missed day breaks the streak, but it is never owed: a habit is only ever about
-today. *Week*, *Month* and *Year* at the top show more at once.
-
-- Type a habit in one line in the field at the bottom (`N` puts the cursor there) and
-  press `Enter`: `Read 20 pages every day`, `Run 3 times a week`, `Spanish 15 min on
-  weekdays`, `Gym on mon, wed and fri`. A line starting with *No* or *Stop* is a habit
-  to do less of: `No phone in bed`.
-- **New habit** sets everything: its icon and colour, *Do more* or *Do less*, how often
-  (every day, some days, or so many times a week, any days), how much each time (20
-  pages), the goal it supports, and a reminder hour: Iris reminds you then if it is
-  not done yet.
-- Choose a habit to see its details: days in a row, its best streak, the last thirty
-  days, the last six months day by day, and the goal it supports. A habit with an
-  amount counts what you did today with **−** and **+**. The pencil changes it;
-  **Delete habit** deletes it and its days.
-- Habits are grouped *Every day*, *Some days* and *Less of*. Those you want a few
-  times a week say how many this week (`2 of 3`), and their streak is in weeks.
-
-In Habits: `N` adds one, `J` / `K` or the arrows to move, `Space` done today (or not),
-`Escape` closes the details.
-
-### Compass
-
-The areas of your life (*Studies & career*, *Health*, *Relationships*, *Mind*, *Money*,
-*Fun* to start), on a wheel.
-
-- **Score this month** gives each area a score from 1 to 10, as you feel it; the wheel
-  draws this month's scores over last month's. Iris never scores for you.
-- Each area has a card: its score, the goal or habits in it (in orange when a goal is
-  behind), and its time this month: the tasks done in its lists or for its goals
-  (their length, half an hour when not said) and the time blocked for its goals, with
-  a mark at the hours a month you want to give it.
-- Click a card to rename the area, change its icon and colour, say how many hours a
-  month you want to give it, and tick the goals, habits and task lists that belong to
-  it. **Add an area** makes another.
-- **Cycles**: twelve weeks (or as many as you like) from a Monday, with the goals you
-  chose for them. The strip at the top shows the weeks gone and *what you planned,
-  done*: the steps of its goals done, against where a steady pace would be.
-- **Vision**: a page for who you want to become, in your own words.
+column holds your **Goals**; it opens on all of them. Habits are in
+[Tasks](#habits).
 
 ### Goals
 
@@ -597,6 +597,7 @@ on school and office networks where many people share one address.
 | `F` | Star |
 | `Shift`+`3` | Delete |
 | `C` | New message |
+| `Ctrl`+`R` / `Ctrl`+`Shift`+`R` | Reply / Reply all |
 | `/` or `Ctrl`+`F` | Search the mail |
 | `Escape` | Leave full-screen reading, a search, a selection |
 | `Ctrl`+`K` | Command palette |

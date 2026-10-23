@@ -1366,7 +1366,6 @@ fn un_objectif_se_choisit_et_se_journalise() {
     assert_eq!(*lieux.borrow(), ["goal:3"]);
 
     // On it, "Log one" logs one, with what was written.
-    f.set_growth_page(1);
     f.set_task_page(1);
     f.set_goal(objectif);
     f.set_goal_note("Studio Nord".into());

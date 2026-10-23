@@ -1010,7 +1010,9 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         .collect();
     let compte = |vue: Vue| dessus.iter().filter(|t| dans_la_vue(vue, t, today)).count();
 
-    // --- La colonne de gauche.
+    // --- La colonne de gauche. While the habits show, none of the views is the one
+    // chosen.
+    let habitudes = f.get_tasks_habits();
     let mut lieux = vec![
         (
             Vue::Today,
@@ -1045,7 +1047,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
         name: nom.into(),
         icon: icone.into(),
         count: compte as i32,
-        selected: etat.vue == vue,
+        selected: etat.vue == vue && !habitudes,
         ..Default::default()
     })
     .collect::<Vec<_>>();
@@ -1055,7 +1057,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             name: l.name.as_str().into(),
             color: crate::calendar::couleur(&l.color),
             count: dessus.iter().filter(|t| t.task.list_id == l.id).count() as i32,
-            selected: etat.vue == Vue::List(l.id),
+            selected: etat.vue == Vue::List(l.id) && !habitudes,
             is_list: true,
             list_id: l.id as i32,
             ..Default::default()
@@ -1690,6 +1692,14 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                     e.vue = e.avant_objectif.take().unwrap_or(Vue::Today);
                 }
             }
+            // Growth shows nothing but goals: all of them, when none was chosen.
+            if w == crate::growth::WORKSPACE {
+                let mut e = etat.borrow_mut();
+                if !e.vue.de_croissance() {
+                    e.avant_objectif = Some(e.vue);
+                    e.vue = Vue::Goals;
+                }
+            }
             if w == 2 || w == crate::growth::WORKSPACE {
                 redessiner();
             }
@@ -1718,7 +1728,24 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_task_place_chosen,
         [services, etat, redessiner, f, controller],
         |cle| {
+            // The habits are a place of the column, beside the views: the view under
+            // them stays, and comes back with the next one chosen.
+            if cle.as_str() == crate::habits::KEY {
+                f.set_tasks_habits(true);
+                {
+                    let mut e = etat.borrow_mut();
+                    e.a_estimer = None;
+                }
+                f.set_task_asking(SharedString::default());
+                crate::habits::refresh();
+                redessiner();
+                return;
+            }
             if let Some(v) = Vue::depuis(&cle) {
+                // A goal is shown in Growth: the habits stay what Tasks shows.
+                if !v.de_croissance() {
+                    f.set_tasks_habits(false);
+                }
                 let mut e = etat.borrow_mut();
                 if v.de_croissance() && !e.vue.de_croissance() {
                     e.avant_objectif = Some(e.vue);

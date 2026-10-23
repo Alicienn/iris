@@ -7,6 +7,50 @@ import { ComboBox } from "@iris/controls/pickers.slint";
 import { MenuEntry, MenuHeader, MenuSurface } from "@iris/layout/menu.slint";
 import { Modal } from "@iris/layout/frames.slint";
 import { ScheduledMailData } from "@iris/types.slint";
+import { Pill } from "@iris/controls/choice.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { SectionHeader } from "@iris/lists/rows.slint";
+
+/// One recipient of an address field, drawn as a chip.
+export struct RecipientChipData {
+    /// The name when there is one, else the address.
+    label: string,
+    address: string,
+    /// It reads as an email address.
+    valid: bool,
+}
+
+/// What a key typed in an address field leaves: the recipients made into chips (the
+/// field's comma-separated form) and what is still being typed.
+export struct RecipientEditData {
+    head: string,
+    pending: string,
+}
+
+/// An earlier message of the conversation a reply answers, under what is written.
+export struct QuotedMessageData {
+    from: string,
+    date: string,
+    text: string,
+}
+
+// How the address fields cut what is typed into recipients: Rust's
+// (`iris_ui::recipients::install`). Until it is wired, they are plain text fields.
+export global ComposeRecipients {
+    in property <bool> ready;
+    /// The chips of a field's recipients.
+    pure callback chips(string) -> [RecipientChipData];
+    /// Every entry of a field, what is being typed included, as recipients.
+    pure callback committed(string) -> string;
+    /// The field's text: its recipients, then what is being typed.
+    pure callback joined(string, string) -> string;
+    /// The recipients and what is typed after them, once a key has been typed.
+    pure callback typing(string, string) -> RecipientEditData;
+    /// The recipients without the one at an index.
+    pure callback remove(string, int) -> string;
+    /// A field's recipients, one after the other, for saying whom a message goes to.
+    pure callback listed(string) -> string;
+}
 
 // The messages waiting to be sent later: to whom, about what, when; each can go now,
 // or come back into the composer to be changed (and leaves the waiting ones).
@@ -80,7 +124,77 @@ export component ScheduledPanel inherits Rectangle {
     }
 }
 
+// One recipient of an address field: its name (or address) on a rounded chip, and a
+// small cross that takes it out. One that is not an address is drawn in red.
+component RecipientChip inherits Rectangle {
+    in property <string> text;
+    in property <string> address;
+    in property <bool> valid: true;
+    callback removed();
+
+    height: 22px;
+    width: min(220px, mesure.preferred-width) + 34px;
+    border-radius: 11px;
+    background: root.valid ? Tokens.surface-active : Tokens.error.transparentize(0.86);
+    border-width: root.valid ? 0px : 1px;
+    border-color: Tokens.error;
+
+    // Measured apart: the words shown are cut to the chip, which is cut to them.
+    mesure := Text {
+        visible: false;
+        text: root.text;
+        font-size: Tokens.size-small;
+    }
+
+    // The address, pointed at, when the chip shows a name.
+    if root.address != root.text: Rectangle {
+        width: root.width - 22px;
+        Tooltip { text: @markdown("\{root.address}"); }
+    }
+
+    Text {
+        x: 10px;
+        width: root.width - 34px;
+        height: root.height;
+        text: root.text;
+        font-size: Tokens.size-small;
+        color: root.valid ? Tokens.text : Tokens.error;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Rectangle {
+        x: root.width - 20px;
+        y: (root.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: retirer.has-hover ? Tokens.surface-hover : transparent;
+
+        accessible-role: button;
+        accessible-label: "Remove " + (root.address == "" ? root.text : root.address);
+        accessible-action-default => { root.removed(); }
+
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            data: Icons.window-close;
+            size: 10px;
+            tint: retirer.has-hover ? Tokens.text : Tokens.text-muted;
+        }
+        retirer := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.removed(); }
+        }
+    }
+}
+
 // One labelled field of the header block.
+//
+// An address field (`addresses`) makes each recipient a chip as soon as it is whole:
+// a comma, a semicolon, a space after an address, Enter, leaving the field, or a
+// suggestion picked. Backspace in the empty field takes the last chip back. The text
+// behind it stays what sending reads: the recipients, comma separated.
 component Field inherits VerticalLayout {
     in property <string> label;
     in property <string> placeholder;
@@ -89,12 +203,63 @@ component Field inherits VerticalLayout {
     in property <[string]> suggestions;
     /// Take the keyboard as soon as the field appears.
     in property <bool> autofocus;
+    /// Recipients, each made a chip.
+    in property <bool> addresses;
 
     callback accepted();
     callback edited(string);
     callback picked(string);
 
     spacing: 2px;
+
+    property <bool> puces: root.addresses && ComposeRecipients.ready;
+    /// The recipients made into chips, and what is being typed after them.
+    property <string> head;
+    property <string> pending;
+    property <[RecipientChipData]> chips: ComposeRecipients.chips(root.puces ? root.head : "");
+
+    // Written from outside (a reply's sender, a suggestion picked, a draft reopened):
+    // all of it becomes chips.
+    function sync() {
+        if (root.puces) {
+            if (root.value != ComposeRecipients.joined(root.head, root.pending)) {
+                root.head = ComposeRecipients.committed(root.value);
+                root.pending = "";
+            }
+        } else if (root.value != root.pending) {
+            root.pending = root.value;
+        }
+    }
+    function typed(t: string) {
+        if (root.puces) {
+            let suite = ComposeRecipients.typing(root.head, t);
+            root.head = suite.head;
+            root.pending = suite.pending;
+            root.value = ComposeRecipients.joined(suite.head, suite.pending);
+        } else {
+            root.value = t;
+        }
+        root.edited(root.value);
+    }
+    function commit() {
+        if (root.puces && root.pending != "") {
+            root.typed(root.pending + ",");
+        }
+    }
+    function remove(i: int) {
+        root.head = ComposeRecipients.remove(root.head, i);
+        root.value = ComposeRecipients.joined(root.head, root.pending);
+    }
+
+    init => { root.sync(); }
+    changed value => { root.sync(); }
+    // Leaving the field (Tab, a click elsewhere) ends what was typed in it.
+    property <bool> actif: champ.has-focus;
+    changed actif => {
+        if (!root.actif) {
+            root.commit();
+        }
+    }
 
     HorizontalLayout {
         spacing: Tokens.space-2;
@@ -108,16 +273,74 @@ component Field inherits VerticalLayout {
             vertical-alignment: center;
         }
 
-        champ := TextField {
-            // Ouvrir pour écrire, c'est vouloir écrire : sans cela, la première touche
-            // partait vers la liste derrière la fenêtre.
-            init => { if (root.autofocus) { self.focus(); } }
-            accessible-label: root.label;
-            placeholder-text: root.placeholder;
-            font-size: Tokens.size-body;
-            text <=> root.value;
-            accepted => { root.accepted(); }
-            edited(t) => { root.edited(t); }
+        // The field's box: its chips, then the line being typed in. Longer than the
+        // box, it slides left to keep the cursor in view, as a line of text does.
+        cadre := Rectangle {
+            horizontal-stretch: 1;
+            background: Tokens.surface;
+            border-radius: Tokens.radius-small;
+            border-width: 1px;
+            border-color: champ.has-focus ? Tokens.accent : Tokens.border-strong;
+            clip: true;
+            animate border-color { duration: Tokens.instant; }
+
+            // The whole box takes the click, the chips aside: one click puts the
+            // cursor here.
+            TouchArea {
+                mouse-cursor: MouseCursor.text;
+                clicked => { champ.focus(); }
+            }
+
+            rang := HorizontalLayout {
+                x: min(0px, cadre.width - self.width);
+                width: max(cadre.width, self.preferred-width);
+                height: cadre.height;
+                padding-left: root.chips.length > 0 ? 4px : 0px;
+                spacing: 4px;
+
+                for puce[i] in root.chips: RecipientChip {
+                    y: (parent.height - self.height) / 2;
+                    text: puce.label;
+                    address: puce.address;
+                    valid: puce.valid;
+                    removed => { root.remove(i); }
+                }
+
+                // Backspace with nothing typed takes the last chip back. Seen before
+                // the line, which would otherwise take the key and do nothing; never
+                // focused itself, so it takes no click.
+                FocusScope {
+                    enabled: false;
+                    min-width: 120px;
+                    horizontal-stretch: 1;
+                    capture-key-pressed(event) => {
+                        if (root.puces && event.text == Key.Backspace && root.pending == ""
+                            && root.chips.length > 0) {
+                            root.remove(root.chips.length - 1);
+                            return accept;
+                        }
+                        reject
+                    }
+
+                    champ := TextField {
+                        width: parent.width;
+                        height: parent.height;
+                        bare: true;
+                        // Ouvrir pour écrire, c'est vouloir écrire : sans cela, la
+                        // première touche partait vers la liste derrière la fenêtre.
+                        init => { if (root.autofocus) { self.focus(); } }
+                        accessible-label: root.label;
+                        placeholder-text: root.chips.length == 0 ? root.placeholder : "";
+                        font-size: Tokens.size-body;
+                        text <=> root.pending;
+                        accepted => {
+                            root.commit();
+                            root.accepted();
+                        }
+                        edited(t) => { root.typed(t); }
+                    }
+                }
+            }
         }
     }
 
@@ -348,6 +571,30 @@ export component ComposePanel inherits Rectangle {
     in-out property <string> subject;
     in-out property <string> body;
 
+    /// Answering a conversation: "Reply" on the title, Reply all beside To, and the
+    /// earlier messages under the body.
+    in property <bool> replying;
+    /// The others of the conversation are in copy.
+    in property <bool> reply-all;
+    /// There are others than the sender to answer.
+    in property <bool> can-reply-all;
+    /// Reply all switched on or off: the others put in copy, or taken out.
+    callback reply-all-toggled(bool);
+    /// The conversation's earlier messages, newest first.
+    in property <[QuotedMessageData]> history;
+    property <bool> history-open: true;
+    /// Larger than the usual window: nine tenths of the application's, centred.
+    in-out property <bool> expanded;
+
+    // Whom it goes to, as the Send button says when pointed at.
+    property <string> qui-a: ComposeRecipients.ready ? ComposeRecipients.listed(root.to) : root.to;
+    property <string> qui-cc: ComposeRecipients.ready ? ComposeRecipients.listed(root.cc) : root.cc;
+    property <string> qui-bcc: ComposeRecipients.ready ? ComposeRecipients.listed(root.bcc) : root.bcc;
+    property <string> destinataires: (root.qui-a == "" ? "" : "To: " + root.qui-a)
+        + (root.qui-cc == "" ? "" : (root.qui-a == "" ? "" : "  ·  ") + "Cc: " + root.qui-cc)
+        + (root.qui-bcc == "" ? ""
+            : (root.qui-a == "" && root.qui-cc == "" ? "" : "  ·  ") + "Bcc: " + root.qui-bcc);
+
     callback send();
     /// When to send it instead: its place among `later-options`.
     callback send-later(int);
@@ -378,8 +625,10 @@ export component ComposePanel inherits Rectangle {
     // The two shapes, fixed: the corners are worked out from these and not from the
     // size being animated, so the window rises and grows at once instead of growing
     // where it was, then travelling.
-    property <length> grand-w: min(720px, root.width - 80px);
-    property <length> grand-h: min(600px, root.height - 80px);
+    // Expanded, nearly the whole window: not full screen, the application still shows
+    // round it.
+    property <length> grand-w: root.expanded ? root.width * 0.9 : min(720px, root.width - 80px);
+    property <length> grand-h: root.expanded ? root.height * 0.9 : min(600px, root.height - 80px);
 
     // The veil fades out as the window shrinks: a minimised draft must not keep the
     // rest of the application behind glass.
@@ -442,7 +691,7 @@ export component ComposePanel inherits Rectangle {
                 Text {
                     text: root.minimised
                         ? (root.subject == "" ? "New message" : root.subject)
-                        : "New message";
+                        : root.replying ? "Reply" : "New message";
                     font-family: Tokens.font-family;
                     font-size: root.minimised ? Tokens.size-body : Tokens.size-title;
                     font-weight: Tokens.weight-bold;
@@ -453,6 +702,14 @@ export component ComposePanel inherits Rectangle {
 
                 Rectangle {}
 
+                // Larger, for a long message, and back.
+                if !root.minimised: IconButton {
+                    icon: root.expanded ? Icons.window-restore : Icons.expand;
+                    label: root.expanded ? "Restore the size" : "Expand";
+                    button-size: 24px;
+                    icon-size: 14px;
+                    clicked => { root.expanded = !root.expanded; }
+                }
                 IconButton {
                     icon: root.minimised ? Icons.window-maximise : Icons.minus;
                     label: root.minimised ? "Expand" : "Minimise";
@@ -515,12 +772,27 @@ export component ComposePanel inherits Rectangle {
 
                 Field {
                     label: "To";
+                    addresses: true;
                     autofocus: root.to == "";
                     placeholder: "Separate addresses with commas";
                     value <=> root.to;
                     suggestions: root.suggestions;
                     edited(t) => { root.recipient-typed("to", t); }
                     picked(c) => { root.recipient-picked("to", c); }
+                }
+
+                // A reply goes to the sender; this puts the others of the
+                // conversation in copy, and takes them out again.
+                if root.replying && root.can-reply-all: Rectangle {
+                    width: tous.width;
+                    height: 30px;
+                    tous := Pill {
+                        y: (parent.height - self.height) / 2;
+                        text: "Reply all";
+                        icon: Icons.reply-all;
+                        on: root.reply-all;
+                        toggled => { root.reply-all-toggled(!root.reply-all); }
+                    }
                 }
 
                 // Cc and Bcc stay folded until asked for. Most messages have neither,
@@ -553,6 +825,7 @@ export component ComposePanel inherits Rectangle {
 
             if !root.minimised && (root.show-cc || root.cc != ""): Field {
                 label: "Cc";
+                addresses: true;
                 placeholder: "Also send to";
                 value <=> root.cc;
                 suggestions: root.suggestions;
@@ -561,6 +834,7 @@ export component ComposePanel inherits Rectangle {
             }
             if !root.minimised && (root.show-cc || root.bcc != ""): Field {
                 label: "Bcc";
+                addresses: true;
                 placeholder: "Send without showing the address";
                 value <=> root.bcc;
                 suggestions: root.suggestions;
@@ -589,6 +863,75 @@ export component ComposePanel inherits Rectangle {
                 font-size: Tokens.size-body;
                 text <=> root.body;
                 vertical-stretch: 1;
+            }
+
+            // --- The conversation being answered ---
+            //
+            // Read only, newest first, each message one level of quoting deeper than
+            // the one after it, a bar per level. What is sent still quotes the message
+            // answered under what is written, as before.
+            if !root.minimised && root.replying && root.history.length > 0: SectionHeader {
+                title: "Conversation";
+                count: root.history.length == 1 ? "1 message" : "\{root.history.length} messages";
+                link: root.history-open ? "Hide" : "Show";
+                link-label: root.history-open ? "Hide the conversation" : "Show the conversation";
+                open => { root.history-open = !root.history-open; }
+            }
+            if !root.minimised && root.replying && root.history.length > 0 && root.history-open: ScrollView {
+                vertical-stretch: 1;
+                min-height: 80px;
+                viewport-width: self.visible-width;
+                viewport-height: fil.preferred-height;
+
+                fil := VerticalLayout {
+                    width: parent.width;
+                    padding-left: Tokens.space-2;
+                    padding-right: Tokens.space-3;
+                    spacing: Tokens.space-3;
+
+                    for m[i] in root.history: HorizontalLayout {
+                        spacing: Tokens.space-2;
+
+                        // The reader's quote bars: one per level.
+                        HorizontalLayout {
+                            spacing: Tokens.space-2;
+                            for niveau in min(i + 1, 4): Rectangle {
+                                width: 3px;
+                                border-radius: 1.5px;
+                                background: Tokens.accent.transparentize(0.6);
+                            }
+                        }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 2px;
+
+                            HorizontalLayout {
+                                spacing: Tokens.space-2;
+                                Text {
+                                    text: m.from;
+                                    font-size: Tokens.size-small;
+                                    font-weight: Tokens.weight-bold;
+                                    color: Tokens.text-secondary;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: m.date;
+                                    font-size: Tokens.size-small;
+                                    color: Tokens.text-muted;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            Text {
+                                text: m.text == "" ? "(Nothing to show)" : m.text;
+                                font-size: Tokens.size-small;
+                                color: Tokens.text-secondary;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
             }
 
             // --- What is going with it ---
@@ -713,6 +1056,7 @@ export component ComposePanel inherits Rectangle {
 
                     accessible-role: button;
                     accessible-label: "Send";
+                    accessible-description: root.destinataires;
                     accessible-enabled: root.to != "";
                     accessible-action-default => { root.send(); }
 
@@ -737,6 +1081,12 @@ export component ComposePanel inherits Rectangle {
 
                     TouchArea {
                         clicked => { root.send(); }
+                    }
+
+                    // Pointed at, exactly whom it goes to. A clear layer over the
+                    // button, with no touch area: the click still reaches it.
+                    if root.destinataires != "": Rectangle {
+                        Tooltip { text: @markdown("\{root.destinataires}"); }
                     }
                 }
             }

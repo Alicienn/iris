@@ -157,9 +157,11 @@ component NavArrow inherits Rectangle {
     in property <string> label;
     in property <string> shortcut;
     in property <bool> enabled;
+    /// Narrower in a folded column, where the two must fit side by side.
+    in property <length> size: 26px;
     callback clicked();
 
-    width: 26px;
+    width: root.size;
     height: 24px;
     border-radius: Tokens.radius-small;
     background: root.enabled && touch.has-hover ? Tokens.surface-hover : transparent;
@@ -292,7 +294,9 @@ component PlaceTab inherits Rectangle {
 /// then the four places as one segmented control.
 /// The Mac's three lights: close, minimise, maximise.
 component Lights inherits HorizontalLayout {
-    spacing: 8px;
+    /// Closer together in a folded column, which is no wider than the three.
+    in property <length> gap: 8px;
+    spacing: root.gap;
     horizontal-stretch: 0;
     Light {
         y: (parent.height - self.height) / 2;
@@ -318,9 +322,57 @@ component Lights inherits HorizontalLayout {
 }
 
 export component SidebarHead inherits VerticalLayout {
+    /// The column folded to a strip: the mark alone, back and forward under it, the
+    /// places stacked. Laid out for the full column, the row and the switcher were
+    /// squeezed into forty pixels and drawn over one another.
+    in property <bool> compact;
     spacing: 0px;
 
-    Rectangle {
+    /// The places, in the switcher's order.
+    property <[{icon: string, label: string, shortcut: string, place: int}]> places: [
+        { icon: Icons.home, label: "Home", shortcut: "Ctrl+0", place: 3 },
+        { icon: Icons.envelope-closed, label: "Mail", shortcut: "Ctrl+1", place: 0 },
+        { icon: Icons.calendar, label: "Calendar", shortcut: "Ctrl+2", place: 1 },
+        { icon: Icons.list, label: "Tasks", shortcut: "Ctrl+3", place: 2 },
+        { icon: Icons.notes, label: "Notes", shortcut: "Ctrl+4", place: 4 },
+        { icon: Icons.sprout, label: "Growth", shortcut: "Ctrl+5", place: 5 },
+    ];
+    pure function badge(place: int) -> int {
+        return place == 0 ? Chrome.mail-badge : place == 2 ? Chrome.tasks-badge : 0;
+    }
+
+    if root.compact: Rectangle {
+        height: 52px;
+        DragArea {}
+        HorizontalLayout {
+            alignment: center;
+            if Chrome.mac-buttons: Lights { gap: 6px; }
+            if !Chrome.mac-buttons: IrisBadge { y: (parent.height - self.height) / 2; }
+        }
+    }
+    if root.compact: HorizontalLayout {
+        alignment: center;
+        spacing: 0px;
+        NavArrow {
+            size: 24px;
+            glyph: Icons.chevron-left;
+            label: "Back";
+            shortcut: "Alt+←";
+            enabled: Chrome.can-go-back;
+            clicked => { Chrome.back(); }
+        }
+        NavArrow {
+            size: 24px;
+            glyph: Icons.chevron-right;
+            label: "Forward";
+            shortcut: "Alt+→";
+            enabled: Chrome.can-go-forward;
+            clicked => { Chrome.forward(); }
+        }
+    }
+    if root.compact: Rectangle { height: 8px; }
+
+    if !root.compact: Rectangle {
         height: 52px;
         DragArea {}
         HorizontalLayout {
@@ -361,20 +413,33 @@ export component SidebarHead inherits VerticalLayout {
         }
     }
 
-    // The five places: Home, Mail, Calendar, Tasks, Growth.
+    // The places: Home, Mail, Calendar, Tasks, Notes, Growth. Side by side, or one
+    // under the other in a folded column.
     Rectangle {
-        height: 30px;
+        height: root.compact ? root.places.length * 26px + 4px : 30px;
         border-radius: 8px;
         background: Tokens.well;
-        HorizontalLayout {
+        if !root.compact: HorizontalLayout {
             padding: 2px;
             spacing: 0px;
-            PlaceTab { icon: Icons.home; label: "Home"; shortcut: "Ctrl+0"; place: 3; }
-            PlaceTab { icon: Icons.envelope-closed; label: "Mail"; shortcut: "Ctrl+1"; place: 0; badge: Chrome.mail-badge; }
-            PlaceTab { icon: Icons.calendar; label: "Calendar"; shortcut: "Ctrl+2"; place: 1; }
-            PlaceTab { icon: Icons.list; label: "Tasks"; shortcut: "Ctrl+3"; place: 2; badge: Chrome.tasks-badge; }
-            PlaceTab { icon: Icons.notes; label: "Notes"; shortcut: "Ctrl+4"; place: 4; }
-            PlaceTab { icon: Icons.sprout; label: "Growth"; shortcut: "Ctrl+5"; place: 5; }
+            for p in root.places: PlaceTab {
+                icon: p.icon;
+                label: p.label;
+                shortcut: p.shortcut;
+                place: p.place;
+                badge: root.badge(p.place);
+            }
+        }
+        if root.compact: VerticalLayout {
+            padding: 2px;
+            spacing: 0px;
+            for p in root.places: PlaceTab {
+                icon: p.icon;
+                label: p.label;
+                shortcut: p.shortcut;
+                place: p.place;
+                badge: root.badge(p.place);
+            }
         }
     }
     Rectangle { height: 12px; }
@@ -452,6 +517,8 @@ export component SidebarFoot inherits HorizontalLayout {
 /// under the column, at the window's bottom edge.
 export component SidebarFrame inherits Rectangle {
     in property <length> sidebar-width: 232px;
+    /// Folded to a strip (the accounts column): the head stacks what it holds.
+    in property <bool> compact;
     width: root.sidebar-width;
     background: Tokens.surface-low;
 
@@ -461,11 +528,11 @@ export component SidebarFrame inherits Rectangle {
         background: Tokens.border;
     }
     VerticalLayout {
-        padding-left: 10px;
-        padding-right: 11px;
+        padding-left: root.compact ? 6px : 10px;
+        padding-right: root.compact ? 7px : 11px;
         padding-bottom: 2px;
         spacing: 0px;
-        SidebarHead {}
+        SidebarHead { compact: root.compact; }
         @children
     }
 }

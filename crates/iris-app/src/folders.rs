@@ -206,6 +206,36 @@ pub fn tree(folders: &[UnifiedFolder]) -> Vec<FolderNode> {
     liste
 }
 
+/// What the column shows of the tree, with the folders under a folded one left out.
+///
+/// Each row comes with whether folders sit under it (it gets a chevron) and whether
+/// it is folded. `folded` holds the keys the user folded; one with nothing under it
+/// any more is not folded, so a folder that gains children later shows them.
+pub fn visible(tree: &[FolderNode], folded: &[String]) -> Vec<(FolderNode, bool, bool)> {
+    let mut lignes = Vec::with_capacity(tree.len());
+    // The depth of the folded folder whose descendants are being skipped.
+    let mut sous: Option<usize> = None;
+    for (i, noeud) in tree.iter().enumerate() {
+        if let Some(d) = sous {
+            if noeud.depth > d {
+                continue;
+            }
+            sous = None;
+        }
+        // The tree is depth first: a folder's children follow it, deeper.
+        let enfants = !noeud.is_role
+            && tree
+                .get(i + 1)
+                .is_some_and(|suivant| !suivant.is_role && suivant.depth > noeud.depth);
+        let replie = enfants && folded.contains(&noeud.key);
+        if replie {
+            sous = Some(noeud.depth);
+        }
+        lignes.push((noeud.clone(), enfants, replie));
+    }
+    lignes
+}
+
 /// Le nom d'un dossier est-il utilisable ?
 ///
 /// Refusé plutôt que corrigé : un nom qu'on nettoie en silence donne un dossier qui
@@ -909,6 +939,49 @@ mod tests {
         // de total du tout.
         let arbre = tree(&[dossier("INBOX.Devis", 10), dossier("INBOX.Devis.2026", 4)]);
         assert_eq!(noeud(&arbre, "Devis").threads, 10);
+    }
+
+    #[test]
+    fn a_folded_folder_hides_every_folder_under_it() {
+        let arbre = tree(&[
+            dossier("Clients", 1),
+            dossier("Clients.Acme", 1),
+            dossier("Clients.Acme.2026", 1),
+            dossier("Devis", 1),
+        ]);
+        let noms = |lignes: &[(FolderNode, bool, bool)]| -> Vec<String> {
+            lignes
+                .iter()
+                .filter(|(n, _, _)| !n.is_role)
+                .map(|(n, _, _)| n.name.clone())
+                .collect()
+        };
+
+        let ouvert = visible(&arbre, &[]);
+        assert_eq!(noms(&ouvert), ["Clients", "Acme", "2026", "Devis"]);
+        let chevron = |lignes: &[(FolderNode, bool, bool)], nom: &str| {
+            lignes.iter().find(|(n, _, _)| n.name == nom).unwrap().1
+        };
+        assert!(chevron(&ouvert, "Clients") && chevron(&ouvert, "Acme"));
+        assert!(!chevron(&ouvert, "2026") && !chevron(&ouvert, "Devis"));
+        assert!(!chevron(&ouvert, "Inbox"), "a role has nothing under it");
+
+        let replie = visible(&arbre, &["Clients".to_string()]);
+        assert_eq!(
+            noms(&replie),
+            ["Clients", "Devis"],
+            "children and grandchildren"
+        );
+        assert!(replie
+            .iter()
+            .any(|(n, _, plie)| n.name == "Clients" && *plie));
+
+        let sous_dossier = visible(&arbre, &["Clients.Acme".to_string()]);
+        assert_eq!(noms(&sous_dossier), ["Clients", "Acme", "Devis"]);
+
+        // Folded with nothing under it: not folded.
+        let feuille = visible(&arbre, &["Devis".to_string()]);
+        assert!(feuille.iter().all(|(_, _, plie)| !plie));
     }
 
     #[test]

@@ -39,6 +39,9 @@ pub struct Parsed {
     pub preview: String,
     /// Drapeaux déduits du contenu : pièce jointe, traqueur, désabonnement.
     pub derived_flags: Flags,
+    /// The HTML body is the text body converted by the parser, not a `text/html` part
+    /// of the message: the message was written as plain text.
+    pub html_is_text: bool,
 }
 
 impl Parsed {
@@ -112,6 +115,11 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
             .flatten()
     });
     let html_brut = message.body_html(0);
+    // A message without a `text/html` part still has an HTML body: the parser makes
+    // one of its text, every line break a `<br/>`. It is not what the sender laid out.
+    let html_is_text = message
+        .html_part(0)
+        .is_some_and(|part| !part.is_text_html());
     let html_body = html_brut
         .as_deref()
         .map(|c| sanitize::sanitize_with(c, allow_remote_images));
@@ -221,6 +229,7 @@ pub fn parse_with(raw: &[u8], allow_remote_images: bool) -> iris_types::Result<P
         unsubscribe,
         preview,
         derived_flags,
+        html_is_text,
     })
 }
 
@@ -440,6 +449,39 @@ Content-Type: text/html; charset=utf-8\r\n\
         assert!(!html.html.contains("script"));
         assert!(html.is_tracked());
         assert!(p.derived_flags.contains(iris_types::Flags::HAS_TRACKER));
+        assert!(!p.html_is_text, "a text/html part is the sender's layout");
+    }
+
+    #[test]
+    fn a_message_written_as_text_says_so() {
+        let raw = b"Subject: Re: Lunch\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+Yes.\r\n\
+> Lunch on Friday?\r\n";
+        let p = parse(raw).unwrap();
+        assert!(p.html_is_text);
+        let texte = p.text_body.unwrap();
+        assert!(texte.contains("> Lunch on Friday?"), "{texte:?}");
+    }
+
+    #[test]
+    fn a_message_with_both_parts_is_laid_out_by_its_html() {
+        let raw = b"Subject: Both\r\n\
+Content-Type: multipart/alternative; boundary=\"sep\"\r\n\
+\r\n\
+--sep\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+Hello\r\n\
+--sep\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>Hello</p>\r\n\
+--sep--\r\n";
+        let p = parse(raw).unwrap();
+        assert!(!p.html_is_text);
+        assert!(p.html_body.is_some());
     }
 
     #[test]

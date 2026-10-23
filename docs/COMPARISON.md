@@ -12,11 +12,11 @@ the first afternoon, and never forgive".
 | Threading | Across accounts, on References and Message-ID |
 | Triage | A queue — To do / Waiting / Done — instead of a flat inbox; Done, Snooze and Archive on a row's hover, as Gmail has them |
 | Snooze | Later today, tomorrow morning, this weekend, next week |
-| Reading | Each message framed, a full-screen mode, attachments as file cards |
-| Folders | Created on every mailbox at once or on the ones you tick (and then shows theirs only), renamed and deleted on all that have it |
+| Reading | Each message framed, a full-screen mode, attachments as file cards; `>` quotes in plain text drawn as quotations, as Apple Mail and Thunderbird draw them (6.0.0) |
+| Folders | Created on every mailbox at once or on the ones you tick (and then shows theirs only), renamed and deleted on all that have it; subfolders folded away, as every client does (6.0.0) |
 | Search | `from:`, `is:unread`, free text, over a local index |
 | Automation | Rules, plus WebAssembly modules in a sandbox with no network |
-| Composing | To / Cc / Bcc, attachments, formatting, signatures, an undo whose delay you choose |
+| Composing | To / Cc / Bcc as address chips, attachments, formatting, signatures, an undo whose delay you choose; replies in the full composer with the conversation shown under them, as Outlook and Apple Mail do (6.0.0) |
 | Offline | Every action journalled and replayed; nothing waits for the network |
 | Privacy | Remote images blocked by default, trackers named |
 | Calendar | Month, week and day, an event typed straight into a free slot, events dragged and stretched, today's tasks dragged onto the week, subscriptions by link, invitations from mail, reminders, your own notes and tasks on any event, calendars kept both ways with iCloud, Fastmail, Nextcloud or Google (CalDAV, 4.13.0) as Thunderbird and Apple Calendar do |

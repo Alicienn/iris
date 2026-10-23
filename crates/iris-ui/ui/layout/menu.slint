@@ -16,20 +16,28 @@ export component MenuEntry inherits Rectangle {
     in property <bool> chevron;
     /// Its submenu shows: drawn as pointed at.
     in property <bool> open;
+    /// Shown but not for now (Copy with nothing selected): dimmed, and a click on it
+    /// does nothing.
+    in property <bool> enabled: true;
     out property <bool> hovered: touch.has-hover;
 
     callback activated();
 
     height: 30px;
     border-radius: Tokens.radius-small;
-    background: root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
+    background: !root.enabled ? transparent
+        : root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
         : touch.has-hover || root.open ? Tokens.surface-active : transparent;
     animate background { duration: Tokens.instant; }
 
     accessible-role: button;
     accessible-label: root.label;
     accessible-description: root.shortcut;
-    accessible-action-default => { root.activated(); }
+    accessible-action-default => {
+        if (root.enabled) {
+            root.activated();
+        }
+    }
 
     HorizontalLayout {
         padding-left: 9px;
@@ -40,12 +48,14 @@ export component MenuEntry inherits Rectangle {
             y: (parent.height - self.height) / 2;
             data: root.icon;
             size: 15px;
-            tint: root.danger ? Tokens.error : Tokens.text-secondary;
+            tint: !root.enabled ? Tokens.text-faint
+                : root.danger ? Tokens.error : Tokens.text-secondary;
         }
         Text {
             text: root.label;
             font-size: 13.5px;
-            color: root.danger ? Tokens.error : Tokens.text;
+            color: !root.enabled ? Tokens.text-faint
+                : root.danger ? Tokens.error : Tokens.text;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -65,8 +75,13 @@ export component MenuEntry inherits Rectangle {
         }
     }
 
+    // Still there when disabled: the click is swallowed rather than closing the menu.
     touch := TouchArea {
-        clicked => { root.activated(); }
+        clicked => {
+            if (root.enabled) {
+                root.activated();
+            }
+        }
     }
 }
 

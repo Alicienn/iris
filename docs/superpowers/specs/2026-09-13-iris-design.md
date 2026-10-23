@@ -381,4 +381,6 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   selection run across blocks and formulas are drawn inside their lines.
 - **A sixth place, Growth** (5.0.0): habits, and the goals moved out of Tasks, with a
   pure domain crate of their own (`iris-growth`). Like the calendar and tasks, it came
-  from use; nothing in it is counted on the user's behalf.
+  from use; nothing in it is counted on the user's behalf. Since 6.0.0 the habits are
+  a place of Tasks and Growth holds the goals only; the compass (areas of life,
+  monthly scores, cycles, vision) was dropped, its tables left unused in the base.

@@ -400,7 +400,7 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     f.set_home_week_done(semaine.done);
     f.set_home_week_bars(ModelRc::new(VecModel::from(semaine.bars)));
     f.set_home_week_today(semaine.today);
-    crate::growth::fill_home(f, services);
+    crate::habits::fill_home(f, services);
 }
 
 /// The conversations in the To do queue, over every mailbox, read or not: what the
@@ -482,8 +482,9 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
                     vers(&f, 2);
                     f.invoke_task_place_chosen("today".into());
                 }
-                // Goals and habits live in Growth.
-                "goals" | "habits" => crate::growth::open(&f, &cible),
+                // The goals live in Growth, the habits in Tasks.
+                "goals" => crate::growth::open(&f, &cible),
+                "habits" => crate::habits::open(&f),
                 "calendar" => vers(&f, 1),
                 "notes" => vers(&f, 4),
                 _ => vers(&f, 0),
@@ -508,7 +509,7 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
     {
         let (services, redessiner) = (services.clone(), Rc::clone(&redessiner));
         f.on_home_habit_toggled(move |id| {
-            crate::growth::toggle_today(&services, id as i64);
+            crate::habits::toggle_today(&services, id as i64);
             redessiner();
         });
     }

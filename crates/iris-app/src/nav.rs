@@ -28,13 +28,13 @@ pub struct Place {
     pub folder: String,
     /// To do, Waiting, Done.
     pub tab: i32,
-    /// The view of the tasks: "today", "list:3"…
+    /// The view of the tasks: "today", "list:3", "habits"…
     pub tasks: String,
     /// The calendar: 0 month, 1 week, 2 day.
     pub calendar: i32,
     /// The note open, by its path in its space.
     pub note: String,
-    /// What Growth shows: "habits", "goals", "goal:3".
+    /// What Growth shows: "goals", "goal:3".
     pub growth: String,
 }
 
@@ -49,7 +49,7 @@ impl Place {
             tasks: "today".into(),
             calendar,
             note: String::new(),
-            growth: "habits".into(),
+            growth: "goals".into(),
         }
     }
 
@@ -338,5 +338,19 @@ mod tests {
         assert_eq!((c.tag, c.account), (-1, 9));
         assert!(p.after("nonsense", "1").is_none());
         assert!(p.after("tab", "x").is_none());
+    }
+
+    #[test]
+    fn the_habits_are_a_place_of_the_tasks() {
+        let mut h = History::new(Place::start(0, 1));
+        let habitudes = h.current.after("tasks", "habits").unwrap();
+        assert_eq!(
+            (habitudes.workspace, habitudes.tasks.as_str()),
+            (2, "habits")
+        );
+        h.visit(habitudes);
+        let liste = h.current.after("tasks", "list:2").unwrap();
+        h.visit(liste);
+        assert_eq!(h.back().map(|p| p.tasks), Some("habits".to_string()));
     }
 }

@@ -3,6 +3,32 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.0.0 — 2026-10-23
+
+### New
+- One Reply button opens the composer filled in; Reply all and Forward are beside it.
+- Ctrl+R replies, Ctrl+Shift+R replies to everyone.
+- When you reply, the earlier messages of the conversation show under what you write.
+- Expand makes the composer larger.
+- Pointing at Send shows exactly who will receive the message.
+- Addresses in To, Cc and Bcc become chips you can remove; wrong ones show in red.
+- Fold and unfold subfolders in Folders; Iris remembers them.
+- Right-click in a message to copy what you selected, or select all of it.
+
+### Improved
+- Quoted lines (>) in plain-text mail show as quotations, with a bar per level.
+- The conversation you right-click is outlined while its menu is open.
+- Habits now live in Tasks, under the four tiles.
+- Growth now opens on your goals.
+
+### Fixed
+- Collapsing the accounts column no longer shrinks or breaks the window.
+- Ctrl+C copies words selected in a plain-text message.
+
+### Removed
+- The Compass: areas of life, monthly scores, cycles and vision.
+- The reply box under a conversation, replaced by the composer.
+
 ## 5.1.0 — 2026-10-21
 
 ### New

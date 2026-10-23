@@ -22,10 +22,12 @@ mod fetch;
 
 #[cfg(feature = "blitz")]
 mod blitz;
+mod plain;
 mod richtext;
 
 #[cfg(feature = "blitz")]
 pub use blitz::BlitzRenderer;
+pub use plain::{plain_text_to_html, quote_level};
 pub use richtext::{Block, Inline, RichText, RichTextRenderer};
 
 use iris_types::Result;
@@ -98,6 +100,11 @@ pub trait TiledDocument: std::fmt::Debug {
 
     /// Nothing selected any more; whether something was.
     fn clear_selection(&mut self) -> bool {
+        false
+    }
+
+    /// Every word of the document selected; whether there was any to select.
+    fn select_all(&mut self) -> bool {
         false
     }
 

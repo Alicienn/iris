@@ -753,8 +753,8 @@ fn run_gui(
     iris_app::backup::wire_backup(&fenetre, &services, runtime.handle().clone());
     iris_app::caldav::wire_caldav(&fenetre, &services, runtime.handle().clone());
     iris_app::tasks::wire_tasks(&fenetre, &services, Arc::clone(&controller));
-    iris_app::growth::wire_growth(&fenetre, &services);
-    iris_app::compass::wire_compass(&fenetre, &services);
+    iris_app::habits::wire_habits(&fenetre, &services);
+    iris_app::growth::wire_growth(&fenetre);
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui
@@ -764,12 +764,7 @@ fn run_gui(
         Ok((envoi, evenements)) => {
             // One notice to take a message back, whatever it was written in.
             let avis = shell::wire_send_notice(&fenetre, Arc::clone(&envoi));
-            shell::wire_reply(
-                &fenetre,
-                Arc::clone(&envoi),
-                std::rc::Rc::clone(&avis),
-                Arc::clone(&selection),
-            );
+            shell::wire_reply(&fenetre, Arc::clone(&envoi), Arc::clone(&selection));
             // Writing a new message uses the same outbox as a reply, so the delay to
             // change your mind behaves identically. Every enabled mailbox is offered
             // as a sender, and its aliases after it (the composer reads them itself).

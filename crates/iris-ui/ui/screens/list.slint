@@ -18,6 +18,8 @@ component ThreadRow inherits Rectangle {
     /// ligne survolée : une fois qu'on en a coché une, la question posée par la liste
     /// n'est plus « lequel lire » mais « lesquels d'autres ».
     in property <bool> selection-mode;
+    /// The right-click menu open is about this row.
+    in property <bool> targeted;
 
     callback clicked();
     callback mark-toggled();
@@ -84,6 +86,24 @@ component ThreadRow inherits Rectangle {
             ? Tokens.accent
             : (row-touch.has-hover ? Tokens.surface-hover : transparent);
         animate background { duration: Tokens.instant; }
+    }
+
+    // The row a right-click's menu acts on, while that menu is open: a ring of the
+    // accent over a light tint, neither the chosen row's plate nor the hover's grey.
+    // The menu does not select the row (that would open and read it), so without this
+    // nothing said which of the rows under the menu "Delete" was about. It fades in
+    // once, with the menu.
+    Rectangle {
+        x: 8px;
+        y: 1px;
+        width: parent.width - 16px;
+        height: parent.height - 2px;
+        border-radius: 8px;
+        border-width: 2px;
+        border-color: root.plein ? Tokens.accent-text : Tokens.accent;
+        background: root.plein ? transparent : Tokens.accent.transparentize(0.86);
+        opacity: root.targeted ? 1.0 : 0.0;
+        animate opacity { duration: 150ms; easing: ease-out; }
     }
 
     // A hairline under each row, from where the words start.
@@ -434,6 +454,7 @@ component ThreadEntry inherits Rectangle {
     in property <ThreadRowData> data;
     in property <bool> selected;
     in property <bool> selection-mode;
+    in property <bool> targeted;
     in property <data-transfer> payload;
 
     callback clicked();
@@ -461,6 +482,7 @@ component ThreadEntry inherits Rectangle {
         data: root.data;
         selected: root.selected;
         selection-mode: root.selection-mode;
+        targeted: root.targeted;
         payload: root.payload;
         clicked => { root.clicked(); }
         mark-toggled => { root.mark-toggled(); }
@@ -1063,6 +1085,9 @@ export component ThreadListView inherits VerticalLayout {
     /// écrivait « Mark as read » d'après le fil ouvert dans la colonne de lecture, qui
     /// n'est plus celui sur lequel on vient de cliquer. La ligne, elle, le sait.
     callback row-context-menu(int, length, length, bool, bool);
+    /// The conversation whose right-click menu is open, -1 while none is: its row is
+    /// marked.
+    in property <int> menu-target: -1;
     in property <bool> filter-unread;
     in property <bool> filter-attachments;
     in property <bool> filter-starred;
@@ -1382,6 +1407,7 @@ export component ThreadListView inherits VerticalLayout {
             data: entry;
             selected: entry.id == root.selected-id;
             selection-mode: root.marked-count > 0;
+            targeted: entry.id == root.menu-target;
             payload: root.drag-payload;
             clicked => { root.row-clicked(entry.id); }
             drag-started => { root.row-drag-started(entry.id); }
