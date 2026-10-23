@@ -783,7 +783,7 @@ pub fn wire_habits(f: &AppWindow, services: &Services) {
         });
     }
     {
-        let redessiner: Rc<dyn Fn()> = Rc::clone(&redessiner);
+        let redessiner: Rc<dyn Fn()> = redessiner.clone();
         REDESSINER.with(|r| *r.borrow_mut() = Some(redessiner));
     }
 
