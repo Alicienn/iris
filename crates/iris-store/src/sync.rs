@@ -183,8 +183,16 @@ CREATE UNIQUE INDEX {n}_by_sync_id ON {n}(sync_id);
 }
 
 /// The triggers that keep a table's `sync_id` and `sync_at`, and its tombstones.
-pub(crate) fn triggers_for(table: &SyncedTable) -> String {
+pub(crate) fn triggers_for(table: &SyncedTable, columns: &[String]) -> String {
     let n = table.name;
+    // Only what travels: a column that means something here alone (an account's last
+    // activity, written at every fetch) changes nothing the other device must hear of.
+    let quand = columns
+        .iter()
+        .map(String::as_str)
+        .filter(|c| !table.local_columns.contains(c) && *c != "sync_id" && *c != "sync_at")
+        .collect::<Vec<_>>()
+        .join(", ");
     let cible = match table.without_rowid_key {
         None => "rowid = NEW.rowid".to_string(),
         Some(cles) => cles
@@ -198,7 +206,7 @@ pub(crate) fn triggers_for(table: &SyncedTable) -> String {
     UPDATE {n} SET sync_id = coalesce(sync_id, lower(hex(randomblob(16)))),
         sync_at = iris_clock() WHERE {cible};
 END;
-CREATE TRIGGER {n}_sync_update AFTER UPDATE ON {n}
+CREATE TRIGGER {n}_sync_update AFTER UPDATE OF {quand} ON {n}
     WHEN iris_merging() = 0 AND NEW.sync_at IS OLD.sync_at BEGIN
     UPDATE {n} SET sync_at = iris_clock() WHERE {cible};
 END;

@@ -204,17 +204,26 @@ UPDATE vision SET sync_id = 'seed-vision' WHERE id = 1;
 ";
 
 /// Migration 28 whole: the tables, each synced table's columns, the seeds, then the
-/// triggers (last, so that nothing in the migration fires them).
-fn schema_v28() -> String {
+/// triggers (last, so that nothing in the migration fires them). The update triggers
+/// watch the columns each table has when it runs: a column added by a later migration
+/// is watched only once that migration makes the trigger again.
+fn schema_v28(conn: &Connection) -> Result<String> {
     let mut sql = String::from(SCHEMA_V28);
     for table in crate::sync::SYNCED {
         sql.push_str(&crate::sync::columns_for(table));
     }
     sql.push_str(SEEDS_V28);
     for table in crate::sync::SYNCED {
-        sql.push_str(&crate::sync::triggers_for(table));
+        let mut s = conn
+            .prepare(&format!("PRAGMA table_info({})", table.name))
+            .map_err(|e| Error::store(format!("migration 28, {}: {e}", table.name)))?;
+        let colonnes = s
+            .query_map([], |r| r.get::<_, String>(1))
+            .and_then(|v| v.collect::<rusqlite::Result<Vec<_>>>())
+            .map_err(|e| Error::store(format!("migration 28, {}: {e}", table.name)))?;
+        sql.push_str(&crate::sync::triggers_for(table, &colonnes));
     }
-    sql
+    Ok(sql)
 }
 
 /// Whether a folder keeps keywords of the client's own (`\*` in its PERMANENTFLAGS):
@@ -1085,7 +1094,7 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
         tracing::info!(version = m.version, name = m.name, "migration");
         let built;
         let sql = if m.version == 28 {
-            built = schema_v28();
+            built = schema_v28(conn)?;
             built.as_str()
         } else {
             m.sql
@@ -1169,6 +1178,32 @@ mod tests {
             )
             .unwrap();
         assert_eq!(Some(tombe), sync_id);
+    }
+
+    #[test]
+    fn a_column_that_stays_here_does_not_stamp_the_row() {
+        let c = conn();
+        migrate(&c).unwrap();
+        c.execute_batch(
+            "INSERT INTO accounts (email, imap_host, imap_port, smtp_host, smtp_port, created_at)
+             VALUES ('a@example.com', 'i', 993, 's', 465, 0);",
+        )
+        .unwrap();
+        let avant: String = c
+            .query_row("SELECT sync_at FROM accounts", [], |r| r.get(0))
+            .unwrap();
+        c.execute("UPDATE accounts SET last_activity_at = 99", [])
+            .unwrap();
+        let apres: String = c
+            .query_row("SELECT sync_at FROM accounts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(avant, apres, "a fetch is not a change to send");
+        c.execute("UPDATE accounts SET display_name = 'Marie'", [])
+            .unwrap();
+        let nom: String = c
+            .query_row("SELECT sync_at FROM accounts", [], |r| r.get(0))
+            .unwrap();
+        assert!(nom > avant);
     }
 
     #[test]
