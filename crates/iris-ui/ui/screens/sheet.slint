@@ -444,7 +444,7 @@ export component SheetView inherits Rectangle {
                 clip: true;
                 background: Tokens.surface-low;
                 for c in SheetGrid.columns: Rectangle {
-                    x: c.pos + f.viewport-x;
+                    x: c.pos + f.content-x;
                     width: c.size;
                     height: parent.height;
                     background: c.selected ? Tokens.accent.transparentize(0.86) : transparent;
@@ -500,8 +500,8 @@ export component SheetView inherits Rectangle {
                 clip: true;
                 background: Tokens.surface-low;
                 for r in SheetGrid.rows: Rectangle {
-                    y: r.index < SheetGrid.frozen-rows ? r.pos : r.pos + f.viewport-y;
-                    visible: r.index < SheetGrid.frozen-rows || r.pos + f.viewport-y >= SheetGrid.frozen-height - r.size;
+                    y: r.index < SheetGrid.frozen-rows ? r.pos : r.pos + f.content-y;
+                    visible: r.index < SheetGrid.frozen-rows || r.pos + f.content-y >= SheetGrid.frozen-height - r.size;
                     height: r.size;
                     width: parent.width;
                     background: r.selected ? Tokens.accent.transparentize(0.86) : Tokens.surface-low;
@@ -558,29 +558,29 @@ export component SheetView inherits Rectangle {
                     width: parent.width;
                     height: parent.height;
                     mouse-drag-pan-enabled: false;
-                    viewport-width: max(self.width, SheetGrid.content-width);
-                    viewport-height: max(self.height, SheetGrid.content-height);
+                    content-width: max(self.width, SheetGrid.content-width);
+                    content-height: max(self.height, SheetGrid.content-height);
                     property <int> demande: SheetGrid.scroll-serial;
                     changed demande => {
-                        self.viewport-x = SheetGrid.scroll-x;
-                        self.viewport-y = SheetGrid.scroll-y;
+                        self.content-x = SheetGrid.scroll-x;
+                        self.content-y = SheetGrid.scroll-y;
                     }
-                    changed viewport-x => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
-                    changed viewport-y => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
-                    changed width => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
-                    changed height => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
-                    init => { SheetGrid.viewport(-self.viewport-x, -self.viewport-y, self.width, self.height); }
+                    changed content-x => { SheetGrid.viewport(-self.content-x, -self.content-y, self.width, self.height); }
+                    changed content-y => { SheetGrid.viewport(-self.content-x, -self.content-y, self.width, self.height); }
+                    changed width => { SheetGrid.viewport(-self.content-x, -self.content-y, self.width, self.height); }
+                    changed height => { SheetGrid.viewport(-self.content-x, -self.content-y, self.width, self.height); }
+                    init => { SheetGrid.viewport(-self.content-x, -self.content-y, self.width, self.height); }
 
                     // The lines between cells, across what shows.
                     for c in SheetGrid.columns: Rectangle {
                         x: c.pos + c.size - 1px;
-                        y: -f.viewport-y;
+                        y: -f.content-y;
                         width: 1px;
                         height: f.height;
                         background: Tokens.border.transparentize(0.4);
                     }
                     for r in SheetGrid.rows: Rectangle {
-                        x: -f.viewport-x;
+                        x: -f.content-x;
                         y: r.pos + r.size - 1px;
                         width: f.width;
                         height: 1px;
@@ -610,8 +610,8 @@ export component SheetView inherits Rectangle {
                     souris := TouchArea {
                         x: 0px;
                         y: 0px;
-                        width: f.viewport-width;
-                        height: f.viewport-height;
+                        width: f.content-width;
+                        height: f.content-height;
                         pointer-event(event) => {
                             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
                                 SheetGrid.pressed(self.mouse-x, self.mouse-y, event.modifiers.shift);
@@ -636,16 +636,16 @@ export component SheetView inherits Rectangle {
                     clip: true;
                     background: Tokens.surface;
                     for c in SheetGrid.columns: Rectangle {
-                        x: c.pos + c.size - 1px + f.viewport-x;
+                        x: c.pos + c.size - 1px + f.content-x;
                         width: 1px;
                         background: Tokens.border.transparentize(0.4);
                     }
                     for c in SheetGrid.pinned: SheetCell {
                         item: c;
-                        x: c.x + f.viewport-x;
+                        x: c.x + f.content-x;
                     }
                     Rectangle {
-                        x: SheetGrid.cur-x - 1px + f.viewport-x;
+                        x: SheetGrid.cur-x - 1px + f.content-x;
                         y: SheetGrid.cur-y - 1px;
                         width: SheetGrid.cur-width + 1px;
                         height: SheetGrid.cur-height + 1px;
@@ -661,24 +661,24 @@ export component SheetView inherits Rectangle {
                     TouchArea {
                         pointer-event(event) => {
                             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                                SheetGrid.pressed(self.mouse-x - f.viewport-x, self.mouse-y, event.modifiers.shift);
+                                SheetGrid.pressed(self.mouse-x - f.content-x, self.mouse-y, event.modifiers.shift);
                                 touches.focus();
                             }
                         }
                         moved => {
                             if (self.pressed) {
-                                SheetGrid.dragged(self.mouse-x - f.viewport-x, self.mouse-y);
+                                SheetGrid.dragged(self.mouse-x - f.content-x, self.mouse-y);
                             }
                         }
-                        double-clicked => { SheetGrid.double-clicked(self.mouse-x - f.viewport-x, self.mouse-y); }
+                        double-clicked => { SheetGrid.double-clicked(self.mouse-x - f.content-x, self.mouse-y); }
                     }
                 }
 
                 // Typing in a cell: the field over it, as wide as its text.
                 property <bool> fige: SheetGrid.cur-y < SheetGrid.frozen-height;
                 editeur := Rectangle {
-                    x: SheetGrid.cur-x + f.viewport-x - 1px;
-                    y: SheetGrid.cur-y + (corps.fige ? 0px : f.viewport-y) - 1px;
+                    x: SheetGrid.cur-x + f.content-x - 1px;
+                    y: SheetGrid.cur-y + (corps.fige ? 0px : f.content-y) - 1px;
                     width: max(SheetGrid.cur-width + 2px, min(saisie.preferred-width + 14px, corps.width - self.x));
                     height: SheetGrid.cur-height + 2px;
                     visible: SheetGrid.editing;

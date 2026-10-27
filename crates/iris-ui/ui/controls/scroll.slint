@@ -2,16 +2,16 @@ import { Tokens } from "@iris/theme/tokens.slint";
 
 // A scrolling area with a thin bar: a rounded thumb three pixels wide at the edge,
 // six when pointed at or held, and nothing else — no arrows, no track drawn. It is the
-// style's ScrollView in what it offers (the viewport, what shows of it, the drag pan),
+// style's ScrollView in what it offers (the content, what shows of it, the drag pan),
 // so a screen changes only its import.
 export component ScrollView inherits Rectangle {
     in property <bool> enabled: true;
     out property <length> visible-width <=> f.width;
     out property <length> visible-height <=> f.height;
-    in-out property <length> viewport-width <=> f.content-width;
-    in-out property <length> viewport-height <=> f.content-height;
-    in-out property <length> viewport-x <=> f.content-x;
-    in-out property <length> viewport-y <=> f.content-y;
+    in-out property <length> content-width <=> f.content-width;
+    in-out property <length> content-height <=> f.content-height;
+    in-out property <length> content-x <=> f.content-x;
+    in-out property <length> content-y <=> f.content-y;
     in property <bool> mouse-drag-pan-enabled <=> f.mouse-drag-pan-enabled;
     callback scrolled <=> f.flicked;
 

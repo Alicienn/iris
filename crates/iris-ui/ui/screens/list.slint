@@ -1156,7 +1156,7 @@ export component ThreadListView inherits VerticalLayout {
             return;
         }
         // Position du point dans le contenu défilé de la liste.
-        let dans-liste = py - list.absolute-position.y + (-list.viewport-y);
+        let dans-liste = py - list.absolute-position.y + (-list.content-y);
         if (px < list.absolute-position.x
             || px > list.absolute-position.x + list.width
             || dans-liste < 0) {
@@ -1440,8 +1440,8 @@ export component ThreadListView inherits VerticalLayout {
 
         // Le chargement de la suite est déclenché par la position du défilement, pas
         // par un bouton : la liste doit paraître infinie.
-        changed viewport-y => {
-            if (-self.viewport-y + self.visible-height > self.viewport-height - 400px) {
+        changed content-y => {
+            if (-self.content-y + self.visible-height > self.content-height - 400px) {
                 root.scrolled-near-end();
             }
         }

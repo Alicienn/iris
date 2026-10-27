@@ -14,8 +14,8 @@ import { ScrollView } from "@iris/controls/scroll.slint";
 component ChangelogList inherits ScrollView {
     in property <[ChangelogRowData]> rows;
 
-    viewport-width: self.visible-width;
-    viewport-height: lignes.preferred-height;
+    content-width: self.visible-width;
+    content-height: lignes.preferred-height;
 
     // As wide as what shows, so a long change wraps: left to its own width, the
     // column took the length of the longest line and cut it off at the edge.

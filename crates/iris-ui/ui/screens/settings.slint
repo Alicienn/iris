@@ -339,8 +339,8 @@ export component SettingsPanel inherits Rectangle {
         // The groups scroll: there are more of them than a short window holds.
         page := ScrollView {
             vertical-stretch: 1;
-            viewport-width: self.visible-width;
-            viewport-height: colonne.preferred-height;
+            content-width: self.visible-width;
+            content-height: colonne.preferred-height;
 
             colonne := VerticalLayout {
                 x: max(16px, (page.visible-width - self.width) / 2);

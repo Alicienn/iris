@@ -177,10 +177,10 @@ export component TextArea inherits FieldFrame {
         y: 1px;
         width: root.width - 2px;
         height: root.height - 2px;
-        viewport-width: root.wrap == TextWrap.no-wrap
+        content-width: root.wrap == TextWrap.no-wrap
             ? max(self.visible-width, input.preferred-width + 2 * Tokens.space-2)
             : self.visible-width;
-        viewport-height: max(self.visible-height, input.preferred-height + 2 * Tokens.space-2);
+        content-height: max(self.visible-height, input.preferred-height + 2 * Tokens.space-2);
 
         // Below the text: a click in the empty part of the box still lands in it.
         TouchArea {
@@ -220,16 +220,16 @@ export component TextArea inherits FieldFrame {
             cursor-position-changed(pos) => {
                 let ligne = root.font-size * 1.6;
                 let haut = pos.y + Tokens.space-2;
-                if (haut + defilement.viewport-y < 0px) {
-                    defilement.viewport-y = -haut;
-                } else if (haut + ligne + defilement.viewport-y > defilement.visible-height) {
-                    defilement.viewport-y = defilement.visible-height - haut - ligne;
+                if (haut + defilement.content-y < 0px) {
+                    defilement.content-y = -haut;
+                } else if (haut + ligne + defilement.content-y > defilement.visible-height) {
+                    defilement.content-y = defilement.visible-height - haut - ligne;
                 }
                 let gauche = pos.x + Tokens.space-2;
-                if (gauche + defilement.viewport-x < 0px) {
-                    defilement.viewport-x = -gauche;
-                } else if (gauche + 2px + defilement.viewport-x > defilement.visible-width) {
-                    defilement.viewport-x = defilement.visible-width - gauche - 2px;
+                if (gauche + defilement.content-x < 0px) {
+                    defilement.content-x = -gauche;
+                } else if (gauche + 2px + defilement.content-x > defilement.visible-width) {
+                    defilement.content-x = defilement.visible-width - gauche - 2px;
                 }
             }
         }

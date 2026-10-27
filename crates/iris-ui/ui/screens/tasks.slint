@@ -1596,7 +1596,7 @@ export component TasksView inherits Rectangle {
                 vertical-stretch: 1;
                 min-height: 60px;
                 mouse-drag-pan-enabled: false;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 VerticalLayout {
                     width: etapes.visible-width;
                     alignment: start;
@@ -1738,7 +1738,7 @@ export component TasksView inherits Rectangle {
                 mouse-drag-pan-enabled: false;
                 // As wide as what shows: left to the rows' own width, the list ran
                 // past the column and its right-hand end (Clear, the dates) was cut.
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 VerticalLayout {
                     width: liste-taches.visible-width;
                     alignment: start;

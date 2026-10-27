@@ -86,8 +86,8 @@ export component ShortcutsHelp inherits Modal {
 
     ScrollView {
         vertical-stretch: 1;
-        viewport-width: self.visible-width;
-        viewport-height: lignes.preferred-height;
+        content-width: self.visible-width;
+        content-height: lignes.preferred-height;
 
         lignes := VerticalLayout {
             width: parent.width;

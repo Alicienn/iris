@@ -1207,7 +1207,7 @@ export component ConversationView inherits VerticalLayout {
         // beyond that, each message on a card of its own.
         defil := ScrollView {
             vertical-stretch: 1;
-            viewport-height: fil.preferred-height + 26px + 20px;
+            content-height: fil.preferred-height + 26px + 20px;
 
             fil := VerticalLayout {
                 x: max(32px, (defil.visible-width - root.column) / 2);

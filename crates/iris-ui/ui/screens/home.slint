@@ -178,7 +178,7 @@ export component HomeView inherits Rectangle {
             boites := ScrollView {
                 vertical-stretch: 1;
                 mouse-drag-pan-enabled: false;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 VerticalLayout {
                     width: boites.visible-width;
                     alignment: start;
@@ -253,7 +253,7 @@ export component HomeView inherits Rectangle {
             page := ScrollView {
                 vertical-stretch: 1;
                 mouse-drag-pan-enabled: false;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 // A readable width, centred; three columns of widgets in it, four in
                 // the second row.
                 property <length> largeur: min(980px, self.visible-width - (Layout.compact ? 32px : 96px));

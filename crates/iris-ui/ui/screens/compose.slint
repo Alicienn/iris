@@ -887,8 +887,8 @@ export component ComposePanel inherits Rectangle {
             if !root.minimised && root.replying && root.history.length > 0 && root.history-open: ScrollView {
                 vertical-stretch: 1;
                 min-height: 80px;
-                viewport-width: self.visible-width;
-                viewport-height: fil.preferred-height;
+                content-width: self.visible-width;
+                content-height: fil.preferred-height;
 
                 fil := VerticalLayout {
                     width: parent.width;

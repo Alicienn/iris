@@ -1582,7 +1582,7 @@ export component NotesView inherits Rectangle {
             arbre := ScrollView {
                 vertical-stretch: 1;
                 mouse-drag-pan-enabled: false;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 VerticalLayout {
                     width: arbre.visible-width;
                     alignment: start;
@@ -1861,7 +1861,7 @@ export component NotesView inherits Rectangle {
               page := ScrollView {
                 horizontal-stretch: 1;
                 mouse-drag-pan-enabled: false;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 HorizontalLayout {
                     width: page.visible-width;
                     Rectangle { horizontal-stretch: 1; }
@@ -1938,14 +1938,14 @@ export component NotesView inherits Rectangle {
                             changed curseur-serie => {
                                 // The cursor kept in view: the page scrolls to it.
                                 if (root.caret-visible) {
-                                    let haut = -page.viewport-y + 30px;
-                                    let bas = -page.viewport-y + page.visible-height - 30px;
+                                    let haut = -page.content-y + 30px;
+                                    let bas = -page.content-y + page.visible-height - 30px;
                                     let y-page = self.y + root.caret-y;
-                                    let plancher = min(0px, page.visible-height - page.viewport-height);
+                                    let plancher = min(0px, page.visible-height - page.content-height);
                                     if (y-page + root.caret-h > bas) {
-                                        page.viewport-y = max(plancher, -(y-page + root.caret-h + 30px - page.visible-height));
+                                        page.content-y = max(plancher, -(y-page + root.caret-h + 30px - page.visible-height));
                                     } else if (y-page < haut) {
-                                        page.viewport-y = min(0px, -(y-page - 30px));
+                                        page.content-y = min(0px, -(y-page - 30px));
                                     }
                                 }
                                 // What pops up goes under the cursor, where it is now.
@@ -2207,7 +2207,7 @@ export component NotesView inherits Rectangle {
                     }
                     a-cote := ScrollView {
                         vertical-stretch: 1;
-                        viewport-width: self.visible-width;
+                        content-width: self.visible-width;
                         mouse-drag-pan-enabled: false;
                         VerticalLayout {
                             width: a-cote.visible-width;
@@ -2240,7 +2240,7 @@ export component NotesView inherits Rectangle {
                 cote := ScrollView {
                     x: 1px;
                     width: parent.width - 1px;
-                    viewport-width: self.visible-width;
+                    content-width: self.visible-width;
                     mouse-drag-pan-enabled: false;
                     VerticalLayout {
                         width: cote.visible-width;
@@ -2343,15 +2343,15 @@ export component NotesView inherits Rectangle {
         defile := Flickable {
             width: parent.width;
             height: parent.height;
-            viewport-height: liste-completion.preferred-height;
+            content-height: liste-completion.preferred-height;
             property <int> rang: root.completion-highlight;
             changed rang => {
                 let haut = self.rang * root.ligne-completion + 4px;
                 let bas = haut + root.ligne-completion;
-                if (haut + self.viewport-y < 4px) {
-                    self.viewport-y = 4px - haut;
-                } else if (bas + self.viewport-y > self.height - 4px) {
-                    self.viewport-y = self.height - 4px - bas;
+                if (haut + self.content-y < 4px) {
+                    self.content-y = 4px - haut;
+                } else if (bas + self.content-y > self.height - 4px) {
+                    self.content-y = self.height - 4px - bas;
                 }
             }
             liste-completion := VerticalLayout {
@@ -3143,7 +3143,7 @@ export component NotesHistoryPanel inherits Rectangle {
                 width: 230px;
                 horizontal-stretch: 0;
                 mouse-drag-pan-enabled: false;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 VerticalLayout {
                     width: liste.visible-width;
                     alignment: start;
@@ -3188,7 +3188,7 @@ export component NotesHistoryPanel inherits Rectangle {
                 apercu := ScrollView {
                     vertical-stretch: 1;
                     mouse-drag-pan-enabled: false;
-                    viewport-width: self.visible-width;
+                    content-width: self.visible-width;
                     VerticalLayout {
                         width: apercu.visible-width;
                         alignment: start;

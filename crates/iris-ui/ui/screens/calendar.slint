@@ -453,8 +453,8 @@ component WeekGrid inherits VerticalLayout {
         && root.carry-y < defil.absolute-position.y + defil.height;
     // The grid's top left on screen, its scroll counted (`absolute-position` inside the
     // scrolled grid does not count it).
-    property <length> grid-x: defil.absolute-position.x + defil.viewport-x;
-    property <length> grid-y: defil.absolute-position.y + defil.viewport-y;
+    property <length> grid-x: defil.absolute-position.x + defil.content-x;
+    property <length> grid-y: defil.absolute-position.y + defil.content-y;
     property <int> carry-day: root.over-grid
         ? floor((root.carry-x - root.grid-x - root.gutter) / grille.colonne)
         : -1;
@@ -560,11 +560,11 @@ component WeekGrid inherits VerticalLayout {
 
     defil := ScrollView {
         vertical-stretch: 1;
-        viewport-height: root.hour * 24;
+        content-height: root.hour * 24;
         // The mouse carries events; the wheel scrolls.
         mouse-drag-pan-enabled: false;
         // Opens on the working day rather than on midnight.
-        init => { self.viewport-y = -root.hour * 7.5; }
+        init => { self.content-y = -root.hour * 7.5; }
 
         grille := Rectangle {
             width: defil.visible-width;
@@ -702,8 +702,8 @@ component WeekGrid inherits VerticalLayout {
                             && ev.kind == PointerEventKind.down) {
                             root.close-draft();
                             root.event-menu(e.key,
-                                defil.absolute-position.x + defil.viewport-x + evenement.x + self.mouse-x,
-                                defil.absolute-position.y + defil.viewport-y + evenement.y + self.mouse-y);
+                                defil.absolute-position.x + defil.content-x + evenement.x + self.mouse-x,
+                                defil.absolute-position.y + defil.content-y + evenement.y + self.mouse-y);
                             return;
                         }
                         if (ev.button != PointerEventButton.left) {
@@ -759,9 +759,9 @@ component WeekGrid inherits VerticalLayout {
                         // `absolute-position` inside the scrolled grid was off, and the
                         // card opened hundreds of pixels away from the event, further
                         // the more the day was scrolled.
-                        let gauche = defil.absolute-position.x + defil.viewport-x + evenement.x;
+                        let gauche = defil.absolute-position.x + defil.content-x + evenement.x;
                         root.event-anchored(gauche, gauche + evenement.width,
-                            defil.absolute-position.y + defil.viewport-y + evenement.y);
+                            defil.absolute-position.y + defil.content-y + evenement.y);
                         root.event-opened(e.key);
                     }
                 }
@@ -952,7 +952,7 @@ component AgendaList inherits Rectangle {
 
     ScrollView {
         mouse-drag-pan-enabled: true;
-        viewport-width: self.visible-width;
+        content-width: self.visible-width;
         VerticalLayout {
             padding-bottom: 24px;
             alignment: start;

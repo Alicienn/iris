@@ -7,10 +7,8 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ListView } from "std-widgets.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
-import { Nav, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
+import { Nav, SectionRow } from "@iris/lists/nav.slint";
 import { Button, ButtonKind } from "@iris/controls/button.slint";
-
-component SectionLabel inherits SectionTitle {}
 
 component AccountRow inherits Rectangle {
     in property <AccountRowData> account;

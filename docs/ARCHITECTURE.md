@@ -463,7 +463,7 @@ a part without a `TouchArea` to what lies under it; the software renderer also p
 bits of the mail through them in the regions it redrew. Inside the week's scrolled
 grid, `absolute-position` is not to be trusted: what needs a place on screen (the
 event card's anchor, a task dropped on the week) counts it from the `ScrollView`'s own
-position plus its `viewport-x`/`viewport-y`.
+position plus its `content-x`/`content-y`.
 
 Since 3.6.0 an event can be dragged. `TimedEventData.movable` is true for a local
 calendar's event that neither repeats nor is an exception to a repeat. A press becomes a
