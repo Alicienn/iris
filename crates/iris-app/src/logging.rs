@@ -32,6 +32,21 @@ pub fn current(paths: &crate::paths::Paths) -> PathBuf {
     paths.cache.join("logs").join("iris.log")
 }
 
+/// The last panic, in one line, until the next start shows it.
+fn last_panic(paths: &crate::paths::Paths) -> PathBuf {
+    paths.cache.join("logs").join("last-panic.txt")
+}
+
+/// What stopped Iris last time, and where, once: read, the note is gone. A phone shows
+/// a crash as a dialog without the place; this is what the user can report.
+pub fn take_last_panic(paths: &crate::paths::Paths) -> Option<String> {
+    let chemin = last_panic(paths);
+    let texte = std::fs::read_to_string(&chemin).ok()?;
+    let _ = std::fs::remove_file(&chemin);
+    let texte = texte.trim();
+    (!texte.is_empty()).then(|| texte.to_string())
+}
+
 /// Prépare le répertoire, décale les journaux précédents, ouvre celui-ci.
 fn open(paths: &crate::paths::Paths) -> Option<std::fs::File> {
     let dossier = paths.cache.join("logs");
@@ -114,7 +129,7 @@ pub fn install(paths: &crate::paths::Paths) {
                     .try_init(),
             );
 
-            install_panic_hook(current(paths));
+            install_panic_hook(current(paths), last_panic(paths));
             entete(paths);
         }
         // Un disque plein ou un répertoire en lecture seule ne doit pas empêcher
@@ -163,7 +178,7 @@ fn entete(paths: &crate::paths::Paths) {
 /// très bien survenir dans le souscripteur lui-même, ou pendant la fermeture, une fois
 /// qu'il n'écoute plus. Le crochet précédent est appelé ensuite, pour ne rien retirer
 /// à ce que fait déjà l'environnement d'exécution.
-fn install_panic_hook(chemin: PathBuf) {
+fn install_panic_hook(chemin: PathBuf, derniere: PathBuf) {
     let precedent = std::panic::take_hook();
 
     std::panic::set_hook(Box::new(move |info| {
@@ -198,6 +213,10 @@ fn install_panic_hook(chemin: PathBuf) {
             );
             let _ = f.flush();
         }
+        let _ = std::fs::write(
+            &derniere,
+            format!("{message} ({lieu}, version {})", env!("CARGO_PKG_VERSION")),
+        );
 
         precedent(info);
     }));
@@ -206,6 +225,21 @@ fn install_panic_hook(chemin: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn la_derniere_panique_se_lit_une_fois() {
+        let racine = tempfile::tempdir().unwrap();
+        let chemins = crate::paths::Paths::under(racine.path());
+        assert_eq!(take_last_panic(&chemins), None);
+        let note = last_panic(&chemins);
+        std::fs::create_dir_all(note.parent().unwrap()).unwrap();
+        std::fs::write(&note, "RefCell already borrowed (src/calendar.rs:1:1)\n").unwrap();
+        assert_eq!(
+            take_last_panic(&chemins).as_deref(),
+            Some("RefCell already borrowed (src/calendar.rs:1:1)")
+        );
+        assert_eq!(take_last_panic(&chemins), None, "shown once");
+    }
 
     #[test]
     fn la_rotation_decale_les_sessions() {

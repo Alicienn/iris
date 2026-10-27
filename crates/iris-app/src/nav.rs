@@ -139,6 +139,19 @@ impl History {
         true
     }
 
+    /// A choice made in the window. A page closed returns to the place under it: a
+    /// step back, not a new one, or the next Back would open the page again.
+    pub fn choose(&mut self, kind: &str, value: &str) {
+        let Some(p) = self.current.after(kind, value) else {
+            return;
+        };
+        if kind == "page" && value.is_empty() && self.back.last() == Some(&p) {
+            self.back();
+        } else {
+            self.visit(p);
+        }
+    }
+
     /// One step back: the place to go to.
     pub fn back(&mut self) -> Option<Place> {
         let p = self.back.pop()?;
@@ -184,9 +197,7 @@ pub fn note(f: &AppWindow, kind: &str, value: &str) {
     }
     HISTORIQUE.with(|h| {
         let mut h = h.borrow_mut();
-        if let Some(p) = h.current.after(kind, value) {
-            h.visit(p);
-        }
+        h.choose(kind, value);
     });
     boutons(f);
 }
@@ -269,6 +280,10 @@ pub fn system_back(f: &AppWindow) -> bool {
             });
         f.window()
             .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: echap });
+        return true;
+    }
+    // Then what the place shows over itself outside the history: a search, a task.
+    if f.invoke_close_layer() {
         return true;
     }
     if HISTORIQUE.with(|h| h.borrow().can_go_back()) {
@@ -409,6 +424,18 @@ mod tests {
         h.visit(ailleurs);
         assert_eq!(h.back(), Some(fil));
         assert_eq!(h.back().map(|p| p.page), Some(String::new()));
+    }
+
+    #[test]
+    fn closing_a_page_is_a_step_back() {
+        let mut h = History::new(Place::start(0, 1));
+        h.choose("page", "thread");
+        h.choose("page", "");
+        assert!(h.current.page.is_empty());
+        assert!(
+            !h.can_go_back(),
+            "Back does not open the conversation again"
+        );
     }
 
     #[test]

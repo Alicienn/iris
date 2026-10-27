@@ -249,51 +249,65 @@ component MessageBlock inherits Rectangle {
         // de dix réponses, afficher les neuf précédentes noie la seule ligne utile.
         // A bar per level of quoting, rounded, in the accent kept faint: what was
         // quoted reads as set aside, the deeper the further in.
-        if root.block.kind == "quote": HorizontalLayout {
-            spacing: Tokens.space-3;
-            HorizontalLayout {
-                spacing: Tokens.space-2;
-                for niveau in max(1, root.block.depth): Rectangle {
-                    width: 3px;
-                    border-radius: 1.5px;
-                    background: Tokens.accent.transparentize(0.6);
+        // The words in a column of their own, set in from the bars, never in a row
+        // beside them: a row measured their height before their width, as if on one
+        // line, and on a phone the wrapped lines ran over the next block.
+        if root.block.kind == "quote": citation := Rectangle {
+            property <int> niveaux: max(1, root.block.depth);
+            height: cite.preferred-height;
+            for niveau in citation.niveaux: Rectangle {
+                x: niveau * (3px + Tokens.space-2);
+                y: 0px;
+                width: 3px;
+                height: citation.height;
+                border-radius: 1.5px;
+                background: Tokens.accent.transparentize(0.6);
+            }
+            cite := VerticalLayout {
+                padding-left: citation.niveaux * 3px + (citation.niveaux - 1) * Tokens.space-2
+                    + Tokens.space-3;
+                if !root.block.has-link: SelectableText {
+                    message: root.message;
+                    text: root.block.text;
+                    font-size: Tokens.size-body;
+                    color: Tokens.text-muted;
                 }
-            }
-            if !root.block.has-link: SelectableText {
-                message: root.message;
-                text: root.block.text;
-                font-size: Tokens.size-body;
-                color: Tokens.text-muted;
-            }
-            if root.block.has-link: LinkedText {
-                text: root.block.rich;
-                text-color: Tokens.text-muted;
-                link(l) => { root.link(l); }
-                target: root.block.link;
-                target-text: root.block.link-text;
-                hovered(on, l, t) => { root.link-hovered(on, l, t); }
+                if root.block.has-link: LinkedText {
+                    text: root.block.rich;
+                    text-color: Tokens.text-muted;
+                    link(l) => { root.link(l); }
+                    target: root.block.link;
+                    target-text: root.block.link-text;
+                    hovered(on, l, t) => { root.link-hovered(on, l, t); }
+                }
             }
         }
 
-        if root.block.kind == "list": HorizontalLayout {
-            padding-left: root.block.depth * Tokens.space-4;
-            spacing: Tokens.space-2;
+        // The same for a list's item: the bullet drawn beside, the words in a column.
+        if root.block.kind == "list": entree := Rectangle {
+            property <length> retrait: root.block.depth * Tokens.space-4;
+            height: puce.preferred-height;
             Text {
+                x: entree.retrait;
+                y: 0px;
                 text: "•";
                 color: Tokens.text-secondary;
             }
-            if !root.block.has-link: SelectableText {
-                message: root.message;
-                text: root.block.text;
-                font-size: Tokens.size-body;
-                color: Tokens.text;
-            }
-            if root.block.has-link: LinkedText {
-                text: root.block.rich;
-                link(l) => { root.link(l); }
-                target: root.block.link;
-                target-text: root.block.link-text;
-                hovered(on, l, t) => { root.link-hovered(on, l, t); }
+            puce := VerticalLayout {
+                padding-left: entree.retrait + Tokens.space-4;
+                if !root.block.has-link: SelectableText {
+                    message: root.message;
+                    text: root.block.text;
+                    font-size: Tokens.size-body;
+                    color: Tokens.text;
+                }
+                if root.block.has-link: LinkedText {
+                    text: root.block.rich;
+                    link(l) => { root.link(l); }
+                    target: root.block.link;
+                    target-text: root.block.link-text;
+                    hovered(on, l, t) => { root.link-hovered(on, l, t); }
+                }
             }
         }
 

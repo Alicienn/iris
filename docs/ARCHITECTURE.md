@@ -562,6 +562,26 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   title (which opens the mailboxes), the counts and `QueueSegments`; a row leads with
   the sender's `Avatar` in the touch sizes; `Fab` floats New message. `BlockButton` is
   a page's full-width button (welcome, Add an account).
+- The system's bars and keyboard (6.6.0). `AppWindow` copies the window's own
+  `safe-area-insets` into `Layout.inset-top` / `inset-bottom` on every change
+  (`take-safe-area`): a phone that ignores the theme's request to keep its bars outside
+  the window (Android 16 on HyperOS did) has every place start below the status bar.
+  `clavier` is what `virtual-keyboard-position` covers; while it is up the tabs are
+  removed and the places end above it, so the field typed in rises over it.
+- Back from anywhere (6.6.0): a `FocusScope` that never takes the focus wraps the
+  window's content and catches `Key.Back` with `capture-key-pressed`, before the field
+  that has the keyboard: a key that only reached the focused field never got to
+  `system-back` from New message or the reader. `system_back` closes windows (by
+  Escape), then `close-layer` (a search, a task's or a habit's page, the tasks'
+  column), then goes back in the history. A page closed (`navigated("page", "")`) is a
+  step back, not a new step (`History::choose`). Tapping the current tab runs
+  `place-root`: the mail's list, the calendar on today, the tasks with nothing open.
+- Quoted text and list items lay their words in a column set in from the bars or the
+  bullet, never in a row beside them: a row measured the wrapped text as one line, and
+  on a phone the lines ran over the next block.
+- A panic writes `cache/logs/last-panic.txt` (message, file and line, version) beside
+  the journal; the next start shows it once as a toast (`logging::take_last_panic`),
+  because Android's crash dialog gives no place.
 
 ### Keyboard, focus and clicks
 

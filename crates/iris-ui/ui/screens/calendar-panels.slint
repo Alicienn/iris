@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
@@ -531,8 +532,15 @@ export component EventEditorPanel inherits Rectangle {
                 accessible-label: "Title";
                 placeholder-text: "What is it?";
                 text <=> root.title;
-                // Opened to write: the first key goes to the title.
-                init => { self.focus(); }
+                // Opened to write: the first key goes to the title. Not on a phone:
+                // the keyboard would cover the event being changed, and asked for
+                // while the page was being made, it is the likely cause of Iris
+                // stopping when an event was edited (6.5.0).
+                init => {
+                    if (!Layout.touch-input) {
+                        self.focus();
+                    }
+                }
                 accepted => { root.save(); }
             }
         }

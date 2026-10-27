@@ -95,6 +95,9 @@ the Android Keystore holds.
   row's menu.
 - A note being written has formatting keys under it.
 - `Escape`, or Android's Back, closes what is open, then goes back.
+- Tapping the tab you are in returns to its first screen (Mail's list, today in the
+  calendar).
+- If Iris stopped unexpectedly, the next start says what and where, to report it.
 
 ## Mail
 

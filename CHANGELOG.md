@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.6.0 — 2026-10-27
+
+### New
+- On a phone, tapping the tab you are in takes you back to its first screen.
+- If Iris stops unexpectedly, it says what happened when you open it again.
+
+### Improved
+- Android's Back closes what is open, New message included, before leaving the screen.
+- On a phone, the line to add a task stands out, and rises above the keyboard.
+
+### Fixed
+- On Android, no screen slides under the status bar any more.
+- On a phone, the mail list's title no longer takes half the screen.
+- Quoted text and lists in a message no longer overlap on a narrow screen.
+- Changing an event on a phone no longer closes Iris.
+
 ## 6.5.0 — 2026-10-27
 
 ### Improved

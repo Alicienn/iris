@@ -813,5 +813,10 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S47.11** The phone screens ported to the Android mockups, first pass: welcome
       (O1), Add an account (O2), the mail list (M1: large title, queue segments, rows
       with faces, floating New message); `BlockButton`, `Fab`, `QueueSegments` (6.5.0).
+- [x] **S47.13** Phone navigation and fixes: Back from any field, the current tab back to
+      its first screen, the places below the status bar and above the keyboard, the
+      add-a-task line as a card, quotes and lists that no longer overlap, the event
+      editor without its keyboard on open, the last panic shown at the next start
+      (6.6.0).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.

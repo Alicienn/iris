@@ -153,6 +153,20 @@ fn sur_un_telephone_la_liste_prend_tout_l_ecran() {
         (milieu - 195.0).abs() < 20.0,
         "centred on the screen, not on a part of it: {milieu}"
     );
+    // The title and the queues keep their own height: stretched with the list, they
+    // took half the screen.
+    let a_faire = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Tab)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some("To do") && e.size().width > 0.0)
+        .expect("the queues under the title");
+    assert!(
+        a_faire.absolute_position().y < 200.0,
+        "the queues right under the title: {}",
+        a_faire.absolute_position().y
+    );
 }
 
 fn le_retour_d_android_est_remis_a_l_application() {
@@ -170,6 +184,99 @@ fn le_retour_d_android_est_remis_a_l_application() {
     f.window()
         .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: retour });
     assert_eq!(retours.get(), 1, "Back goes to nav::system_back");
+}
+
+fn retour(f: &AppWindow) {
+    let touche = slint::SharedString::from(slint::platform::Key::Back);
+    f.window()
+        .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+            text: touche.clone(),
+        });
+    f.window()
+        .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: touche });
+}
+
+fn le_retour_atteint_l_application_depuis_un_champ() {
+    // New message open, the cursor in To: Back went to the field, which ignored it,
+    // and never reached the app.
+    let f = fenetre_de(390.0, 844.0);
+    let retours = std::rc::Rc::new(std::cell::Cell::new(0));
+    {
+        let r = std::rc::Rc::clone(&retours);
+        f.on_system_back(move || r.set(r.get() + 1));
+    }
+    f.set_compose_open(true);
+    f.set_compose_minimised(false);
+    slint::platform::update_timers_and_animations();
+    let a = slint::SharedString::from("a");
+    f.window()
+        .dispatch_event(slint::platform::WindowEvent::KeyPressed { text: a.clone() });
+    f.window()
+        .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: a });
+    assert_eq!(f.get_compose_to(), "a", "the cursor is in To");
+    retour(&f);
+    assert_eq!(retours.get(), 1, "Back reaches the app from a field");
+    assert_eq!(f.get_compose_to(), "a", "and is not typed");
+}
+
+fn le_retour_ferme_une_tache_avant_de_quitter() {
+    let f = fenetre_de(390.0, 844.0);
+    f.set_workspace(2);
+    f.set_task_has_detail(true);
+    let fermee = std::rc::Rc::new(std::cell::Cell::new(false));
+    {
+        let fermee = std::rc::Rc::clone(&fermee);
+        f.on_task_detail_closed(move || fermee.set(true));
+    }
+    assert!(f.invoke_close_layer(), "a task open is a layer");
+    assert!(fermee.get());
+    f.set_task_has_detail(false);
+    assert!(!f.invoke_close_layer(), "nothing left over the list");
+}
+
+fn l_onglet_ouvert_touche_ramene_a_sa_liste() {
+    let f = fenetre_de(390.0, 844.0);
+    f.set_page("thread".into());
+    slint::platform::update_timers_and_animations();
+    let mail = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Tab)
+        .find_all()
+        .into_iter()
+        .find(|t| t.accessible_label().as_deref() == Some("Mail") && t.size().width > 0.0)
+        .expect("the Mail tab");
+    mail.mock_single_click(slint::platform::PointerEventButton::Left);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(f.get_page(), "", "Mail again is the list");
+    assert_eq!(f.get_workspace(), 0);
+}
+
+fn rien_ne_passe_sous_la_barre_d_etat() {
+    // A phone that draws its status bar over the window: every place starts below it.
+    let f = fenetre_de(390.0, 844.0);
+    f.global::<Layout>().set_inset_top(32.0);
+    for lieu in [0, 1, 2, 3, 4] {
+        f.set_workspace(lieu);
+        slint::platform::update_timers_and_animations();
+        let hauts: Vec<_> = testing::ElementQuery::from_root(&f)
+            .match_descendants()
+            .match_accessible_role(testing::AccessibleRole::Button)
+            .find_all()
+            .into_iter()
+            .filter(|b| b.size().width > 0.0 && b.size().height > 0.0)
+            .map(|b| {
+                (
+                    b.accessible_label().unwrap_or_default(),
+                    b.absolute_position().y,
+                )
+            })
+            .filter(|(_, y)| *y < 32.0)
+            .collect();
+        assert!(
+            hauts.is_empty(),
+            "place {lieu}: under the status bar: {hauts:?}"
+        );
+    }
 }
 
 /// The buttons of that name actually laid out (wider than nothing).
@@ -354,6 +461,22 @@ fn main() {
         (
             "le_retour_d_android_est_remis_a_l_application",
             le_retour_d_android_est_remis_a_l_application,
+        ),
+        (
+            "le_retour_atteint_l_application_depuis_un_champ",
+            le_retour_atteint_l_application_depuis_un_champ,
+        ),
+        (
+            "le_retour_ferme_une_tache_avant_de_quitter",
+            le_retour_ferme_une_tache_avant_de_quitter,
+        ),
+        (
+            "l_onglet_ouvert_touche_ramene_a_sa_liste",
+            l_onglet_ouvert_touche_ramene_a_sa_liste,
+        ),
+        (
+            "rien_ne_passe_sous_la_barre_d_etat",
+            rien_ne_passe_sous_la_barre_d_etat,
         ),
         (
             "sur_un_telephone_une_tache_ouverte_est_une_page",

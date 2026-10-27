@@ -175,6 +175,10 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     if services.store.accounts().is_ok_and(|v| v.is_empty()) {
         fenetre.set_first_run(true);
     }
+    // Iris stopped last time: what and where, to report it.
+    if let Some(panne) = crate::logging::take_last_panic(&services.paths) {
+        fenetre.set_toast(format!("Iris stopped last time: {panne}").into());
+    }
     crate::memory::mark("fenêtre construite");
     let theme = services.themes.active();
     fenetre

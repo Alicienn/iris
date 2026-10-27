@@ -1144,9 +1144,12 @@ component AddBar inherits Rectangle {
 
     // As Reminders' "New reminder": no box, the accent's plus where a circle would be,
     // a hairline over it; a soft plate while it is typed in.
-    height: 46px;
-    border-radius: Tokens.radius-medium;
-    background: champ.has-focus ? Tokens.surface-hover : transparent;
+    height: Layout.touch-input ? 52px : 46px;
+    border-radius: Layout.touch-input ? Tokens.radius-large : Tokens.radius-medium;
+    // On a phone a card of its own from the start, a shade lighter than the list, so
+    // that the line to add a task is seen before it is touched.
+    background: champ.has-focus ? Tokens.surface-active
+        : Layout.touch-input ? Tokens.surface-hover : transparent;
 
     HorizontalLayout {
         padding-left: 14px;

@@ -327,6 +327,10 @@ export component PhoneMailHeader inherits VerticalLayout {
     padding-right: 18px;
     padding-bottom: 10px;
     spacing: 2px;
+    // Its own height and no more: stretched with the list, it took half the screen
+    // and pushed the conversations under the tabs (6.5.0).
+    vertical-stretch: 0;
+    max-height: self.preferred-height;
 
     Rectangle {
         height: titre.preferred-height;

@@ -1491,6 +1491,71 @@ export component AppWindow inherits Window {
         if (self.height > 0) {
             Layout.window-height = self.height;
         }
+        root.take-safe-area();
+    }
+    // What the system draws over the window (Android's status and gesture bars), as
+    // the system reports it, again on every change: rotated, the keyboard's
+    // navigation, a phone that ignores the request to keep its bars outside.
+    function take-safe-area() {
+        if (self.safe-area-insets.top > 0 || self.safe-area-insets.bottom > 0) {
+            Layout.inset-top = self.safe-area-insets.top;
+            Layout.inset-bottom = self.safe-area-insets.bottom;
+        }
+    }
+    changed safe-area-insets => { root.take-safe-area(); }
+
+    /// What a place shows over itself that is not a window and not in the history
+    /// closes, one layer per call: a search, a task's or a habit's page, the tasks'
+    /// column. True when something closed. Android's Back asks it after the windows.
+    public function close-layer() -> bool {
+        if (root.searching) {
+            root.search-query = "";
+            root.search-cleared();
+            return true;
+        }
+        if (root.reading-focus) {
+            root.reading-focus = false;
+            return true;
+        }
+        if (root.workspace == 2 && root.tasks-column-open) {
+            root.tasks-column-open = false;
+            return true;
+        }
+        if (root.workspace == 2 && root.task-has-detail) {
+            root.task-detail-closed();
+            shortcuts.focus();
+            return true;
+        }
+        if (root.workspace == 2 && root.habits-has-detail) {
+            root.habit-detail-closed();
+            shortcuts.focus();
+            return true;
+        }
+        return false;
+    }
+
+    /// The place chosen again from the tabs: back to its first screen. The mail's
+    /// list, out of the conversation and the mailboxes; the calendar on today; the
+    /// tasks without a task open.
+    function place-root() {
+        if (root.searching) {
+            root.search-query = "";
+            root.search-cleared();
+        }
+        if (root.workspace == 0) {
+            root.mailboxes-open = false;
+            root.reading-focus = false;
+            if (root.page != "") {
+                root.page = "";
+                root.navigated("page", "");
+            }
+        } else if (root.workspace == 1) {
+            root.calendar-today();
+        } else if (root.workspace == 2) {
+            root.tasks-column-open = false;
+            if (root.task-has-detail) { root.task-detail-closed(); }
+            if (root.habits-has-detail) { root.habit-detail-closed(); }
+        }
     }
     callback density-chosen(int);
     /// The text size chosen in Settings, in percent.
@@ -1735,6 +1800,7 @@ export component AppWindow inherits Window {
             // A conversation open as a page on a phone: Escape is Back.
             if (event.text == Key.Escape && root.fil-en-page && !root.modal-open) {
                 root.page = "";
+                root.navigated("page", "");
                 return accept;
             }
             // "c" writes a new message, the convention every mail client shares.
@@ -2123,6 +2189,9 @@ export component AppWindow inherits Window {
     property <int> chrome-request <=> Chrome.request-id;
     changed chrome-request => {
         if (Chrome.request == "workspace") {
+            if (Chrome.request-arg == root.workspace) {
+                root.place-root();
+            }
             root.workspace = Chrome.request-arg;
             root.workspace-changed(Chrome.request-arg);
             shortcuts.focus();
@@ -2159,2014 +2228,2040 @@ export component AppWindow inherits Window {
     in-out property <bool> tasks-column-open;
     /// What the window keeps at its foot: the status bar, or in a narrow window the
     /// five places above the system's gesture bar.
-    property <length> pied: Layout.compact ? 66px + Layout.inset-bottom : 30px;
+    property <length> pied: Layout.compact ? max(66px + Layout.inset-bottom, root.clavier) : 30px;
+    /// What the phone's keyboard covers at the foot of the window while it is up. The
+    /// places end above it, as they end above the tabs: the line being typed in (a
+    /// task to add) rises over the keyboard instead of staying under it.
+    property <length> clavier: self.virtual-keyboard-size.height > 0
+        ? max(0px, self.height - self.virtual-keyboard-position.y) : 0px;
     /// What the rail of places takes at the left, at medium width.
     property <length> rail: Layout.medium ? 80px : 0px;
     /// The accounts column folded to a strip: 0 open, 1 folded, animated between.
     property <float> pli: root.sidebar-collapsed ? 1 : 0;
     animate pli { duration: Tokens.quick; easing: ease-in-out; }
 
-    Backdrop {
+    // Android's Back, whatever has the keyboard: a field of New message, the reader,
+    // a window. It reaches the app before them (the shortcuts below take it only when
+    // they have the keyboard), and the app closes what is open, then the page, then
+    // goes back in the history. Never focused, never in the way of a click.
+    FocusScope {
+        focus-on-click: false;
         width: 100%;
         height: 100%;
-
-        // Removing the system frame removes the outline it drew. Without one, a dark
-        // window on a dark desktop has no boundary at all — it looks like a hole
-        // rather than a window.
-        Rectangle {
-            width: 100%;
-            height: 100%;
-            border-width: 1px;
-            border-color: Tokens.border-strong;
-            background: transparent;
+        capture-key-pressed(event) => {
+            if (event.text == Key.Back) {
+                root.system-back();
+                return accept;
+            }
+            reject
         }
 
-        VerticalLayout {
-            padding-left: root.rail;
-            HorizontalLayout {
-                // The mail's columns, only while the mail is shown. The calendar, the
-                // tasks and Home are laid over them, and a part of those without a
-                // touch area of its own let the click through to the mail underneath
-                // ("Today" opened New message); the software renderer, redrawing only
-                // what changed, painted bits of the mail through them while a task was
-                // carried. Hidden, the mail is neither drawn nor hit.
-                visible: root.workspace == 0;
-                // Colonne 1 : les comptes, in the window's sidebar under the places.
-                SidebarFrame {
-                // Reading full screen: the accounts and the list step aside. So they
-                // do below 840 pixels, where the title of the list opens them as a
-                // page of their own, the whole width.
-                visible: root.mailboxes-open
-                    || (!root.reading-focus && Layout.width-class == WidthClass.expanded);
-                // Only the folding is animated: a window that changes layout (or a
-                // window given its size at start) gets its columns at once.
-                sidebar-width: root.mailboxes-open ? Layout.window-width - root.rail
-                    : root.reading-focus || Layout.width-class != WidthClass.expanded ? 0px
-                    : 232px - 168px * root.pli;
-                compact: root.sidebar-collapsed;
-                Sidebar {
-                    vertical-stretch: 1;
-                    folder-open: root.selected-folder != "";
-                    pinned: root.pinned-accounts;
-                    others: root.other-accounts;
-                    selected-id: root.selected-account;
-                    unified-count: root.unified-count;
-                    unified-label: root.unified-label;
-                    unified-full: root.unified-full;
-                    filter <=> root.account-filter;
-                    syncing: root.syncing-all;
-                    sync-progress: root.sync-progress;
-                    last-sync: root.last-sync;
-                    account-total: root.account-count;
-                    collapsed <=> root.sidebar-collapsed;
-                    account-selected(id) => {
-                        root.mailboxes-open = false;
-                        root.account-selected(id);
-                        root.navigated("account", "\{id}");
-                        shortcuts.focus();
-                    }
-                    unified-selected => {
-                        root.mailboxes-open = false;
-                        root.unified-selected();
-                        root.navigated("unified", "");
-                        shortcuts.focus();
-                    }
-                    resume-account(id) => { root.resume-account(id); }
-                    add-account => { root.add-account-open = true; }
-                    filter-changed(t) => { root.account-filter-changed(t); }
-                    sync-account(id) => { root.sync-account(id); }
-                    sync-all => { root.sync-all(); }
-                    open-tags => { root.tags-requested(); }
-                    grouped: root.group-by-tags;
-                    selected-tag: root.selected-tag;
-                    tag-selected(t) => {
-                        root.mailboxes-open = false;
-                        root.tag-selected(t);
-                        root.navigated("tag", "\{t}");
-                        shortcuts.focus();
-                    }
-                    tag-fold-toggled(t) => { root.tag-fold-toggled(t); }
-                    group-toggled => {
-                        root.group-by-tags = !root.group-by-tags;
-                        root.group-by-tags-changed();
-                    }
-                    probe: root.account-probe;
-                    probe-x: root.account-probe-x;
-                    probe-y: root.account-probe-y;
-                    account-menu(id, mx, my) => {
-                        root.account-menu-x = mx;
-                        root.account-menu-y = my;
-                        root.account-menu-requested(id);
-                    }
-                    // Brought back full size, even if it was tucked into the corner:
-                    // New message is a request to write.
-                    compose => {
-                        root.compose-minimised = false;
-                        root.compose-open = true;
-                    }
+        Backdrop {
+            width: 100%;
+            height: 100%;
 
-                    // The folders, under the accounts: "this mailbox, in this folder"
-                    // read down one column. Folded with it.
-                    if !root.sidebar-collapsed: FolderTree {
-                        vertical-stretch: 1;
-                        folders: root.folders;
-                        selected-path: root.selected-folder;
-                        accounts-total: root.account-count;
-                        folder-selected(p) => {
-                            root.mailboxes-open = false;
-                            root.folder-selected(p);
-                            root.navigated("folder", p);
-                            shortcuts.focus();
-                        }
-                        all-selected => {
-                            root.mailboxes-open = false;
-                            root.folder-cleared();
-                            root.navigated("folder", "");
-                        }
-                        folder-fold-toggled(p) => {
-                            root.folder-fold-toggled(p);
-                            shortcuts.focus();
-                        }
-                        new-folder => { root.new-folder-requested(); }
-                        scheduled: root.scheduled-count;
-                        scheduled-requested => { root.scheduled-requested(); }
-                        folder-dropped(p) => { root.folder-dropped(p); }
-                        folder-menu(p, mx, my) => {
-                            root.folder-menu-x = mx;
-                            root.folder-menu-y = my;
-                            root.folder-menu-requested(p);
-                        }
-                    }
-                }
-                }
+            // Removing the system frame removes the outline it drew. Without one, a dark
+            // window on a dark desktop has no boundary at all — it looks like a hole
+            // rather than a window.
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                border-width: 1px;
+                border-color: Tokens.border-strong;
+                background: transparent;
+            }
 
-                VerticalLayout {
-                horizontal-stretch: 1;
-                // The mailboxes open as a page: the list and the reader step aside.
-                visible: !root.mailboxes-open;
-                max-width: root.mailboxes-open ? 0px : 100000px;
-                mail-toolbar := MailToolbar {
-                    lights: root.reading-focus;
-                    page: root.fil-en-page;
-                    title-opens: Layout.width-class != WidthClass.expanded;
-                    title-clicked => { root.mailboxes-open = true; }
-                    // Back pops the page from the history, which closes it.
-                    back => {
-                        root.nav-back();
-                        if (root.fil-en-page) {
-                            root.page = "";
-                        }
-                        shortcuts.focus();
-                    }
-                    title: root.folder-name != "" ? root.folder-name : "All accounts";
-                    subtitle: root.folder-name != "" ? ""
-                        : (root.counts.length > 0 ? root.counts[0] : 0) + " to do";
-                    queues: root.folder-name == "" && !root.searching;
-                    count-labels: root.count-labels;
-                    counts: root.counts;
-                    active-tab: root.active-tab;
-                    has-thread: !root.conversation-empty;
-                    starred: root.selected-starred;
-                    focused: root.reading-focus;
-                    searching: root.searching;
-                    search-query <=> root.search-query;
-                    tab-selected(i) => {
-                        root.tab-selected(i);
-                        root.navigated("tab", "\{i}");
-                        shortcuts.focus();
-                    }
-                    compose => {
-                        root.compose-minimised = false;
-                        root.compose-open = true;
-                    }
-                    mark-done => { root.thread-done(); }
-                    waiting => { root.thread-waiting(); }
-                    to-task => { root.thread-to-task(root.selected-thread); }
-                    archive => { root.thread-archive(); }
-                    delete-thread => { root.thread-delete(); }
-                    toggle-star => { root.thread-toggle-star(); }
-                    toggle-focus => { root.reading-focus = !root.reading-focus; }
-                    snooze-menu(mx, my) => {
-                        root.reader-menu-x = mx;
-                        root.reader-menu-y = my;
-                        root.reader-menu = "snooze";
-                    }
-                    more-menu(mx, my) => {
-                        root.reader-menu-x = mx;
-                        root.reader-menu-y = my;
-                        root.reader-menu = "more";
-                    }
-                    search-submitted(q) => { root.search-submitted(q); }
-                    search-cleared => { root.search-cleared(); }
-                }
-                // On a phone's list, the large head of the mockup (M1).
-                if Layout.compact && !root.fil-en-page && !root.searching: PhoneMailHeader {
-                    title: root.folder-name != "" ? root.folder-name : "All accounts";
-                    subtitle: (root.folder-name != "" ? ""
-                        : (root.counts.length > 0 ? root.counts[0] : 0) + " to do")
-                        + (root.last-sync != "" && root.folder-name == "" ? " · " + root.last-sync.to-lowercase() : "");
-                    queues: root.folder-name == "";
-                    count-labels: root.count-labels;
-                    counts: root.counts;
-                    active-tab: root.active-tab;
-                    title-clicked => { root.mailboxes-open = true; }
-                    tab-selected(i) => {
-                        root.tab-selected(i);
-                        root.navigated("tab", "\{i}");
-                        shortcuts.focus();
-                    }
-                }
+            VerticalLayout {
+                // The status bar, when the system draws it over the window; the
+                // keyboard, which hides the tabs while it is up.
+                padding-top: Layout.inset-top;
+                padding-bottom: Layout.compact ? root.clavier : 0px;
+                padding-left: root.rail;
                 HorizontalLayout {
-                // Colonne 2 : la file de travail. On a phone the whole width, until a
-                // conversation is opened over it; on a foldable a narrower column.
-                Rectangle {
-                    visible: !root.reading-focus && !root.fil-en-page && !root.mailboxes-open;
-                    // Bounds rather than a width: a width taken from the parent would
-                    // loop through the layout.
-                    property <bool> cache: root.reading-focus || root.fil-en-page || root.mailboxes-open;
-                    min-width: self.cache || Layout.compact ? 0px : Layout.medium ? 300px : 360px;
-                    max-width: self.cache ? 0px : Layout.compact ? 100000px : Layout.medium ? 300px : 360px;
-                    horizontal-stretch: Layout.compact && !self.cache ? 1 : 0;
-                    background: Tokens.surface;
+                    // The mail's columns, only while the mail is shown. The calendar, the
+                    // tasks and Home are laid over them, and a part of those without a
+                    // touch area of its own let the click through to the mail underneath
+                    // ("Today" opened New message); the software renderer, redrawing only
+                    // what changed, painted bits of the mail through them while a task was
+                    // carried. Hidden, the mail is neither drawn nor hit.
+                    visible: root.workspace == 0;
+                    // Colonne 1 : les comptes, in the window's sidebar under the places.
+                    SidebarFrame {
+                    // Reading full screen: the accounts and the list step aside. So they
+                    // do below 840 pixels, where the title of the list opens them as a
+                    // page of their own, the whole width.
+                    visible: root.mailboxes-open
+                        || (!root.reading-focus && Layout.width-class == WidthClass.expanded);
+                    // Only the folding is animated: a window that changes layout (or a
+                    // window given its size at start) gets its columns at once.
+                    sidebar-width: root.mailboxes-open ? Layout.window-width - root.rail
+                        : root.reading-focus || Layout.width-class != WidthClass.expanded ? 0px
+                        : 232px - 168px * root.pli;
+                    compact: root.sidebar-collapsed;
+                    Sidebar {
+                        vertical-stretch: 1;
+                        folder-open: root.selected-folder != "";
+                        pinned: root.pinned-accounts;
+                        others: root.other-accounts;
+                        selected-id: root.selected-account;
+                        unified-count: root.unified-count;
+                        unified-label: root.unified-label;
+                        unified-full: root.unified-full;
+                        filter <=> root.account-filter;
+                        syncing: root.syncing-all;
+                        sync-progress: root.sync-progress;
+                        last-sync: root.last-sync;
+                        account-total: root.account-count;
+                        collapsed <=> root.sidebar-collapsed;
+                        account-selected(id) => {
+                            root.mailboxes-open = false;
+                            root.account-selected(id);
+                            root.navigated("account", "\{id}");
+                            shortcuts.focus();
+                        }
+                        unified-selected => {
+                            root.mailboxes-open = false;
+                            root.unified-selected();
+                            root.navigated("unified", "");
+                            shortcuts.focus();
+                        }
+                        resume-account(id) => { root.resume-account(id); }
+                        add-account => { root.add-account-open = true; }
+                        filter-changed(t) => { root.account-filter-changed(t); }
+                        sync-account(id) => { root.sync-account(id); }
+                        sync-all => { root.sync-all(); }
+                        open-tags => { root.tags-requested(); }
+                        grouped: root.group-by-tags;
+                        selected-tag: root.selected-tag;
+                        tag-selected(t) => {
+                            root.mailboxes-open = false;
+                            root.tag-selected(t);
+                            root.navigated("tag", "\{t}");
+                            shortcuts.focus();
+                        }
+                        tag-fold-toggled(t) => { root.tag-fold-toggled(t); }
+                        group-toggled => {
+                            root.group-by-tags = !root.group-by-tags;
+                            root.group-by-tags-changed();
+                        }
+                        probe: root.account-probe;
+                        probe-x: root.account-probe-x;
+                        probe-y: root.account-probe-y;
+                        account-menu(id, mx, my) => {
+                            root.account-menu-x = mx;
+                            root.account-menu-y = my;
+                            root.account-menu-requested(id);
+                        }
+                        // Brought back full size, even if it was tucked into the corner:
+                        // New message is a request to write.
+                        compose => {
+                            root.compose-minimised = false;
+                            root.compose-open = true;
+                        }
 
-                    liste := ThreadListView {
-                        width: 100%;
-                        height: 100%;
-                        rows: root.rows;
-                        searching: root.searching;
-                        search-summary: root.search-summary;
-                        search-explanation: root.search-explanation;
-                        search-query <=> root.search-query;
-                        search-submitted(q) => { root.search-submitted(q); }
-                        search-cleared => { root.search-cleared(); }
-                        search-pills: root.search-pills;
-                        search-pill(i) => { root.search-pill(i); }
-                        row-context-menu(id, mx, my, non-lu, epingle) => {
-                            // Plus de `thread-selected` : un clic droit ouvrait le
-                            // message, chargeait son corps et le marquait lu, pour
-                            // quelqu'un qui voulait seulement voir les actions
-                            // possibles — dont « Delete ». Le menu porte sa cible.
-                            root.context-menu-thread = id;
-                            root.context-menu-unread = non-lu;
-                            root.context-menu-starred = epingle;
-                            // Déjà en coordonnées de fenêtre. Rien à rajouter : la
-                            // version précédente recollait des largeurs de colonnes
-                            // écrites en dur, qui devenaient fausses à la première
-                            // colonne ajoutée — et il y en a une de plus depuis.
-                            root.context-menu-x = mx;
-                            root.context-menu-y = my;
-                            root.context-menu-open = true;
+                        // The folders, under the accounts: "this mailbox, in this folder"
+                        // read down one column. Folded with it.
+                        if !root.sidebar-collapsed: FolderTree {
+                            vertical-stretch: 1;
+                            folders: root.folders;
+                            selected-path: root.selected-folder;
+                            accounts-total: root.account-count;
+                            folder-selected(p) => {
+                                root.mailboxes-open = false;
+                                root.folder-selected(p);
+                                root.navigated("folder", p);
+                                shortcuts.focus();
+                            }
+                            all-selected => {
+                                root.mailboxes-open = false;
+                                root.folder-cleared();
+                                root.navigated("folder", "");
+                            }
+                            folder-fold-toggled(p) => {
+                                root.folder-fold-toggled(p);
+                                shortcuts.focus();
+                            }
+                            new-folder => { root.new-folder-requested(); }
+                            scheduled: root.scheduled-count;
+                            scheduled-requested => { root.scheduled-requested(); }
+                            folder-dropped(p) => { root.folder-dropped(p); }
+                            folder-menu(p, mx, my) => {
+                                root.folder-menu-x = mx;
+                                root.folder-menu-y = my;
+                                root.folder-menu-requested(p);
+                            }
                         }
-                        selected-id: root.selected-thread;
-                        menu-target: root.context-menu-open ? root.context-menu-thread : -1;
-                        active-tab: root.active-tab;
-                        counts: root.counts;
+                    }
+                    }
+
+                    VerticalLayout {
+                    horizontal-stretch: 1;
+                    // The mailboxes open as a page: the list and the reader step aside.
+                    visible: !root.mailboxes-open;
+                    max-width: root.mailboxes-open ? 0px : 100000px;
+                    mail-toolbar := MailToolbar {
+                        lights: root.reading-focus;
+                        page: root.fil-en-page;
+                        title-opens: Layout.width-class != WidthClass.expanded;
+                        title-clicked => { root.mailboxes-open = true; }
+                        // Back pops the page from the history, which closes it.
+                        back => {
+                            root.nav-back();
+                            if (root.fil-en-page) {
+                                root.page = "";
+                            }
+                            shortcuts.focus();
+                        }
+                        title: root.folder-name != "" ? root.folder-name : "All accounts";
+                        subtitle: root.folder-name != "" ? ""
+                            : (root.counts.length > 0 ? root.counts[0] : 0) + " to do";
+                        queues: root.folder-name == "" && !root.searching;
                         count-labels: root.count-labels;
-                        count-fulls: root.count-fulls;
-                        folder-name: root.folder-name;
-                        inbox-zero-streak: root.inbox-zero-streak;
-                        folder-left => { root.folder-cleared(); }
-                        marked-count: root.marked-count;
-                        drag-payload: root.drag-payload;
-                        marked-label: root.marked-label;
-                        filter-unread: root.filter-unread;
-                        filter-attachments: root.filter-attachments;
-                        filter-starred: root.filter-starred;
-                        filter-toggled(quoi) => { root.filter-toggled(quoi); }
-                        sort-label: root.list-sort == 1 ? "Sender" : root.list-sort == 2 ? "Subject"
-                            : root.list-sort == 3 ? "Size" : "Date";
-                        sort-menu(x, y) => {
-                            root.sort-menu-x = x;
-                            root.sort-menu-y = y;
-                            root.sort-menu-open = true;
-                        }
-                        row-mark-toggled(id) => { root.row-mark-toggled(id); }
-                        row-drag-started(id) => { root.row-drag-started(id); }
-                        row-mark-extended(id) => { root.row-mark-extended(id); }
-                        // The same actions the right-click menu carries, on the row.
-                        row-quick(id, what) => {
-                            if (what == "done") {
-                                root.menu-done(id);
-                            } else if (what == "snooze") {
-                                root.menu-snooze(id, "tomorrow");
-                            } else {
-                                root.menu-archive(id);
-                            }
-                            shortcuts.focus();
-                        }
-                        bulk-done => { root.bulk-done(); }
-                        bulk-archive => { root.bulk-archive(); }
-                        bulk-delete => { root.bulk-delete(); }
-                        bulk-read => { root.bulk-read(); }
-                        bulk-unread => { root.bulk-unread(); }
-                        bulk-select-all => { root.bulk-select-all(); }
-                        bulk-clear => { root.bulk-clear(); }
-                        loading: root.loading;
-                        // Picking a thread with the mouse hands the keyboard to the
-                        // shortcuts, so « e » acts on it even after a search field had it.
-                        row-clicked(id) => {
-                            root.thread-selected(id);
-                            // On a phone the conversation is a page over the list.
-                            if (Layout.compact) {
-                                root.page = "thread";
-                                root.navigated("page", "thread");
-                            }
-                            shortcuts.focus();
-                        }
+                        counts: root.counts;
+                        active-tab: root.active-tab;
+                        has-thread: !root.conversation-empty;
+                        starred: root.selected-starred;
+                        focused: root.reading-focus;
+                        searching: root.searching;
+                        search-query <=> root.search-query;
                         tab-selected(i) => {
                             root.tab-selected(i);
                             root.navigated("tab", "\{i}");
                             shortcuts.focus();
                         }
-                        scrolled-near-end => { root.scrolled-near-end(); }
-                    }
-                    // On a phone, New message floats over the list's bottom right.
-                    if Layout.compact && !root.searching && root.marked-count == 0: Fab {
-                        x: parent.width - self.width - 16px;
-                        y: parent.height - self.height - 16px;
-                        text: "New message";
-                        icon: Icons.pencil;
-                        clicked => {
+                        compose => {
                             root.compose-minimised = false;
                             root.compose-open = true;
                         }
+                        mark-done => { root.thread-done(); }
+                        waiting => { root.thread-waiting(); }
+                        to-task => { root.thread-to-task(root.selected-thread); }
+                        archive => { root.thread-archive(); }
+                        delete-thread => { root.thread-delete(); }
+                        toggle-star => { root.thread-toggle-star(); }
+                        toggle-focus => { root.reading-focus = !root.reading-focus; }
+                        snooze-menu(mx, my) => {
+                            root.reader-menu-x = mx;
+                            root.reader-menu-y = my;
+                            root.reader-menu = "snooze";
+                        }
+                        more-menu(mx, my) => {
+                            root.reader-menu-x = mx;
+                            root.reader-menu-y = my;
+                            root.reader-menu = "more";
+                        }
+                        search-submitted(q) => { root.search-submitted(q); }
+                        search-cleared => { root.search-cleared(); }
+                    }
+                    // On a phone's list, the large head of the mockup (M1).
+                    if Layout.compact && !root.fil-en-page && !root.searching: PhoneMailHeader {
+                        title: root.folder-name != "" ? root.folder-name : "All accounts";
+                        subtitle: (root.folder-name != "" ? ""
+                            : (root.counts.length > 0 ? root.counts[0] : 0) + " to do")
+                            + (root.last-sync != "" && root.folder-name == "" ? " · " + root.last-sync.to-lowercase() : "");
+                        queues: root.folder-name == "";
+                        count-labels: root.count-labels;
+                        counts: root.counts;
+                        active-tab: root.active-tab;
+                        title-clicked => { root.mailboxes-open = true; }
+                        tab-selected(i) => {
+                            root.tab-selected(i);
+                            root.navigated("tab", "\{i}");
+                            shortcuts.focus();
+                        }
+                    }
+                    HorizontalLayout {
+                    // Colonne 2 : la file de travail. On a phone the whole width, until a
+                    // conversation is opened over it; on a foldable a narrower column.
+                    Rectangle {
+                        visible: !root.reading-focus && !root.fil-en-page && !root.mailboxes-open;
+                        // Bounds rather than a width: a width taken from the parent would
+                        // loop through the layout.
+                        property <bool> cache: root.reading-focus || root.fil-en-page || root.mailboxes-open;
+                        min-width: self.cache || Layout.compact ? 0px : Layout.medium ? 300px : 360px;
+                        max-width: self.cache ? 0px : Layout.compact ? 100000px : Layout.medium ? 300px : 360px;
+                        horizontal-stretch: Layout.compact && !self.cache ? 1 : 0;
+                        background: Tokens.surface;
+
+                        liste := ThreadListView {
+                            width: 100%;
+                            height: 100%;
+                            rows: root.rows;
+                            searching: root.searching;
+                            search-summary: root.search-summary;
+                            search-explanation: root.search-explanation;
+                            search-query <=> root.search-query;
+                            search-submitted(q) => { root.search-submitted(q); }
+                            search-cleared => { root.search-cleared(); }
+                            search-pills: root.search-pills;
+                            search-pill(i) => { root.search-pill(i); }
+                            row-context-menu(id, mx, my, non-lu, epingle) => {
+                                // Plus de `thread-selected` : un clic droit ouvrait le
+                                // message, chargeait son corps et le marquait lu, pour
+                                // quelqu'un qui voulait seulement voir les actions
+                                // possibles — dont « Delete ». Le menu porte sa cible.
+                                root.context-menu-thread = id;
+                                root.context-menu-unread = non-lu;
+                                root.context-menu-starred = epingle;
+                                // Déjà en coordonnées de fenêtre. Rien à rajouter : la
+                                // version précédente recollait des largeurs de colonnes
+                                // écrites en dur, qui devenaient fausses à la première
+                                // colonne ajoutée — et il y en a une de plus depuis.
+                                root.context-menu-x = mx;
+                                root.context-menu-y = my;
+                                root.context-menu-open = true;
+                            }
+                            selected-id: root.selected-thread;
+                            menu-target: root.context-menu-open ? root.context-menu-thread : -1;
+                            active-tab: root.active-tab;
+                            counts: root.counts;
+                            count-labels: root.count-labels;
+                            count-fulls: root.count-fulls;
+                            folder-name: root.folder-name;
+                            inbox-zero-streak: root.inbox-zero-streak;
+                            folder-left => { root.folder-cleared(); }
+                            marked-count: root.marked-count;
+                            drag-payload: root.drag-payload;
+                            marked-label: root.marked-label;
+                            filter-unread: root.filter-unread;
+                            filter-attachments: root.filter-attachments;
+                            filter-starred: root.filter-starred;
+                            filter-toggled(quoi) => { root.filter-toggled(quoi); }
+                            sort-label: root.list-sort == 1 ? "Sender" : root.list-sort == 2 ? "Subject"
+                                : root.list-sort == 3 ? "Size" : "Date";
+                            sort-menu(x, y) => {
+                                root.sort-menu-x = x;
+                                root.sort-menu-y = y;
+                                root.sort-menu-open = true;
+                            }
+                            row-mark-toggled(id) => { root.row-mark-toggled(id); }
+                            row-drag-started(id) => { root.row-drag-started(id); }
+                            row-mark-extended(id) => { root.row-mark-extended(id); }
+                            // The same actions the right-click menu carries, on the row.
+                            row-quick(id, what) => {
+                                if (what == "done") {
+                                    root.menu-done(id);
+                                } else if (what == "snooze") {
+                                    root.menu-snooze(id, "tomorrow");
+                                } else {
+                                    root.menu-archive(id);
+                                }
+                                shortcuts.focus();
+                            }
+                            bulk-done => { root.bulk-done(); }
+                            bulk-archive => { root.bulk-archive(); }
+                            bulk-delete => { root.bulk-delete(); }
+                            bulk-read => { root.bulk-read(); }
+                            bulk-unread => { root.bulk-unread(); }
+                            bulk-select-all => { root.bulk-select-all(); }
+                            bulk-clear => { root.bulk-clear(); }
+                            loading: root.loading;
+                            // Picking a thread with the mouse hands the keyboard to the
+                            // shortcuts, so « e » acts on it even after a search field had it.
+                            row-clicked(id) => {
+                                root.thread-selected(id);
+                                // On a phone the conversation is a page over the list.
+                                if (Layout.compact) {
+                                    root.page = "thread";
+                                    root.navigated("page", "thread");
+                                }
+                                shortcuts.focus();
+                            }
+                            tab-selected(i) => {
+                                root.tab-selected(i);
+                                root.navigated("tab", "\{i}");
+                                shortcuts.focus();
+                            }
+                            scrolled-near-end => { root.scrolled-near-end(); }
+                        }
+                        // On a phone, New message floats over the list's bottom right.
+                        if Layout.compact && !root.searching && root.marked-count == 0: Fab {
+                            x: parent.width - self.width - 16px;
+                            y: parent.height - self.height - 16px;
+                            text: "New message";
+                            icon: Icons.pencil;
+                            clicked => {
+                                root.compose-minimised = false;
+                                root.compose-open = true;
+                            }
+                        }
+                    }
+
+                    Rectangle { width: root.reading-focus || Layout.compact ? 0px : 1px; background: Tokens.border; }
+
+                    // Colonne 3 : la conversation, on the plain surface the list has. On a
+                    // phone only as a page, opened from the list.
+                    Rectangle {
+                    visible: (!Layout.compact || root.fil-en-page) && !root.mailboxes-open;
+                    // A zero maximum alone lost to the reader's own minimum width: on a phone
+                    // it kept a strip of the screen, and the list only what was left.
+                    min-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 200px;
+                    max-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 100000px;
+                    horizontal-stretch: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0 : 1;
+                    background: Tokens.surface;
+                    ConversationView {
+                        width: 100%;
+                        height: 100%;
+                        body-width-changed(w) => { root.reader-width(w); }
+                        message: root.message;
+                        messages: root.messages;
+                        toggle-message(id) => { root.toggle-message(id); }
+                        empty: root.conversation-empty;
+                        starred: root.selected-starred;
+                        account-email: root.selected-account-email;
+                        folder-label: root.selected-folder-label;
+                        folder-all: root.selected-folder-all;
+                        folder-alarming: root.selected-folder-alarming;
+                        account-tint: root.selected-account-tint;
+                        focused: root.reading-focus;
+                        archive => { root.thread-archive(); }
+                        delete-thread => { root.thread-delete(); }
+                        toggle-star => { root.thread-toggle-star(); }
+                        waiting => { root.thread-waiting(); }
+                        toggle-focus => { root.reading-focus = !root.reading-focus; }
+                        snooze-menu(mx, my) => {
+                            root.reader-menu-x = mx;
+                            root.reader-menu-y = my;
+                            root.reader-menu = "snooze";
+                        }
+                        more-menu(mx, my) => {
+                            root.reader-menu-x = mx;
+                            root.reader-menu-y = my;
+                            root.reader-menu = "more";
+                        }
+                        mark-done => { root.thread-done(); }
+                        to-task => { root.thread-to-task(root.selected-thread); }
+                        reply(tous) => { root.reply-requested(tous); }
+                        reply-menu(mx, my) => {
+                            root.reader-menu-x = mx;
+                            root.reader-menu-y = my;
+                            root.reader-menu = "reply";
+                        }
+                        load-images => { root.load-images(); }
+                        save-attachment(i) => { root.save-attachment(i); }
+                        open-attachment(i) => { root.open-attachment(i); }
+                        invite-accept(id) => { root.invite-accept(id); }
+                        invite-open(k, d) => { root.invite-open(k, d); }
+                        invite-answer(id, a) => { root.invite-answer(id, a); }
+                        unsubscribe(id) => { root.unsubscribe(id); }
+                        body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
+                        body-tile-released(m, t) => { root.body-tile-released(m, t); }
+                        body-select(m, t, x, y, p) => {
+                            // Words chosen in another body end a "Select all" of a text one.
+                            MessageText.all-selected = -1;
+                            root.body-select(m, t, x, y, p);
+                        }
+                        body-link(m, t, x, y) => { root.body-link(m, t, x, y); }
+                        body-link-at(m, t, x, y) => { return root.body-link-at(m, t, x, y); }
+                        message-link(l) => { root.message-link(l); }
+                        body-menu(m, t, fx, fy, x, y) => { root.body-menu(m, t, fx, fy, x, y); }
+                        // Left, it is forgotten only if it was still this block's: the
+                        // next block may have said it was under the pointer first.
+                        message-link-hovered(on, l, t) => {
+                            if (on) {
+                                root.hovered-link = l;
+                                root.hovered-link-text = t;
+                            } else if (root.hovered-link == l) {
+                                root.hovered-link = "";
+                                root.hovered-link-text = "";
+                            }
+                        }
+                        // The text had no use for the key: the shortcuts get it, and
+                        // the keyboard with it.
+                        keys-left(t) => {
+                            shortcuts.focus();
+                            // The menu opened over the words, which kept the keyboard:
+                            // Escape closes it at once.
+                            if (t == Key.Escape && root.link-menu-open) {
+                                root.link-menu-open = false;
+                            } else {
+                                root.key-redispatch(t);
+                            }
+                        }
+                        // A right-click in a body shown as text: Copy what its words have
+                        // selected, Select all of them. The words keep the keyboard, and
+                        // their selection with it, until the menu closes.
+                        text-menu(id, x, y) => {
+                            root.link-menu-kind = "";
+                            root.link-menu-target = "";
+                            root.link-menu-text = "";
+                            root.link-menu-selection = MessageText.has-selection
+                                || MessageText.all-selected >= 0;
+                            root.link-menu-message = id;
+                            root.link-menu-text-body = true;
+                            root.link-menu-x = x;
+                            root.link-menu-y = y;
+                            root.link-menu-open = true;
+                        }
+                        bodies-suspended: root.bodies-suspended;
+                    }
+                    }
+                    }
                     }
                 }
 
-                Rectangle { width: root.reading-focus || Layout.compact ? 0px : 1px; background: Tokens.border; }
-
-                // Colonne 3 : la conversation, on the plain surface the list has. On a
-                // phone only as a page, opened from the list.
-                Rectangle {
-                visible: (!Layout.compact || root.fil-en-page) && !root.mailboxes-open;
-                // A zero maximum alone lost to the reader's own minimum width: on a phone
-                // it kept a strip of the screen, and the list only what was left.
-                min-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 200px;
-                max-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 100000px;
-                horizontal-stretch: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0 : 1;
-                background: Tokens.surface;
-                ConversationView {
-                    width: 100%;
-                    height: 100%;
-                    body-width-changed(w) => { root.reader-width(w); }
-                    message: root.message;
-                    messages: root.messages;
-                    toggle-message(id) => { root.toggle-message(id); }
-                    empty: root.conversation-empty;
-                    starred: root.selected-starred;
-                    account-email: root.selected-account-email;
-                    folder-label: root.selected-folder-label;
-                    folder-all: root.selected-folder-all;
-                    folder-alarming: root.selected-folder-alarming;
-                    account-tint: root.selected-account-tint;
-                    focused: root.reading-focus;
-                    archive => { root.thread-archive(); }
-                    delete-thread => { root.thread-delete(); }
-                    toggle-star => { root.thread-toggle-star(); }
-                    waiting => { root.thread-waiting(); }
-                    toggle-focus => { root.reading-focus = !root.reading-focus; }
-                    snooze-menu(mx, my) => {
-                        root.reader-menu-x = mx;
-                        root.reader-menu-y = my;
-                        root.reader-menu = "snooze";
-                    }
-                    more-menu(mx, my) => {
-                        root.reader-menu-x = mx;
-                        root.reader-menu-y = my;
-                        root.reader-menu = "more";
-                    }
-                    mark-done => { root.thread-done(); }
-                    to-task => { root.thread-to-task(root.selected-thread); }
-                    reply(tous) => { root.reply-requested(tous); }
-                    reply-menu(mx, my) => {
-                        root.reader-menu-x = mx;
-                        root.reader-menu-y = my;
-                        root.reader-menu = "reply";
-                    }
-                    load-images => { root.load-images(); }
-                    save-attachment(i) => { root.save-attachment(i); }
-                    open-attachment(i) => { root.open-attachment(i); }
-                    invite-accept(id) => { root.invite-accept(id); }
-                    invite-open(k, d) => { root.invite-open(k, d); }
-                    invite-answer(id, a) => { root.invite-answer(id, a); }
-                    unsubscribe(id) => { root.unsubscribe(id); }
-                    body-tile-wanted(m, t) => { root.body-tile-wanted(m, t); }
-                    body-tile-released(m, t) => { root.body-tile-released(m, t); }
-                    body-select(m, t, x, y, p) => {
-                        // Words chosen in another body end a "Select all" of a text one.
-                        MessageText.all-selected = -1;
-                        root.body-select(m, t, x, y, p);
-                    }
-                    body-link(m, t, x, y) => { root.body-link(m, t, x, y); }
-                    body-link-at(m, t, x, y) => { return root.body-link-at(m, t, x, y); }
-                    message-link(l) => { root.message-link(l); }
-                    body-menu(m, t, fx, fy, x, y) => { root.body-menu(m, t, fx, fy, x, y); }
-                    // Left, it is forgotten only if it was still this block's: the
-                    // next block may have said it was under the pointer first.
-                    message-link-hovered(on, l, t) => {
-                        if (on) {
-                            root.hovered-link = l;
-                            root.hovered-link-text = t;
-                        } else if (root.hovered-link == l) {
-                            root.hovered-link = "";
-                            root.hovered-link-text = "";
-                        }
-                    }
-                    // The text had no use for the key: the shortcuts get it, and
-                    // the keyboard with it.
-                    keys-left(t) => {
-                        shortcuts.focus();
-                        // The menu opened over the words, which kept the keyboard:
-                        // Escape closes it at once.
-                        if (t == Key.Escape && root.link-menu-open) {
-                            root.link-menu-open = false;
-                        } else {
-                            root.key-redispatch(t);
-                        }
-                    }
-                    // A right-click in a body shown as text: Copy what its words have
-                    // selected, Select all of them. The words keep the keyboard, and
-                    // their selection with it, until the menu closes.
-                    text-menu(id, x, y) => {
-                        root.link-menu-kind = "";
-                        root.link-menu-target = "";
-                        root.link-menu-text = "";
-                        root.link-menu-selection = MessageText.has-selection
-                            || MessageText.all-selected >= 0;
-                        root.link-menu-message = id;
-                        root.link-menu-text-body = true;
-                        root.link-menu-x = x;
-                        root.link-menu-y = y;
-                        root.link-menu-open = true;
-                    }
-                    bodies-suspended: root.bodies-suspended;
-                }
-                }
-                }
+                if Layout.compact && root.clavier == 0: TabBar {}
+                if !Layout.compact: StatusBar {
+                    side: root.cote;
+                    status <=> root.status;
+                    version: root.version;
+                    vitals: root.vitals;
+                    syncing: root.syncing;
+                    pending-ops: root.pending-ops;
+                    update-version: root.update-version;
+                    open-changelog => { root.changelog-open = true; }
+                    open-update => { root.update-open = true; }
                 }
             }
 
-            if Layout.compact: TabBar {}
-            if !Layout.compact: StatusBar {
-                side: root.cote;
-                status <=> root.status;
-                version: root.version;
-                vitals: root.vitals;
-                syncing: root.syncing;
-                pending-ops: root.pending-ops;
-                update-version: root.update-version;
-                open-changelog => { root.changelog-open = true; }
-                open-update => { root.update-open = true; }
+            // The places down the left at medium width; the columns step aside for it.
+            if Layout.medium: NavRail {
+                x: 0px;
+                y: 0px;
+                height: parent.height - root.pied;
             }
         }
 
-        // The places down the left at medium width; the columns step aside for it.
-        if Layout.medium: NavRail {
-            x: 0px;
-            y: 0px;
-            height: parent.height - root.pied;
+        // The calendar covers everything between the title bar and the status bar. Over
+        // the mail rather than instead of it: coming back to the mail finds it exactly as
+        // it was left - same list, same scroll, same open thread.
+        // Flush with the window, as the mail is: a pixel's inset, kept from the old
+        // frame, showed as a pale line all round.
+        if root.workspace == 1: CalendarView {
+            x: root.rail;
+            y: Layout.inset-top;
+            width: parent.width - root.rail;
+            height: parent.height - root.pied - Layout.inset-top;
+            title: root.calendar-title;
+            mode: root.calendar-mode;
+            calendars: root.calendars;
+            mini-title: root.calendar-mini-title;
+            mini-cells: root.calendar-mini-cells;
+            month-cells: root.calendar-month-cells;
+            week-days: root.calendar-week-days;
+            week-events: root.calendar-week-events;
+            agenda: root.calendar-agenda;
+            now-fraction: root.calendar-now-fraction;
+            now-day: root.calendar-now-day;
+            navigate(n) => { root.calendar-navigate(n); }
+            today => { root.calendar-today(); }
+            mode-chosen(m) => {
+                root.calendar-mode-chosen(m);
+                root.navigated("calendar-mode", "\{m}");
+            }
+            day-chosen(d) => { root.calendar-day-chosen(d); }
+            day-opened(d) => { root.calendar-day-opened(d); }
+            mini-navigate(n) => { root.calendar-mini-navigate(n); }
+            event-anchored(l, r, t) => {
+                root.event-anchored = true;
+                root.event-anchor-left = l;
+                root.event-anchor-right = r;
+                root.event-anchor-top = t;
+            }
+            event-opened(k) => { root.calendar-event-opened(k); }
+            new-event(d, m) => { root.calendar-new-event(d, m); }
+            quick-event(d, m, t) => { root.calendar-quick-event(d, m, t); }
+            // The line typed in the grid is saved or dropped: the keys go back to the
+            // calendar's shortcuts.
+            draft-closed => { shortcuts.focus(); }
+            to-plan: root.calendar-to-plan;
+            event-moved(k, d, m) => { root.calendar-event-moved(k, d, m); }
+            event-menu(k, x, y) => {
+                // Where the card opens if "Open" is chosen: beside the pointer.
+                root.event-anchor-left = x;
+                root.event-anchor-right = x;
+                root.event-anchor-top = y;
+                root.calendar-event-menu(k, x, y);
+            }
+            event-resized(k, m) => { root.calendar-event-resized(k, m); }
+            event-stretching(k, m) => { root.calendar-event-stretching(k, m); }
+            task-planned(id, d, m) => { root.calendar-task-planned(id, d, m); }
+            calendar-toggled(id) => { root.calendar-toggled(id); }
+            calendar-refresh(id) => { root.calendar-refresh(id); }
+            // The bin on a row asks first, like the menu.
+            calendar-remove(c) => {
+                root.calendar-menu-cal = c;
+                root.calendar-delete-open = true;
+            }
+            calendar-menu(c, x, y) => {
+                root.calendar-menu-cal = c;
+                root.calendar-menu-x = x;
+                root.calendar-menu-y = y;
+                root.calendar-menu-open = true;
+            }
+            calendar-new => {
+                root.calendar-rename-new = true;
+                root.calendar-rename-name = "";
+                root.calendar-rename-open = true;
+            }
+            subscribe-requested => {
+                root.subscribe-url = "";
+                root.subscribe-name = "";
+                root.subscribe-open = true;
+            }
+            connect-requested => {
+                root.connect-server = "";
+                root.connect-user = "";
+                root.connect-password = "";
+                root.connect-open = true;
+            }
         }
-    }
 
-    // The calendar covers everything between the title bar and the status bar. Over
-    // the mail rather than instead of it: coming back to the mail finds it exactly as
-    // it was left - same list, same scroll, same open thread.
-    // Flush with the window, as the mail is: a pixel's inset, kept from the old
-    // frame, showed as a pale line all round.
-    if root.workspace == 1: CalendarView {
-        x: root.rail;
-        y: 0px;
-        width: parent.width - root.rail;
-        height: parent.height - root.pied;
-        title: root.calendar-title;
-        mode: root.calendar-mode;
-        calendars: root.calendars;
-        mini-title: root.calendar-mini-title;
-        mini-cells: root.calendar-mini-cells;
-        month-cells: root.calendar-month-cells;
-        week-days: root.calendar-week-days;
-        week-events: root.calendar-week-events;
-        agenda: root.calendar-agenda;
-        now-fraction: root.calendar-now-fraction;
-        now-day: root.calendar-now-day;
-        navigate(n) => { root.calendar-navigate(n); }
-        today => { root.calendar-today(); }
-        mode-chosen(m) => {
-            root.calendar-mode-chosen(m);
-            root.navigated("calendar-mode", "\{m}");
+        // The tasks, the goals among them. While the habits show, only the tasks'
+        // column, the habits beside it.
+        if root.workspace == 2: TasksView {
+            x: root.rail;
+            y: Layout.inset-top;
+            width: root.tasks-habits
+                ? (Layout.width-class == WidthClass.expanded ? 232px
+                    : root.tasks-column-open ? parent.width - root.rail : 0px)
+                : parent.width - root.rail;
+            column-open <=> root.tasks-column-open;
+            height: parent.height - root.pied - Layout.inset-top;
+            column-only: root.tasks-habits;
+            habits-shown: root.tasks-habits;
+            habits-count: root.habits-nav-count;
+            title: root.tasks-title;
+            subtitle: root.tasks-subtitle;
+            overview: root.task-overview;
+            add-tokens: root.task-add-tokens;
+            add-edited(t) => { root.task-add-edited(t); }
+            open-calendar => {
+                root.workspace = 1;
+                root.workspace-changed(1);
+                shortcuts.focus();
+            }
+            clear-completed => { root.task-clear-completed(); }
+            plan-day => { root.task-plan-day(); }
+            unplan-day => { root.task-unplan-day(); }
+            task-dropped(id, cle) => { root.task-dropped(id, cle); }
+            task-reordered(porte, cible, dessus) => { root.task-reordered(porte, cible, dessus); }
+            places: root.task-places;
+            rows: root.task-rows;
+            add-text <=> root.task-add-text;
+            add-hint: root.task-add-hint;
+            focus-add-request: root.task-focus-add;
+            asking: root.task-asking;
+            add-answered(t) => { root.task-add-answered(t); }
+            asked-estimate(m) => { root.task-asked-estimate(m); }
+            has-detail: root.task-has-detail;
+            detail: root.task-detail;
+            detail-title <=> root.task-detail-title;
+            detail-notes <=> root.task-detail-notes;
+            detail-time <=> root.task-detail-time;
+            lists: root.task-lists;
+            reminders: root.task-reminders;
+            repeats: root.task-repeats;
+            picker-open: root.task-picker-open;
+            picker-title: root.task-picker-title;
+            picker-cells: root.task-picker-cells;
+            page: root.task-page;
+            goals: root.goals;
+            nudges: root.goal-nudges;
+            goal: root.goal;
+            goal-log: root.goal-log;
+            goal-chart: root.goal-chart;
+            goal-now-x: root.goal-now-x;
+            goal-now-y: root.goal-now-y;
+            goal-start-label: root.goal-start-label;
+            goal-note <=> root.goal-note;
+            goal-names: root.goal-names;
+            new-goal => { root.goal-new-requested(); }
+            goal-logged(t) => { root.goal-logged(t); }
+            goal-entry-removed(id) => { root.goal-entry-removed(id); }
+            milestone-toggled(id) => { root.milestone-toggled(id); }
+            milestone-added(t) => { root.milestone-added(t); }
+            make-time => { root.goal-time-requested(); }
+            goal-delete => { root.goal-delete-open = true; }
+            goal-edit => { root.goal-edit-requested(); }
+            goal-renamed(t) => { root.goal-renamed(t); }
+            // The title's field closed: the keys go back to the shortcuts.
+            goal-rename-closed => { shortcuts.focus(); }
+            task-goal-chosen(i) => { root.task-goal-chosen(i); }
+            task-later(id, x, y) => {
+                root.task-later-id = id;
+                root.task-later-x = x;
+                root.task-later-y = y;
+                root.task-later-requested(id);
+            }
+            slot-requested(x, y) => {
+                root.task-slot-x = x;
+                root.task-slot-y = y;
+                root.task-slot-requested();
+            }
+            unbook => { root.task-unbook(); }
+            estimate-chosen(m) => { root.task-estimate-chosen(m); }
+            estimate-typed(t) => { root.task-estimate-typed(t); }
+            // Picking a place or a task with the mouse hands the keyboard back to the
+            // shortcuts: the arrows and the space bar then act on the column.
+            place-chosen(k) => {
+                // On a phone the column was a page of its own: the place chosen replaces it.
+                self.column-open = false;
+                // "habits": the habits beside the column; any other place, its tasks.
+                root.tasks-habits = k == "habits";
+                root.task-place-chosen(k);
+                root.navigated("tasks", k);
+                shortcuts.focus();
+            }
+            place-menu(p, x, y) => {
+                root.task-list-menu-place = p;
+                root.task-list-menu-x = x;
+                root.task-list-menu-y = y;
+                root.task-list-menu-open = true;
+            }
+            list-new => {
+                root.task-list-name-new = true;
+                root.task-list-name = "";
+                root.task-list-name-open = true;
+            }
+            add(t) => { root.task-add(t); }
+            row-selected(r) => {
+                root.task-row-selected(r);
+                shortcuts.focus();
+            }
+            toggled(id) => { root.task-toggled(id); }
+            title-edited(t) => { root.task-title-edited(t); }
+            notes-edited(t) => { root.task-notes-edited(t); }
+            time-edited(t) => { root.task-time-edited(t); }
+            picker-toggled => { root.task-picker-toggled(); }
+            picker-navigate(n) => { root.task-picker-navigate(n); }
+            picker-chosen(d) => { root.task-picker-chosen(d); }
+            due-cleared => { root.task-due-cleared(); }
+            reminder-chosen(i) => { root.task-reminder-chosen(i); }
+            repeat-chosen(i) => { root.task-repeat-chosen(i); }
+            priority-chosen(p) => { root.task-priority-chosen(p); }
+            list-chosen(i) => { root.task-list-chosen(i); }
+            step-added(t) => { root.task-step-added(t); }
+            step-toggled(id) => { root.task-step-toggled(id); }
+            step-removed(id) => { root.task-step-removed(id); }
+            open-mail => { root.task-open-mail(); }
+            copy-link => { root.task-copy-link(); }
+            // The panel closes with the task: the keyboard goes back to the shortcuts,
+            // so Ctrl+Z reaches them.
+            delete => {
+                root.task-delete();
+                shortcuts.focus();
+            }
+            detail-closed => {
+                root.task-detail-closed();
+                shortcuts.focus();
+            }
         }
-        day-chosen(d) => { root.calendar-day-chosen(d); }
-        day-opened(d) => { root.calendar-day-opened(d); }
-        mini-navigate(n) => { root.calendar-mini-navigate(n); }
-        event-anchored(l, r, t) => {
-            root.event-anchored = true;
-            root.event-anchor-left = l;
-            root.event-anchor-right = r;
-            root.event-anchor-top = t;
-        }
-        event-opened(k) => { root.calendar-event-opened(k); }
-        new-event(d, m) => { root.calendar-new-event(d, m); }
-        quick-event(d, m, t) => { root.calendar-quick-event(d, m, t); }
-        // The line typed in the grid is saved or dropped: the keys go back to the
-        // calendar's shortcuts.
-        draft-closed => { shortcuts.focus(); }
-        to-plan: root.calendar-to-plan;
-        event-moved(k, d, m) => { root.calendar-event-moved(k, d, m); }
-        event-menu(k, x, y) => {
-            // Where the card opens if "Open" is chosen: beside the pointer.
-            root.event-anchor-left = x;
-            root.event-anchor-right = x;
-            root.event-anchor-top = y;
-            root.calendar-event-menu(k, x, y);
-        }
-        event-resized(k, m) => { root.calendar-event-resized(k, m); }
-        event-stretching(k, m) => { root.calendar-event-stretching(k, m); }
-        task-planned(id, d, m) => { root.calendar-task-planned(id, d, m); }
-        calendar-toggled(id) => { root.calendar-toggled(id); }
-        calendar-refresh(id) => { root.calendar-refresh(id); }
-        // The bin on a row asks first, like the menu.
-        calendar-remove(c) => {
-            root.calendar-menu-cal = c;
-            root.calendar-delete-open = true;
-        }
-        calendar-menu(c, x, y) => {
-            root.calendar-menu-cal = c;
-            root.calendar-menu-x = x;
-            root.calendar-menu-y = y;
-            root.calendar-menu-open = true;
-        }
-        calendar-new => {
-            root.calendar-rename-new = true;
-            root.calendar-rename-name = "";
-            root.calendar-rename-open = true;
-        }
-        subscribe-requested => {
-            root.subscribe-url = "";
-            root.subscribe-name = "";
-            root.subscribe-open = true;
-        }
-        connect-requested => {
-            root.connect-server = "";
-            root.connect-user = "";
-            root.connect-password = "";
-            root.connect-open = true;
-        }
-    }
 
-    // The tasks, the goals among them. While the habits show, only the tasks'
-    // column, the habits beside it.
-    if root.workspace == 2: TasksView {
-        x: root.rail;
-        y: 0px;
-        width: root.tasks-habits
-            ? (Layout.width-class == WidthClass.expanded ? 232px
-                : root.tasks-column-open ? parent.width - root.rail : 0px)
-            : parent.width - root.rail;
-        column-open <=> root.tasks-column-open;
-        height: parent.height - root.pied;
-        column-only: root.tasks-habits;
-        habits-shown: root.tasks-habits;
-        habits-count: root.habits-nav-count;
-        title: root.tasks-title;
-        subtitle: root.tasks-subtitle;
-        overview: root.task-overview;
-        add-tokens: root.task-add-tokens;
-        add-edited(t) => { root.task-add-edited(t); }
-        open-calendar => {
-            root.workspace = 1;
-            root.workspace-changed(1);
-            shortcuts.focus();
-        }
-        clear-completed => { root.task-clear-completed(); }
-        plan-day => { root.task-plan-day(); }
-        unplan-day => { root.task-unplan-day(); }
-        task-dropped(id, cle) => { root.task-dropped(id, cle); }
-        task-reordered(porte, cible, dessus) => { root.task-reordered(porte, cible, dessus); }
-        places: root.task-places;
-        rows: root.task-rows;
-        add-text <=> root.task-add-text;
-        add-hint: root.task-add-hint;
-        focus-add-request: root.task-focus-add;
-        asking: root.task-asking;
-        add-answered(t) => { root.task-add-answered(t); }
-        asked-estimate(m) => { root.task-asked-estimate(m); }
-        has-detail: root.task-has-detail;
-        detail: root.task-detail;
-        detail-title <=> root.task-detail-title;
-        detail-notes <=> root.task-detail-notes;
-        detail-time <=> root.task-detail-time;
-        lists: root.task-lists;
-        reminders: root.task-reminders;
-        repeats: root.task-repeats;
-        picker-open: root.task-picker-open;
-        picker-title: root.task-picker-title;
-        picker-cells: root.task-picker-cells;
-        page: root.task-page;
-        goals: root.goals;
-        nudges: root.goal-nudges;
-        goal: root.goal;
-        goal-log: root.goal-log;
-        goal-chart: root.goal-chart;
-        goal-now-x: root.goal-now-x;
-        goal-now-y: root.goal-now-y;
-        goal-start-label: root.goal-start-label;
-        goal-note <=> root.goal-note;
-        goal-names: root.goal-names;
-        new-goal => { root.goal-new-requested(); }
-        goal-logged(t) => { root.goal-logged(t); }
-        goal-entry-removed(id) => { root.goal-entry-removed(id); }
-        milestone-toggled(id) => { root.milestone-toggled(id); }
-        milestone-added(t) => { root.milestone-added(t); }
-        make-time => { root.goal-time-requested(); }
-        goal-delete => { root.goal-delete-open = true; }
-        goal-edit => { root.goal-edit-requested(); }
-        goal-renamed(t) => { root.goal-renamed(t); }
-        // The title's field closed: the keys go back to the shortcuts.
-        goal-rename-closed => { shortcuts.focus(); }
-        task-goal-chosen(i) => { root.task-goal-chosen(i); }
-        task-later(id, x, y) => {
-            root.task-later-id = id;
-            root.task-later-x = x;
-            root.task-later-y = y;
-            root.task-later-requested(id);
-        }
-        slot-requested(x, y) => {
-            root.task-slot-x = x;
-            root.task-slot-y = y;
-            root.task-slot-requested();
-        }
-        unbook => { root.task-unbook(); }
-        estimate-chosen(m) => { root.task-estimate-chosen(m); }
-        estimate-typed(t) => { root.task-estimate-typed(t); }
-        // Picking a place or a task with the mouse hands the keyboard back to the
-        // shortcuts: the arrows and the space bar then act on the column.
-        place-chosen(k) => {
-            // On a phone the column was a page of its own: the place chosen replaces it.
-            self.column-open = false;
-            // "habits": the habits beside the column; any other place, its tasks.
-            root.tasks-habits = k == "habits";
-            root.task-place-chosen(k);
-            root.navigated("tasks", k);
-            shortcuts.focus();
-        }
-        place-menu(p, x, y) => {
-            root.task-list-menu-place = p;
-            root.task-list-menu-x = x;
-            root.task-list-menu-y = y;
-            root.task-list-menu-open = true;
-        }
-        list-new => {
-            root.task-list-name-new = true;
-            root.task-list-name = "";
-            root.task-list-name-open = true;
-        }
-        add(t) => { root.task-add(t); }
-        row-selected(r) => {
-            root.task-row-selected(r);
-            shortcuts.focus();
-        }
-        toggled(id) => { root.task-toggled(id); }
-        title-edited(t) => { root.task-title-edited(t); }
-        notes-edited(t) => { root.task-notes-edited(t); }
-        time-edited(t) => { root.task-time-edited(t); }
-        picker-toggled => { root.task-picker-toggled(); }
-        picker-navigate(n) => { root.task-picker-navigate(n); }
-        picker-chosen(d) => { root.task-picker-chosen(d); }
-        due-cleared => { root.task-due-cleared(); }
-        reminder-chosen(i) => { root.task-reminder-chosen(i); }
-        repeat-chosen(i) => { root.task-repeat-chosen(i); }
-        priority-chosen(p) => { root.task-priority-chosen(p); }
-        list-chosen(i) => { root.task-list-chosen(i); }
-        step-added(t) => { root.task-step-added(t); }
-        step-toggled(id) => { root.task-step-toggled(id); }
-        step-removed(id) => { root.task-step-removed(id); }
-        open-mail => { root.task-open-mail(); }
-        copy-link => { root.task-copy-link(); }
-        // The panel closes with the task: the keyboard goes back to the shortcuts,
-        // so Ctrl+Z reaches them.
-        delete => {
-            root.task-delete();
-            shortcuts.focus();
-        }
-        detail-closed => {
-            root.task-detail-closed();
-            shortcuts.focus();
-        }
-    }
-
-    // Home, over everything like the other workspaces.
-    if root.workspace == 4: NotesView {
-        x: root.rail;
-        y: 0px;
-        width: parent.width - root.rail;
-        height: parent.height - root.pied;
-        spaces: root.notes-spaces;
-        space: root.notes-space;
-        tree: root.notes-tree;
-        filter <=> root.notes-filter;
-        renaming: root.notes-renaming;
-        open: root.note-open;
-        title: root.note-title;
-        path: root.note-path;
-        status: root.note-status;
-        blocks: root.note-blocks;
-        focus-block: root.note-focus;
-        focus-serial: root.note-focus-serial;
-        focus-cursor: root.note-focus-cursor;
-        focus-anchor: root.note-focus-anchor;
-        title-serial: root.note-title-serial;
-        title-pending <=> root.note-title-pending;
-        title-edited(t) => { root.note-title-edited(t); }
-        ctrl-held: root.notes-ctrl-held;
-        space-menu(x, y) => {
-            root.notes-space-menu-x = x;
-            root.notes-space-menu-y = y;
-            root.notes-space-menu-open = true;
-        }
-        row-clicked(k) => { root.notes-row-clicked(k); }
-        row-toggled(k) => { root.notes-row-toggled(k); }
-        row-menu(k, x, y) => {
-            root.notes-row-menu-key = k;
-            root.notes-row-menu-x = x;
-            root.notes-row-menu-y = y;
-            root.notes-row-action("menu", k);
-            root.notes-row-menu-open = true;
-        }
-        source-mode: root.note-source-mode;
-        source-text: root.note-source-text;
-        source-serial: root.note-source-serial;
-        source-select-all: root.note-source-select-all;
-        source-toggled => { root.note-source-toggled(); }
-        source-edited(t) => { root.note-source-edited(t); }
-        source-closed => { root.note-source-closed(); }
-        col-resized(k, c, w) => { root.note-col-resized(k, c, w); }
-        sheet-option(k, o) => { root.note-sheet-option(k, o); }
-        tabs: root.notes-tabs;
-        tab-active: root.notes-tab-active;
-        tab-chosen(i) => { root.notes-tab-chosen(i); }
-        tab-closed(i) => { root.notes-tab-closed(i); }
-        tab-new => { root.notes-tab-new(); }
-        area-menu(x, y) => {
-            root.notes-row-menu-x = x;
-            root.notes-row-menu-y = y;
-            // What is made goes at the top of the space.
-            root.notes-row-action("area", ".");
-            root.notes-area-menu-open = true;
-        }
-        renamed(k, t) => {
-            root.notes-renamed(k, t);
-            shortcuts.focus();
-        }
-        rename-cancelled => {
-            root.notes-rename-cancelled();
-            shortcuts.focus();
-        }
-        moved(k, cible) => { root.notes-moved(k, cible); }
-        new-note => { root.notes-new-note(); }
-        new-folder => {
-            root.notes-name = "";
-            root.notes-name-asked = "folder";
-        }
-        filter-edited(t) => { root.notes-filter-edited(t); }
-        quick-open => {
-            root.notes-quick-beside = false;
-            root.notes-quick-moving = "";
-            root.notes-quick-search = false;
-            root.notes-quick-query = "";
-            root.notes-quick-highlight = 0;
-            root.notes-quick-open = true;
-            root.notes-quick-edited("");
-        }
-        block-edited(k, t, c) => { root.note-block-edited(k, t, c); }
-        block-key(k, n, c, a, p, d) => {
-            if (n == "ctrl+o" || n == "ctrl+\\") {
-                root.notes-quick-beside = n == "ctrl+\\";
+        // Home, over everything like the other workspaces.
+        if root.workspace == 4: NotesView {
+            x: root.rail;
+            y: Layout.inset-top;
+            width: parent.width - root.rail;
+            height: parent.height - root.pied - Layout.inset-top;
+            spaces: root.notes-spaces;
+            space: root.notes-space;
+            tree: root.notes-tree;
+            filter <=> root.notes-filter;
+            renaming: root.notes-renaming;
+            open: root.note-open;
+            title: root.note-title;
+            path: root.note-path;
+            status: root.note-status;
+            blocks: root.note-blocks;
+            focus-block: root.note-focus;
+            focus-serial: root.note-focus-serial;
+            focus-cursor: root.note-focus-cursor;
+            focus-anchor: root.note-focus-anchor;
+            title-serial: root.note-title-serial;
+            title-pending <=> root.note-title-pending;
+            title-edited(t) => { root.note-title-edited(t); }
+            ctrl-held: root.notes-ctrl-held;
+            space-menu(x, y) => {
+                root.notes-space-menu-x = x;
+                root.notes-space-menu-y = y;
+                root.notes-space-menu-open = true;
+            }
+            row-clicked(k) => { root.notes-row-clicked(k); }
+            row-toggled(k) => { root.notes-row-toggled(k); }
+            row-menu(k, x, y) => {
+                root.notes-row-menu-key = k;
+                root.notes-row-menu-x = x;
+                root.notes-row-menu-y = y;
+                root.notes-row-action("menu", k);
+                root.notes-row-menu-open = true;
+            }
+            source-mode: root.note-source-mode;
+            source-text: root.note-source-text;
+            source-serial: root.note-source-serial;
+            source-select-all: root.note-source-select-all;
+            source-toggled => { root.note-source-toggled(); }
+            source-edited(t) => { root.note-source-edited(t); }
+            source-closed => { root.note-source-closed(); }
+            col-resized(k, c, w) => { root.note-col-resized(k, c, w); }
+            sheet-option(k, o) => { root.note-sheet-option(k, o); }
+            tabs: root.notes-tabs;
+            tab-active: root.notes-tab-active;
+            tab-chosen(i) => { root.notes-tab-chosen(i); }
+            tab-closed(i) => { root.notes-tab-closed(i); }
+            tab-new => { root.notes-tab-new(); }
+            area-menu(x, y) => {
+                root.notes-row-menu-x = x;
+                root.notes-row-menu-y = y;
+                // What is made goes at the top of the space.
+                root.notes-row-action("area", ".");
+                root.notes-area-menu-open = true;
+            }
+            renamed(k, t) => {
+                root.notes-renamed(k, t);
+                shortcuts.focus();
+            }
+            rename-cancelled => {
+                root.notes-rename-cancelled();
+                shortcuts.focus();
+            }
+            moved(k, cible) => { root.notes-moved(k, cible); }
+            new-note => { root.notes-new-note(); }
+            new-folder => {
+                root.notes-name = "";
+                root.notes-name-asked = "folder";
+            }
+            filter-edited(t) => { root.notes-filter-edited(t); }
+            quick-open => {
+                root.notes-quick-beside = false;
                 root.notes-quick-moving = "";
                 root.notes-quick-search = false;
                 root.notes-quick-query = "";
                 root.notes-quick-highlight = 0;
                 root.notes-quick-open = true;
                 root.notes-quick-edited("");
-                return true;
             }
-            return root.note-block-key(k, n, c, a, p, d);
-        }
-        block-clicked(k) => { root.note-block-clicked(k); }
-        link-clicked(l) => { root.note-link-clicked(l); }
-        task-toggled(k) => { root.note-task-toggled(k); }
-        fold-toggled(k) => { root.note-fold-toggled(k); }
-        caret(k, x, y, c, a) => { root.note-caret(k, x, y, c, a); }
-        completion: root.note-completion;
-        completion-highlight: root.note-completion-highlight;
-        view: root.note-view;
-        view-height: root.note-view-height;
-        marks: root.note-marks;
-        caret-x: root.note-caret-x;
-        caret-y: root.note-caret-y;
-        caret-h: root.note-caret-h;
-        caret-visible: root.note-caret-visible;
-        caret-serial: root.note-caret-serial;
-        canvas-focus-serial: root.note-canvas-focus-serial;
-        canvas-cursor: root.note-canvas-cursor;
-        canvas-width(w) => { root.note-canvas-width(w); }
-        canvas-pressed(x, y, s, c) => { root.note-canvas-pressed(x, y, s, c); }
-        canvas-dragged(x, y) => { root.note-canvas-dragged(x, y); }
-        canvas-released(x, y) => { root.note-canvas-released(x, y); }
-        canvas-hovered(x, y) => { root.note-canvas-hovered(x, y); }
-        canvas-key(n) => {
-            if (n == "ctrl+o" || n == "ctrl+\\") {
-                root.notes-quick-beside = n == "ctrl+\\";
-                root.notes-quick-moving = "";
-                root.notes-quick-search = false;
-                root.notes-quick-query = "";
-                root.notes-quick-highlight = 0;
-                root.notes-quick-open = true;
-                root.notes-quick-edited("");
-                return true;
+            block-edited(k, t, c) => { root.note-block-edited(k, t, c); }
+            block-key(k, n, c, a, p, d) => {
+                if (n == "ctrl+o" || n == "ctrl+\\") {
+                    root.notes-quick-beside = n == "ctrl+\\";
+                    root.notes-quick-moving = "";
+                    root.notes-quick-search = false;
+                    root.notes-quick-query = "";
+                    root.notes-quick-highlight = 0;
+                    root.notes-quick-open = true;
+                    root.notes-quick-edited("");
+                    return true;
+                }
+                return root.note-block-key(k, n, c, a, p, d);
             }
-            return root.note-canvas-key(n);
+            block-clicked(k) => { root.note-block-clicked(k); }
+            link-clicked(l) => { root.note-link-clicked(l); }
+            task-toggled(k) => { root.note-task-toggled(k); }
+            fold-toggled(k) => { root.note-fold-toggled(k); }
+            caret(k, x, y, c, a) => { root.note-caret(k, x, y, c, a); }
+            completion: root.note-completion;
+            completion-highlight: root.note-completion-highlight;
+            view: root.note-view;
+            view-height: root.note-view-height;
+            marks: root.note-marks;
+            caret-x: root.note-caret-x;
+            caret-y: root.note-caret-y;
+            caret-h: root.note-caret-h;
+            caret-visible: root.note-caret-visible;
+            caret-serial: root.note-caret-serial;
+            canvas-focus-serial: root.note-canvas-focus-serial;
+            canvas-cursor: root.note-canvas-cursor;
+            canvas-width(w) => { root.note-canvas-width(w); }
+            canvas-pressed(x, y, s, c) => { root.note-canvas-pressed(x, y, s, c); }
+            canvas-dragged(x, y) => { root.note-canvas-dragged(x, y); }
+            canvas-released(x, y) => { root.note-canvas-released(x, y); }
+            canvas-hovered(x, y) => { root.note-canvas-hovered(x, y); }
+            canvas-key(n) => {
+                if (n == "ctrl+o" || n == "ctrl+\\") {
+                    root.notes-quick-beside = n == "ctrl+\\";
+                    root.notes-quick-moving = "";
+                    root.notes-quick-search = false;
+                    root.notes-quick-query = "";
+                    root.notes-quick-highlight = 0;
+                    root.notes-quick-open = true;
+                    root.notes-quick-edited("");
+                    return true;
+                }
+                return root.note-canvas-key(n);
+            }
+            bubble: root.note-bubble;
+            card: root.note-card;
+            card-title: root.note-card-title;
+            card-text: root.note-card-text;
+            card-picture: root.note-card-picture;
+            completion-chosen(i) => { root.note-completion-chosen(i); }
+            format(k) => { root.note-format(k); }
+            card-open => { root.note-card-open(); }
+            side: root.note-side;
+            outline: root.note-outline;
+            backlinks: root.note-backlinks;
+            facts: root.note-facts;
+            side-toggled => { root.note-side-toggled(); }
+            outline-chosen(k) => { root.note-outline-chosen(k); }
+            backlink-chosen(k) => { root.note-backlink-chosen(k); }
+            reading: root.note-reading;
+            reading-toggled => { root.note-reading-toggled(); }
+            focus-mode: root.note-focus-mode;
+            focus-mode-toggled => { root.note-focus-mode-toggled(); }
+            has-cards: root.note-has-cards;
+            revise => { root.note-revise(); }
+            beside: root.note-beside;
+            beside-title: root.note-beside-title;
+            beside-closed => { root.note-beside-closed(); }
+            sheet-open: root.note-sheet-open;
+            new-sheet => { root.notes-new-sheet(); }
+            graph => { root.notes-graph-requested(); }
+            title-accepted(t) => { root.note-title-accepted(t); }
+            escaped => { shortcuts.focus(); }
+            end-clicked => { root.note-end-clicked(); }
+            ctrl-changed(b) => { root.notes-ctrl-held = b; }
         }
-        bubble: root.note-bubble;
-        card: root.note-card;
-        card-title: root.note-card-title;
-        card-text: root.note-card-text;
-        card-picture: root.note-card-picture;
-        completion-chosen(i) => { root.note-completion-chosen(i); }
-        format(k) => { root.note-format(k); }
-        card-open => { root.note-card-open(); }
-        side: root.note-side;
-        outline: root.note-outline;
-        backlinks: root.note-backlinks;
-        facts: root.note-facts;
-        side-toggled => { root.note-side-toggled(); }
-        outline-chosen(k) => { root.note-outline-chosen(k); }
-        backlink-chosen(k) => { root.note-backlink-chosen(k); }
-        reading: root.note-reading;
-        reading-toggled => { root.note-reading-toggled(); }
-        focus-mode: root.note-focus-mode;
-        focus-mode-toggled => { root.note-focus-mode-toggled(); }
-        has-cards: root.note-has-cards;
-        revise => { root.note-revise(); }
-        beside: root.note-beside;
-        beside-title: root.note-beside-title;
-        beside-closed => { root.note-beside-closed(); }
-        sheet-open: root.note-sheet-open;
-        new-sheet => { root.notes-new-sheet(); }
-        graph => { root.notes-graph-requested(); }
-        title-accepted(t) => { root.note-title-accepted(t); }
-        escaped => { shortcuts.focus(); }
-        end-clicked => { root.note-end-clicked(); }
-        ctrl-changed(b) => { root.notes-ctrl-held = b; }
-    }
 
-    if root.workspace == 3: HomeView {
-        x: root.rail;
-        y: 0px;
-        width: parent.width - root.rail;
-        height: parent.height - root.pied;
-        greeting: root.home-greeting;
-        date: root.home-date;
-        summary: root.home-summary;
-        next: root.home-next;
-        mail-count: root.home-mail-count;
-        events-count: root.home-events-count;
-        tasks-count: root.home-tasks-count;
-        later: root.home-later;
-        tasks: root.home-tasks;
-        tasks-more: root.home-tasks-more;
-        threads: root.home-threads;
-        waiting: root.home-waiting;
-        goal: root.home-goal;
-        has-goal: root.home-has-goal;
-        week-done: root.home-week-done;
-        week-bars: root.home-week-bars;
-        week-today: root.home-week-today;
-        streak: root.inbox-zero-streak;
-        accounts: root.home-accounts;
-        last-sync: root.last-sync;
-        notes: root.home-notes;
-        cards-due: root.home-cards-due;
-        note-opened(k) => { root.home-note-opened(k); shortcuts.focus(); }
-        thread-opened(id) => { root.home-thread-opened(id); shortcuts.focus(); }
-        goal-opened(id) => { root.home-goal-opened(id); shortcuts.focus(); }
-        compose => {
-            root.compose-minimised = false;
-            root.compose-open = true;
+        if root.workspace == 3: HomeView {
+            x: root.rail;
+            y: Layout.inset-top;
+            width: parent.width - root.rail;
+            height: parent.height - root.pied - Layout.inset-top;
+            greeting: root.home-greeting;
+            date: root.home-date;
+            summary: root.home-summary;
+            next: root.home-next;
+            mail-count: root.home-mail-count;
+            events-count: root.home-events-count;
+            tasks-count: root.home-tasks-count;
+            later: root.home-later;
+            tasks: root.home-tasks;
+            tasks-more: root.home-tasks-more;
+            threads: root.home-threads;
+            waiting: root.home-waiting;
+            goal: root.home-goal;
+            has-goal: root.home-has-goal;
+            week-done: root.home-week-done;
+            week-bars: root.home-week-bars;
+            week-today: root.home-week-today;
+            streak: root.inbox-zero-streak;
+            accounts: root.home-accounts;
+            last-sync: root.last-sync;
+            notes: root.home-notes;
+            cards-due: root.home-cards-due;
+            note-opened(k) => { root.home-note-opened(k); shortcuts.focus(); }
+            thread-opened(id) => { root.home-thread-opened(id); shortcuts.focus(); }
+            goal-opened(id) => { root.home-goal-opened(id); shortcuts.focus(); }
+            compose => {
+                root.compose-minimised = false;
+                root.compose-open = true;
+            }
+            opened(t) => { root.home-open(t); shortcuts.focus(); }
+            task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
+            task-toggled(id) => { root.home-task-toggled(id); }
+            event-opened(k) => { root.home-event-opened(k); }
+            join(u) => { root.open-link(u); }
+            habits: root.home-habits;
+            habits-figure: root.home-habits-figure;
+            habits-foot: root.home-habits-foot;
+            habit-toggled(id) => { root.home-habit-toggled(id); }
         }
-        opened(t) => { root.home-open(t); shortcuts.focus(); }
-        task-opened(id) => { root.home-task-opened(id); shortcuts.focus(); }
-        task-toggled(id) => { root.home-task-toggled(id); }
-        event-opened(k) => { root.home-event-opened(k); }
-        join(u) => { root.open-link(u); }
-        habits: root.home-habits;
-        habits-figure: root.home-habits-figure;
-        habits-foot: root.home-habits-foot;
-        habit-toggled(id) => { root.home-habit-toggled(id); }
-    }
 
-    // The habits, in Tasks: beside the tasks' column, drawn alone above.
-    if root.workspace == 2 && root.tasks-habits: HabitsView {
-        x: root.rail + (Layout.width-class == WidthClass.expanded ? 232px : 0px);
-        visible: !root.tasks-column-open;
-        y: 0px;
-        width: parent.width - self.x;
-        height: parent.height - root.pied;
-        lists-requested => { root.tasks-column-open = true; }
-        mode: root.habits-mode;
-        title: root.habits-title;
-        dates: root.habits-dates;
-        note: root.habits-note;
-        count: root.habits-count;
-        rows: root.habits-rows;
-        labels: root.habits-labels;
-        today: root.habits-today;
-        has-detail: root.habits-has-detail;
-        detail: root.habits-detail;
-        add-text <=> root.habits-add-text;
-        focus-add-request: root.habits-focus-add;
-        mode-chosen(m) => { root.habits-mode-chosen(m); }
-        new-habit => { root.habit-new-requested(); }
-        // Choosing a habit with the mouse hands the keyboard back to the shortcuts:
-        // space then ticks it.
-        selected(id) => {
-            root.habit-selected(id);
-            shortcuts.focus();
+        // The habits, in Tasks: beside the tasks' column, drawn alone above.
+        if root.workspace == 2 && root.tasks-habits: HabitsView {
+            x: root.rail + (Layout.width-class == WidthClass.expanded ? 232px : 0px);
+            visible: !root.tasks-column-open;
+            y: Layout.inset-top;
+            width: parent.width - self.x;
+            height: parent.height - root.pied - Layout.inset-top;
+            lists-requested => { root.tasks-column-open = true; }
+            mode: root.habits-mode;
+            title: root.habits-title;
+            dates: root.habits-dates;
+            note: root.habits-note;
+            count: root.habits-count;
+            rows: root.habits-rows;
+            labels: root.habits-labels;
+            today: root.habits-today;
+            has-detail: root.habits-has-detail;
+            detail: root.habits-detail;
+            add-text <=> root.habits-add-text;
+            focus-add-request: root.habits-focus-add;
+            mode-chosen(m) => { root.habits-mode-chosen(m); }
+            new-habit => { root.habit-new-requested(); }
+            // Choosing a habit with the mouse hands the keyboard back to the shortcuts:
+            // space then ticks it.
+            selected(id) => {
+                root.habit-selected(id);
+                shortcuts.focus();
+            }
+            cell-clicked(id, d) => { root.habit-cell-clicked(id, d); }
+            add(t) => { root.habit-quick-add(t); }
+            edit => { root.habit-edit-requested(); }
+            delete => { root.habit-delete-open = true; }
+            closed => {
+                root.habit-detail-closed();
+                shortcuts.focus();
+            }
+            goal-opened(id) => {
+                root.habit-goal-opened(id);
+                shortcuts.focus();
+            }
+            amount-step(n) => { root.habit-amount-step(n); }
         }
-        cell-clicked(id, d) => { root.habit-cell-clicked(id, d); }
-        add(t) => { root.habit-quick-add(t); }
-        edit => { root.habit-edit-requested(); }
-        delete => { root.habit-delete-open = true; }
-        closed => {
-            root.habit-detail-closed();
-            shortcuts.focus();
-        }
-        goal-opened(id) => {
-            root.habit-goal-opened(id);
-            shortcuts.focus();
-        }
-        amount-step(n) => { root.habit-amount-step(n); }
-    }
 
-    if root.task-list-menu-open: TaskListMenu {
-        width: 100%;
-        height: 100%;
-        place: root.task-list-menu-place;
-        // The last list stays: a task always has somewhere to go.
-        can-delete: root.task-places.length > 5;
-        menu-x: root.task-list-menu-x;
-        menu-y: root.task-list-menu-y;
-        rename => {
-            root.task-list-menu-open = false;
-            root.task-list-name-new = false;
-            root.task-list-name = root.task-list-menu-place.name;
-            root.task-list-name-open = true;
+        if root.task-list-menu-open: TaskListMenu {
+            width: 100%;
+            height: 100%;
+            place: root.task-list-menu-place;
+            // The last list stays: a task always has somewhere to go.
+            can-delete: root.task-places.length > 5;
+            menu-x: root.task-list-menu-x;
+            menu-y: root.task-list-menu-y;
+            rename => {
+                root.task-list-menu-open = false;
+                root.task-list-name-new = false;
+                root.task-list-name = root.task-list-menu-place.name;
+                root.task-list-name-open = true;
+            }
+            remove => {
+                root.task-list-menu-open = false;
+                root.task-list-delete-open = true;
+            }
+            dismissed => { root.task-list-menu-open = false; }
         }
-        remove => {
-            root.task-list-menu-open = false;
-            root.task-list-delete-open = true;
-        }
-        dismissed => { root.task-list-menu-open = false; }
-    }
 
-    if root.task-list-name-open: TaskListNamePanel {
-        width: 100%;
-        height: 100%;
-        is-new: root.task-list-name-new;
-        name <=> root.task-list-name;
-        error: root.task-list-name-error;
-        confirmed => {
-            root.task-list-name-confirmed(root.task-list-name-new,
-                root.task-list-menu-place.list-id, root.task-list-name);
+        if root.task-list-name-open: TaskListNamePanel {
+            width: 100%;
+            height: 100%;
+            is-new: root.task-list-name-new;
+            name <=> root.task-list-name;
+            error: root.task-list-name-error;
+            confirmed => {
+                root.task-list-name-confirmed(root.task-list-name-new,
+                    root.task-list-menu-place.list-id, root.task-list-name);
+            }
+            dismissed => { root.task-list-name-open = false; }
         }
-        dismissed => { root.task-list-name-open = false; }
-    }
 
-    if root.task-list-delete-open: TaskListDeletePanel {
-        width: 100%;
-        height: 100%;
-        name: root.task-list-menu-place.name;
-        count: root.task-list-menu-place.count;
-        confirmed => {
-            root.task-list-delete-open = false;
-            root.task-list-delete-confirmed(root.task-list-menu-place.list-id);
+        if root.task-list-delete-open: TaskListDeletePanel {
+            width: 100%;
+            height: 100%;
+            name: root.task-list-menu-place.name;
+            count: root.task-list-menu-place.count;
+            confirmed => {
+                root.task-list-delete-open = false;
+                root.task-list-delete-confirmed(root.task-list-menu-place.list-id);
+            }
+            dismissed => { root.task-list-delete-open = false; }
         }
-        dismissed => { root.task-list-delete-open = false; }
-    }
 
-    if root.task-later-open: LaterMenu {
-        width: 100%;
-        height: 100%;
-        task: root.task-later-title;
-        menu-x: root.task-later-x;
-        menu-y: root.task-later-y;
-        chosen(quand) => { root.task-later-chosen(quand); }
-        pick-date => { root.task-later-pick-date(); }
-        dismissed => { root.task-later-open = false; }
-    }
+        if root.task-later-open: LaterMenu {
+            width: 100%;
+            height: 100%;
+            task: root.task-later-title;
+            menu-x: root.task-later-x;
+            menu-y: root.task-later-y;
+            chosen(quand) => { root.task-later-chosen(quand); }
+            pick-date => { root.task-later-pick-date(); }
+            dismissed => { root.task-later-open = false; }
+        }
 
-    if root.task-slot-open: SlotPicker {
-        width: 100%;
-        height: 100%;
-        day: root.task-slot-day;
-        need: root.task-slot-need;
-        busy: root.task-slot-busy;
-        slots: root.task-slots;
-        menu-x: root.task-slot-x;
-        menu-y: root.task-slot-y;
-        chosen(i) => { root.task-slot-chosen(i); }
-        typed(t) => { root.task-slot-typed(t); }
-        dismissed => { root.task-slot-open = false; }
-    }
+        if root.task-slot-open: SlotPicker {
+            width: 100%;
+            height: 100%;
+            day: root.task-slot-day;
+            need: root.task-slot-need;
+            busy: root.task-slot-busy;
+            slots: root.task-slots;
+            menu-x: root.task-slot-x;
+            menu-y: root.task-slot-y;
+            chosen(i) => { root.task-slot-chosen(i); }
+            typed(t) => { root.task-slot-typed(t); }
+            dismissed => { root.task-slot-open = false; }
+        }
 
-    if root.goal-new-open: NewGoalPanel {
-        width: 100%;
-        height: 100%;
-        title <=> root.goal-new-title;
-        kind <=> root.goal-new-kind;
-        target <=> root.goal-new-target;
-        unit <=> root.goal-new-unit;
-        due <=> root.goal-new-due;
-        why <=> root.goal-new-why;
-        error: root.goal-new-error;
-        editing: root.goal-new-editing;
-        in-days(n) => { root.goal-new-in-days(n); }
-        confirmed => { root.goal-new-confirmed(); }
-        dismissed => { root.goal-new-open = false; }
-    }
+        if root.goal-new-open: NewGoalPanel {
+            width: 100%;
+            height: 100%;
+            title <=> root.goal-new-title;
+            kind <=> root.goal-new-kind;
+            target <=> root.goal-new-target;
+            unit <=> root.goal-new-unit;
+            due <=> root.goal-new-due;
+            why <=> root.goal-new-why;
+            error: root.goal-new-error;
+            editing: root.goal-new-editing;
+            in-days(n) => { root.goal-new-in-days(n); }
+            confirmed => { root.goal-new-confirmed(); }
+            dismissed => { root.goal-new-open = false; }
+        }
 
-    if root.goal-time-open: MakeTimePanel {
-        width: 100%;
-        height: 100%;
-        goal: root.goal.title;
-        until: root.goal.due-short;
-        days <=> root.goal-time-days;
-        start <=> root.goal-time-start;
-        length <=> root.goal-time-length;
-        error: root.goal-time-error;
-        day-toggled(i) => { root.goal-time-day-toggled(i); }
-        confirmed => { root.goal-time-confirmed(); }
-        dismissed => { root.goal-time-open = false; }
-    }
+        if root.goal-time-open: MakeTimePanel {
+            width: 100%;
+            height: 100%;
+            goal: root.goal.title;
+            until: root.goal.due-short;
+            days <=> root.goal-time-days;
+            start <=> root.goal-time-start;
+            length <=> root.goal-time-length;
+            error: root.goal-time-error;
+            day-toggled(i) => { root.goal-time-day-toggled(i); }
+            confirmed => { root.goal-time-confirmed(); }
+            dismissed => { root.goal-time-open = false; }
+        }
 
-    if root.goal-delete-open: GoalDeletePanel {
-        width: 100%;
-        height: 100%;
-        name: root.goal.title;
-        confirmed => {
-            root.goal-delete-open = false;
-            root.goal-delete-confirmed();
+        if root.goal-delete-open: GoalDeletePanel {
+            width: 100%;
+            height: 100%;
+            name: root.goal.title;
+            confirmed => {
+                root.goal-delete-open = false;
+                root.goal-delete-confirmed();
+            }
+            dismissed => { root.goal-delete-open = false; }
         }
-        dismissed => { root.goal-delete-open = false; }
-    }
 
-    if root.habit-new-open: NewHabitPanel {
-        width: 100%;
-        height: 100%;
-        title <=> root.habit-new-title;
-        icon <=> root.habit-new-icon;
-        hue <=> root.habit-new-color;
-        colors: root.habit-colors;
-        kind <=> root.habit-new-kind;
-        often <=> root.habit-new-often;
-        days: root.habit-new-days;
-        times <=> root.habit-new-times;
-        amount <=> root.habit-new-amount;
-        unit <=> root.habit-new-unit;
-        goals: root.goal-names;
-        goal <=> root.habit-new-goal;
-        remind <=> root.habit-new-remind;
-        error: root.habit-new-error;
-        editing: root.habit-new-editing;
-        day-toggled(i) => { root.habit-new-day-toggled(i); }
-        confirmed => { root.habit-new-confirmed(); }
-        dismissed => { root.habit-new-open = false; }
-    }
+        if root.habit-new-open: NewHabitPanel {
+            width: 100%;
+            height: 100%;
+            title <=> root.habit-new-title;
+            icon <=> root.habit-new-icon;
+            hue <=> root.habit-new-color;
+            colors: root.habit-colors;
+            kind <=> root.habit-new-kind;
+            often <=> root.habit-new-often;
+            days: root.habit-new-days;
+            times <=> root.habit-new-times;
+            amount <=> root.habit-new-amount;
+            unit <=> root.habit-new-unit;
+            goals: root.goal-names;
+            goal <=> root.habit-new-goal;
+            remind <=> root.habit-new-remind;
+            error: root.habit-new-error;
+            editing: root.habit-new-editing;
+            day-toggled(i) => { root.habit-new-day-toggled(i); }
+            confirmed => { root.habit-new-confirmed(); }
+            dismissed => { root.habit-new-open = false; }
+        }
 
-    if root.habit-delete-open: HabitDeletePanel {
-        width: 100%;
-        height: 100%;
-        name: root.habits-detail.title;
-        confirmed => {
-            root.habit-delete-open = false;
-            root.habit-delete-confirmed();
+        if root.habit-delete-open: HabitDeletePanel {
+            width: 100%;
+            height: 100%;
+            name: root.habits-detail.title;
+            confirmed => {
+                root.habit-delete-open = false;
+                root.habit-delete-confirmed();
+            }
+            dismissed => { root.habit-delete-open = false; }
         }
-        dismissed => { root.habit-delete-open = false; }
-    }
 
-    if root.event-detail-open: EventDetailPanel {
-        width: 100%;
-        height: 100%;
-        anchored: root.event-anchored;
-        anchor-left: root.event-anchor-left;
-        anchor-right: root.event-anchor-right;
-        anchor-top: root.event-anchor-top;
-        detail: root.event-detail;
-        notes <=> root.event-notes;
-        notes-edited(t) => { root.event-notes-edited(t); }
-        tasks: root.event-tasks;
-        new-task <=> root.event-new-task;
-        task-added(t) => { root.event-task-added(t); }
-        task-toggled(id) => { root.event-task-toggled(id); }
-        task-opened(id) => { root.event-task-opened(id); }
-        edit => { root.event-edit(); }
-        delete => { root.event-delete(); }
-        dismissed => { root.event-detail-open = false; }
-        join(u) => { root.open-link(u); }
-        video-set(u) => { root.event-video-set(u); }
-        take-notes => {
-            root.event-detail-open = false;
-            root.event-take-notes();
-        }
-    }
-
-    if root.event-editor-open: EventEditorPanel {
-        width: 100%;
-        height: 100%;
-        is-new: root.editor-is-new;
-        title <=> root.editor-title;
-        all-day <=> root.editor-all-day;
-        start-date <=> root.editor-start-date;
-        start-time <=> root.editor-start-time;
-        end-date <=> root.editor-end-date;
-        end-time <=> root.editor-end-time;
-        location <=> root.editor-location;
-        notes <=> root.editor-notes;
-        calendars: root.editor-calendars;
-        calendar-index <=> root.editor-calendar-index;
-        reminders: root.editor-reminders;
-        reminder-index <=> root.editor-reminder-index;
-        repeats: root.editor-repeats;
-        repeat-index <=> root.editor-repeat-index;
-        error: root.editor-error;
-        start-label: root.editor-start-label;
-        end-label: root.editor-end-label;
-        picker: root.editor-picker;
-        picker-title: root.editor-picker-title;
-        picker-cells: root.editor-picker-cells;
-        picker-requested(w) => { root.editor-picker-requested(w); }
-        picker-navigate(n) => { root.editor-picker-navigate(n); }
-        picker-chosen(d) => { root.editor-picker-chosen(d); }
-        picker-closed => { root.editor-picker = -1; }
-        save => { root.event-save(); }
-        dismissed => { root.event-editor-open = false; }
-    }
-
-    // A right-click on an event. Rust has made it the chosen event, as a click does, so
-    // Edit and Delete act on it through the same callbacks as its card.
-    if root.event-menu-open: EventContextMenu {
-        width: 100%;
-        height: 100%;
-        event: root.event-detail;
-        palette: root.calendar-palette;
-        menu-x: root.event-menu-x;
-        menu-y: root.event-menu-y;
-        open => {
-            root.event-menu-open = false;
-            root.event-anchored = true;
-            root.event-detail-open = true;
-        }
-        edit => {
-            root.event-menu-open = false;
-            root.event-edit();
-        }
-        delete => {
-            root.event-menu-open = false;
-            root.event-delete();
-            shortcuts.focus();
-        }
-        color-chosen(i) => {
-            root.event-menu-open = false;
-            root.event-color-chosen(i);
-            shortcuts.focus();
-        }
-        copy-link => {
-            root.event-menu-open = false;
-            root.event-copy-link();
-            shortcuts.focus();
-        }
-        dismissed => {
-            root.event-menu-open = false;
-            shortcuts.focus();
-        }
-    }
-
-    if root.calendar-menu-open: CalendarContextMenu {
-        width: 100%;
-        height: 100%;
-        cal: root.calendar-menu-cal;
-        palette: root.calendar-palette;
-        menu-x: root.calendar-menu-x;
-        menu-y: root.calendar-menu-y;
-        color-chosen(i) => {
-            root.calendar-menu-open = false;
-            root.calendar-color-chosen(root.calendar-menu-cal.id, i);
-        }
-        refresh => {
-            root.calendar-menu-open = false;
-            root.calendar-refresh(root.calendar-menu-cal.id);
-        }
-        rename => {
-            root.calendar-menu-open = false;
-            root.calendar-rename-new = false;
-            root.calendar-rename-name = root.calendar-menu-cal.name;
-            root.calendar-rename-open = true;
-        }
-        remove => {
-            root.calendar-menu-open = false;
-            root.calendar-delete-open = true;
-        }
-        dismissed => { root.calendar-menu-open = false; }
-    }
-
-    // Naming a calendar: a new one (-1), or the one the menu was opened on.
-    if root.calendar-rename-open: CalendarRenamePanel {
-        width: 100%;
-        height: 100%;
-        is-new: root.calendar-rename-new;
-        name <=> root.calendar-rename-name;
-        error: root.calendar-rename-error;
-        rename => {
-            root.calendar-rename-confirmed(
-                root.calendar-rename-new ? -1 : root.calendar-menu-cal.id,
-                root.calendar-rename-name);
-        }
-        dismissed => { root.calendar-rename-open = false; }
-    }
-
-    if root.calendar-delete-open: CalendarDeletePanel {
-        width: 100%;
-        height: 100%;
-        cal: root.calendar-menu-cal;
-        confirmed => {
-            root.calendar-delete-open = false;
-            root.calendar-delete-confirmed(root.calendar-menu-cal.id);
-        }
-        dismissed => { root.calendar-delete-open = false; }
-    }
-
-    if root.subscribe-open: SubscribePanel {
-        width: 100%;
-        height: 100%;
-        url <=> root.subscribe-url;
-        name <=> root.subscribe-name;
-        busy: root.subscribe-busy;
-        error: root.subscribe-error;
-        subscribe => { root.subscribe-confirmed(); }
-        dismissed => { root.subscribe-open = false; }
-    }
-
-    if root.notes-area-menu-open: NotesAreaMenu {
-        width: 100%;
-        height: 100%;
-        menu-x: root.notes-row-menu-x;
-        menu-y: root.notes-row-menu-y;
-        chosen(action) => {
-            root.notes-area-menu-open = false;
-            if (action == "new-folder") {
-                root.notes-name = "";
-                root.notes-name-asked = "folder";
-            } else {
-                root.notes-row-action(action, ".");
+        if root.event-detail-open: EventDetailPanel {
+            width: 100%;
+            height: 100%;
+            anchored: root.event-anchored;
+            anchor-left: root.event-anchor-left;
+            anchor-right: root.event-anchor-right;
+            anchor-top: root.event-anchor-top;
+            detail: root.event-detail;
+            notes <=> root.event-notes;
+            notes-edited(t) => { root.event-notes-edited(t); }
+            tasks: root.event-tasks;
+            new-task <=> root.event-new-task;
+            task-added(t) => { root.event-task-added(t); }
+            task-toggled(id) => { root.event-task-toggled(id); }
+            task-opened(id) => { root.event-task-opened(id); }
+            edit => { root.event-edit(); }
+            delete => { root.event-delete(); }
+            dismissed => { root.event-detail-open = false; }
+            join(u) => { root.open-link(u); }
+            video-set(u) => { root.event-video-set(u); }
+            take-notes => {
+                root.event-detail-open = false;
+                root.event-take-notes();
             }
         }
-        dismissed => { root.notes-area-menu-open = false; }
-    }
 
-    if root.notes-row-menu-open: NotesRowMenu {
-        width: 100%;
-        height: 100%;
-        menu-x: root.notes-row-menu-x;
-        menu-y: root.notes-row-menu-y;
-        kind: root.notes-row-menu-kind;
-        pinned: root.notes-row-menu-pinned;
-        palette: root.notes-folder-palette;
-        colour: root.notes-row-menu-colour;
-        chosen(action) => {
-            root.notes-row-menu-open = false;
-            if (action == "new-folder") {
-                root.notes-name = "";
-                root.notes-name-asked = "folder";
-            } else {
-                root.notes-row-action(action, root.notes-row-menu-key);
+        if root.event-editor-open: EventEditorPanel {
+            width: 100%;
+            height: 100%;
+            is-new: root.editor-is-new;
+            title <=> root.editor-title;
+            all-day <=> root.editor-all-day;
+            start-date <=> root.editor-start-date;
+            start-time <=> root.editor-start-time;
+            end-date <=> root.editor-end-date;
+            end-time <=> root.editor-end-time;
+            location <=> root.editor-location;
+            notes <=> root.editor-notes;
+            calendars: root.editor-calendars;
+            calendar-index <=> root.editor-calendar-index;
+            reminders: root.editor-reminders;
+            reminder-index <=> root.editor-reminder-index;
+            repeats: root.editor-repeats;
+            repeat-index <=> root.editor-repeat-index;
+            error: root.editor-error;
+            start-label: root.editor-start-label;
+            end-label: root.editor-end-label;
+            picker: root.editor-picker;
+            picker-title: root.editor-picker-title;
+            picker-cells: root.editor-picker-cells;
+            picker-requested(w) => { root.editor-picker-requested(w); }
+            picker-navigate(n) => { root.editor-picker-navigate(n); }
+            picker-chosen(d) => { root.editor-picker-chosen(d); }
+            picker-closed => { root.editor-picker = -1; }
+            save => { root.event-save(); }
+            dismissed => { root.event-editor-open = false; }
+        }
+
+        // A right-click on an event. Rust has made it the chosen event, as a click does, so
+        // Edit and Delete act on it through the same callbacks as its card.
+        if root.event-menu-open: EventContextMenu {
+            width: 100%;
+            height: 100%;
+            event: root.event-detail;
+            palette: root.calendar-palette;
+            menu-x: root.event-menu-x;
+            menu-y: root.event-menu-y;
+            open => {
+                root.event-menu-open = false;
+                root.event-anchored = true;
+                root.event-detail-open = true;
+            }
+            edit => {
+                root.event-menu-open = false;
+                root.event-edit();
+            }
+            delete => {
+                root.event-menu-open = false;
+                root.event-delete();
+                shortcuts.focus();
+            }
+            color-chosen(i) => {
+                root.event-menu-open = false;
+                root.event-color-chosen(i);
+                shortcuts.focus();
+            }
+            copy-link => {
+                root.event-menu-open = false;
+                root.event-copy-link();
+                shortcuts.focus();
+            }
+            dismissed => {
+                root.event-menu-open = false;
+                shortcuts.focus();
             }
         }
-        dismissed => { root.notes-row-menu-open = false; }
-    }
 
-    if root.notes-review-open: NotesReviewPanel {
-        width: 100%;
-        height: 100%;
-        question: root.notes-review-question;
-        answer: root.notes-review-answer;
-        revealed: root.notes-review-revealed;
-        progress: root.notes-review-progress;
-        finished: root.notes-review-finished;
-        reveal => { root.notes-review-reveal(); }
-        graded(g) => { root.notes-review-graded(g); }
-        dismissed => {
-            root.notes-review-open = false;
-            shortcuts.focus();
-        }
-    }
-
-    if root.notes-space-menu-open: NotesSpaceMenu {
-        width: 100%;
-        height: 100%;
-        menu-x: root.notes-space-menu-x;
-        menu-y: root.notes-space-menu-y;
-        spaces: root.notes-spaces;
-        current: root.notes-space;
-        chosen(i) => {
-            root.notes-space-menu-open = false;
-            root.notes-space-chosen(i);
-        }
-        new-space => {
-            root.notes-space-menu-open = false;
-            root.notes-name = "";
-            root.notes-name-asked = "space";
-        }
-        open-folder => {
-            root.notes-space-menu-open = false;
-            root.notes-space-open-folder();
-        }
-        reveal => {
-            root.notes-space-menu-open = false;
-            root.notes-space-reveal();
-        }
-        dismissed => { root.notes-space-menu-open = false; }
-    }
-
-    if root.notes-name-asked != "": NotesNamePanel {
-        width: 100%;
-        height: 100%;
-        title: root.notes-name-asked == "space" ? "New space"
-            : root.notes-name-asked == "sheet" ? "Rename the sheet" : "New folder";
-        action: root.notes-name-asked == "sheet" ? "Rename" : "Create";
-        name <=> root.notes-name;
-        error: root.notes-name-error;
-        confirmed(t) => {
-            if (root.notes-name-asked == "space") {
-                root.notes-space-new(t);
-            } else if (root.notes-name-asked == "sheet") {
-                root.notes-name-asked = "";
-                SheetGrid.action("sheet-rename:" + t);
-                SheetGrid.focus-serial += 1;
-            } else {
-                root.notes-new-folder(t);
+        if root.calendar-menu-open: CalendarContextMenu {
+            width: 100%;
+            height: 100%;
+            cal: root.calendar-menu-cal;
+            palette: root.calendar-palette;
+            menu-x: root.calendar-menu-x;
+            menu-y: root.calendar-menu-y;
+            color-chosen(i) => {
+                root.calendar-menu-open = false;
+                root.calendar-color-chosen(root.calendar-menu-cal.id, i);
             }
-        }
-        dismissed => {
-            root.notes-name-asked = "";
-            shortcuts.focus();
-        }
-    }
-
-    if root.notes-history-open: NotesHistoryPanel {
-        width: 100%;
-        height: 100%;
-        versions: root.notes-history;
-        chosen: root.notes-history-chosen;
-        preview: root.notes-history-preview;
-        picked(i) => { root.notes-history-picked(i); }
-        restore => {
-            root.notes-history-restore();
-            root.notes-history-open = false;
-            shortcuts.focus();
-        }
-        dismissed => {
-            root.notes-history-open = false;
-            shortcuts.focus();
-        }
-    }
-
-    if root.notes-graph-open: NotesGraphPanel {
-        width: 100%;
-        height: 100%;
-        nodes: root.notes-graph-nodes;
-        edges: root.notes-graph-edges;
-        chosen(k) => {
-            root.notes-graph-open = false;
-            root.notes-graph-chosen(k);
-            shortcuts.focus();
-        }
-        dismissed => {
-            root.notes-graph-open = false;
-            shortcuts.focus();
-        }
-    }
-
-    if SheetGrid.menu != "": SheetMenu {
-        width: 100%;
-        height: 100%;
-        chosen(action) => {
-            SheetGrid.menu = "";
-            if (action == "sheet-rename") {
-                root.notes-name = "";
-                root.notes-name-asked = "sheet";
-            } else {
-                SheetGrid.action(action);
-                SheetGrid.focus-serial += 1;
+            refresh => {
+                root.calendar-menu-open = false;
+                root.calendar-refresh(root.calendar-menu-cal.id);
             }
+            rename => {
+                root.calendar-menu-open = false;
+                root.calendar-rename-new = false;
+                root.calendar-rename-name = root.calendar-menu-cal.name;
+                root.calendar-rename-open = true;
+            }
+            remove => {
+                root.calendar-menu-open = false;
+                root.calendar-delete-open = true;
+            }
+            dismissed => { root.calendar-menu-open = false; }
         }
-        dismissed => {
-            SheetGrid.menu = "";
-            SheetGrid.focus-serial += 1;
+
+        // Naming a calendar: a new one (-1), or the one the menu was opened on.
+        if root.calendar-rename-open: CalendarRenamePanel {
+            width: 100%;
+            height: 100%;
+            is-new: root.calendar-rename-new;
+            name <=> root.calendar-rename-name;
+            error: root.calendar-rename-error;
+            rename => {
+                root.calendar-rename-confirmed(
+                    root.calendar-rename-new ? -1 : root.calendar-menu-cal.id,
+                    root.calendar-rename-name);
+            }
+            dismissed => { root.calendar-rename-open = false; }
         }
-    }
 
-    if root.notes-quick-open: NotesQuickOpen {
-        width: 100%;
-        height: 100%;
-        query <=> root.notes-quick-query;
-        results: root.notes-quick-results;
-        highlighted: root.notes-quick-highlight;
-        search: root.notes-quick-search;
-        moving: root.notes-quick-moving;
-        edited(t) => {
-            root.notes-quick-highlight = 0;
-            root.notes-quick-edited(t);
+        if root.calendar-delete-open: CalendarDeletePanel {
+            width: 100%;
+            height: 100%;
+            cal: root.calendar-menu-cal;
+            confirmed => {
+                root.calendar-delete-open = false;
+                root.calendar-delete-confirmed(root.calendar-menu-cal.id);
+            }
+            dismissed => { root.calendar-delete-open = false; }
         }
-        moved(d) => {
-            root.notes-quick-highlight = max(0, min(root.notes-quick-results.length - 1,
-                root.notes-quick-highlight + d));
+
+        if root.subscribe-open: SubscribePanel {
+            width: 100%;
+            height: 100%;
+            url <=> root.subscribe-url;
+            name <=> root.subscribe-name;
+            busy: root.subscribe-busy;
+            error: root.subscribe-error;
+            subscribe => { root.subscribe-confirmed(); }
+            dismissed => { root.subscribe-open = false; }
         }
-        chosen(k) => {
-            root.notes-quick-open = false;
-            root.notes-quick-chosen(k);
-        }
-        dismissed => {
-            root.notes-quick-open = false;
-            shortcuts.focus();
-        }
-    }
 
-    if root.connect-open: ConnectCalendarsPanel {
-        width: 100%;
-        height: 100%;
-        server <=> root.connect-server;
-        user <=> root.connect-user;
-        password <=> root.connect-password;
-        busy: root.connect-busy;
-        error: root.connect-error;
-        connect => { root.connect-confirmed(); }
-        dismissed => {
-            root.connect-open = false;
-            root.connect-password = "";
-            shortcuts.focus();
-        }
-    }
-
-    if root.problem-open: AccountProblemPanel {
-        width: 100%;
-        height: 100%;
-        account: root.problem-account;
-        message: root.problem-message;
-        advice: root.problem-advice;
-        needs-password: root.problem-needs-password;
-        sign-in: root.problem-sign-in;
-        busy: root.problem-busy;
-        result: root.problem-result;
-        password <=> root.problem-password;
-        retry => { root.problem-retry(); }
-        save-password => { root.problem-save-password(); }
-        sign-in-again => { root.problem-sign-in-again(); }
-        disable-account => { root.problem-disable(); }
-        dismissed => { root.problem-open = false; }
-    }
-
-    if root.folder-menu-open: FolderContextMenu {
-        width: 100%;
-        height: 100%;
-        folder: root.folder-menu-path;
-        permanent: root.folder-menu-permanent;
-        emptyable: root.folder-menu-emptyable;
-        mark-read => { root.folder-mark-read-requested(); }
-        empty => { root.folder-empty-requested(); }
-        menu-x: root.folder-menu-x;
-        menu-y: root.folder-menu-y;
-        rename => { root.folder-rename-requested(); }
-        remove => { root.folder-delete-requested(); }
-        dismissed => { root.folder-menu-dismissed(); }
-    }
-
-    if root.empty-folder-open: EmptyFolderPanel {
-        width: 100%;
-        height: 100%;
-        folder: root.empty-folder-name;
-        scope: root.empty-folder-scope;
-        confirmed => {
-            root.empty-folder-open = false;
-            root.folder-empty-confirmed();
-        }
-        dismissed => { root.empty-folder-open = false; }
-    }
-
-    if root.rename-folder-open: RenameFolderPanel {
-        width: 100%;
-        height: 100%;
-        current: root.rename-folder-current;
-        error: root.rename-folder-error;
-        name <=> root.rename-folder-name;
-        rename => { root.folder-rename-confirmed(); }
-        dismissed => { root.folder-rename-dismissed(); }
-    }
-
-    if root.new-folder-open: NewFolderPanel {
-        width: 100%;
-        height: 100%;
-        parent-path: root.new-folder-parent;
-        error: root.new-folder-error;
-        name <=> root.new-folder-name;
-        mailboxes: root.new-folder-mailboxes;
-        chosen: root.new-folder-chosen;
-        total: root.new-folder-total;
-        all-shown-checked: root.new-folder-all-shown-checked;
-        search <=> root.new-folder-search;
-        search-changed(t) => { root.new-folder-search-changed(t); }
-        mailbox-toggled(id) => { root.new-folder-mailbox-toggled(id); }
-        select-all-toggled => { root.new-folder-select-all-toggled(); }
-        create => { root.new-folder-create(); }
-        dismissed => { root.new-folder-dismissed(); }
-    }
-
-    if root.account-menu-open: AccountContextMenu {
-        width: 100%;
-        height: 100%;
-        account: root.account-menu-label;
-        pinned: root.account-menu-pinned;
-        enabled: root.account-menu-enabled;
-        menu-x: root.account-menu-x;
-        menu-y: root.account-menu-y;
-        sync-now => { root.account-menu-sync(); }
-        edit-account => { root.account-menu-edit(); }
-        change-password => { root.account-menu-password(); }
-        edit-signature => { root.account-menu-signature(); }
-        edit-aliases => { root.account-menu-aliases(); }
-        toggle-pinned => { root.account-menu-pin(); }
-        toggle-enabled => { root.account-menu-enable(); }
-        remove-account => { root.account-menu-remove(); }
-        dismissed => { root.account-menu-dismissed(); }
-        tags: root.account-menu-tags;
-        tags-open <=> root.account-tags-open;
-        tag-search <=> root.account-tag-search;
-        tag-toggled(id) => { root.account-tag-toggled(id); }
-        tag-search-changed(t) => { root.account-tag-search-changed(t); }
-        tag-created(t) => { root.account-tag-created(t); }
-        manage-tags => { root.tags-requested(); }
-        // The row under the pointer, if it is an account, opens its own menu.
-        reopen-at(px, py) => {
-            root.account-probe-x = px;
-            root.account-probe-y = py;
-            root.account-probe += 1;
-        }
-    }
-
-    if root.tags-open: TagsPanel {
-        width: 100%;
-        height: 100%;
-        tags: root.account-tags;
-        palette: root.tag-palette;
-        error: root.tags-error;
-        new-name <=> root.tags-new-name;
-        created(t) => { root.tag-created(t); }
-        renamed(id, nom) => { root.tag-renamed(id, nom); }
-        color-chosen(id, i) => { root.tag-color-chosen(id, i); }
-        deleted(id) => { root.tag-deleted(id); }
-        moved(id, index) => { root.tag-moved(id, index); }
-        dismissed => { root.tags-open = false; }
-    }
-
-    if root.context-menu-open: ThreadContextMenu {
-        width: 100%;
-        height: 100%;
-        menu-x: root.context-menu-x;
-        menu-y: root.context-menu-y;
-        unread: root.context-menu-unread;
-        starred: root.context-menu-starred;
-        // Chaque action porte sa cible. « Ouvrir » est la seule qui sélectionne, parce
-        // que c'est la seule qu'on lui demande de faire.
-        open-thread => {
-            root.context-menu-open = false;
-            root.thread-selected(root.context-menu-thread);
-        }
-        add-task => { root.thread-to-task(root.context-menu-thread); }
-        mark-done => { root.menu-done(root.context-menu-thread); }
-        archive => { root.menu-archive(root.context-menu-thread); }
-        snooze(quand) => { root.menu-snooze(root.context-menu-thread, quand); }
-        toggle-unread => { root.menu-toggle-unread(root.context-menu-thread); }
-        toggle-star => { root.menu-toggle-star(root.context-menu-thread); }
-        delete-thread => { root.menu-delete(root.context-menu-thread); }
-        view-source => { root.view-source(); }
-        copy-link => { root.thread-copy-link(root.context-menu-thread); }
-        dismissed => { root.context-menu-open = false; }
-        reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
-    }
-
-    if root.link-menu-open: LinkMenu {
-        width: 100%;
-        height: 100%;
-        kind: root.link-menu-kind;
-        link-text: root.link-menu-text;
-        has-selection: root.link-menu-selection;
-        body: root.link-menu-message >= 0;
-        menu-x: root.link-menu-x;
-        menu-y: root.link-menu-y;
-        chosen(c) => {
-            if (root.link-menu-text-body && c == "copy-selection") {
-                if (MessageText.all-selected >= 0) {
-                    root.copy-message-text(MessageText.all-selected);
+        if root.notes-area-menu-open: NotesAreaMenu {
+            width: 100%;
+            height: 100%;
+            menu-x: root.notes-row-menu-x;
+            menu-y: root.notes-row-menu-y;
+            chosen(action) => {
+                root.notes-area-menu-open = false;
+                if (action == "new-folder") {
+                    root.notes-name = "";
+                    root.notes-name-asked = "folder";
                 } else {
-                    // The words holding the selection copy it once they have let go
-                    // of the keyboard (conversation.slint).
-                    MessageText.copy-serial += 1;
-                    root.status = "Copied.";
+                    root.notes-row-action(action, ".");
                 }
-            } else if (root.link-menu-text-body && c == "select-all") {
-                MessageText.all-selected = root.link-menu-message;
-            } else {
-                if (c == "select-all") {
-                    MessageText.all-selected = -1;
+            }
+            dismissed => { root.notes-area-menu-open = false; }
+        }
+
+        if root.notes-row-menu-open: NotesRowMenu {
+            width: 100%;
+            height: 100%;
+            menu-x: root.notes-row-menu-x;
+            menu-y: root.notes-row-menu-y;
+            kind: root.notes-row-menu-kind;
+            pinned: root.notes-row-menu-pinned;
+            palette: root.notes-folder-palette;
+            colour: root.notes-row-menu-colour;
+            chosen(action) => {
+                root.notes-row-menu-open = false;
+                if (action == "new-folder") {
+                    root.notes-name = "";
+                    root.notes-name-asked = "folder";
+                } else {
+                    root.notes-row-action(action, root.notes-row-menu-key);
                 }
-                root.link-menu-chosen(c);
+            }
+            dismissed => { root.notes-row-menu-open = false; }
+        }
+
+        if root.notes-review-open: NotesReviewPanel {
+            width: 100%;
+            height: 100%;
+            question: root.notes-review-question;
+            answer: root.notes-review-answer;
+            revealed: root.notes-review-revealed;
+            progress: root.notes-review-progress;
+            finished: root.notes-review-finished;
+            reveal => { root.notes-review-reveal(); }
+            graded(g) => { root.notes-review-graded(g); }
+            dismissed => {
+                root.notes-review-open = false;
+                shortcuts.focus();
             }
         }
-        dismissed => {
-            root.link-menu-open = false;
-            shortcuts.focus();
+
+        if root.notes-space-menu-open: NotesSpaceMenu {
+            width: 100%;
+            height: 100%;
+            menu-x: root.notes-space-menu-x;
+            menu-y: root.notes-space-menu-y;
+            spaces: root.notes-spaces;
+            current: root.notes-space;
+            chosen(i) => {
+                root.notes-space-menu-open = false;
+                root.notes-space-chosen(i);
+            }
+            new-space => {
+                root.notes-space-menu-open = false;
+                root.notes-name = "";
+                root.notes-name-asked = "space";
+            }
+            open-folder => {
+                root.notes-space-menu-open = false;
+                root.notes-space-open-folder();
+            }
+            reveal => {
+                root.notes-space-menu-open = false;
+                root.notes-space-reveal();
+            }
+            dismissed => { root.notes-space-menu-open = false; }
         }
-    }
 
-    // The reading toolbar's menus: until when to snooze, and the rarer actions. They
-    // act on the conversation being read.
-    if root.reader-menu != "": ReaderMenu {
-        width: 100%;
-        height: 100%;
-        kind: root.reader-menu;
-        unread: root.selected-unread;
-        menu-x: root.reader-menu-x;
-        menu-y: root.reader-menu-y;
-        snooze(quand) => { root.menu-snooze(root.selected-thread, quand); }
-        forward-thread => { root.forward-thread(); }
-        reply(tous) => { root.reply-requested(tous); }
-        toggle-unread => { root.thread-toggle-unread(); }
-        view-source => { root.view-source(); }
-        dismissed => { root.reader-menu = ""; }
-    }
-
-    if root.sort-menu-open: SortMenu {
-        width: 100%;
-        height: 100%;
-        current: root.list-sort;
-        menu-x: root.sort-menu-x;
-        menu-y: root.sort-menu-y;
-        chosen(i) => {
-            root.sort-menu-open = false;
-            root.sort-chosen(i);
-            shortcuts.focus();
+        if root.notes-name-asked != "": NotesNamePanel {
+            width: 100%;
+            height: 100%;
+            title: root.notes-name-asked == "space" ? "New space"
+                : root.notes-name-asked == "sheet" ? "Rename the sheet" : "New folder";
+            action: root.notes-name-asked == "sheet" ? "Rename" : "Create";
+            name <=> root.notes-name;
+            error: root.notes-name-error;
+            confirmed(t) => {
+                if (root.notes-name-asked == "space") {
+                    root.notes-space-new(t);
+                } else if (root.notes-name-asked == "sheet") {
+                    root.notes-name-asked = "";
+                    SheetGrid.action("sheet-rename:" + t);
+                    SheetGrid.focus-serial += 1;
+                } else {
+                    root.notes-new-folder(t);
+                }
+            }
+            dismissed => {
+                root.notes-name-asked = "";
+                shortcuts.focus();
+            }
         }
-        dismissed => {
-            root.sort-menu-open = false;
-            shortcuts.focus();
+
+        if root.notes-history-open: NotesHistoryPanel {
+            width: 100%;
+            height: 100%;
+            versions: root.notes-history;
+            chosen: root.notes-history-chosen;
+            preview: root.notes-history-preview;
+            picked(i) => { root.notes-history-picked(i); }
+            restore => {
+                root.notes-history-restore();
+                root.notes-history-open = false;
+                shortcuts.focus();
+            }
+            dismissed => {
+                root.notes-history-open = false;
+                shortcuts.focus();
+            }
         }
-    }
 
-    if root.scheduled-open: ScheduledPanel {
-        width: 100%;
-        height: 100%;
-        rows: root.scheduled-rows;
-        edit(id) => {
-            root.scheduled-open = false;
-            root.scheduled-edit(id);
+        if root.notes-graph-open: NotesGraphPanel {
+            width: 100%;
+            height: 100%;
+            nodes: root.notes-graph-nodes;
+            edges: root.notes-graph-edges;
+            chosen(k) => {
+                root.notes-graph-open = false;
+                root.notes-graph-chosen(k);
+                shortcuts.focus();
+            }
+            dismissed => {
+                root.notes-graph-open = false;
+                shortcuts.focus();
+            }
         }
-        send-now(id) => { root.scheduled-send-now(id); }
-        dismissed => {
-            root.scheduled-open = false;
-            shortcuts.focus();
+
+        if SheetGrid.menu != "": SheetMenu {
+            width: 100%;
+            height: 100%;
+            chosen(action) => {
+                SheetGrid.menu = "";
+                if (action == "sheet-rename") {
+                    root.notes-name = "";
+                    root.notes-name-asked = "sheet";
+                } else {
+                    SheetGrid.action(action);
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+            dismissed => {
+                SheetGrid.menu = "";
+                SheetGrid.focus-serial += 1;
+            }
         }
-    }
 
-    if root.compose-open: ComposePanel {
-        width: 100%;
-        height: 100%;
-        senders: root.compose-senders;
-        sender-index: root.compose-sender-index;
-        attachments: root.compose-attachments;
-        error: root.compose-error;
-        minimised <=> root.compose-minimised;
-        parked-x: root.compose-parked-x;
-        park => {
-            root.compose-park();
-            shortcuts.focus();
+        if root.notes-quick-open: NotesQuickOpen {
+            width: 100%;
+            height: 100%;
+            query <=> root.notes-quick-query;
+            results: root.notes-quick-results;
+            highlighted: root.notes-quick-highlight;
+            search: root.notes-quick-search;
+            moving: root.notes-quick-moving;
+            edited(t) => {
+                root.notes-quick-highlight = 0;
+                root.notes-quick-edited(t);
+            }
+            moved(d) => {
+                root.notes-quick-highlight = max(0, min(root.notes-quick-results.length - 1,
+                    root.notes-quick-highlight + d));
+            }
+            chosen(k) => {
+                root.notes-quick-open = false;
+                root.notes-quick-chosen(k);
+            }
+            dismissed => {
+                root.notes-quick-open = false;
+                shortcuts.focus();
+            }
         }
-        show-cc <=> root.compose-show-cc;
-        to <=> root.compose-to;
-        cc <=> root.compose-cc;
-        bcc <=> root.compose-bcc;
-        subject <=> root.compose-subject;
-        body <=> root.compose-body;
-        replying: root.compose-replying;
-        reply-all: root.compose-reply-all;
-        can-reply-all: root.compose-can-reply-all;
-        history: root.compose-history;
-        reply-all-toggled(tous) => { root.compose-reply-all-toggled(tous); }
-        send => { root.compose-send(); }
-        later-options: root.compose-later-options;
-        send-later(i) => { root.compose-send-later(i); }
-        sender-chosen(i) => { root.compose-sender-chosen(i); }
-        attach => { root.compose-attach(); }
-        attach-image => { root.compose-attach-image(); }
-        remove-attachment(i) => { root.compose-remove-attachment(i); }
-        format(f) => { root.compose-format(f); }
-        suggestions: root.compose-suggestions;
-        recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
-        recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
-        dismissed => { root.compose-dismissed(); root.compose-open = false; }
-        confirm-close <=> root.compose-confirm-close;
-        discard => { root.compose-discard(); }
-        save-draft => { root.compose-save-draft(); }
-    }
 
-    // The messages minimised, as bars at the foot of the window, right to left.
-    for titre[i] in root.parked-drafts: ParkedDraft {
-        x: root.width - 12px - (i + 1) * 300px - i * 8px;
-        y: root.height - 40px - 12px;
-        text: titre;
-        opened => { root.parked-open(i, self.x); }
-    }
-
-    if root.source-open: SourcePanel {
-        width: 100%;
-        height: 100%;
-        subject: root.source-subject;
-        source: root.source-text;
-        unavailable: root.source-unavailable;
-        dismissed => { root.source-open = false; }
-    }
-
-    if root.alias-open: AliasPanel {
-        width: 100%;
-        height: 100%;
-        account: root.alias-account;
-        rows: root.alias-rows;
-        error: root.alias-error;
-        new-address <=> root.alias-new-address;
-        new-name <=> root.alias-new-name;
-        added => { root.alias-added(); }
-        removed(id) => { root.alias-removed(id); }
-        dismissed => {
-            root.alias-open = false;
-            shortcuts.focus();
+        if root.connect-open: ConnectCalendarsPanel {
+            width: 100%;
+            height: 100%;
+            server <=> root.connect-server;
+            user <=> root.connect-user;
+            password <=> root.connect-password;
+            busy: root.connect-busy;
+            error: root.connect-error;
+            connect => { root.connect-confirmed(); }
+            dismissed => {
+                root.connect-open = false;
+                root.connect-password = "";
+                shortcuts.focus();
+            }
         }
-    }
 
-    if root.signature-open: SignaturePanel {
-        width: 100%;
-        height: 100%;
-        account: root.signature-account;
-        signature <=> root.signature-text;
-        saved => { root.signature-saved(); root.signature-open = false; }
-        dismissed => { root.signature-open = false; }
-    }
-
-    if root.modules-open: ModulesPanel {
-        width: 100%;
-        height: 100%;
-        rules: root.rules;
-        plugins: root.plugins;
-        plugin-folder: root.plugin-folder;
-        simulation: root.simulation;
-        new-rule-name <=> root.new-rule-name;
-        new-rule-sender <=> root.new-rule-sender;
-        rule-toggled(id, on) => { root.rule-toggled(id, on); }
-        rule-simulated(id) => { root.rule-simulated(id); }
-        rule-removed(id) => { root.rule-removed(id); }
-        rule-added => { root.rule-added(); }
-        plugins-reloaded => { root.plugins-reloaded(); }
-        configure-plugin(id) => { root.plugin-settings-requested(id); }
-
-        // Les réglages du module, dans cette fenêtre-ci et non dans une seconde
-        // par-dessus. Le nom vide veut dire « la liste ».
-        settings-plugin: root.plugin-settings-open ? root.plugin-settings-name : "";
-        plugin-settings: root.plugin-settings;
-        settings-error: root.plugin-settings-error;
-        settings-changed(k, v) => { root.plugin-setting-changed(k, v); }
-        settings-closed => { root.plugin-settings-dismissed(); }
-
-        dismissed => {
-            root.plugin-settings-dismissed();
-            root.modules-open = false;
+        if root.problem-open: AccountProblemPanel {
+            width: 100%;
+            height: 100%;
+            account: root.problem-account;
+            message: root.problem-message;
+            advice: root.problem-advice;
+            needs-password: root.problem-needs-password;
+            sign-in: root.problem-sign-in;
+            busy: root.problem-busy;
+            result: root.problem-result;
+            password <=> root.problem-password;
+            retry => { root.problem-retry(); }
+            save-password => { root.problem-save-password(); }
+            sign-in-again => { root.problem-sign-in-again(); }
+            disable-account => { root.problem-disable(); }
+            dismissed => { root.problem-open = false; }
         }
-    }
 
-    if root.add-account-open: AccountSetupPanel {
-        width: 100%;
-        height: 100%;
-        editing: root.add-account-editing;
-        busy: root.add-account-busy;
-        manual: root.add-account-manual;
-        error: root.add-account-error;
-        hint: root.add-account-hint;
-        email <=> root.new-email;
-        password <=> root.new-password;
-        username <=> root.new-username;
-        imap-host <=> root.new-imap-host;
-        imap-port <=> root.new-imap-port;
-        smtp-host <=> root.new-smtp-host;
-        smtp-port <=> root.new-smtp-port;
-        imap-tls <=> root.new-imap-tls;
-        smtp-tls <=> root.new-smtp-tls;
-        discover => { root.add-account-discover(); }
-        save-manual => { root.add-account-save(); }
-        switch-to-manual => { root.add-account-manual-requested(); }
-        import-profile => { root.add-account-import(); }
-        profile-choices: root.profile-choices;
-        profile-choice: root.profile-choice;
-        profile-chosen(i) => { root.profile-chosen(i); }
-        // Google: no password, the browser signs in once the address is looked up.
-        google-ready: root.oauth-google-id != "";
-        google => {
-            root.new-password = "";
-            root.add-account-google = true;
-            root.add-account-discover();
+        if root.folder-menu-open: FolderContextMenu {
+            width: 100%;
+            height: 100%;
+            folder: root.folder-menu-path;
+            permanent: root.folder-menu-permanent;
+            emptyable: root.folder-menu-emptyable;
+            mark-read => { root.folder-mark-read-requested(); }
+            empty => { root.folder-empty-requested(); }
+            menu-x: root.folder-menu-x;
+            menu-y: root.folder-menu-y;
+            rename => { root.folder-rename-requested(); }
+            remove => { root.folder-delete-requested(); }
+            dismissed => { root.folder-menu-dismissed(); }
         }
-        dismissed => { root.add-account-dismissed(); }
-    }
 
-    // A page, as the Mac's: beside the place's side column, which stays (its foot,
-    // with Settings, too), over what the place shows.
-    if root.settings-open: SettingsPanel {
-        x: Layout.compact ? 0px : root.rail + root.cote;
-        y: 0px;
-        width: parent.width - self.x;
-        group <=> root.settings-group;
-        height: parent.height - root.pied;
-        appearance: root.appearance;
-        accent-index: root.accent-index;
-        accent-chosen(i) => { root.accent-chosen(i); }
-        add-account => {
-            root.settings-open = false;
-            root.add-account-open = true;
+        if root.empty-folder-open: EmptyFolderPanel {
+            width: 100%;
+            height: 100%;
+            folder: root.empty-folder-name;
+            scope: root.empty-folder-scope;
+            confirmed => {
+                root.empty-folder-open = false;
+                root.folder-empty-confirmed();
+            }
+            dismissed => { root.empty-folder-open = false; }
         }
-        first-name <=> root.first-name;
-        first-name-changed(t) => { root.first-name-changed(t); }
-        // One window for another: the modules replace the settings.
-        open-modules => {
-            root.settings-open = false;
-            root.modules-open = true;
-        }
-        density: root.density;
-        text-size: root.text-size;
-        reply-marks-waiting <=> root.reply-marks-waiting;
-        new-message-reopens <=> root.new-message-reopens;
-        follow-up-enabled <=> root.follow-up-enabled;
-        follow-up-days <=> root.follow-up-days;
-        notifications <=> root.notifications;
-        start-at-login <=> root.start-at-login;
-        handle-mailto <=> root.handle-mailto;
-        keep-running <=> root.keep-running;
-        home-at-startup <=> root.home-at-startup;
-        mac-buttons <=> root.window-mac-buttons;
-        undo-send-seconds <=> root.undo-send-seconds;
-        sending-changed => { root.sending-changed(); }
-        google-client-id <=> root.oauth-google-id;
-        google-client-secret <=> root.oauth-google-secret;
-        microsoft-client-id <=> root.oauth-microsoft-id;
-        oauth-changed => { root.oauth-changed(); }
-        system-note: root.system-note;
-        version: root.version;
-        update-status: root.update-check-status;
-        update-checking: root.update-checking;
-        update-version: root.update-version;
-        check-for-updates => { root.check-for-updates(); }
-        install-update => { root.settings-open = false; root.update-open = true; }
-        backup-status: root.backup-status;
-        restore-question: root.restore-question;
-        backup-now => { root.backup-now(); }
-        backup-open-folder => { root.backup-open-folder(); }
-        notes-folder: root.notes-folder;
-        notes-folder-open => { root.notes-folder-open(); }
-        notes-folder-change => { root.notes-folder-change(); }
-        notes-math-preview <=> root.notes-math-preview;
-        notes-math-preview-toggled(on) => { root.notes-math-preview-toggled(on); }
-        restore-choose => { root.restore-choose(); }
-        restore-confirmed => { root.restore-confirmed(); }
-        restore-cancelled => { root.restore-cancelled(); }
-        export-ics => { root.export-ics(); }
-        system-changed => { root.system-changed(); }
-        appearance-chosen(i) => { root.appearance-chosen(i); }
-        density-chosen(i) => { root.density-chosen(i); }
-        text-size-chosen(p) => { root.text-size-chosen(p); }
-        automation-changed => { root.automation-changed(); }
-        devices: root.devices;
-        join-code <=> root.join-code;
-        device-summary: root.device-summary;
-        device-question: root.device-question;
-        pair-device => {
-            root.pair-open = true;
-            root.pair-requested();
-        }
-        sync-device(id) => { root.sync-device(id); }
-        join-device(code) => { root.pair-join(code); }
-        device-answered(yes) => { root.device-answered(yes); }
-        dismissed => { root.settings-open = false; }
-    }
 
-    // A copy of Iris with no mailbox yet starts here (set by the app at launch).
-    if root.first-run: WelcomePage {
-        width: 100%;
-        height: 100%;
-        add-account => {
-            root.first-run = false;
-            root.add-account-open = true;
+        if root.rename-folder-open: RenameFolderPanel {
+            width: 100%;
+            height: 100%;
+            current: root.rename-folder-current;
+            error: root.rename-folder-error;
+            name <=> root.rename-folder-name;
+            rename => { root.folder-rename-confirmed(); }
+            dismissed => { root.folder-rename-dismissed(); }
         }
-        from-device => {
-            root.first-run = false;
-            root.settings-open = true;
-            root.settings-group = "Devices";
+
+        if root.new-folder-open: NewFolderPanel {
+            width: 100%;
+            height: 100%;
+            parent-path: root.new-folder-parent;
+            error: root.new-folder-error;
+            name <=> root.new-folder-name;
+            mailboxes: root.new-folder-mailboxes;
+            chosen: root.new-folder-chosen;
+            total: root.new-folder-total;
+            all-shown-checked: root.new-folder-all-shown-checked;
+            search <=> root.new-folder-search;
+            search-changed(t) => { root.new-folder-search-changed(t); }
+            mailbox-toggled(id) => { root.new-folder-mailbox-toggled(id); }
+            select-all-toggled => { root.new-folder-select-all-toggled(); }
+            create => { root.new-folder-create(); }
+            dismissed => { root.new-folder-dismissed(); }
         }
-        restore => {
-            root.first-run = false;
-            root.restore-choose();
+
+        if root.account-menu-open: AccountContextMenu {
+            width: 100%;
+            height: 100%;
+            account: root.account-menu-label;
+            pinned: root.account-menu-pinned;
+            enabled: root.account-menu-enabled;
+            menu-x: root.account-menu-x;
+            menu-y: root.account-menu-y;
+            sync-now => { root.account-menu-sync(); }
+            edit-account => { root.account-menu-edit(); }
+            change-password => { root.account-menu-password(); }
+            edit-signature => { root.account-menu-signature(); }
+            edit-aliases => { root.account-menu-aliases(); }
+            toggle-pinned => { root.account-menu-pin(); }
+            toggle-enabled => { root.account-menu-enable(); }
+            remove-account => { root.account-menu-remove(); }
+            dismissed => { root.account-menu-dismissed(); }
+            tags: root.account-menu-tags;
+            tags-open <=> root.account-tags-open;
+            tag-search <=> root.account-tag-search;
+            tag-toggled(id) => { root.account-tag-toggled(id); }
+            tag-search-changed(t) => { root.account-tag-search-changed(t); }
+            tag-created(t) => { root.account-tag-created(t); }
+            manage-tags => { root.tags-requested(); }
+            // The row under the pointer, if it is an account, opens its own menu.
+            reopen-at(px, py) => {
+                root.account-probe-x = px;
+                root.account-probe-y = py;
+                root.account-probe += 1;
+            }
         }
-        dismissed => {
-            root.first-run = false;
-            shortcuts.focus();
+
+        if root.tags-open: TagsPanel {
+            width: 100%;
+            height: 100%;
+            tags: root.account-tags;
+            palette: root.tag-palette;
+            error: root.tags-error;
+            new-name <=> root.tags-new-name;
+            created(t) => { root.tag-created(t); }
+            renamed(id, nom) => { root.tag-renamed(id, nom); }
+            color-chosen(id, i) => { root.tag-color-chosen(id, i); }
+            deleted(id) => { root.tag-deleted(id); }
+            moved(id, index) => { root.tag-moved(id, index); }
+            dismissed => { root.tags-open = false; }
         }
-    }
 
-    if root.pair-open: PairPanel {
-        width: 100%;
-        height: 100%;
-        code: root.pair-code;
-        where: root.pair-where;
-        digits: root.pair-digits;
-        peer: root.pair-peer;
-        summary: root.pair-summary;
-        error: root.pair-error;
-        copy-code => { root.pair-copy-code(); }
-        dismissed => {
-            root.pair-open = false;
-            root.pair-closed();
-            shortcuts.focus();
+        if root.context-menu-open: ThreadContextMenu {
+            width: 100%;
+            height: 100%;
+            menu-x: root.context-menu-x;
+            menu-y: root.context-menu-y;
+            unread: root.context-menu-unread;
+            starred: root.context-menu-starred;
+            // Chaque action porte sa cible. « Ouvrir » est la seule qui sélectionne, parce
+            // que c'est la seule qu'on lui demande de faire.
+            open-thread => {
+                root.context-menu-open = false;
+                root.thread-selected(root.context-menu-thread);
+            }
+            add-task => { root.thread-to-task(root.context-menu-thread); }
+            mark-done => { root.menu-done(root.context-menu-thread); }
+            archive => { root.menu-archive(root.context-menu-thread); }
+            snooze(quand) => { root.menu-snooze(root.context-menu-thread, quand); }
+            toggle-unread => { root.menu-toggle-unread(root.context-menu-thread); }
+            toggle-star => { root.menu-toggle-star(root.context-menu-thread); }
+            delete-thread => { root.menu-delete(root.context-menu-thread); }
+            view-source => { root.view-source(); }
+            copy-link => { root.thread-copy-link(root.context-menu-thread); }
+            dismissed => { root.context-menu-open = false; }
+            reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
         }
-    }
 
-    if root.palette-open: CommandPalette {
-        width: 100%;
-        height: 100%;
-        commands: root.commands;
-        highlighted: root.palette-highlighted;
-        query <=> root.palette-query;
-        query-changed(t) => { root.palette-query-changed(t); }
-        accepted(id) => {
-            root.palette-open = false;
-            root.command-invoked(id);
+        if root.link-menu-open: LinkMenu {
+            width: 100%;
+            height: 100%;
+            kind: root.link-menu-kind;
+            link-text: root.link-menu-text;
+            has-selection: root.link-menu-selection;
+            body: root.link-menu-message >= 0;
+            menu-x: root.link-menu-x;
+            menu-y: root.link-menu-y;
+            chosen(c) => {
+                if (root.link-menu-text-body && c == "copy-selection") {
+                    if (MessageText.all-selected >= 0) {
+                        root.copy-message-text(MessageText.all-selected);
+                    } else {
+                        // The words holding the selection copy it once they have let go
+                        // of the keyboard (conversation.slint).
+                        MessageText.copy-serial += 1;
+                        root.status = "Copied.";
+                    }
+                } else if (root.link-menu-text-body && c == "select-all") {
+                    MessageText.all-selected = root.link-menu-message;
+                } else {
+                    if (c == "select-all") {
+                        MessageText.all-selected = -1;
+                    }
+                    root.link-menu-chosen(c);
+                }
+            }
+            dismissed => {
+                root.link-menu-open = false;
+                shortcuts.focus();
+            }
         }
-        dismissed => { root.palette-open = false; }
-    }
 
-    if root.shortcuts-help-open: ShortcutsHelp {
-        width: 100%;
-        height: 100%;
-        dismissed => { root.shortcuts-help-open = false; }
-    }
+        // The reading toolbar's menus: until when to snooze, and the rarer actions. They
+        // act on the conversation being read.
+        if root.reader-menu != "": ReaderMenu {
+            width: 100%;
+            height: 100%;
+            kind: root.reader-menu;
+            unread: root.selected-unread;
+            menu-x: root.reader-menu-x;
+            menu-y: root.reader-menu-y;
+            snooze(quand) => { root.menu-snooze(root.selected-thread, quand); }
+            forward-thread => { root.forward-thread(); }
+            reply(tous) => { root.reply-requested(tous); }
+            toggle-unread => { root.thread-toggle-unread(); }
+            view-source => { root.view-source(); }
+            dismissed => { root.reader-menu = ""; }
+        }
 
-    if root.changelog-open: ChangelogPanel {
-        width: 100%;
-        height: 100%;
-        rows: root.changelog;
-        version: root.version;
-        dismissed => { root.changelog-open = false; }
-    }
+        if root.sort-menu-open: SortMenu {
+            width: 100%;
+            height: 100%;
+            current: root.list-sort;
+            menu-x: root.sort-menu-x;
+            menu-y: root.sort-menu-y;
+            chosen(i) => {
+                root.sort-menu-open = false;
+                root.sort-chosen(i);
+                shortcuts.focus();
+            }
+            dismissed => {
+                root.sort-menu-open = false;
+                shortcuts.focus();
+            }
+        }
 
-    if root.update-open: UpdatePanel {
-        width: 100%;
-        height: 100%;
-        current: root.version;
-        available: "Iris " + root.update-version;
-        notes: root.update-notes;
-        busy: root.update-busy;
-        progress: root.update-progress;
-        status: root.update-status;
-        error: root.update-error;
-        confirmed => { root.update-confirmed(); }
-        dismissed => { root.update-open = false; }
-    }
+        if root.scheduled-open: ScheduledPanel {
+            width: 100%;
+            height: 100%;
+            rows: root.scheduled-rows;
+            edit(id) => {
+                root.scheduled-open = false;
+                root.scheduled-edit(id);
+            }
+            send-now(id) => { root.scheduled-send-now(id); }
+            dismissed => {
+                root.scheduled-open = false;
+                shortcuts.focus();
+            }
+        }
 
-    // En dernier : une confirmation recouverte par ce qu'elle confirme ne confirme
-    // rien.
-    if root.send-notice-open: SendNotice {
-        width: 100%;
-        height: 100%;
-        message: root.send-notice-text;
-        seconds: root.send-notice-seconds;
-        undone => { root.send-undone(); }
-    }
+        if root.compose-open: ComposePanel {
+            width: 100%;
+            height: 100%;
+            senders: root.compose-senders;
+            sender-index: root.compose-sender-index;
+            attachments: root.compose-attachments;
+            error: root.compose-error;
+            minimised <=> root.compose-minimised;
+            parked-x: root.compose-parked-x;
+            park => {
+                root.compose-park();
+                shortcuts.focus();
+            }
+            show-cc <=> root.compose-show-cc;
+            to <=> root.compose-to;
+            cc <=> root.compose-cc;
+            bcc <=> root.compose-bcc;
+            subject <=> root.compose-subject;
+            body <=> root.compose-body;
+            replying: root.compose-replying;
+            reply-all: root.compose-reply-all;
+            can-reply-all: root.compose-can-reply-all;
+            history: root.compose-history;
+            reply-all-toggled(tous) => { root.compose-reply-all-toggled(tous); }
+            send => { root.compose-send(); }
+            later-options: root.compose-later-options;
+            send-later(i) => { root.compose-send-later(i); }
+            sender-chosen(i) => { root.compose-sender-chosen(i); }
+            attach => { root.compose-attach(); }
+            attach-image => { root.compose-attach-image(); }
+            remove-attachment(i) => { root.compose-remove-attachment(i); }
+            format(f) => { root.compose-format(f); }
+            suggestions: root.compose-suggestions;
+            recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
+            recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
+            dismissed => { root.compose-dismissed(); root.compose-open = false; }
+            confirm-close <=> root.compose-confirm-close;
+            discard => { root.compose-discard(); }
+            save-draft => { root.compose-save-draft(); }
+        }
 
-    if root.toast != "": Toast {
-        width: 100%;
-        height: 100%;
-        message: root.toast;
-        dismissed => { root.toast = ""; }
+        // The messages minimised, as bars at the foot of the window, right to left.
+        for titre[i] in root.parked-drafts: ParkedDraft {
+            x: root.width - 12px - (i + 1) * 300px - i * 8px;
+            y: root.height - 40px - 12px;
+            text: titre;
+            opened => { root.parked-open(i, self.x); }
+        }
+
+        if root.source-open: SourcePanel {
+            width: 100%;
+            height: 100%;
+            subject: root.source-subject;
+            source: root.source-text;
+            unavailable: root.source-unavailable;
+            dismissed => { root.source-open = false; }
+        }
+
+        if root.alias-open: AliasPanel {
+            width: 100%;
+            height: 100%;
+            account: root.alias-account;
+            rows: root.alias-rows;
+            error: root.alias-error;
+            new-address <=> root.alias-new-address;
+            new-name <=> root.alias-new-name;
+            added => { root.alias-added(); }
+            removed(id) => { root.alias-removed(id); }
+            dismissed => {
+                root.alias-open = false;
+                shortcuts.focus();
+            }
+        }
+
+        if root.signature-open: SignaturePanel {
+            width: 100%;
+            height: 100%;
+            account: root.signature-account;
+            signature <=> root.signature-text;
+            saved => { root.signature-saved(); root.signature-open = false; }
+            dismissed => { root.signature-open = false; }
+        }
+
+        if root.modules-open: ModulesPanel {
+            width: 100%;
+            height: 100%;
+            rules: root.rules;
+            plugins: root.plugins;
+            plugin-folder: root.plugin-folder;
+            simulation: root.simulation;
+            new-rule-name <=> root.new-rule-name;
+            new-rule-sender <=> root.new-rule-sender;
+            rule-toggled(id, on) => { root.rule-toggled(id, on); }
+            rule-simulated(id) => { root.rule-simulated(id); }
+            rule-removed(id) => { root.rule-removed(id); }
+            rule-added => { root.rule-added(); }
+            plugins-reloaded => { root.plugins-reloaded(); }
+            configure-plugin(id) => { root.plugin-settings-requested(id); }
+
+            // Les réglages du module, dans cette fenêtre-ci et non dans une seconde
+            // par-dessus. Le nom vide veut dire « la liste ».
+            settings-plugin: root.plugin-settings-open ? root.plugin-settings-name : "";
+            plugin-settings: root.plugin-settings;
+            settings-error: root.plugin-settings-error;
+            settings-changed(k, v) => { root.plugin-setting-changed(k, v); }
+            settings-closed => { root.plugin-settings-dismissed(); }
+
+            dismissed => {
+                root.plugin-settings-dismissed();
+                root.modules-open = false;
+            }
+        }
+
+        if root.add-account-open: AccountSetupPanel {
+            width: 100%;
+            height: 100%;
+            editing: root.add-account-editing;
+            busy: root.add-account-busy;
+            manual: root.add-account-manual;
+            error: root.add-account-error;
+            hint: root.add-account-hint;
+            email <=> root.new-email;
+            password <=> root.new-password;
+            username <=> root.new-username;
+            imap-host <=> root.new-imap-host;
+            imap-port <=> root.new-imap-port;
+            smtp-host <=> root.new-smtp-host;
+            smtp-port <=> root.new-smtp-port;
+            imap-tls <=> root.new-imap-tls;
+            smtp-tls <=> root.new-smtp-tls;
+            discover => { root.add-account-discover(); }
+            save-manual => { root.add-account-save(); }
+            switch-to-manual => { root.add-account-manual-requested(); }
+            import-profile => { root.add-account-import(); }
+            profile-choices: root.profile-choices;
+            profile-choice: root.profile-choice;
+            profile-chosen(i) => { root.profile-chosen(i); }
+            // Google: no password, the browser signs in once the address is looked up.
+            google-ready: root.oauth-google-id != "";
+            google => {
+                root.new-password = "";
+                root.add-account-google = true;
+                root.add-account-discover();
+            }
+            dismissed => { root.add-account-dismissed(); }
+        }
+
+        // A page, as the Mac's: beside the place's side column, which stays (its foot,
+        // with Settings, too), over what the place shows.
+        if root.settings-open: SettingsPanel {
+            x: Layout.compact ? 0px : root.rail + root.cote;
+            y: Layout.inset-top;
+            width: parent.width - self.x;
+            group <=> root.settings-group;
+            height: parent.height - root.pied - Layout.inset-top;
+            appearance: root.appearance;
+            accent-index: root.accent-index;
+            accent-chosen(i) => { root.accent-chosen(i); }
+            add-account => {
+                root.settings-open = false;
+                root.add-account-open = true;
+            }
+            first-name <=> root.first-name;
+            first-name-changed(t) => { root.first-name-changed(t); }
+            // One window for another: the modules replace the settings.
+            open-modules => {
+                root.settings-open = false;
+                root.modules-open = true;
+            }
+            density: root.density;
+            text-size: root.text-size;
+            reply-marks-waiting <=> root.reply-marks-waiting;
+            new-message-reopens <=> root.new-message-reopens;
+            follow-up-enabled <=> root.follow-up-enabled;
+            follow-up-days <=> root.follow-up-days;
+            notifications <=> root.notifications;
+            start-at-login <=> root.start-at-login;
+            handle-mailto <=> root.handle-mailto;
+            keep-running <=> root.keep-running;
+            home-at-startup <=> root.home-at-startup;
+            mac-buttons <=> root.window-mac-buttons;
+            undo-send-seconds <=> root.undo-send-seconds;
+            sending-changed => { root.sending-changed(); }
+            google-client-id <=> root.oauth-google-id;
+            google-client-secret <=> root.oauth-google-secret;
+            microsoft-client-id <=> root.oauth-microsoft-id;
+            oauth-changed => { root.oauth-changed(); }
+            system-note: root.system-note;
+            version: root.version;
+            update-status: root.update-check-status;
+            update-checking: root.update-checking;
+            update-version: root.update-version;
+            check-for-updates => { root.check-for-updates(); }
+            install-update => { root.settings-open = false; root.update-open = true; }
+            backup-status: root.backup-status;
+            restore-question: root.restore-question;
+            backup-now => { root.backup-now(); }
+            backup-open-folder => { root.backup-open-folder(); }
+            notes-folder: root.notes-folder;
+            notes-folder-open => { root.notes-folder-open(); }
+            notes-folder-change => { root.notes-folder-change(); }
+            notes-math-preview <=> root.notes-math-preview;
+            notes-math-preview-toggled(on) => { root.notes-math-preview-toggled(on); }
+            restore-choose => { root.restore-choose(); }
+            restore-confirmed => { root.restore-confirmed(); }
+            restore-cancelled => { root.restore-cancelled(); }
+            export-ics => { root.export-ics(); }
+            system-changed => { root.system-changed(); }
+            appearance-chosen(i) => { root.appearance-chosen(i); }
+            density-chosen(i) => { root.density-chosen(i); }
+            text-size-chosen(p) => { root.text-size-chosen(p); }
+            automation-changed => { root.automation-changed(); }
+            devices: root.devices;
+            join-code <=> root.join-code;
+            device-summary: root.device-summary;
+            device-question: root.device-question;
+            pair-device => {
+                root.pair-open = true;
+                root.pair-requested();
+            }
+            sync-device(id) => { root.sync-device(id); }
+            join-device(code) => { root.pair-join(code); }
+            device-answered(yes) => { root.device-answered(yes); }
+            dismissed => { root.settings-open = false; }
+        }
+
+        // A copy of Iris with no mailbox yet starts here (set by the app at launch).
+        if root.first-run: WelcomePage {
+            width: 100%;
+            height: 100%;
+            add-account => {
+                root.first-run = false;
+                root.add-account-open = true;
+            }
+            from-device => {
+                root.first-run = false;
+                root.settings-open = true;
+                root.settings-group = "Devices";
+            }
+            restore => {
+                root.first-run = false;
+                root.restore-choose();
+            }
+            dismissed => {
+                root.first-run = false;
+                shortcuts.focus();
+            }
+        }
+
+        if root.pair-open: PairPanel {
+            width: 100%;
+            height: 100%;
+            code: root.pair-code;
+            where: root.pair-where;
+            digits: root.pair-digits;
+            peer: root.pair-peer;
+            summary: root.pair-summary;
+            error: root.pair-error;
+            copy-code => { root.pair-copy-code(); }
+            dismissed => {
+                root.pair-open = false;
+                root.pair-closed();
+                shortcuts.focus();
+            }
+        }
+
+        if root.palette-open: CommandPalette {
+            width: 100%;
+            height: 100%;
+            commands: root.commands;
+            highlighted: root.palette-highlighted;
+            query <=> root.palette-query;
+            query-changed(t) => { root.palette-query-changed(t); }
+            accepted(id) => {
+                root.palette-open = false;
+                root.command-invoked(id);
+            }
+            dismissed => { root.palette-open = false; }
+        }
+
+        if root.shortcuts-help-open: ShortcutsHelp {
+            width: 100%;
+            height: 100%;
+            dismissed => { root.shortcuts-help-open = false; }
+        }
+
+        if root.changelog-open: ChangelogPanel {
+            width: 100%;
+            height: 100%;
+            rows: root.changelog;
+            version: root.version;
+            dismissed => { root.changelog-open = false; }
+        }
+
+        if root.update-open: UpdatePanel {
+            width: 100%;
+            height: 100%;
+            current: root.version;
+            available: "Iris " + root.update-version;
+            notes: root.update-notes;
+            busy: root.update-busy;
+            progress: root.update-progress;
+            status: root.update-status;
+            error: root.update-error;
+            confirmed => { root.update-confirmed(); }
+            dismissed => { root.update-open = false; }
+        }
+
+        // En dernier : une confirmation recouverte par ce qu'elle confirme ne confirme
+        // rien.
+        if root.send-notice-open: SendNotice {
+            width: 100%;
+            height: 100%;
+            message: root.send-notice-text;
+            seconds: root.send-notice-seconds;
+            undone => { root.send-undone(); }
+        }
+
+        if root.toast != "": Toast {
+            width: 100%;
+            height: 100%;
+            message: root.toast;
+            dismissed => { root.toast = ""; }
+        }
     }
 }

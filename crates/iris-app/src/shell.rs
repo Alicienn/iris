@@ -51,9 +51,13 @@ pub fn appliquer_toucher(fenetre: &AppWindow) {
     let plateforme = crate::platform::current();
     let toucher = plateforme.touch() || std::env::var("IRIS_TOUCH").is_ok_and(|v| v == "1");
     layout.set_touch_input(toucher);
+    // The window's own safe area, when the system reports one, is taken by the window
+    // itself (`take-safe-area`) and kept: nothing here sets it back to zero.
     let (haut, bas) = plateforme.insets();
-    layout.set_inset_top(haut);
-    layout.set_inset_bottom(bas);
+    if haut > 0.0 || bas > 0.0 {
+        layout.set_inset_top(haut);
+        layout.set_inset_bottom(bas);
+    }
 }
 
 /// Remplit la barre latérale.
