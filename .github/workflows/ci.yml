@@ -161,6 +161,15 @@ jobs:
           echo "IRIS_VERSION=$version" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
+      # Slint's Android backend compiles a little Java against android.jar: it wants
+      # a platform in the SDK, and finds the SDK by ANDROID_HOME.
+      - name: Android SDK platform
+        run: |
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          ls "$sdk/platforms"
+
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
 

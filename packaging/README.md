@@ -43,8 +43,10 @@ CI stays green, Windows ships, and the release goes out without an APK (the log 
 so). The APK is signed with the project's key when the `ANDROID_KEYSTORE_B64`,
 `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` secrets exist (see
 `android/README.md`); without them, with the runner's throwaway debug key, so each
-APK must replace the previous one by uninstalling it first. `latest.json` does not
-list the APK yet: Android copies do not check for updates on their own.
+APK must replace the previous one by uninstalling it first. When the APK is there,
+`latest.json` names it with its size and SHA-256 (`apk`, `apk_size`, `apk_sha256`),
+signed with the rest; Iris on Android checks the same manifest and, to update, opens
+the APK's download, which Android installs.
 
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
 (04:00 UTC) and by hand ("Run workflow"), and never hold a release back.

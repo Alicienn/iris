@@ -3491,6 +3491,19 @@ pub fn wire_updates(
             return;
         };
 
+        // On Android the system installs an APK: the browser downloads it, and
+        // opening the download asks Android to install it over this one.
+        let canal = crate::platform::current().update_channel();
+        if canal != crate::platform::UpdateChannel::Installer {
+            let lien = crate::update::apk_url(&dispo.version.to_string());
+            if let Err(e) = crate::platform::current().open_url(&lien) {
+                f.set_update_error(format!("The update failed: {e}").into());
+            } else {
+                f.set_update_status("Open the download to install the new version.".into());
+            }
+            return;
+        }
+
         f.set_update_busy(true);
         f.set_update_error(Default::default());
         f.set_update_progress(0.0);

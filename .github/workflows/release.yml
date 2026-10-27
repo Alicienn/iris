@@ -141,7 +141,15 @@ jobs:
           $exe = "packaging/output/iris-setup-$env:VERSION.exe"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item $exe).Length
-          $json = '{"version":"' + $env:VERSION + '","tag":"' + $env:TAG + '","installer":"iris-setup-' + $env:VERSION + '.exe","size":' + $size + ',"sha256":"' + $hash + '"}'
+          $json = '{"version":"' + $env:VERSION + '","tag":"' + $env:TAG + '","installer":"iris-setup-' + $env:VERSION + '.exe","size":' + $size + ',"sha256":"' + $hash + '"'
+          # The APK of the same version, when CI built one.
+          $apk = "apk-from-ci/iris-$env:VERSION.apk"
+          if (Test-Path $apk) {
+            $apkHash = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLower()
+            $apkSize = (Get-Item $apk).Length
+            $json += ',"apk":"iris-' + $env:VERSION + '.apk","apk_size":' + $apkSize + ',"apk_sha256":"' + $apkHash + '"'
+          }
+          $json += '}'
           [IO.File]::WriteAllText((Resolve-Path packaging/output).Path + "/latest.json", $json, [Text.UTF8Encoding]::new($false))
           $cle = Join-Path $env:RUNNER_TEMP "update-key.pem"
           [IO.File]::WriteAllText($cle, $env:UPDATE_SIGNING_KEY)

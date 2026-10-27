@@ -42,6 +42,13 @@ pub struct Manifest {
     pub installer: String,
     pub size: u64,
     pub sha256: String,
+    /// The Android APK of the same version, when the release has one.
+    #[serde(default)]
+    pub apk: Option<String>,
+    #[serde(default)]
+    pub apk_size: Option<u64>,
+    #[serde(default)]
+    pub apk_sha256: Option<String>,
 }
 
 /// Reads a manifest, once its signature is checked against `key`. A manifest that does
@@ -59,6 +66,9 @@ pub fn read_manifest(json: &[u8], signature: &[u8], key: &[u8]) -> Result<Manife
         || m.installer != format!("iris-setup-{version}.exe")
         || m.sha256.len() != 64
         || !m.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+        || m.apk
+            .as_ref()
+            .is_some_and(|a| *a != format!("iris-{version}.apk"))
     {
         return Err(Error::other("the update manifest does not hold together"));
     }
@@ -181,6 +191,11 @@ pub async fn check() -> Result<Option<Available>> {
         installer,
         notes,
     }))
+}
+
+/// Where a version's APK is downloaded: Android installs it, not Iris.
+pub fn apk_url(version: &str) -> String {
+    format!("https://github.com/{REPOSITORY}/releases/download/v{version}/iris-{version}.apk")
 }
 
 /// A file of the latest release, from the site; `None` when it has no such file.
@@ -414,6 +429,32 @@ mod tests {
         let json = manifeste("3.9.0").replace(DIGEST, "abcd");
         let (sig, cle) = signe(&json);
         assert!(read_manifest(json.as_bytes(), &sig, &cle).is_err());
+    }
+
+    #[test]
+    fn a_manifest_may_name_the_apk_of_its_version() {
+        let sans = manifeste("6.3.0");
+        let (sig, cle) = signe(&sans);
+        assert_eq!(
+            read_manifest(sans.as_bytes(), &sig, &cle).unwrap().apk,
+            None
+        );
+
+        let avec = sans.replace(
+            "}",
+            &format!(r#","apk":"iris-6.3.0.apk","apk_size":41000000,"apk_sha256":"{DIGEST}"}}"#),
+        );
+        let (sig, cle) = signe(&avec);
+        let m = read_manifest(avec.as_bytes(), &sig, &cle).unwrap();
+        assert_eq!(m.apk.as_deref(), Some("iris-6.3.0.apk"));
+        assert_eq!(
+            apk_url("6.3.0"),
+            format!("https://github.com/{REPOSITORY}/releases/download/v6.3.0/iris-6.3.0.apk")
+        );
+
+        let autre = avec.replace("iris-6.3.0.apk", "iris-1.0.0.apk");
+        let (sig, cle) = signe(&autre);
+        assert!(read_manifest(autre.as_bytes(), &sig, &cle).is_err());
     }
 
     #[test]
