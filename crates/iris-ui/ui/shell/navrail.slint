@@ -1,0 +1,113 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+import { Chrome } from "@iris/shell/chrome.slint";
+
+// The five places down the left of a window of medium width (an open foldable, a
+// tablet in portrait): too wide for a tab bar at the foot, too narrow for the side
+// column's switcher above the accounts.
+
+component RailPlace inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <int> place;
+    in property <bool> mark;
+    property <bool> on: Chrome.workspace == root.place;
+
+    width: 64px;
+    height: 56px;
+    border-radius: 12px;
+    background: root.on ? Tokens.accent-soft : transparent;
+
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-item-selected: root.on;
+    accessible-action-default => { Chrome.workspace-chosen(root.place); }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 3px;
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                data: root.icon;
+                size: 22px;
+                tint: root.on ? Tokens.accent : Tokens.text-muted;
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: 11.5px;
+            font-weight: root.on ? 600 : 400;
+            color: root.on ? Tokens.accent : Tokens.text-muted;
+            horizontal-alignment: center;
+        }
+    }
+    if root.mark: Rectangle {
+        x: parent.width / 2 + 7px;
+        y: 8px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: Tokens.accent;
+    }
+    TouchArea {
+        clicked => { Chrome.workspace-chosen(root.place); }
+    }
+}
+
+/// The places down the left, settings at the foot.
+export component NavRail inherits Rectangle {
+    width: 80px;
+    background: Tokens.surface-low;
+
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Tokens.border;
+    }
+    VerticalLayout {
+        padding-top: 12px + Layout.inset-top;
+        padding-bottom: 12px;
+        spacing: 6px;
+        alignment: start;
+        HorizontalLayout {
+            alignment: center;
+            RailPlace { icon: Icons.home; label: "Home"; place: 3; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            RailPlace { icon: Icons.envelope-closed; label: "Mail"; place: 0; mark: Chrome.mail-badge > 0; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            RailPlace { icon: Icons.calendar; label: "Calendar"; place: 1; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            RailPlace { icon: Icons.task; label: "Tasks"; place: 2; mark: Chrome.tasks-badge > 0; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            RailPlace { icon: Icons.notes; label: "Notes"; place: 4; }
+        }
+    }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 16px;
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        accessible-role: button;
+        accessible-label: "Settings";
+        accessible-action-default => { Chrome.settings(); }
+        Icon {
+            data: Icons.settings;
+            size: 22px;
+            tint: Tokens.text-muted;
+        }
+        TouchArea {
+            clicked => { Chrome.settings(); }
+        }
+    }
+}

@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 27;
+pub const CURRENT_VERSION: i64 = 28;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -153,7 +153,69 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "folders that keep Iris's queue keywords",
         sql: SCHEMA_V27,
     },
+    Migration {
+        version: 28,
+        name: "sync between devices",
+        // Built at run time from the synced tables: `schema_v28`.
+        sql: "",
+    },
 ];
+
+/// Sync between devices, its first half: what is static. The columns and triggers of
+/// each synced table come after it, from `sync::schema_for` (`schema_v28`).
+///
+/// - `sync_device`: this copy of Iris, one row, random.
+/// - `sync_tombstones`: what was deleted here, so the other device deletes it too.
+/// - `sync_peers`: the devices paired with this one, and how far each was merged.
+/// - `sync_settings`: the settings shared between devices, with the clock of their
+///   last change.
+const SCHEMA_V28: &str = "
+CREATE TABLE sync_device (id TEXT NOT NULL);
+INSERT INTO sync_device (id) VALUES (lower(hex(randomblob(8))));
+CREATE TABLE sync_tombstones (
+    tbl     TEXT NOT NULL,
+    sync_id TEXT NOT NULL,
+    sync_at TEXT NOT NULL,
+    PRIMARY KEY (tbl, sync_id)
+) WITHOUT ROWID;
+CREATE TABLE sync_peers (
+    device_id      TEXT PRIMARY KEY,
+    name           TEXT NOT NULL DEFAULT '',
+    last_seen_at   INTEGER NOT NULL DEFAULT 0,
+    last_clock     TEXT NOT NULL DEFAULT '',
+    notes_manifest TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE sync_settings (
+    key     TEXT PRIMARY KEY,
+    value   TEXT NOT NULL,
+    sync_at TEXT NOT NULL
+);
+";
+
+/// The seeded rows are the same on every device: they get the same `sync_id`, so that
+/// the first sync meets them instead of doubling them.
+const SEEDS_V28: &str = "
+UPDATE areas SET sync_id = 'seed-area-' || id WHERE id <= 6 AND name IN
+    ('Studies & career', 'Health', 'Relationships', 'Mind', 'Money', 'Fun');
+UPDATE task_lists SET sync_id = 'seed-task-list' WHERE id = 1 AND name = 'My tasks';
+UPDATE calendars SET sync_id = 'seed-calendar'
+    WHERE id = 1 AND name = 'Personal' AND account_id IS NULL;
+UPDATE vision SET sync_id = 'seed-vision' WHERE id = 1;
+";
+
+/// Migration 28 whole: the tables, each synced table's columns, the seeds, then the
+/// triggers (last, so that nothing in the migration fires them).
+fn schema_v28() -> String {
+    let mut sql = String::from(SCHEMA_V28);
+    for table in crate::sync::SYNCED {
+        sql.push_str(&crate::sync::columns_for(table));
+    }
+    sql.push_str(SEEDS_V28);
+    for table in crate::sync::SYNCED {
+        sql.push_str(&crate::sync::triggers_for(table));
+    }
+    sql
+}
 
 /// Whether a folder keeps keywords of the client's own (`\*` in its PERMANENTFLAGS):
 /// there, To do, Waiting and Done travel as `$IrisWaiting` and `$IrisDone`.
@@ -1021,9 +1083,16 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
     let pending: Vec<&Migration> = MIGRATIONS.iter().filter(|m| m.version > version).collect();
     for m in pending {
         tracing::info!(version = m.version, name = m.name, "migration");
+        let built;
+        let sql = if m.version == 28 {
+            built = schema_v28();
+            built.as_str()
+        } else {
+            m.sql
+        };
         conn.execute_batch(&format!(
             "BEGIN; {} PRAGMA user_version = {}; COMMIT;",
-            m.sql, m.version
+            sql, m.version
         ))
         .map_err(|e| Error::store(format!("migration {} « {} » : {e}", m.version, m.name)))?;
         version = m.version;
@@ -1037,7 +1106,104 @@ mod tests {
     use super::*;
 
     fn conn() -> Connection {
-        Connection::open_in_memory().unwrap()
+        let c = Connection::open_in_memory().unwrap();
+        let horloge = std::sync::Arc::new(crate::Clock::new("test".into()));
+        crate::register_clock(&c, &horloge).unwrap();
+        c
+    }
+
+    #[test]
+    fn every_synced_table_has_its_three_triggers() {
+        let c = conn();
+        migrate(&c).unwrap();
+        for t in crate::sync::SYNCED {
+            let n: i64 = c
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?1",
+                    [t.name],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 3, "{}", t.name);
+        }
+    }
+
+    #[test]
+    fn a_row_written_here_is_stamped_and_a_deleted_one_leaves_a_tombstone() {
+        let c = conn();
+        migrate(&c).unwrap();
+        c.execute(
+            "INSERT INTO task_lists (name, color, created_at) VALUES ('Courses', '#000', 0)",
+            [],
+        )
+        .unwrap();
+        let (id, sync_id, sync_at): (i64, Option<String>, String) = c
+            .query_row(
+                "SELECT id, sync_id, sync_at FROM task_lists WHERE name = 'Courses'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(sync_id.as_deref().map(str::len), Some(32));
+        assert!(crate::clock::parse(&sync_at).is_some(), "{sync_at}");
+
+        c.execute(
+            "UPDATE task_lists SET name = 'Shopping' WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+        let apres: String = c
+            .query_row("SELECT sync_at FROM task_lists WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(apres > sync_at);
+
+        c.execute("DELETE FROM task_lists WHERE id = ?1", [id])
+            .unwrap();
+        let tombe: String = c
+            .query_row(
+                "SELECT sync_id FROM sync_tombstones WHERE tbl = 'task_lists'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(Some(tombe), sync_id);
+    }
+
+    #[test]
+    fn a_table_without_rowid_is_stamped_by_its_key() {
+        let c = conn();
+        migrate(&c).unwrap();
+        c.execute_batch(
+            "INSERT INTO habits (title, color, created_at) VALUES ('Read', '#000', 0);
+             INSERT INTO habit_checks (habit_id, day) VALUES (1, '2026-10-27');",
+        )
+        .unwrap();
+        let a: String = c
+            .query_row("SELECT sync_at FROM habit_checks", [], |r| r.get(0))
+            .unwrap();
+        assert!(!a.is_empty());
+    }
+
+    #[test]
+    fn seeded_rows_share_their_ids_and_new_ones_do_not() {
+        let (a, b) = (conn(), conn());
+        migrate(&a).unwrap();
+        migrate(&b).unwrap();
+        let ids = |c: &Connection, sql: &str| -> Vec<String> {
+            let mut s = c.prepare(sql).unwrap();
+            s.query_map([], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let semees = "SELECT sync_id FROM areas UNION ALL SELECT sync_id FROM task_lists
+                      UNION ALL SELECT sync_id FROM calendars ORDER BY 1";
+        assert_eq!(ids(&a, semees), ids(&b, semees));
+        assert_eq!(ids(&a, semees).len(), 8);
+        let appareil = "SELECT id FROM sync_device";
+        assert_ne!(ids(&a, appareil), ids(&b, appareil));
     }
 
     #[test]
@@ -1098,7 +1264,7 @@ mod tests {
     fn the_backfill_marks_mail_that_arrived_before_the_feature() {
         // A flag only set on arrival leaves everything already downloaded looking
         // like ordinary mail for ever, which reads as "the spam filter is broken".
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = conn();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(SCHEMA_V2).unwrap();
 
@@ -1143,7 +1309,7 @@ mod tests {
         // Ce sont des actions que l'utilisateur a demandées et qui n'ont jamais eu
         // lieu. Corriger le code sans les réparer laisserait le courrier là où il
         // n'aurait jamais dû rester.
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = conn();
         for sql in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
             conn.execute_batch(sql).unwrap();
         }
@@ -1187,7 +1353,7 @@ mod tests {
     fn les_operations_saines_ne_sont_pas_touchees() {
         // Une ligne saine réveillée par une réparation serait une régression
         // introduite par la réparation elle-même.
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = conn();
         for sql in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
             conn.execute_batch(sql).unwrap();
         }
@@ -1229,7 +1395,7 @@ mod tests {
 
     #[test]
     fn un_fil_entierement_a_la_corbeille_quitte_la_file() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = conn();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(SCHEMA_V2).unwrap();
         conn.execute_batch(SCHEMA_V3).unwrap();
@@ -1277,7 +1443,7 @@ mod tests {
     fn un_fil_deja_classe_n_est_pas_deplace() {
         // Seule la file « à traiter » est concernée. Un fil rangé en attente par
         // l'utilisateur est une décision qui lui appartient.
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = conn();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(SCHEMA_V2).unwrap();
         conn.execute_batch(SCHEMA_V3).unwrap();
@@ -1307,7 +1473,7 @@ mod tests {
     fn the_backfill_leaves_other_flags_untouched() {
         // SQLite has no bitwise-or aggregate; rebuilding the union with arithmetic
         // would quietly corrupt every thread it touched.
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = conn();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(SCHEMA_V2).unwrap();
 

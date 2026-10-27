@@ -1,3 +1,4 @@
+import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton, HabitIcons } from "@iris/base/icons.slint";
 import { Hairline } from "@iris/base/atoms.slint";
@@ -7,7 +8,7 @@ import { Segmented } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ComboBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
-import { DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { DetailPanel, Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
 
 // Habits: a circle a day, filled when it was kept. A habit is only ever about today:
@@ -995,11 +996,21 @@ export component HabitsView inherits Rectangle {
     callback closed();
     callback goal-opened(int);
     callback amount-step(int);
+    /// Below 840 pixels, the tasks' column (where the habits were picked) as a page.
+    callback lists-requested();
 
     background: Tokens.surface;
 
     VerticalLayout {
         WindowToolbar {
+            if Layout.width-class != WidthClass.expanded: IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.list;
+                label: "Lists";
+                button-size: Layout.touch-input ? 44px : 30px;
+                icon-size: Layout.touch-input ? 22px : 18px;
+                clicked => { root.lists-requested(); }
+            }
             Text {
                 text: "Habits";
                 font-family: Tokens.font-display;
@@ -1066,6 +1077,7 @@ export component HabitDeletePanel inherits Rectangle {
     callback dismissed();
 
     Modal {
+        kind: ModalKind.question;
         width: 100%;
         height: 100%;
         title: "Delete this habit?";

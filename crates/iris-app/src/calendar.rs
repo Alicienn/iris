@@ -10,8 +10,8 @@ use iris_calendar::{layout, Event, Occurrence};
 use iris_store::{NewEvent, StoredCalendar, StoredEvent};
 use iris_types::{Error, Result, Timestamp};
 use iris_ui::{
-    AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData, TimedEventData,
-    WeekDayData,
+    AgendaRowData, AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData,
+    TimedEventData, WeekDayData,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -54,8 +54,9 @@ const REPETITIONS: [(&str, Option<&str>); 6] = [
 ];
 
 /// Ce que l'agenda montre en ce moment. Sur le fil de l'interface.
+#[derive(Default)]
 struct Etat {
-    /// 0 mois, 1 semaine, 2 jour.
+    /// 0 mois, 1 semaine, 2 jour, 3 trois jours, 4 l'agenda.
     mode: i32,
     /// Le jour autour duquel la période est construite.
     jour: NaiveDate,
@@ -247,9 +248,16 @@ fn periode(etat: &Etat) -> (NaiveDate, usize) {
             42,
         ),
         1 => (layout::week_start(etat.jour), 7),
+        // Three days from the one chosen: the week on a phone.
+        3 => (etat.jour, 3),
+        // The agenda: two weeks from the day chosen.
+        4 => (etat.jour, JOURS_D_AGENDA),
         _ => (etat.jour, 1),
     }
 }
+
+/// How far the agenda reaches.
+const JOURS_D_AGENDA: usize = 14;
 
 fn titre_periode(etat: &Etat) -> String {
     match etat.mode {
@@ -269,7 +277,92 @@ fn titre_periode(etat: &Etat) -> String {
                 )
             }
         }
+        3 => {
+            let fin = etat.jour + Duration::days(2);
+            if etat.jour.month() == fin.month() {
+                format!("{} – {}", etat.jour.format("%B %-d"), fin.format("%-d"))
+            } else {
+                format!("{} – {}", etat.jour.format("%b %-d"), fin.format("%b %-d"))
+            }
+        }
+        4 => etat.jour.format("%B %Y").to_string(),
         _ => etat.jour.format("%A, %B %-d, %Y").to_string(),
+    }
+}
+
+/// The agenda's lines: the events of the period in order, each day named on its
+/// first event ("Today · Monday 26 October").
+fn lignes_d_agenda(
+    etat: &Etat,
+    occ: &[Occurrence],
+    couleurs: &HashMap<i64, String>,
+    maintenant: iris_types::Timestamp,
+) -> Vec<AgendaRowData> {
+    let mut ordre: Vec<&Occurrence> = occ.iter().collect();
+    ordre.sort_by_key(|o| (o.start, !o.all_day));
+    let today = aujourd_hui();
+    let mut jour_precedent = None;
+    ordre
+        .into_iter()
+        .map(|o| {
+            let jour = jour_de(o);
+            let nom = (jour_precedent != Some(jour)).then(|| nom_du_jour(jour, today));
+            jour_precedent = Some(jour);
+            let p = puce(etat, o, couleurs);
+            AgendaRowData {
+                day: nom.unwrap_or_default().into(),
+                today: jour == today,
+                key: p.key,
+                title: p.title,
+                time: if o.all_day {
+                    "All day".into()
+                } else {
+                    heure(o.start).into()
+                },
+                length: if o.all_day {
+                    SharedString::default()
+                } else {
+                    duree_lisible((o.end - o.start) / 60_000).into()
+                },
+                color: p.color,
+                past: o.end <= maintenant.millis(),
+            }
+        })
+        .collect()
+}
+
+/// The day an occurrence falls on: a whole day by its date, an event by its local start.
+fn jour_de(o: &Occurrence) -> NaiveDate {
+    if o.all_day {
+        chrono::DateTime::from_timestamp_millis(o.start)
+            .map(|d| d.naive_utc().date())
+            .unwrap_or_else(aujourd_hui)
+    } else {
+        Local
+            .timestamp_millis_opt(o.start)
+            .single()
+            .map(|d| d.date_naive())
+            .unwrap_or_else(aujourd_hui)
+    }
+}
+
+/// "Today · Monday 26 October", "Tomorrow · Tuesday 27", "Thursday 29 October".
+fn nom_du_jour(jour: NaiveDate, today: NaiveDate) -> String {
+    let date = jour.format("%A %-d %B").to_string();
+    match (jour - today).num_days() {
+        0 => format!("Today · {date}"),
+        1 => format!("Tomorrow · {date}"),
+        _ => date,
+    }
+}
+
+/// "30 min", "1 h", "1 h 30".
+fn duree_lisible(minutes: i64) -> String {
+    let (h, m) = (minutes / 60, minutes % 60);
+    match (h, m) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m:02}"),
     }
 }
 
@@ -629,6 +722,10 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         0 => {
             let cases = cellules(etat, etat.jour, etat.jour, &occ, &couleurs, true);
             fenetre.set_calendar_month_cells(ModelRc::new(VecModel::from(cases)));
+        }
+        4 => {
+            let lignes = lignes_d_agenda(etat, &occ, &couleurs, maintenant);
+            fenetre.set_calendar_agenda(ModelRc::new(VecModel::from(lignes)));
         }
         _ => {
             let (debut, n) = periode(etat);
@@ -1867,7 +1964,8 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 let mut e = etat.borrow_mut();
                 e.jour = match e.mode {
                     0 => ajouter_mois(e.jour, n),
-                    1 => e.jour + Duration::days(7 * n as i64),
+                    1 | 4 => e.jour + Duration::days(7 * n as i64),
+                    3 => e.jour + Duration::days(3 * n as i64),
                     _ => e.jour + Duration::days(n as i64),
                 };
                 e.mini = premier_du_mois(e.jour);
@@ -1889,7 +1987,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
     {
         let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
         fenetre.on_calendar_mode_chosen(move |m| {
-            let m = m.clamp(0, 2);
+            let m = m.clamp(0, 4);
             etat.borrow_mut().mode = m;
             // Kept for next time: the calendar reopens the way it was left.
             crate::settings::update(|s| s.calendar_view = m);
@@ -2633,6 +2731,33 @@ mod tests {
         assert_eq!(lire_heure("9h"), h(9, 0));
         assert_eq!(lire_heure("14"), h(14, 0));
         assert_eq!(lire_heure("25:00"), None);
+    }
+
+    #[test]
+    fn the_agenda_names_its_days_and_lengths() {
+        let lundi = d("2026-10-26");
+        assert_eq!(nom_du_jour(lundi, lundi), "Today · Monday 26 October");
+        assert_eq!(
+            nom_du_jour(d("2026-10-27"), lundi),
+            "Tomorrow · Tuesday 27 October"
+        );
+        assert_eq!(nom_du_jour(d("2026-10-29"), lundi), "Thursday 29 October");
+        assert_eq!(duree_lisible(30), "30 min");
+        assert_eq!(duree_lisible(60), "1 h");
+        assert_eq!(duree_lisible(90), "1 h 30");
+    }
+
+    #[test]
+    fn three_days_and_the_agenda_are_periods_of_their_own() {
+        let mut etat = Etat {
+            jour: d("2026-10-30"),
+            mode: 3,
+            ..Default::default()
+        };
+        assert_eq!(periode(&etat), (d("2026-10-30"), 3));
+        assert_eq!(titre_periode(&etat), "Oct 30 – Nov 1");
+        etat.mode = 4;
+        assert_eq!(periode(&etat), (d("2026-10-30"), 14));
     }
 
     #[test]

@@ -33,6 +33,19 @@ manager. Lost, it can be replaced: new pair, new secret, new public key in
 `update.rs`. Copies installed before the change then refuse updates signed with the new
 key, and have to be updated once by hand from the release page.
 
+### The APK
+
+CI's `android` job builds Iris for Android: `cargo ndk` makes `libiris_android.so` for
+arm64 and x86_64, Gradle packages it (`android/`), and the job uploads
+`iris-X.Y.Z.apk` as the artifact `iris-apk`. Release downloads it and attaches it to the
+same release as the installer. The job runs with `continue-on-error`: when it fails,
+CI stays green, Windows ships, and the release goes out without an APK (the log says
+so). The APK is signed with the project's key when the `ANDROID_KEYSTORE_B64`,
+`ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` secrets exist (see
+`android/README.md`); without them, with the runner's throwaway debug key, so each
+APK must replace the previous one by uninstalling it first. `latest.json` does not
+list the APK yet: Android copies do not check for updates on their own.
+
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
 (04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
 

@@ -610,7 +610,7 @@ fn copier(fe: &mut Feuille, couper: bool) {
         })
         .collect();
     let texte = iris_sheets::csv::write(&lignes, '\t');
-    if let Ok(mut presse) = arboard::Clipboard::new() {
+    if let Ok(mut presse) = crate::presse::Clipboard::new() {
         let _ = presse.set_text(texte.clone());
     }
     fe.copie = Some((texte, fe.sheet, sel));
@@ -623,7 +623,7 @@ fn copier(fe: &mut Feuille, couper: bool) {
 /// Ctrl+V: what this spreadsheet copied (formulas moved), else text from elsewhere,
 /// split on tabs and lines.
 fn coller(f: &AppWindow, fe: &mut Feuille) {
-    let texte = arboard::Clipboard::new()
+    let texte = crate::presse::Clipboard::new()
         .ok()
         .and_then(|mut p| p.get_text().ok())
         .unwrap_or_default();
@@ -1082,7 +1082,7 @@ fn exporter(f: &AppWindow, fe: &mut Feuille, excel: bool) {
     } else {
         ("csv", "CSV")
     };
-    let Some(chemin) = rfd::FileDialog::new()
+    let Some(chemin) = crate::dialogue::FileDialog::new()
         .set_title(if excel {
             "Export as an Excel workbook"
         } else {

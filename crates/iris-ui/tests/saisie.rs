@@ -1634,6 +1634,39 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
     assert_eq!(*taches.borrow(), [9]);
 }
 
+fn appairer_ouvre_le_code_et_echap_le_ferme() {
+    let f = fenetre();
+    let demandes = Rc::new(RefCell::new(0));
+    let fermes = Rc::new(RefCell::new(0));
+    let touches = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let d = Rc::clone(&demandes);
+        f.on_pair_requested(move || *d.borrow_mut() += 1);
+        let c = Rc::clone(&fermes);
+        f.on_pair_closed(move || *c.borrow_mut() += 1);
+        let t = Rc::clone(&touches);
+        f.on_key_pressed(move |k| t.borrow_mut().push(k.to_string()));
+    }
+    f.set_settings_open(true);
+    clic(&bouton(&f, "Pair a device…"));
+    assert!(f.get_pair_open());
+    assert_eq!(*demandes.borrow(), 1, "the app is asked for a code");
+    assert!(f.get_modal_open());
+    taper(&f, "e");
+    assert!(touches.borrow().is_empty(), "the panel owns the keyboard");
+
+    f.set_pair_digits("482 913".into());
+    assert!(testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .find_all()
+        .into_iter()
+        .any(|e| e.accessible_label().as_deref() == Some("Check digits 482 913")));
+
+    echap(&f);
+    assert!(!f.get_pair_open());
+    assert_eq!(*fermes.borrow(), 1, "the code is closed with the panel");
+}
+
 fn retour_et_avant_aux_boutons_et_au_clavier() {
     let f = fenetre();
     let retours = Rc::new(RefCell::new(0));
@@ -2912,6 +2945,10 @@ fn main() {
         (
             "replier_les_comptes_garde_la_fenetre_entiere",
             replier_les_comptes_garde_la_fenetre_entiere,
+        ),
+        (
+            "appairer_ouvre_le_code_et_echap_le_ferme",
+            appairer_ouvre_le_code_et_echap_le_ferme,
         ),
         (
             "le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre",

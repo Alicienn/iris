@@ -61,6 +61,7 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
     let rust: String = [
         "crates/iris-app/src/shell.rs",
         "crates/iris-app/src/main.rs",
+        "crates/iris-app/src/gui.rs",
         "crates/iris-app/src/calendar.rs",
         "crates/iris-app/src/tasks.rs",
         "crates/iris-app/src/habits.rs",
@@ -70,6 +71,7 @@ fn aucun_rappel_de_la_fenetre_ne_reste_sans_gestionnaire() {
         "crates/iris-app/src/nav.rs",
         "crates/iris-app/src/backup.rs",
         "crates/iris-app/src/caldav.rs",
+        "crates/iris-app/src/devices.rs",
         "crates/iris-app/src/notes/mod.rs",
         "crates/iris-app/src/notes/saisie.rs",
     ]

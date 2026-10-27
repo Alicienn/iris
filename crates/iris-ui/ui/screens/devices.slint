@@ -1,0 +1,102 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Button, ButtonKind } from "@iris/controls/button.slint";
+import { Modal, ModalKind } from "@iris/layout/frames.slint";
+
+// Iris on the other devices of the same Wi-Fi: the pairing code, and what a sync did.
+
+/// Showing the code another device scans to pair with this one.
+///
+/// The code works once, for five minutes. Once the other device connects, both show
+/// the same six digits, to be compared by eye; then what the first sync brought.
+export component PairPanel inherits Rectangle {
+    /// The QR code of the invite, drawn by the app.
+    in property <image> code;
+    /// This computer's address on the network, under the code.
+    in property <string> where;
+    /// The six digits, once the other device has connected: "482 913".
+    in property <string> digits;
+    /// The other device, once connected.
+    in property <string> peer;
+    /// What the first sync did, once it is over.
+    in property <string> summary;
+    /// Why it failed, if it did.
+    in property <string> error;
+    /// For a device without a camera: the code as text, pasted there.
+    callback copy-code();
+    callback dismissed();
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Pair a device";
+        card-width: 420px;
+        card-height: 560px;
+        dismissed => { root.dismissed(); }
+        VerticalLayout {
+            spacing: 12px;
+            Text {
+                text: root.digits == ""
+                    ? "Open Iris on your phone or your other computer, go to Settings › Devices, and scan this code."
+                    : "Check that \{root.peer} shows the same digits.";
+                font-size: Tokens.size-body;
+                color: Tokens.text;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: center;
+                if root.digits == "": Rectangle {
+                    width: 240px;
+                    height: 240px;
+                    border-radius: 12px;
+                    background: #ffffff;
+                    Image {
+                        width: 220px;
+                        height: 220px;
+                        source: root.code;
+                        image-rendering: pixelated;
+                        accessible-role: image;
+                        accessible-label: "Pairing code";
+                    }
+                }
+                if root.digits != "": Text {
+                    text: root.digits;
+                    font-size: 40px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    accessible-label: "Check digits " + root.digits;
+                }
+            }
+            Text {
+                text: root.digits == ""
+                    ? "Both devices must be on the same Wi-Fi (\{root.where}). The code works once, for five minutes."
+                    : root.summary != "" ? root.summary : "Syncing…";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            if root.error != "": Text {
+                text: root.error;
+                font-size: Tokens.size-small;
+                color: Tokens.error;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            Rectangle {}
+            HorizontalLayout {
+                spacing: 8px;
+                if root.digits == "": Button {
+                    text: "Copy the code";
+                    kind: ButtonKind.ghost;
+                    clicked => { root.copy-code(); }
+                }
+                Rectangle {}
+                Button {
+                    text: root.summary != "" ? "Done" : "Cancel";
+                    kind: root.summary != "" ? ButtonKind.primary : ButtonKind.secondary;
+                    clicked => { root.dismissed(); }
+                }
+            }
+        }
+    }
+}

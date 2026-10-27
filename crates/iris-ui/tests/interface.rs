@@ -22,7 +22,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 fn fenetre() -> AppWindow {
-    AppWindow::new().expect("la fenêtre doit se construire")
+    let f = AppWindow::new().expect("la fenêtre doit se construire");
+    // The testing backend's window is 800 wide, which lays the window out in two
+    // columns, without the accounts beside the list: these scenarios are the
+    // desktop's.
+    f.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
+    f.show().expect("la fenêtre doit s'afficher");
+    f
 }
 
 fn ligne(id: i32, de: &str, sujet: &str, non_lu: bool) -> ThreadRowData {

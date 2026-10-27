@@ -788,3 +788,18 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S47.1** To do, Waiting and Done written as `$IrisWaiting` / `$IrisDone` on the
       thread's newest message where the folder keeps keywords, and read back from
       another computer's changes and from mail that arrives already marked (6.2.0).
+- [x] **S47.2** `Layout` (width classes, touch, insets, text scale), the touch scale,
+      modals as pages or sheets, popovers and menus as sheets, the tab bar and the rail,
+      `Place.page` and Android's Back, swipe and long press, `apercu_mobile` (6.3.0).
+- [x] **S47.3** Home, Mail, Calendar (Agenda, 3 days), Tasks, habits and Notes in one
+      column; the composer as a page; text size in Settings (6.3.0).
+- [x] **S47.4** `gui::run` shared by Windows and Android, the `Platform` trait,
+      `presse` and `dialogue`, `iris-android`, the Gradle project, the APK built by CI
+      and attached to each release (6.3.0, preview).
+- [ ] **S47.5** Android services: keystore, notifications and actions, background
+      mail, intents, document picker, widgets.
+- [x] **S47.6** Sync between devices, the model: the hybrid clock, migration 28 (ids,
+      clocks and tombstones kept by triggers), the change sets and the merge, shared
+      settings; `iris-peer` (the invite, the sealed session, the exchange) (6.3.0).
+- [x] **S47.7** Sync between devices, in use: discovery, pairing by QR code, Settings ›
+      Devices, notes (6.3.0).

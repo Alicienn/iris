@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Iris mark (docs/assets/logo.svg) without its plate: mail, calendar and tasks as
+     three arcs around the pupil. Scaled to the adaptive icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:pivotX="512"
+        android:pivotY="512"
+        android:scaleX="0.62"
+        android:scaleY="0.62">
+        <path
+            android:pathData="M351.3,320.5A250,250 0,0 1,672.7 320.5"
+            android:strokeColor="#1E82F4"
+            android:strokeWidth="112"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M758.2,468.6A250,250 0,0 1,597.5 746.9"
+            android:strokeColor="#F64238"
+            android:strokeWidth="112"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M426.5,746.9A250,250 0,0 1,265.8 468.6"
+            android:strokeColor="#FF9917"
+            android:strokeWidth="112"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M512,408a104,104 0,1 1,0 208a104,104 0,1 1,0 -208z"
+            android:fillColor="#111E36" />
+        <path
+            android:pathData="M544,456a22,22 0,1 1,0 44a22,22 0,1 1,0 -44z"
+            android:fillColor="#EBFFFFFF" />
+    </group>
+</vector>

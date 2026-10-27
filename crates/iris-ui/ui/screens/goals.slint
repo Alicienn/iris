@@ -6,7 +6,7 @@ import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slin
 import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
-import { Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 
 // Goals: something to reach by a day, and where it stands. Counted by hand or ticked
@@ -1176,6 +1176,7 @@ export component GoalDeletePanel inherits Rectangle {
     callback dismissed();
 
     Modal {
+        kind: ModalKind.question;
         width: 100%;
         height: 100%;
         title: "Delete this goal?";

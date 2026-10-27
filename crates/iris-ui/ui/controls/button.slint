@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 
 export { IconButton }
@@ -40,7 +41,7 @@ export component Button inherits Rectangle {
         : Tokens.text;
 
     // The Mac's push button: low, a small radius, a raised white key when secondary.
-    height: root.size == ButtonSize.sm ? 24px : 28px;
+    height: max(root.size == ButtonSize.sm ? 24px : 28px, Layout.touch-input ? 44px : 0px);
     width: rang.preferred-width + (root.size == ButtonSize.sm ? 20px : 24px);
     border-radius: Tokens.radius-small;
     border-width: 0px;
@@ -106,7 +107,7 @@ export component Link inherits Rectangle {
     callback clicked();
 
     width: rang.preferred-width + 12px;
-    height: 26px;
+    height: max(26px, Layout.touch-input ? 44px : 0px);
     border-radius: Tokens.radius-small;
     background: touch.has-hover ? Tokens.surface-hover : transparent;
     animate background { duration: Tokens.instant; }

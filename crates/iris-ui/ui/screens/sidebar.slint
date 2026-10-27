@@ -1,3 +1,4 @@
+import { Layout } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { AccountRowData, AccountTagData } from "@iris/types.slint";
@@ -234,7 +235,7 @@ component AccountRow inherits Rectangle {
         // Visible aussi pendant la confirmation : le bouton n'apparaît qu'au survol, et
         // sans cela la coche disparaîtrait avec le curseur — c'est-à-dire au moment
         // précis où l'on regarde ailleurs pour voir ce qui s'est passé.
-        if (touch.has-hover || root.just-synced)
+        if (touch.has-hover || Layout.touch-input || root.just-synced)
             && !root.compact && !root.account.needs-attention: IconButton {
             y: (parent.height - self.height) / 2;
             icon: root.just-synced ? Icons.check : Icons.refresh;

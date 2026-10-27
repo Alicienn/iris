@@ -1,3 +1,4 @@
+import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Hairline } from "@iris/base/atoms.slint";
@@ -5,7 +6,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Check } from "@iris/controls/choice.slint";
 import { Nav, SectionRow } from "@iris/lists/nav.slint";
-import { EmptyState, Modal } from "@iris/layout/frames.slint";
+import { EmptyState, Modal, ModalKind } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
@@ -1454,6 +1455,14 @@ export component NotesView inherits Rectangle {
     callback reading-toggled();
     /// Focus mode: the side column folded away, the note alone.
     in property <bool> focus-mode;
+    /// Below 840 pixels: the tree shown as a page, instead of the note.
+    in-out property <bool> tree-open: true;
+    // A note opened from the tree: on a phone it takes the page.
+    changed title => {
+        if (Layout.width-class != WidthClass.expanded) {
+            root.tree-open = false;
+        }
+    }
     callback focus-mode-toggled();
     /// The note has flashcards to revise.
     in property <bool> has-cards;
@@ -1484,7 +1493,13 @@ export component NotesView inherits Rectangle {
     background: Tokens.surface;
 
     HorizontalLayout {
+        // Below 840 pixels the tree is a page of its own, the one Notes opens on;
+        // a note opens over it, and its "Notes" button brings the tree back.
         if !root.focus-mode: SidebarFrame {
+            visible: Layout.width-class == WidthClass.expanded || root.tree-open;
+            sidebar-width: root.tree-open && Layout.width-class != WidthClass.expanded
+                ? Layout.window-width - (Layout.medium ? 80px : 0px)
+                : Layout.width-class == WidthClass.expanded ? 232px : 0px;
             // The space: its colour and name; a click lists the others.
             Rectangle {
                 height: 34px;
@@ -1654,8 +1669,18 @@ export component NotesView inherits Rectangle {
 
         VerticalLayout {
             horizontal-stretch: 1;
+            visible: !(root.tree-open && Layout.width-class != WidthClass.expanded);
+            max-width: root.tree-open && Layout.width-class != WidthClass.expanded ? 0px : 100000px;
 
             WindowToolbar {
+                if Layout.width-class != WidthClass.expanded: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.notes;
+                    label: "Notes";
+                    button-size: Layout.touch-input ? 44px : 30px;
+                    icon-size: Layout.touch-input ? 22px : 18px;
+                    clicked => { root.tree-open = true; }
+                }
                 Text {
                     text: root.path;
                     font-size: 12.5px;
@@ -2865,6 +2890,7 @@ export component NotesNamePanel inherits Rectangle {
     callback dismissed();
 
     Modal {
+        kind: ModalKind.question;
         width: 100%;
         height: 100%;
         title: root.title;

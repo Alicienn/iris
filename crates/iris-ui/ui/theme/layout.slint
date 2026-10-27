@@ -1,0 +1,33 @@
+// The window's shape and the way it is touched.
+//
+// Two independent things decide how a screen is laid out and sized. The width of the
+// window chooses the layout: one column on a phone or a narrow window, two side by side
+// on an open foldable, today's columns from 840 pixels. The input chooses the sizes: a
+// finger needs 48 pixels where a pointer is happy with 28. A PC window made narrow gets
+// the phone's layout at the desktop's sizes; a tablet in landscape gets the desktop's
+// layout at the touch sizes.
+//
+// `AppWindow` feeds the width and the height; the platform feeds the rest.
+
+export enum WidthClass { compact, medium, expanded }
+
+export global Layout {
+    in-out property <length> window-width: 1280px;
+    in-out property <length> window-height: 800px;
+    out property <WidthClass> width-class: window-width < 600px ? WidthClass.compact
+        : window-width < 840px ? WidthClass.medium : WidthClass.expanded;
+    /// One column: a phone, or a narrow window.
+    out property <bool> compact: width-class == WidthClass.compact;
+    /// Two columns side by side: an open foldable, a tablet in portrait.
+    out property <bool> medium: width-class == WidthClass.medium;
+    /// The main input is a finger.
+    in-out property <bool> touch-input: false;
+    /// What the system draws over the window: the status bar and a cut-out at the top,
+    /// the gesture bar at the bottom.
+    in-out property <length> inset-top: 0px;
+    in-out property <length> inset-bottom: 0px;
+    /// The user's text size, 0.85 to 1.30.
+    in-out property <float> text-scale: 1.0;
+    /// The least height a thing to press may have.
+    out property <length> target: touch-input ? 48px : 28px;
+}

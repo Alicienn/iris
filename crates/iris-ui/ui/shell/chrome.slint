@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 
 // The window's frame, in the manner of Apple's own apps: no title bar of its own.
@@ -414,8 +415,12 @@ export component SidebarHead inherits VerticalLayout {
 
     // The places: Home, Mail, Calendar, Tasks, Notes. Side by side, or one
     // under the other in a folded column.
+    // Not where the window has a tab bar (narrow) or a rail (medium) for them.
+    // Hidden rather than left out: under an `if`, the segments were laid out zero
+    // pixels wide.
     Rectangle {
-        height: root.compact ? root.places.length * 26px + 4px : 30px;
+        visible: Layout.width-class == WidthClass.expanded;
+        height: !self.visible ? 0px : root.compact ? root.places.length * 26px + 4px : 30px;
         border-radius: 8px;
         background: Tokens.well;
         if !root.compact: HorizontalLayout {
@@ -564,6 +569,6 @@ export component WindowToolbar inherits Rectangle {
             @children
         }
         if !Chrome.mac-buttons: Rectangle { width: 8px; }
-        WindowButtons {}
+        if !Layout.touch-input: WindowButtons {}
     }
 }

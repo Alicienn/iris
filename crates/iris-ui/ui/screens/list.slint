@@ -1,4 +1,6 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { SwipeRow } from "@iris/lists/swipe.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ThreadRowData } from "@iris/types.slint";
 import { ListView } from "std-widgets.slint";
@@ -42,7 +44,8 @@ component ThreadRow inherits Rectangle {
     /// Done, snooze or archive, from the buttons that show on hover.
     callback quick(string);
 
-    height: Tokens.row-height;
+    // A finger needs the taller row: three lines, as a phone shows them.
+    height: Layout.touch-input ? max(Tokens.row-height, 76px) : Tokens.row-height;
     /// Short rows (compact density): no initials, the tick box alone leads.
     property <bool> compact: root.height < 44px;
     /// Tall rows (comfortable): the excerpt gets a line of its own.
@@ -476,20 +479,36 @@ component ThreadEntry inherits Rectangle {
         color: Tokens.text-muted;
     }
 
-    row := ThreadRow {
+    // On touch, the row is pushed aside: right for Done, left for Snooze — the hover
+    // buttons' first two actions, which a finger cannot hover.
+    SwipeRow {
         y: root.head;
         width: root.width;
-        data: root.data;
-        selected: root.selected;
-        selection-mode: root.selection-mode;
-        targeted: root.targeted;
-        payload: root.payload;
-        clicked => { root.clicked(); }
-        mark-toggled => { root.mark-toggled(); }
-        mark-extended => { root.mark-extended(); }
-        drag-started => { root.drag-started(); }
-        context-menu(x, y) => { root.context-menu(x, y); }
-        quick(what) => { root.quick(what); }
+        height: row.height;
+        enabled: Layout.touch-input && !root.selection-mode;
+        start-label: "Done";
+        start-icon: Icons.check;
+        start-color: Tokens.success;
+        end-label: "Snooze";
+        end-icon: Icons.clock;
+        end-color: Tokens.warning;
+        swiped-start => { root.quick("done"); }
+        swiped-end => { root.quick("snooze"); }
+
+        row := ThreadRow {
+            width: root.width;
+            data: root.data;
+            selected: root.selected;
+            selection-mode: root.selection-mode;
+            targeted: root.targeted;
+            payload: root.payload;
+            clicked => { root.clicked(); }
+            mark-toggled => { root.mark-toggled(); }
+            mark-extended => { root.mark-extended(); }
+            drag-started => { root.drag-started(); }
+            context-menu(x, y) => { root.context-menu(x, y); }
+            quick(what) => { root.quick(what); }
+        }
     }
 }
 

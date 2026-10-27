@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 
 // The type scale, named.
 //
@@ -36,7 +37,13 @@ export enum Tone {
 }
 
 export global Type {
+    /// The size of a style, at the desktop's scale or the touch scale, times the user's
+    /// text size. The touch scale is larger in the small styles and smaller in the
+    /// display ones: a phone's screen is near the eye and narrow.
     public pure function size(s: TextStyle) -> length {
+        return (Layout.touch-input ? Type.touch-size(s) : Type.desktop-size(s)) * Layout.text-scale;
+    }
+    public pure function desktop-size(s: TextStyle) -> length {
         return s == TextStyle.display ? 56px
             : s == TextStyle.title ? 34px
             : s == TextStyle.heading ? 22px
@@ -44,6 +51,16 @@ export global Type {
             : s == TextStyle.section || s == TextStyle.body ? 13px
             : s == TextStyle.caption ? 12px
             : 11px;
+    }
+    public pure function touch-size(s: TextStyle) -> length {
+        return s == TextStyle.display ? 34px
+            : s == TextStyle.title ? 32px
+            : s == TextStyle.heading ? 22px
+            : s == TextStyle.body-large ? 16px
+            : s == TextStyle.body ? 15px
+            : s == TextStyle.section ? 14px
+            : s == TextStyle.caption ? 13px
+            : 11.5px;
     }
     public pure function weight(s: TextStyle) -> int {
         return s == TextStyle.display || s == TextStyle.title ? 300

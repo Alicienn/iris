@@ -9,7 +9,7 @@ import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ListView } from "std-widgets.slint";
 import { Nav, NavItem, SectionTitle } from "@iris/lists/nav.slint";
 import { Button, ButtonKind } from "@iris/controls/button.slint";
-import { Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 
 // Une ligne de l'arborescence.
 //
@@ -618,6 +618,7 @@ export component EmptyFolderPanel inherits Rectangle {
     callback dismissed();
 
     Modal {
+        kind: ModalKind.question;
         width: 100%;
         height: 100%;
         title: "Empty “" + root.folder + "”?";

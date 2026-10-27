@@ -1,10 +1,11 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Glass, Backdrop, Floating } from "@iris/base/glass.slint";
 import {
     ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
     AccountTagData, HomeItemData, FolderNodeData,
-    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData,
+    CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData, AgendaRowData, DeviceRowData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
@@ -23,6 +24,8 @@ import { Rail, PageHeader, Plate, DetailPanel, Toolbar, EmptyState, Modal, Modal
 import { Chrome, SidebarFrame, SidebarFoot, WindowToolbar } from "@iris/shell/chrome.slint";
 import { MailToolbar } from "@iris/screens/mail-toolbar.slint";
 import { Toast, SendNotice } from "@iris/shell/toast.slint";
+import { TabBar } from "@iris/shell/tabbar.slint";
+import { NavRail } from "@iris/shell/navrail.slint";
 import { HomeView } from "@iris/screens/home.slint";
 import { TagsPanel } from "@iris/screens/tags.slint";
 import { ThreadListView, ThreadContextMenu, SortMenu } from "@iris/screens/list.slint";
@@ -31,6 +34,7 @@ import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, Empty
     from "@iris/screens/folders.slint";
 import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
+import { PairPanel } from "@iris/screens/devices.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import { PluginSettingData } from "@iris/screens/plugins.slint";
@@ -62,6 +66,7 @@ import { ListView, Palette } from "std-widgets.slint";
 
 export { Tokens }
 export { SheetGrid }
+export { Layout, WidthClass }
 export { BlockPreview }
 export { NoteSelect }
 export { ComposeRecipients, QuotedMessageData, RecipientChipData, RecipientEditData }
@@ -386,9 +391,29 @@ export component AppWindow inherits Window {
     no-frame: true;
     preferred-width: 1280px;
     preferred-height: 800px;
-    min-width: 720px;
-    min-height: 480px;
+    // A phone, or a phone in landscape: the screens lay themselves out in one column
+    // below 600 pixels (`Layout`).
+    min-width: 320px;
+    min-height: 320px;
     background: Tokens.background;
+
+    // The window's size, for every screen that lays itself out by it (the first values
+    // are given in `init`, further down).
+    // A window not given a size yet (0 by 0) is not a phone: it keeps the desktop's.
+    changed width => {
+        if (self.width > 0) {
+            Layout.window-width = self.width;
+        }
+        // Wide again: the accounts column is back beside the list.
+        if (Layout.width-class == WidthClass.expanded) {
+            root.mailboxes-open = false;
+        }
+    }
+    changed height => {
+        if (self.height > 0) {
+            Layout.window-height = self.height;
+        }
+    }
 
     // La police de toute la fenêtre, en un seul endroit.
     //
@@ -892,6 +917,10 @@ export component AppWindow inherits Window {
     /// Which workspace fills the window: 0 mail, 1 calendar, 2 tasks.
     /// 0 mail, 1 calendar, 2 tasks, 3 Home.
     in-out property <int> workspace <=> Chrome.workspace;
+    /// What is open over the place in a narrow window, where each opening is a page of
+    /// its own: `thread:4`, `compose`, `task:9`, `settings`… Empty for the place
+    /// itself. A screen that opens one reports it with `navigated("page", …)`.
+    in-out property <string> page;
     callback workspace-changed(int);
 
     // --- Home ---
@@ -948,6 +977,8 @@ export component AppWindow inherits Window {
     in property <[MonthCellData]> calendar-month-cells;
     in property <[WeekDayData]> calendar-week-days;
     in property <[TimedEventData]> calendar-week-events;
+    /// The agenda (mode 4): the next two weeks, day by day.
+    in property <[AgendaRowData]> calendar-agenda;
     in property <float> calendar-now-fraction: -1;
     in property <int> calendar-now-day: -1;
     callback calendar-navigate(int);
@@ -1453,8 +1484,39 @@ export component AppWindow inherits Window {
     // the style's dark controls.
     init => {
         Palette.color-scheme = root.scheme-dark ? ColorScheme.dark : ColorScheme.light;
+        if (self.width > 0) {
+            Layout.window-width = self.width;
+        }
+        if (self.height > 0) {
+            Layout.window-height = self.height;
+        }
     }
     callback density-chosen(int);
+    /// The text size chosen in Settings, in percent.
+    callback text-size-chosen(int);
+
+    // Settings › Devices: the devices paired with this one, and pairing another.
+    in property <[DeviceRowData]> devices;
+    in property <string> device-summary;
+    in property <string> device-question;
+    callback sync-device(string);
+    callback device-answered(bool);
+    in-out property <bool> pair-open;
+    in property <image> pair-code;
+    in property <string> pair-where;
+    in property <string> pair-digits;
+    in property <string> pair-peer;
+    in property <string> pair-summary;
+    in property <string> pair-error;
+    /// The pairing panel opened: the app makes a code.
+    callback pair-requested();
+    /// Closed: the code no longer opens anything.
+    callback pair-closed();
+    callback pair-copy-code();
+    /// A code pasted from another device: join it.
+    callback pair-join(string);
+    in-out property <string> join-code;
+    in-out property <int> text-size: 100;
     callback automation-changed();
     callback system-changed();
     callback add-account-discover();
@@ -1537,7 +1599,8 @@ export component AppWindow inherits Window {
         || root.problem-open || root.source-open || root.signature-open || root.alias-open
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
-        || root.empty-folder-open
+        || root.empty-folder-open || root.mailboxes-open || root.tasks-column-open
+        || root.pair-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -1634,6 +1697,25 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.shortcuts-help-open) {
                 root.shortcuts-help-open = false;
+                return accept;
+            }
+            // The pairing panel sits over the settings: it closes first.
+            if (event.text == Key.Escape && root.pair-open) {
+                root.pair-open = false;
+                root.pair-closed();
+                return accept;
+            }
+            if (event.text == Key.Escape && root.mailboxes-open) {
+                root.mailboxes-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.tasks-column-open) {
+                root.tasks-column-open = false;
+                return accept;
+            }
+            // A conversation open as a page on a phone: Escape is Back.
+            if (event.text == Key.Escape && root.fil-en-page && !root.modal-open) {
+                root.page = "";
                 return accept;
             }
             // "c" writes a new message, the convention every mail client shares.
@@ -2043,6 +2125,23 @@ export component AppWindow inherits Window {
     property <int> chrome-drag <=> Chrome.drag-id;
     changed chrome-drag => { root.window-drag(Chrome.drag-dx, Chrome.drag-dy); }
 
+    /// A conversation is open as a page over the list (a phone).
+    property <bool> fil-en-page: Layout.compact && root.page == "thread";
+    /// Below 840 pixels, the accounts and folders opened from the list's title, as a
+    /// page the whole width. Choosing one closes it.
+    in-out property <bool> mailboxes-open;
+    /// Below 840 pixels, the tasks' column (the views, the habits, the goals, the
+    /// lists) open as a page from the list's "Lists" button.
+    in-out property <bool> tasks-column-open;
+    /// What the window keeps at its foot: the status bar, or in a narrow window the
+    /// five places above the system's gesture bar.
+    property <length> pied: Layout.compact ? 66px + Layout.inset-bottom : 30px;
+    /// What the rail of places takes at the left, at medium width.
+    property <length> rail: Layout.medium ? 80px : 0px;
+    /// The accounts column folded to a strip: 0 open, 1 folded, animated between.
+    property <float> pli: root.sidebar-collapsed ? 1 : 0;
+    animate pli { duration: Tokens.quick; easing: ease-in-out; }
+
     Backdrop {
         width: 100%;
         height: 100%;
@@ -2059,6 +2158,7 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
+            padding-left: root.rail;
             HorizontalLayout {
                 // The mail's columns, only while the mail is shown. The calendar, the
                 // tasks and Home are laid over them, and a part of those without a
@@ -2069,11 +2169,17 @@ export component AppWindow inherits Window {
                 visible: root.workspace == 0;
                 // Colonne 1 : les comptes, in the window's sidebar under the places.
                 SidebarFrame {
-                // Reading full screen: the accounts and the list step aside.
-                visible: !root.reading-focus;
-                sidebar-width: root.reading-focus ? 0px : root.sidebar-collapsed ? 64px : 232px;
+                // Reading full screen: the accounts and the list step aside. So they
+                // do below 840 pixels, where the title of the list opens them as a
+                // page of their own, the whole width.
+                visible: root.mailboxes-open
+                    || (!root.reading-focus && Layout.width-class == WidthClass.expanded);
+                // Only the folding is animated: a window that changes layout (or a
+                // window given its size at start) gets its columns at once.
+                sidebar-width: root.mailboxes-open ? Layout.window-width - root.rail
+                    : root.reading-focus || Layout.width-class != WidthClass.expanded ? 0px
+                    : 232px - 168px * root.pli;
                 compact: root.sidebar-collapsed;
-                animate sidebar-width { duration: Tokens.quick; easing: ease-in-out; }
                 Sidebar {
                     vertical-stretch: 1;
                     folder-open: root.selected-folder != "";
@@ -2090,11 +2196,13 @@ export component AppWindow inherits Window {
                     account-total: root.account-count;
                     collapsed <=> root.sidebar-collapsed;
                     account-selected(id) => {
+                        root.mailboxes-open = false;
                         root.account-selected(id);
                         root.navigated("account", "\{id}");
                         shortcuts.focus();
                     }
                     unified-selected => {
+                        root.mailboxes-open = false;
                         root.unified-selected();
                         root.navigated("unified", "");
                         shortcuts.focus();
@@ -2108,6 +2216,7 @@ export component AppWindow inherits Window {
                     grouped: root.group-by-tags;
                     selected-tag: root.selected-tag;
                     tag-selected(t) => {
+                        root.mailboxes-open = false;
                         root.tag-selected(t);
                         root.navigated("tag", "\{t}");
                         shortcuts.focus();
@@ -2140,11 +2249,13 @@ export component AppWindow inherits Window {
                         selected-path: root.selected-folder;
                         accounts-total: root.account-count;
                         folder-selected(p) => {
+                            root.mailboxes-open = false;
                             root.folder-selected(p);
                             root.navigated("folder", p);
                             shortcuts.focus();
                         }
                         all-selected => {
+                            root.mailboxes-open = false;
                             root.folder-cleared();
                             root.navigated("folder", "");
                         }
@@ -2167,8 +2278,22 @@ export component AppWindow inherits Window {
 
                 VerticalLayout {
                 horizontal-stretch: 1;
+                // The mailboxes open as a page: the list and the reader step aside.
+                visible: !root.mailboxes-open;
+                max-width: root.mailboxes-open ? 0px : 100000px;
                 mail-toolbar := MailToolbar {
                     lights: root.reading-focus;
+                    page: root.fil-en-page;
+                    title-opens: Layout.width-class != WidthClass.expanded;
+                    title-clicked => { root.mailboxes-open = true; }
+                    // Back pops the page from the history, which closes it.
+                    back => {
+                        root.nav-back();
+                        if (root.fil-en-page) {
+                            root.page = "";
+                        }
+                        shortcuts.focus();
+                    }
                     title: root.folder-name != "" ? root.folder-name : "All accounts";
                     subtitle: root.folder-name != "" ? ""
                         : (root.counts.length > 0 ? root.counts[0] : 0) + " to do";
@@ -2211,10 +2336,16 @@ export component AppWindow inherits Window {
                     search-cleared => { root.search-cleared(); }
                 }
                 HorizontalLayout {
-                // Colonne 2 : la file de travail.
+                // Colonne 2 : la file de travail. On a phone the whole width, until a
+                // conversation is opened over it; on a foldable a narrower column.
                 Rectangle {
-                    visible: !root.reading-focus;
-                    width: root.reading-focus ? 0px : 360px;
+                    visible: !root.reading-focus && !root.fil-en-page && !root.mailboxes-open;
+                    // Bounds rather than a width: a width taken from the parent would
+                    // loop through the layout.
+                    property <bool> cache: root.reading-focus || root.fil-en-page || root.mailboxes-open;
+                    min-width: self.cache || Layout.compact ? 0px : Layout.medium ? 300px : 360px;
+                    max-width: self.cache ? 0px : Layout.compact ? 100000px : Layout.medium ? 300px : 360px;
+                    horizontal-stretch: Layout.compact && !self.cache ? 1 : 0;
                     background: Tokens.surface;
 
                     liste := ThreadListView {
@@ -2292,7 +2423,15 @@ export component AppWindow inherits Window {
                         loading: root.loading;
                         // Picking a thread with the mouse hands the keyboard to the
                         // shortcuts, so « e » acts on it even after a search field had it.
-                        row-clicked(id) => { root.thread-selected(id); shortcuts.focus(); }
+                        row-clicked(id) => {
+                            root.thread-selected(id);
+                            // On a phone the conversation is a page over the list.
+                            if (Layout.compact) {
+                                root.page = "thread";
+                                root.navigated("page", "thread");
+                            }
+                            shortcuts.focus();
+                        }
                         tab-selected(i) => {
                             root.tab-selected(i);
                             root.navigated("tab", "\{i}");
@@ -2302,10 +2441,14 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { width: root.reading-focus ? 0px : 1px; background: Tokens.border; }
+                Rectangle { width: root.reading-focus || Layout.compact ? 0px : 1px; background: Tokens.border; }
 
-                // Colonne 3 : la conversation, on the plain surface the list has.
+                // Colonne 3 : la conversation, on the plain surface the list has. On a
+                // phone only as a page, opened from the list.
                 Rectangle {
+                visible: (!Layout.compact || root.fil-en-page) && !root.mailboxes-open;
+                max-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 100000px;
+                horizontal-stretch: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0 : 1;
                 background: Tokens.surface;
                 ConversationView {
                     width: 100%;
@@ -2408,7 +2551,8 @@ export component AppWindow inherits Window {
                 }
             }
 
-            StatusBar {
+            if Layout.compact: TabBar {}
+            if !Layout.compact: StatusBar {
                 side: root.cote;
                 status <=> root.status;
                 version: root.version;
@@ -2420,6 +2564,13 @@ export component AppWindow inherits Window {
                 open-update => { root.update-open = true; }
             }
         }
+
+        // The places down the left at medium width; the columns step aside for it.
+        if Layout.medium: NavRail {
+            x: 0px;
+            y: 0px;
+            height: parent.height - root.pied;
+        }
     }
 
     // The calendar covers everything between the title bar and the status bar. Over
@@ -2428,10 +2579,10 @@ export component AppWindow inherits Window {
     // Flush with the window, as the mail is: a pixel's inset, kept from the old
     // frame, showed as a pale line all round.
     if root.workspace == 1: CalendarView {
-        x: 0px;
+        x: root.rail;
         y: 0px;
-        width: parent.width;
-        height: parent.height - 30px;
+        width: parent.width - root.rail;
+        height: parent.height - root.pied;
         title: root.calendar-title;
         mode: root.calendar-mode;
         calendars: root.calendars;
@@ -2440,6 +2591,7 @@ export component AppWindow inherits Window {
         month-cells: root.calendar-month-cells;
         week-days: root.calendar-week-days;
         week-events: root.calendar-week-events;
+        agenda: root.calendar-agenda;
         now-fraction: root.calendar-now-fraction;
         now-day: root.calendar-now-day;
         navigate(n) => { root.calendar-navigate(n); }
@@ -2509,10 +2661,14 @@ export component AppWindow inherits Window {
     // The tasks, the goals among them. While the habits show, only the tasks'
     // column, the habits beside it.
     if root.workspace == 2: TasksView {
-        x: 0px;
+        x: root.rail;
         y: 0px;
-        width: root.tasks-habits ? 232px : parent.width;
-        height: parent.height - 30px;
+        width: root.tasks-habits
+            ? (Layout.width-class == WidthClass.expanded ? 232px
+                : root.tasks-column-open ? parent.width - root.rail : 0px)
+            : parent.width - root.rail;
+        column-open <=> root.tasks-column-open;
+        height: parent.height - root.pied;
         column-only: root.tasks-habits;
         habits-shown: root.tasks-habits;
         habits-count: root.habits-nav-count;
@@ -2590,6 +2746,8 @@ export component AppWindow inherits Window {
         // Picking a place or a task with the mouse hands the keyboard back to the
         // shortcuts: the arrows and the space bar then act on the column.
         place-chosen(k) => {
+            // On a phone the column was a page of its own: the place chosen replaces it.
+            self.column-open = false;
             // "habits": the habits beside the column; any other place, its tasks.
             root.tasks-habits = k == "habits";
             root.task-place-chosen(k);
@@ -2643,10 +2801,10 @@ export component AppWindow inherits Window {
 
     // Home, over everything like the other workspaces.
     if root.workspace == 4: NotesView {
-        x: 0px;
+        x: root.rail;
         y: 0px;
-        width: parent.width;
-        height: parent.height - 30px;
+        width: parent.width - root.rail;
+        height: parent.height - root.pied;
         spaces: root.notes-spaces;
         space: root.notes-space;
         tree: root.notes-tree;
@@ -2807,10 +2965,10 @@ export component AppWindow inherits Window {
     }
 
     if root.workspace == 3: HomeView {
-        x: 0px;
+        x: root.rail;
         y: 0px;
-        width: parent.width;
-        height: parent.height - 30px;
+        width: parent.width - root.rail;
+        height: parent.height - root.pied;
         greeting: root.home-greeting;
         date: root.home-date;
         summary: root.home-summary;
@@ -2853,10 +3011,12 @@ export component AppWindow inherits Window {
 
     // The habits, in Tasks: beside the tasks' column, drawn alone above.
     if root.workspace == 2 && root.tasks-habits: HabitsView {
-        x: 232px;
+        x: root.rail + (Layout.width-class == WidthClass.expanded ? 232px : 0px);
+        visible: !root.tasks-column-open;
         y: 0px;
         width: parent.width - self.x;
-        height: parent.height - 30px;
+        height: parent.height - root.pied;
+        lists-requested => { root.tasks-column-open = true; }
         mode: root.habits-mode;
         title: root.habits-title;
         dates: root.habits-dates;
@@ -3780,10 +3940,10 @@ export component AppWindow inherits Window {
     // A page, as the Mac's: beside the place's side column, which stays (its foot,
     // with Settings, too), over what the place shows.
     if root.settings-open: SettingsPanel {
-        x: root.cote;
+        x: Layout.compact ? 0px : root.rail + root.cote;
         y: 0px;
-        width: parent.width - root.cote;
-        height: parent.height - 30px;
+        width: parent.width - self.x;
+        height: parent.height - root.pied;
         appearance: root.appearance;
         accent-index: root.accent-index;
         accent-chosen(i) => { root.accent-chosen(i); }
@@ -3799,6 +3959,7 @@ export component AppWindow inherits Window {
             root.modules-open = true;
         }
         density: root.density;
+        text-size: root.text-size;
         reply-marks-waiting <=> root.reply-marks-waiting;
         new-message-reopens <=> root.new-message-reopens;
         follow-up-enabled <=> root.follow-up-enabled;
@@ -3838,8 +3999,37 @@ export component AppWindow inherits Window {
         system-changed => { root.system-changed(); }
         appearance-chosen(i) => { root.appearance-chosen(i); }
         density-chosen(i) => { root.density-chosen(i); }
+        text-size-chosen(p) => { root.text-size-chosen(p); }
         automation-changed => { root.automation-changed(); }
+        devices: root.devices;
+        join-code <=> root.join-code;
+        device-summary: root.device-summary;
+        device-question: root.device-question;
+        pair-device => {
+            root.pair-open = true;
+            root.pair-requested();
+        }
+        sync-device(id) => { root.sync-device(id); }
+        join-device(code) => { root.pair-join(code); }
+        device-answered(yes) => { root.device-answered(yes); }
         dismissed => { root.settings-open = false; }
+    }
+
+    if root.pair-open: PairPanel {
+        width: 100%;
+        height: 100%;
+        code: root.pair-code;
+        where: root.pair-where;
+        digits: root.pair-digits;
+        peer: root.pair-peer;
+        summary: root.pair-summary;
+        error: root.pair-error;
+        copy-code => { root.pair-copy-code(); }
+        dismissed => {
+            root.pair-open = false;
+            root.pair-closed();
+            shortcuts.focus();
+        }
     }
 
     if root.palette-open: CommandPalette {

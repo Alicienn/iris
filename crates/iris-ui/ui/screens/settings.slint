@@ -6,6 +6,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { ComboBox, SpinBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
+import { DeviceRowData } from "@iris/types.slint";
 
 // Les réglages, comme la Mac les range : une page, une colonne au milieu, des groupes
 // sur fond gris arrondi, et dans chacun une ligne par réglage — sa vignette de couleur,
@@ -168,6 +169,8 @@ export component SettingsPanel inherits Rectangle {
     /// The name Home greets.
     in-out property <string> first-name;
     in property <int> density;
+    /// The text size, in percent: 85 to 130.
+    in property <int> text-size: 100;
     in-out property <bool> reply-marks-waiting;
     in-out property <bool> new-message-reopens;
     in-out property <bool> follow-up-enabled;
@@ -213,6 +216,7 @@ export component SettingsPanel inherits Rectangle {
     callback accent-chosen(int);
     callback first-name-changed(string);
     callback density-chosen(int);
+    callback text-size-chosen(int);
     callback automation-changed();
     callback system-changed();
     callback sending-changed();
@@ -223,6 +227,17 @@ export component SettingsPanel inherits Rectangle {
     in-out property <string> microsoft-client-id;
     callback oauth-changed();
     callback open-modules();
+    /// The devices paired with this one.
+    in property <[DeviceRowData]> devices;
+    /// What the last sync did, under the devices.
+    in property <string> device-summary;
+    /// An account removed on another device: remove it here too?
+    in property <string> device-question;
+    callback pair-device();
+    callback sync-device(string);
+    callback join-device(string);
+    in-out property <string> join-code;
+    callback device-answered(bool);
     callback dismissed();
 
     /// The accents offered, as the Mac offers them, and their names.
@@ -346,6 +361,19 @@ export component SettingsPanel inherits Rectangle {
                             chosen(i) => { root.density-chosen(i); }
                         }
                     }
+                    // The text's size, over the theme's (and the touch scale on a phone).
+                    SettingRow {
+                        icon: Icons.text-colour;
+                        tint: Tokens.purple;
+                        label: "Text size";
+                        Segmented {
+                            y: (parent.height - self.height) / 2;
+                            options: ["Small", "Normal", "Large", "Larger"];
+                            selected: root.text-size <= 92 ? 0 : root.text-size <= 107 ? 1
+                                : root.text-size <= 122 ? 2 : 3;
+                            chosen(i) => { root.text-size-chosen(i == 0 ? 85 : i == 1 ? 100 : i == 2 ? 115 : 130); }
+                        }
+                    }
                     SettingRow {
                         icon: Icons.blocks;
                         tint: Tokens.grey;
@@ -419,6 +447,87 @@ export component SettingsPanel inherits Rectangle {
                             clicked => { root.open-modules(); }
                         }
                     }
+                }
+
+                GroupTitle { text: "Devices"; }
+                Group {
+                    for d[i] in root.devices: SettingRow {
+                        first: i == 0;
+                        icon: Icons.refresh;
+                        tint: Tokens.blue;
+                        label: d.name;
+                        hint: d.status;
+                        if d.here: Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Sync now";
+                            label: "Sync now with " + d.name;
+                            size: ButtonSize.sm;
+                            clicked => { root.sync-device(d.id); }
+                        }
+                    }
+                    SettingRow {
+                        first: root.devices.length == 0;
+                        icon: Icons.plus;
+                        tint: Tokens.green;
+                        label: "Pair a device";
+                        hint: "Your tasks, calendars, habits, accounts and settings, on Iris on your phone or another computer on the same Wi-Fi.";
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Pair a device…";
+                            size: ButtonSize.sm;
+                            clicked => { root.pair-device(); }
+                        }
+                    }
+                    SettingRow {
+                        icon: Icons.link;
+                        tint: Tokens.teal;
+                        label: "Join with a code";
+                        hint: "Paste the code copied on the other device.";
+                        HorizontalLayout {
+                            spacing: 6px;
+                            width: 220px;
+                            TextField {
+                                y: (parent.height - self.height) / 2;
+                                height: 26px;
+                                text <=> root.join-code;
+                                placeholder-text: "iris-pair:1?…";
+                                accessible-label: "Pairing code";
+                                accepted(t) => { root.join-device(t); }
+                            }
+                            Button {
+                                y: (parent.height - self.height) / 2;
+                                text: "Join";
+                                size: ButtonSize.sm;
+                                enabled: root.join-code != "";
+                                clicked => { root.join-device(root.join-code); }
+                            }
+                        }
+                    }
+                    if root.device-question != "": SettingRow {
+                        icon: Icons.envelope-closed;
+                        tint: Tokens.orange;
+                        label: root.device-question;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Button {
+                                y: (parent.height - self.height) / 2;
+                                text: "Keep it";
+                                size: ButtonSize.sm;
+                                clicked => { root.device-answered(false); }
+                            }
+                            Button {
+                                y: (parent.height - self.height) / 2;
+                                text: "Remove it here";
+                                kind: ButtonKind.primary;
+                                size: ButtonSize.sm;
+                                clicked => { root.device-answered(true); }
+                            }
+                        }
+                    }
+                }
+                if root.device-summary != "": GroupTitle {
+                    text: root.device-summary;
+                    note: true;
                 }
 
                 GroupTitle { text: "Automations"; }

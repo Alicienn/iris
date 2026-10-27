@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
@@ -628,8 +629,9 @@ export component ComposePanel inherits Rectangle {
     // where it was, then travelling.
     // Expanded, nearly the whole window: not full screen, the application still shows
     // round it.
-    property <length> grand-w: root.expanded ? root.width * 0.9 : min(720px, root.width - 80px);
-    property <length> grand-h: root.expanded ? root.height * 0.9 : min(600px, root.height - 80px);
+    // On a phone, the whole window: a page of its own over the place.
+    property <length> grand-w: Layout.compact ? root.width : root.expanded ? root.width * 0.9 : min(720px, root.width - 80px);
+    property <length> grand-h: Layout.compact ? root.height : root.expanded ? root.height * 0.9 : min(600px, root.height - 80px);
 
     // The veil fades out as the window shrinks: a minimised draft must not keep the
     // rest of the application behind glass.
@@ -661,6 +663,7 @@ export component ComposePanel inherits Rectangle {
     }
 
     frame := Floating {
+        radius: Layout.compact && !root.minimised ? 0px : Tokens.radius-large;
         // The morph. One element, four animated properties — nothing is created or
         // destroyed between the two states, so the text being typed survives.
         x: root.minimised
@@ -681,6 +684,9 @@ export component ComposePanel inherits Rectangle {
 
         VerticalLayout {
             padding: root.minimised ? Tokens.space-2 : Tokens.space-4;
+            // Clear of the status bar and the gesture bar on a phone.
+            padding-top: (root.minimised ? Tokens.space-2 : Tokens.space-4) + (Layout.compact && !root.minimised ? Layout.inset-top : 0px);
+            padding-bottom: (root.minimised ? Tokens.space-2 : Tokens.space-4) + (Layout.compact && !root.minimised ? Layout.inset-bottom : 0px);
             spacing: root.minimised ? 0px : Tokens.space-2;
             animate padding, spacing { duration: Tokens.moderate; }
 

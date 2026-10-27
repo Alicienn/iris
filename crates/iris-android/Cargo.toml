@@ -1,0 +1,25 @@
+[package]
+name = "iris-android"
+description = "Iris on Android: the activity's entry point and the platform's answers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The library Android loads (`libiris_android.so`), started by NativeActivity.
+[lib]
+crate-type = ["cdylib"]
+
+# Everything is Android's: built for a desktop, the crate is empty.
+[target.'cfg(target_os = "android")'.dependencies]
+iris-app = { path = "../iris-app" }
+iris-types = { workspace = true }
+iris-secrets = { workspace = true }
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "renderer-software", "std", "backend-android-activity-06"] }
+jni = "0.21"
+ndk-context = "0.1"
+android_logger = "0.14"
+tracing = { version = "0.1", features = ["log"] }
+log = "0.4"
+getrandom = "0.3"
+hex = "0.4"

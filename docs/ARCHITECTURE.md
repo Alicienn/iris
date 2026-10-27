@@ -190,15 +190,20 @@ contract of the one before it.
                  iris-vault (the notes' folders)
   Network        iris-sync · iris-imap · iris-smtp           tokio
                  iris-discover · iris-secrets · iris-oauth
-                 iris-caldav
+                 iris-caldav · iris-peer (device to device)
   Cross-cutting  iris-kernel · iris-types
                  iris-plugins (host) · iris-plugin-sdk (guest)
   Assembly       iris-app                                    binary, wiring
+                 iris-android (cdylib) + android/ (Gradle)  Android's entry point
 ```
 
 `iris-app` is the composition root: the `iris` binary, the shell that wires the window to
 the services, and the pieces that belong to no layer — updates, tray, single instance,
-calendar and tasks wiring. The three bundled modules (`iris-plugin-vip`,
+calendar and tasks wiring. The window itself starts in `gui::run` (6.3.0), which the
+Windows binary and `iris-android` both call; what differs per system answers through
+the `platform::Platform` trait (the desktop's code is its default; Android's is in
+`iris-android`), and the clipboard and file dialogs through `presse` and `dialogue`
+(`arboard` and `rfd` on a desktop, stand-ins on Android). The three bundled modules (`iris-plugin-vip`,
 `iris-plugin-office-hours`, `iris-plugin-filer`) are WebAssembly crates built on the SDK;
 see [PLUGINS.md](PLUGINS.md).
 
@@ -510,6 +515,35 @@ The three side columns share `lists/nav.slint`: one selection (the active surfac
 bold label, as on the web; the pill inside the edge went in 3.1.0), one hover, one
 section title in sentence case. Rows are 30 px everywhere. Panels docked to the
 window's edge are square, with a hairline between them; only floating cards are rounded.
+
+### One interface at every width (6.3.0)
+
+The same screens run on a PC and a phone (spec: `superpowers/specs/2026-10-26-iris-android-design.md`).
+`ui/theme/layout.slint` holds the global `Layout`: the window's size (fed by `AppWindow`
+on every change), its `width-class` — compact below 600 px, medium below 840, expanded
+from 840 — and, from the platform, `touch-input`, the safe-area insets and the user's
+`text-scale`. Width chooses the layout, input the sizes:
+
+- `Type.size` reads a desktop or a touch table, times the text scale; `appliquer_apparence`
+  scales the theme's three size tokens the same way (`shell::echelle_du_texte`). Buttons,
+  nav items, rows and menu entries are at least `Layout.target` (48 px on touch).
+- `Modal` has a `kind`: a `form` fills a compact window as a page, a `question` rises as
+  a sheet (handle, pulled down 80 px to close). `Popover` and `MenuSurface` become
+  sheets too, unless `anchored-in-compact` (the reader's ⋯ menu).
+- The places: `shell/tabbar.slint` at the foot in compact, `shell/navrail.slint` at the
+  left in medium; the side column's switcher only in expanded. `AppWindow.pied` and
+  `rail` give every place its room.
+- One column in compact: the mail's list fills the window and a conversation opens as
+  the page `thread` (`AppWindow.page`, `Place.page` in `nav.rs`, so Back pops it); the
+  list's title opens the accounts and folders as a page (`mailboxes-open`), *Lists*
+  the tasks' column (`tasks-column-open`), *Notes* the notes' tree (`tree-open`). The
+  calendar gains the Agenda (mode 4) and 3 days (mode 3) and opens on the Agenda.
+- Touch: `lists/swipe.slint` (`SwipeRow`, on Slint's `SwipeGestureHandler`: Done right,
+  Snooze left on a conversation), a 500 ms long press on `ListRow` and `NavItem` opens
+  their menu, and hover-only buttons show on touch.
+- `nav::system_back` is Android's Back: what is open closes first (by Escape), then the
+  history goes back. `examples/apercu_mobile.rs` captures every place at 412 × 892.
+- `tests/largeur.rs` drives the window at 390, 700 and 1280 pixels wide.
 
 ### Keyboard, focus and clicks
 
@@ -1358,8 +1392,48 @@ which keeps that term off any index, and a test pins the plan
 | 25 | `habits` (schedule, amount, goal, reminder) and `habit_checks` (a day kept, and how much) (5.0.0) |
 | 26 | `areas` (six to start), `area_id` on goals, habits and task lists, `area_scores` by month, `cycles` and `cycle_goals`, `vision` (5.0.0; unused since 6.0.0) |
 | 27 | `folders.accepts_keywords`: the folder's PERMANENTFLAGS hold `\*`, so the queue state travels there as `$IrisWaiting` / `$IrisDone` (6.2.0) |
+| 28 | Sync between devices: `sync_id` and `sync_at` on every table of `sync::SYNCED`, with three triggers each (stamp on insert and update, a tombstone on delete, none while a merge writes); `sync_device`, `sync_tombstones`, `sync_peers`, `sync_settings`; seeded rows get fixed ids (6.3.0) |
 
 A new table or column always arrives as a new migration.
+
+**Sync between devices: in use** (6.3.0, `iris-app/src/peers.rs`, `devices.rs`).
+Nothing listens until a device is paired or *Pair a device…* is opened: then `Peers`
+binds a TCP port (any free one) and `iris_peer::Discovery` announces the device id
+over mDNS (`_iris-sync._tcp`, on its own thread) and watches for the others; on Android
+the platform takes the Wi-Fi's multicast lock first. A pairing code (`Invite`) is
+good for one connection within five minutes; the device that comes in with it gets
+a long-term secret, kept on both sides in the vault as `device/<id>`, and every later
+exchange opens with that. A paired device seen on the network is synced with when
+its last sync is older than ten minutes, or at *Sync now*. Each exchange runs on the
+tokio runtime; the store's merge and the notes' files are blocking work done in it.
+Notes travel by space (the folders Iris made in the notes' root, matched by name):
+each side sends its manifest (path, size, time, BLAKE3), plans with
+`iris_peer::notes::plan_copies` against the manifest of the last sync with that
+device (`sync_peers.notes_manifest`), and fetches what is new or changed there,
+deletes (to the Recycle Bin) what was deleted there and not changed here, and keeps
+its own copy as a revision when both changed. Paths from the other side are checked
+to stay inside the space.
+
+**Sync between devices: the model** (6.3.0; spec
+`superpowers/specs/2026-10-26-iris-sync-design.md`). Each row of the tables in
+`iris-store/src/sync.rs` (`SYNCED`, parents first: task lists, tasks, goals, habits and
+their days, the compass, the local calendars and their events, event notes, colours and
+links, invitation answers, account tags, accounts, aliases, rules, lists left, mail sent
+later) carries a `sync_id`, the same on every device, and a `sync_at`, a hybrid logical
+clock (`clock.rs`: milliseconds, a counter, the device; fixed widths, so that string
+order is clock order). SQLite's triggers keep both through two functions the store
+registers on its connection, `iris_clock()` and `iris_merging()`; a delete writes a
+tombstone. `Store::changes_since(clock)` reads what changed after a clock — foreign keys
+as the parent's `sync_id`, no local id, nothing local (a task's mail thread, a server
+calendar's state) — and `apply_changes` merges another device's set in one transaction
+with the triggers silenced: the newer clock wins a row, a tombstone deletes only what
+was not changed after it, rows made on both sides before they met are matched by their
+natural key (an account by its address, a tag by its name) and keep the smaller id,
+and **an account is never removed by a merge**: its address is returned for the app to
+ask. Settings shared between devices (`settings::SHARED`: first name, density, accent…)
+go through `sync_settings`. `iris-peer` carries the sets between devices: the pairing
+invite of a QR code, a session sealed with XChaCha20-Poly1305 under a key derived from
+the invite's (BLAKE3), and the symmetric exchange of records, secrets and notes.
 
 **Backups of one's own data** (4.12.0, `iris-store/src/backup.rs`,
 `iris-app/src/backup.rs`). Mail comes back from its servers; calendars, events and
@@ -1472,6 +1546,8 @@ authentication failure.
   output.
 - Network traffic beyond the mail servers: the calendars the user subscribes to, and
   GitHub for the latest release, a request that carries nothing about mail or accounts.
+  Once a device is paired: an mDNS announce of a random device id on the local
+  network, and the exchanges with paired devices, sealed with a key only they hold.
 - No telemetry.
 
 ---

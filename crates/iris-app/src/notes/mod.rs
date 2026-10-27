@@ -8,7 +8,7 @@
 //! again when another program changes it.
 
 mod apercu;
-mod bin;
+pub(crate) mod bin;
 mod blocs;
 mod cellules;
 mod editeur;
@@ -178,7 +178,7 @@ fn stem(rel: &str) -> String {
 }
 
 /// Where the spaces are: the setting, else `<IRIS_ROOT>/notes`, else `%USERPROFILE%\Iris`.
-fn racine(services: &Services) -> PathBuf {
+pub(crate) fn racine(services: &Services) -> PathBuf {
     let reglage = crate::settings::current().notes_root;
     if !reglage.trim().is_empty() {
         return PathBuf::from(reglage);
@@ -1244,7 +1244,7 @@ fn regler_colonne(f: &AppWindow, e: &mut Etat, i: usize, col: usize, largeur: f3
 /// The words of block `i` between `anchor` and `cursor` made a web link, to the
 /// address copied when there is one (Ctrl+K, the bubble's button).
 fn touche_web(f: &AppWindow, e: &mut Etat, i: usize, texte: &str, cursor: usize, anchor: usize) {
-    let adresse = arboard::Clipboard::new()
+    let adresse = crate::presse::Clipboard::new()
         .ok()
         .and_then(|mut p| p.get_text().ok())
         .map(|t| t.trim().to_string())
@@ -1704,7 +1704,7 @@ fn montrer_apercu(f: &AppWindow, e: &Etat) {
 /// attachments, embedded on a line of its own. False when the clipboard holds none
 /// (the field pastes its text).
 fn coller_image(f: &AppWindow, e: &mut Etat, i: usize, cursor: usize) -> bool {
-    let Ok(mut presse) = arboard::Clipboard::new() else {
+    let Ok(mut presse) = crate::presse::Clipboard::new() else {
         return false;
     };
     let Ok(img) = presse.get_image() else {
@@ -1769,7 +1769,7 @@ fn coller_texte(f: &AppWindow, e: &mut Etat, i: usize, cursor: usize, anchor: us
     if matches!(kind, BlockKind::Code { .. } | BlockKind::Math) {
         return false;
     }
-    let Ok(mut presse) = arboard::Clipboard::new() else {
+    let Ok(mut presse) = crate::presse::Clipboard::new() else {
         return false;
     };
     let (debut, fin) = (
@@ -2136,7 +2136,7 @@ fn exporter(f: &AppWindow, e: &mut Etat, rel: &str, imprimer: bool) {
         let _ = std::fs::create_dir_all(&dossier);
         dossier.join(format!("{}.html", nom_sur(&titre)))
     } else {
-        let Some(c) = rfd::FileDialog::new()
+        let Some(c) = crate::dialogue::FileDialog::new()
             .set_title("Export as a web page")
             .set_file_name(format!("{}.html", nom_sur(&titre)))
             .add_filter("Web page", &["html"])
@@ -2517,7 +2517,7 @@ fn aller_ancre(f: &AppWindow, e: &mut Etat, ancre: &str) {
 /// `[[target|title]]` on the clipboard, to paste in a note.
 fn copier_lien(f: &AppWindow, cible: &str, titre: &str) {
     let lien = lien_ecrit(cible, titre);
-    match arboard::Clipboard::new().and_then(|mut c| c.set_text(lien)) {
+    match crate::presse::Clipboard::new().and_then(|mut c| c.set_text(lien)) {
         Ok(()) => f.set_toast("Link copied: paste it in a note.".into()),
         Err(err) => f.set_status(format!("Could not copy the link: {err}").into()),
     }
@@ -2974,7 +2974,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         }
     });
     geste!(on_notes_space_open_folder, |f, e| {
-        let Some(dossier) = rfd::FileDialog::new()
+        let Some(dossier) = crate::dialogue::FileDialog::new()
             .set_title("Open a folder as a space")
             .pick_folder()
         else {
@@ -3137,7 +3137,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                         .map(|p| p.display().to_string())
                         .unwrap_or_default(),
                 };
-                match arboard::Clipboard::new().and_then(|mut c| c.set_text(texte)) {
+                match crate::presse::Clipboard::new().and_then(|mut c| c.set_text(texte)) {
                     Ok(()) => f.set_toast("Copied.".into()),
                     Err(err) => f.set_status(format!("Could not copy: {err}").into()),
                 }
@@ -3312,7 +3312,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         }
     });
     geste!(on_notes_folder_change, |f, e| {
-        let Some(dossier) = rfd::FileDialog::new()
+        let Some(dossier) = crate::dialogue::FileDialog::new()
             .set_title("Where your notes' spaces go")
             .pick_folder()
         else {

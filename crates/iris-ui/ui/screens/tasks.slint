@@ -1,3 +1,4 @@
+import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
@@ -6,7 +7,7 @@ import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slin
 import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
 import { Nav, NavItem, SectionRow, SectionTitle } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
-import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalFooter } from "@iris/layout/frames.slint";
+import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { DateButton, DatePicker } from "@iris/screens/calendar-panels.slint";
 import { GoalRow, GoalPage, GoalsOverview, GoalNudges } from "@iris/screens/goals.slint";
@@ -624,7 +625,7 @@ component SubtaskRow inherits Rectangle {
                 background: Tokens.text-muted;
             }
         }
-        if touch.has-hover: IconButton {
+        if touch.has-hover || Layout.touch-input: IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.window-close;
             label: "Remove subtask " + root.step.title;
@@ -1317,6 +1318,8 @@ export component TasksView inherits Rectangle {
 
     /// Only the column: the habits are shown, drawn by the window beside it.
     in property <bool> column-only;
+    /// Below 840 pixels, the column shown as a page of its own.
+    in-out property <bool> column-open;
     /// The habits are the place chosen in the column, and how many of today's are
     /// done ("2 of 4").
     in property <bool> habits-shown;
@@ -1392,8 +1395,12 @@ export component TasksView inherits Rectangle {
 
     HorizontalLayout {
         // --- Left: the window's sidebar: the smart views as tiles, the habits, the
-        // goals, then the lists and the week ---
+        // goals, then the lists and the week. Below 840 pixels, a page of its own,
+        // opened from the list's "Lists" button. ---
         SidebarFrame {
+            visible: Layout.width-class == WidthClass.expanded || root.column-open;
+            sidebar-width: root.column-open ? Layout.window-width - (Layout.medium ? 80px : 0px)
+                : Layout.width-class == WidthClass.expanded ? 232px : 0px;
             // Today, Upcoming, All tasks, From mail: four tiles, two by two, as
             // Reminders has them.
             if root.places.length >= 4: VerticalLayout {
@@ -1525,7 +1532,7 @@ export component TasksView inherits Rectangle {
         // The toolbar runs over the page and the task's panel alike: the window's
         // buttons stay in its corner. While the habits show, the window draws them
         // beside the column instead.
-        if !root.column-only: VerticalLayout {
+        if !root.column-only && !root.column-open: VerticalLayout {
             horizontal-stretch: 1;
 
             // The window's toolbar: a new task. Over a goal's grey page, the page's
@@ -1533,6 +1540,15 @@ export component TasksView inherits Rectangle {
             WindowToolbar {
                 hairline: root.page == 0;
                 background: root.page == 0 ? Tokens.surface : Tokens.background;
+                // No column beside the list: its views and lists open as a page.
+                if Layout.width-class != WidthClass.expanded: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.list;
+                    label: "Lists";
+                    button-size: Layout.touch-input ? 44px : 30px;
+                    icon-size: Layout.touch-input ? 22px : 18px;
+                    clicked => { root.column-open = true; }
+                }
                 Rectangle { horizontal-stretch: 1; }
                 IconButton {
                     y: (parent.height - self.height) / 2;
@@ -2158,6 +2174,7 @@ export component TaskListDeletePanel inherits Rectangle {
     callback dismissed();
 
     Modal {
+        kind: ModalKind.question;
         width: 100%;
         height: 100%;
         title: "Delete this list?";

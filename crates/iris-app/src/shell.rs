@@ -29,6 +29,7 @@ pub fn build(services: &Services) -> iris_types::Result<AppWindow> {
         .map_err(|e| iris_types::Error::other(format!("création de la fenêtre : {e}")))?;
 
     bridge::apply_theme(&fenetre.global::<Tokens>(), &services.themes.active());
+    appliquer_toucher(&fenetre);
     // Avant le premier instantané, la liste est vide parce qu'elle n'est pas encore
     // lue — pas parce qu'il n'y a rien. Annoncer « Rien à traiter » à ce moment-là
     // serait un mensonge d'un dixième de seconde, mais un mensonge quand même.
@@ -40,6 +41,19 @@ pub fn build(services: &Services) -> iris_types::Result<AppWindow> {
     refresh_accounts(&fenetre, services, &[]);
 
     Ok(fenetre)
+}
+
+/// Tells the interface how it is touched and what the system draws over it: a finger
+/// or a pointer, the status bar's and the gesture bar's heights. The platform knows;
+/// on a PC, `IRIS_TOUCH=1` gives the touch sizes, to see them without a phone.
+pub fn appliquer_toucher(fenetre: &AppWindow) {
+    let layout = fenetre.global::<iris_ui::Layout>();
+    let plateforme = crate::platform::current();
+    let toucher = plateforme.touch() || std::env::var("IRIS_TOUCH").is_ok_and(|v| v == "1");
+    layout.set_touch_input(toucher);
+    let (haut, bas) = plateforme.insets();
+    layout.set_inset_top(haut);
+    layout.set_inset_bottom(bas);
 }
 
 /// Remplit la barre latérale.
@@ -2973,6 +2987,16 @@ pub fn wire_settings(
 ) {
     let courant = Arc::new(std::sync::Mutex::new(reglages));
     crate::settings::share(Arc::clone(&courant), chemin.clone());
+    // A shared setting changed here travels to the paired devices with the next
+    // exchange.
+    {
+        let store = Arc::clone(&services.store);
+        crate::settings::on_shared_change(move |cle, valeur| {
+            if let Err(e) = store.set_shared_setting(cle, valeur) {
+                tracing::warn!(error = %e, key = cle, "a shared setting");
+            }
+        });
+    }
 
     // L'état initial du panneau.
     {
@@ -2980,6 +3004,7 @@ pub fn wire_settings(
         fenetre.set_appearance(reglages.appearance.index() as i32);
         fenetre.set_first_name(reglages.first_name.as_str().into());
         fenetre.set_density(reglages.density.index() as i32);
+        fenetre.set_text_size(reglages.text_size as i32);
         fenetre.set_reply_marks_waiting(reglages.automation.reply_marks_waiting);
         fenetre.set_new_message_reopens(reglages.automation.new_message_reopens);
         fenetre.set_follow_up_enabled(reglages.automation.follow_up_enabled);
@@ -3010,6 +3035,7 @@ pub fn wire_settings(
             if let Err(e) = reglages.save(&chemin) {
                 tracing::warn!(error = %e, "saving the settings");
             }
+            crate::settings::saved(reglages);
         }
     };
 
@@ -3152,6 +3178,30 @@ pub fn wire_settings(
             appliquer_apparence(&fenetre, &theme, densite);
             appliquer_accent(&fenetre, reglages.accent, theme.dark);
             fenetre.set_density(index);
+            enregistrer(&reglages);
+        });
+    }
+
+    // --- The text size ---
+    {
+        let themes = Arc::clone(&services.themes);
+        let courant = Arc::clone(&courant);
+        let enregistrer = enregistrer.clone();
+        let faible = fenetre.as_weak();
+
+        fenetre.on_text_size_chosen(move |pourcent| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.text_size = (pourcent.max(0) as u32).clamp(85, 130);
+            fenetre
+                .global::<iris_ui::Layout>()
+                .set_text_scale(reglages.text_scale());
+            fenetre.set_text_size(reglages.text_size as i32);
+            let theme = themes.active();
+            appliquer_apparence(&fenetre, &theme, reglages.density);
+            appliquer_accent(&fenetre, reglages.accent, theme.dark);
             enregistrer(&reglages);
         });
     }
@@ -3505,7 +3555,24 @@ pub fn appliquer_apparence(fenetre: &AppWindow, theme: &iris_theme::Theme, densi
     // La densité multiplie la hauteur du thème au lieu de la remplacer : un thème
     // aux lignes hautes reste plus aéré que les autres à densité égale.
     tokens.set_row_height(theme.density.row_height * densite.factor());
+    // The touch scale and the user's text size, over the theme's sizes: what `Type`
+    // does for the named styles, done here for the three tokens screens use directly.
+    let layout = fenetre.global::<iris_ui::Layout>();
+    let k = echelle_du_texte(layout.get_touch_input(), layout.get_text_scale());
+    tokens.set_size_small(theme.typography.size_small * k);
+    tokens.set_size_body(theme.typography.size_body * k);
+    tokens.set_size_title(theme.typography.size_title * k);
 }
+
+/// How much bigger the theme's text sizes are drawn: 15 / 13.5 on touch (a phone's
+/// body text is 15 points), times the user's text size.
+pub fn echelle_du_texte(touch: bool, text_scale: f32) -> f32 {
+    let toucher = if touch { 15.0 / 13.5 } else { 1.0 };
+    toucher * text_scale.clamp(TEXT_SCALE.0, TEXT_SCALE.1)
+}
+
+/// The text sizes offered: 85 % to 130 %.
+pub const TEXT_SCALE: (f32, f32) = (0.85, 1.30);
 
 /// A colour as three channels.
 pub type Rgb = (u8, u8, u8);
@@ -3618,7 +3685,7 @@ pub fn wire_account_setup(
             let Some(fenetre) = faible.upgrade() else {
                 return;
             };
-            let Some(chemin) = rfd::FileDialog::new()
+            let Some(chemin) = crate::dialogue::FileDialog::new()
                 .set_title("Import a configuration profile")
                 .add_filter("Configuration profile", &["mobileconfig", "plist", "xml"])
                 .pick_file()
@@ -7385,7 +7452,7 @@ fn attach_files(
     pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
     images_only: bool,
 ) {
-    let mut dialogue = rfd::FileDialog::new();
+    let mut dialogue = crate::dialogue::FileDialog::new();
     if images_only {
         dialogue = dialogue.add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
     }

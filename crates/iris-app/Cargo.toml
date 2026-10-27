@@ -31,6 +31,8 @@ iris-smtp = { workspace = true }
 iris-sync = { workspace = true }
 iris-theme = { workspace = true }
 iris-secrets = { workspace = true }
+iris-peer = { workspace = true }
+qrcode = { version = "0.14", default-features = false }
 iris-oauth = { workspace = true }
 iris-discover = { workspace = true }
 iris-htmlview = { workspace = true, default-features = false }
@@ -44,8 +46,6 @@ iris-notes = { path = "../iris-notes" }
 iris-vault = { path = "../iris-vault" }
 iris-math = { path = "../iris-math" }
 iris-sheets = { path = "../iris-sheets" }
-# An image pasted into a note: read from the clipboard, written as PNG beside it.
-arboard = { version = "3", default-features = false, features = ["image-data"] }
 # The notes' editor lays its text out as Slint does (the same version, already in the
 # tree through Slint), to know where every character is.
 parley = "0.11"
@@ -54,16 +54,12 @@ iris-caldav = { workspace = true }
 # L'heure locale de l'agenda, et le nom de son fuseau pour les récurrences.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 iana-time-zone = "0.1"
-slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std", "unstable-winit-030"] }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
 async-trait = "0.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 directories = "6"
-# Native file pickers. `xdg-portal` off: the Windows build has no use for it and
-# it drags in a GTK stack that has no business in this binary.
-rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 rpassword = "7"
 tracing = "0.1"
 # La capture de pile de la décomposition mémoire. C'est la caisse dont la
@@ -75,6 +71,21 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
 ring = "0.17"
 hex = "0.4"
+
+# A desktop: Slint over winit (the software renderer, femtovg for comparison), the
+# clipboard's images, the system's file dialogs.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std", "unstable-winit-030"] }
+# An image pasted into a note: read from the clipboard, written as PNG beside it.
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+# Native file pickers. `xdg-portal` off: the Windows build has no use for it and
+# it drags in a GTK stack that has no business in this binary.
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
+
+# Android: Slint on its own activity backend (NativeActivity, started by iris-android);
+# the clipboard and the pickers go through the platform (`presse`, `dialogue`).
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "renderer-software", "std", "backend-android-activity-06"] }
 
 # L'icône de la zone de notification. Windows seulement, et sans les fonctions par
 # défaut : celles-ci tirent une pile GTK qui ne sert qu'à Linux et n'a rien à faire

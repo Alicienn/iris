@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Dot } from "@iris/base/atoms.slint";
 import { Check, CheckShape } from "@iris/controls/choice.slint";
@@ -96,7 +97,7 @@ export component NavItem inherits Rectangle {
     out property <bool> hovered: touch.has-hover;
     property <length> pli: 22px;
 
-    height: root.row-height;
+    height: max(root.row-height, Layout.target);
     border-radius: Tokens.radius-small;
     background: Nav.background(root.selected, touch.has-hover);
     animate background { duration: Tokens.instant; }
@@ -168,19 +169,47 @@ export component NavItem inherits Rectangle {
         }
     }
 
+    // A long press is a right-click for a finger: half a second without moving.
+    property <bool> tenu;
+    property <bool> tenu-fini;
     touch := TouchArea {
         pointer-event(event) => {
             if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                 root.context-menu(self.absolute-position.x + self.mouse-x,
                     self.absolute-position.y + self.mouse-y);
             }
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                root.tenu = Layout.touch-input;
+                root.tenu-fini = false;
+            }
+            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                root.tenu = false;
+            }
+        }
+        moved => {
+            if (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px) {
+                root.tenu = false;
+            }
         }
         clicked => {
+            if (root.tenu-fini) {
+                return;
+            }
             if (root.group && !root.compact && self.mouse-x < root.pli) {
                 root.fold-toggled();
             } else {
                 root.clicked();
             }
+        }
+    }
+    Timer {
+        interval: 500ms;
+        running: root.tenu;
+        triggered => {
+            root.tenu = false;
+            root.tenu-fini = true;
+            root.context-menu(touch.absolute-position.x + touch.pressed-x,
+                touch.absolute-position.y + touch.pressed-y);
         }
     }
 }

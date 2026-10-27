@@ -1,3 +1,4 @@
+import { Layout } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
@@ -148,7 +149,7 @@ component PluginRow inherits Rectangle {
         // Le bouton n'apparaît qu'au survol. Un module sans réglage ouvrira un
         // panneau qui le dit — c'est plus honnête qu'un bouton grisé, qui laisse
         // croire qu'il y a quelque chose derrière et qu'on n'y a pas droit.
-        if survol.has-hover: IconButton {
+        if survol.has-hover || Layout.touch-input: IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.gear;
             label: "Configure " + root.plugin.name;

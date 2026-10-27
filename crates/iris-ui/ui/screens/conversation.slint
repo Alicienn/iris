@@ -1,3 +1,4 @@
+import { Layout } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MessageData, MessageBlockData, BodyTileData, AttachmentData } from "@iris/types.slint";
@@ -682,7 +683,7 @@ component Attachments inherits VerticalLayout {
                 height: 24px;
                 y: (parent.height - self.height) / 2;
                 border-radius: Tokens.radius-small;
-                opacity: piece-touch.has-hover || garder.has-hover ? 1.0 : 0.0;
+                opacity: piece-touch.has-hover || garder.has-hover || Layout.touch-input ? 1.0 : 0.0;
                 animate opacity { duration: Tokens.instant; }
                 background: garder.has-hover ? Tokens.surface-active : transparent;
 
@@ -944,7 +945,9 @@ export component ReaderMenu inherits Rectangle {
     if root.kind == "more": MenuSurface {
         available-width: root.width;
         available-height: root.height;
-        // Opened from the last button of the bar: it hangs to the left of it.
+        // Opened from the last button of the bar: it hangs to the left of it, in a
+        // narrow window too.
+        anchored-in-compact: true;
         menu-x: root.menu-x - 220px;
         menu-y: root.menu-y;
         menu-width: 220px;

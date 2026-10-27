@@ -44,3 +44,10 @@ CLAUDE.md
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Android: what Gradle and cargo-ndk leave behind.
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/src/main/jniLibs/
+/android/local.properties

@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 
 // One line of a context menu.
@@ -23,7 +24,7 @@ export component MenuEntry inherits Rectangle {
 
     callback activated();
 
-    height: 30px;
+    height: max(30px, Layout.target);
     border-radius: Tokens.radius-small;
     background: !root.enabled ? transparent
         : root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
@@ -125,6 +126,11 @@ export component MenuSurface inherits Rectangle {
     // component cannot see what it was placed inside.
     in property <length> available-width;
     in property <length> available-height;
+    /// In a narrow window it stays at its point (a menu opened from a button in a top
+    /// bar) instead of rising from the bottom as a sheet.
+    in property <bool> anchored-in-compact;
+
+    property <bool> sheet: Layout.compact && !root.anchored-in-compact;
 
     // Kept inside the window: a menu opened near an edge must not fall off it.
     // It drops open: a fade and four pixels, once.
@@ -133,12 +139,14 @@ export component MenuSurface inherits Rectangle {
     animate entree { duration: Tokens.quick; easing: ease-out; }
     opacity: root.entree;
 
-    x: max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
-    y: max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px))
-        - (1 - root.entree) * 4px;
-    width: root.menu-width;
+    x: root.sheet ? 8px : max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
+    y: root.sheet
+        ? root.available-height - root.menu-height - Layout.inset-bottom - 8px + (1 - root.entree) * 16px
+        : max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px))
+            - (1 - root.entree) * 4px;
+    width: root.sheet ? root.available-width - 16px : root.menu-width;
     height: root.menu-height;
-    border-radius: Tokens.radius-large;
+    border-radius: root.sheet ? 22px : Tokens.radius-large;
     background: Tokens.panel;
     border-width: 1px;
     border-color: Tokens.border-strong;

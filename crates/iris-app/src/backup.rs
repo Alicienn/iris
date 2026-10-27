@@ -291,7 +291,7 @@ pub fn wire_backup(fenetre: &AppWindow, services: &Services, runtime: tokio::run
             };
             let dossier = folder(&services);
             let _ = std::fs::create_dir_all(&dossier);
-            let Some(chemin) = rfd::FileDialog::new()
+            let Some(chemin) = crate::dialogue::FileDialog::new()
                 .set_title("Restore a backup")
                 .set_directory(&dossier)
                 .add_filter("Iris backup", &["db"])
@@ -353,7 +353,7 @@ pub fn wire_backup(fenetre: &AppWindow, services: &Services, runtime: tokio::run
             let Some(f) = faible.upgrade() else {
                 return;
             };
-            let Some(dossier) = rfd::FileDialog::new()
+            let Some(dossier) = crate::dialogue::FileDialog::new()
                 .set_title("Export your calendars and tasks")
                 .pick_folder()
             else {

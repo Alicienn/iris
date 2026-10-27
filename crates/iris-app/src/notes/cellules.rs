@@ -330,7 +330,7 @@ fn copier(f: &AppWindow, e: &mut Etat, couper: bool) {
         })
         .collect();
     let texte = iris_sheets::csv::write(&lignes, '\t');
-    if let Ok(mut presse) = arboard::Clipboard::new() {
+    if let Ok(mut presse) = crate::presse::Clipboard::new() {
         let _ = presse.set_text(texte.clone());
     }
     e.cellules.copie = Some((texte, rel.clone(), sel));
@@ -349,7 +349,7 @@ fn coller(f: &AppWindow, e: &mut Etat) {
     let Some((mut book, quand)) = lire(e, &rel) else {
         return;
     };
-    let texte = arboard::Clipboard::new()
+    let texte = crate::presse::Clipboard::new()
         .ok()
         .and_then(|mut p| p.get_text().ok())
         .unwrap_or_default();

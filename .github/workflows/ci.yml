@@ -128,3 +128,69 @@ jobs:
           name: iris-exe
           path: target/release/iris.exe
           retention-days: 3
+
+  # Iris for Android: the library built by cargo-ndk for phones (arm64) and the
+  # emulator (x86_64), packaged by Gradle. Its APK goes to the release beside the
+  # installer. `continue-on-error`: a broken Android build is shown here but never
+  # holds back a Windows release (Release follows this workflow's conclusion).
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Version
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          echo "IRIS_VERSION=$version" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: The library
+        run: cargo ndk -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release -p iris-android
+
+      # The project's signing key when the secrets are there (see android/README.md),
+      # else the build machine's debug key.
+      - name: Signing key
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/iris.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/iris.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: The APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gradle -p android assembleRelease --no-daemon
+          mkdir -p apk
+          cp android/app/build/outputs/apk/release/app-release.apk "apk/iris-$IRIS_VERSION.apk"
+
+      - name: APK for the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-apk
+          path: apk/*.apk
+          retention-days: 3

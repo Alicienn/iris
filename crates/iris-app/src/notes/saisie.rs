@@ -783,7 +783,7 @@ fn sur_objet(f: &AppWindow, e: &mut Etat, i: usize, bas: &str, nom: &str) -> Opt
             Some(true)
         }
         "ctrl+c" | "ctrl+x" => {
-            if let (Some((_, t)), Ok(mut p)) = (contenu(e, i), arboard::Clipboard::new()) {
+            if let (Some((_, t)), Ok(mut p)) = (contenu(e, i), crate::presse::Clipboard::new()) {
                 let _ = p.set_text(t);
             }
             if bas == "ctrl+x" {
@@ -808,7 +808,7 @@ fn sur_objet(f: &AppWindow, e: &mut Etat, i: usize, bas: &str, nom: &str) -> Opt
 
 /// The clipboard's text.
 fn presse_papiers() -> String {
-    arboard::Clipboard::new()
+    crate::presse::Clipboard::new()
         .ok()
         .and_then(|mut p| p.get_text().ok())
         .unwrap_or_default()
@@ -928,7 +928,7 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
         }
         "ctrl+c" => {
             if let Some(t) = texte_choisi(e) {
-                if let Ok(mut p) = arboard::Clipboard::new() {
+                if let Ok(mut p) = crate::presse::Clipboard::new() {
                     let _ = p.set_text(t);
                 }
             }
@@ -936,7 +936,7 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
         }
         "ctrl+x" => {
             if let Some(t) = texte_choisi(e) {
-                if let Ok(mut p) = arboard::Clipboard::new() {
+                if let Ok(mut p) = crate::presse::Clipboard::new() {
                     let _ = p.set_text(t);
                 }
                 effacer_selection(f, e);

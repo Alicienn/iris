@@ -438,9 +438,18 @@ mod windows_impl {
 }
 
 pub use windows_impl::{
-    number_style, register_mailto, set_start_at_login, status, system_dark, unregister_mailto,
-    Registration,
+    register_mailto, set_start_at_login, status, unregister_mailto, Registration,
 };
+
+/// The system shows its dark appearance.
+pub fn system_dark() -> bool {
+    current().system_dark()
+}
+
+/// The decimal separator, the thousands separator, and whether the day comes first.
+pub fn number_style() -> (char, char, bool) {
+    current().number_style()
+}
 
 /// Ouvre un fichier avec l'application que le système lui associe.
 ///
@@ -455,6 +464,10 @@ pub use windows_impl::{
 /// provenance — et c'est le bon endroit pour cette décision, parce qu'elle est déjà
 /// prise là par quelqu'un dont c'est le métier.
 pub fn open_path(path: &std::path::Path) -> iris_types::Result<()> {
+    current().open_path(path)
+}
+
+fn desktop_open_path(path: &std::path::Path) -> iris_types::Result<()> {
     #[cfg(windows)]
     {
         shell_open(path.as_os_str())
@@ -488,16 +501,161 @@ pub fn open_url(url: &str) -> iris_types::Result<()> {
     {
         return Err(iris_types::Error::other(format!("not a web link: {url}")));
     }
+    current().open_url(url)
+}
+
+fn desktop_open_url(url: &str) -> iris_types::Result<()> {
     #[cfg(windows)]
     {
         shell_open(std::ffi::OsStr::new(url))
     }
     #[cfg(not(windows))]
     {
+        let _ = url;
         Err(iris_types::Error::other(
             "opening links is only wired up on Windows",
         ))
     }
+}
+
+/// What differs from one system to the next, in one place.
+///
+/// The interface and the core never ask which system they run on: they ask this. The
+/// desktop's answers are the code above (the shell, the registry, the toast); Android
+/// answers through its own implementation, installed at start by `iris-android`; iOS
+/// would add a third. Every method has the desktop's answer as its default, so a new
+/// one costs nothing to the systems that do not need it.
+pub trait Platform: Send + Sync {
+    /// Opens a web link, already checked to be `http(s)://` by [`open_url`].
+    fn open_url(&self, url: &str) -> iris_types::Result<()> {
+        desktop_open_url(url)
+    }
+    /// Opens a file Iris wrote, with the app the system gives it.
+    fn open_path(&self, path: &std::path::Path) -> iris_types::Result<()> {
+        desktop_open_path(path)
+    }
+    fn system_dark(&self) -> bool {
+        windows_impl::system_dark()
+    }
+    /// The decimal separator, the thousands separator, and whether the day comes first.
+    fn number_style(&self) -> (char, char, bool) {
+        windows_impl::number_style()
+    }
+    /// Shows a notification; false when it could not be shown.
+    fn notify(&self, notice: &Notice) -> bool {
+        let _ = notice;
+        false
+    }
+    /// The main input is a finger.
+    fn touch(&self) -> bool {
+        false
+    }
+    /// What the system draws over the window, in logical pixels: (top, bottom).
+    fn insets(&self) -> (f32, f32) {
+        (0.0, 0.0)
+    }
+    /// The fonts to use instead of the theme's (text, display), where the theme's are
+    /// not to be had.
+    fn font_override(&self) -> Option<(String, String)> {
+        None
+    }
+    /// DNS servers for account discovery; empty: the system's configuration.
+    fn dns_servers(&self) -> Vec<std::net::IpAddr> {
+        Vec::new()
+    }
+    /// Mail is fetched while Iris is not on screen (background work, notifications).
+    fn has_background(&self) -> bool {
+        false
+    }
+    /// Schedules the background work and the alarms.
+    fn schedule(&self, plan: &BackgroundPlan) {
+        let _ = plan;
+    }
+    /// The device is on a local network another Iris may share (Wi-Fi on a phone).
+    fn local_network(&self) -> bool {
+        true
+    }
+    /// Asks the system to let multicast in (discovery on a phone's Wi-Fi).
+    fn multicast(&self, on: bool) {
+        let _ = on;
+    }
+    /// Scans a QR code with the camera; `None` when cancelled or impossible.
+    fn scan_qr(&self, done: Box<dyn FnOnce(Option<String>) + Send>) {
+        done(None)
+    }
+    /// How a new version reaches this copy.
+    fn update_channel(&self) -> UpdateChannel {
+        UpdateChannel::Installer
+    }
+}
+
+/// A notification, as Iris asks for it; each system draws it its own way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    /// Stable for one thing, so that a newer notice replaces an older one.
+    pub id: String,
+    pub title: String,
+    pub body: String,
+    pub kind: NoticeKind,
+}
+
+/// What a notification is about, and so which actions it carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoticeKind {
+    Mail {
+        thread: i64,
+    },
+    Event {
+        calendar: i64,
+        uid: String,
+        join: Option<String>,
+    },
+    Task {
+        task: i64,
+    },
+    Sending,
+    Text,
+}
+
+/// The background work a system should run for Iris.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BackgroundPlan {
+    pub every_minutes: u32,
+    pub instant: bool,
+    pub wifi_only: bool,
+    /// Exact alarms: (Unix milliseconds, an id).
+    pub alarms: Vec<(i64, String)>,
+}
+
+/// How a new version reaches this copy of Iris.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateChannel {
+    /// The signed installer from the release page (Windows).
+    Installer,
+    /// The signed APK from the release page (Android outside a store).
+    Apk,
+    /// A store updates it; Iris does not check.
+    Store,
+}
+
+/// The desktop: Windows, and the stubs elsewhere.
+pub struct Desktop;
+
+impl Platform for Desktop {}
+
+static PLATFORM: std::sync::OnceLock<Box<dyn Platform>> = std::sync::OnceLock::new();
+
+/// Installs the platform, once, at start. A second call is a mistake and panics: two
+/// answers to "what system is this" would be worse than none.
+pub fn install(platform: Box<dyn Platform>) {
+    if PLATFORM.set(platform).is_err() {
+        panic!("the platform is installed once");
+    }
+}
+
+/// The platform installed at start, or the desktop's.
+pub fn current() -> &'static dyn Platform {
+    PLATFORM.get_or_init(|| Box::new(Desktop)).as_ref()
 }
 
 /// Hands a file or a web link to the shell, as a double-click would.
@@ -664,6 +822,45 @@ fn decode(texte: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Telephone(std::sync::Mutex<Vec<String>>);
+    impl Platform for Telephone {
+        fn open_url(&self, url: &str) -> iris_types::Result<()> {
+            self.0.lock().unwrap().push(url.to_string());
+            Ok(())
+        }
+        fn touch(&self) -> bool {
+            true
+        }
+        fn insets(&self) -> (f32, f32) {
+            (24.0, 16.0)
+        }
+    }
+
+    #[test]
+    fn the_desktop_answers_when_nothing_was_installed() {
+        let p = current();
+        assert!(!p.touch());
+        assert_eq!(p.insets(), (0.0, 0.0));
+        assert!(!p.has_background());
+        assert_eq!(p.update_channel(), UpdateChannel::Installer);
+    }
+
+    #[test]
+    fn a_platform_of_its_own_answers_for_itself() {
+        let t = Telephone(std::sync::Mutex::new(Vec::new()));
+        t.open_url("https://example.com").unwrap();
+        assert_eq!(*t.0.lock().unwrap(), ["https://example.com"]);
+        assert!(t.touch());
+        assert_eq!(t.insets(), (24.0, 16.0));
+        assert_eq!(t.dns_servers(), Vec::<std::net::IpAddr>::new());
+    }
+
+    #[test]
+    fn only_web_links_reach_the_platform() {
+        assert!(open_url("file:///C:/Windows/notepad.exe").is_err());
+        assert!(open_url("https://exa mple.com").is_err());
+    }
 
     #[test]
     fn une_adresse_nue() {

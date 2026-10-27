@@ -325,6 +325,31 @@ export struct WeekDayData {
     all-day: [CalendarChipData],
 }
 
+// A line of the agenda: the days one under the other, their events in order.
+export struct AgendaRowData {
+    // "Today · Monday 26 October" on the first event of a day; empty on the others.
+    day: string,
+    today: bool,
+    key: string,
+    title: string,
+    // "09:30", or "All day".
+    time: string,
+    // "30 min", "1 h 30"; empty for a whole day.
+    length: string,
+    color: color,
+    past: bool,
+}
+
+// A device paired with this one, in Settings › Devices.
+export struct DeviceRowData {
+    id: string,
+    name: string,
+    // "On this Wi-Fi · synced 2 h ago", "Not seen since 3 days".
+    status: string,
+    // Seen on the network: it can be synced with now.
+    here: bool,
+}
+
 // An event placed in the week or day grid. Positions are fractions, so the grid can
 // be any size without Rust knowing it.
 export struct TimedEventData {

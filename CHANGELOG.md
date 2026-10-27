@@ -3,6 +3,18 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.3.0 — 2026-10-27
+
+### New
+- Iris fits a narrow window: one column, the places at the foot, windows as pages and sheets.
+- An Agenda view and a three-day view in the calendar.
+- Text size in Settings › Appearance.
+- A first preview of Iris for Android, attached to the release.
+- Sync your tasks, calendars, habits, notes, accounts and settings with Iris on another device on the same Wi-Fi, paired with a QR code.
+
+### Improved
+- On a touch screen, swipe a conversation right for Done and left for Snooze.
+
 ## 6.2.0 — 2026-10-27
 
 ### New

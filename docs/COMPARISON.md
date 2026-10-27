@@ -26,6 +26,7 @@ the first afternoon, and never forgive".
 | Drafts | Saved to the server's Drafts folder, asked for when a started message is closed |
 | Home | A start page for the day: one sentence on what waits, the next three events and tasks |
 | Navigation | Back and forward across mailboxes, folders, views and workspaces, mouse buttons included |
+| Devices | Tasks, calendars, habits, accounts, settings and notes synced device to device on the same Wi-Fi, paired by a QR code, with no account and no cloud (6.3.0) — the four clients sync through their vendor's servers, or not at all |
 | Many mailboxes | Tags that group, fold, order and filter them |
 | Account setup | Address and password, or a configuration profile (`.mobileconfig`) as Apple Mail takes it; a login other than the address, STARTTLS on port 143, as Thunderbird allows (4.6.0) |
 | Undo | Archive and delete undone on the server too, as Gmail's undo does (4.6.0) |

@@ -34,6 +34,10 @@ pub struct Place {
     pub calendar: i32,
     /// The note open, by its path in its space.
     pub note: String,
+    /// What is open over the place in a narrow window, where each opening is a page
+    /// of its own (`thread:4`, `compose`, `task:9`, `settings`…); empty for the place
+    /// itself. Back closes it before it leaves the place.
+    pub page: String,
 }
 
 impl Place {
@@ -47,6 +51,7 @@ impl Place {
             tasks: "today".into(),
             calendar,
             note: String::new(),
+            page: String::new(),
         }
     }
 
@@ -55,6 +60,12 @@ impl Place {
     pub fn after(&self, kind: &str, value: &str) -> Option<Place> {
         let mut p = self.clone();
         let nombre = || value.parse::<i32>().ok();
+        if kind == "page" {
+            p.page = value.to_string();
+            return Some(p);
+        }
+        // Any other choice is made from the place itself: what was open over it closes.
+        p.page.clear();
         match kind {
             "workspace" => p.workspace = nombre()?,
             "account" => {
@@ -211,6 +222,9 @@ fn aller(f: &AppWindow, from: &Place, to: &Place) {
     if to.note != from.note && !to.note.is_empty() {
         f.invoke_notes_quick_chosen(to.note.as_str().into());
     }
+    if to.page != from.page {
+        f.set_page(to.page.as_str().into());
+    }
     if to.workspace != from.workspace {
         f.set_workspace(to.workspace);
         f.invoke_workspace_changed(to.workspace);
@@ -240,6 +254,32 @@ pub fn forward(f: &AppWindow) {
         aller(f, &depuis, &vers);
     }
     boutons(f);
+}
+
+/// The system's Back (Android's gesture, a phone's button): what is open on top closes
+/// first, then the page over the place, then the history goes back a step. False when
+/// there was nothing left to do, and the system may leave Iris.
+pub fn system_back(f: &AppWindow) -> bool {
+    if f.get_modal_open() {
+        // Every window over the others closes on Escape: the same key, the same way.
+        let echap = slint::SharedString::from(slint::platform::Key::Escape);
+        f.window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                text: echap.clone(),
+            });
+        f.window()
+            .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: echap });
+        return true;
+    }
+    if HISTORIQUE.with(|h| h.borrow().can_go_back()) {
+        back(f);
+        return true;
+    }
+    if !f.get_page().is_empty() {
+        f.set_page("".into());
+        return true;
+    }
+    false
 }
 
 /// Starts the history where the window opens, and wires the buttons, Alt+arrows and
@@ -342,6 +382,22 @@ mod tests {
         let liste = h.current.after("tasks", "list:2").unwrap();
         h.visit(liste);
         assert_eq!(h.back().map(|p| p.tasks), Some("habits".to_string()));
+    }
+
+    #[test]
+    fn a_page_is_a_step_and_any_other_choice_closes_it() {
+        let mut h = History::new(Place::start(0, 1));
+        let fil = h.current.after("page", "thread:4").unwrap();
+        assert_eq!((fil.workspace, fil.page.as_str()), (0, "thread:4"));
+        h.visit(fil.clone());
+        let ailleurs = h.current.after("folder", "Sent").unwrap();
+        assert!(
+            ailleurs.page.is_empty(),
+            "choosing a folder closes the page"
+        );
+        h.visit(ailleurs);
+        assert_eq!(h.back(), Some(fil));
+        assert_eq!(h.back().map(|p| p.page), Some(String::new()));
     }
 
     #[test]

@@ -1,0 +1,103 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon } from "@iris/base/icons.slint";
+
+// A row a finger can push aside: right for one action, left for another, as phones
+// have taught everyone. Past 96 pixels the ground takes the action's colour and
+// letting go does it; short of that the row springs back. A drag that is more up
+// than across is a scroll, and the row lets the list have it.
+//
+// Every action a swipe does is also in the row's menu (long press, right-click): a
+// gesture is never the only way.
+
+export component SwipeRow inherits Rectangle {
+    /// On by default where the main input is a finger.
+    in property <bool> enabled: Layout.touch-input;
+    in property <string> start-label;
+    in property <string> start-icon;
+    in property <color> start-color: Tokens.success;
+    in property <string> end-label;
+    in property <string> end-icon;
+    in property <color> end-color: Tokens.warning;
+    /// Dragged right past the threshold and let go.
+    callback swiped-start();
+    /// Dragged left past the threshold and let go.
+    callback swiped-end();
+
+    property <length> seuil: 96px;
+    property <length> decalage: 0px;
+    property <bool> glisse: geste.swiping;
+
+    clip: true;
+
+    // What the row uncovers.
+    if root.decalage > 0: Rectangle {
+        background: root.decalage >= root.seuil ? root.start-color : Tokens.surface-active;
+        HorizontalLayout {
+            padding-left: 24px;
+            spacing: 10px;
+            alignment: start;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: root.start-icon;
+                size: 20px;
+                tint: root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+            }
+            Text {
+                text: root.start-label;
+                font-weight: 600;
+                color: root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+    }
+    if root.decalage < 0: Rectangle {
+        background: -root.decalage >= root.seuil ? root.end-color : Tokens.surface-active;
+        HorizontalLayout {
+            padding-right: 24px;
+            spacing: 10px;
+            alignment: end;
+            Text {
+                text: root.end-label;
+                font-weight: 600;
+                color: -root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+                vertical-alignment: center;
+            }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: root.end-icon;
+                size: 20px;
+                tint: -root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+            }
+        }
+    }
+
+    // Slint's gesture handler takes the drag only once it is clearly sideways, and
+    // lets a tap or a scroll through to the row and the list.
+    geste := SwipeGestureHandler {
+        handle-swipe-left: root.enabled;
+        handle-swipe-right: root.enabled;
+        moved => {
+            root.decalage = self.current-position.x - self.pressed-position.x;
+        }
+        swiped => {
+            if (root.decalage >= root.seuil) {
+                root.swiped-start();
+            } else if (-root.decalage >= root.seuil) {
+                root.swiped-end();
+            }
+            root.decalage = 0px;
+        }
+        cancelled => {
+            root.decalage = 0px;
+        }
+
+        contenu := Rectangle {
+            x: root.decalage;
+            width: parent.width;
+            height: parent.height;
+            animate x { duration: root.glisse ? 0ms : Tokens.quick; easing: ease-out; }
+            @children
+        }
+    }
+}

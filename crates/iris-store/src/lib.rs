@@ -18,16 +18,19 @@ mod attachments;
 mod backup;
 mod caldav;
 mod calendar;
+mod clock;
 mod compass;
 mod goals;
 mod habits;
 mod journal;
+mod merge;
 mod messages;
 mod migrations;
 mod model;
 mod ops;
 mod rules;
 mod scheduled;
+pub mod sync;
 mod tasks;
 mod threads;
 
@@ -37,9 +40,11 @@ pub use attachments::StoredAttachment;
 pub use backup::{backup_info, BackupInfo};
 pub use caldav::{CalendarAccount, ObjectState, OutgoingObject, Tombstone};
 pub use calendar::{NewEvent, StoredCalendar, StoredEvent};
+pub use clock::Clock;
 pub use compass::{Area, AreaOf, StoredCycle};
 pub use goals::{Goal, GoalEntry, GoalKind, Milestone, NewGoal};
 pub use habits::{Habit, HabitCheck, NewHabit};
+pub use merge::{ChangeSet, Conflict, MergeReport, RowChange, SyncTombstone};
 pub use migrations::CURRENT_VERSION;
 pub use model::{
     Account, AuthKind, Contact, Filters, Folder, FolderRole, ListCursor, ListQuery, NewAccount,
@@ -54,7 +59,7 @@ pub use threads::MailStats;
 use iris_types::{Error, Result};
 use rusqlite::Connection;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// A folder's path without the `INBOX.` or `INBOX/` some hosts put in front of the
 /// user's folders: the name it is shown, and matched across mailboxes, under.
@@ -78,6 +83,7 @@ pub fn same_folder(a: &str, b: &str) -> bool {
 #[derive(Debug)]
 pub struct Store {
     conn: Mutex<Connection>,
+    clock: Arc<Clock>,
 }
 
 impl Store {
@@ -85,7 +91,7 @@ impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path.as_ref())
             .map_err(|e| Error::store(format!("ouverture : {e}")))?;
-        Self::configure(&conn)?;
+        let clock = Self::configure(&conn)?;
         migrations::migrate(&conn)?;
         // A repair and not a migration: copies stored apart by an older version can
         // also arrive later from a copy of the base, and finding none costs nothing.
@@ -94,9 +100,30 @@ impl Store {
             Ok(n) => tracing::info!(threads = n, "copies of one message joined"),
             Err(e) => tracing::warn!(error = %e, "joining copies of one message"),
         }
+        Self::ready(conn, clock)
+    }
+
+    /// The device id exists once the migrations ran: the clock, registered with the
+    /// connection before them, takes it now (the triggers call the clock when they
+    /// fire, not when they are made).
+    fn ready(conn: Connection, clock: Arc<Clock>) -> Result<Self> {
+        let device: String = conn
+            .query_row("SELECT id FROM sync_device", [], |r| r.get(0))
+            .map_err(|e| sql_err("this device's id", e))?;
+        clock.set_device(device);
         Ok(Self {
             conn: Mutex::new(conn),
+            clock,
         })
+    }
+
+    /// This copy of Iris, as the devices paired with it know it.
+    pub fn device_id(&self) -> String {
+        self.clock.device()
+    }
+
+    pub(crate) fn clock(&self) -> &Clock {
+        &self.clock
     }
 
     /// Joins the threads that hold copies of one message. Done when the base opens.
@@ -108,11 +135,9 @@ impl Store {
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()
             .map_err(|e| Error::store(format!("ouverture en mémoire : {e}")))?;
-        Self::configure(&conn)?;
+        let clock = Self::configure(&conn)?;
         migrations::migrate(&conn)?;
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
+        Self::ready(conn, clock)
     }
 
     /// Réglages appliqués à chaque connexion.
@@ -131,7 +156,8 @@ impl Store {
     ///   toute la journée. Les requêtes de la liste lisent une page de soixante lignes
     ///   par un index ; huit mégaoctets les servent entièrement, et le système de
     ///   fichiers garde de toute façon le reste en cache pour nous.
-    fn configure(conn: &Connection) -> Result<()> {
+    /// - `iris_clock()` and `iris_merging()`, which the sync triggers call (`sync.rs`).
+    fn configure(conn: &Connection) -> Result<Arc<Clock>> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
@@ -140,7 +166,10 @@ impl Store {
              PRAGMA temp_store = FILE;
              PRAGMA cache_size = -8192;",
         )
-        .map_err(|e| Error::store(format!("configuration : {e}")))
+        .map_err(|e| Error::store(format!("configuration : {e}")))?;
+        let clock = Arc::new(Clock::new(String::new()));
+        register_clock(conn, &clock)?;
+        Ok(clock)
     }
 
     /// Exécute une fermeture avec la connexion.
@@ -187,6 +216,21 @@ impl Store {
                 .map_err(|e| Error::store(format!("maintenance : {e}")))
         })
     }
+}
+
+/// The two functions of the sync triggers, on one connection.
+pub(crate) fn register_clock(conn: &Connection, clock: &Arc<Clock>) -> Result<()> {
+    use rusqlite::functions::FunctionFlags;
+    let c = Arc::clone(clock);
+    conn.create_scalar_function("iris_clock", 0, FunctionFlags::SQLITE_UTF8, move |_| {
+        Ok(c.now())
+    })
+    .map_err(|e| sql_err("iris_clock", e))?;
+    let c = Arc::clone(clock);
+    conn.create_scalar_function("iris_merging", 0, FunctionFlags::SQLITE_UTF8, move |_| {
+        Ok(i64::from(c.merging()))
+    })
+    .map_err(|e| sql_err("iris_merging", e))
 }
 
 /// Traduit une erreur rusqlite en erreur du domaine, en conservant le contexte.

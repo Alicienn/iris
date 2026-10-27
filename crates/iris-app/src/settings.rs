@@ -162,6 +162,20 @@ pub struct Settings {
     /// The notes open in tabs (`<space folder>|<path>`), in order.
     #[serde(default)]
     pub notes_tabs: Vec<String>,
+    /// The text size, in percent of the normal one: 85 to 130.
+    #[serde(default = "cent")]
+    pub text_size: u32,
+}
+
+fn cent() -> u32 {
+    100
+}
+
+impl Settings {
+    /// The text size as the interface takes it: 0.85 to 1.30.
+    pub fn text_scale(&self) -> f32 {
+        self.text_size as f32 / 100.0
+    }
 }
 
 /// The Mac's lights on a Mac, Windows' buttons elsewhere.
@@ -230,6 +244,7 @@ impl Default for Settings {
             notes_last: String::new(),
             notes_math_preview: true,
             notes_tabs: Vec::new(),
+            text_size: 100,
         }
     }
 }
@@ -248,6 +263,9 @@ static PARTAGES: std::sync::OnceLock<Partages> = std::sync::OnceLock::new();
 /// Makes `current` the settings every module reads and changes. Called once, by the
 /// settings panel's wiring.
 pub fn share(current: std::sync::Arc<std::sync::Mutex<Settings>>, path: std::path::PathBuf) {
+    if let Ok(s) = current.lock() {
+        *DERNIERS.lock().unwrap_or_else(|e| e.into_inner()) = s.shared_values();
+    }
     let _ = PARTAGES.set((current, path));
 }
 
@@ -260,8 +278,18 @@ pub fn current() -> Settings {
 }
 
 /// Changes the settings in use and writes them. Nothing happens before they are
-/// shared.
+/// shared. A setting shared between devices that changed is handed to the sync
+/// (`on_shared_change`), which sends it with the next exchange.
 pub fn update(change: impl FnOnce(&mut Settings)) {
+    changer(change, true);
+}
+
+/// The shared settings another device sent: applied and written, not sent back.
+pub fn apply_remote(from: &[(String, String)]) {
+    changer(|s| s.apply_shared(from), false);
+}
+
+fn changer(change: impl FnOnce(&mut Settings), signaler: bool) {
     let Some((courant, chemin)) = PARTAGES.get() else {
         return;
     };
@@ -272,7 +300,50 @@ pub fn update(change: impl FnOnce(&mut Settings)) {
     if let Err(e) = reglages.save(chemin) {
         tracing::warn!(error = %e, "saving the settings");
     }
+    if signaler {
+        saved(&reglages);
+    } else {
+        *DERNIERS.lock().unwrap_or_else(|e| e.into_inner()) = reglages.shared_values();
+    }
 }
+
+/// The settings were written: the shared ones that changed since the last time go
+/// to the sync. The settings panel, which saves on its own, calls it too.
+pub fn saved(reglages: &Settings) {
+    let maintenant = reglages.shared_values();
+    let mut derniers = DERNIERS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(envoi) = ENVOI.get() {
+        for v in &maintenant {
+            if !derniers.contains(v) {
+                envoi(&v.0, &v.1);
+            }
+        }
+    }
+    *derniers = maintenant;
+}
+
+type Envoi = Box<dyn Fn(&str, &str) + Send + Sync>;
+static ENVOI: std::sync::OnceLock<Envoi> = std::sync::OnceLock::new();
+static DERNIERS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// Where a shared setting changed here goes: the store's `sync_settings`.
+pub fn on_shared_change(f: impl Fn(&str, &str) + Send + Sync + 'static) {
+    let _ = ENVOI.set(Box::new(f));
+}
+
+/// The settings that follow the person from one device to another. The others belong
+/// to the device: its look, its folders folded, where its notes are.
+pub const SHARED: &[&str] = &[
+    "first_name",
+    "density",
+    "automation",
+    "undo_send_seconds",
+    "accounts_by_tag",
+    "home_at_startup",
+    "accent",
+    "notes_math_preview",
+    "oauth",
+];
 
 impl Settings {
     /// Lit les réglages. Un fichier absent ou illisible rend les valeurs par défaut.
@@ -303,6 +374,37 @@ impl Settings {
         Ok(())
     }
 
+    /// The shared settings as they travel: key and JSON value.
+    pub fn shared_values(&self) -> Vec<(String, String)> {
+        let Ok(serde_json::Value::Object(tout)) = serde_json::to_value(self) else {
+            return Vec::new();
+        };
+        SHARED
+            .iter()
+            .filter_map(|k| tout.get(*k).map(|v| (k.to_string(), v.to_string())))
+            .collect()
+    }
+
+    /// Takes the shared settings another device sent. A key not shared, or a value
+    /// this version cannot read, is left as it is.
+    pub fn apply_shared(&mut self, from: &[(String, String)]) {
+        for (cle, valeur) in from {
+            if !SHARED.contains(&cle.as_str()) {
+                continue;
+            }
+            let Ok(serde_json::Value::Object(mut tout)) = serde_json::to_value(&*self) else {
+                return;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(valeur) else {
+                continue;
+            };
+            tout.insert(cle.clone(), v);
+            if let Ok(nouveaux) = serde_json::from_value::<Settings>(tout.into()) {
+                *self = nouveaux.sanitize();
+            }
+        }
+    }
+
     /// Ramène les valeurs aberrantes dans le domaine du raisonnable.
     ///
     /// Un délai de relance de zéro jour ramènerait tous les fils en attente au
@@ -313,8 +415,9 @@ impl Settings {
         self.undo_send_seconds = self
             .undo_send_seconds
             .clamp(*UNDO_SEND_RANGE.start(), *UNDO_SEND_RANGE.end());
-        self.calendar_view = self.calendar_view.clamp(0, 2);
+        self.calendar_view = self.calendar_view.clamp(0, 4);
         self.first_name = self.first_name.trim().chars().take(40).collect();
+        self.text_size = self.text_size.clamp(85, 130);
         self
     }
 }
@@ -367,10 +470,37 @@ mod tests {
             notes_last: "D:\\Notes\\Cours|Analyse/Chapitre 1.md".into(),
             notes_math_preview: false,
             notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
+            text_size: 115,
         };
 
         reglages.save(&chemin).unwrap();
         assert_eq!(Settings::load(&chemin), reglages);
+    }
+
+    #[test]
+    fn the_text_size_stays_between_85_and_130_percent() {
+        let s = |v: u32| {
+            Settings {
+                text_size: v,
+                ..Settings::default()
+            }
+            .sanitize()
+            .text_size
+        };
+        assert_eq!(s(50), 85);
+        assert_eq!(s(200), 130);
+        assert_eq!(s(110), 110);
+        assert_eq!(Settings::default().text_size, 100);
+        assert!((Settings::default().text_scale() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn touch_and_text_size_scale_the_themes_text() {
+        use crate::shell::echelle_du_texte;
+        assert_eq!(echelle_du_texte(false, 1.0), 1.0);
+        assert!((echelle_du_texte(true, 1.0) * 13.5 - 15.0).abs() < 1e-4);
+        assert!((echelle_du_texte(false, 1.3) - 1.3).abs() < 1e-6);
+        assert!((echelle_du_texte(false, 9.0) - 1.3).abs() < 1e-6, "clamped");
     }
 
     #[test]
@@ -423,9 +553,37 @@ mod tests {
         let r = Settings::load(&chemin);
         assert!(r.accounts_by_tag);
         assert!(r.home_at_startup);
-        assert_eq!(r.calendar_view, 2, "out of range: brought back");
+        assert_eq!(r.calendar_view, 4, "out of range: brought back");
         std::fs::write(&chemin, "theme = \"mono\"\n").unwrap();
         assert_eq!(Settings::load(&chemin).calendar_view, 1);
+    }
+
+    #[test]
+    fn only_the_shared_settings_travel() {
+        let mut s = Settings::default();
+        let avant = s.shared_values();
+        s.accent = 3;
+        s.notes_root = "D:/Notes".into();
+        s.folded_tags = vec![2];
+        let apres = s.shared_values();
+        let changes: Vec<_> = apres.iter().filter(|v| !avant.contains(v)).collect();
+        assert_eq!(changes, [&("accent".to_string(), "3".to_string())]);
+        assert!(apres
+            .iter()
+            .all(|(k, _)| k != "appearance" && k != "notes_root"));
+    }
+
+    #[test]
+    fn a_first_name_from_another_device_is_taken_and_cleaned() {
+        let mut s = Settings::default();
+        s.apply_shared(&[
+            ("first_name".into(), "\"  Marie \"".into()),
+            ("notes_root".into(), "\"C:/elsewhere\"".into()),
+            ("accent".into(), "\"not a number\"".into()),
+        ]);
+        assert_eq!(s.first_name, "Marie");
+        assert_eq!(s.notes_root, Settings::default().notes_root, "not shared");
+        assert_eq!(s.accent, 0, "unreadable: left as it was");
     }
 
     #[test]

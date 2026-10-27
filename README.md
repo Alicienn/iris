@@ -43,6 +43,11 @@
   The installer is not signed yet.
 - To uninstall, go to *Settings › Apps*. Your mail and settings are kept.
 
+**Android (preview).** When a release carries `iris-<version>.apk`, open it on the
+phone to install it (Android asks to allow installs from the app that opened it). It
+is a first build: the same Iris in one column, with the mail fetched while it is open;
+no notifications or background sync yet.
+
 ## Getting started
 
 1. Click **+** beside *Accounts* in the accounts column.
@@ -109,7 +114,18 @@ or `Escape` closes it. Iris is light or dark: *Settings › Appearance* follows 
 buttons and links: blue (the default), purple, pink, red, orange, yellow, green or
 graphite. *Window buttons* draws the window's close, minimise and maximise buttons as
 the Mac's three lights at the top left, or as Windows' at the top right (the default
-on Windows).
+on Windows). *Text size* draws every text smaller or larger: small, normal, large or
+larger.
+
+### A narrow window
+
+Iris lays itself out for the width of its window. Below 840 pixels the five places go
+down the left in a rail; below 600, as on a phone, they go to the foot of the window,
+and each place shows one thing at a time. The mail's list fills the window and a
+conversation opens over it (`Escape` or the arrow goes back); the list's title opens
+the mailboxes and folders, *Lists* the tasks' views and lists, *Notes* the tree of
+notes. Windows that ask a question rise from the bottom; forms fill the window. A
+window made wide again finds everything as it was.
 
 ## Home
 
@@ -259,7 +275,9 @@ a list of tasks, the calendar, your habits or a goal) and forward again, as in a
 ## Calendar
 
 Switch between **Mail** and **Calendar** at the top of the side column, or with `Ctrl`+`1` and
-`Ctrl`+`2`. The calendar opens on the week, then on the view you chose last.
+`Ctrl`+`2`. The calendar opens on the week, then on the view you chose last. In a
+narrow window it offers the **Agenda** (the next two weeks, day by day), a day, **3
+days** and the month, and opens on the Agenda.
 
 - **New event** creates one in your own calendar; it can repeat and remind you before
   it starts.
@@ -419,6 +437,20 @@ apps import.
 In Tasks: `N` new task, `J` / `K` or the arrows to move, `Space` done, `D` due date,
 `L` later,
 `Delete` delete, `Ctrl`+`Z` to bring back what you just deleted.
+
+### Sync between devices
+
+*Settings › Devices › Pair a device…* shows a QR code. Scan it with Iris on your phone
+or another computer on the same Wi-Fi: both show the same six digits, then share your
+task lists and tasks, goals, habits and their days, your own calendars and their
+events, your accounts with their passwords, your tags, rules and shared settings
+(first name, density, accent, automations), and your note spaces. Mail itself comes
+from your servers on each device. A note changed on both devices keeps the newer
+version and the other in its history; a note deleted on one goes to the other's
+Recycle Bin. The code works once, for five minutes. After that, paired devices sync
+on their own when they meet on the Wi-Fi (at most every ten minutes), or with
+*Sync now*. What was changed on both sides keeps the newer change, and Iris names it.
+An account removed on one device is never removed on the other without asking.
 
 ## Notes
 
@@ -618,7 +650,9 @@ Hover over any button to see its shortcut, or press `?` for all of them.
 
 ## Current limits
 
-- Windows only for now.
+- Windows, and Android as a preview: on Android, mail is fetched only while Iris is open,
+  there are no notifications, and files, the clipboard and sign-in with Google or
+  Microsoft are not wired yet.
 - IMAP accounts with a password work out of the box. For Gmail, use an
   [app password](https://myaccount.google.com/apppasswords), or sign in through the
   browser once you have set an OAuth client of your own in *Settings › Sign in with
@@ -630,8 +664,11 @@ Hover over any button to see its shortcut, or press `?` for all of them.
   paragraph that holds a link cannot be selected with the mouse.
 - Outlook and Microsoft 365 calendars cannot be connected (Microsoft offers no CalDAV);
   their published link can be subscribed to, read-only.
-- Notes are not synced between computers by Iris: put a space in a synced folder
-  (OneDrive, Dropbox) to have it elsewhere. Files dropped from Explorer are not taken
+- Sync between devices needs both on the same Wi-Fi, and Windows asks once to let Iris
+  use the local network. Snoozed conversations do not travel yet.
+- Notes sync between paired devices for the spaces in Iris's notes folder; a space
+  you added from elsewhere does not travel (put it in a synced folder, OneDrive or
+  Dropbox, to have it on another computer). Files dropped from Explorer are not taken
   into the tree yet: copy them into the space's folder.
 - In a note, keyboards that compose with an input method (Chinese, Japanese, Korean)
   do not type yet; dead keys (`^` then `e`) and AltGr do.
@@ -650,6 +687,10 @@ them in their folders and sends them nowhere.
 The state of a conversation (*Waiting*, *Done*) is written on your mail server as two
 keywords, `$IrisWaiting` and `$IrisDone`, so that Iris on your other computers finds it.
 Other mail apps can see these keywords on your messages; they say nothing else.
+
+Once you pair a device, Iris listens on your local network and announces itself there
+(mDNS) by a random device number, nothing else. What paired devices exchange, passwords
+included, is encrypted with a key only they hold, and never leaves the Wi-Fi.
 
 Removing an account removes from this computer its mail, its passwords and its words
 in the search index.

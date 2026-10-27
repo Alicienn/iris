@@ -6,7 +6,7 @@ import { EventDetailData, CalendarData, MonthCellData, SubtaskData } from "@iris
 import { CalButton, MiniMonth } from "@iris/screens/calendar.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { CheckBox, ComboBox } from "@iris/controls/pickers.slint";
-import { Modal, Popover } from "@iris/layout/frames.slint";
+import { Modal, ModalKind, Popover } from "@iris/layout/frames.slint";
 import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
 import { Check } from "@iris/controls/choice.slint";
 import { JoinButton } from "@iris/controls/video.slint";
@@ -1127,6 +1127,7 @@ export component CalendarDeletePanel inherits Rectangle {
     callback dismissed();
 
     PanelFrame {
+        kind: ModalKind.question;
         width: 100%;
         height: 100%;
         title: root.cal.remote ? "Disconnect this account?"

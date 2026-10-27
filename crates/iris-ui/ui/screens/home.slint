@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton, HabitIcons } from "@iris/base/icons.slint";
 import { Avatar } from "@iris/base/atoms.slint";
 import { Check } from "@iris/controls/choice.slint";
@@ -6,7 +7,7 @@ import { ScrollView } from "@iris/controls/scroll.slint";
 import { HomeItemData, GoalData, AccountRowData, HabitData } from "@iris/types.slint";
 import { JoinButton } from "@iris/controls/video.slint";
 import { Nav, NavItem, SectionRow } from "@iris/lists/nav.slint";
-import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { Chrome, SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import { GoalRing } from "@iris/screens/goals.slint";
 
 // Home: the day in a sentence, then a handful of widgets as the Mac draws them — what
@@ -132,7 +133,11 @@ export component HomeView inherits Rectangle {
     background: Tokens.background;
 
     HorizontalLayout {
+        // The side column only where the window has room for it: a phone and a
+        // foldable reach the other places by the tab bar or the rail.
         SidebarFrame {
+            visible: Layout.width-class == WidthClass.expanded;
+            sidebar-width: Layout.width-class == WidthClass.expanded ? 232px : 0px;
             SectionRow { text: "Today"; }
             NavItem {
                 label: "Overview";
@@ -222,9 +227,26 @@ export component HomeView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.pencil;
                     label: "New message";
-                    button-size: 28px;
-                    icon-size: 17px;
+                    button-size: Layout.touch-input ? 44px : 28px;
+                    icon-size: Layout.touch-input ? 22px : 17px;
                     clicked => { root.compose(); }
+                }
+                // Search and settings, which the side column holds on a PC.
+                if Layout.width-class != WidthClass.expanded: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.search;
+                    label: "Search";
+                    button-size: Layout.touch-input ? 44px : 28px;
+                    icon-size: Layout.touch-input ? 22px : 17px;
+                    clicked => { Chrome.palette(); }
+                }
+                if Layout.compact: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.settings;
+                    label: "Settings";
+                    button-size: Layout.touch-input ? 44px : 28px;
+                    icon-size: Layout.touch-input ? 22px : 17px;
+                    clicked => { Chrome.settings(); }
                 }
             }
 
@@ -234,7 +256,7 @@ export component HomeView inherits Rectangle {
                 viewport-width: self.visible-width;
                 // A readable width, centred; three columns of widgets in it, four in
                 // the second row.
-                property <length> largeur: min(980px, self.visible-width - 96px);
+                property <length> largeur: min(980px, self.visible-width - (Layout.compact ? 32px : 96px));
                 property <length> colonne: (self.largeur - 32px) / 3;
                 property <length> quart: (self.largeur - 48px) / 4;
 
@@ -272,14 +294,25 @@ export component HomeView inherits Rectangle {
                     }
                     Rectangle { height: 22px; }
 
-                    HorizontalLayout {
-                        spacing: 16px;
-                        height: 190px;
+                    // The widgets, placed one by one: two rows and the notes on a PC; on
+                    // a phone one column, Goal and Habits side by side.
+                    plateau := Rectangle {
+                        property <length> c: page.colonne;
+                        property <length> q: page.quart;
+                        property <length> l: page.largeur;
+                        property <length> demi: (self.l - 12px) / 2;
+                        property <bool> notes: root.notes.length > 0;
+                        height: Layout.compact
+                            ? (self.notes ? 1288px : 1106px)
+                            : (self.notes ? 618px : 432px);
 
                         // What is next: the event under way or coming (or the next
                         // task with an hour), large, then the ones after it.
                         Widget {
-                            width: page.colonne * 2 + 16px;
+                            x: 0px;
+                            y: 0px;
+                            width: Layout.compact ? plateau.l : plateau.c * 2 + 16px;
+                            height: 190px;
                             title: "Up next";
                             tint: Tokens.red;
                             label: "Open Calendar";
@@ -391,7 +424,10 @@ export component HomeView inherits Rectangle {
 
                         // A goal under way: its ring, its name, where it stands.
                         Widget {
-                            width: page.colonne;
+                            x: Layout.compact ? 0px : plateau.c * 2 + 32px;
+                            y: Layout.compact ? 202px : 0px;
+                            width: Layout.compact ? plateau.demi : plateau.c;
+                            height: 190px;
                             title: "Goal";
                             tint: Tokens.purple;
                             label: "Open Goals";
@@ -473,17 +509,13 @@ export component HomeView inherits Rectangle {
                             }
                             Rectangle { vertical-stretch: 1; }
                         }
-                    }
-
-                    Rectangle { height: 16px; }
-
-                    HorizontalLayout {
-                        spacing: 16px;
-                        height: 226px;
 
                         // Today's tasks: late first, then by the hour.
                         Widget {
-                            width: page.quart;
+                            x: 0px;
+                            y: Layout.compact ? 404px : 206px;
+                            width: Layout.compact ? plateau.l : plateau.q;
+                            height: 226px;
                             title: "Today";
                             tint: Tokens.accent;
                             label: "Open Tasks";
@@ -549,7 +581,10 @@ export component HomeView inherits Rectangle {
 
                         // The mail to answer: the first conversations of To do.
                         Widget {
-                            width: page.quart;
+                            x: Layout.compact ? 0px : plateau.q + 16px;
+                            y: Layout.compact ? 642px : 206px;
+                            width: Layout.compact ? plateau.l : plateau.q;
+                            height: 226px;
                             title: "To answer";
                             tint: Tokens.accent;
                             label: "Open Mail";
@@ -611,7 +646,10 @@ export component HomeView inherits Rectangle {
                         // Today's habits: a disc each, in its colour once kept; a
                         // click ticks it.
                         Widget {
-                            width: page.quart;
+                            x: Layout.compact ? plateau.demi + 12px : plateau.q * 2 + 32px;
+                            y: Layout.compact ? 202px : 206px;
+                            width: Layout.compact ? plateau.demi : plateau.q;
+                            height: Layout.compact ? 190px : 226px;
                             title: "Habits";
                             tint: Tokens.green;
                             label: "Open Habits";
@@ -681,7 +719,10 @@ export component HomeView inherits Rectangle {
 
                         // The week: tasks done, a bar a day.
                         Widget {
-                            width: page.quart;
+                            x: Layout.compact ? 0px : plateau.q * 3 + 48px;
+                            y: Layout.compact ? 880px : 206px;
+                            width: Layout.compact ? plateau.l : plateau.q;
+                            height: 226px;
                             title: "This week";
                             tint: Tokens.green;
                             label: "Open the week in Tasks";
@@ -738,15 +779,13 @@ export component HomeView inherits Rectangle {
                                 text: root.streak == 1 ? "Inbox zero today" : "Inbox zero " + root.streak + " days in a row";
                             }
                         }
-                    }
 
-                    // The notes written last, and the flashcards due.
-                    if root.notes.length > 0: Rectangle { height: 16px; }
-                    if root.notes.length > 0: HorizontalLayout {
-                        spacing: 16px;
-                        height: 170px;
-                        Widget {
-                            width: page.colonne * 2 + 16px;
+                        // The notes written last, and the flashcards due.
+                        if plateau.notes: Widget {
+                            x: 0px;
+                            y: Layout.compact ? 1118px : 448px;
+                            width: Layout.compact ? plateau.l : plateau.c * 2 + 16px;
+                            height: 170px;
                             title: "Notes";
                             tint: Tokens.purple;
                             label: "Open Notes";
@@ -792,7 +831,6 @@ export component HomeView inherits Rectangle {
                                 text: root.cards-due == 1 ? "1 flashcard to revise" : root.cards-due + " flashcards to revise";
                             }
                         }
-                        Rectangle { horizontal-stretch: 1; }
                     }
                 }
             }

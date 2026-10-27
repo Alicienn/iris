@@ -85,6 +85,41 @@ fn entry_key(account: &str, kind: SecretKind) -> String {
     format!("{}/{}", account.trim().to_lowercase(), kind.as_str())
 }
 
+/// Android has no `keyring` backend: the calls `KeyringStore` makes answer that the
+/// system keyring is not there, and Iris keeps its secrets in its encrypted vault,
+/// whose key the Android keystore holds (see `iris-android`).
+#[cfg(target_os = "android")]
+mod keyring {
+    #[derive(Debug)]
+    pub enum Error {
+        NoEntry,
+        PlatformFailure(String),
+    }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("no system keyring on this device")
+        }
+    }
+
+    pub struct Entry;
+
+    impl Entry {
+        pub fn new(_service: &str, _key: &str) -> Result<Self, Error> {
+            Err(Error::PlatformFailure("android".into()))
+        }
+        pub fn get_password(&self) -> Result<String, Error> {
+            Err(Error::NoEntry)
+        }
+        pub fn set_password(&self, _value: &str) -> Result<(), Error> {
+            Err(Error::PlatformFailure("android".into()))
+        }
+        pub fn delete_credential(&self) -> Result<(), Error> {
+            Err(Error::NoEntry)
+        }
+    }
+}
+
 /// Le trousseau du système.
 #[derive(Debug)]
 pub struct KeyringStore {
