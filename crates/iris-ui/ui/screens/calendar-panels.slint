@@ -8,9 +8,11 @@ import { CalButton, MiniMonth } from "@iris/screens/calendar.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { CheckBox, ComboBox } from "@iris/controls/pickers.slint";
 import { Modal, ModalKind, Popover } from "@iris/layout/frames.slint";
-import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
-import { Check } from "@iris/controls/choice.slint";
+import { Button, ButtonKind, ButtonSize, Link, BlockButton } from "@iris/controls/button.slint";
+import { Check, Toggle } from "@iris/controls/choice.slint";
 import { JoinButton } from "@iris/controls/video.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { CalPill } from "@iris/screens/calendar-phone.slint";
 
 // The frame of the calendar's, the tasks' and the tags' windows: the shared modal.
 export component PanelFrame inherits Modal {}
@@ -295,8 +297,370 @@ component EventBody inherits VerticalLayout {
     }
 }
 
+// A line of a phone's sheet or page (`.li.flat`): 52 pixels at least, a rule above it
+// from the left margin, except on the first.
+component PhoneRow inherits Rectangle {
+    in property <bool> first;
+    in property <length> row-height: 52px;
+    /// From the edge of what holds it: a group's sixteen pixels; four in the event's
+    /// sheet, whose own margin gives the rest.
+    in property <length> inset: 16px;
+    /// It answers a touch: a value to pick, a date to open.
+    in property <bool> tappable;
+    callback clicked();
+
+    height: max(root.row-height, rang.preferred-height);
+    background: root.tappable && touche.pressed ? Tokens.surface-hover : transparent;
+
+    if !root.first: Rectangle {
+        x: root.inset;
+        y: 0;
+        width: parent.width - root.inset;
+        height: 1px;
+        background: Tokens.border;
+    }
+    touche := TouchArea {
+        enabled: root.tappable;
+        clicked => { root.clicked(); }
+    }
+    rang := HorizontalLayout {
+        padding-left: root.inset;
+        padding-right: root.inset;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 14px;
+        @children
+    }
+}
+
+// A section's title on a phone (`.grp-t`): "Tasks for it", "Your notes".
+component PhoneGroupTitle inherits Text {
+    height: 38px;
+    font-size: 13px;
+    font-weight: 600;
+    color: Tokens.text-muted;
+    vertical-alignment: bottom;
+}
+
+// A fact of the event on a phone: an icon, the words, a quieter line under them.
+component PhoneFact inherits Rectangle {
+    in property <bool> first;
+    in property <length> inset: 16px;
+    in property <string> icon;
+    in property <string> text;
+    in property <string> note;
+    in property <color> dot;
+    in property <bool> has-dot;
+
+    height: ligne.height;
+
+    ligne := PhoneRow {
+        width: parent.width;
+        first: root.first;
+        inset: root.inset;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 18px;
+            tint: Tokens.text-muted;
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.text;
+                font-size: 15.5px;
+                color: Tokens.text;
+                wrap: word-wrap;
+            }
+            if root.note != "": Text {
+                text: root.note;
+                font-size: 13px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+        if root.has-dot: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.dot;
+        }
+    }
+}
+
+// An event on a phone, in its sheet (`calendar.html`, "Un événement"): its colour, its
+// title and when, Edit and "⋯"; Join first when it is held on a video call; then its
+// repetition, reminder, calendar and place; the tasks for it; your notes; the note of
+// the lecture or meeting, and its link.
+component PhoneEventBody inherits VerticalLayout {
+    in property <EventDetailData> detail;
+    in-out property <string> notes;
+    in property <[SubtaskData]> tasks;
+    in-out property <string> new-task;
+    callback notes-edited(string);
+    callback task-added(string);
+    callback task-toggled(int);
+    callback task-opened(int);
+    callback edit();
+    callback more();
+    callback join(string);
+    callback video-set(string);
+    callback take-notes();
+    callback copy-link();
+
+    property <string> video-typed;
+
+    vertical-stretch: 1;
+    spacing: 0px;
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-bottom: 4px;
+        spacing: 12px;
+        Rectangle {
+            y: 8px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: root.detail.color;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            Text {
+                text: root.detail.title == "" ? "(No title)" : root.detail.title;
+                font-family: Tokens.font-display;
+                font-size: 22px;
+                font-weight: 600;
+                color: Tokens.text;
+                wrap: word-wrap;
+            }
+            Text {
+                text: root.detail.when;
+                font-size: 15px;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+        }
+        if root.detail.editable: IconButton {
+            icon: Icons.pencil;
+            label: "Edit";
+            button-size: 44px;
+            icon-size: 22px;
+            tinted: true;
+            tint: Tokens.text-secondary;
+            clicked => { root.edit(); }
+        }
+        IconButton {
+            icon: Icons.more;
+            label: "More";
+            button-size: 44px;
+            icon-size: 22px;
+            tinted: true;
+            tint: Tokens.text-secondary;
+            clicked => { root.more(); }
+        }
+    }
+
+    if root.detail.video-url != "": HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        BlockButton {
+            text: root.detail.video-label;
+            icon: Icons.video;
+            clicked => { root.join(root.detail.video-url); }
+        }
+    }
+
+    ScrollView {
+        vertical-stretch: 1;
+        mouse-drag-pan-enabled: true;
+        content-width: self.visible-width;
+        VerticalLayout {
+            alignment: start;
+            padding-bottom: 12px;
+            if root.detail.repeats != "": PhoneFact {
+                inset: 4px;
+                first: true;
+                icon: Icons.repeat;
+                text: root.detail.repeats;
+            }
+            if root.detail.reminder != "": PhoneFact {
+                inset: 4px;
+                first: root.detail.repeats == "";
+                icon: Icons.bell;
+                text: root.detail.reminder;
+            }
+            PhoneFact {
+                inset: 4px;
+                first: root.detail.repeats == "" && root.detail.reminder == "";
+                icon: Icons.calendar;
+                text: root.detail.calendar;
+                dot: root.detail.color;
+                has-dot: true;
+            }
+            if root.detail.location != "": PhoneFact {
+                inset: 4px;
+                icon: Icons.map-pin;
+                text: root.detail.location;
+            }
+            // No call yet: its link given here, and kept.
+            if root.detail.video-url == "": PhoneRow {
+                inset: 4px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.video;
+                    size: 18px;
+                    tint: Tokens.text-muted;
+                }
+                TextField {
+                    y: (parent.height - self.height) / 2;
+                    horizontal-stretch: 1;
+                    bare: true;
+                    font-size: 15.5px;
+                    accessible-label: "Video call link";
+                    placeholder-text: "Video call link";
+                    text <=> root.video-typed;
+                    accepted(t) => { root.video-set(t); }
+                }
+            }
+            if !root.detail.editable: Text {
+                height: 36px;
+                x: 4px;
+                text: "From a subscribed calendar: read only.";
+                font-size: 13px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+
+            if root.detail.description != "": Rectangle {
+                height: description.preferred-height + 24px;
+                Rectangle {
+                    x: 4px;
+                    y: 12px;
+                    width: parent.width - 8px;
+                    height: parent.height - 12px;
+                    border-radius: 12px;
+                    background: Tokens.group;
+                }
+                description := Text {
+                    x: 18px;
+                    y: 24px;
+                    width: parent.width - 36px;
+                    text: root.detail.description;
+                    font-size: 14px;
+                    color: Tokens.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+
+            PhoneGroupTitle {
+                x: 4px;
+                text: "Tasks for it";
+            }
+            for t[i] in root.tasks: PhoneRow {
+                first: i == 0;
+                inset: 4px;
+                tappable: true;
+                clicked => { root.task-opened(t.id); }
+                Check {
+                    y: (parent.height - self.height) / 2;
+                    animated: true;
+                    size: 22px;
+                    done: t.done;
+                    label: t.title;
+                    toggled => { root.task-toggled(t.id); }
+                }
+                Text {
+                    text: t.title;
+                    font-size: 15.5px;
+                    color: t.done ? Tokens.text-muted : Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+            PhoneRow {
+                first: root.tasks.length == 0;
+                inset: 4px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.plus;
+                    size: 18px;
+                    tint: Tokens.text-muted;
+                }
+                TextField {
+                    y: (parent.height - self.height) / 2;
+                    horizontal-stretch: 1;
+                    bare: true;
+                    font-size: 15.5px;
+                    accessible-label: "Add a task for this event";
+                    placeholder-text: "Add a task";
+                    text <=> root.new-task;
+                    accepted(t) => {
+                        if (t != "") {
+                            root.task-added(t);
+                        }
+                    }
+                }
+            }
+
+            PhoneGroupTitle {
+                x: 4px;
+                text: "Your notes";
+            }
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-top: 6px;
+                Rectangle {
+                    height: 80px;
+                    border-radius: 12px;
+                    background: Tokens.group;
+                    TextArea {
+                        x: 4px;
+                        y: 2px;
+                        width: parent.width - 8px;
+                        height: parent.height - 4px;
+                        bare: true;
+                        font-size: 15px;
+                        accessible-label: "My notes";
+                        placeholder-text: "My notes, kept on this device";
+                        text <=> root.notes;
+                        edited(t) => { root.notes-edited(t); }
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-top: 16px;
+                spacing: 10px;
+                alignment: start;
+                CalPill {
+                    outline: true;
+                    icon: Icons.notes;
+                    text: "Notes";
+                    clicked => { root.take-notes(); }
+                }
+                CalPill {
+                    outline: true;
+                    icon: Icons.link;
+                    text: "Copy link";
+                    clicked => { root.copy-link(); }
+                }
+            }
+        }
+    }
+}
+
 // What an event is, when, where: a card beside it in the grid, or in the middle of
-// the window when it was opened from elsewhere (Home, a task).
+// the window when it was opened from elsewhere (Home, a task). On a phone, a sheet
+// that pulls up, opened from anywhere.
 export component EventDetailPanel inherits Rectangle {
     in property <EventDetailData> detail;
     /// What the user wrote about this event — theirs, even on a subscribed calendar.
@@ -319,8 +683,11 @@ export component EventDetailPanel inherits Rectangle {
     callback join(string);
     callback video-set(string);
     callback take-notes();
+    /// On a phone: the event's "⋯" (its menu: colour, delete…), and its link copied.
+    callback more();
+    callback copy-link();
 
-    if root.anchored: Popover {
+    if root.anchored || Layout.compact: Popover {
         width: 100%;
         height: 100%;
         anchor-left: root.anchor-left;
@@ -328,7 +695,23 @@ export component EventDetailPanel inherits Rectangle {
         anchor-top: root.anchor-top;
         card-width: 340px;
         dismissed => { root.dismissed(); }
-        EventBody {
+        if Layout.compact: PhoneEventBody {
+            detail: root.detail;
+            notes <=> root.notes;
+            tasks: root.tasks;
+            new-task <=> root.new-task;
+            notes-edited(t) => { root.notes-edited(t); }
+            task-added(t) => { root.task-added(t); }
+            task-toggled(id) => { root.task-toggled(id); }
+            task-opened(id) => { root.task-opened(id); }
+            edit => { root.edit(); }
+            more => { root.more(); }
+            join(u) => { root.join(u); }
+            video-set(u) => { root.video-set(u); }
+            take-notes => { root.take-notes(); }
+            copy-link => { root.copy-link(); }
+        }
+        if !Layout.compact: EventBody {
             detail: root.detail;
             notes <=> root.notes;
             tasks: root.tasks;
@@ -347,7 +730,7 @@ export component EventDetailPanel inherits Rectangle {
     }
 
     // Escape reaches the card even from a field, which hands the key up.
-    if !root.anchored: FocusScope {
+    if !root.anchored && !Layout.compact: FocusScope {
         enabled: false;
         key-pressed(event) => {
             if (event.text == Key.Escape) {
@@ -508,7 +891,429 @@ export component EventEditorPanel inherits Rectangle {
     callback picker-chosen(string);
     callback picker-closed();
 
-    PanelFrame {
+    /// The times as minutes of the day, for a phone's keys; kept with the words above.
+    in-out property <int> start-minute: 9 * 60;
+    in-out property <int> end-minute: 10 * 60;
+    /// The colours of `calendars`, in the same order.
+    in property <[color]> calendar-colors;
+
+    // --- A phone: the page of the mockups ("Nouvel événement"), in groups ---
+
+    /// Which time the keys set: 0 the start, 1 the end.
+    property <int> cible;
+    /// The list open as a sheet: 1 the repetition, 2 the reminder, 3 the calendar.
+    property <int> choix;
+    property <[string]> options: root.choix == 1 ? root.repeats
+        : root.choix == 2 ? root.reminders : root.calendars;
+    property <int> option-choisie: root.choix == 1 ? root.repeat-index
+        : root.choix == 2 ? root.reminder-index : root.calendar-index;
+    /// The time the keys show, and the first of the six hours offered around it.
+    property <int> valeur: root.cible == 0 ? root.start-minute : root.end-minute;
+    property <int> premiere-heure: max(0, min(18, floor(root.valeur / 60) - 2));
+
+    pure function hm(m: int) -> string {
+        return (floor(m / 60) < 10 ? "0" : "") + floor(m / 60) + ":"
+            + (mod(m, 60) < 10 ? "0" : "") + mod(m, 60);
+    }
+    /// A key pressed: the start moves the end with it on the same day, so the event
+    /// keeps its length.
+    function poser(m: int) {
+        if (root.cible == 0) {
+            let longueur = root.end-minute - root.start-minute;
+            root.start-minute = m;
+            root.start-time = root.hm(m);
+            if (root.start-date == root.end-date) {
+                root.end-minute = min(23 * 60 + 59, m + max(15, longueur));
+                root.end-time = root.hm(root.end-minute);
+            }
+        } else {
+            root.end-minute = m;
+            root.end-time = root.hm(m);
+        }
+    }
+
+    if Layout.compact: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: Tokens.background;
+
+        FocusScope {
+            width: parent.width;
+            height: parent.height;
+            enabled: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape || event.text == Key.Back) {
+                    if (root.choix != 0) {
+                        root.choix = 0;
+                    } else if (root.picker >= 0) {
+                        root.picker-closed();
+                    } else {
+                        root.dismissed();
+                    }
+                    return accept;
+                }
+                return reject;
+            }
+
+            // Nothing behind the page answers a touch.
+            TouchArea {}
+
+            VerticalLayout {
+                padding-top: Layout.inset-top;
+
+                // The bar (`.appbar.surf.line`): close, the title, Save.
+                Rectangle {
+                    height: 56px;
+                    background: Tokens.surface;
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 12px;
+                        spacing: 2px;
+                        IconButton {
+                            y: (parent.height - self.height) / 2;
+                            icon: Icons.window-close;
+                            label: "Close";
+                            button-size: 44px;
+                            icon-size: 18px;
+                            tinted: true;
+                            tint: Tokens.text-secondary;
+                            clicked => { root.dismissed(); }
+                        }
+                        Text {
+                            text: root.is-new ? "New event" : "Edit event";
+                            font-family: Tokens.font-display;
+                            font-size: 18px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                        CalPill {
+                            y: (parent.height - self.height) / 2;
+                            text: "Save";
+                            clicked => { root.save(); }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Tokens.border;
+                    }
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    mouse-drag-pan-enabled: true;
+                    content-width: self.visible-width;
+                    VerticalLayout {
+                        alignment: start;
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 12px;
+                        padding-bottom: 24px + Layout.inset-bottom;
+                        spacing: 14px;
+
+                        // What and where.
+                        Rectangle {
+                            height: quoi.preferred-height;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            quoi := VerticalLayout {
+                                PhoneRow {
+                                    first: true;
+                                    row-height: 60px;
+                                    // The title is not focused on opening: asked for while
+                                    // the page is being made, the keyboard is the likely
+                                    // cause of Iris stopping when an event was edited (6.5.0).
+                                    TextField {
+                                        y: (parent.height - self.height) / 2;
+                                        horizontal-stretch: 1;
+                                        bare: true;
+                                        font-size: 19px;
+                                        accessible-label: "Title";
+                                        placeholder-text: "What is it?";
+                                        text <=> root.title;
+                                        accepted => { root.save(); }
+                                    }
+                                }
+                                PhoneRow {
+                                    Icon {
+                                        y: (parent.height - self.height) / 2;
+                                        data: Icons.map-pin;
+                                        size: 18px;
+                                        tint: Tokens.text-muted;
+                                    }
+                                    TextField {
+                                        y: (parent.height - self.height) / 2;
+                                        horizontal-stretch: 1;
+                                        bare: true;
+                                        font-size: 15.5px;
+                                        accessible-label: "Location";
+                                        placeholder-text: "Location";
+                                        text <=> root.location;
+                                    }
+                                }
+                            }
+                        }
+
+                        // When: all day, the start, the end, and the keys of the hour.
+                        Rectangle {
+                            height: quand.preferred-height;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            quand := VerticalLayout {
+                                PhoneRow {
+                                    first: true;
+                                    Text {
+                                        text: "All day";
+                                        font-size: 15.5px;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Toggle {
+                                        y: (parent.height - self.height) / 2;
+                                        label: "All day";
+                                        on <=> root.all-day;
+                                    }
+                                }
+                                for bout in 2: PhoneRow {
+                                    Text {
+                                        text: bout == 0 ? "Starts" : "Ends";
+                                        font-size: 15.5px;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    // The date: the small month opens under it.
+                                    Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        width: jour.preferred-width + 22px;
+                                        height: 30px;
+                                        border-radius: 8px;
+                                        background: root.picker == bout ? Tokens.accent-soft : Tokens.surface-active;
+                                        accessible-role: button;
+                                        accessible-label: bout == 0 ? "Start date" : "End date";
+                                        accessible-value: jour.text;
+                                        accessible-expanded: root.picker == bout;
+                                        accessible-action-default => { root.picker-requested(bout); }
+                                        jour := Text {
+                                            text: bout == 0 ? root.start-label : root.end-label;
+                                            font-size: 13.5px;
+                                            color: root.picker == bout ? Tokens.accent : Tokens.text-secondary;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                        TouchArea {
+                                            clicked => { root.picker-requested(bout); }
+                                        }
+                                    }
+                                    // The time: the keys below set it.
+                                    if !root.all-day: Rectangle {
+                                        property <bool> vise: root.cible == bout;
+                                        y: (parent.height - self.height) / 2;
+                                        width: heure.preferred-width + 22px;
+                                        height: 30px;
+                                        border-radius: 8px;
+                                        background: self.vise ? Tokens.accent-soft : Tokens.surface-active;
+                                        accessible-role: button;
+                                        accessible-label: bout == 0 ? "Start time" : "End time";
+                                        accessible-value: heure.text;
+                                        accessible-action-default => { root.cible = bout; }
+                                        heure := Text {
+                                            text: bout == 0 ? root.start-time : root.end-time;
+                                            font-size: 13.5px;
+                                            color: parent.vise ? Tokens.accent : Tokens.text-secondary;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                        TouchArea {
+                                            clicked => { root.cible = bout; }
+                                        }
+                                    }
+                                }
+                                if root.picker >= 0: HorizontalLayout {
+                                    padding: 8px;
+                                    DatePicker {
+                                        title: root.picker-title;
+                                        cells: root.picker-cells;
+                                        navigate(n) => { root.picker-navigate(n); }
+                                        chosen(d) => { root.picker-chosen(d); }
+                                    }
+                                }
+                                // The hour, then the quarter: quicker than a wheel.
+                                if !root.all-day: PhoneRow {
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        spacing: 6px;
+                                        HorizontalLayout {
+                                            spacing: 2px;
+                                            for k in 6: Rectangle {
+                                                property <int> h: root.premiere-heure + k;
+                                                property <int> ecart: abs(self.h - floor(root.valeur / 60));
+                                                horizontal-stretch: 1;
+                                                height: 30px;
+                                                border-radius: 8px;
+                                                background: self.ecart == 0 ? Tokens.accent-soft : transparent;
+                                                accessible-role: button;
+                                                accessible-label: (self.h < 10 ? "0" : "") + self.h + " h";
+                                                accessible-action-default => { root.poser(h * 60 + mod(root.valeur, 60)); }
+                                                Text {
+                                                    text: (h < 10 ? "0" : "") + h;
+                                                    font-size: 16px;
+                                                    font-weight: ecart == 0 ? 700 : 400;
+                                                    color: ecart == 0 ? Tokens.accent
+                                                        : ecart == 1 ? Tokens.text-muted : Tokens.text-faint;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                                TouchArea {
+                                                    clicked => { root.poser(h * 60 + mod(root.valeur, 60)); }
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            for q in 4: Rectangle {
+                                                property <bool> pris: floor(mod(root.valeur, 60) / 15) == q;
+                                                horizontal-stretch: 1;
+                                                height: 30px;
+                                                border-radius: 8px;
+                                                background: self.pris ? Tokens.accent-soft : transparent;
+                                                accessible-role: button;
+                                                accessible-label: q == 0 ? ":00" : ":" + (q * 15);
+                                                accessible-action-default => { root.poser(floor(root.valeur / 60) * 60 + q * 15); }
+                                                Text {
+                                                    text: q == 0 ? ":00" : ":" + (q * 15);
+                                                    font-size: 15px;
+                                                    font-weight: pris ? 700 : 400;
+                                                    color: pris ? Tokens.accent : Tokens.text;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                                TouchArea {
+                                                    clicked => { root.poser(floor(root.valeur / 60) * 60 + q * 15); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // How it repeats, its reminder, its calendar: each a list.
+                        Rectangle {
+                            height: reglages.preferred-height;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            reglages := VerticalLayout {
+                                for n in 3: PhoneRow {
+                                    first: n == 0;
+                                    tappable: true;
+                                    clicked => { root.choix = n + 1; }
+                                    accessible-role: button;
+                                    accessible-label: n == 0 ? "Repeat" : n == 1 ? "Reminder" : "Calendar";
+                                    accessible-value: montre.text;
+                                    accessible-action-default => { root.choix = n + 1; }
+                                    Text {
+                                        text: n == 0 ? "Repeat" : n == 1 ? "Reminder" : "Calendar";
+                                        font-size: 15.5px;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    if n == 2 && root.calendar-colors.length > root.calendar-index: Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: root.calendar-colors[root.calendar-index];
+                                    }
+                                    montre := Text {
+                                        text: n == 0 ? (root.repeats.length > root.repeat-index ? root.repeats[root.repeat-index] : "")
+                                            : n == 1 ? (root.reminders.length > root.reminder-index ? root.reminders[root.reminder-index] : "")
+                                            : (root.calendars.length > root.calendar-index ? root.calendars[root.calendar-index] : "");
+                                        font-size: 14.5px;
+                                        color: Tokens.text-muted;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    Icon {
+                                        y: (parent.height - self.height) / 2;
+                                        data: Icons.chevron-right;
+                                        size: 18px;
+                                        tint: Tokens.text-faint;
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 80px;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            TextArea {
+                                x: 6px;
+                                y: 6px;
+                                width: parent.width - 12px;
+                                height: parent.height - 12px;
+                                bare: true;
+                                font-size: 15.5px;
+                                accessible-label: "Notes";
+                                placeholder-text: "Notes";
+                                text <=> root.notes;
+                            }
+                        }
+
+                        if root.error != "": Text {
+                            text: root.error;
+                            font-size: 14px;
+                            color: Tokens.error;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+
+        // The repetition, the reminder or the calendar, picked from a sheet.
+        if root.choix != 0: Rectangle {
+            width: parent.width;
+            height: parent.height;
+            TouchArea {
+                clicked => { root.choix = 0; }
+            }
+            MenuSurface {
+                available-width: parent.width;
+                available-height: parent.height;
+                menu-height: liste.preferred-height + 8px;
+                dismissed => { root.choix = 0; }
+                liste := VerticalLayout {
+                    padding: 4px;
+                    MenuHeader {
+                        text: root.choix == 1 ? "Repeat" : root.choix == 2 ? "Reminder" : "Calendar";
+                    }
+                    for nom[i] in root.options: MenuEntry {
+                        icon: i == root.option-choisie ? Icons.check : "";
+                        label: nom;
+                        activated => {
+                            if (root.choix == 1) {
+                                root.repeat-index = i;
+                            } else if (root.choix == 2) {
+                                root.reminder-index = i;
+                            } else {
+                                root.calendar-index = i;
+                            }
+                            root.choix = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !Layout.compact: PanelFrame {
         width: 100%;
         height: 100%;
         title: root.is-new ? "New event" : "Edit event";

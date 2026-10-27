@@ -1,0 +1,973 @@
+import { Layout } from "@iris/theme/layout.slint";
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import {
+    CalendarData, MonthCellData, AgendaRowData, StripDayData, PlanTaskData
+} from "@iris/types.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { BlockButton, ButtonKind } from "@iris/controls/button.slint";
+import { Check } from "@iris/controls/choice.slint";
+import { Hairline } from "@iris/base/atoms.slint";
+import { MenuSurface } from "@iris/layout/menu.slint";
+
+// The calendar on a phone, as the Android mockups draw it (`calendar.html` in
+// `..\Iris-design\android`): the month as a title, the week as a strip, the agenda,
+// the month with the chosen day under it, and the calendars as a sheet. Only a narrow
+// window lays these out; the PC keeps its toolbar, side column and grids.
+
+// A small pill of the mockups (`.btn.sm`): filled with the accent, or outlined. The
+// shared `Button` is the Mac's push button, square-cornered and low.
+export component CalPill inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    /// Outlined (`.btn.line`) rather than filled.
+    in property <bool> outline;
+    callback clicked();
+
+    height: 34px;
+    width: rang.preferred-width + 28px;
+    border-radius: 17px;
+    border-width: root.outline ? 1px : 0px;
+    border-color: Tokens.border-strong;
+    background: root.outline
+        ? (touch.pressed ? Tokens.surface-active : transparent)
+        : (touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent);
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 14px;
+        width: self.preferred-width;
+        spacing: 8px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 18px;
+            tint: root.outline ? Tokens.text : Tokens.accent-text;
+        }
+        Text {
+            text: root.text;
+            font-size: 14px;
+            font-weight: 600;
+            color: root.outline ? Tokens.text : Tokens.accent-text;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// New event over the day's grid: the round button (`.fab.round`), where the agenda has
+// the one with words.
+export component RoundFab inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent;
+    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-offset-y: Tokens.shadow-float-y;
+    drop-shadow-color: Tokens.shadow-float;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    Icon {
+        data: Icons.plus;
+        size: 22px;
+        tint: Tokens.accent-text;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The bar at the top: the month, which opens the whole month; the box with today's
+// number, which comes back to it; search; and the calendars behind "⋯".
+export component PhoneCalendarBar inherits HorizontalLayout {
+    in property <string> title;
+    /// The month is a way to the month view: its chevron says so. Over the month
+    /// itself it is only a title.
+    in property <bool> chevron: true;
+    in property <string> today;
+    /// While an event is typed on a slot only search stays (the mockups' quick add).
+    in property <bool> tools: true;
+    callback title-tapped();
+    callback today-tapped();
+    callback search();
+    callback more();
+
+    height: 56px;
+    padding-left: 6px;
+    padding-right: 6px;
+    spacing: 2px;
+
+    Rectangle {
+        width: rang.preferred-width + 12px;
+        accessible-role: button;
+        accessible-label: root.title;
+        accessible-description: root.chevron ? "Show the month" : "";
+        accessible-action-default => {
+            if (root.chevron) {
+                root.title-tapped();
+            }
+        }
+        rang := HorizontalLayout {
+            x: 6px;
+            width: self.preferred-width;
+            spacing: 4px;
+            Text {
+                text: root.title;
+                font-family: Tokens.font-display;
+                font-size: 22px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+            }
+            if root.chevron: Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.chevron-down;
+                size: 18px;
+                tint: Tokens.text;
+            }
+        }
+        TouchArea {
+            enabled: root.chevron;
+            clicked => { root.title-tapped(); }
+        }
+    }
+    Rectangle { horizontal-stretch: 1; }
+
+    // Today's number in a rounded box, as a phone's calendar has it.
+    if root.tools: Rectangle {
+        y: (parent.height - self.height) / 2;
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        background: retour.pressed ? Tokens.surface-active : transparent;
+        accessible-role: button;
+        accessible-label: "Go to today";
+        accessible-action-default => { root.today-tapped(); }
+        Rectangle {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border-width: 1.7px;
+            border-color: Tokens.text-secondary;
+            Text {
+                text: root.today;
+                font-size: 11px;
+                font-weight: 700;
+                color: Tokens.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        retour := TouchArea {
+            clicked => { root.today-tapped(); }
+        }
+    }
+    IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.search;
+        label: "Search";
+        button-size: 44px;
+        icon-size: 22px;
+        tinted: true;
+        tint: Tokens.text-secondary;
+        clicked => { root.search(); }
+    }
+    if root.tools: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.more;
+        label: "Calendars";
+        button-size: 44px;
+        icon-size: 22px;
+        tinted: true;
+        tint: Tokens.text-secondary;
+        clicked => { root.more(); }
+    }
+}
+
+// The week of the day chosen, the mini-calendar of a phone: the chosen day in a red
+// disc, today in red, a dot under a day that has something. Swiped, the next week.
+export component WeekStrip inherits Rectangle {
+    in property <[StripDayData]> days;
+    callback chosen(string);
+    /// Swiped: a week later (1) or earlier (-1).
+    callback swiped(int);
+
+    property <length> glisse;
+
+    height: 77px;
+
+    geste := SwipeGestureHandler {
+        width: parent.width;
+        height: parent.height;
+        handle-swipe-left: true;
+        handle-swipe-right: true;
+        moved => {
+            root.glisse = self.current-position.x - self.pressed-position.x;
+        }
+        swiped => {
+            if (root.glisse < -40px) {
+                root.swiped(1);
+            } else if (root.glisse > 40px) {
+                root.swiped(-1);
+            }
+            root.glisse = 0px;
+        }
+        cancelled => {
+            root.glisse = 0px;
+        }
+
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 4px;
+            padding-bottom: 8px;
+            for d in root.days: Rectangle {
+                horizontal-stretch: 1;
+                accessible-role: button;
+                accessible-label: d.name + " " + d.day;
+                accessible-description: d.busy ? "Has events" : "";
+                accessible-action-default => { root.chosen(d.date); }
+
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text {
+                        text: d.name;
+                        font-size: 12px;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 36px;
+                            height: 36px;
+                            border-radius: 18px;
+                            background: d.selected ? Tokens.red : transparent;
+                            Text {
+                                text: d.day;
+                                font-size: 16px;
+                                font-weight: d.selected || d.today ? 700 : 500;
+                                color: d.selected ? Tokens.accent-text
+                                    : d.today ? Tokens.red : Tokens.text;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 5px;
+                            height: 5px;
+                            border-radius: 2.5px;
+                            background: d.busy ? Tokens.text-faint : transparent;
+                        }
+                    }
+                }
+                TouchArea {
+                    clicked => { root.chosen(d.date); }
+                }
+            }
+        }
+    }
+}
+
+// A day's name over its events (`.ag-day`): "Today", then "Monday 26 October".
+component AgendaDay inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> note;
+    in property <bool> today;
+
+    padding-left: 18px;
+    padding-right: 18px;
+    padding-top: 16px;
+    padding-bottom: 4px;
+    spacing: 10px;
+    Text {
+        text: root.text;
+        font-size: 14.5px;
+        font-weight: 600;
+        color: root.today ? Tokens.red : Tokens.text;
+        vertical-alignment: bottom;
+    }
+    Text {
+        text: root.note;
+        font-size: 13.5px;
+        color: Tokens.text-muted;
+        vertical-alignment: bottom;
+        overflow: elide;
+        horizontal-stretch: 1;
+    }
+}
+
+// An event as a line of the agenda (`.ag`): its time and length on the left, its
+// calendar's colour as a bar, its title and where it is held. The next event held on
+// a video call carries its Join button.
+component AgendaLine inherits Rectangle {
+    in property <AgendaRowData> row;
+    /// The month's list: tighter, the time without the length, the title alone.
+    in property <bool> tight;
+    callback opened(string);
+    callback join(string);
+
+    height: ligne.preferred-height;
+    opacity: root.row.past ? 0.5 : 1;
+    background: toucher.pressed ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.row.title;
+    accessible-description: root.row.time + (root.row.place != "" ? ", " + root.row.place : "");
+    accessible-action-default => { root.opened(root.row.key); }
+
+    toucher := TouchArea {
+        clicked => { root.opened(root.row.key); }
+    }
+
+    ligne := HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: root.tight ? 6px : 11px;
+        padding-bottom: root.tight ? 6px : 11px;
+        spacing: 12px;
+        VerticalLayout {
+            width: 58px;
+            alignment: start;
+            Text {
+                text: root.row.time;
+                font-size: 13.5px;
+                color: Tokens.text-secondary;
+                horizontal-alignment: right;
+            }
+            if !root.tight && root.row.length != "": Text {
+                text: root.row.length;
+                font-size: 12.5px;
+                color: Tokens.text-muted;
+                horizontal-alignment: right;
+            }
+        }
+        Rectangle {
+            width: 4px;
+            border-radius: 2px;
+            background: root.row.color;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: start;
+            spacing: 2px;
+            Text {
+                text: root.row.title;
+                font-size: 15.5px;
+                font-weight: 600;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            if !root.tight && root.row.place != "": HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                if root.row.place-icon != "": Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: root.row.place-icon == "video" ? Icons.video
+                        : root.row.place-icon == "pin" ? Icons.map-pin : Icons.repeat;
+                    size: 14px;
+                    tint: Tokens.text-muted;
+                }
+                Text {
+                    text: root.row.place;
+                    font-size: 13.5px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+            if !root.tight && root.row.video-url != "": HorizontalLayout {
+                padding-top: 8px;
+                alignment: start;
+                CalPill {
+                    text: root.row.video-label;
+                    icon: Icons.video;
+                    clicked => { root.join(root.row.video-url); }
+                }
+            }
+        }
+    }
+}
+
+// The line of now between the events of today (`.now` in the agenda): the time in red
+// in the times' column, a red rule beside it.
+component AgendaNow inherits HorizontalLayout {
+    in property <string> time;
+    height: 16px;
+    padding-left: 18px;
+    padding-right: 18px;
+    spacing: 12px;
+    Text {
+        width: 58px;
+        text: root.time;
+        font-size: 12.5px;
+        font-weight: 700;
+        color: Tokens.red;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        Rectangle {
+            height: 2px;
+            border-radius: 1px;
+            background: Tokens.red;
+        }
+    }
+}
+
+// The agenda: the days one under the other, each with its events. What a phone opens
+// on, where seven columns of fifty pixels cannot be read.
+export component PhoneAgenda inherits Rectangle {
+    in property <[AgendaRowData]> rows;
+    callback event-opened(string);
+    callback join(string);
+
+    background: Tokens.surface;
+
+    Rectangle {
+        y: 0;
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    ScrollView {
+        y: 1px;
+        width: parent.width;
+        height: parent.height - 1px;
+        mouse-drag-pan-enabled: true;
+        content-width: self.visible-width;
+        VerticalLayout {
+            // Room under the last event for New event, which floats there.
+            padding-bottom: 88px;
+            alignment: start;
+            if root.rows.length == 0: Text {
+                text: "Nothing in the next two weeks.";
+                font-size: 15px;
+                color: Tokens.text-muted;
+                horizontal-alignment: center;
+                height: 120px;
+                vertical-alignment: center;
+            }
+            for r in root.rows: VerticalLayout {
+                if r.day != "": AgendaDay {
+                    text: r.day;
+                    note: r.day-note;
+                    today: r.today;
+                }
+                if r.now-line != "": AgendaNow {
+                    time: r.now-line;
+                }
+                AgendaLine {
+                    row: r;
+                    opened(k) => { root.event-opened(k); }
+                    join(u) => { root.join(u); }
+                }
+            }
+        }
+    }
+}
+
+// Today's tasks without an hour, over the day (`To plan`): opened, a task touched, then
+// a free time in the grid, books it there; the desktop's drag in two touches. "Plan my
+// day" gives each the first free time.
+export component ToPlanBand inherits VerticalLayout {
+    in property <[PlanTaskData]> tasks;
+    /// The task touched, waiting for a time (-1: none), and its title.
+    in-out property <int> picked: -1;
+    in-out property <string> picked-title;
+    callback plan-all();
+
+    property <bool> open;
+
+    Hairline {}
+    Rectangle {
+        height: 40px;
+        background: bande.pressed ? Tokens.surface-hover : transparent;
+        accessible-role: button;
+        accessible-label: "To plan";
+        accessible-description: root.tasks.length + " tasks without an hour";
+        accessible-expanded: root.open;
+        accessible-action-default => { root.open = !root.open; }
+        bande := TouchArea {
+            clicked => {
+                if (root.picked >= 0) {
+                    root.picked = -1;
+                } else {
+                    root.open = !root.open;
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 18px;
+            padding-right: 18px;
+            spacing: 10px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: etiquette.preferred-width + 14px;
+                height: 20px;
+                border-radius: 5px;
+                background: Tokens.surface-active;
+                etiquette := Text {
+                    text: "To plan";
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Tokens.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                text: root.picked >= 0 ? "Touch a free time for “" + root.picked-title + "”"
+                    : root.tasks.length == 1 ? "1 task without an hour"
+                    : root.tasks.length + " tasks without an hour";
+                font-size: 14px;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Rectangle {
+                width: action.preferred-width;
+                accessible-role: button;
+                accessible-label: action.text;
+                accessible-action-default => {
+                    if (root.picked >= 0) {
+                        root.picked = -1;
+                    } else {
+                        root.plan-all();
+                    }
+                }
+                action := Text {
+                    text: root.picked >= 0 ? "Cancel" : "Plan my day";
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: Tokens.accent;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => {
+                        if (root.picked >= 0) {
+                            root.picked = -1;
+                        } else {
+                            root.open = false;
+                            root.plan-all();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if root.open: VerticalLayout {
+        for t in root.tasks: Rectangle {
+            height: 48px;
+            background: prise.pressed ? Tokens.surface-hover : transparent;
+            accessible-role: button;
+            accessible-label: t.title;
+            accessible-description: t.meta + ", then touch a free time to book it";
+            accessible-action-default => {
+                root.picked = t.id;
+                root.picked-title = t.title;
+                root.open = false;
+            }
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 12px;
+                Check {
+                    y: (parent.height - self.height) / 2;
+                    size: 20px;
+                    interactive: false;
+                    label: t.title;
+                }
+                Text {
+                    text: t.title;
+                    font-size: 15px;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: t.meta;
+                    font-size: 13px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+            prise := TouchArea {
+                clicked => {
+                    root.picked = t.id;
+                    root.picked-title = t.title;
+                    root.open = false;
+                }
+            }
+        }
+    }
+    Hairline {}
+}
+
+// The month on a phone (`.mgrid`): a letter per weekday, two events a day at most
+// then "+3", the chosen day in a red disc. The day touched opens under it as a list:
+// read without leaving the month. Swiped, the next month.
+export component PhoneMonth inherits VerticalLayout {
+    in property <[MonthCellData]> cells;
+    in property <string> heading;
+    in property <bool> heading-today;
+    in property <[AgendaRowData]> rows;
+    callback day-chosen(string);
+    callback navigate(int);
+    callback event-opened(string);
+    callback join(string);
+
+    property <length> glisse;
+    /// A sixth week only when the month reaches into it.
+    property <int> semaines: root.cells.length >= 42 && root.cells[35].in-month ? 6 : 5;
+
+    SwipeGestureHandler {
+        height: 28px + root.semaines * 80px;
+        handle-swipe-left: true;
+        handle-swipe-right: true;
+        moved => {
+            root.glisse = self.current-position.x - self.pressed-position.x;
+        }
+        swiped => {
+            if (root.glisse < -40px) {
+                root.navigate(1);
+            } else if (root.glisse > 40px) {
+                root.navigate(-1);
+            }
+            root.glisse = 0px;
+        }
+        cancelled => {
+            root.glisse = 0px;
+        }
+
+        VerticalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            HorizontalLayout {
+                height: 28px;
+                for initiale in ["M", "T", "W", "T", "F", "S", "S"]: Text {
+                    text: initiale;
+                    font-size: 12px;
+                    color: Tokens.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+            for semaine in root.semaines: HorizontalLayout {
+                height: 80px;
+                for colonne in 7: Rectangle {
+                    property <MonthCellData> cell: root.cells[semaine * 7 + colonne];
+                    /// The events that did not get a line: "+3".
+                    property <int> reste: self.cell.events.length + self.cell.more - 2;
+                    horizontal-stretch: 1;
+                    clip: true;
+
+                    accessible-role: button;
+                    accessible-label: self.cell.date;
+                    accessible-description: (self.cell.events.length + self.cell.more) + " events";
+                    accessible-action-default => { root.day-chosen(self.cell.date); }
+
+                    Rectangle {
+                        y: 0;
+                        height: 1px;
+                        background: Tokens.border;
+                    }
+                    TouchArea {
+                        clicked => { root.day-chosen(cell.date); }
+                    }
+                    Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: 4px;
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 14px;
+                        background: cell.selected ? Tokens.red : transparent;
+                        Text {
+                            text: cell.day;
+                            font-size: 13.5px;
+                            font-weight: cell.selected || cell.today ? 700 : 400;
+                            color: cell.selected ? Tokens.accent-text
+                                : cell.today ? Tokens.red
+                                : cell.in-month ? Tokens.text : Tokens.text-faint;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                    for chip[i] in cell.events: Rectangle {
+                        visible: i < 2;
+                        x: 3px;
+                        y: 34px + i * 15px;
+                        width: parent.width - 6px;
+                        height: 14px;
+                        border-radius: 3px;
+                        background: chip.color.transparentize(0.8);
+                        clip: true;
+                        Text {
+                            x: 3px;
+                            width: parent.width - 6px;
+                            text: chip.title;
+                            font-size: 10.5px;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                            overflow: clip;
+                        }
+                    }
+                    if reste > 0: Rectangle {
+                        x: 3px;
+                        y: 34px + 2 * 15px;
+                        width: parent.width - 6px;
+                        height: 14px;
+                        border-radius: 3px;
+                        background: Tokens.grey.transparentize(0.8);
+                        Text {
+                            x: 3px;
+                            width: parent.width - 6px;
+                            text: "+" + reste;
+                            font-size: 10.5px;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        vertical-stretch: 1;
+        background: Tokens.surface;
+        Rectangle {
+            y: 0;
+            height: 1px;
+            background: Tokens.border;
+        }
+        ScrollView {
+            y: 1px;
+            width: parent.width;
+            height: parent.height - 1px;
+            mouse-drag-pan-enabled: true;
+            content-width: self.visible-width;
+            VerticalLayout {
+                padding-bottom: 16px;
+                alignment: start;
+                AgendaDay {
+                    text: root.heading;
+                    note: root.rows.length == 1 ? "1 event"
+                        : root.rows.length == 0 ? "" : root.rows.length + " events";
+                    today: root.heading-today;
+                }
+                if root.rows.length == 0: Text {
+                    x: 18px;
+                    height: 40px;
+                    text: "Nothing on this day.";
+                    font-size: 14px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                for r in root.rows: AgendaLine {
+                    row: r;
+                    tight: true;
+                    opened(k) => { root.event-opened(k); }
+                    join(u) => { root.join(u); }
+                }
+            }
+        }
+    }
+}
+
+// A calendar in the sheet: its colour as a box ticked when it shows, its name, how
+// fresh it is, and its own "⋯" (rename, recolour, refresh, disconnect).
+component SheetCalendarRow inherits Rectangle {
+    in property <CalendarData> cal;
+    callback toggled(int);
+    callback menu(CalendarData, length, length);
+
+    height: max(52px, rang.preferred-height);
+    background: touche.pressed ? Tokens.surface-hover : transparent;
+
+    accessible-role: checkbox;
+    accessible-label: root.cal.name;
+    accessible-checked: root.cal.visible;
+    accessible-description: root.cal.status;
+    accessible-action-default => { root.toggled(root.cal.id); }
+
+    touche := TouchArea {
+        clicked => { root.toggled(root.cal.id); }
+    }
+
+    rang := HorizontalLayout {
+        padding-left: 22px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 14px;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 22px;
+            height: 22px;
+            border-radius: 6px;
+            background: root.cal.visible ? root.cal.color : transparent;
+            border-width: root.cal.visible ? 0px : 2px;
+            border-color: root.cal.color;
+            if root.cal.visible: Icon {
+                data: Icons.check;
+                size: 14px;
+                weight: 3.0;
+                tint: white;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.cal.name;
+                font-size: 15.5px;
+                color: Tokens.text;
+                overflow: elide;
+            }
+            if root.cal.subscribed: Text {
+                text: root.cal.status == "" ? "read-only" : "read-only · " + root.cal.status;
+                font-size: 13px;
+                color: root.cal.failed ? Tokens.error : Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+        if root.cal.remote && root.cal.status != "": Text {
+            text: root.cal.status;
+            font-size: 13px;
+            color: root.cal.failed ? Tokens.error : Tokens.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+            max-width: 140px;
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.more;
+            label: "More for " + root.cal.name;
+            button-size: 40px;
+            icon-size: 18px;
+            clicked => {
+                root.menu(root.cal,
+                    self.absolute-position.x + self.width / 2,
+                    self.absolute-position.y + self.height / 2);
+            }
+        }
+    }
+}
+
+// The calendars, from "⋯": the desktop's column as a sheet. Ticked to show or hide; a
+// calendar's own "⋯" for the rest; subscribing and connecting a server at the foot.
+export component CalendarsSheet inherits Rectangle {
+    /// In groups, each with `group` naming it on its first calendar.
+    in property <[CalendarData]> calendars;
+    callback toggled(int);
+    callback menu(CalendarData, length, length);
+    callback new-calendar();
+    callback subscribe();
+    callback connect();
+    callback dismissed();
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        available-width: root.width;
+        available-height: root.height;
+        menu-width: root.width;
+        menu-height: min(contenu.preferred-height, root.height - 96px - Layout.inset-top);
+        dismissed => { root.dismissed(); }
+
+        ScrollView {
+            width: parent.width;
+            height: parent.height;
+            mouse-drag-pan-enabled: true;
+            content-width: self.visible-width;
+            contenu := VerticalLayout {
+                alignment: start;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 10px;
+                    padding-top: 8px;
+                    padding-bottom: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: "Calendars";
+                        font-family: Tokens.font-display;
+                        font-size: 19px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.plus;
+                        label: "New calendar";
+                        button-size: 44px;
+                        icon-size: 22px;
+                        tinted: true;
+                        tint: Tokens.text-secondary;
+                        clicked => { root.new-calendar(); }
+                    }
+                }
+                for cal in root.calendars: VerticalLayout {
+                    if cal.group != "": Text {
+                        height: 30px;
+                        x: 22px;
+                        text: cal.group;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Tokens.text-muted;
+                        vertical-alignment: bottom;
+                        overflow: elide;
+                    }
+                    SheetCalendarRow {
+                        cal: cal;
+                        toggled(id) => { root.toggled(id); }
+                        menu(c, x, y) => { root.menu(c, x, y); }
+                    }
+                }
+                Rectangle { height: 8px; }
+                Hairline {}
+                VerticalLayout {
+                    padding-left: 22px;
+                    padding-right: 22px;
+                    padding-top: 14px;
+                    padding-bottom: 10px;
+                    spacing: 8px;
+                    BlockButton {
+                        kind: ButtonKind.secondary;
+                        icon: Icons.link;
+                        text: "Subscribe to a calendar…";
+                        clicked => { root.subscribe(); }
+                    }
+                    BlockButton {
+                        kind: ButtonKind.secondary;
+                        icon: Icons.calendar;
+                        text: "Connect calendars from a server";
+                        clicked => { root.connect(); }
+                    }
+                }
+            }
+        }
+    }
+}

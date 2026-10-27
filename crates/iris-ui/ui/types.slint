@@ -287,6 +287,9 @@ export struct CalendarData {
     // the account.
     remote: bool,
     account: string,
+    // In a phone's sheet of calendars: the title of the group this one opens ("On
+    // this phone", the account, "Subscribed"); empty on the others.
+    group: string,
 }
 
 // An event as a line in a month cell or an all-day strip.
@@ -338,6 +341,48 @@ export struct AgendaRowData {
     length: string,
     color: color,
     past: bool,
+    // On a phone the day's name is in two parts: "Today", then "Monday 26 October".
+    day-note: string,
+    // Under the title: where it is held ("Café des Arts", "Teams"), and the icon
+    // that says which ("pin", "video", "repeat"; empty: none).
+    place: string,
+    place-icon: string,
+    // The next event, when held on a video call: its link, service and button words.
+    // Empty on every other line.
+    video-url: string,
+    video-kind: string,
+    video-label: string,
+    // "09:41" on the first event of today still to come: the line of now goes above it.
+    now-line: string,
+}
+
+// A day of the week's strip on a phone: a dot under it when it has something.
+export struct StripDayData {
+    // "Mon", "26".
+    name: string,
+    day: string,
+    date: string,
+    today: bool,
+    selected: bool,
+    busy: bool,
+}
+
+// What a phone's calendar shows besides the period.
+export struct CalendarPhoneData {
+    // "October"; "October 2026" over the month.
+    title: string,
+    // Today's day of the month, on the button that goes back to it.
+    today: string,
+    // The week of the day chosen.
+    strip: [StripDayData],
+    // Under the month: the day chosen, "Monday 26", and its events.
+    day-heading: string,
+    day-today: bool,
+    day-list: [AgendaRowData],
+    // The calendar an event typed on a slot goes into.
+    quick-color: color,
+    // The calendars for the sheet, in groups: on this device, each account, subscribed.
+    calendars: [CalendarData],
 }
 
 // A device paired with this one, in Settings › Devices.
