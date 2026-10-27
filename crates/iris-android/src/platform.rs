@@ -184,7 +184,9 @@ pub fn vault_key(chemins: &iris_app::paths::Paths) -> Result<Secret> {
         return Ok(Secret::new(hex::encode(cle)));
     }
     let cle: Vec<u8> = match std::fs::read_to_string(&clair) {
-        Ok(t) if t.trim().len() == 64 => hex::decode(t.trim()).map_err(|e| erreur(e.to_string()))?,
+        Ok(t) if t.trim().len() == 64 => {
+            hex::decode(t.trim()).map_err(|e| erreur(e.to_string()))?
+        }
         _ => {
             let mut octets = [0u8; 32];
             getrandom::fill(&mut octets).map_err(|e| erreur(e.to_string()))?;
@@ -210,7 +212,8 @@ mod keystore {
     fn env_et<T>(f: impl FnOnce(&mut JNIEnv) -> jni::errors::Result<T>) -> Result<T, String> {
         let contexte = ndk_context::android_context();
         // SAFETY: the VM Android gave the process; it lives as long as it.
-        let vm = unsafe { jni::JavaVM::from_raw(contexte.vm().cast()) }.map_err(|e| e.to_string())?;
+        let vm =
+            unsafe { jni::JavaVM::from_raw(contexte.vm().cast()) }.map_err(|e| e.to_string())?;
         let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
         let r = f(&mut env);
         if env.exception_check().unwrap_or(false) {
@@ -240,7 +243,12 @@ mod keystore {
         )?;
         let alias = env.new_string(ALIAS)?;
         let existe = env
-            .call_method(&magasin, "containsAlias", "(Ljava/lang/String;)Z", &[JValue::Object(&alias)])?
+            .call_method(
+                &magasin,
+                "containsAlias",
+                "(Ljava/lang/String;)Z",
+                &[JValue::Object(&alias)],
+            )?
             .z()?;
         if existe {
             return env
@@ -303,8 +311,13 @@ mod keystore {
             "(Ljava/security/spec/AlgorithmParameterSpec;)V",
             &[JValue::Object(&spec)],
         )?;
-        env.call_method(&generateur, "generateKey", "()Ljavax/crypto/SecretKey;", &[])?
-            .l()
+        env.call_method(
+            &generateur,
+            "generateKey",
+            "()Ljavax/crypto/SecretKey;",
+            &[],
+        )?
+        .l()
     }
 
     fn cipher<'a>(env: &mut JNIEnv<'a>) -> jni::errors::Result<JObject<'a>> {
