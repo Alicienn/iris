@@ -7,8 +7,8 @@ import {
 } from "@iris/types.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { Nav, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
-import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
-import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
+import { Button, ButtonKind, ButtonSize, Fab } from "@iris/controls/button.slint";
+import { Check, CheckShape, Segmented, QueueSegments } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
@@ -1242,7 +1242,61 @@ export component CalendarView inherits Rectangle {
 
         // --- Right: the period, under the window's toolbar ---
         VerticalLayout {
-            WindowToolbar {
+            // A phone: the period as a large title with its arrows and Today, the views
+            // under it the whole width, New event floating over the days. In one bar,
+            // as on a PC, the title and the arrows fell off the screen.
+            if Layout.compact: VerticalLayout {
+                vertical-stretch: 0;
+                padding-left: 16px;
+                padding-right: 8px;
+                padding-top: 4px;
+                padding-bottom: 10px;
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: root.title;
+                        font-family: Tokens.font-display;
+                        font-size: 26px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.chevron-left;
+                        label: "Previous";
+                        button-size: 44px;
+                        icon-size: 20px;
+                        clicked => { root.navigate(-1); }
+                    }
+                    Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "Today";
+                        clicked => { root.today(); }
+                    }
+                    IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.chevron-right;
+                        label: "Next";
+                        button-size: 44px;
+                        icon-size: 20px;
+                        clicked => { root.navigate(1); }
+                    }
+                }
+                HorizontalLayout {
+                    padding-right: 8px;
+                    QueueSegments {
+                        names: ["Agenda", "Day", "3 days", "Month"];
+                        selected: root.mode == 4 ? 0 : root.mode == 2 ? 1 : root.mode == 0 ? 3 : 2;
+                        chosen(i) => { root.mode-chosen(i == 0 ? 4 : i == 1 ? 2 : i == 2 ? 3 : 0); }
+                    }
+                }
+            }
+            if !Layout.compact: WindowToolbar {
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
@@ -1262,12 +1316,6 @@ export component CalendarView inherits Rectangle {
                     options: ["Day", "Week", "Month"];
                     selected: root.mode >= 3 ? (root.mode == 3 ? 1 : 0) : 2 - root.mode;
                     chosen(i) => { root.mode-chosen(2 - i); }
-                }
-                if Layout.compact: Segmented {
-                    y: (parent.height - self.height) / 2;
-                    options: ["Agenda", "Day", "3 days", "Month"];
-                    selected: root.mode == 4 ? 0 : root.mode == 2 ? 1 : root.mode == 0 ? 3 : 2;
-                    chosen(i) => { root.mode-chosen(i == 0 ? 4 : i == 1 ? 2 : i == 2 ? 3 : 0); }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 IconButton {
@@ -1345,6 +1393,15 @@ export component CalendarView inherits Rectangle {
                 task-dropped(d, m) => { root.task-planned(root.dropped, d, m); }
             }
         }
+    }
+
+    // New event under the thumb on a phone, where the bar has no room for it.
+    if Layout.compact: Fab {
+        x: parent.width - self.width - 16px;
+        y: parent.height - self.height - 16px;
+        text: "New event";
+        icon: Icons.plus;
+        clicked => { root.new-event("", -1); }
     }
 
     // The task under the pointer while it is carried.

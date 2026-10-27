@@ -12,6 +12,7 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 ### Improved
 - Android's Back closes what is open, New message included, before leaving the screen.
 - On a phone, the line to add a task stands out, and rises above the keyboard.
+- On a phone, the calendar shows its title, views and arrows in full, with New event under the thumb.
 
 ### Fixed
 - On Android, no screen slides under the status bar any more.

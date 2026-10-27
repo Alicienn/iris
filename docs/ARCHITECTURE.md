@@ -576,6 +576,9 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   column), then goes back in the history. A page closed (`navigated("page", "")`) is a
   step back, not a new step (`History::choose`). Tapping the current tab runs
   `place-root`: the mail's list, the calendar on today, the tasks with nothing open.
+- The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
+  Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
+  lost its title and arrows off a phone's screen.
 - Quoted text and list items lay their words in a column set in from the bars or the
   bullet, never in a row beside them: a row measured the wrapped text as one line, and
   on a phone the lines ran over the next block.
