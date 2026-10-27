@@ -169,20 +169,205 @@ fn ouvrir_dans_le_systeme(url: &str) -> std::result::Result<(), String> {
 }
 
 /// The key of Iris's encrypted vault: 32 random bytes, made once and kept in the app's
-/// private folder, which no other app can read. (The keystore will wrap it later.)
+/// private folder, which no other app can read.
+///
+/// The key is kept wrapped by an AES-256-GCM key of the Android Keystore
+/// (`vault-key.sealed`: the 12-byte IV, then the sealed key), which never leaves the
+/// phone's secure hardware: a copy of the app's files elsewhere does not open the
+/// vault. A key kept in clear by the first preview (`vault-key`) is sealed and removed.
 pub fn vault_key(chemins: &iris_app::paths::Paths) -> Result<Secret> {
-    let fichier = chemins.data.join("vault-key");
-    if let Ok(cle) = std::fs::read_to_string(&fichier) {
-        let cle = cle.trim();
-        if cle.len() == 64 {
-            return Ok(Secret::new(cle));
-        }
+    let scelle = chemins.data.join("vault-key.sealed");
+    let clair = chemins.data.join("vault-key");
+    let erreur = |e: String| Error::other(format!("the vault's key: {e}"));
+    if let Ok(octets) = std::fs::read(&scelle) {
+        let cle = keystore::open(&octets).map_err(erreur)?;
+        return Ok(Secret::new(hex::encode(cle)));
     }
-    let mut octets = [0u8; 32];
-    getrandom::fill(&mut octets).map_err(|e| Error::other(format!("random bytes: {e}")))?;
-    let cle = hex::encode(octets);
+    let cle: Vec<u8> = match std::fs::read_to_string(&clair) {
+        Ok(t) if t.trim().len() == 64 => hex::decode(t.trim()).map_err(|e| erreur(e.to_string()))?,
+        _ => {
+            let mut octets = [0u8; 32];
+            getrandom::fill(&mut octets).map_err(|e| erreur(e.to_string()))?;
+            octets.to_vec()
+        }
+    };
+    let ferme = keystore::seal(&cle).map_err(erreur)?;
     std::fs::create_dir_all(&chemins.data)
-        .and_then(|_| std::fs::write(&fichier, &cle))
-        .map_err(|e| Error::other(format!("writing the vault's key: {e}")))?;
-    Ok(Secret::new(cle))
+        .and_then(|_| std::fs::write(&scelle, &ferme))
+        .map_err(|e| erreur(e.to_string()))?;
+    let _ = std::fs::remove_file(&clair);
+    Ok(Secret::new(hex::encode(cle)))
+}
+
+/// The Android Keystore, over JNI.
+mod keystore {
+    use jni::objects::{JObject, JValue};
+    use jni::JNIEnv;
+
+    const ALIAS: &str = "iris-vault";
+    const TRANSFORMATION: &str = "AES/GCM/NoPadding";
+
+    fn env_et<T>(f: impl FnOnce(&mut JNIEnv) -> jni::errors::Result<T>) -> Result<T, String> {
+        let contexte = ndk_context::android_context();
+        // SAFETY: the VM Android gave the process; it lives as long as it.
+        let vm = unsafe { jni::JavaVM::from_raw(contexte.vm().cast()) }.map_err(|e| e.to_string())?;
+        let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+        let r = f(&mut env);
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+        }
+        r.map_err(|e| e.to_string())
+    }
+
+    /// The Keystore's key, made the first time.
+    fn key<'a>(env: &mut JNIEnv<'a>) -> jni::errors::Result<JObject<'a>> {
+        let nom = env.new_string("AndroidKeyStore")?;
+        let magasin = env
+            .call_static_method(
+                "java/security/KeyStore",
+                "getInstance",
+                "(Ljava/lang/String;)Ljava/security/KeyStore;",
+                &[JValue::Object(&nom)],
+            )?
+            .l()?;
+        let rien = JObject::null();
+        env.call_method(
+            &magasin,
+            "load",
+            "(Ljava/security/KeyStore$LoadStoreParameter;)V",
+            &[JValue::Object(&rien)],
+        )?;
+        let alias = env.new_string(ALIAS)?;
+        let existe = env
+            .call_method(&magasin, "containsAlias", "(Ljava/lang/String;)Z", &[JValue::Object(&alias)])?
+            .z()?;
+        if existe {
+            return env
+                .call_method(
+                    &magasin,
+                    "getKey",
+                    "(Ljava/lang/String;[C)Ljava/security/Key;",
+                    &[JValue::Object(&alias), JValue::Object(&rien)],
+                )?
+                .l();
+        }
+        // PURPOSE_ENCRYPT | PURPOSE_DECRYPT, GCM, no padding, 256 bits.
+        let constructeur = env.new_object(
+            "android/security/keystore/KeyGenParameterSpec$Builder",
+            "(Ljava/lang/String;I)V",
+            &[JValue::Object(&alias), JValue::Int(1 | 2)],
+        )?;
+        let gcm = env.new_string("GCM")?;
+        let modes = env.new_object_array(1, "java/lang/String", &gcm)?;
+        env.call_method(
+            &constructeur,
+            "setBlockModes",
+            "([Ljava/lang/String;)Landroid/security/keystore/KeyGenParameterSpec$Builder;",
+            &[JValue::Object(&modes)],
+        )?;
+        let sans = env.new_string("NoPadding")?;
+        let bourrages = env.new_object_array(1, "java/lang/String", &sans)?;
+        env.call_method(
+            &constructeur,
+            "setEncryptionPaddings",
+            "([Ljava/lang/String;)Landroid/security/keystore/KeyGenParameterSpec$Builder;",
+            &[JValue::Object(&bourrages)],
+        )?;
+        env.call_method(
+            &constructeur,
+            "setKeySize",
+            "(I)Landroid/security/keystore/KeyGenParameterSpec$Builder;",
+            &[JValue::Int(256)],
+        )?;
+        let spec = env
+            .call_method(
+                &constructeur,
+                "build",
+                "()Landroid/security/keystore/KeyGenParameterSpec;",
+                &[],
+            )?
+            .l()?;
+        let aes = env.new_string("AES")?;
+        let generateur = env
+            .call_static_method(
+                "javax/crypto/KeyGenerator",
+                "getInstance",
+                "(Ljava/lang/String;Ljava/lang/String;)Ljavax/crypto/KeyGenerator;",
+                &[JValue::Object(&aes), JValue::Object(&nom)],
+            )?
+            .l()?;
+        env.call_method(
+            &generateur,
+            "init",
+            "(Ljava/security/spec/AlgorithmParameterSpec;)V",
+            &[JValue::Object(&spec)],
+        )?;
+        env.call_method(&generateur, "generateKey", "()Ljavax/crypto/SecretKey;", &[])?
+            .l()
+    }
+
+    fn cipher<'a>(env: &mut JNIEnv<'a>) -> jni::errors::Result<JObject<'a>> {
+        let t = env.new_string(TRANSFORMATION)?;
+        env.call_static_method(
+            "javax/crypto/Cipher",
+            "getInstance",
+            "(Ljava/lang/String;)Ljavax/crypto/Cipher;",
+            &[JValue::Object(&t)],
+        )?
+        .l()
+    }
+
+    /// The IV (12 bytes), then the sealed bytes.
+    pub fn seal(clair: &[u8]) -> Result<Vec<u8>, String> {
+        env_et(|env| {
+            let cle = key(env)?;
+            let c = cipher(env)?;
+            // Cipher.ENCRYPT_MODE: the Keystore picks the IV.
+            env.call_method(
+                &c,
+                "init",
+                "(ILjava/security/Key;)V",
+                &[JValue::Int(1), JValue::Object(&cle)],
+            )?;
+            let iv = env.call_method(&c, "getIV", "()[B", &[])?.l()?;
+            let iv = env.convert_byte_array(jni::objects::JByteArray::from(iv))?;
+            let entree = env.byte_array_from_slice(clair)?;
+            let sortie = env
+                .call_method(&c, "doFinal", "([B)[B", &[JValue::Object(&entree)])?
+                .l()?;
+            let sortie = env.convert_byte_array(jni::objects::JByteArray::from(sortie))?;
+            let mut v = iv;
+            v.extend(sortie);
+            Ok(v)
+        })
+    }
+
+    pub fn open(scelle: &[u8]) -> Result<Vec<u8>, String> {
+        if scelle.len() < 12 + 16 {
+            return Err("a sealed key too short".into());
+        }
+        env_et(|env| {
+            let cle = key(env)?;
+            let c = cipher(env)?;
+            let iv = env.byte_array_from_slice(&scelle[..12])?;
+            let spec = env.new_object(
+                "javax/crypto/spec/GCMParameterSpec",
+                "(I[B)V",
+                &[JValue::Int(128), JValue::Object(&iv)],
+            )?;
+            // Cipher.DECRYPT_MODE.
+            env.call_method(
+                &c,
+                "init",
+                "(ILjava/security/Key;Ljava/security/spec/AlgorithmParameterSpec;)V",
+                &[JValue::Int(2), JValue::Object(&cle), JValue::Object(&spec)],
+            )?;
+            let entree = env.byte_array_from_slice(&scelle[12..])?;
+            let sortie = env
+                .call_method(&c, "doFinal", "([B)[B", &[JValue::Object(&entree)])?
+                .l()?;
+            env.convert_byte_array(jni::objects::JByteArray::from(sortie))
+        })
+    }
 }

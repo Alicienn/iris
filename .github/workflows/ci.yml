@@ -167,8 +167,13 @@ jobs:
         run: |
           sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
-          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" "platforms;android-35" "build-tools;35.0.0" > /dev/null
-          ls "$sdk/platforms"
+          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
+          # Named outright: the runner also holds previews (android-37.2-beta3…) that
+          # the backend's search does not read.
+          test -f "$sdk/platforms/android-35/android.jar"
+          echo "ANDROID_PLATFORM=35" >> "$GITHUB_ENV"
+          echo "ANDROID_JAR=$sdk/platforms/android-35/android.jar" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_TOOLS_VERSION=35.0.0" >> "$GITHUB_ENV"
 
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
