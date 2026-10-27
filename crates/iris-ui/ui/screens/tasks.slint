@@ -152,8 +152,9 @@ component PlaceTile inherits Rectangle {
     horizontal-stretch: 1;
     preferred-width: 0px;
     min-width: 0px;
-    height: 64px;
-    border-radius: 10px;
+    // On a phone the mockups' tiles: taller, rounder, a square of colour for the icon.
+    height: Layout.compact ? 78px : 64px;
+    border-radius: Layout.compact ? 14px : 10px;
     border-width: root.targeted ? 2px : 0px;
     border-color: Tokens.accent;
     background: root.on ? Tokens.accent : touch.has-hover ? Tokens.surface-high.mix(Tokens.text, 0.96) : Tokens.surface-high;
@@ -178,13 +179,13 @@ component PlaceTile inherits Rectangle {
         spacing: 4px;
         HorizontalLayout {
             Rectangle {
-                width: 26px;
-                height: 26px;
-                border-radius: 13px;
+                width: Layout.compact ? 30px : 26px;
+                height: self.width;
+                border-radius: Layout.compact ? 8px : 13px;
                 background: root.on ? Tokens.accent-text : root.tint;
                 Icon {
                     data: root.place.icon;
-                    size: 14px;
+                    size: Layout.compact ? 17px : 14px;
                     tint: root.on ? Tokens.accent : Tokens.accent-text;
                 }
             }
@@ -192,15 +193,16 @@ component PlaceTile inherits Rectangle {
             Text {
                 text: root.place.count;
                 font-family: Tokens.font-display;
-                font-size: 20px;
+                font-size: Layout.compact ? 24px : 20px;
                 font-weight: 700;
                 color: root.on ? Tokens.accent-text : Tokens.text;
                 vertical-alignment: top;
             }
         }
+        if Layout.compact: Rectangle { vertical-stretch: 1; }
         Text {
             text: root.place.name;
-            font-size: 12.5px;
+            font-size: Layout.compact ? 14px : 12.5px;
             font-weight: 600;
             color: root.on ? Tokens.accent-text : Tokens.text-muted;
             overflow: elide;
@@ -341,7 +343,8 @@ component TaskRow inherits Rectangle {
             }
         }
         moved => {
-            if (root.pressed && !root.carrying
+            // Under a finger a drag scrolls the list: carrying is the mouse's.
+            if (root.pressed && !root.carrying && !Layout.touch-input
                 && (abs(self.mouse-x - root.press-x) > 6px || abs(self.mouse-y - root.press-y) > 6px)) {
                 root.carrying = true;
                 root.carry-started(root.item,
@@ -1404,6 +1407,16 @@ export component TasksView inherits Rectangle {
             visible: Layout.width-class == WidthClass.expanded || root.column-open;
             sidebar-width: root.column-open ? Layout.window-width - (Layout.medium ? 80px : 0px)
                 : Layout.width-class == WidthClass.expanded ? 232px : 0px;
+            // On a phone the overview is a page: its title, large (the mockups' T1).
+            if Layout.compact: Text {
+                height: 52px;
+                text: "Tasks";
+                font-family: Tokens.font-display;
+                font-size: 32px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+            }
             // Today, Upcoming, All tasks, From mail: four tiles, two by two, as
             // Reminders has them.
             if root.places.length >= 4: VerticalLayout {
@@ -1544,9 +1557,10 @@ export component TasksView inherits Rectangle {
                 hairline: root.page == 0;
                 background: root.page == 0 ? Tokens.surface : Tokens.background;
                 // No column beside the list: its views and lists open as a page.
+                // On a phone the overview is the page before this one: a back arrow.
                 if Layout.width-class != WidthClass.expanded: IconButton {
                     y: (parent.height - self.height) / 2;
-                    icon: Icons.list;
+                    icon: Layout.compact ? Icons.arrow-left : Icons.list;
                     label: "Lists";
                     button-size: Layout.touch-input ? 44px : 30px;
                     icon-size: Layout.touch-input ? 22px : 18px;
@@ -1644,18 +1658,20 @@ export component TasksView inherits Rectangle {
             // The name of the view in large, in its list's colour, and how many are open
             // beside it, as Reminders writes them; the day and how much is done under.
             property <color> encre: root.overview.tint.alpha == 0 ? Tokens.accent : root.overview.tint;
+            // On a phone the mockups' head: the margins of a narrow screen, the title
+            // in the text's colour.
             HorizontalLayout {
                 height: 52px;
-                padding-left: 40px;
-                padding-right: 32px;
+                padding-left: Layout.compact ? 18px : 40px;
+                padding-right: Layout.compact ? 18px : 32px;
                 padding-top: 8px;
                 spacing: 12px;
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
-                    font-size: 30px;
+                    font-size: Layout.compact ? 28px : 30px;
                     font-weight: 700;
-                    color: colonne-page.encre;
+                    color: Layout.compact ? Tokens.text : colonne-page.encre;
                     vertical-alignment: bottom;
                     horizontal-stretch: 1;
                     overflow: elide;
@@ -1671,8 +1687,8 @@ export component TasksView inherits Rectangle {
             }
             HorizontalLayout {
                 height: 30px;
-                padding-left: 40px;
-                padding-right: 32px;
+                padding-left: Layout.compact ? 18px : 40px;
+                padding-right: Layout.compact ? 18px : 32px;
                 spacing: 12px;
                 Text {
                     text: root.subtitle;
@@ -1704,7 +1720,7 @@ export component TasksView inherits Rectangle {
                         vertical-alignment: center;
                     }
                     Rectangle {
-                        width: 120px;
+                        width: Layout.compact ? 60px : 120px;
                         Rectangle {
                             y: (parent.height - self.height) / 2;
                             height: 5px;
@@ -1745,9 +1761,10 @@ export component TasksView inherits Rectangle {
                 VerticalLayout {
                     width: liste-taches.visible-width;
                     alignment: start;
-                    // The rows' own 12 px inset brings their circles to the title's 40.
-                    padding-left: 28px;
-                    padding-right: 32px;
+                    // The rows' own 12 px inset brings their circles to the title's 40
+                    // (18 on a phone).
+                    padding-left: Layout.compact ? 6px : 28px;
+                    padding-right: Layout.compact ? 8px : 32px;
                     padding-top: 6px;
                     padding-bottom: 12px;
                     spacing: 0px;

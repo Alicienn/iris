@@ -17,10 +17,12 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - On a phone, the filters are round pills that scroll sideways, and rows run the full width.
 - On a phone, a conversation's buttons are larger, and its folder shows as a grey label.
 - On a phone, Mailboxes has its own title, and the chosen mailbox shows in grey.
+- On a phone, Tasks opens on an overview with large tiles, and its pages use the screen's width.
 
 ### Fixed
 - On a phone, swiping a conversation no longer stops halfway over its buttons.
 - On a phone, a tapped folder no longer keeps a coloured frame.
+- On a phone, scrolling the tasks or the notes no longer picks up the row under the finger.
 
 ## 6.6.0 — 2026-10-27
 

@@ -613,7 +613,8 @@ component TreeRow inherits Rectangle {
             }
         }
         moved => {
-            if (root.pressed-here && !root.pulled
+            // Under a finger a drag scrolls the tree: carrying is the mouse's.
+            if (root.pressed-here && !root.pulled && !Layout.touch-input
                 && (abs(self.mouse-x - root.press-x) > 4px || abs(self.mouse-y - root.press-y) > 4px)) {
                 root.pulled = true;
                 root.carry-started(root.item.key, root.item.name, root.item.kind);

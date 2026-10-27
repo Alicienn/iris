@@ -587,6 +587,9 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   (the PC too). `UndoSnack` (`shell/toast.slint`, `undo-snack`) follows a swipe and
   calls the mail's Undo. `MailToolbar.hidden` on a phone's list: the search sits in
   `PhoneMailHeader`. `Nav` in compact selects with `surface-active` and no hover.
+  Tasks in compact: the overview page has a 32 px title and 78 px tiles, the page's
+  head and rows the narrow screen's margins; a task or a note is carried by the mouse
+  only (under a finger the drag scrolls).
 - The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
   Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
   lost its title and arrows off a phone's screen.
