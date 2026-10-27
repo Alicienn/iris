@@ -95,6 +95,21 @@ impl Platform for Android {
         }
     }
 
+    /// Android's clipboard: a link for a note, a copied cell, what Iris copies itself.
+    fn clipboard_set(&self, text: &str) -> bool {
+        match presse_papiers(Some(text)) {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::warn!(error = %e, "the clipboard");
+                false
+            }
+        }
+    }
+
+    fn clipboard_get(&self) -> Option<String> {
+        presse_papiers(None).ok().flatten()
+    }
+
     /// A Wi-Fi drops multicast to save the battery unless an app holds a lock: without
     /// it the other devices' announces never arrive.
     fn multicast(&self, on: bool) {
@@ -402,4 +417,85 @@ mod keystore {
             env.convert_byte_array(jni::objects::JByteArray::from(sortie))
         })
     }
+}
+
+/// Writes `text` on the clipboard (`ClipboardManager.setPrimaryClip`), or with `None`
+/// reads what is there as text.
+fn presse_papiers(text: Option<&str>) -> std::result::Result<Option<String>, String> {
+    let contexte = ndk_context::android_context();
+    // SAFETY: the VM and the activity Android gave the process.
+    let vm = unsafe { jni::JavaVM::from_raw(contexte.vm().cast()) }.map_err(|e| e.to_string())?;
+    let activite = unsafe { JObject::from_raw(contexte.context().cast()) };
+    let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+    let nom = env.new_string("clipboard").map_err(|e| e.to_string())?;
+    let gestionnaire = env
+        .call_method(
+            &activite,
+            "getSystemService",
+            "(Ljava/lang/String;)Ljava/lang/Object;",
+            &[JValue::Object(&nom)],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| e.to_string())?;
+    if let Some(text) = text {
+        let etiquette = env.new_string("Iris").map_err(|e| e.to_string())?;
+        let contenu = env.new_string(text).map_err(|e| e.to_string())?;
+        let clip = env
+            .call_static_method(
+                "android/content/ClipData",
+                "newPlainText",
+                "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;",
+                &[JValue::Object(&etiquette), JValue::Object(&contenu)],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| e.to_string())?;
+        env.call_method(
+            &gestionnaire,
+            "setPrimaryClip",
+            "(Landroid/content/ClipData;)V",
+            &[JValue::Object(&clip)],
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(None);
+    }
+    let clip = env
+        .call_method(
+            &gestionnaire,
+            "getPrimaryClip",
+            "()Landroid/content/ClipData;",
+            &[],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| e.to_string())?;
+    if clip.is_null() {
+        return Ok(None);
+    }
+    let element = env
+        .call_method(
+            &clip,
+            "getItemAt",
+            "(I)Landroid/content/ClipData$Item;",
+            &[JValue::Int(0)],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| e.to_string())?;
+    let texte = env
+        .call_method(
+            &element,
+            "coerceToText",
+            "(Landroid/content/Context;)Ljava/lang/CharSequence;",
+            &[JValue::Object(&activite)],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| e.to_string())?;
+    if texte.is_null() {
+        return Ok(None);
+    }
+    let chaine = env
+        .call_method(&texte, "toString", "()Ljava/lang/String;", &[])
+        .and_then(|v| v.l())
+        .map_err(|e| e.to_string())?;
+    let chaine = jni::objects::JString::from(chaine);
+    let lu: String = env.get_string(&chaine).map_err(|e| e.to_string())?.into();
+    Ok(Some(lu))
 }

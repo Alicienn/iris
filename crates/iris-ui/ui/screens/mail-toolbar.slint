@@ -18,30 +18,40 @@ export component SearchCapsule inherits Rectangle {
         champ.select-all();
     }
 
-    height: 28px;
-    border-radius: 7px;
-    background: Tokens.well;
-    border-width: champ.has-focus ? 2px : 0px;
-    border-color: Tokens.accent.transparentize(0.5);
+    // On a phone the mockups' field: a finger's height, rounded, the accent round it
+    // while typing, the words large.
+    property <bool> tel: Layout.compact;
+    height: root.tel ? 44px : 28px;
+    border-radius: root.tel ? 12px : 7px;
+    background: root.tel ? Tokens.surface : Tokens.well;
+    border-width: root.tel ? 1.5px : champ.has-focus ? 2px : 0px;
+    border-color: root.tel && !champ.has-focus ? Tokens.border-strong
+        : root.tel ? Tokens.accent : Tokens.accent.transparentize(0.5);
 
     HorizontalLayout {
+        padding-left: root.tel ? 6px : 0px;
         padding-right: 2px;
         champ := TextField {
             bare: true;
-            icon: Icons.search;
-            font-size: 12.5px;
+            icon: root.tel ? "" : Icons.search;
+            font-size: root.tel ? 16px : 12.5px;
             accessible-label: "Search";
             placeholder-text: root.placeholder;
             shortcut: "/";
             text <=> root.query;
             accepted(t) => { root.submitted(t); }
-            // Emptying the field is enough to leave the search.
+            // Emptying the field is enough to leave the search. On a phone the results
+            // come as the words are typed, as the mockups have them.
             edited(t) => {
-                if (t == "" && root.active) { root.cleared(); }
+                if (t == "" && root.active) {
+                    root.cleared();
+                } else if (root.tel && t != "") {
+                    root.submitted(t);
+                }
             }
         }
-        if root.active: Rectangle {
-            width: 24px;
+        if root.active || (root.tel && root.query != ""): Rectangle {
+            width: root.tel ? 40px : 24px;
             accessible-role: button;
             accessible-label: "Leave search";
             accessible-action-default => {
@@ -49,8 +59,10 @@ export component SearchCapsule inherits Rectangle {
                 root.cleared();
             }
             Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
                 data: Icons.window-close;
-                size: 11px;
+                size: root.tel ? 16px : 11px;
                 tint: fermer.has-hover ? Tokens.text : Tokens.text-muted;
             }
             fermer := TouchArea {
@@ -130,6 +142,19 @@ export component MailToolbar inherits WindowToolbar {
     property <length> bouton: Layout.compact ? 44px : 28px;
     property <length> icone: Layout.compact ? 20px : 17px;
 
+    // On a phone, the search's own page: back leaves it, as the mockups' S2.
+    if root.en-recherche: IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.arrow-left;
+        label: "Leave search";
+        button-size: 44px;
+        icon-size: 22px;
+        clicked => {
+            root.cherche = false;
+            root.search-query = "";
+            root.search-cleared();
+        }
+    }
     // On a phone, the page of a conversation goes back to the list.
     if root.page: IconButton {
         y: (parent.height - self.height) / 2;

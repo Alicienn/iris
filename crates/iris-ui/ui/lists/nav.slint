@@ -14,8 +14,9 @@ import { Check, CheckShape } from "@iris/controls/choice.slint";
 
 export global Nav {
     /// A row of every side column, as Apple's source lists have them.
-    out property <length> row-height: 28px;
-    out property <length> label-size: 13px;
+    // On a phone, the mockups' sheet rows: a finger's height, larger words.
+    out property <length> row-height: Layout.compact ? 46px : 28px;
+    out property <length> label-size: Layout.compact ? 15.5px : 13px;
 
     /// On a phone, the mockups' sheet: the chosen row a grey plate, its words as they
     /// are (and bold), not the accent with white words.

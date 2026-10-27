@@ -3,6 +3,26 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.8.0 — 2026-10-28
+
+### New
+- On a phone, Home's search looks through mail, tasks, events and notes at once, grouped by place, the word found marked; tasks tick from there.
+- On a phone, adding an account shows where its servers were found and the mail arriving.
+- On a phone, selecting conversations turns the top bar into their actions, with large buttons.
+- On a phone, New message has close at the left and attach, send later and Send at the top.
+- On a phone, suggestions under To show each person's name and address.
+- Copy link for a note works on Android.
+
+### Improved
+- On a phone, Mailboxes rises as a tall sheet over the list.
+- On a phone, conversations are white cards on a grey ground under their day.
+- On a phone, a long press shows the conversation's subject, sender and messages; Select starts a selection.
+- On a phone, a selected conversation shows a round tick and is tinted across the whole row.
+- On a phone, the mail's search field is large, and results come as you type.
+
+### Fixed
+- On a phone, Open in a conversation's menu opens it.
+
 ## 6.7.1 — 2026-10-27
 
 ### Improved

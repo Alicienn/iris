@@ -28,6 +28,7 @@ pub mod nav;
 pub mod notes;
 pub mod notify;
 pub mod oauth;
+pub mod partout;
 pub mod paths;
 pub mod peers;
 pub mod platform;

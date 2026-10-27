@@ -10,8 +10,7 @@ import {
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
     NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData,
-    HabitData, HabitCellData, HabitDetailData
-} from "@iris/types.slint";
+    HabitData, HabitCellData, HabitDetailData, EverywhereHitData } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
 import { Button, ButtonKind, ButtonSize, Link, Fab } from "@iris/controls/button.slint";
@@ -28,7 +27,7 @@ import { TabBar } from "@iris/shell/tabbar.slint";
 import { NavRail } from "@iris/shell/navrail.slint";
 import { HomeView } from "@iris/screens/home.slint";
 import { TagsPanel } from "@iris/screens/tags.slint";
-import { ThreadListView, ThreadContextMenu, SortMenu } from "@iris/screens/list.slint";
+import { ThreadListView, ThreadContextMenu, SortMenu, PhoneSelectionBar } from "@iris/screens/list.slint";
 import { Sidebar, AccountContextMenu } from "@iris/screens/sidebar.slint";
 import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, EmptyFolderPanel }
     from "@iris/screens/folders.slint";
@@ -36,7 +35,7 @@ import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/scree
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { PairPanel } from "@iris/screens/devices.slint";
 import { WelcomePage } from "@iris/screens/welcome.slint";
-import { AccountSetupPanel } from "@iris/screens/account.slint";
+import { AccountSetupPanel, AccountFoundPage } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import { PluginSettingData } from "@iris/screens/plugins.slint";
 import {
@@ -63,6 +62,7 @@ import {
 } from "@iris/screens/notes.slint";
 import { SheetGrid, SheetMenu } from "@iris/screens/sheet.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
+import { EverywherePage } from "@iris/screens/search.slint";
 import { ListView, Palette } from "std-widgets.slint";
 
 export { Tokens }
@@ -625,6 +625,13 @@ export component AppWindow inherits Window {
 
     in-out property <bool> add-account-open;
     in property <bool> add-account-busy;
+    /// On a phone, the account just added: what was found, and the mail arriving.
+    in-out property <bool> add-account-found;
+    in property <string> add-account-found-address;
+    in property <string> add-account-found-source;
+    in property <string> add-account-found-incoming;
+    in property <string> add-account-found-outgoing;
+    in property <string> add-account-found-keeper;
     in property <bool> add-account-manual;
     in property <string> add-account-error;
     in property <string> add-account-hint;
@@ -1636,6 +1643,10 @@ export component AppWindow inherits Window {
         || root.compose-bcc != "" || root.compose-subject != "" || root.compose-body != ""
         || root.compose-attachments.length > 0;
     in property <[string]> compose-suggestions;
+    /// The same, as a name and an address each (a phone's list under To).
+    in property <[string]> compose-suggestion-names;
+    in property <[string]> compose-suggestion-addresses;
+    in property <[string]> compose-suggestion-initials;
     callback compose-recipient-typed(string, string);
     callback compose-recipient-picked(string, string);
 
@@ -1675,7 +1686,7 @@ export component AppWindow inherits Window {
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.empty-folder-open || root.mailboxes-open || root.tasks-column-open
-        || root.pair-open || root.first-run
+        || root.pair-open || root.first-run || root.everywhere-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -2210,7 +2221,12 @@ export component AppWindow inherits Window {
         } else if (Chrome.request == "settings") {
             root.settings-open = true;
         } else if (Chrome.request == "palette") {
-            root.palette-open = true;
+            // On a phone, Home's magnifier: the search everywhere, as a page.
+            if (Layout.compact) {
+                root.everywhere-open = true;
+            } else {
+                root.palette-open = true;
+            }
         }
     }
     property <int> chrome-drag-start <=> Chrome.drag-start-id;
@@ -2226,6 +2242,12 @@ export component AppWindow inherits Window {
     /// Below 840 pixels, the tasks' column (the views, the habits, the goals, the
     /// lists) open as a page from the list's "Lists" button.
     in-out property <bool> tasks-column-open;
+    /// The search everywhere, a page of its own on a phone (`partout.rs`).
+    in-out property <bool> everywhere-open;
+    in-out property <string> everywhere-text;
+    in property <[EverywhereHitData]> everywhere-hits;
+    callback everywhere-query(string);
+    callback everywhere-task-toggled(string);
     /// What a swipe just did to a conversation, with Undo under it ("" when none).
     in-out property <string> undo-snack;
     /// What the window keeps at its foot: the status bar, or in a narrow window the
@@ -2292,11 +2314,13 @@ export component AppWindow inherits Window {
                     // Reading full screen: the accounts and the list step aside. So they
                     // do below 840 pixels, where the title of the list opens them as a
                     // page of their own, the whole width.
-                    visible: root.mailboxes-open
+                    // On a phone the mailboxes are a sheet over the list instead (below).
+                    visible: (root.mailboxes-open && !Layout.compact)
                         || (!root.reading-focus && Layout.width-class == WidthClass.expanded);
                     // Only the folding is animated: a window that changes layout (or a
                     // window given its size at start) gets its columns at once.
-                    sidebar-width: root.mailboxes-open ? Layout.window-width - root.rail
+                    sidebar-width: root.mailboxes-open && Layout.compact ? 0px
+                        : root.mailboxes-open ? Layout.window-width - root.rail
                         : root.reading-focus || Layout.width-class != WidthClass.expanded ? 0px
                         : 232px - 168px * root.pli;
                     compact: root.sidebar-collapsed;
@@ -2402,9 +2426,10 @@ export component AppWindow inherits Window {
 
                     VerticalLayout {
                     horizontal-stretch: 1;
-                    // The mailboxes open as a page: the list and the reader step aside.
-                    visible: !root.mailboxes-open;
-                    max-width: root.mailboxes-open ? 0px : 100000px;
+                    // The mailboxes open as a page: the list and the reader step aside
+                    // (on a phone they rise as a sheet over the list, which stays).
+                    visible: !root.mailboxes-open || Layout.compact;
+                    max-width: root.mailboxes-open && !Layout.compact ? 0px : 100000px;
                     mail-toolbar := MailToolbar {
                         lights: root.reading-focus;
                         page: root.fil-en-page;
@@ -2460,7 +2485,18 @@ export component AppWindow inherits Window {
                         search-cleared => { root.search-cleared(); }
                     }
                     // On a phone's list, the large head of the mockup (M1).
-                    if Layout.compact && !root.fil-en-page && !root.searching && mail-toolbar.hidden: PhoneMailHeader {
+                    // Conversations selected on a phone: their bar takes the title's place.
+                    if Layout.compact && !root.fil-en-page && root.marked-count > 0: PhoneSelectionBar {
+                        count-label: root.marked-label;
+                        mark-done => { root.bulk-done(); }
+                        archive => { root.bulk-archive(); }
+                        delete-selected => { root.bulk-delete(); }
+                        mark-read => { root.bulk-read(); }
+                        select-all => { root.bulk-select-all(); }
+                        clear => { root.bulk-clear(); }
+                    }
+                    if Layout.compact && !root.fil-en-page && !root.searching && mail-toolbar.hidden
+                        && root.marked-count == 0: PhoneMailHeader {
                         title: root.folder-name != "" ? root.folder-name : "All accounts";
                         subtitle: (root.folder-name != "" ? ""
                             : (root.counts.length > 0 ? root.counts[0] : 0) + " to do")
@@ -2481,14 +2517,17 @@ export component AppWindow inherits Window {
                     // Colonne 2 : la file de travail. On a phone the whole width, until a
                     // conversation is opened over it; on a foldable a narrower column.
                     Rectangle {
-                        visible: !root.reading-focus && !root.fil-en-page && !root.mailboxes-open;
+                        visible: !self.cache;
                         // Bounds rather than a width: a width taken from the parent would
                         // loop through the layout.
-                        property <bool> cache: root.reading-focus || root.fil-en-page || root.mailboxes-open;
+                        property <bool> cache: root.reading-focus || root.fil-en-page
+                            || (root.mailboxes-open && !Layout.compact);
                         min-width: self.cache || Layout.compact ? 0px : Layout.medium ? 300px : 360px;
                         max-width: self.cache ? 0px : Layout.compact ? 100000px : Layout.medium ? 300px : 360px;
                         horizontal-stretch: Layout.compact && !self.cache ? 1 : 0;
-                        background: Tokens.surface;
+                        // On a phone the window's grey ground, the conversations white
+                        // cards on it under their day (the mockups' M1).
+                        background: Layout.compact ? Tokens.background : Tokens.surface;
 
                         liste := ThreadListView {
                             width: 100%;
@@ -3843,6 +3882,158 @@ export component AppWindow inherits Window {
             dismissed => { root.tags-open = false; }
         }
 
+        // On a phone the accounts and folders rise as a tall sheet over the list, as the
+        // mockups' M3 has them: the same column as the PC's, on a plate with a handle,
+        // pulled down or tapped outside to close.
+        if root.mailboxes-open && Layout.compact: feuille-boites := Rectangle {
+            property <length> tire;
+            background: Tokens.scrim;
+            TouchArea {
+                clicked => {
+                    root.mailboxes-open = false;
+                    shortcuts.focus();
+                }
+            }
+            Rectangle {
+                y: 48px + Layout.inset-top + feuille-boites.tire;
+                height: parent.height - 48px - Layout.inset-top;
+                border-top-left-radius: 22px;
+                border-top-right-radius: 22px;
+                background: Tokens.panel;
+                drop-shadow-blur: Tokens.shadow-window-blur;
+                drop-shadow-color: Tokens.shadow-window;
+                clip: true;
+                TouchArea {}
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: 8px;
+                    width: 40px;
+                    height: 5px;
+                    border-radius: 3px;
+                    background: Tokens.border-strong;
+                }
+                VerticalLayout {
+                    padding-top: 18px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    padding-bottom: Layout.inset-bottom;
+                    Sidebar {
+                        vertical-stretch: 1;
+                        folder-open: root.selected-folder != "";
+                        pinned: root.pinned-accounts;
+                        others: root.other-accounts;
+                        selected-id: root.selected-account;
+                        unified-count: root.unified-count;
+                        unified-label: root.unified-label;
+                        unified-full: root.unified-full;
+                        filter <=> root.account-filter;
+                        syncing: root.syncing-all;
+                        sync-progress: root.sync-progress;
+                        last-sync: root.last-sync;
+                        account-total: root.account-count;
+                        collapsed <=> root.sidebar-collapsed;
+                        account-selected(id) => {
+                            root.mailboxes-open = false;
+                            root.account-selected(id);
+                            root.navigated("account", "\{id}");
+                            shortcuts.focus();
+                        }
+                        unified-selected => {
+                            root.mailboxes-open = false;
+                            root.unified-selected();
+                            root.navigated("unified", "");
+                            shortcuts.focus();
+                        }
+                        resume-account(id) => { root.resume-account(id); }
+                        add-account => { root.add-account-open = true; }
+                        filter-changed(t) => { root.account-filter-changed(t); }
+                        sync-account(id) => { root.sync-account(id); }
+                        sync-all => { root.sync-all(); }
+                        open-tags => { root.tags-requested(); }
+                        closed => {
+                            root.mailboxes-open = false;
+                            shortcuts.focus();
+                        }
+                        grouped: root.group-by-tags;
+                        selected-tag: root.selected-tag;
+                        tag-selected(t) => {
+                            root.mailboxes-open = false;
+                            root.tag-selected(t);
+                            root.navigated("tag", "\{t}");
+                            shortcuts.focus();
+                        }
+                        tag-fold-toggled(t) => { root.tag-fold-toggled(t); }
+                        group-toggled => {
+                            root.group-by-tags = !root.group-by-tags;
+                            root.group-by-tags-changed();
+                        }
+                        probe: root.account-probe;
+                        probe-x: root.account-probe-x;
+                        probe-y: root.account-probe-y;
+                        account-menu(id, mx, my) => {
+                            root.account-menu-x = mx;
+                            root.account-menu-y = my;
+                            root.account-menu-requested(id);
+                        }
+                        // Brought back full size, even if it was tucked into the corner:
+                        // New message is a request to write.
+                        compose => {
+                            root.compose-minimised = false;
+                            root.compose-open = true;
+                        }
+
+                        // The folders, under the accounts: "this mailbox, in this folder"
+                        // read down one column. Folded with it.
+                        if !root.sidebar-collapsed: FolderTree {
+                            vertical-stretch: 1;
+                            folders: root.folders;
+                            selected-path: root.selected-folder;
+                            accounts-total: root.account-count;
+                            folder-selected(p) => {
+                                root.mailboxes-open = false;
+                                root.folder-selected(p);
+                                root.navigated("folder", p);
+                                shortcuts.focus();
+                            }
+                            all-selected => {
+                                root.mailboxes-open = false;
+                                root.folder-cleared();
+                                root.navigated("folder", "");
+                            }
+                            folder-fold-toggled(p) => {
+                                root.folder-fold-toggled(p);
+                                shortcuts.focus();
+                            }
+                            new-folder => { root.new-folder-requested(); }
+                            scheduled: root.scheduled-count;
+                            scheduled-requested => { root.scheduled-requested(); }
+                            folder-dropped(p) => { root.folder-dropped(p); }
+                            folder-menu(p, mx, my) => {
+                                root.folder-menu-x = mx;
+                                root.folder-menu-y = my;
+                                root.folder-menu-requested(p);
+                            }
+                        }
+                    }
+                }
+                TouchArea {
+                    y: 0px;
+                    height: 26px;
+                    moved => {
+                        feuille-boites.tire = max(0px, self.mouse-y - self.pressed-y);
+                    }
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.up) {
+                            if (feuille-boites.tire > 80px) {
+                                root.mailboxes-open = false;
+                            }
+                            feuille-boites.tire = 0px;
+                        }
+                    }
+                }
+            }
+        }
+
         if root.context-menu-open: ThreadContextMenu {
             width: 100%;
             height: 100%;
@@ -3850,11 +4041,20 @@ export component AppWindow inherits Window {
             menu-y: root.context-menu-y;
             unread: root.context-menu-unread;
             starred: root.context-menu-starred;
+            subject: liste.menu-row.subject;
+            from: liste.menu-row.from;
+            message-count: liste.menu-row.message-count;
             // Chaque action porte sa cible. « Ouvrir » est la seule qui sélectionne, parce
             // que c'est la seule qu'on lui demande de faire.
             open-thread => {
                 root.context-menu-open = false;
                 root.thread-selected(root.context-menu-thread);
+                // On a phone the conversation is a page: Open opens it, as a tap does.
+                if (Layout.compact) {
+                    root.page = "thread";
+                    root.navigated("page", "thread");
+                }
+                shortcuts.focus();
             }
             add-task => { root.thread-to-task(root.context-menu-thread); }
             mark-done => { root.menu-done(root.context-menu-thread); }
@@ -3865,6 +4065,7 @@ export component AppWindow inherits Window {
             delete-thread => { root.menu-delete(root.context-menu-thread); }
             view-source => { root.view-source(); }
             copy-link => { root.thread-copy-link(root.context-menu-thread); }
+            select => { root.row-mark-toggled(root.context-menu-thread); }
             dismissed => { root.context-menu-open = false; }
             reopen-at(px, py) => { liste.reopen-context-menu-at(px, py); }
         }
@@ -3993,6 +4194,9 @@ export component AppWindow inherits Window {
             remove-attachment(i) => { root.compose-remove-attachment(i); }
             format(f) => { root.compose-format(f); }
             suggestions: root.compose-suggestions;
+            suggestion-names: root.compose-suggestion-names;
+            suggestion-addresses: root.compose-suggestion-addresses;
+            suggestion-initials: root.compose-suggestion-initials;
             recipient-typed(champ, texte) => { root.compose-recipient-typed(champ, texte); }
             recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
             dismissed => { root.compose-dismissed(); root.compose-open = false; }
@@ -4105,6 +4309,27 @@ export component AppWindow inherits Window {
                 root.add-account-discover();
             }
             dismissed => { root.add-account-dismissed(); }
+        }
+        if root.add-account-open && root.add-account-found: AccountFoundPage {
+            width: 100%;
+            height: 100%;
+            address: root.add-account-found-address;
+            source: root.add-account-found-source;
+            incoming: root.add-account-found-incoming;
+            outgoing: root.add-account-found-outgoing;
+            keeper: root.add-account-found-keeper;
+            syncing: root.syncing-all;
+            progress: root.sync-progress;
+            continued => {
+                root.add-account-found = false;
+                root.first-run = false;
+                root.add-account-dismissed();
+            }
+            another => {
+                root.add-account-found = false;
+                root.new-email = "";
+                root.new-password = "";
+            }
         }
 
         // A page, as the Mac's: beside the place's side column, which stays (its foot,
@@ -4222,6 +4447,50 @@ export component AppWindow inherits Window {
             dismissed => {
                 root.pair-open = false;
                 root.pair-closed();
+                shortcuts.focus();
+            }
+        }
+
+        if root.everywhere-open: EverywherePage {
+            width: 100%;
+            height: 100%;
+            hits: root.everywhere-hits;
+            text <=> root.everywhere-text;
+            query(t) => { root.everywhere-query(t); }
+            task-toggled(id) => { root.everywhere-task-toggled(id); }
+            opened(hit) => {
+                root.everywhere-open = false;
+                if (hit.kind == "mail") {
+                    root.home-thread-opened(hit.id.to-float());
+                } else if (hit.kind == "task") {
+                    root.home-task-opened(hit.id.to-float());
+                } else if (hit.kind == "event") {
+                    root.home-event-opened(hit.id);
+                } else {
+                    root.home-note-opened(hit.id);
+                }
+            }
+            action(quoi) => {
+                root.everywhere-open = false;
+                if (quoi == "message") {
+                    root.compose-minimised = false;
+                    root.compose-open = true;
+                } else if (quoi == "task") {
+                    root.workspace = 2;
+                    root.workspace-changed(2);
+                    root.task-focus-add += 1;
+                } else if (quoi == "event") {
+                    root.calendar-new-event("", -1);
+                } else if (quoi == "note") {
+                    root.workspace = 4;
+                    root.workspace-changed(4);
+                    root.notes-new-note();
+                } else {
+                    root.sync-all();
+                }
+            }
+            dismissed => {
+                root.everywhere-open = false;
                 shortcuts.focus();
             }
         }

@@ -594,6 +594,18 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   tree, Edit over a note read); Settings' tiles, rows and titles take the touch sizes
   and the list closes by a back arrow; a `question` `Modal` as a sheet has a 19 px
   title and no cross.
+- 6.8.0, the mail and first run against the mockups. `partout.rs` searches the mail
+  index, the tasks, the events (half a year back, a year ahead) and the notes of the
+  space shown (`notes::search_words`), five of each, and cuts each title around the
+  word found; `screens/search.slint` (`EverywherePage`, `everywhere-open`) is Home's
+  magnifier in compact, its hits opened through Home's own callbacks. The Mailboxes
+  sheet in compact is a second `Sidebar` on a plate over the list (`feuille-boites`);
+  `Nav` rows are 46 px there. `ThreadListView.menu-row` heads the long-press sheet;
+  `PhoneSelectionBar` replaces the large title while conversations are ticked. The
+  composer in compact has its bar at the top (close, attach, later, Send); To's
+  suggestions come with names, addresses and initials. `AccountFoundPage` follows a
+  successful add on a phone (`add-account-found`). Android's clipboard goes through
+  `Platform::clipboard_set/get` (JNI `ClipboardManager`), which `presse` uses there.
 - The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
   Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
   lost its title and arrows off a phone's screen.

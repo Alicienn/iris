@@ -672,6 +672,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     // Home and the history of places. Home opens first unless it was switched off;
     // the history starts where the window does.
     crate::home::wire_home(&fenetre, &services, Arc::clone(&controller));
+    crate::partout::wire(&fenetre, &services);
     let depart = if reglages.home_at_startup { 3 } else { 0 };
     crate::nav::wire_navigation(
         &fenetre,

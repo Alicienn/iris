@@ -197,6 +197,21 @@ export struct MessageData {
     unsubscribe: int,
 }
 
+// A thing found by the search everywhere (`partout.rs`): its place and what it is,
+// the title cut around the word found, and for a task whether it is done.
+export struct EverywhereHitData {
+    place: string,
+    kind: string,
+    id: string,
+    before: string,
+    word: string,
+    after: string,
+    detail: string,
+    done: bool,
+    /// The first of its place: the page titles the group over it.
+    first: bool,
+}
+
 export struct CommandData {
     id: string,
     label: string,

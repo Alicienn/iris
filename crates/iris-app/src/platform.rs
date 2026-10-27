@@ -589,6 +589,16 @@ pub trait Platform: Send + Sync {
     }
     /// Back with nothing left to close or go back to: on a phone, the app before.
     fn leave(&self) {}
+    /// Puts text on the system's clipboard where Iris has no clipboard of its own
+    /// (Android: `presse` asks here). False when it could not.
+    fn clipboard_set(&self, text: &str) -> bool {
+        let _ = text;
+        false
+    }
+    /// The clipboard's text, read the same way.
+    fn clipboard_get(&self) -> Option<String> {
+        None
+    }
 }
 
 /// A notification, as Iris asks for it; each system draws it its own way.

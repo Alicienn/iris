@@ -3652,6 +3652,7 @@ pub fn wire_account_setup(
                 return;
             };
             fenetre.set_add_account_open(false);
+            fenetre.set_add_account_found(false);
             fenetre.set_add_account_editing(false);
             fenetre.set_add_account_manual(false);
             // Sinon une vérification abandonnée en route laisserait le bouton éteint
@@ -3875,7 +3876,13 @@ pub fn wire_account_setup(
                 // different answers. The error type carries the distinction; it has
                 // to be read here, because it does not cross the event loop.
                 let issue = match resultat {
-                    Ok(compte) => Ok((compte.email, compte.source.describe())),
+                    Ok(compte) => Ok((
+                        compte.email.clone(),
+                        compte.source.describe(),
+                        trouve_ainsi(compte.source),
+                        serveur(&compte.config.imap_host, compte.config.imap_port, compte.config.imap_transport),
+                        serveur(&compte.config.smtp_host, compte.config.smtp_port, compte.config.smtp_transport),
+                    )),
                     Err(e) => Err((
                         matches!(e, iris_types::Error::AuthFailed { .. }),
                         e.to_string(),
@@ -3885,10 +3892,28 @@ pub fn wire_account_setup(
                 let _ = faible.upgrade_in_event_loop(move |fenetre| {
                     fenetre.set_add_account_busy(false);
                     match issue {
-                        Ok((adresse, source)) => {
+                        Ok((adresse, source, ainsi, entrant, sortant)) => {
                             // Le panneau ne se ferme qu'ici : tant que le serveur n'a
-                            // pas répondu, l'écran reste celui où l'on corrige.
-                            fenetre.invoke_add_account_dismissed();
+                            // pas répondu, l'écran reste celui où l'on corrige. On a
+                            // phone it says first what was found and shows the mail
+                            // arriving (the mockups' O3); Continue closes it.
+                            if fenetre.global::<iris_ui::Layout>().get_compact() {
+                                fenetre.set_add_account_found_address(adresse.as_str().into());
+                                fenetre.set_add_account_found_source(ainsi.into());
+                                fenetre.set_add_account_found_incoming(entrant.into());
+                                fenetre.set_add_account_found_outgoing(sortant.into());
+                                fenetre.set_add_account_found_keeper(
+                                    if cfg!(target_os = "android") {
+                                        "password kept in Android's keystore"
+                                    } else {
+                                        "password kept in the vault"
+                                    }
+                                    .into(),
+                                );
+                                fenetre.set_add_account_found(true);
+                            } else {
+                                fenetre.invoke_add_account_dismissed();
+                            }
                             announce(&fenetre, format!("{adresse} added and working."));
                             fenetre.set_status(format!("{adresse} ajouté ({source}).").into());
                             refresh_accounts(&fenetre, &services_ui, &[]);
@@ -6928,18 +6953,44 @@ pub fn wire_compose(
             // Seul le dernier fragment compte : un champ contient « marie@x, l » et
             // c'est « l » qu'on est en train de taper.
             let fragment = dernier_destinataire(&texte);
-            let propositions = if fragment.chars().count() < 2 {
+            let contacts = if fragment.chars().count() < 2 {
                 // À une lettre, tout ressemble à tout. Proposer quarante adresses
                 // n'aide personne et cache le champ derrière ses propres suggestions.
                 Vec::new()
             } else {
-                store
-                    .contacts_like(&fragment, 4)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|c| slint::SharedString::from(c.to_header()))
-                    .collect()
+                store.contacts_like(&fragment, 4).unwrap_or_default()
             };
+            // A phone draws each one as a name over its address (the mockups' C2).
+            let noms: Vec<slint::SharedString> = contacts
+                .iter()
+                .map(|c| {
+                    if c.display.is_empty() {
+                        c.address.as_str().into()
+                    } else {
+                        c.display.as_str().into()
+                    }
+                })
+                .collect();
+            let adresses: Vec<slint::SharedString> =
+                contacts.iter().map(|c| c.address.as_str().into()).collect();
+            let propositions: Vec<slint::SharedString> = contacts
+                .iter()
+                .map(|c| slint::SharedString::from(c.to_header()))
+                .collect();
+            let initiales: Vec<slint::SharedString> = noms
+                .iter()
+                .map(|n| {
+                    n.split(|c: char| c.is_whitespace() || c == '@' || c == '.')
+                        .filter_map(|mot| mot.chars().next())
+                        .take(2)
+                        .flat_map(char::to_uppercase)
+                        .collect::<String>()
+                        .into()
+                })
+                .collect();
+            fenetre.set_compose_suggestion_initials(ModelRc::new(VecModel::from(initiales)));
+            fenetre.set_compose_suggestion_names(ModelRc::new(VecModel::from(noms)));
+            fenetre.set_compose_suggestion_addresses(ModelRc::new(VecModel::from(adresses)));
             fenetre.set_compose_suggestions(ModelRc::new(VecModel::from(propositions)));
         });
     }
@@ -8423,4 +8474,28 @@ mod tests {
             assert_eq!(etat.as_i64(), index as i64);
         }
     }
+}
+
+/// Where the servers were found, said to the person who added the account.
+fn trouve_ainsi(source: iris_discover::Source) -> &'static str {
+    use iris_discover::Source;
+    match source {
+        Source::Builtin => "Iris knows this provider.",
+        Source::DomainAutoconfig => "Found in the provider's own settings.",
+        Source::Ispdb => "Found in Mozilla's list of providers.",
+        Source::DnsSrv => "Found in the domain's records.",
+        Source::MxGuess => "Worked out from the domain's mail server.",
+        Source::Probe => "Found by trying the usual server names.",
+    }
+}
+
+/// "imap.example.com · 993 · TLS".
+fn serveur(hote: &str, port: u16, transport: iris_discover::Transport) -> String {
+    use iris_discover::Transport;
+    let chiffre = match transport {
+        Transport::Tls => "TLS",
+        Transport::StartTls => "STARTTLS",
+        Transport::Plain => "not encrypted",
+    };
+    format!("{hote} · {port} · {chiffre}")
 }

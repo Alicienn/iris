@@ -3,6 +3,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { Button, ButtonKind, BlockButton } from "@iris/controls/button.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Hairline } from "@iris/base/atoms.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
 import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { CheckBox, ComboBox } from "@iris/controls/pickers.slint";
 import { GoogleMark } from "@iris/controls/video.slint";
@@ -327,6 +328,160 @@ export component AccountSetupPanel inherits Rectangle {
                 enabled: !root.busy;
                 clicked => { root.manual ? root.save-manual() : root.discover(); }
             }
+        }
+    }
+}
+
+// A row of what was found: a green tile with its tick, what it is, how it is reached.
+component FoundRow inherits Rectangle {
+    in property <string> label;
+    in property <string> detail;
+    in property <bool> first;
+    height: 60px;
+    if !root.first: Rectangle {
+        x: 16px;
+        height: 1px;
+        y: 0px;
+        background: Tokens.border;
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 14px;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            background: Tokens.green;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                data: Icons.check;
+                size: 18px;
+                weight: 2.4;
+                tint: Tokens.accent-text;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.label;
+                font-size: 15.5px;
+                color: Tokens.text;
+            }
+            Text {
+                text: root.detail;
+                font-size: 13px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// On a phone, once an account is added (the Android mockups' O3): where Iris found its
+// servers, as the PC says it, then the mail arriving, newest first. Nothing to wait
+// for: Continue goes to the mail while it fills.
+export component AccountFoundPage inherits Rectangle {
+    in property <string> address;
+    /// "Found in your provider's own settings."
+    in property <string> source;
+    in property <string> incoming;
+    in property <string> outgoing;
+    /// Where the password went: "password kept in Android's keystore".
+    in property <string> keeper;
+    in property <bool> syncing;
+    /// What the sync says it is doing: "Inbox · 1 240 of 3 260".
+    in property <string> progress;
+    callback continued();
+    callback another();
+
+    // A bar sliding while the mail comes: work under way, the one loop allowed.
+    property <float> va: 0;
+    Timer {
+        interval: 40ms;
+        running: root.syncing;
+        triggered => {
+            root.va = root.va >= 1 ? 0 : root.va + 0.02;
+        }
+    }
+
+    background: Tokens.background;
+    TouchArea {}
+
+    VerticalLayout {
+        padding-top: Layout.inset-top + 24px;
+        padding-bottom: Layout.inset-bottom + 18px;
+        padding-left: 20px;
+        padding-right: 20px;
+        spacing: 0px;
+
+        Text {
+            text: root.address;
+            font-family: Tokens.font-display;
+            font-size: 28px;
+            font-weight: 600;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+        Rectangle { height: 4px; }
+        Text {
+            text: root.source;
+            font-size: 15px;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+        Rectangle { height: 20px; }
+        Rectangle {
+            height: 180px;
+            border-radius: 14px;
+            background: Tokens.surface;
+            clip: true;
+            VerticalLayout {
+                FoundRow { first: true; label: "Incoming"; detail: root.incoming; }
+                FoundRow { label: "Outgoing"; detail: root.outgoing; }
+                FoundRow { label: "Signed in"; detail: root.keeper; }
+            }
+        }
+        Rectangle { height: 26px; }
+        Text {
+            text: root.syncing ? "Bringing your mail, newest first" : "Your mail is here";
+            font-size: 15px;
+            font-weight: 600;
+            color: Tokens.text;
+        }
+        Rectangle { height: 10px; }
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: Tokens.surface-active;
+            clip: true;
+            Rectangle {
+                x: root.syncing ? (parent.width + self.width) * root.va - self.width : 0px;
+                width: root.syncing ? parent.width * 0.38 : parent.width;
+                border-radius: 3px;
+                background: Tokens.accent;
+            }
+        }
+        Rectangle { height: 6px; }
+        Text {
+            text: root.progress;
+            font-size: 13.5px;
+            color: Tokens.text-muted;
+            overflow: elide;
+        }
+        Rectangle { vertical-stretch: 1; }
+        BlockButton {
+            text: "Continue";
+            clicked => { root.continued(); }
+        }
+        Rectangle { height: 10px; }
+        BlockButton {
+            text: "Add another account";
+            kind: ButtonKind.ghost;
+            clicked => { root.another(); }
         }
     }
 }

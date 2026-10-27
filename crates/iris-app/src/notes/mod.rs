@@ -750,6 +750,23 @@ thread_local! {
     static ETAT: RefCell<Option<Rc<RefCell<Etat>>>> = const { RefCell::new(None) };
 }
 
+/// The words searched in the space shown: (its path, the line found), for the search
+/// everywhere (`partout`). Nothing while the notes are being changed.
+pub fn search_words(query: &str, max: usize) -> Vec<(String, String)> {
+    ETAT.with(|e| {
+        let Ok(e) = e.try_borrow() else {
+            return Vec::new();
+        };
+        e.as_ref()
+            .and_then(|etat| {
+                etat.try_borrow()
+                    .ok()
+                    .and_then(|etat| etat.espace().map(|s| s.search(query, max)))
+            })
+            .unwrap_or_default()
+    })
+}
+
 fn planifier_ecriture(f: &AppWindow) {
     let faible = f.as_weak();
     MINUTERIE.with(|m| {
@@ -2519,7 +2536,7 @@ fn copier_lien(f: &AppWindow, cible: &str, titre: &str) {
     let lien = lien_ecrit(cible, titre);
     match crate::presse::Clipboard::new().and_then(|mut c| c.set_text(lien)) {
         Ok(()) => f.set_toast("Link copied: paste it in a note.".into()),
-        Err(err) => f.set_status(format!("Could not copy the link: {err}").into()),
+        Err(err) => f.set_toast(format!("Could not copy the link: {err}").into()),
     }
 }
 

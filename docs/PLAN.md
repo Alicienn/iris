@@ -826,5 +826,9 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       grey selection; no hover and no drag-and-drop under a finger (6.7.0).
 - [x] **S47.15** Notes, Settings, Home and the question sheets brought closer to the
       mockups on a phone (6.7.1).
+- [x] **S47.16** Mail, search and first run against the mockups: Mailboxes as a sheet,
+      white rows on grey, the long press's head, selection as a bar, the composer's
+      bar and To's suggestions, the search everywhere, the account found page,
+      Android's clipboard (6.8.0).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.

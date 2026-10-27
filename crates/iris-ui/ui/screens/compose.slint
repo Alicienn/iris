@@ -1,3 +1,4 @@
+import { Avatar } from "@iris/base/atoms.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
@@ -202,6 +203,10 @@ component Field inherits VerticalLayout {
     in-out property <string> value;
     /// Les correspondants qui ressemblent à ce qu'on tape. Vide : rien ne s'affiche.
     in property <[string]> suggestions;
+    /// A phone's list: a name over its address, beside a face.
+    in property <[string]> suggestion-names;
+    in property <[string]> suggestion-addresses;
+    in property <[string]> suggestion-initials;
     /// Take the keyboard as soon as the field appears.
     in property <bool> autofocus;
     /// Recipients, each made a chip.
@@ -352,7 +357,60 @@ component Field inherits VerticalLayout {
     // au-dessus de tout, et ce fichier a déjà payé trois fois le prix de l'ordre
     // d'empilement. Ici rien ne recouvre rien — la fenêtre grandit de vingt-quatre
     // pixels le temps qu'on choisisse, et c'est tout.
-    if champ.has-focus && root.suggestions.length > 0: HorizontalLayout {
+    // On a phone, a card under the field as the mockups' C2: each a face, the name,
+    // the address under it, a finger's height. Still under the field, never over.
+    if Layout.compact && champ.has-focus && root.suggestions.length > 0: Rectangle {
+        height: liste-tel.preferred-height;
+        border-radius: 12px;
+        background: Tokens.surface;
+        drop-shadow-blur: Tokens.shadow-card-blur;
+        drop-shadow-offset-y: Tokens.shadow-card-y;
+        drop-shadow-color: Tokens.shadow-card;
+        liste-tel := VerticalLayout {
+            padding-top: 4px;
+            padding-bottom: 4px;
+            for proposition[i] in root.suggestions: ligne-sugg := Rectangle {
+                height: 56px;
+                background: choix.pressed ? Tokens.surface-active : transparent;
+                accessible-role: button;
+                accessible-label: proposition;
+                accessible-action-default => { root.picked(proposition); }
+                property <string> nom: root.suggestion-names.length > i ? root.suggestion-names[i] : proposition;
+                property <string> adresse: root.suggestion-addresses.length > i ? root.suggestion-addresses[i] : "";
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 12px;
+                    Avatar {
+                        y: (parent.height - self.height) / 2;
+                        size: 32px;
+                        initials: root.suggestion-initials.length > i ? root.suggestion-initials[i] : "";
+                        tint: Tokens.accent;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 1px;
+                        Text {
+                            text: ligne-sugg.nom;
+                            font-size: 15px;
+                            color: Tokens.text;
+                            overflow: elide;
+                        }
+                        if ligne-sugg.adresse != "": Text {
+                            text: ligne-sugg.adresse;
+                            font-size: 13px;
+                            color: Tokens.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+                choix := TouchArea {
+                    clicked => { root.picked(proposition); }
+                }
+            }
+        }
+    }
+    if !Layout.compact && champ.has-focus && root.suggestions.length > 0: HorizontalLayout {
         padding-left: 34px + Tokens.space-2;
         spacing: Tokens.space-1;
         height: 24px;
@@ -621,6 +679,9 @@ export component ComposePanel inherits Rectangle {
     callback format(string);
     /// Les correspondants proposés pour le champ en cours de saisie.
     in property <[string]> suggestions;
+    in property <[string]> suggestion-names;
+    in property <[string]> suggestion-addresses;
+    in property <[string]> suggestion-initials;
     callback recipient-typed(string, string);
     callback recipient-picked(string, string);
 
@@ -630,6 +691,8 @@ export component ComposePanel inherits Rectangle {
     // Expanded, nearly the whole window: not full screen, the application still shows
     // round it.
     // On a phone, the whole window: a page of its own over the place.
+    /// On a phone: the whole screen, the mockups' bar at the top.
+    property <bool> tel: Layout.compact && !root.minimised;
     property <length> grand-w: Layout.compact ? root.width : root.expanded ? root.width * 0.9 : min(720px, root.width - 80px);
     property <length> grand-h: Layout.compact ? root.height : root.expanded ? root.height * 0.9 : min(600px, root.height - 80px);
 
@@ -693,14 +756,31 @@ export component ComposePanel inherits Rectangle {
             // --- Title row, present in both states ---
             HorizontalLayout {
                 spacing: Tokens.space-2;
-                height: root.minimised ? 24px : 28px;
+                height: root.minimised ? 24px : root.tel ? 48px : 28px;
 
+                // On a phone, the mockups' bar (C1): close at the left, large; the
+                // title; attach, later and Send at the right. No sizes to choose: the
+                // message is the screen.
+                if root.tel: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.window-close;
+                    label: "Close message";
+                    button-size: 44px;
+                    icon-size: 22px;
+                    clicked => {
+                        if (root.has-content) {
+                            root.confirm-close = true;
+                        } else {
+                            root.dismissed();
+                        }
+                    }
+                }
                 Text {
                     text: root.minimised
                         ? (root.subject == "" ? "New message" : root.subject)
                         : root.replying ? "Reply" : "New message";
-                    font-family: Tokens.font-family;
-                    font-size: root.minimised ? Tokens.size-body : Tokens.size-title;
+                    font-family: root.tel ? Tokens.font-display : Tokens.font-family;
+                    font-size: root.minimised ? Tokens.size-body : root.tel ? 18px : Tokens.size-title;
                     font-weight: Tokens.weight-bold;
                     color: Tokens.text;
                     vertical-alignment: center;
@@ -710,14 +790,14 @@ export component ComposePanel inherits Rectangle {
                 Rectangle {}
 
                 // Larger, for a long message, and back.
-                if !root.minimised: IconButton {
+                if !root.minimised && !root.tel: IconButton {
                     icon: root.expanded ? Icons.window-restore : Icons.expand;
                     label: root.expanded ? "Restore the size" : "Expand";
                     button-size: 24px;
                     icon-size: 14px;
                     clicked => { root.expanded = !root.expanded; }
                 }
-                IconButton {
+                if !root.tel: IconButton {
                     icon: root.minimised ? Icons.window-maximise : Icons.minus;
                     label: root.minimised ? "Expand" : "Minimise";
                     button-size: 24px;
@@ -730,7 +810,62 @@ export component ComposePanel inherits Rectangle {
                         }
                     }
                 }
-                IconButton {
+                if root.tel: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.paperclip;
+                    label: "Attach a file";
+                    button-size: 44px;
+                    icon-size: 21px;
+                    clicked => { root.attach(); }
+                }
+                // Later: Android wakes Iris at the hour chosen, closed or not.
+                if root.tel: IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.clock;
+                    label: "Send later";
+                    button-size: 44px;
+                    icon-size: 21px;
+                    clicked => {
+                        root.later-x = self.absolute-position.x - root.absolute-position.x;
+                        root.later-y = self.absolute-position.y - root.absolute-position.y;
+                        root.later-open = true;
+                    }
+                }
+                if root.tel: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: envoi.preferred-width + 32px;
+                    height: 36px;
+                    border-radius: 18px;
+                    background: envoi-touch.pressed ? Tokens.accent.darker(0.15) : Tokens.accent;
+                    opacity: root.to != "" ? 1 : 0.5;
+                    accessible-role: button;
+                    accessible-label: "Send";
+                    accessible-description: root.destinataires;
+                    accessible-enabled: root.to != "";
+                    accessible-action-default => { root.send(); }
+                    envoi := HorizontalLayout {
+                        x: 16px;
+                        width: self.preferred-width;
+                        spacing: 6px;
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.send;
+                            size: 16px;
+                            tint: Tokens.accent-text;
+                        }
+                        Text {
+                            text: "Send";
+                            font-size: 15px;
+                            font-weight: 600;
+                            color: Tokens.accent-text;
+                            vertical-alignment: center;
+                        }
+                    }
+                    envoi-touch := TouchArea {
+                        clicked => { root.send(); }
+                    }
+                }
+                if !root.tel: IconButton {
                     icon: Icons.window-close;
                     label: "Close message";
                     button-size: 24px;
@@ -784,6 +919,9 @@ export component ComposePanel inherits Rectangle {
                     placeholder: "Separate addresses with commas";
                     value <=> root.to;
                     suggestions: root.suggestions;
+                    suggestion-names: root.suggestion-names;
+                    suggestion-addresses: root.suggestion-addresses;
+                    suggestion-initials: root.suggestion-initials;
                     edited(t) => { root.recipient-typed("to", t); }
                     picked(c) => { root.recipient-picked("to", c); }
                 }
@@ -836,6 +974,9 @@ export component ComposePanel inherits Rectangle {
                 placeholder: "Also send to";
                 value <=> root.cc;
                 suggestions: root.suggestions;
+                suggestion-names: root.suggestion-names;
+                suggestion-addresses: root.suggestion-addresses;
+                suggestion-initials: root.suggestion-initials;
                 edited(t) => { root.recipient-typed("cc", t); }
                 picked(c) => { root.recipient-picked("cc", c); }
             }
@@ -845,6 +986,9 @@ export component ComposePanel inherits Rectangle {
                 placeholder: "Send without showing the address";
                 value <=> root.bcc;
                 suggestions: root.suggestions;
+                suggestion-names: root.suggestion-names;
+                suggestion-addresses: root.suggestion-addresses;
+                suggestion-initials: root.suggestion-initials;
                 edited(t) => { root.recipient-typed("bcc", t); }
                 picked(c) => { root.recipient-picked("bcc", c); }
             }
@@ -996,8 +1140,8 @@ export component ComposePanel inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            // --- The bottom row ---
-            if !root.minimised: HorizontalLayout {
+            // --- The bottom row (on a phone, all of it is in the bar at the top) ---
+            if !root.minimised && !root.tel: HorizontalLayout {
                 spacing: Tokens.space-2;
                 height: 28px;
 

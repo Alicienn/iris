@@ -261,6 +261,11 @@ component ThreadRow inherits Rectangle {
                 root.appui-long = false;
                 return;
             }
+            // Under a finger, a selection under way: a tap ticks or unticks the row.
+            if (Layout.touch-input && root.selection-mode) {
+                root.mark-toggled();
+                return;
+            }
             // Un clic simple ouvre. Un clic modifié a déjà été traité à l'appui :
             // ouvrir en plus ferait deux choses pour un seul geste, et la seconde
             // serait celle que l'utilisateur n'a pas demandée.
@@ -291,14 +296,36 @@ component ThreadRow inherits Rectangle {
         Rectangle {
             width: root.lead;
 
-            if root.tel: Avatar {
+            // A selection under way on a phone: a round tick in the face's place, filled
+            // when the row is chosen (the mockups' M5); the whole row is tinted.
+            if root.tel && root.selection-mode: Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 22px;
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                border-width: root.data.marked ? 0px : 2px;
+                border-color: Tokens.border-strong;
+                background: root.data.marked ? Tokens.accent : transparent;
+                if root.data.marked: Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.check;
+                    size: 14px;
+                    weight: 2.6;
+                    tint: Tokens.accent-text;
+                }
+            }
+            if root.tel && !root.selection-mode: Avatar {
                 y: 14px;
                 size: 40px;
                 initials: root.data.initials;
                 tint: root.data.sender-tint;
             }
 
+            // The PC's small square; a phone has its round tick above.
             Rectangle {
+                visible: !root.tel;
                 y: root.tel ? 27px : root.compact ? (parent.height - self.height) / 2 : 12px;
                 x: root.tel ? 13px : 0px;
                 width: 14px;
@@ -498,7 +525,7 @@ component ThreadRow inherits Rectangle {
 
 /// How tall the day's title over a row stands: 12 px above, its line, 4 px below.
 global DayTitle {
-    out property <length> height: 32px;
+    out property <length> height: Layout.compact ? 38px : 32px;
 }
 
 // A row, with the day's title over it when it is the first of its day. The title is
@@ -521,13 +548,20 @@ component ThreadEntry inherits Rectangle {
     property <length> head: root.data.day != "" ? DayTitle.height : 0px;
     height: root.head + row.height;
 
+    // On a phone the day's title sits on the window's grey, the rows are white under
+    // it (the mockups' `.daysep` and `.rows`).
     if root.data.day != "": Text {
-        x: 16px;
-        y: 12px;
+        x: Layout.compact ? 18px : 16px;
+        y: Layout.compact ? 15px : 12px;
         text: root.data.day;
-        font-size: 11px;
+        font-size: Layout.compact ? 13px : 11px;
         font-weight: 600;
         color: Tokens.text-muted;
+    }
+    if Layout.compact: Rectangle {
+        y: root.head;
+        height: row.height;
+        background: Tokens.surface;
     }
 
     // On touch, the row is pushed aside: right for Done, left for Snooze — the hover
@@ -570,6 +604,10 @@ component ThreadEntry inherits Rectangle {
 export component ThreadContextMenu inherits Rectangle {
     in property <bool> unread;
     in property <bool> starred;
+    /// What the sheet is about, at its head on a phone (the mockups' M4).
+    in property <string> subject;
+    in property <string> from;
+    in property <int> message-count;
     in property <length> menu-x;
     in property <length> menu-y;
 
@@ -583,6 +621,8 @@ export component ThreadContextMenu inherits Rectangle {
     callback delete-thread();
     callback view-source();
     callback copy-link();
+    /// On a phone: the row ticked, the selection begun (the mockups' "Select").
+    callback select();
     callback dismissed();
     /// Un clic droit ailleurs : ferme ici, et rouvre là-bas.
     callback reopen-at(length, length);
@@ -621,8 +661,30 @@ export component ThreadContextMenu inherits Rectangle {
         entries := VerticalLayout {
             padding: 4px;
 
-            // On a phone the queue's gestures first, large, as the mockups' long
-            // press draws them (M4); the rest of the menu under them.
+            // On a phone: the conversation first, its subject and who wrote it…
+            if Layout.compact: VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 2px;
+                padding-bottom: 12px;
+                spacing: 2px;
+                Text {
+                    text: root.subject;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.from + (root.message-count > 1 ? " · " + root.message-count + " messages" : "");
+                    font-size: 13.5px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+            }
+            if Layout.compact: MenuSeparator {}
+            // …then the queue's gestures, large, as the mockups' long press draws them
+            // (M4); the rest of the menu under them.
             if Layout.compact: HorizontalLayout {
                 padding-top: 6px;
                 padding-bottom: 6px;
@@ -758,6 +820,11 @@ export component ThreadContextMenu inherits Rectangle {
                 label: "Copy link for a note";
                 activated => { root.copy-link(); root.dismissed(); }
             }
+            if Layout.compact: MenuEntry {
+                icon: Icons.check;
+                label: "Select";
+                activated => { root.select(); root.dismissed(); }
+            }
 
             MenuEntry {
                 icon: Icons.trash;
@@ -811,6 +878,77 @@ export component SortMenu inherits Rectangle {
 // se passer ensuite porte sur les lignes cochées et sur rien d'autre, et une barre
 // d'onglets encore visible au-dessus laisserait croire qu'on peut changer de file
 // sans conséquence pour la sélection.
+// On a phone, conversations selected turn the top of the mail into their bar, as the
+// mockups' M5: close at the left, how many, then what acts on all of them, each a
+// thumb's size. It replaces the large title while the selection lasts.
+export component PhoneSelectionBar inherits Rectangle {
+    in property <string> count-label;
+
+    callback mark-done();
+    callback archive();
+    callback delete-selected();
+    callback mark-read();
+    callback select-all();
+    callback clear();
+
+    height: 56px;
+    background: Tokens.background;
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 0px;
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.window-close;
+            label: "Clear the selection";
+            button-size: 44px;
+            icon-size: 20px;
+            clicked => { root.clear(); }
+        }
+        Text {
+            text: root.count-label + " selected";
+            font-family: Tokens.font-display;
+            font-size: 18px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+            min-width: 0px;
+        }
+        // Five, so that the count keeps its room on a 390 px screen; unread is in
+        // each row's long press.
+        for action[i] in [
+            { icon: Icons.check, label: "Mark as done" },
+            { icon: Icons.envelope-open, label: "Mark as read" },
+            { icon: Icons.archive, label: "Archive" },
+            { icon: Icons.trash, label: "Delete" },
+            { icon: Icons.checkbox, label: "Select all" },
+        ]: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: action.icon;
+            label: action.label;
+            button-size: 44px;
+            icon-size: 20px;
+            danger: i == 3;
+            clicked => {
+                if (i == 0) {
+                    root.mark-done();
+                } else if (i == 1) {
+                    root.mark-read();
+                } else if (i == 2) {
+                    root.archive();
+                } else if (i == 3) {
+                    root.delete-selected();
+                } else {
+                    root.select-all();
+                }
+            }
+        }
+    }
+}
+
 export component BulkBar inherits Rectangle {
     in property <int> count;
     in property <string> count-label;
@@ -1218,6 +1356,9 @@ export component ThreadListView inherits VerticalLayout {
     /// écrivait « Mark as read » d'après le fil ouvert dans la colonne de lecture, qui
     /// n'est plus celui sur lequel on vient de cliquer. La ligne, elle, le sait.
     callback row-context-menu(int, length, length, bool, bool);
+    /// The row the menu was last asked for: its subject and sender head the phone's
+    /// sheet.
+    out property <ThreadRowData> menu-row;
     /// The conversation whose right-click menu is open, -1 while none is: its row is
     /// marked.
     in property <int> menu-target: -1;
@@ -1291,6 +1432,7 @@ export component ThreadListView inherits VerticalLayout {
             return;
         }
         let ligne = root.rows[index];
+        root.menu-row = ligne;
         root.row-context-menu(ligne.id, px, py, ligne.unread, ligne.flagged);
     }
 
@@ -1320,7 +1462,8 @@ export component ThreadListView inherits VerticalLayout {
     // liste qui n'est pas celle qu'on regarde.
     // The tabs sit on a plate of their own rather than floating: three lozenges on
     // bare background read as debris, which is exactly how they looked.
-    if root.marked-count > 0: Rectangle {
+    // On a phone the selection takes the bar at the top instead (`PhoneSelectionBar`).
+    if root.marked-count > 0 && !Layout.compact: Rectangle {
         vertical-stretch: 0;
         height: 50px;
 
@@ -1589,6 +1732,7 @@ export component ThreadListView inherits VerticalLayout {
             clicked => { root.row-clicked(entry.id); }
             drag-started => { root.row-drag-started(entry.id); }
             context-menu(x, y) => {
+                root.menu-row = entry;
                 root.row-context-menu(entry.id, x, y, entry.unread, entry.flagged);
             }
             mark-toggled => { root.row-mark-toggled(entry.id); }
