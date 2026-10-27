@@ -223,7 +223,9 @@ export component HomeView inherits Rectangle {
                 hairline: false;
                 background: Tokens.background;
                 Rectangle { horizontal-stretch: 1; }
-                IconButton {
+                // On a phone, Mail's floating button writes: Home keeps search and
+                // settings, as the mockups (H1).
+                if !Layout.compact: IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.pencil;
                     label: "New message";
@@ -279,7 +281,7 @@ export component HomeView inherits Rectangle {
                     Text {
                         text: root.greeting;
                         font-family: Tokens.font-display;
-                        font-size: 34px;
+                        font-size: Layout.compact ? 28px : 34px;
                         font-weight: 700;
                         letter-spacing: -0.4px;
                         color: Tokens.text;
@@ -288,7 +290,7 @@ export component HomeView inherits Rectangle {
                     Rectangle { height: 4px; }
                     Text {
                         text: root.summary;
-                        font-size: 15px;
+                        font-size: Layout.compact ? 14px : 15px;
                         color: Tokens.text-muted;
                         wrap: word-wrap;
                     }

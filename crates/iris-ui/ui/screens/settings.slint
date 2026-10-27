@@ -20,13 +20,16 @@ import { DeviceRowData } from "@iris/types.slint";
 component IconTile inherits Rectangle {
     in property <string> icon;
     in property <color> tint;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
+    // On a phone the mockups' tiles: larger, as Android's settings draw them.
+    width: Layout.compact ? 30px : 22px;
+    height: self.width;
+    border-radius: Layout.compact ? 8px : 6px;
     background: root.tint;
     Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
         data: root.icon;
-        size: 13px;
+        size: Layout.compact ? 18px : 13px;
         weight: 2;
         tint: Tokens.accent-text;
     }
@@ -54,7 +57,7 @@ component SettingRow inherits Rectangle {
     rang := HorizontalLayout {
         padding-top: 9px;
         padding-bottom: 9px;
-        spacing: 10px;
+        spacing: Layout.compact ? 14px : 10px;
         IconTile {
             y: (parent.height - self.height) / 2;
             icon: root.icon;
@@ -66,13 +69,13 @@ component SettingRow inherits Rectangle {
             horizontal-stretch: 1;
             Text {
                 text: root.label;
-                font-size: 13px;
+                font-size: Layout.compact ? 15.5px : 13px;
                 color: Tokens.text;
                 wrap: word-wrap;
             }
             if root.hint != "": Text {
                 text: root.hint;
-                font-size: 11.5px;
+                font-size: Layout.compact ? 13px : 11.5px;
                 color: Tokens.text-muted;
                 wrap: word-wrap;
             }
@@ -103,7 +106,7 @@ component GroupLink inherits Rectangle {
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.opened(); }
-    height: max(48px, ligne.min-height);
+    height: max(Layout.compact ? 52px : 48px, ligne.min-height);
     ligne := SettingRow {
         icon: root.icon;
         tint: root.tint;
@@ -123,7 +126,7 @@ component GroupLink inherits Rectangle {
 
 /// A group of rows on its own rounded grey plate.
 component Group inherits Rectangle {
-    border-radius: 10px;
+    border-radius: Layout.compact ? 14px : 10px;
     background: Tokens.group;
     vertical-stretch: 0;
     VerticalLayout {
@@ -308,6 +311,15 @@ export component SettingsPanel inherits Rectangle {
 
     VerticalLayout {
         WindowToolbar {
+            // On a phone the list is a page: back, as the mockups, rather than Done.
+            if Layout.compact && root.group == "": IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Close settings";
+                button-size: 44px;
+                icon-size: 22px;
+                clicked => { root.dismissed(); }
+            }
             if Layout.compact && root.group != "": IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.arrow-left;
@@ -320,13 +332,15 @@ export component SettingsPanel inherits Rectangle {
                 text: Layout.compact && root.group != "" ? root.group : "Settings";
                 overflow: elide;
                 font-family: Tokens.font-display;
-                font-size: 15px;
+                // On a phone the list's title is the page's, large; a group's beside
+                // its back arrow.
+                font-size: Layout.compact ? (root.group != "" ? 19px : 28px) : 15px;
                 font-weight: 600;
                 color: Tokens.text;
                 vertical-alignment: center;
             }
             Rectangle { horizontal-stretch: 1; }
-            Button {
+            if !Layout.compact: Button {
                 y: (parent.height - self.height) / 2;
                 text: "Done";
                 label: "Close settings";

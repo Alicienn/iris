@@ -824,5 +824,7 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       list without a bar (search beside the title), round scrolling pills, full-width
       rows and a light selection (the PC too), the folder as a pill, Mailboxes' head and
       grey selection; no hover and no drag-and-drop under a finger (6.7.0).
+- [x] **S47.15** Notes, Settings, Home and the question sheets brought closer to the
+      mockups on a phone (6.7.1).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.

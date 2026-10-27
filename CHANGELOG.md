@@ -3,6 +3,14 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.7.1 — 2026-10-27
+
+### Improved
+- On a phone, Notes opens on the space's name in large, with New note and Edit under the thumb.
+- On a phone, Settings has larger tiles and rows, and closes with a back arrow.
+- On a phone, Home's greeting is sized for the screen.
+- On a phone, questions rise as sheets with a larger title and no close cross.
+
 ## 6.7.0 — 2026-10-27
 
 ### New

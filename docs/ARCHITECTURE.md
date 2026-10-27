@@ -590,6 +590,10 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   Tasks in compact: the overview page has a 32 px title and 78 px tiles, the page's
   head and rows the narrow screen's margins; a task or a note is carried by the mouse
   only (under a finger the drag scrolls).
+  6.7.1: Notes in compact has the space as a 32 px title and `Fab`s (New note over the
+  tree, Edit over a note read); Settings' tiles, rows and titles take the touch sizes
+  and the list closes by a back arrow; a `question` `Modal` as a sheet has a 19 px
+  title and no cross.
 - The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
   Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
   lost its title and arrows off a phone's screen.
