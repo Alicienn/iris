@@ -59,8 +59,9 @@ both whatever the version.
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
 (04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
 
-**A release whose commits change `.github/workflows/`** cannot be tagged by the
-workflow: GitHub refuses its token a tag on such a commit (`HTTP 403: Resource not
+**A release whose commits change `release.yml`** could not be tagged by the workflow
+(6.3.0 and 6.3.1; 6.5.0, which changed `ci.yml` only, was tagged as usual): GitHub
+refused its token the tag (`HTTP 403: Resource not
 accessible by integration`). Once CI is green on that commit, push the tag by hand
 (`git tag vX.Y.Z <commit>` then `git push origin vX.Y.Z`): Release runs on the tag,
 builds the installer and takes the APK from that commit's CI run.
