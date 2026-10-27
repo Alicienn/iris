@@ -2838,7 +2838,14 @@ export component AppWindow inherits Window {
             now-fraction: root.calendar-now-fraction;
             now-day: root.calendar-now-day;
             phone: root.calendar-phone;
-            search-requested => { root.palette-open = true; }
+            // On a phone, the search everywhere (its events among the rest).
+            search-requested => {
+                if (Layout.compact) {
+                    root.everywhere-open = true;
+                } else {
+                    root.palette-open = true;
+                }
+            }
             calendars-requested => { root.calendar-sheet-open = true; }
             week-navigate(n) => { root.calendar-week-navigate(n); }
             plan-day => { root.calendar-plan-day(); }
