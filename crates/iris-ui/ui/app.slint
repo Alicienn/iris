@@ -47,6 +47,8 @@ import { SignaturePanel, AliasPanel } from "@iris/screens/signature.slint";
 import { SourcePanel } from "@iris/screens/source.slint";
 import { AccountProblemPanel } from "@iris/screens/account-problem.slint";
 import { CalendarView } from "@iris/screens/calendar.slint";
+import { CalendarsSheet } from "@iris/screens/calendar-phone.slint";
+import { CalendarPhoneData } from "@iris/types.slint";
 import {
     TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker
 } from "@iris/screens/tasks.slint";
@@ -1037,6 +1039,15 @@ export component AppWindow inherits Window {
     callback calendar-rename-confirmed(int, string);
     in-out property <bool> calendar-delete-open;
     callback calendar-delete-confirmed(int);
+    /// What a phone's calendar shows besides the period: its title, the week's strip,
+    /// the month's chosen day.
+    in property <CalendarPhoneData> calendar-phone;
+    /// A phone's sheet of calendars, behind the calendar's "⋯".
+    in-out property <bool> calendar-sheet-open;
+    /// The week's strip swiped on a phone: a week later (1) or earlier (-1).
+    callback calendar-week-navigate(int);
+    /// "Plan my day": each of today's tasks without an hour gets the first free time.
+    callback calendar-plan-day();
 
     in-out property <bool> event-detail-open;
     /// The event was clicked in the grid, there: its card opens beside it. Forgotten
@@ -1094,6 +1105,11 @@ export component AppWindow inherits Window {
     callback editor-picker-requested(int);
     callback editor-picker-navigate(int);
     callback editor-picker-chosen(string);
+    /// The times as minutes of the day, for a phone's keys of the hour.
+    in-out property <int> editor-start-minute;
+    in-out property <int> editor-end-minute;
+    /// The colours of `editor-calendars`, in the same order.
+    in property <[color]> editor-calendar-colors;
     callback event-save();
 
     // --- Tasks ---
@@ -1712,6 +1728,7 @@ export component AppWindow inherits Window {
         || root.notes-quick-open || root.notes-review-open || SheetGrid.menu != ""
         || root.notes-history-open || root.notes-graph-open
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
+        || root.calendar-sheet-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
         || root.reader-menu != ""
@@ -1905,6 +1922,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.calendar-menu-open) {
                 root.calendar-menu-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.calendar-sheet-open) {
+                root.calendar-sheet-open = false;
                 return accept;
             }
             if (event.text == Key.Escape && root.event-menu-open) {
@@ -2816,6 +2837,12 @@ export component AppWindow inherits Window {
             agenda: root.calendar-agenda;
             now-fraction: root.calendar-now-fraction;
             now-day: root.calendar-now-day;
+            phone: root.calendar-phone;
+            search-requested => { root.palette-open = true; }
+            calendars-requested => { root.calendar-sheet-open = true; }
+            week-navigate(n) => { root.calendar-week-navigate(n); }
+            plan-day => { root.calendar-plan-day(); }
+            join(u) => { root.open-link(u); }
             navigate(n) => { root.calendar-navigate(n); }
             today => { root.calendar-today(); }
             mode-chosen(m) => {
@@ -3444,6 +3471,13 @@ export component AppWindow inherits Window {
                 root.event-detail-open = false;
                 root.event-take-notes();
             }
+            // A phone's "⋯" on the event: its menu, as a sheet (the event is already
+            // the chosen one).
+            more => {
+                root.event-detail-open = false;
+                root.event-menu-open = true;
+            }
+            copy-link => { root.event-copy-link(); }
         }
 
         if root.event-editor-open: EventEditorPanel {
@@ -3474,6 +3508,9 @@ export component AppWindow inherits Window {
             picker-navigate(n) => { root.editor-picker-navigate(n); }
             picker-chosen(d) => { root.editor-picker-chosen(d); }
             picker-closed => { root.editor-picker = -1; }
+            start-minute <=> root.editor-start-minute;
+            end-minute <=> root.editor-end-minute;
+            calendar-colors: root.editor-calendar-colors;
             save => { root.event-save(); }
             dismissed => { root.event-editor-open = false; }
         }
@@ -3515,6 +3552,42 @@ export component AppWindow inherits Window {
                 root.event-menu-open = false;
                 shortcuts.focus();
             }
+        }
+
+        // A phone's calendars, from the calendar's "⋯": the desktop's column as a sheet.
+        // A calendar's own "⋯" hands over to its menu, which is a sheet as well.
+        if root.calendar-sheet-open: CalendarsSheet {
+            width: 100%;
+            height: 100%;
+            calendars: root.calendar-phone.calendars;
+            toggled(id) => { root.calendar-toggled(id); }
+            menu(c, x, y) => {
+                root.calendar-sheet-open = false;
+                root.calendar-menu-cal = c;
+                root.calendar-menu-x = x;
+                root.calendar-menu-y = y;
+                root.calendar-menu-open = true;
+            }
+            new-calendar => {
+                root.calendar-sheet-open = false;
+                root.calendar-rename-new = true;
+                root.calendar-rename-name = "";
+                root.calendar-rename-open = true;
+            }
+            subscribe => {
+                root.calendar-sheet-open = false;
+                root.subscribe-url = "";
+                root.subscribe-name = "";
+                root.subscribe-open = true;
+            }
+            connect => {
+                root.calendar-sheet-open = false;
+                root.connect-server = "";
+                root.connect-user = "";
+                root.connect-password = "";
+                root.connect-open = true;
+            }
+            dismissed => { root.calendar-sheet-open = false; }
         }
 
         if root.calendar-menu-open: CalendarContextMenu {

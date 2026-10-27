@@ -5,13 +5,13 @@
 //! convertit pour l'interface, et va chercher les abonnements sur le réseau.
 
 use crate::services::{now, Services};
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use iris_calendar::{layout, Event, Occurrence};
 use iris_store::{NewEvent, StoredCalendar, StoredEvent};
 use iris_types::{Error, Result, Timestamp};
 use iris_ui::{
-    AgendaRowData, AppWindow, CalendarChipData, CalendarData, EventDetailData, MonthCellData,
-    TimedEventData, WeekDayData,
+    AgendaRowData, AppWindow, CalendarChipData, CalendarData, CalendarPhoneData, EventDetailData,
+    MonthCellData, StripDayData, TimedEventData, WeekDayData,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -290,27 +290,72 @@ fn titre_periode(etat: &Etat) -> String {
     }
 }
 
-/// The agenda's lines: the events of the period in order, each day named on its
-/// first event ("Today · Monday 26 October").
+/// The agenda's lines: the events of the period kept by `garder`, in order, each day
+/// named on its first event ("Today · Monday 26 October": on a phone "Today", then
+/// the rest quieter). Under each title, where it is held; the next event carries its
+/// video call; the line of now goes above the first of today's events still to come.
 fn lignes_d_agenda(
     etat: &Etat,
     occ: &[Occurrence],
     couleurs: &HashMap<i64, String>,
+    liens: &HashMap<(i64, String), String>,
     maintenant: iris_types::Timestamp,
+    garder: impl Fn(&Occurrence) -> bool,
 ) -> Vec<AgendaRowData> {
-    let mut ordre: Vec<&Occurrence> = occ.iter().collect();
+    let mut ordre: Vec<&Occurrence> = occ.iter().filter(|o| garder(o)).collect();
     ordre.sort_by_key(|o| (o.start, !o.all_day));
     let today = aujourd_hui();
+    let ms = maintenant.millis();
+    // The next event: under way or to come, the first in order. Its Join button shows
+    // only when it is held on a video call.
+    let suivant = ordre.iter().position(|o| !o.all_day && o.end > ms);
+    // The first of today's events still to start: the line of now goes above it.
+    let apres_maintenant = ordre
+        .iter()
+        .position(|o| !o.all_day && o.start >= ms && jour_de(o) == today);
     let mut jour_precedent = None;
     ordre
         .into_iter()
-        .map(|o| {
+        .enumerate()
+        .map(|(i, o)| {
             let jour = jour_de(o);
             let nom = (jour_precedent != Some(jour)).then(|| nom_du_jour(jour, today));
             jour_precedent = Some(jour);
+            let nom = nom.unwrap_or_default();
+            let (nom, note) = match nom.split_once(" · ") {
+                Some((a, b)) => (a.to_string(), b.to_string()),
+                None => (nom.clone(), String::new()),
+            };
             let p = puce(etat, o, couleurs);
+            let stocke = &etat.evenements[o.event].0;
+            let visio = lien_de_visio(liens, stocke.calendar_id, &stocke.event);
+            let lieu = stocke.event.location.trim();
+            let (place, icone) = if let Some(v) = &visio {
+                let service = match crate::visio::kind(v) {
+                    "meet" => "Meet",
+                    "teams" => "Teams",
+                    "zoom" => "Zoom",
+                    "webex" => "Webex",
+                    _ => "Video call",
+                };
+                // "Teams · in 49 min" on the next one, within the hour.
+                let dans = (o.start - ms) / 60_000;
+                if suivant == Some(i) && o.start > ms && dans <= 60 {
+                    (format!("{service} · in {} min", dans.max(1)), "video")
+                } else {
+                    (service.to_string(), "video")
+                }
+            } else if !lieu.is_empty() {
+                (lieu.to_string(), "pin")
+            } else if stocke.event.rrule.is_some() {
+                (repetition_courte(stocke.event.rrule.as_deref()), "repeat")
+            } else {
+                (String::new(), "")
+            };
+            let rejoindre = visio.filter(|_| suivant == Some(i));
             AgendaRowData {
-                day: nom.unwrap_or_default().into(),
+                day: nom.into(),
+                day_note: note.into(),
                 today: jour == today,
                 key: p.key,
                 title: p.title,
@@ -325,10 +370,40 @@ fn lignes_d_agenda(
                     duree_lisible((o.end - o.start) / 60_000).into()
                 },
                 color: p.color,
-                past: o.end <= maintenant.millis(),
+                past: o.end <= ms,
+                place: place.into(),
+                place_icon: icone.into(),
+                video_kind: rejoindre
+                    .as_deref()
+                    .map(crate::visio::kind)
+                    .unwrap_or("")
+                    .into(),
+                video_label: rejoindre
+                    .as_deref()
+                    .map(crate::visio::label)
+                    .unwrap_or("")
+                    .into(),
+                video_url: rejoindre.unwrap_or_default().into(),
+                now_line: if apres_maintenant == Some(i) {
+                    heure(ms).into()
+                } else {
+                    SharedString::default()
+                },
             }
         })
         .collect()
+}
+
+/// "Every year", "Every weekday": how an event repeats, as the agenda says it under
+/// its title.
+fn repetition_courte(regle: Option<&str>) -> String {
+    let longue = repetition(regle);
+    let courte = longue.strip_prefix("Repeats ").unwrap_or(&longue);
+    let mut lettres = courte.chars();
+    match lettres.next() {
+        Some(premiere) => premiere.to_uppercase().chain(lettres).collect(),
+        None => String::new(),
+    }
 }
 
 /// The day an occurrence falls on: a whole day by its date, an event by its local start.
@@ -672,6 +747,129 @@ fn etirer_en_direct(
     }
 }
 
+/// What a phone's calendar shows besides the period (the Android mockups): the month as
+/// its title, today's number on the button that goes back to it, the week of the day
+/// chosen as a strip with a dot under each day that has something, the month's chosen
+/// day as a list, the calendar an event typed on a slot goes into, and the calendars in
+/// groups for their sheet.
+fn telephone(
+    services: &Services,
+    etat: &Etat,
+    occ: &[Occurrence],
+    couleurs: &HashMap<i64, String>,
+    calendriers: &[StoredCalendar],
+    lignes: Vec<CalendarData>,
+    maintenant: Timestamp,
+) -> CalendarPhoneData {
+    let today = aujourd_hui();
+    // "October"; the year over the month, or when it is not this one.
+    let motif = if etat.mode == 0 || etat.jour.year() != today.year() {
+        "%B %Y"
+    } else {
+        "%B"
+    };
+
+    // The week of the day chosen, with its own events: the period shown may be one day.
+    let debut = layout::week_start(etat.jour);
+    let fin = debut + Duration::days(6);
+    let mut semaine = Etat {
+        mode: 1,
+        jour: etat.jour,
+        ..Default::default()
+    };
+    let mut pleins: HashSet<NaiveDate> = HashSet::new();
+    for o in &charger(services, &mut semaine) {
+        // The last day it covers: a whole day ends at the midnight after it.
+        let dernier = if o.all_day {
+            layout::local_date((o.end - 1).max(o.start), &chrono::Utc)
+        } else {
+            layout::local_date((o.end - 1).max(o.start), &Local)
+        };
+        let mut d = jour_de(o).max(debut);
+        while d <= dernier.min(fin) {
+            pleins.insert(d);
+            d += Duration::days(1);
+        }
+    }
+    let bande: Vec<StripDayData> = (0..7)
+        .map(|i| {
+            let d = debut + Duration::days(i);
+            StripDayData {
+                name: d.format("%a").to_string().into(),
+                day: d.day().to_string().into(),
+                date: d.format("%Y-%m-%d").to_string().into(),
+                today: d == today,
+                selected: d == etat.jour,
+                busy: pleins.contains(&d),
+            }
+        })
+        .collect();
+
+    // Under the month, the day chosen.
+    let (titre_jour, liste) = if etat.mode == 0 {
+        let liens = services.store.event_links().unwrap_or_default();
+        let jour = etat.jour;
+        (
+            jour.format("%A %-d").to_string(),
+            lignes_d_agenda(etat, occ, couleurs, &liens, maintenant, |o| {
+                jour_de(o) == jour
+            }),
+        )
+    } else {
+        (String::new(), Vec::new())
+    };
+
+    // The sheet's groups: this device's calendars, each account's, the subscribed
+    // ones; in their order within each.
+    let ici = if cfg!(target_os = "android") {
+        "On this phone"
+    } else {
+        "On this computer"
+    };
+    let mut groupes: Vec<(u8, String, CalendarData)> = calendriers
+        .iter()
+        .zip(lignes)
+        .map(|(c, l)| {
+            let (rang, nom) = if c.is_subscription() {
+                (2, "Subscribed".to_string())
+            } else if c.is_remote() {
+                (1, l.account.to_string())
+            } else {
+                (0, ici.to_string())
+            };
+            (rang, nom, l)
+        })
+        .collect();
+    groupes.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+    let mut precedent: Option<(u8, String)> = None;
+    let feuille: Vec<CalendarData> = groupes
+        .into_iter()
+        .map(|(rang, nom, mut l)| {
+            if precedent.as_ref() != Some(&(rang, nom.clone())) {
+                l.group = nom.as_str().into();
+                precedent = Some((rang, nom));
+            }
+            l
+        })
+        .collect();
+
+    CalendarPhoneData {
+        title: etat.jour.format(motif).to_string().into(),
+        today: today.day().to_string().into(),
+        strip: ModelRc::new(VecModel::from(bande)),
+        day_heading: titre_jour.into(),
+        day_today: etat.jour == today,
+        day_list: ModelRc::new(VecModel::from(liste)),
+        // Where a quick event goes: the first calendar of one's own.
+        quick_color: calendriers
+            .iter()
+            .find(|c| c.is_writable())
+            .map(|c| couleur(&c.color))
+            .unwrap_or_default(),
+        calendars: ModelRc::new(VecModel::from(feuille)),
+    }
+}
+
 /// Recalcule tout ce que l'agenda affiche.
 fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     let maintenant = now();
@@ -682,31 +880,31 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         .collect();
 
     let nb_locaux = calendriers.iter().filter(|c| c.is_local()).count();
-    fenetre.set_calendars(ModelRc::new(VecModel::from(
-        calendriers
-            .iter()
-            .map(|c| {
-                let (texte, echec) = statut(services, c, maintenant);
-                CalendarData {
-                    id: c.id as i32,
-                    name: c.name.as_str().into(),
-                    color: couleur(&c.color),
-                    visible: c.visible,
-                    subscribed: c.is_subscription(),
-                    status: texte.into(),
-                    failed: echec,
-                    // The last calendar on this computer stays: a new event needs one.
-                    deletable: !c.is_local() || nb_locaux > 1,
-                    remote: c.is_remote(),
-                    account: c
-                        .account_id
-                        .map(|a| crate::caldav::account_name(services, a))
-                        .unwrap_or_default()
-                        .into(),
-                }
-            })
-            .collect::<Vec<_>>(),
-    )));
+    let lignes_calendriers: Vec<CalendarData> = calendriers
+        .iter()
+        .map(|c| {
+            let (texte, echec) = statut(services, c, maintenant);
+            CalendarData {
+                id: c.id as i32,
+                name: c.name.as_str().into(),
+                color: couleur(&c.color),
+                visible: c.visible,
+                subscribed: c.is_subscription(),
+                status: texte.into(),
+                failed: echec,
+                // The last calendar on this computer stays: a new event needs one.
+                deletable: !c.is_local() || nb_locaux > 1,
+                remote: c.is_remote(),
+                account: c
+                    .account_id
+                    .map(|a| crate::caldav::account_name(services, a))
+                    .unwrap_or_default()
+                    .into(),
+                group: SharedString::default(),
+            }
+        })
+        .collect();
+    fenetre.set_calendars(ModelRc::new(VecModel::from(lignes_calendriers.clone())));
     etat.locaux = calendriers
         .iter()
         .filter(|c| c.is_writable())
@@ -724,7 +922,8 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             fenetre.set_calendar_month_cells(ModelRc::new(VecModel::from(cases)));
         }
         4 => {
-            let lignes = lignes_d_agenda(etat, &occ, &couleurs, maintenant);
+            let liens = services.store.event_links().unwrap_or_default();
+            let lignes = lignes_d_agenda(etat, &occ, &couleurs, &liens, maintenant, |_| true);
             fenetre.set_calendar_agenda(ModelRc::new(VecModel::from(lignes)));
         }
         _ => {
@@ -774,6 +973,16 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
     fenetre.set_calendar_to_plan(ModelRc::new(VecModel::from(crate::tasks::to_plan(
         services,
     ))));
+
+    fenetre.set_calendar_phone(telephone(
+        services,
+        etat,
+        &occ,
+        &couleurs,
+        &calendriers,
+        lignes_calendriers,
+        maintenant,
+    ));
 
     // Le petit mois, avec ses propres occurrences quand il ne montre pas le même mois.
     // "September"; the year only when it is not this one.
@@ -1330,6 +1539,13 @@ fn ouvrir_editeur(
             f.set_editor_repeat_index(0);
         }
     }
+    f.set_editor_calendar_colors(ModelRc::new(VecModel::from(
+        locaux.iter().map(|c| couleur(&c.color)).collect::<Vec<_>>(),
+    )));
+    // A phone's keys of the hour count in minutes of the day.
+    let minutes = |t: SharedString| lire_heure(&t).map(|h| (h.hour() * 60 + h.minute()) as i32);
+    f.set_editor_start_minute(minutes(f.get_editor_start_time()).unwrap_or(9 * 60));
+    f.set_editor_end_minute(minutes(f.get_editor_end_time()).unwrap_or(10 * 60));
     etat.selecteur = None;
     f.set_editor_picker(-1);
     f.set_event_detail_open(false);
@@ -1969,6 +2185,47 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                     _ => e.jour + Duration::days(n as i64),
                 };
                 e.mini = premier_du_mois(e.jour);
+            }
+            redessiner();
+        });
+    }
+    // A phone's week strip swiped: the same day a week later or earlier, whatever the
+    // view.
+    {
+        let (etat, redessiner) = (Rc::clone(&etat), Rc::clone(&redessiner));
+        fenetre.on_calendar_week_navigate(move |n| {
+            {
+                let mut e = etat.borrow_mut();
+                e.jour += Duration::days(7 * n as i64);
+                e.mini = premier_du_mois(e.jour);
+            }
+            redessiner();
+        });
+    }
+    // "Plan my day" on a phone: each of today's tasks without an hour gets the first
+    // free time, one after the other, as the side column's clock button does for one.
+    {
+        let (faible, services, redessiner) =
+            (fenetre.as_weak(), services.clone(), Rc::clone(&redessiner));
+        fenetre.on_calendar_plan_day(move || {
+            let mut prevues = 0;
+            for t in crate::tasks::to_plan(&services) {
+                let Some((jour, minute)) = crate::tasks::first_free(&services, t.id as i64) else {
+                    continue;
+                };
+                if crate::tasks::book(&services, t.id as i64, jour, minute).is_ok() {
+                    prevues += 1;
+                }
+            }
+            if let Some(f) = faible.upgrade() {
+                f.set_status(
+                    match prevues {
+                        0 => "No free time left in the day.".to_string(),
+                        1 => "1 task planned.".to_string(),
+                        n => format!("{n} tasks planned."),
+                    }
+                    .into(),
+                );
             }
             redessiner();
         });
