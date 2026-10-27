@@ -111,6 +111,7 @@ windows-sys = { version = "0.60", features = [
 winresource = "0.1"
 
 [dev-dependencies]
+log = "0.4"
 tempfile = "3"
 wat = "1"
 iris-viewmodel = { workspace = true }

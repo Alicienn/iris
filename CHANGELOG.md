@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.4.1 — 2026-10-27
+
+### Fixed
+- Iris for Android no longer closes as soon as it opens.
+
 ## 6.4.0 — 2026-10-27
 
 ### New

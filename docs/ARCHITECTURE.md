@@ -203,7 +203,10 @@ calendar and tasks wiring. The window itself starts in `gui::run` (6.3.0), which
 Windows binary and `iris-android` both call; what differs per system answers through
 the `platform::Platform` trait (the desktop's code is its default; Android's is in
 `iris-android`), and the clipboard and file dialogs through `presse` and `dialogue`
-(`arboard` and `rfd` on a desktop, stand-ins on Android). The three bundled modules (`iris-plugin-vip`,
+(`arboard` and `rfd` on a desktop, stand-ins on Android). On Android, `android_logger`
+owns the `log` crate's logger (logcat) before the journal starts; `logging::install`
+therefore uses `try_init`, which installs the `tracing` subscriber and leaves `log` to
+logcat (`tests/journal.rs`). The three bundled modules (`iris-plugin-vip`,
 `iris-plugin-office-hours`, `iris-plugin-filer`) are WebAssembly crates built on the SDK;
 see [PLUGINS.md](PLUGINS.md).
 

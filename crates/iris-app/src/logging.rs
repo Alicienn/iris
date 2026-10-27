@@ -105,12 +105,14 @@ pub fn install(paths: &crate::paths::Paths) {
                 fichier: Mutex::new(fichier),
             }));
 
-            tracing_subscriber::fmt()
-                .with_env_filter(tracing_subscriber::EnvFilter::new(&filtre))
-                .with_target(false)
-                .with_ansi(false)
-                .with_writer(move || cible)
-                .init();
+            essayer(
+                tracing_subscriber::fmt()
+                    .with_env_filter(tracing_subscriber::EnvFilter::new(&filtre))
+                    .with_target(false)
+                    .with_ansi(false)
+                    .with_writer(move || cible)
+                    .try_init(),
+            );
 
             install_panic_hook(current(paths));
             entete(paths);
@@ -118,12 +120,25 @@ pub fn install(paths: &crate::paths::Paths) {
         // Un disque plein ou un répertoire en lecture seule ne doit pas empêcher
         // l'application de démarrer : on perd le journal, pas le courrier.
         None => {
-            tracing_subscriber::fmt()
-                .with_env_filter(tracing_subscriber::EnvFilter::new(&filtre))
-                .with_target(false)
-                .init();
+            essayer(
+                tracing_subscriber::fmt()
+                    .with_env_filter(tracing_subscriber::EnvFilter::new(&filtre))
+                    .with_target(false)
+                    .try_init(),
+            );
             tracing::warn!("no log file: the log directory could not be opened");
         }
+    }
+}
+
+/// `init` panicked when a `log` logger was already there: Android's, installed by
+/// `iris-android` before this, made Iris abort at launch ("Unable to install global
+/// subscriber: SetLoggerError"). `try_init` sets the subscriber first and only then
+/// fails to bridge `log`, which costs nothing here: the journal is kept, and logcat
+/// keeps what `log` writes to it.
+fn essayer(r: Result<(), Box<dyn std::error::Error + Send + Sync>>) {
+    if let Err(e) = r {
+        eprintln!("iris: the log's subscriber, in part: {e}");
     }
 }
 
