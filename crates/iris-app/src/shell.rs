@@ -38,6 +38,7 @@ pub fn build(services: &Services) -> iris_types::Result<AppWindow> {
     // posée quand quelque chose ne va pas, et la seule réponse qui rende un rapport
     // exploitable — « ça plante » sans numéro de version ne se corrige pas.
     fenetre.set_version(format!("Iris {}", env!("CARGO_PKG_VERSION")).into());
+    fenetre.set_version_number(env!("CARGO_PKG_VERSION").into());
     refresh_accounts(&fenetre, services, &[]);
 
     Ok(fenetre)
@@ -120,6 +121,17 @@ pub fn refresh_accounts(
 
     fenetre.set_pinned_accounts(ModelRc::new(VecModel::from(
         epingles.iter().map(|c| ligne(c)).collect::<Vec<_>>(),
+    )));
+
+    // Settings › Accounts on a phone: every mailbox, the pinned ones first, whatever
+    // the column's filter or folded tags hide.
+    fenetre.set_settings_accounts(ModelRc::new(VecModel::from(
+        comptes
+            .iter()
+            .filter(|c| c.pinned)
+            .chain(comptes.iter().filter(|c| !c.pinned))
+            .map(ligne)
+            .collect::<Vec<_>>(),
     )));
 
     // Under their tags, when asked: a title per tag, its accounts beneath — an account
@@ -3007,6 +3019,7 @@ pub fn wire_settings(
         let reglages = courant.lock().expect("réglages empoisonnés").clone();
         fenetre.set_appearance(reglages.appearance.index() as i32);
         fenetre.set_first_name(reglages.first_name.as_str().into());
+        fenetre.set_profile_initials(iris_ui::format::initials(&reglages.first_name).into());
         fenetre.set_density(reglages.density.index() as i32);
         fenetre.set_text_size(reglages.text_size as i32);
         fenetre.set_reply_marks_waiting(reglages.automation.reply_marks_waiting);
@@ -3154,8 +3167,10 @@ pub fn wire_settings(
             let mut reglages = courant.lock().expect("réglages empoisonnés");
             reglages.first_name = nom.trim().chars().take(40).collect();
             enregistrer(&reglages);
+            let initiales = iris_ui::format::initials(&reglages.first_name);
             drop(reglages);
             if let Some(fenetre) = faible.upgrade() {
+                fenetre.set_profile_initials(initiales.into());
                 crate::home::refresh_if_shown(&fenetre, &services);
             }
         });
@@ -3395,10 +3410,29 @@ pub fn wire_updates(
     runtime: tokio::runtime::Handle,
 ) {
     let courante = crate::update::current();
+    let versions = crate::changelog::bundled();
     fenetre.set_changelog(ModelRc::new(VecModel::from(changelog_rows(
-        &crate::changelog::bundled(),
+        &versions,
         Some(courante),
     ))));
+    // Settings › Updates & changelog on a phone: the last two versions, their
+    // sections in sentence case as the page's titles are.
+    fenetre.set_settings_changelog(ModelRc::new(VecModel::from(
+        changelog_rows(&versions[..versions.len().min(2)], None)
+            .into_iter()
+            .map(|mut ligne| {
+                if ligne.kind == 1 {
+                    let mut lettres = ligne.text.chars();
+                    ligne.text = lettres
+                        .next()
+                        .map(|p| p.to_string() + &lettres.as_str().to_lowercase())
+                        .unwrap_or_default()
+                        .into();
+                }
+                ligne
+            })
+            .collect::<Vec<_>>(),
+    )));
     fenetre.set_update_check_status("Not checked yet.".into());
 
     // What the last check found, for the install button to act on.
@@ -6046,6 +6080,7 @@ pub fn wire_account_menu(
             fenetre.set_account_menu_label(details.email.as_str().into());
             fenetre.set_account_menu_pinned(details.pinned);
             fenetre.set_account_menu_enabled(details.enabled);
+            fenetre.set_account_page(account_page(&services, &details));
             // Its tags, the submenu folded and its search emptied: a menu opened on
             // another account must not carry the last one's state.
             fenetre.set_account_tags_open(false);
@@ -6376,6 +6411,55 @@ fn recharger_les_comptes(services: &Services, runtime: &tokio::runtime::Handle) 
 }
 
 /// Opens the setup screen on an account that already exists.
+/// An account's page in Settings on a phone: what its menu does on a PC, with the
+/// values each row shows.
+pub(crate) fn account_page(
+    services: &Services,
+    compte: &iris_store::Account,
+) -> iris_ui::AccountPageData {
+    let serveur = |hote: &str, port: u16, tls: bool| {
+        if hote.is_empty() {
+            String::new()
+        } else if tls {
+            format!("{hote} · {port} · TLS")
+        } else {
+            format!("{hote} · {port}")
+        }
+    };
+    let alias: Vec<String> = services
+        .store
+        .aliases()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| a.account == compte.id)
+        .map(|a| a.address)
+        .collect();
+    let tags: Vec<String> = crate::tags::menu_tags(services, compte.id, "")
+        .into_iter()
+        .filter(|t| t.checked)
+        .map(|t| t.name.to_string())
+        .collect();
+    iris_ui::AccountPageData {
+        name: compte.display_name.as_str().into(),
+        incoming: serveur(&compte.imap_host, compte.imap_port, compte.imap_tls).into(),
+        outgoing: serveur(&compte.smtp_host, compte.smtp_port, compte.smtp_tls).into(),
+        send_as: if alias.is_empty() {
+            compte.email.as_str().into()
+        } else {
+            alias.join(", ").into()
+        },
+        signature: compte
+            .signature
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("")
+            .into(),
+        tags: tags.join(", ").into(),
+        oauth: crate::oauth::provider_for(compte.auth).is_some(),
+    }
+}
+
 fn prefill_from_account(fenetre: &AppWindow, compte: &iris_store::Account, manual: bool) {
     EDITION.with(|e| e.set(Some(compte.id)));
     fenetre.set_new_username(compte.imap_user.as_str().into());

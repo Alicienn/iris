@@ -83,6 +83,10 @@ fn remplir_menu(f: &AppWindow, services: &Services, sujet: &Mutex<Option<Account
             compte,
             f.get_account_tag_search().as_str(),
         ))));
+        // The account's page on a phone names its tags.
+        if let Ok(Some(details)) = services.store.account(compte) {
+            f.set_account_page(crate::shell::account_page(services, &details));
+        }
     }
 }
 
