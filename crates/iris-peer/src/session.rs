@@ -18,6 +18,8 @@ use tokio::net::TcpStream;
 /// A frame larger than this is refused before it is read: 64 MiB.
 const FRAME_MAX: u32 = 64 * 1024 * 1024;
 const CONTEXTE: &[u8] = b"iris-sync 1";
+/// How long a connecting device has to prove itself.
+const HANDSHAKE_TIME: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The six digits both devices show, to be compared by eye: "482 913".
 pub fn check_digits(session_key: &[u8; 32]) -> String {
@@ -57,6 +59,16 @@ impl Session {
     /// Accepts a device that connected, if `secret_for` knows the device it says it
     /// is. Returns the session and that device's id.
     pub async fn accept(
+        stream: TcpStream,
+        secret_for: &(dyn Fn(&str) -> Option<[u8; 32]> + Sync),
+    ) -> Result<(Session, String), PeerError> {
+        // A device that connects and says nothing does not hold the listener's task.
+        tokio::time::timeout(HANDSHAKE_TIME, Self::accept_now(stream, secret_for))
+            .await
+            .map_err(|_| PeerError::Refused)?
+    }
+
+    async fn accept_now(
         mut stream: TcpStream,
         secret_for: &(dyn Fn(&str) -> Option<[u8; 32]> + Sync),
     ) -> Result<(Session, String), PeerError> {
@@ -209,6 +221,16 @@ mod tests {
     async fn another_secret_is_refused() {
         let (client, serveur) = paire([9u8; 32]).await;
         assert!(client.is_err() || serveur.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_device_that_says_nothing_is_let_go() {
+        let ecoute = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let adresse = ecoute.local_addr().unwrap();
+        let _muet = tokio::net::TcpStream::connect(adresse).await.unwrap();
+        let (flux, _) = ecoute.accept().await.unwrap();
+        let r = Session::accept(flux, &|_: &str| Some(SECRET)).await;
+        assert!(matches!(r, Err(PeerError::Refused)));
     }
 
     #[test]

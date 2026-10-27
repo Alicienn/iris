@@ -155,8 +155,27 @@ pub fn pack<T: Serialize>(value: &T) -> Result<Vec<u8>, PeerError> {
 }
 
 pub fn unpack<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, PeerError> {
-    let json = zstd::decode_all(bytes)?;
+    let json = inflate(bytes)?;
     serde_json::from_slice(&json).map_err(|e| PeerError::Message(e.to_string()))
+}
+
+/// What a frame may grow to once decompressed: 512 MiB, far above a change set or a
+/// note, far below what would exhaust a phone.
+const INFLATED_MAX: u64 = 512 * 1024 * 1024;
+
+/// Decompresses, refusing what would grow past `INFLATED_MAX`.
+pub fn inflate(bytes: &[u8]) -> Result<Vec<u8>, PeerError> {
+    use std::io::Read;
+    let mut sortie = Vec::new();
+    zstd::stream::read::Decoder::new(bytes)?
+        .take(INFLATED_MAX + 1)
+        .read_to_end(&mut sortie)?;
+    if sortie.len() as u64 > INFLATED_MAX {
+        return Err(PeerError::Message(
+            "a frame too large once decompressed".into(),
+        ));
+    }
+    Ok(sortie)
 }
 
 fn inattendu(m: &Msg) -> PeerError {
@@ -331,7 +350,7 @@ pub async fn exchange(
                     mtime_ms,
                     zstd_bytes,
                 } => {
-                    let octets = zstd::decode_all(zstd_bytes.as_slice())?;
+                    let octets = inflate(zstd_bytes.as_slice())?;
                     here.write_file(&space_id, &path, mtime_ms, &octets)?;
                     recus += 1;
                     bilan.updated += 1;
@@ -436,6 +455,20 @@ mod tests {
             self.fichiers.insert(path.into(), b.to_vec());
             Ok(())
         }
+    }
+
+    #[test]
+    fn a_frame_that_would_grow_too_large_is_refused() {
+        // 600 MiB of zeros compress to almost nothing.
+        let mut enc = zstd::stream::write::Encoder::new(Vec::new(), 1).unwrap();
+        let bloc = vec![0u8; 1024 * 1024];
+        for _ in 0..600 {
+            std::io::Write::write_all(&mut enc, &bloc).unwrap();
+        }
+        let petit = enc.finish().unwrap();
+        assert!(petit.len() < 1024 * 1024);
+        assert!(inflate(&petit).is_err());
+        assert_eq!(inflate(&pack(&"ok").unwrap()).unwrap(), b"\"ok\"");
     }
 
     #[tokio::test]

@@ -19,4 +19,4 @@ thiserror = { workspace = true }
 mdns-sd = "0.13"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["net", "io-util", "time", "macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["net", "io-util", "time", "macros", "rt-multi-thread", "test-util"] }
