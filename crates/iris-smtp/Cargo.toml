@@ -10,7 +10,15 @@ iris-types = { workspace = true }
 async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tokio = { workspace = true }
-lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1", "tokio1-rustls", "rustls-platform-verifier", "builder", "ring"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1", "tokio1-rustls", "builder", "ring"] }
+
+# The system's certificate store where lettre can reach it; on Android its verifier lacks
+# what lettre calls, so the bundled Mozilla roots.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+lettre = { version = "0.11", default-features = false, features = ["rustls-platform-verifier"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+lettre = { version = "0.11", default-features = false, features = ["webpki-roots"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "test-util"] }
