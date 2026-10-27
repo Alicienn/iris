@@ -49,6 +49,15 @@ const HEADER_FIELDS: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE \
 type Stream = tokio_rustls::client::TlsStream<TcpStream>;
 type Session = async_imap::Session<Stream>;
 
+/// Mozilla's roots, built into Iris.
+fn embedded_roots() -> rustls::ClientConfig {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth()
+}
+
 /// Établit les connexions réelles.
 #[derive(Debug, Clone)]
 pub struct RustlsConnector {
@@ -60,6 +69,11 @@ impl RustlsConnector {
     /// verifier): a company's own authority, installed with its profile, was trusted
     /// to send mail and refused for reading it. The embedded roots remain the fallback
     /// when the system's store cannot be used.
+    ///
+    /// On Android, the embedded roots only: the platform verifier there needs its Java
+    /// half, set up over JNI, and without it the first certificate check aborted the
+    /// app (6.4.1, adding an account). Sending makes the same choice (`iris-smtp`).
+    #[cfg(not(target_os = "android"))]
     pub fn new() -> Self {
         use rustls_platform_verifier::BuilderVerifierExt;
 
@@ -68,15 +82,18 @@ impl RustlsConnector {
             .map(|b| b.with_no_client_auth())
             .unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "system certificate store unusable, embedded roots used");
-                let mut roots = rustls::RootCertStore::empty();
-                roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-                rustls::ClientConfig::builder()
-                    .with_root_certificates(roots)
-                    .with_no_client_auth()
+                embedded_roots()
             });
 
         Self {
             config: Arc::new(config),
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn new() -> Self {
+        Self {
+            config: Arc::new(embedded_roots()),
         }
     }
 

@@ -16,7 +16,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:hasCode="false"
         android:allowBackup="false"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Iris">
 
         <!-- The keyboard resizes the window rather than covering it: what sits at the
              foot of a page (the reply, the quick add) rises with it. The window is not

@@ -2471,6 +2471,9 @@ export component AppWindow inherits Window {
                 // phone only as a page, opened from the list.
                 Rectangle {
                 visible: (!Layout.compact || root.fil-en-page) && !root.mailboxes-open;
+                // A zero maximum alone lost to the reader's own minimum width: on a phone
+                // it kept a strip of the screen, and the list only what was left.
+                min-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 200px;
                 max-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 100000px;
                 horizontal-stretch: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0 : 1;
                 background: Tokens.surface;

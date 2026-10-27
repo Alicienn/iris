@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Iris's window. Android 15 draws an app under the status and gesture bars unless it
+     opts out; Iris lays itself out in the window it is given, so it opts out and the
+     bars keep their own room, in the colour of Iris's surface. -->
+<resources>
+    <style name="Iris" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <item name="android:statusBarColor">#ffffff</item>
+        <item name="android:navigationBarColor">#ffffff</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">#ffffff</item>
+    </style>
+</resources>

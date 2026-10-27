@@ -139,6 +139,22 @@ fn sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre() {
     );
 }
 
+fn sur_un_telephone_la_liste_prend_tout_l_ecran() {
+    let f = fenetre_de(390.0, 844.0);
+    slint::platform::update_timers_and_animations();
+    let message = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some("Nothing to do.") && e.size().width > 0.0)
+        .expect("the empty list says so");
+    let milieu = message.absolute_position().x + message.size().width / 2.0;
+    assert!(
+        (milieu - 195.0).abs() < 20.0,
+        "centred on the screen, not on a part of it: {milieu}"
+    );
+}
+
 fn le_retour_d_android_est_remis_a_l_application() {
     let f = fenetre_de(390.0, 844.0);
     let retours = std::rc::Rc::new(std::cell::Cell::new(0));
@@ -330,6 +346,10 @@ fn main() {
         (
             "sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre",
             sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre,
+        ),
+        (
+            "sur_un_telephone_la_liste_prend_tout_l_ecran",
+            sur_un_telephone_la_liste_prend_tout_l_ecran,
         ),
         (
             "le_retour_d_android_est_remis_a_l_application",

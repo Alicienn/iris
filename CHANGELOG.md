@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.4.2 — 2026-10-27
+
+### Fixed
+- Adding an account on Android no longer closes Iris.
+- On Android, screens no longer slide under the status bar.
+- On a phone, the mail list fills the screen.
+
 ## 6.4.1 — 2026-10-27
 
 ### Fixed

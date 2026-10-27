@@ -808,3 +808,5 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       touch screens, search in the mail's bar, Android's Back (6.3.0–6.4.0).
 - [x] **S47.9** Android starts: the journal no longer aborts when Android's logger is
       already installed (6.4.1).
+- [x] **S47.10** Android: accounts connect (the embedded roots for IMAP), the window keeps
+      out of the system bars, the mail list fills a phone (6.4.2).
