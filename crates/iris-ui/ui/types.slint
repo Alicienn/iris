@@ -103,6 +103,24 @@ export struct AccountTagData {
     checked: bool,
 }
 
+// An account's page in Settings on a phone: what its right-click menu does on a PC,
+// shown as rows with their values. Formatted in Rust.
+export struct AccountPageData {
+    // The name its messages are sent under.
+    name: string,
+    // "imap.example.com · 993 · TLS".
+    incoming: string,
+    outgoing: string,
+    // The other addresses it sends as, or the address alone.
+    send-as: string,
+    // The signature's first line; empty when there is none.
+    signature: string,
+    // Its tags' names, joined.
+    tags: string,
+    // Signed in through the browser: no password, a sign-in to renew.
+    oauth: bool,
+}
+
 export struct MessageBlockData {
     // "paragraph", "heading", "list", "quote", "code", "rule", "image", "table"
     kind: string,

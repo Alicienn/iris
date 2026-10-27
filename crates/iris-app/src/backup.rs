@@ -103,6 +103,31 @@ pub fn status(services: &Services) -> String {
     }
 }
 
+/// When the last backup was made, in a word for a row's right end on a phone:
+/// "today", "7 Oct"; empty before the first.
+pub fn when(services: &Services) -> String {
+    let Some(info) = list(services)
+        .first()
+        .and_then(|p| iris_store::backup_info(p).ok())
+    else {
+        return String::new();
+    };
+    let Some(t) = Local.timestamp_millis_opt(info.made_at.millis()).single() else {
+        return String::new();
+    };
+    if t.date_naive() == Local::now().date_naive() {
+        "today".into()
+    } else {
+        t.format("%-d %b").to_string()
+    }
+}
+
+/// Both lines of the backups: the sentence of the PC's row, the word of the phone's.
+fn show_status(f: &AppWindow, services: &Services) {
+    f.set_backup_status(status(services).into());
+    f.set_backup_when(when(services).into());
+}
+
 /// "today at 14:05", "on 7 October at 09:12".
 fn quand(ms: i64) -> String {
     let Some(t) = Local.timestamp_millis_opt(ms).single() else {
@@ -220,7 +245,7 @@ fn nom_de_fichier(nom: &str, pris: &mut Vec<String>) -> String {
 
 /// The rows of *Settings › Your calendars and tasks*, and the daily backup.
 pub fn wire_backup(fenetre: &AppWindow, services: &Services, runtime: tokio::runtime::Handle) {
-    fenetre.set_backup_status(status(services).into());
+    show_status(fenetre, services);
 
     // Once a day: looked at an hour after launch and every hour after, which costs a
     // directory read, so an Iris left open for days still makes one each day.
@@ -237,8 +262,10 @@ pub fn wire_backup(fenetre: &AppWindow, services: &Services, runtime: tokio::run
                 match fait {
                     Ok(true) => {
                         let texte = status(&services);
+                        let mot = when(&services);
                         let _ = faible.upgrade_in_event_loop(move |f| {
                             f.set_backup_status(texte.into());
+                            f.set_backup_when(mot.into());
                         });
                     }
                     Ok(false) => {}
@@ -260,7 +287,7 @@ pub fn wire_backup(fenetre: &AppWindow, services: &Services, runtime: tokio::run
                 Ok(_) => f.set_toast("Your calendars and tasks are backed up.".into()),
                 Err(e) => f.set_status(format!("Could not back up: {e}").into()),
             }
-            f.set_backup_status(status(&services).into());
+            show_status(&f, &services);
         });
     }
     {
@@ -343,7 +370,7 @@ pub fn wire_backup(fenetre: &AppWindow, services: &Services, runtime: tokio::run
                 }
                 Err(e) => f.set_status(format!("Could not restore: {e}").into()),
             }
-            f.set_backup_status(status(&services).into());
+            show_status(&f, &services);
         });
     }
     {

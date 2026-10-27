@@ -1,13 +1,17 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Avatar } from "@iris/base/atoms.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
-import { Segmented, Toggle } from "@iris/controls/choice.slint";
+import { Segmented, QueueSegments, Toggle, Check, CheckShape } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ComboBox, SpinBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
-import { DeviceRowData } from "@iris/types.slint";
+import {
+    DeviceRowData, AccountRowData, AccountTagData, AccountPageData, RuleRowData, PluginRowData,
+    ChangelogRowData
+} from "@iris/types.slint";
 
 // Les réglages, comme la Mac les range : une page, une colonne au milieu, des groupes
 // sur fond gris arrondi, et dans chacun une ligne par réglage — sa vignette de couleur,
@@ -96,58 +100,38 @@ component ToggleRow inherits SettingRow {
     }
 }
 
-/// On a phone, a group of settings as a row that opens it as a page.
-component GroupLink inherits Rectangle {
-    in property <string> icon;
-    in property <color> tint;
-    in property <string> label;
-    in property <bool> first;
-    callback opened();
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-action-default => { root.opened(); }
-    height: max(Layout.compact ? 52px : 48px, ligne.min-height);
-    ligne := SettingRow {
-        icon: root.icon;
-        tint: root.tint;
-        label: root.label;
-        first: root.first;
-        Icon {
-            y: (parent.height - self.height) / 2;
-            data: Icons.chevron-right;
-            size: 16px;
-            tint: Tokens.text-muted;
-        }
-    }
-    TouchArea {
-        clicked => { root.opened(); }
-    }
-}
-
-/// A group of rows on its own rounded grey plate.
+/// A group of rows on its own rounded plate: grey on a PC's white page; on a phone
+/// the mockups' `.grp`, the surface on the grey page, its rows edge to edge.
 component Group inherits Rectangle {
     border-radius: Layout.compact ? 14px : 10px;
-    background: Tokens.group;
+    background: Layout.compact ? Tokens.surface : Tokens.group;
+    // A pressed row's shade stops at the rounded corners.
+    clip: Layout.compact;
     vertical-stretch: 0;
     VerticalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
+        padding-left: Layout.compact ? 0px : 12px;
+        padding-right: Layout.compact ? 0px : 12px;
         spacing: 0px;
         @children
     }
 }
 
-/// A group's title, above it; or, `note`, a line under one.
+/// A group's title, above it; or, `note`, a line under one. On a phone the mockups'
+/// `.grp-t` and `.grp-f`, in line with the rows' words.
 component GroupTitle inherits HorizontalLayout {
     in property <string> text;
     in property <bool> note;
+    /// The page's first title, closer to the bar.
+    in property <bool> lead;
     in property <color> ink: Tokens.text-muted;
-    padding-left: 10px;
-    padding-right: 10px;
-    height: root.note ? self.preferred-height : 26px;
+    padding-left: Layout.compact ? 16px : 10px;
+    padding-right: Layout.compact ? 16px : 10px;
+    padding-top: !Layout.compact ? 0px : root.note ? 7px : root.lead ? 6px : 18px;
+    padding-bottom: Layout.compact && !root.note ? 7px : 0px;
+    height: Layout.compact || root.note ? self.preferred-height : 26px;
     Text {
         text: root.text;
-        font-size: 12px;
+        font-size: !Layout.compact ? 12px : root.note ? 12.5px : 13px;
         font-weight: root.note ? 400 : 600;
         color: root.ink;
         vertical-alignment: bottom;
@@ -155,15 +139,16 @@ component GroupTitle inherits HorizontalLayout {
     }
 }
 
-/// A colour to pick: a disc, ringed when it is the one.
+/// A colour to pick: a disc, ringed when it is the one. On a phone the mockups' 32
+/// pixel discs, the ring outside with the plate's colour between.
 component Swatch inherits Rectangle {
     in property <color> tint;
     in property <bool> on;
     in property <string> label;
     callback chosen();
 
-    width: 20px;
-    height: 20px;
+    width: Layout.compact ? 32px : 20px;
+    height: self.width;
     accessible-role: button;
     accessible-label: root.label;
     accessible-item-selected: root.on;
@@ -171,21 +156,389 @@ component Swatch inherits Rectangle {
 
     // The ring a little outside the disc, with the plate's colour between them.
     if root.on: Rectangle {
-        width: 20px;
-        height: 20px;
-        border-radius: 10px;
-        border-width: 1.5px;
+        width: Layout.compact ? 42px : 20px;
+        height: self.width;
+        border-radius: self.width / 2;
+        border-width: Layout.compact ? 2px : 1.5px;
         border-color: root.tint;
     }
     Rectangle {
-        width: 14px;
-        height: 14px;
-        border-radius: 7px;
+        width: Layout.compact ? 32px : 14px;
+        height: self.width;
+        border-radius: self.width / 2;
         background: root.tint;
     }
     TouchArea {
         mouse-cursor: pointer;
         clicked => { root.chosen(); }
+    }
+}
+
+// --- On a phone ---
+//
+// The mockups' settings (`android/settings.html`): a page of inset groups on the grey
+// page, rows of 52 pixels with a coloured tile, the value at the right and a chevron
+// when the row opens something.
+
+/// The two themes as they are, whatever the theme now: the pictures on the theme
+/// cards show each one, so they cannot follow the tokens.
+global Pictured {
+    out property <color> light-page: rgb(242, 242, 244);
+    out property <color> light-bar: rgb(209, 209, 214);
+    out property <color> light-card: rgb(255, 255, 255);
+    out property <color> dark-page: rgb(26, 26, 28);
+    out property <color> dark-bar: rgb(72, 72, 74);
+    out property <color> dark-card: rgb(44, 44, 46);
+    /// The icon on the yellow tile: white on yellow does not read.
+    out property <color> on-yellow: rgb(74, 58, 0);
+}
+
+/// A row of a group on a phone (`.li`): its tile (or an avatar, or a bare icon), its
+/// words, its value, its control (`@children`), a chevron when it opens something.
+/// A hairline above unless it opens the group: under the words past a tile, from the
+/// plate's padding on a `flat` row.
+component PhoneRow inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
+    in property <color> icon-ink: Tokens.accent-text;
+    /// The icon drawn alone, in the words' colour, without its tile (Add an account).
+    in property <bool> bare;
+    /// An avatar instead of a tile: the profile.
+    in property <string> initials;
+    in property <bool> avatar;
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value;
+    in property <bool> chevron;
+    in property <bool> first;
+    in property <bool> flat: root.icon == "" && !root.avatar;
+    /// The words' colour: the accent for an action, red for one that destroys.
+    in property <color> ink: Tokens.text;
+    in property <bool> strong;
+    in property <bool> centred;
+    in property <bool> pressed;
+
+    min-height: max(52px, rang.preferred-height);
+    vertical-stretch: 0;
+    background: root.pressed ? Tokens.surface-active : transparent;
+
+    if !root.first: Rectangle {
+        x: root.flat ? 16px : 52px;
+        y: 0px;
+        width: parent.width - self.x;
+        height: 1px;
+        background: Tokens.border;
+    }
+    rang := HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 14px;
+        alignment: root.centred ? center : stretch;
+        if root.avatar: Avatar {
+            y: (parent.height - self.height) / 2;
+            size: 40px;
+            initials: root.initials;
+            tint: Tokens.accent;
+        }
+        if root.icon != "" && !root.bare: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            background: root.tint;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                data: root.icon;
+                size: 18px;
+                weight: 2;
+                tint: root.icon-ink;
+            }
+        }
+        if root.icon != "" && root.bare: Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 18px;
+            weight: 2;
+            tint: root.ink;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            horizontal-stretch: root.centred ? 0 : 1;
+            Text {
+                text: root.label;
+                font-size: 15.5px;
+                font-weight: root.strong ? 600 : 400;
+                color: root.ink;
+                horizontal-alignment: root.centred ? center : left;
+                wrap: word-wrap;
+            }
+            if root.hint != "": Text {
+                text: root.hint;
+                font-size: 13px;
+                color: Tokens.text-muted;
+                horizontal-alignment: root.centred ? center : left;
+                wrap: word-wrap;
+            }
+        }
+        if root.value != "": Text {
+            text: root.value;
+            font-size: 14.5px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+        @children
+        if root.chevron: Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-right;
+            size: 18px;
+            tint: Tokens.text-faint;
+        }
+    }
+}
+
+/// A row pressed as a whole: it opens a page, or does what it says.
+component PhoneLink inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
+    in property <color> icon-ink: Tokens.accent-text;
+    in property <bool> bare;
+    in property <string> initials;
+    in property <bool> avatar;
+    in property <string> label;
+    /// For a screen reader, when the words shown are not enough.
+    in property <string> say;
+    in property <string> hint;
+    in property <string> value;
+    in property <bool> chevron: true;
+    in property <bool> first;
+    in property <bool> flat: root.icon == "" && !root.avatar;
+    in property <color> ink: Tokens.text;
+    in property <bool> strong;
+    in property <bool> centred;
+    callback tapped();
+
+    accessible-role: button;
+    accessible-label: root.say != "" ? root.say : root.label;
+    accessible-action-default => { root.tapped(); }
+    height: ligne.min-height;
+    vertical-stretch: 0;
+
+    ligne := PhoneRow {
+        width: parent.width;
+        height: parent.height;
+        icon: root.icon;
+        tint: root.tint;
+        icon-ink: root.icon-ink;
+        bare: root.bare;
+        initials: root.initials;
+        avatar: root.avatar;
+        label: root.label;
+        hint: root.hint;
+        value: root.value;
+        chevron: root.chevron;
+        first: root.first;
+        flat: root.flat;
+        ink: root.ink;
+        strong: root.strong;
+        centred: root.centred;
+        pressed: touch.pressed;
+    }
+    touch := TouchArea {
+        clicked => { root.tapped(); }
+    }
+}
+
+/// A row with a switch for its control.
+component PhoneToggle inherits PhoneRow {
+    in-out property <bool> on;
+    callback toggled(bool);
+    Toggle {
+        y: (parent.height - self.height) / 2;
+        label: root.label;
+        on <=> root.on;
+        toggled => { root.toggled(self.on); }
+    }
+}
+
+/// A theme to pick, drawn as it looks: half of each for the system's.
+component ThemeCard inherits Rectangle {
+    in property <string> name;
+    /// 0 the system's, 1 light, 2 dark.
+    in property <int> kind;
+    in property <bool> on;
+    callback chosen();
+
+    height: 136px;
+    horizontal-stretch: 1;
+    accessible-role: button;
+    accessible-label: root.name;
+    accessible-item-selected: root.on;
+    accessible-action-default => { root.chosen(); }
+
+    Rectangle {
+        y: 0px;
+        height: 110px;
+        border-radius: 14px;
+        clip: true;
+        background: root.kind == 2 ? Pictured.dark-page : Pictured.light-page;
+        if root.kind == 0: Rectangle {
+            x: parent.width / 2;
+            width: parent.width / 2;
+            background: Pictured.dark-page;
+        }
+        // A title bar and a card, in the theme's own greys.
+        if root.kind != 0: Rectangle {
+            x: 10px;
+            y: 12px;
+            width: (parent.width - 20px) * 0.7;
+            height: 10px;
+            border-radius: 5px;
+            background: root.kind == 1 ? Pictured.light-bar : Pictured.dark-bar;
+        }
+        if root.kind != 0: Rectangle {
+            x: 10px;
+            y: 32px;
+            width: parent.width - 20px;
+            height: 30px;
+            border-radius: 7px;
+            background: root.kind == 1 ? Pictured.light-card : Pictured.dark-card;
+        }
+        // The frame over the picture: the accent, thicker, on the one chosen.
+        Rectangle {
+            border-radius: 14px;
+            border-width: root.on ? 3px : 1px;
+            border-color: root.on ? Tokens.accent : Tokens.border-strong;
+        }
+    }
+    Text {
+        y: 116px;
+        height: 20px;
+        text: root.name;
+        font-size: 14px;
+        font-weight: root.on ? 600 : 400;
+        color: root.on ? Tokens.accent : Tokens.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        clicked => { root.chosen(); }
+    }
+}
+
+/// The text size as a slider between a small A and a large one: four stops, the
+/// sizes the PC's segments offer, so both write the same values.
+component SizeSlider inherits Rectangle {
+    /// In percent: 85 to 130.
+    in property <int> value;
+    callback chosen(int);
+
+    property <[int]> stops: [85, 100, 115, 130];
+    property <int> stop: root.value <= 92 ? 0 : root.value <= 107 ? 1 : root.value <= 122 ? 2 : 3;
+    property <length> knob: root.width * root.stop / 3;
+    /// The stop under the finger.
+    property <int> under: max(0, min(3, round(zone.mouse-x / max(1px, root.width) * 3)));
+
+    height: 24px;
+    horizontal-stretch: 1;
+    accessible-role: slider;
+    accessible-label: "Text size";
+    accessible-value: "\{root.stops[root.stop]} %";
+    accessible-value-minimum: 85;
+    accessible-value-maximum: 130;
+    accessible-value-step: 15;
+    accessible-action-increment => { if (root.stop < 3) { root.chosen(root.stops[root.stop + 1]); } }
+    accessible-action-decrement => { if (root.stop > 0) { root.chosen(root.stops[root.stop - 1]); } }
+
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Tokens.border-strong;
+    }
+    Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: root.knob;
+        height: 4px;
+        border-radius: 2px;
+        background: Tokens.accent;
+    }
+    // White in every theme, as Android's knob.
+    Rectangle {
+        x: root.knob - self.width / 2;
+        y: 0px;
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        background: white;
+        drop-shadow-blur: 4px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #00000044;
+    }
+    zone := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && root.under != root.stop) {
+                root.chosen(root.stops[root.under]);
+            }
+        }
+        moved => {
+            if (root.under != root.stop) {
+                root.chosen(root.stops[root.under]);
+            }
+        }
+    }
+}
+
+/// A line of the changelog on the Updates page: a version, a section, an item.
+component ChangeLine inherits VerticalLayout {
+    in property <ChangelogRowData> row;
+    in property <bool> first;
+    // Between two versions, a line.
+    if root.row.kind == 0 && !root.first: Rectangle {
+        height: 27px;
+        Rectangle {
+            y: 14px;
+            height: 1px;
+            background: Tokens.border;
+        }
+    }
+    if root.row.kind == 0: HorizontalLayout {
+        alignment: start;
+        Text {
+            text: root.row.text;
+            font-family: Tokens.font-display;
+            font-size: 17px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: bottom;
+        }
+        Text {
+            text: root.row.detail != "" ? " · " + root.row.detail : "";
+            font-size: 13px;
+            color: Tokens.text-muted;
+            vertical-alignment: bottom;
+        }
+    }
+    if root.row.kind == 1: Text {
+        text: root.row.text;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: Tokens.text-muted;
+        // Above a section, the room of `margin-top: 10px`.
+        height: self.preferred-height + 10px;
+        vertical-alignment: bottom;
+    }
+    if root.row.kind == 2: Text {
+        text: "· " + root.row.text;
+        font-size: 14.5px;
+        color: Tokens.text-secondary;
+        wrap: word-wrap;
+        height: self.preferred-height + 4px;
+        vertical-alignment: bottom;
     }
 }
 
@@ -272,6 +625,51 @@ export component SettingsPanel inherits Rectangle {
     callback device-answered(bool);
     callback dismissed();
 
+    // What a phone's list shows at the right of its rows, and its pages.
+    /// The first name's initials, on the profile row.
+    in property <string> initials;
+    /// Every mailbox, whatever the accounts column filters or folds.
+    in property <[AccountRowData]> accounts;
+    /// "today", "7 Oct": when the last backup was made; empty before the first.
+    in property <string> backup-when;
+    /// "6.7.1", without the name.
+    in property <string> version-number;
+    /// The last versions' changes, for the Updates page.
+    in property <[ChangelogRowData]> changelog;
+    in property <[RuleRowData]> rules;
+    in property <[PluginRowData]> plugins;
+    callback rule-toggled(string, bool);
+    callback plugin-opened(string);
+    callback open-changelog();
+
+    /// The account whose page is open, -1 for none (the list of accounts).
+    in-out property <int> account: -1;
+    /// That account, as its right-click menu knows it on a PC.
+    in property <string> account-label;
+    in property <bool> account-pinned;
+    in property <bool> account-enabled;
+    in property <[AccountTagData]> account-tags;
+    in property <AccountPageData> account-page;
+    /// An account's page opened: the app fills the properties above.
+    callback account-opened(int);
+    callback account-edit();
+    callback account-password();
+    callback account-signature();
+    callback account-aliases();
+    callback account-enable();
+    callback account-pin();
+    callback account-remove();
+    callback account-tag-toggled(int);
+    callback manage-tags();
+    /// A window opened from a page is over it (an account's signature, the modules):
+    /// the page is hidden meanwhile, and what it shows is read again after.
+    in property <bool> covered;
+    changed covered => {
+        if (!self.covered && self.account >= 0) {
+            root.account-opened(self.account);
+        }
+    }
+
     /// The accents offered, as the Mac offers them, and their names.
     property <[color]> accents: [
         Tokens.blue, Tokens.purple, Tokens.pink, Tokens.red, Tokens.orange,
@@ -285,68 +683,127 @@ export component SettingsPanel inherits Rectangle {
 
     /// On a phone, the group open as a page; "" is the list of groups.
     in-out property <string> group;
-    property <bool> liste: Layout.compact && root.group == "";
-    /// Whether a group shows: always on a wide window, on its own page on a phone.
-    pure function voit(nom: string) -> bool {
-        return !Layout.compact || root.group == nom;
+    changed group => {
+        root.account = -1;
+        root.tags-open = false;
+        root.removing = false;
     }
-    property <[{name: string, icon: string, tint: color}]> groupes: [
-        { name: "General", icon: Icons.sparkle, tint: Tokens.purple },
-        { name: "Appearance", icon: Icons.sparkle, tint: Tokens.blue },
-        { name: "Mail", icon: Icons.envelope-closed, tint: Tokens.orange },
-        { name: "Devices", icon: Icons.refresh, tint: Tokens.blue },
-        { name: "Automations", icon: Icons.hourglass, tint: Tokens.orange },
-        { name: "System", icon: Icons.gear, tint: Tokens.grey },
-        { name: "Sign in with Google or Microsoft", icon: Icons.link, tint: Tokens.teal },
-        { name: "Your calendars and tasks", icon: Icons.calendar, tint: Tokens.red },
-        { name: "Notes", icon: Icons.pencil, tint: Tokens.yellow },
-        { name: "Updates", icon: Icons.download, tint: Tokens.green },
-    ];
+    changed account => {
+        root.tags-open = false;
+        root.removing = false;
+    }
+    property <bool> liste: Layout.compact && root.group == "";
+    /// A PC's window: every group on one page.
+    property <bool> large: !Layout.compact;
+    /// On a phone, whether this page is the one open.
+    pure function ouvert(nom: string) -> bool {
+        return Layout.compact && root.group == nom && (nom != "Accounts" || root.account < 0);
+    }
+    /// On a phone, an account's page.
+    property <bool> compte: Layout.compact && root.group == "Accounts" && root.account >= 0;
+    /// On an account's page: its tags unfolded, its removal asked about.
+    property <bool> tags-open;
+    property <bool> removing;
+    property <color> account-tint;
+    /// The bundled plugins' tiles, as the mockups draw them; any other, a puzzle piece.
+    pure function plugin-icon(id: string) -> string {
+        return id == "vip" ? Icons.star : id == "office-hours" ? Icons.clock
+            : id == "filer" ? Icons.folder : Icons.puzzle;
+    }
+    pure function plugin-tint(id: string) -> color {
+        return id == "vip" ? Tokens.orange : id == "office-hours" ? Tokens.blue
+            : id == "filer" ? Tokens.green : Tokens.grey;
+    }
 
-    // A white page, the groups grey on it (lighter than the page in dark).
-    background: Tokens.surface;
+    // A white page, the groups grey on it (lighter than the page in dark). On a phone
+    // the other way round, as Android's settings: the groups white on the grey page.
+    background: Layout.compact ? Tokens.background : Tokens.surface;
 
     // Over what is behind: no click goes through the page.
     TouchArea {}
 
     VerticalLayout {
-        WindowToolbar {
-            // On a phone the list is a page: back, as the mockups, rather than Done.
-            if Layout.compact && root.group == "": IconButton {
-                y: (parent.height - self.height) / 2;
-                icon: Icons.arrow-left;
-                label: "Close settings";
-                button-size: 44px;
-                icon-size: 22px;
-                clicked => { root.dismissed(); }
-            }
-            if Layout.compact && root.group != "": IconButton {
-                y: (parent.height - self.height) / 2;
-                icon: Icons.arrow-left;
-                label: "Back to settings";
-                button-size: 44px;
-                icon-size: 22px;
-                clicked => { root.group = ""; }
-            }
+        if root.large: WindowToolbar {
             Text {
-                text: Layout.compact && root.group != "" ? root.group : "Settings";
+                text: "Settings";
                 overflow: elide;
                 font-family: Tokens.font-display;
-                // On a phone the list's title is the page's, large; a group's beside
-                // its back arrow.
-                font-size: Layout.compact ? (root.group != "" ? 19px : 28px) : 15px;
+                font-size: 15px;
                 font-weight: 600;
                 color: Tokens.text;
                 vertical-alignment: center;
             }
             Rectangle { horizontal-stretch: 1; }
-            if !Layout.compact: Button {
+            Button {
                 y: (parent.height - self.height) / 2;
                 text: "Done";
                 label: "Close settings";
                 kind: ButtonKind.primary;
                 size: ButtonSize.sm;
                 clicked => { root.dismissed(); }
+            }
+        }
+
+        // On a phone the mockups' app bar: back, and a page's title beside it; the
+        // list's title large under it, as Android's settings.
+        if Layout.compact: HorizontalLayout {
+            height: 56px;
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 2px;
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: root.group == "" ? "Close settings"
+                    : root.compte ? "Back to accounts" : "Back to settings";
+                button-size: 44px;
+                icon-size: 22px;
+                clicked => {
+                    if (root.group == "") {
+                        root.dismissed();
+                    } else if (root.compte) {
+                        root.account = -1;
+                    } else {
+                        root.group = "";
+                    }
+                }
+            }
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                padding-left: 6px;
+                padding-right: 6px;
+                Text {
+                    text: root.compte ? root.account-label : root.group;
+                    overflow: elide;
+                    font-family: Tokens.font-display;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                }
+            }
+            // A new rule is made in the modules' window, where rules are written.
+            if root.ouvert("Rules and plugins"): IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.plus;
+                label: "New rule";
+                button-size: 44px;
+                icon-size: 22px;
+                clicked => { root.open-modules(); }
+            }
+        }
+        if root.liste: HorizontalLayout {
+            padding-left: 18px;
+            padding-right: 18px;
+            padding-top: 2px;
+            padding-bottom: 10px;
+            Text {
+                text: "Settings";
+                font-family: Tokens.font-display;
+                font-size: 32px;
+                font-weight: 600;
+                letter-spacing: -0.4px;
+                color: Tokens.text;
             }
         }
 
@@ -359,22 +816,817 @@ export component SettingsPanel inherits Rectangle {
             colonne := VerticalLayout {
                 x: max(16px, (page.visible-width - self.width) / 2);
                 width: min(560px, page.visible-width - 32px);
-                padding-top: 4px;
+                padding-top: !Layout.compact ? 4px : root.liste ? 0px : 8px;
                 padding-bottom: 32px;
-                spacing: 6px;
+                spacing: Layout.compact ? 0px : 6px;
 
-                // On a phone: the groups as a list, each opening as a page.
+                // --- A phone's list: the groups, each a page ---
                 if root.liste: Group {
-                    for g[i] in root.groupes: GroupLink {
-                        first: i == 0;
-                        icon: g.icon;
-                        tint: g.tint;
-                        label: g.name;
-                        opened => { root.group = g.name; }
+                    PhoneLink {
+                        first: true;
+                        avatar: true;
+                        initials: root.initials;
+                        label: root.first-name != "" ? root.first-name : "Your first name";
+                        say: "Your first name";
+                        hint: "Your first name, used on Home";
+                        tapped => { root.group = "Profile"; }
                     }
                 }
-                if root.voit("General"): GroupTitle { text: "General"; }
-                if root.voit("General"): Group {
+                if root.liste: Rectangle { height: 14px; }
+                if root.liste: Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.envelope-closed;
+                        tint: Tokens.blue;
+                        label: "Accounts";
+                        value: root.accounts.length > 0 ? "\{root.accounts.length}" : "";
+                        tapped => { root.group = "Accounts"; }
+                    }
+                    PhoneLink {
+                        icon: Icons.bell;
+                        tint: Tokens.orange;
+                        label: "Notifications & sync";
+                        tapped => { root.group = "Notifications & sync"; }
+                    }
+                    // Settings › Devices, in the sync mockups.
+                    PhoneLink {
+                        icon: Icons.phone;
+                        tint: Tokens.pink;
+                        label: "Devices";
+                        value: root.devices.length > 0 ? "\{root.devices.length}" : "";
+                        tapped => { root.group = "Devices"; }
+                    }
+                    PhoneLink {
+                        icon: Icons.sun;
+                        tint: Tokens.purple;
+                        label: "Appearance";
+                        value: root.appearance == 1 ? "Light" : root.appearance == 2 ? "Dark" : "System";
+                        tapped => { root.group = "Appearance"; }
+                    }
+                }
+                if root.liste: Rectangle { height: 14px; }
+                // No Calendar & tasks row: neither has a setting of its own yet, and
+                // their backups are under Backups & export.
+                if root.liste: Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.inbox;
+                        tint: Tokens.teal;
+                        label: "Mail";
+                        tapped => { root.group = "Mail"; }
+                    }
+                    PhoneLink {
+                        icon: Icons.notes;
+                        tint: Tokens.yellow;
+                        icon-ink: Pictured.on-yellow;
+                        label: "Notes";
+                        tapped => { root.group = "Notes"; }
+                    }
+                    PhoneLink {
+                        icon: Icons.home;
+                        tint: Tokens.green;
+                        label: "Home";
+                        tapped => { root.group = "Home"; }
+                    }
+                }
+                if root.liste: Rectangle { height: 14px; }
+                if root.liste: Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.puzzle;
+                        tint: Tokens.grey;
+                        label: "Rules and plugins";
+                        value: root.rules.length + root.plugins.length > 0
+                            ? "\{root.rules.length + root.plugins.length}" : "";
+                        tapped => { root.group = "Rules and plugins"; }
+                    }
+                    PhoneLink {
+                        icon: Icons.history;
+                        tint: Tokens.grey;
+                        label: "Backups & export";
+                        value: root.backup-when;
+                        tapped => { root.group = "Backups & export"; }
+                    }
+                    PhoneLink {
+                        icon: Icons.download;
+                        tint: Tokens.grey;
+                        label: "Updates & changelog";
+                        value: root.version-number;
+                        tapped => { root.group = "Updates & changelog"; }
+                    }
+                }
+
+                // --- Profile ---
+                if root.ouvert("Profile"): GroupTitle {
+                    text: "Your first name";
+                    lead: true;
+                }
+                if root.ouvert("Profile"): Group {
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        TextField {
+                            height: 40px;
+                            font-size: 15.5px;
+                            accessible-label: "Your first name";
+                            placeholder-text: "First name";
+                            text <=> root.first-name;
+                            edited(t) => { root.first-name-changed(t); }
+                        }
+                    }
+                }
+                if root.ouvert("Profile"): GroupTitle {
+                    text: "Home greets you by it.";
+                    note: true;
+                }
+
+                // --- Accounts: the mailboxes, then signing in with Google or Microsoft ---
+                if root.ouvert("Accounts") && root.accounts.length > 0: Group {
+                    for a[i] in root.accounts: PhoneLink {
+                        first: i == 0;
+                        icon: Icons.envelope-closed;
+                        tint: a.tint;
+                        label: a.label;
+                        hint: a.needs-attention ? a.problem : "";
+                        tapped => {
+                            root.account-tint = a.tint;
+                            root.account = a.id;
+                            root.account-opened(a.id);
+                        }
+                    }
+                }
+                if root.ouvert("Accounts") && root.accounts.length > 0: Rectangle { height: 14px; }
+                if root.ouvert("Accounts"): Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.plus;
+                        bare: true;
+                        flat: false;
+                        ink: Tokens.accent;
+                        strong: true;
+                        chevron: false;
+                        label: "Add an account";
+                        tapped => { root.add-account(); }
+                    }
+                }
+                // Signing in with Google or Microsoft through the browser needs a
+                // client of one's own, registered with them.
+                if root.ouvert("Accounts"): GroupTitle { text: "Sign in with Google or Microsoft"; }
+                if root.ouvert("Accounts"): Group {
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 12px;
+                        padding-bottom: 12px;
+                        spacing: 10px;
+                        TextField {
+                            height: 40px;
+                            accessible-label: "Google client ID";
+                            placeholder-text: "Google client ID (….apps.googleusercontent.com)";
+                            text <=> root.google-client-id;
+                            edited(t) => { root.oauth-changed(); }
+                        }
+                        TextField {
+                            height: 40px;
+                            accessible-label: "Google client secret";
+                            placeholder-text: "Google client secret";
+                            input-type: InputType.password;
+                            text <=> root.google-client-secret;
+                            edited(t) => { root.oauth-changed(); }
+                        }
+                        TextField {
+                            height: 40px;
+                            accessible-label: "Microsoft client ID";
+                            placeholder-text: "Microsoft application (client) ID";
+                            text <=> root.microsoft-client-id;
+                            edited(t) => { root.oauth-changed(); }
+                        }
+                    }
+                }
+                if root.ouvert("Accounts"): GroupTitle {
+                    note: true;
+                    text: "Gmail signs in through the browser with a desktop OAuth client from Google Cloud Console; Outlook with an application registered in Microsoft Entra.";
+                }
+
+                // --- An account: what its right-click menu does on a PC, as a page ---
+                if root.compte: Group {
+                    PhoneRow {
+                        first: true;
+                        label: "Name";
+                        value: root.account-page.name;
+                    }
+                    PhoneRow {
+                        label: "Colour";
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 7px;
+                            background: root.account-tint;
+                        }
+                    }
+                    PhoneLink {
+                        label: "Tags";
+                        value: root.account-page.tags != "" ? root.account-page.tags : "None";
+                        tapped => { root.tags-open = !root.tags-open; }
+                    }
+                    // The tags unfold under their row, each ticked if the account
+                    // carries it.
+                    if root.tags-open: VerticalLayout {
+                        for t in root.account-tags: PhoneRow {
+                            label: t.name;
+                            Check {
+                                y: (parent.height - self.height) / 2;
+                                shape: CheckShape.square;
+                                tint: t.color;
+                                done: t.checked;
+                                label: t.name;
+                                toggled => { root.account-tag-toggled(t.id); }
+                            }
+                        }
+                        PhoneLink {
+                            label: "Manage tags…";
+                            ink: Tokens.accent;
+                            chevron: false;
+                            tapped => { root.manage-tags(); }
+                        }
+                    }
+                }
+                if root.compte: GroupTitle { text: "Sending"; }
+                if root.compte: Group {
+                    PhoneLink {
+                        first: true;
+                        label: "Send as";
+                        hint: root.account-page.send-as;
+                        tapped => { root.account-aliases(); }
+                    }
+                    PhoneLink {
+                        label: "Signature";
+                        value: root.account-page.signature != "" ? root.account-page.signature : "None";
+                        tapped => { root.account-signature(); }
+                    }
+                }
+                if root.compte: GroupTitle { text: "Servers"; }
+                if root.compte: Group {
+                    // The servers open the account's form, where they are changed.
+                    PhoneLink {
+                        first: true;
+                        label: "Incoming";
+                        say: "Incoming server";
+                        hint: root.account-page.incoming;
+                        chevron: false;
+                        tapped => { root.account-edit(); }
+                    }
+                    PhoneLink {
+                        label: "Outgoing";
+                        say: "Outgoing server";
+                        hint: root.account-page.outgoing;
+                        chevron: false;
+                        tapped => { root.account-edit(); }
+                    }
+                    PhoneLink {
+                        label: root.account-page.oauth ? "Sign-in" : "Password";
+                        value: root.account-page.oauth ? "Renew" : "Change";
+                        tapped => { root.account-password(); }
+                    }
+                }
+                if root.compte: Rectangle { height: 14px; }
+                if root.compte: Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Sync this mailbox";
+                        on: root.account-enabled;
+                        toggled => { root.account-enable(); }
+                    }
+                    PhoneToggle {
+                        label: "Pin to the top";
+                        on: root.account-pinned;
+                        toggled => { root.account-pin(); }
+                    }
+                }
+                if root.compte: Rectangle { height: 14px; }
+                if root.compte && !root.removing: Group {
+                    PhoneLink {
+                        first: true;
+                        centred: true;
+                        chevron: false;
+                        ink: Tokens.red;
+                        label: Layout.touch-input ? "Remove from this phone" : "Remove from Iris";
+                        tapped => { root.removing = true; }
+                    }
+                }
+                // Asked first: its mail leaves this device at once.
+                if root.compte && root.removing: GroupTitle {
+                    lead: true;
+                    text: "Remove \{root.account-label}? Its mail leaves Iris; the server keeps it.";
+                }
+                if root.compte && root.removing: Group {
+                    PhoneLink {
+                        first: true;
+                        centred: true;
+                        chevron: false;
+                        ink: Tokens.red;
+                        strong: true;
+                        label: "Remove";
+                        say: "Remove \{root.account-label}";
+                        tapped => {
+                            root.account-remove();
+                            root.account = -1;
+                        }
+                    }
+                    PhoneLink {
+                        centred: true;
+                        chevron: false;
+                        label: "Keep it";
+                        tapped => { root.removing = false; }
+                    }
+                }
+
+                // --- Notifications & sync ---
+                if root.ouvert("Notifications & sync"): GroupTitle {
+                    text: "Notify me";
+                    lead: true;
+                }
+                if root.ouvert("Notifications & sync"): Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "New mail";
+                        hint: "One notification per sync, not one per message.";
+                        on <=> root.notifications;
+                        toggled => { root.system-changed(); }
+                    }
+                }
+                if root.ouvert("Notifications & sync"): GroupTitle { text: "Syncing"; }
+                if root.ouvert("Notifications & sync"): Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Keep running when I close the window";
+                        hint: "Iris stays in the notification area and keeps syncing.";
+                        on <=> root.keep-running;
+                        toggled => { root.system-changed(); }
+                    }
+                }
+                // A PC's own, for a window made narrow.
+                if root.ouvert("Notifications & sync") && !Layout.touch-input: GroupTitle { text: "This computer"; }
+                if root.ouvert("Notifications & sync") && !Layout.touch-input: Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Start with Windows";
+                        hint: "Iris waits in the notification area rather than opening a window.";
+                        on <=> root.start-at-login;
+                        toggled => { root.system-changed(); }
+                    }
+                    PhoneToggle {
+                        label: "Offer Iris for mailto: links";
+                        hint: "Windows still decides the default in its own settings.";
+                        on <=> root.handle-mailto;
+                        toggled => { root.system-changed(); }
+                    }
+                }
+                if root.ouvert("Notifications & sync") && root.system-note != "": GroupTitle {
+                    note: true;
+                    text: root.system-note;
+                    ink: Tokens.warning;
+                }
+
+                // --- Devices (the sync mockups' Settings › Devices) ---
+                if root.ouvert("Devices") && root.devices.length > 0: Group {
+                    for d[i] in root.devices: PhoneRow {
+                        first: i == 0;
+                        icon: Icons.refresh;
+                        tint: Tokens.blue;
+                        label: d.name;
+                        hint: d.status;
+                        if d.here: Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Sync now";
+                            label: "Sync now with " + d.name;
+                            kind: ButtonKind.primary;
+                            size: ButtonSize.sm;
+                            clicked => { root.sync-device(d.id); }
+                        }
+                    }
+                }
+                if root.ouvert("Devices") && root.devices.length > 0: Rectangle { height: 14px; }
+                if root.ouvert("Devices"): Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.plus;
+                        bare: true;
+                        flat: false;
+                        ink: Tokens.accent;
+                        strong: true;
+                        chevron: false;
+                        label: "Pair a device";
+                        say: "Pair a device…";
+                        tapped => { root.pair-device(); }
+                    }
+                }
+                if root.ouvert("Devices"): GroupTitle { text: "Join with a code"; }
+                if root.ouvert("Devices"): Group {
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 10px;
+                        TextField {
+                            y: (parent.height - self.height) / 2;
+                            height: 40px;
+                            text <=> root.join-code;
+                            placeholder-text: "iris-pair:1?…";
+                            accessible-label: "Pairing code";
+                            accepted(t) => { root.join-device(t); }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Join";
+                            kind: ButtonKind.primary;
+                            enabled: root.join-code != "";
+                            clicked => { root.join-device(root.join-code); }
+                        }
+                    }
+                }
+                if root.ouvert("Devices"): GroupTitle {
+                    note: true;
+                    text: "Paste the code copied on the other device.";
+                }
+                if root.ouvert("Devices") && root.device-question != "": Rectangle { height: 14px; }
+                if root.ouvert("Devices") && root.device-question != "": Group {
+                    PhoneRow {
+                        first: true;
+                        label: root.device-question;
+                    }
+                    PhoneLink {
+                        label: "Remove it here";
+                        ink: Tokens.red;
+                        chevron: false;
+                        tapped => { root.device-answered(true); }
+                    }
+                    PhoneLink {
+                        label: "Keep it";
+                        chevron: false;
+                        tapped => { root.device-answered(false); }
+                    }
+                }
+                if root.ouvert("Devices"): GroupTitle {
+                    note: true;
+                    text: root.device-summary != "" ? root.device-summary
+                        : "Your tasks, calendars, habits, accounts and settings, with Iris on your other devices on the same Wi-Fi. Mail stays on your servers.";
+                }
+
+                // --- Appearance ---
+                if root.ouvert("Appearance"): GroupTitle {
+                    text: "Theme";
+                    lead: true;
+                }
+                if root.ouvert("Appearance"): HorizontalLayout {
+                    spacing: 10px;
+                    ThemeCard {
+                        name: "System";
+                        kind: 0;
+                        on: root.appearance == 0;
+                        chosen => { root.appearance-chosen(0); }
+                    }
+                    ThemeCard {
+                        name: "Light";
+                        kind: 1;
+                        on: root.appearance == 1;
+                        chosen => { root.appearance-chosen(1); }
+                    }
+                    ThemeCard {
+                        name: "Dark";
+                        kind: 2;
+                        on: root.appearance == 2;
+                        chosen => { root.appearance-chosen(2); }
+                    }
+                }
+                if root.ouvert("Appearance"): GroupTitle { text: "Accent colour"; }
+                if root.ouvert("Appearance"): Group {
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 14px;
+                        padding-bottom: 14px;
+                        alignment: space-between;
+                        for c[i] in root.accents: Swatch {
+                            tint: c;
+                            on: i == root.accent-index;
+                            label: root.accent-names[i] + " accent";
+                            chosen => { root.accent-chosen(i); }
+                        }
+                    }
+                }
+                if root.ouvert("Appearance"): GroupTitle { text: "Mail list"; }
+                if root.ouvert("Appearance"): QueueSegments {
+                    names: ["Compact", "Normal", "Comfortable"];
+                    selected: root.density;
+                    chosen(i) => { root.density-chosen(i); }
+                }
+                if root.ouvert("Appearance"): GroupTitle { text: "Text size"; }
+                if root.ouvert("Appearance"): Group {
+                    HorizontalLayout {
+                        padding: 16px;
+                        spacing: 14px;
+                        Text {
+                            text: "A";
+                            font-size: 13px;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                        }
+                        SizeSlider {
+                            y: (parent.height - self.height) / 2;
+                            value: root.text-size;
+                            chosen(p) => { root.text-size-chosen(p); }
+                        }
+                        Text {
+                            text: "A";
+                            font-size: 21px;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                if root.ouvert("Appearance"): GroupTitle {
+                    note: true;
+                    text: "This changes Iris alone.";
+                }
+                // A PC's own, for a window made narrow: a phone has no window buttons.
+                if root.ouvert("Appearance") && !Layout.touch-input: GroupTitle { text: "Window buttons"; }
+                if root.ouvert("Appearance") && !Layout.touch-input: QueueSegments {
+                    names: ["Mac", "Windows"];
+                    selected: root.mac-buttons ? 0 : 1;
+                    chosen(i) => {
+                        root.mac-buttons = i == 0;
+                        root.system-changed();
+                    }
+                }
+
+                // --- Mail ---
+                if root.ouvert("Mail"): GroupTitle {
+                    text: "Undo send";
+                    lead: true;
+                }
+                if root.ouvert("Mail"): QueueSegments {
+                    names: ["Off", "5 s", "10 s", "20 s", "30 s"];
+                    selected: root.undo-send-seconds <= 0 ? 0
+                        : root.undo-send-seconds <= 5 ? 1
+                        : root.undo-send-seconds <= 10 ? 2
+                        : root.undo-send-seconds <= 20 ? 3 : 4;
+                    chosen(i) => {
+                        root.undo-send-seconds = root.delais[i];
+                        root.sending-changed();
+                    }
+                }
+                if root.ouvert("Mail"): GroupTitle {
+                    note: true;
+                    text: "How long a sent message can still be taken back.";
+                }
+                if root.ouvert("Mail"): GroupTitle { text: "Automations"; }
+                if root.ouvert("Mail"): Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Replying marks the thread as waiting";
+                        hint: "The thread leaves your queue and waits for the other side.";
+                        on <=> root.reply-marks-waiting;
+                        toggled => { root.automation-changed(); }
+                    }
+                    PhoneToggle {
+                        label: "A new message reopens the thread";
+                        hint: "A finished thread that gets a follow-up comes back to your queue.";
+                        on <=> root.new-message-reopens;
+                        toggled => { root.automation-changed(); }
+                    }
+                    PhoneToggle {
+                        label: "Follow up on unanswered threads";
+                        hint: "A thread waiting too long comes back on its own.";
+                        on <=> root.follow-up-enabled;
+                        toggled => { root.automation-changed(); }
+                    }
+                    if root.follow-up-enabled: PhoneRow {
+                        label: "Bring it back after";
+                        hint: "Days without an answer";
+                        SpinBox {
+                            y: (parent.height - self.height) / 2;
+                            width: 96px;
+                            height: 36px;
+                            minimum: 1;
+                            maximum: 365;
+                            value <=> root.follow-up-days;
+                            edited => { root.automation-changed(); }
+                        }
+                    }
+                }
+
+                // --- Notes ---
+                if root.ouvert("Notes"): GroupTitle {
+                    text: "Where your spaces are";
+                    lead: true;
+                }
+                if root.ouvert("Notes"): Group {
+                    PhoneRow {
+                        first: true;
+                        label: "Folder";
+                        hint: root.notes-folder;
+                    }
+                    PhoneLink {
+                        label: "Open folder";
+                        say: "Open the notes folder";
+                        ink: Tokens.accent;
+                        chevron: false;
+                        tapped => { root.notes-folder-open(); }
+                    }
+                    PhoneLink {
+                        label: "Change…";
+                        say: "Change the notes folder";
+                        ink: Tokens.accent;
+                        chevron: false;
+                        tapped => { root.notes-folder-change(); }
+                    }
+                }
+                if root.ouvert("Notes"): Rectangle { height: 14px; }
+                if root.ouvert("Notes"): Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Show formulas as you type them";
+                        on <=> root.notes-math-preview;
+                        toggled(v) => { root.notes-math-preview-toggled(v); }
+                    }
+                }
+                if root.ouvert("Notes"): GroupTitle {
+                    note: true;
+                    text: "A formula written in LaTeX is drawn under the cursor while you write it.";
+                }
+
+                // --- Home ---
+                if root.ouvert("Home"): Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Open Iris on Home";
+                        on <=> root.home-at-startup;
+                        toggled => { root.system-changed(); }
+                    }
+                }
+                if root.ouvert("Home"): GroupTitle {
+                    note: true;
+                    text: "Your day at a glance first. Off: Iris opens on your mail.";
+                }
+
+                // --- Rules and plugins ---
+                if root.ouvert("Rules and plugins"): GroupTitle {
+                    text: "Rules";
+                    lead: true;
+                }
+                if root.ouvert("Rules and plugins"): Group {
+                    for r[i] in root.rules: PhoneToggle {
+                        first: i == 0;
+                        label: r.name;
+                        hint: r.summary;
+                        on: r.enabled;
+                        toggled(v) => { root.rule-toggled(r.id, v); }
+                    }
+                    if root.rules.length == 0: PhoneRow {
+                        first: true;
+                        label: "No rules yet";
+                        hint: "+ writes one: sort mail as it arrives.";
+                        ink: Tokens.text-muted;
+                    }
+                }
+                if root.ouvert("Rules and plugins"): GroupTitle { text: "Plugins"; }
+                // A plugin opens its own settings, in the modules' window.
+                if root.ouvert("Rules and plugins"): Group {
+                    for p[i] in root.plugins: PhoneLink {
+                        first: i == 0;
+                        icon: root.plugin-icon(p.id);
+                        tint: root.plugin-tint(p.id);
+                        label: p.name;
+                        hint: p.disabled-reason != "" ? p.disabled-reason : p.description;
+                        tapped => { root.plugin-opened(p.id); }
+                    }
+                    if root.plugins.length == 0: PhoneRow {
+                        first: true;
+                        label: "No plugins installed";
+                        ink: Tokens.text-muted;
+                    }
+                }
+                if root.ouvert("Rules and plugins"): GroupTitle {
+                    note: true;
+                    text: "Each plugin runs isolated, with only what it asks for.";
+                }
+
+                // --- Backups & export: what exists only on this device ---
+                if root.ouvert("Backups & export"): GroupTitle {
+                    text: "Your calendars and tasks";
+                    lead: true;
+                }
+                if root.ouvert("Backups & export"): Group {
+                    PhoneRow {
+                        first: true;
+                        label: "Back up every day";
+                        hint: root.backup-status;
+                    }
+                    PhoneLink {
+                        label: "Back up now";
+                        ink: Tokens.accent;
+                        chevron: false;
+                        tapped => { root.backup-now(); }
+                    }
+                    PhoneLink {
+                        label: "Open the backups' folder";
+                        ink: Tokens.accent;
+                        chevron: false;
+                        tapped => { root.backup-open-folder(); }
+                    }
+                }
+                if root.ouvert("Backups & export"): GroupTitle { text: "Restore"; }
+                if root.ouvert("Backups & export"): Group {
+                    PhoneRow {
+                        first: true;
+                        label: "Restore a backup";
+                        hint: root.restore-question != ""
+                            ? root.restore-question
+                            : "Puts your calendars, tasks and goals back as they were on a day of the last two weeks.";
+                    }
+                    if root.restore-question != "": PhoneLink {
+                        label: "Restore";
+                        ink: Tokens.accent;
+                        strong: true;
+                        chevron: false;
+                        tapped => { root.restore-confirmed(); }
+                    }
+                    if root.restore-question != "": PhoneLink {
+                        label: "Cancel";
+                        chevron: false;
+                        tapped => { root.restore-cancelled(); }
+                    }
+                    if root.restore-question == "": PhoneLink {
+                        label: "Choose a backup…";
+                        ink: Tokens.accent;
+                        chevron: false;
+                        tapped => { root.restore-choose(); }
+                    }
+                }
+                if root.ouvert("Backups & export"): GroupTitle { text: "Export"; }
+                if root.ouvert("Backups & export"): Group {
+                    PhoneLink {
+                        first: true;
+                        label: "Export for other apps";
+                        hint: "Your calendars and tasks as .ics files, which Google Calendar, Outlook and Apple's apps import.";
+                        tapped => { root.export-ics(); }
+                    }
+                }
+
+                // --- Updates & changelog ---
+                if root.ouvert("Updates & changelog"): Group {
+                    PhoneRow {
+                        first: true;
+                        label: root.version;
+                        hint: root.update-status;
+                        if root.update-version != "": Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Install " + root.update-version;
+                            kind: ButtonKind.primary;
+                            size: ButtonSize.sm;
+                            clicked => { root.install-update(); }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: root.update-checking ? "Checking…" : "Check";
+                            label: "Check for updates";
+                            size: ButtonSize.sm;
+                            enabled: !root.update-checking;
+                            clicked => { root.check-for-updates(); }
+                        }
+                    }
+                }
+                if root.ouvert("Updates & changelog"): GroupTitle { text: "Changelog"; }
+                if root.ouvert("Updates & changelog"): Group {
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 14px;
+                        padding-bottom: 14px;
+                        for ligne[i] in root.changelog: ChangeLine {
+                            row: ligne;
+                            first: i == 0;
+                        }
+                    }
+                    PhoneLink {
+                        label: "Every version";
+                        say: "Open the whole changelog";
+                        tapped => { root.open-changelog(); }
+                    }
+                }
+                if root.ouvert("Updates & changelog"): GroupTitle {
+                    note: true;
+                    text: "Updates are signed; Iris checks the signature before installing.";
+                }
+
+                // --- A PC's page: every group at once ---
+                if root.large: GroupTitle { text: "General"; }
+                if root.large: Group {
                     SettingRow {
                         first: true;
                         icon: Icons.sparkle;
@@ -401,8 +1653,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                if root.voit("Appearance"): GroupTitle { text: "Appearance"; }
-                if root.voit("Appearance"): Group {
+                if root.large: GroupTitle { text: "Appearance"; }
+                if root.large: Group {
                     SettingRow {
                         first: true;
                         icon: Icons.sun;
@@ -473,8 +1725,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                if root.voit("Mail"): GroupTitle { text: "Mail"; }
-                if root.voit("Mail"): Group {
+                if root.large: GroupTitle { text: "Mail"; }
+                if root.large: Group {
                     ToggleRow {
                         first: true;
                         icon: Icons.bell;
@@ -531,8 +1783,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                if root.voit("Devices"): GroupTitle { text: "Devices"; }
-                if root.voit("Devices"): Group {
+                if root.large: GroupTitle { text: "Devices"; }
+                if root.large: Group {
                     for d[i] in root.devices: SettingRow {
                         first: i == 0;
                         icon: Icons.refresh;
@@ -607,13 +1859,13 @@ export component SettingsPanel inherits Rectangle {
                         }
                     }
                 }
-                if root.voit("Devices") && root.device-summary != "": GroupTitle {
+                if root.large && root.device-summary != "": GroupTitle {
                     text: root.device-summary;
                     note: true;
                 }
 
-                if root.voit("Automations"): GroupTitle { text: "Automations"; }
-                if root.voit("Automations"): Group {
+                if root.large: GroupTitle { text: "Automations"; }
+                if root.large: Group {
                     ToggleRow {
                         first: true;
                         icon: Icons.hourglass;
@@ -656,8 +1908,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                if root.voit("System"): GroupTitle { text: "System"; }
-                if root.voit("System"): Group {
+                if root.large: GroupTitle { text: "System"; }
+                if root.large: Group {
                     // First, because it decides what the commonest gesture does:
                     // closing the window.
                     ToggleRow {
@@ -686,7 +1938,7 @@ export component SettingsPanel inherits Rectangle {
                         toggled => { root.system-changed(); }
                     }
                 }
-                if root.voit("System") && root.system-note != "": GroupTitle {
+                if root.large && root.system-note != "": GroupTitle {
                     note: true;
                     text: root.system-note;
                     ink: Tokens.warning;
@@ -694,8 +1946,8 @@ export component SettingsPanel inherits Rectangle {
 
                 // Signing in with Google or Microsoft through the browser needs a
                 // client of one's own, registered with them.
-                if root.voit("Sign in with Google or Microsoft"): GroupTitle { text: "Sign in with Google or Microsoft"; }
-                if root.voit("Sign in with Google or Microsoft"): Group {
+                if root.large: GroupTitle { text: "Sign in with Google or Microsoft"; }
+                if root.large: Group {
                     SettingRow {
                         first: true;
                         icon: Icons.key;
@@ -742,8 +1994,8 @@ export component SettingsPanel inherits Rectangle {
 
                 // What exists only on this computer: a copy every day, one to go back
                 // to, and files other applications read.
-                if root.voit("Your calendars and tasks"): GroupTitle { text: "Your calendars and tasks"; }
-                if root.voit("Your calendars and tasks"): Group {
+                if root.large: GroupTitle { text: "Your calendars and tasks"; }
+                if root.large: Group {
                     SettingRow {
                         first: true;
                         icon: Icons.archive;
@@ -805,8 +2057,8 @@ export component SettingsPanel inherits Rectangle {
                 }
 
                 // Where the notes' spaces are made: a folder of one's own.
-                if root.voit("Notes"): GroupTitle { text: "Notes"; }
-                if root.voit("Notes"): Group {
+                if root.large: GroupTitle { text: "Notes"; }
+                if root.large: Group {
                     SettingRow {
                         first: true;
                         icon: Icons.folder;
@@ -838,8 +2090,8 @@ export component SettingsPanel inherits Rectangle {
 
                 // Checked at every launch and every few hours after; this is for
                 // whoever wants to know now.
-                if root.voit("Updates"): GroupTitle { text: "Updates"; }
-                if root.voit("Updates"): Group {
+                if root.large: GroupTitle { text: "Updates"; }
+                if root.large: Group {
                     SettingRow {
                         first: true;
                         icon: Icons.download;
@@ -863,7 +2115,7 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                GroupTitle {
+                if root.large: GroupTitle {
                     note: true;
                     text: "Settings are saved as you change them.";
                 }

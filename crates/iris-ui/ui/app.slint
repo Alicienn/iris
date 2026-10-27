@@ -34,6 +34,7 @@ import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, Empty
     from "@iris/screens/folders.slint";
 import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
+import { AccountPageData } from "@iris/types.slint";
 import { PairPanel } from "@iris/screens/devices.slint";
 import { WelcomePage } from "@iris/screens/welcome.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
@@ -1584,8 +1585,23 @@ export component AppWindow inherits Window {
     /// On a phone, the group of Settings open as a page; "" is the list.
     in-out property <string> settings-group;
     changed settings-open => {
-        if (!self.settings-open) { root.settings-group = ""; }
+        if (!self.settings-open) {
+            root.settings-group = "";
+            root.settings-account = -1;
+        }
     }
+    /// On a phone, the account whose page is open in Settings › Accounts; -1 none.
+    in-out property <int> settings-account: -1;
+    /// What a phone's Settings shows beside its rows and on its pages.
+    in property <string> profile-initials;
+    /// Every mailbox, unfiltered and unfolded.
+    in property <[AccountRowData]> settings-accounts;
+    in property <string> backup-when;
+    in property <string> version-number;
+    /// The last two versions' changes.
+    in property <[ChangelogRowData]> settings-changelog;
+    /// The account the menu was last asked for, as its page shows it.
+    in property <AccountPageData> account-page;
     /// The system's Back (Android): `nav::system_back`.
     callback system-back();
     /// A code pasted from another device: join it.
@@ -1979,7 +1995,12 @@ export component AppWindow inherits Window {
                 root.add-account-open = false;
                 return accept;
             }
-            // On a phone, a group of settings open as a page goes back to the list.
+            // On a phone, an account's page goes back to the accounts, a group of
+            // settings open as a page to the list.
+            if (event.text == Key.Escape && root.settings-open && root.settings-account >= 0) {
+                root.settings-account = -1;
+                return accept;
+            }
             if (event.text == Key.Escape && root.settings-open && root.settings-group != "") {
                 root.settings-group = "";
                 return accept;
@@ -4118,17 +4139,66 @@ export component AppWindow inherits Window {
             appearance: root.appearance;
             accent-index: root.accent-index;
             accent-chosen(i) => { root.accent-chosen(i); }
+            // On a phone a window opened from a page goes over it, and Back returns to
+            // the page; the page is hidden meanwhile, those windows being drawn before
+            // it. On a PC they replace the settings.
+            covered: Layout.compact && (root.add-account-open || root.modules-open
+                || root.signature-open || root.alias-open || root.tags-open
+                || root.problem-open);
+            visible: !self.covered;
             add-account => {
-                root.settings-open = false;
+                if (!Layout.compact) { root.settings-open = false; }
                 root.add-account-open = true;
             }
             first-name <=> root.first-name;
             first-name-changed(t) => { root.first-name-changed(t); }
             // One window for another: the modules replace the settings.
             open-modules => {
-                root.settings-open = false;
+                if (!Layout.compact) { root.settings-open = false; }
                 root.modules-open = true;
             }
+            initials: root.profile-initials;
+            accounts: root.settings-accounts;
+            backup-when: root.backup-when;
+            version-number: root.version-number;
+            changelog: root.settings-changelog;
+            open-changelog => { root.changelog-open = true; }
+            rules: root.rules;
+            plugins: root.plugins;
+            rule-toggled(id, on) => { root.rule-toggled(id, on); }
+            plugin-opened(id) => {
+                root.modules-open = true;
+                root.plugin-settings-requested(id);
+            }
+            // An account's page: its right-click menu asked for, as on a PC, and closed
+            // at once; the page shows what the menu holds and does what it does.
+            account <=> root.settings-account;
+            account-label: root.account-menu-label;
+            account-pinned: root.account-menu-pinned;
+            account-enabled: root.account-menu-enabled;
+            account-tags: root.account-menu-tags;
+            account-page: root.account-page;
+            account-opened(id) => {
+                root.account-menu-requested(id);
+                root.account-menu-dismissed();
+            }
+            account-edit => { root.account-menu-edit(); }
+            account-password => { root.account-menu-password(); }
+            account-signature => { root.account-menu-signature(); }
+            account-aliases => { root.account-menu-aliases(); }
+            account-enable => {
+                root.account-menu-enable();
+                root.account-menu-requested(root.settings-account);
+                root.account-menu-dismissed();
+            }
+            account-pin => {
+                root.account-menu-pin();
+                root.account-menu-requested(root.settings-account);
+                root.account-menu-dismissed();
+            }
+            account-remove => { root.account-menu-remove(); }
+            account-tag-toggled(id) => { root.account-tag-toggled(id); }
+            manage-tags => { root.tags-requested(); }
             density: root.density;
             text-size: root.text-size;
             reply-marks-waiting <=> root.reply-marks-waiting;
