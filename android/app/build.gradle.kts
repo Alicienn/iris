@@ -52,9 +52,11 @@ android {
     // The library cargo-ndk built, one folder per ABI.
     sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
 
+    // Compressed in the APK and unpacked at install: a smaller download, the same
+    // space once installed.
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
 }

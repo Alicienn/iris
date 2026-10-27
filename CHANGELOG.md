@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.3.1 — 2026-10-27
+
+### Improved
+- A smaller download for the Android preview.
+
 ## 6.3.0 — 2026-10-27
 
 ### New

@@ -182,8 +182,14 @@ jobs:
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      # Without its symbols (the 6.3.0 APK, with them, weighed 249 MB). Windows keeps
+      # them for its panic reports (Cargo.toml).
       - name: The library
-        run: cargo ndk -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release -p iris-android
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+        run: |
+          cargo ndk -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release -p iris-android
+          ls -l android/app/src/main/jniLibs/*/
 
       # The project's signing key when the secrets are there (see android/README.md),
       # else the build machine's debug key.
