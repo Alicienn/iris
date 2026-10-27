@@ -2,7 +2,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { QueueTabs } from "@iris/controls/choice.slint";
+import { QueueTabs, QueueSegments } from "@iris/controls/choice.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
 
 // The search field as Apple puts it in a toolbar: a grey capsule, the magnifier in it.
@@ -109,6 +109,8 @@ export component MailToolbar inherits WindowToolbar {
     // On a phone, the magnifier turns the whole bar into the search field.
     property <bool> cherche;
     property <bool> en-recherche: Layout.compact && !root.page && (root.cherche || root.searching);
+    /// The list on a phone: the bar keeps its icons, the rest is below it.
+    property <bool> liste-telephone: Layout.compact && !root.page;
 
     // On a phone, the page of a conversation goes back to the list.
     if root.page: IconButton {
@@ -120,7 +122,8 @@ export component MailToolbar inherits WindowToolbar {
         clicked => { root.back(); }
     }
 
-    if !root.en-recherche: HorizontalLayout {
+    // On a phone's list the title is the large header under the bar (PhoneMailHeader).
+    if !root.en-recherche && !root.liste-telephone: HorizontalLayout {
         spacing: 8px;
         min-width: 0px;
         horizontal-stretch: 1;
@@ -160,7 +163,7 @@ export component MailToolbar inherits WindowToolbar {
     }
 
     // The three queues, in the middle, as Apple's segmented control.
-    if root.queues && !root.page && !root.en-recherche: QueueTabs {
+    if root.queues && !root.page && !root.en-recherche && !Layout.compact: QueueTabs {
         y: (parent.height - self.height) / 2;
         names: ["To do", "Waiting", "Done"];
         counts: root.count-labels;
@@ -186,7 +189,7 @@ export component MailToolbar inherits WindowToolbar {
         icon-size: 20px;
         clicked => { root.focus-search(); }
     }
-    if !root.page: IconButton {
+    if !root.page && !root.liste-telephone: IconButton {
         y: (parent.height - self.height) / 2;
         icon: Icons.pencil;
         label: "Write a new message";
@@ -303,5 +306,73 @@ export component MailToolbar inherits WindowToolbar {
             root.cherche = false;
             root.search-cleared();
         }
+    }
+}
+
+// The head of the mail on a phone, as the Android mockup draws it (M1): where one is,
+// large, which opens the mailboxes; how much is to do and when the mail last came; the
+// queues across the width under it.
+export component PhoneMailHeader inherits VerticalLayout {
+    in property <string> title;
+    /// "18 to do · synced 2 min ago".
+    in property <string> subtitle;
+    in property <bool> queues;
+    in property <[string]> count-labels;
+    in property <[int]> counts;
+    in property <int> active-tab;
+    callback title-clicked();
+    callback tab-selected(int);
+
+    padding-left: 18px;
+    padding-right: 18px;
+    padding-bottom: 10px;
+    spacing: 2px;
+
+    Rectangle {
+        height: titre.preferred-height;
+        accessible-role: button;
+        accessible-label: "Mailboxes: " + root.title;
+        accessible-action-default => { root.title-clicked(); }
+    titre := HorizontalLayout {
+        x: 0px;
+        width: min(self.preferred-width, parent.width);
+        spacing: 6px;
+        Text {
+            text: root.title;
+            font-family: Tokens.font-display;
+            font-size: 32px;
+            font-weight: 600;
+            color: Tokens.text;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-down;
+            size: 18px;
+            tint: Tokens.text;
+        }
+    }
+        TouchArea {
+            width: titre.width;
+            clicked => { root.title-clicked(); }
+        }
+    }
+    if root.subtitle != "": Text {
+        text: root.subtitle;
+        font-size: 14px;
+        color: Tokens.text-muted;
+    }
+    if root.queues: Rectangle { height: 10px; }
+    if root.queues: QueueSegments {
+        names: ["To do", "Waiting", "Done"];
+        counts: root.count-labels;
+        descriptions: [
+            (root.counts.length > 0 ? root.counts[0] : 0) + " conversations",
+            (root.counts.length > 1 ? root.counts[1] : 0) + " conversations",
+            (root.counts.length > 2 ? root.counts[2] : 0) + " conversations",
+        ];
+        selected: root.active-tab;
+        chosen(i) => { root.tab-selected(i); }
     }
 }

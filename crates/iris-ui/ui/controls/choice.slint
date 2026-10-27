@@ -161,6 +161,64 @@ export component QueueTabs inherits Rectangle {
     }
 }
 
+/// The queues on a phone: the whole width in equal segments, each with its count, as
+/// the Android mockups draw them (`.seg`): To do 18 · Waiting 4 · Done.
+export component QueueSegments inherits Rectangle {
+    in property <[string]> names;
+    in property <[string]> counts;
+    in property <[string]> descriptions;
+    in property <int> selected;
+    callback chosen(int);
+
+    height: 40px;
+    horizontal-stretch: 1;
+    preferred-width: 300px;
+    border-radius: 10px;
+    background: Tokens.well;
+
+    property <length> part: (root.width - 6px) / max(1, root.names.length);
+
+    for nom[i] in root.names: seg := Rectangle {
+        property <bool> on: i == root.selected;
+        x: 3px + i * root.part;
+        y: 3px;
+        width: root.part - (i < root.names.length - 1 ? 2px : 0px);
+        height: parent.height - 6px;
+        border-radius: 8px;
+        background: self.on ? Tokens.control : transparent;
+        drop-shadow-blur: self.on ? 3px : 0px;
+        drop-shadow-offset-y: self.on ? 1px : 0px;
+        drop-shadow-color: self.on ? #0000001f : transparent;
+
+        accessible-role: tab;
+        accessible-label: nom;
+        accessible-description: root.descriptions.length > i ? root.descriptions[i] : "";
+        accessible-item-selected: self.on;
+        accessible-action-default => { root.chosen(i); }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            Text {
+                text: nom;
+                font-size: 14px;
+                font-weight: seg.on ? 600 : 400;
+                color: seg.on ? Tokens.text : Tokens.text-secondary;
+                vertical-alignment: center;
+            }
+            if root.counts.length > i && root.counts[i] != "": Text {
+                text: root.counts[i];
+                font-size: 13px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+        }
+        TouchArea {
+            clicked => { root.chosen(i); }
+        }
+    }
+}
+
 export enum PillKind {
     /// A filter, on or off.
     toggle,

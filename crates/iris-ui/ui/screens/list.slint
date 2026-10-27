@@ -3,6 +3,7 @@ import { Layout } from "@iris/theme/layout.slint";
 import { SwipeRow } from "@iris/lists/swipe.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ThreadRowData } from "@iris/types.slint";
+import { Avatar } from "@iris/base/atoms.slint";
 import { ListView } from "std-widgets.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
@@ -45,14 +46,17 @@ component ThreadRow inherits Rectangle {
     callback quick(string);
 
     // A finger needs the taller row: three lines, as a phone shows them.
-    height: Layout.touch-input ? max(Tokens.row-height, 76px) : Tokens.row-height;
+    height: root.tel ? 86px : Layout.touch-input ? max(Tokens.row-height, 76px) : Tokens.row-height;
+    /// A phone's row, as the Android mockup draws it (M1): the sender's face first, three
+    /// lines in the touch sizes.
+    property <bool> tel: Layout.compact;
     /// Short rows (compact density): no initials, the tick box alone leads.
     property <bool> compact: root.height < 44px;
     /// Tall rows (comfortable): the excerpt gets a line of its own.
     // The excerpt's own line needs 64 px: at Normal's 56 its descenders were cut.
     property <bool> airy: root.height >= 64px;
     /// The unread dot, or the tick box in its place: no face, as Apple Mail has it.
-    property <length> lead: 14px;
+    property <length> lead: root.tel ? 40px : 14px;
     /// Rows run edge to edge; the text starts this far in.
     property <length> inset: 0px;
     /// Chosen: the accent's plate, the words white on it.
@@ -111,9 +115,9 @@ component ThreadRow inherits Rectangle {
 
     // A hairline under each row, from where the words start.
     if !root.plein: Rectangle {
-        x: 30px;
+        x: root.tel ? 70px : 30px;
         y: parent.height - 1px;
-        width: parent.width - 48px;
+        width: parent.width - self.x - (root.tel ? 0px : 18px);
         height: 1px;
         background: Tokens.border;
     }
@@ -131,11 +135,11 @@ component ThreadRow inherits Rectangle {
     // Unread: a dot of the accent in the margin, where the eye runs down the list
     // (white on the chosen row); the tick box takes its place under the pointer.
     if root.data.unread && !row-touch.has-hover && !root.selection-mode && !root.data.marked: Rectangle {
-        x: 16px;
-        y: root.compact ? (parent.height - self.height) / 2 : 15px;
-        width: 8px;
-        height: 8px;
-        border-radius: 4px;
+        x: root.tel ? 6px : 16px;
+        y: root.compact ? (parent.height - self.height) / 2 : root.tel ? 22px : 15px;
+        width: root.tel ? 7px : 8px;
+        height: root.tel ? 7px : 8px;
+        border-radius: self.width / 2;
         background: root.plein ? Tokens.accent-text : Tokens.accent;
     }
 
@@ -238,9 +242,9 @@ component ThreadRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 18px;
-        spacing: 8px;
+        padding-left: root.tel ? 18px : 14px;
+        padding-right: root.tel ? 16px : 18px;
+        spacing: root.tel ? 12px : 8px;
 
         // What leads the row: the unread dot (drawn above), and in its place the tick
         // box when the pointer is over the row or a batch is being made. One column,
@@ -248,8 +252,16 @@ component ThreadRow inherits Rectangle {
         Rectangle {
             width: root.lead;
 
+            if root.tel: Avatar {
+                y: 14px;
+                size: 40px;
+                initials: root.data.initials;
+                tint: root.data.sender-tint;
+            }
+
             Rectangle {
-                y: root.compact ? (parent.height - self.height) / 2 : 12px;
+                y: root.tel ? 27px : root.compact ? (parent.height - self.height) / 2 : 12px;
+                x: root.tel ? 13px : 0px;
                 width: 14px;
                 height: 14px;
                 border-radius: 4px;
@@ -306,8 +318,8 @@ component ThreadRow inherits Rectangle {
 
                 Text {
                     text: root.data.from;
-                    font-size: 13px;
-                    font-weight: 600;
+                    font-size: root.tel ? 15px : 13px;
+                    font-weight: root.tel && !root.data.unread ? 500 : 600;
                     color: root.encre;
                     overflow: elide;
                     horizontal-stretch: 0;
@@ -334,7 +346,7 @@ component ThreadRow inherits Rectangle {
 
                 Text {
                     text: root.data.date;
-                    font-size: 12px;
+                    font-size: root.tel ? 13px : 12px;
                     color: root.encre-douce;
                     vertical-alignment: center;
                 }
@@ -346,10 +358,11 @@ component ThreadRow inherits Rectangle {
                 spacing: 6px;
                 Text {
                     text: root.data.subject;
-                    font-size: 13px;
+                    font-size: root.tel ? 15px : 13px;
                     // Regular, unread or not, as Mail sets it: the blue dot says
-                    // unread, and the sender's name is the line in bold.
-                    font-weight: 400;
+                    // unread, and the sender's name is the line in bold. On a phone,
+                    // as the mockup has it, an unread subject is bold too.
+                    font-weight: root.tel && root.data.unread ? 600 : 400;
                     color: root.encre;
                     overflow: elide;
                     horizontal-stretch: root.airy ? 1 : 0;
@@ -393,7 +406,7 @@ component ThreadRow inherits Rectangle {
 
             if root.airy: Text {
                 text: root.data.preview;
-                font-size: 12.5px;
+                font-size: root.tel ? 14px : 12.5px;
                 color: root.encre-douce;
                 overflow: elide;
             }

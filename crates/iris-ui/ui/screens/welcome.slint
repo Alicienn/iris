@@ -1,27 +1,34 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
-import { Button, ButtonKind, Link } from "@iris/controls/button.slint";
-import { IrisBadge } from "@iris/shell/chrome.slint";
+import { BlockButton, ButtonKind } from "@iris/controls/button.slint";
 
-// The first page of a copy of Iris with no mailbox yet: what it is, then the three
-// ways in — a first account, another device already set up, a backup.
+// The first page of a copy of Iris with no mailbox yet, as the Android mockup draws it
+// (`..\Iris-design\android\onboarding.html`, O1): the mark, what Iris is in a line,
+// three points, then the way in at the foot, within the thumb's reach.
 
 component Point inherits HorizontalLayout {
     in property <string> icon;
     in property <color> tint;
     in property <string> text;
-    spacing: 12px;
-    Icon {
+    spacing: 14px;
+    Rectangle {
         y: (parent.height - self.height) / 2;
-        data: root.icon;
-        size: 20px;
-        tint: root.tint;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: root.tint;
+        Icon {
+            data: root.icon;
+            size: 18px;
+            weight: 2;
+            tint: white;
+        }
     }
     Text {
         text: root.text;
-        font-size: Tokens.size-body;
-        color: Tokens.text;
+        font-size: 15.5px;
+        color: Tokens.text-secondary;
         wrap: word-wrap;
         vertical-alignment: center;
         horizontal-stretch: 1;
@@ -34,75 +41,106 @@ export component WelcomePage inherits Rectangle {
     callback restore();
     callback dismissed();
 
-    background: Tokens.surface;
+    background: Tokens.background;
     // Over what is behind: no click goes through the page.
     TouchArea {}
 
     VerticalLayout {
-        x: max(24px, (parent.width - self.width) / 2);
-        width: min(420px, parent.width - 48px);
-        padding-top: Layout.inset-top + (Layout.compact ? 56px : 96px);
-        padding-bottom: Layout.inset-bottom + 24px;
-        spacing: 18px;
+        x: max(0px, (parent.width - self.width) / 2);
+        width: min(460px, parent.width);
+        padding-top: Layout.inset-top;
+        padding-bottom: Layout.inset-bottom + 18px;
 
-        HorizontalLayout {
-            alignment: start;
-            IrisBadge { size: 56px; }
-        }
-        Text {
-            text: "Welcome to Iris";
-            font-family: Tokens.font-display;
-            font-size: 30px;
-            font-weight: 600;
-            color: Tokens.text;
-            wrap: word-wrap;
-        }
-        Text {
-            text: "Your mail, calendar, tasks and notes, in one place that works offline.";
-            font-size: Tokens.size-body;
-            color: Tokens.text-muted;
-            wrap: word-wrap;
-        }
+        // What Iris is, in the middle of the page.
         VerticalLayout {
-            spacing: 12px;
-            padding-top: 6px;
-            padding-bottom: 6px;
-            Point {
-                icon: Icons.envelope-closed;
-                tint: Tokens.blue;
-                text: "Every mailbox in one queue: To do, Waiting, Done.";
+            vertical-stretch: 1;
+            alignment: center;
+            padding-left: 28px;
+            padding-right: 28px;
+            spacing: 0px;
+
+            HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    width: 84px;
+                    height: 84px;
+                    border-radius: 24px;
+                    background: @linear-gradient(135deg, #5e9bff 0%, #007aff 55%, #6c5ce7 100%);
+                    drop-shadow-blur: Tokens.shadow-float-blur;
+                    drop-shadow-offset-y: Tokens.shadow-float-y;
+                    drop-shadow-color: Tokens.shadow-float;
+                    // The iris: a ring and its pupil.
+                    Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 16px;
+                        border-width: 2.4px;
+                        border-color: white;
+                    }
+                    Rectangle {
+                        width: 12px;
+                        height: 12px;
+                        border-radius: 6px;
+                        background: white;
+                    }
+                }
             }
-            Point {
-                icon: Icons.calendar;
-                tint: Tokens.red;
-                text: "Your calendar and tasks beside your mail.";
+            Rectangle { height: 28px; }
+            Text {
+                text: "Iris";
+                font-family: Tokens.font-display;
+                font-size: 34px;
+                font-weight: 600;
+                color: Tokens.text;
             }
-            Point {
-                icon: Icons.refresh;
-                tint: Tokens.green;
-                text: "On your other devices too, over your Wi-Fi, without an account.";
+            Rectangle { height: 8px; }
+            Text {
+                text: "A fast, quiet mail client. Built for getting through your mail, not for filing it.";
+                font-size: 18px;
+                color: Tokens.text-secondary;
+                wrap: word-wrap;
+            }
+            Rectangle { height: 30px; }
+            VerticalLayout {
+                spacing: 16px;
+                Point {
+                    icon: Icons.inbox;
+                    tint: Tokens.blue;
+                    text: "Every conversation is to do, waiting or done";
+                }
+                Point {
+                    icon: Icons.calendar;
+                    tint: Tokens.red;
+                    text: "Your calendar and tasks beside your mail";
+                }
+                Point {
+                    icon: Icons.eye;
+                    tint: Tokens.green;
+                    text: "Trackers blocked, nothing sent anywhere else";
+                }
             }
         }
-        Rectangle { vertical-stretch: 1; }
-        Button {
-            text: "Add your first account";
-            kind: ButtonKind.primary;
-            clicked => { root.add-account(); }
-        }
-        Button {
-            text: "Set up from another device";
-            kind: ButtonKind.secondary;
-            clicked => { root.from-device(); }
-        }
-        HorizontalLayout {
-            alignment: space-between;
-            Link {
+
+        // The way in, at the foot.
+        VerticalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 16px;
+            spacing: 6px;
+            BlockButton {
+                text: "Add your first account";
+                clicked => { root.add-account(); }
+            }
+            Rectangle { height: 4px; }
+            BlockButton {
+                text: "Set up from another device";
+                kind: ButtonKind.ghost;
+                clicked => { root.from-device(); }
+            }
+            BlockButton {
                 text: "Restore a backup";
+                kind: ButtonKind.ghost;
                 clicked => { root.restore(); }
-            }
-            Link {
-                text: "Not now";
-                clicked => { root.dismissed(); }
             }
         }
     }

@@ -3,7 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
-## 6.4.2 — 2026-10-27
+## 6.5.0 — 2026-10-27
+
+### Improved
+- On a phone, Mail opens on a large title with the queues under it, and New message floats over the list.
+- On a phone, the welcome page and Add an account are laid out for the thumb.
 
 ### Fixed
 - Adding an account on Android no longer closes Iris.

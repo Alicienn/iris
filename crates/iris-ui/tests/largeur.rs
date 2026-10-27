@@ -67,7 +67,7 @@ fn un_formulaire_remplit_l_ecran_etroit_et_une_question_monte_du_bas() {
     let f = fenetre_de(390.0, 844.0);
     f.set_add_account_open(true);
     slint::platform::update_timers_and_animations();
-    let adresse = element(&f, testing::AccessibleRole::TextInput, "Email address");
+    let adresse = element(&f, testing::AccessibleRole::TextInput, "Address");
     // A card would be inset and no wider than 440: a page puts the field at the
     // screen's margin, the whole width less the margins.
     assert!(

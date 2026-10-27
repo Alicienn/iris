@@ -809,4 +809,9 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S47.9** Android starts: the journal no longer aborts when Android's logger is
       already installed (6.4.1).
 - [x] **S47.10** Android: accounts connect (the embedded roots for IMAP), the window keeps
-      out of the system bars, the mail list fills a phone (6.4.2).
+      out of the system bars, the mail list fills a phone (6.5.0).
+- [x] **S47.11** The phone screens ported to the Android mockups, first pass: welcome
+      (O1), Add an account (O2), the mail list (M1: large title, queue segments, rows
+      with faces, floating New message); `BlockButton`, `Fab`, `QueueSegments` (6.5.0).
+- [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
+      tasks, notes, settings, sync pages.

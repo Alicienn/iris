@@ -556,6 +556,12 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   finds no account (`first-run`, in `modal-open`). `controls/formatbar.slint` sends
   a note the names of its shortcuts (`ctrl+b`…) through `note-canvas-key`, on touch
   screens only.
+- Ported to the Android mockups (6.5.0, `..\Iris-design\android\`): a page `Modal` on a
+  phone has a back arrow and a large title, and a `fit` form keeps its own height from
+  the top; the mail list's bar keeps its icons while `PhoneMailHeader` holds the large
+  title (which opens the mailboxes), the counts and `QueueSegments`; a row leads with
+  the sender's `Avatar` in the touch sizes; `Fab` floats New message. `BlockButton` is
+  a page's full-width button (welcome, Add an account).
 
 ### Keyboard, focus and clicks
 

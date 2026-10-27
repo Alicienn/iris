@@ -86,7 +86,9 @@ the Android Keystore holds.
 
 - Below 600 pixels each place shows one thing at a time: the list, then the
   conversation, task, habit or note as a page of its own.
-- The list's title opens the mailboxes and folders; *Lists* opens the tasks' lists.
+- Mail opens on a large title (*All accounts* ▾, which opens the mailboxes and
+  folders), how much is to do, and the queues across the screen; **New message**
+  floats over the list. *Lists* opens the tasks' lists.
 - Questions rise from the bottom as sheets; forms fill the screen.
 - *Settings* is a list of groups, each opening as a page.
 - Swipe a conversation right for **Done**, left for **Snooze**; a long press opens a

@@ -1,6 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Button, ButtonKind } from "@iris/controls/button.slint";
+import { Button, ButtonKind, BlockButton } from "@iris/controls/button.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { Modal, ModalFooter } from "@iris/layout/frames.slint";
 import { CheckBox, ComboBox } from "@iris/controls/pickers.slint";
@@ -19,11 +20,13 @@ component Field inherits VerticalLayout {
 
     Text {
         text: root.label;
-        font-size: 12px;
+        font-size: Layout.compact ? 13px : 12px;
+        font-weight: Layout.compact ? 600 : 400;
         color: Tokens.text-muted;
     }
 
     TextField {
+        min-height: Layout.compact ? 52px : 0px;
         accessible-label: root.label;
         placeholder-text: root.placeholder;
         font-size: Tokens.size-body;
@@ -141,19 +144,26 @@ export component AccountSetupPanel inherits Rectangle {
             }
         }
 
+        // On a phone, under the page's title, as the mockup has it (O2).
+        if Layout.compact && !root.editing && !root.manual: Text {
+            text: "Iris finds the servers on its own.";
+            font-size: Tokens.size-body;
+            color: Tokens.text-muted;
+        }
+
         Field {
-            label: "Email address";
+            label: Layout.compact ? "Address" : "Email address";
             placeholder: "you@example.com";
             value <=> root.email;
             accepted => { root.discover(); }
         }
 
         // A Google account: its address above, then the browser; no password here.
-        if !root.editing && !root.manual: GoogleButton {
+        if !Layout.compact && !root.editing && !root.manual: GoogleButton {
             ready: root.google-ready && !root.busy;
             clicked => { root.google(); }
         }
-        if !root.editing && !root.manual: Text {
+        if !Layout.compact && !root.editing && !root.manual: Text {
             text: "Or with a password:";
             font-size: 12px;
             color: Tokens.text-muted;
@@ -161,9 +171,44 @@ export component AccountSetupPanel inherits Rectangle {
 
         Field {
             label: "Password";
+            placeholder: Layout.compact ? "Password or app password" : "";
             password: true;
             value <=> root.password;
             accepted => { root.manual ? root.save-manual() : root.discover(); }
+        }
+
+        // On a phone: Continue under the fields, then the other ways in.
+        if Layout.compact: BlockButton {
+            text: root.busy ? "Looking up…" : ((root.manual || root.editing) ? "Save" : "Continue");
+            enabled: !root.busy;
+            clicked => { root.manual ? root.save-manual() : root.discover(); }
+        }
+        if Layout.compact && !root.editing && !root.manual: HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: 1px;
+                horizontal-stretch: 1;
+                background: Tokens.border-strong;
+            }
+            Text {
+                text: "or";
+                font-size: 13px;
+                color: Tokens.text-faint;
+            }
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: 1px;
+                horizontal-stretch: 1;
+                background: Tokens.border-strong;
+            }
+        }
+        if Layout.compact && !root.editing && !root.manual: BlockButton {
+            text: "Continue with Google";
+            kind: ButtonKind.secondary;
+            enabled: root.google-ready && !root.busy;
+            clicked => { root.google(); }
+            GoogleMark { y: (parent.height - self.height) / 2; }
         }
 
         // Ce que la découverte a trouvé, ou ce qui lui a manqué. Un écran qui échoue
@@ -234,7 +279,25 @@ export component AccountSetupPanel inherits Rectangle {
             checked <=> root.smtp-tls;
         }
 
-        ModalFooter {
+        // On a phone: the two other doors as links, Continue being above.
+        if Layout.compact && !root.editing && !root.manual: HorizontalLayout {
+            padding-top: 6px;
+            Button {
+                text: "Import a profile";
+                label: "Import a configuration profile (.mobileconfig)";
+                kind: ButtonKind.ghost;
+                enabled: !root.busy;
+                clicked => { root.import-profile(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "Configure manually";
+                kind: ButtonKind.ghost;
+                clicked => { root.switch-to-manual(); }
+            }
+        }
+
+        if !Layout.compact: ModalFooter {
             // La porte de secours reste visible avant même l'échec : quelqu'un qui sait
             // déjà que son serveur est exotique n'a pas à attendre que la découverte se
             // trompe pour le dire.

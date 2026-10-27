@@ -14,7 +14,7 @@ import {
 } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
-import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
+import { Button, ButtonKind, ButtonSize, Link, Fab } from "@iris/controls/button.slint";
 import { Segmented, QueueTabs, Pill, PillKind, Check, CheckShape, Toggle, Tag, PriorityTag }
     from "@iris/controls/choice.slint";
 import { NavItem } from "@iris/lists/nav.slint";
@@ -22,7 +22,7 @@ import { SectionHeader, ListRow, RowLead, TimeRow, NowLine, PropertyRow } from "
 import { Rail, PageHeader, Plate, DetailPanel, Toolbar, EmptyState, Modal, ModalFooter, Popover }
     from "@iris/layout/frames.slint";
 import { Chrome, SidebarFrame, SidebarFoot, WindowToolbar } from "@iris/shell/chrome.slint";
-import { MailToolbar } from "@iris/screens/mail-toolbar.slint";
+import { MailToolbar, PhoneMailHeader } from "@iris/screens/mail-toolbar.slint";
 import { Toast, SendNotice } from "@iris/shell/toast.slint";
 import { TabBar } from "@iris/shell/tabbar.slint";
 import { NavRail } from "@iris/shell/navrail.slint";
@@ -2359,6 +2359,23 @@ export component AppWindow inherits Window {
                     search-submitted(q) => { root.search-submitted(q); }
                     search-cleared => { root.search-cleared(); }
                 }
+                // On a phone's list, the large head of the mockup (M1).
+                if Layout.compact && !root.fil-en-page && !root.searching: PhoneMailHeader {
+                    title: root.folder-name != "" ? root.folder-name : "All accounts";
+                    subtitle: (root.folder-name != "" ? ""
+                        : (root.counts.length > 0 ? root.counts[0] : 0) + " to do")
+                        + (root.last-sync != "" && root.folder-name == "" ? " · " + root.last-sync.to-lowercase() : "");
+                    queues: root.folder-name == "";
+                    count-labels: root.count-labels;
+                    counts: root.counts;
+                    active-tab: root.active-tab;
+                    title-clicked => { root.mailboxes-open = true; }
+                    tab-selected(i) => {
+                        root.tab-selected(i);
+                        root.navigated("tab", "\{i}");
+                        shortcuts.focus();
+                    }
+                }
                 HorizontalLayout {
                 // Colonne 2 : la file de travail. On a phone the whole width, until a
                 // conversation is opened over it; on a foldable a narrower column.
@@ -2462,6 +2479,17 @@ export component AppWindow inherits Window {
                             shortcuts.focus();
                         }
                         scrolled-near-end => { root.scrolled-near-end(); }
+                    }
+                    // On a phone, New message floats over the list's bottom right.
+                    if Layout.compact && !root.searching && root.marked-count == 0: Fab {
+                        x: parent.width - self.width - 16px;
+                        y: parent.height - self.height - 16px;
+                        text: "New message";
+                        icon: Icons.pencil;
+                        clicked => {
+                            root.compose-minimised = false;
+                            root.compose-open = true;
+                        }
                     }
                 }
 

@@ -262,12 +262,39 @@ export component Modal inherits Rectangle {
         }
 
         contenu := VerticalLayout {
+            // A form that grows with its content keeps its own height on a page, from
+            // the top: spread over the whole screen, its fields drifted apart.
+            height: root.page && root.fit ? min(self.preferred-height, parent.height) : parent.height;
             padding: 20px;
-            padding-top: root.page ? 18px + Layout.inset-top : root.sheet ? 26px : 18px;
+            padding-top: root.page ? 6px + Layout.inset-top : root.sheet ? 26px : 18px;
             padding-bottom: root.page || root.sheet ? 20px + Layout.inset-bottom : 20px;
             spacing: 14px;
 
-            HorizontalLayout {
+            // A page, as a phone has it: back at the top left, the title large under it.
+            if root.page: VerticalLayout {
+                vertical-stretch: 0;
+                spacing: 4px;
+                HorizontalLayout {
+                    alignment: start;
+                    IconButton {
+                        icon: Icons.arrow-left;
+                        label: root.close-label;
+                        button-size: 44px;
+                        icon-size: 22px;
+                        clicked => { root.dismissed(); }
+                    }
+                }
+                Text {
+                    text: root.title;
+                    font-family: Tokens.font-display;
+                    font-size: 28px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    wrap: word-wrap;
+                }
+            }
+
+            if !root.page: HorizontalLayout {
                 min-height: 28px;
                 vertical-stretch: 0;
                 spacing: 8px;

@@ -97,6 +97,102 @@ export component Button inherits Rectangle {
 }
 
 /// Words that lead somewhere: "Open ›", "Clear", "Mail 18".
+/// A page's own button on a phone: the whole width, a pill, within the thumb's reach
+/// (the Android mockups' `.btn.block`). Primary filled; secondary outlined; ghost the
+/// accent's words alone.
+export component BlockButton inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <ButtonKind> kind: ButtonKind.primary;
+    in property <bool> enabled: true;
+    /// Drawn before the words: the Google mark, an icon.
+    in property <string> icon;
+    callback clicked();
+
+    height: root.kind == ButtonKind.primary ? 52px : 50px;
+    horizontal-stretch: 1;
+    border-radius: self.height / 2;
+    border-width: root.kind == ButtonKind.secondary ? 1px : 0px;
+    border-color: Tokens.border-strong;
+    background: root.kind == ButtonKind.primary
+        ? (touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent)
+        : root.kind == ButtonKind.secondary
+        ? (touch.pressed ? Tokens.surface-active : Tokens.surface)
+        : (touch.pressed ? Tokens.surface-hover : transparent);
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    accessible-role: button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 10px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 18px;
+            tint: root.kind == ButtonKind.primary ? Tokens.accent-text : Tokens.text;
+        }
+        @children
+        Text {
+            text: root.text;
+            font-size: 15px;
+            font-weight: 600;
+            color: root.kind == ButtonKind.primary ? Tokens.accent-text
+                : root.kind == ButtonKind.ghost ? Tokens.accent : Tokens.text;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// The one action of a phone's page, floating over the bottom right of what scrolls
+/// (the Android mockups' `.fab`): an icon and its words.
+export component Fab inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    callback clicked();
+
+    width: rang.preferred-width + 40px;
+    height: 56px;
+    border-radius: 18px;
+    background: touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent;
+    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-offset-y: Tokens.shadow-float-y;
+    drop-shadow-color: Tokens.shadow-float;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    rang := HorizontalLayout {
+        x: 18px;
+        width: self.preferred-width;
+        spacing: 10px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 20px;
+            tint: Tokens.accent-text;
+        }
+        Text {
+            text: root.text;
+            font-size: 15.5px;
+            font-weight: 600;
+            color: Tokens.accent-text;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 export component Link inherits Rectangle {
     in property <string> text;
     /// A figure after the words, brighter: "Mail 18".
