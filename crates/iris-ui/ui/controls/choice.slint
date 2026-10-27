@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Dot } from "@iris/base/atoms.slint";
 
@@ -246,16 +247,20 @@ export component Pill inherits Rectangle {
         : touch.has-hover ? Tokens.text : Tokens.text-secondary;
 
     // A chip: a small raised key as the Mac draws its push buttons, the accent's soft
-    // ground when on.
-    height: 24px;
-    width: rang.preferred-width + 18px;
-    border-radius: Tokens.radius-small;
-    border-width: 0px;
+    // ground when on. On a phone the mockups' pill: round ends, a fine rim, the touch
+    // sizes.
+    property <bool> grand: Layout.compact && !root.jeton;
+    height: root.grand ? 34px : 24px;
+    width: rang.preferred-width + (root.grand ? 26px : 18px);
+    border-radius: root.grand ? self.height / 2 : Tokens.radius-small;
+    border-width: root.grand && !root.on && !root.tinted ? 1px : 0px;
+    border-color: Tokens.border-strong;
     background: root.tinted ? root.tint.transparentize(0.88)
         : root.on ? Tokens.accent-soft
         : root.jeton ? Tokens.surface-active
+        : root.grand ? Tokens.surface
         : touch.has-hover ? Tokens.surface-hover : Tokens.control;
-    property <bool> releve: !root.jeton && !root.on && !root.tinted;
+    property <bool> releve: !root.jeton && !root.on && !root.tinted && !root.grand;
     drop-shadow-blur: root.releve ? Tokens.shadow-card-blur / 2 : 0px;
     drop-shadow-offset-y: root.releve ? 1px : 0px;
     drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.15) : transparent;
@@ -267,7 +272,7 @@ export component Pill inherits Rectangle {
     accessible-action-default => { root.toggled(); }
 
     rang := HorizontalLayout {
-        x: 9px;
+        x: root.grand ? 13px : 9px;
         width: self.preferred-width;
         spacing: 6px;
         if root.has-dot: Dot {
@@ -278,12 +283,12 @@ export component Pill inherits Rectangle {
         if root.icon != "": Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 13px;
+            size: root.grand ? 16px : 13px;
             tint: root.encre;
         }
         Text {
             text: root.text;
-            font-size: 12.5px;
+            font-size: root.grand ? 14px : 12.5px;
             font-weight: root.on || root.tinted ? 600 : 400;
             color: root.encre;
             vertical-alignment: center;

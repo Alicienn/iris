@@ -576,6 +576,17 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   column), then goes back in the history. A page closed (`navigated("page", "")`) is a
   step back, not a new step (`History::choose`). Tapping the current tab runs
   `place-root`: the mail's list, the calendar on today, the tasks with nothing open.
+- The mail's second pass (6.7.0). `MenuSurface` in compact is the mockups' sheet: the
+  full width, a plate rounded at the top over `Tokens.scrim` (drawn by the surface
+  itself, taps going through to the owner's veil), a handle that calls `dismissed`
+  past 60 px; `MenuEntry`, `MenuHeader` and `MenuSeparator` take the sheet's sizes in
+  compact. The reader's ⋯ is no longer anchored: on a phone it carries the bar's
+  actions too. `ThreadRow` under touch has no hover (no hover buttons, so a swipe is
+  never cut by them), no `DragArea` (a press-and-move is the swipe), and a 500 ms
+  `long-press` Timer that opens the row's menu; the chosen row is the accent at 9 %
+  (the PC too). `UndoSnack` (`shell/toast.slint`, `undo-snack`) follows a swipe and
+  calls the mail's Undo. `MailToolbar.hidden` on a phone's list: the search sits in
+  `PhoneMailHeader`. `Nav` in compact selects with `surface-active` and no hover.
 - The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
   Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
   lost its title and arrows off a phone's screen.

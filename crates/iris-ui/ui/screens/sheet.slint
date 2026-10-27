@@ -823,6 +823,7 @@ export component SheetMenu inherits Rectangle {
         clicked => { root.dismissed(); }
     }
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: SheetGrid.menu-x;

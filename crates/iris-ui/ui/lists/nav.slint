@@ -17,21 +17,27 @@ export global Nav {
     out property <length> row-height: 28px;
     out property <length> label-size: 13px;
 
+    /// On a phone, the mockups' sheet: the chosen row a grey plate, its words as they
+    /// are (and bold), not the accent with white words.
+    out property <bool> sheet: Layout.compact;
+
     /// The chosen row is the accent itself, its words white: a source list's selection.
+    /// A finger leaves a hover behind it when it lifts: no hover under touch.
     public pure function background(selected: bool, hover: bool) -> brush {
-        return selected ? Tokens.accent : hover ? Tokens.surface-hover : transparent;
+        return selected ? (Nav.sheet ? Tokens.surface-active : Tokens.accent)
+            : hover && !Layout.touch-input ? Tokens.surface-hover : transparent;
     }
     /// What is written on a row: white on the selection.
     public pure function ink(selected: bool, dim: bool) -> color {
-        return selected ? Tokens.accent-text : dim ? Tokens.text-muted : Tokens.text;
+        return selected && !Nav.sheet ? Tokens.accent-text : dim ? Tokens.text-muted : Tokens.text;
     }
     /// A row's icon: the accent, white on the selection.
     public pure function icon-ink(selected: bool, tint: color) -> color {
-        return selected ? Tokens.accent-text : tint;
+        return selected && !Nav.sheet ? Tokens.accent-text : tint;
     }
     /// A row's count: grey, white on the selection.
     public pure function count-ink(selected: bool) -> color {
-        return selected ? Tokens.accent-text : Tokens.text-muted;
+        return selected && !Nav.sheet ? Tokens.accent-text : Tokens.text-muted;
     }
 }
 

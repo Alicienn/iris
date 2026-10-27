@@ -882,6 +882,15 @@ export component ReaderMenu inherits Rectangle {
     callback toggle-unread();
     callback view-source();
     callback dismissed();
+    // On a phone the ⋯ sheet also holds what the bar above the conversation does.
+    in property <bool> starred;
+    callback done();
+    callback snooze-open();
+    callback waiting();
+    callback to-task();
+    callback archive();
+    callback toggle-star();
+    callback delete-thread();
 
     TouchArea {
         width: 100%;
@@ -890,6 +899,7 @@ export component ReaderMenu inherits Rectangle {
     }
 
     if root.kind == "snooze": MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -927,6 +937,7 @@ export component ReaderMenu inherits Rectangle {
     // The ways to answer, from the chevron beside Reply under the thread: it rises
     // above the button, its left edge on the button's.
     if root.kind == "reply": MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -957,11 +968,11 @@ export component ReaderMenu inherits Rectangle {
     }
 
     if root.kind == "more": MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
-        // Opened from the last button of the bar: it hangs to the left of it, in a
-        // narrow window too.
-        anchored-in-compact: true;
+        // Opened from the last button of the bar: it hangs to the left of it; on a
+        // phone it is a sheet with the bar's actions too.
         menu-x: root.menu-x - 220px;
         menu-y: root.menu-y;
         menu-width: 220px;
@@ -969,6 +980,38 @@ export component ReaderMenu inherits Rectangle {
 
         autres := VerticalLayout {
             padding: 4px;
+            if Layout.compact: MenuEntry {
+                icon: Icons.check;
+                label: "Mark as done";
+                activated => { root.done(); root.dismissed(); }
+            }
+            if Layout.compact: MenuEntry {
+                icon: Icons.clock;
+                label: "Snooze…";
+                chevron: true;
+                activated => { root.snooze-open(); }
+            }
+            if Layout.compact: MenuEntry {
+                icon: Icons.hourglass;
+                label: "Move to Waiting";
+                activated => { root.waiting(); root.dismissed(); }
+            }
+            if Layout.compact: MenuEntry {
+                icon: Icons.task;
+                label: "Make it a task";
+                activated => { root.to-task(); root.dismissed(); }
+            }
+            if Layout.compact: MenuEntry {
+                icon: Icons.archive;
+                label: "Archive";
+                activated => { root.archive(); root.dismissed(); }
+            }
+            if Layout.compact: MenuSeparator {}
+            if Layout.compact: MenuEntry {
+                icon: Icons.reply-all;
+                label: "Reply all";
+                activated => { root.reply(true); root.dismissed(); }
+            }
             // Forward opens the ordinary editor, subject and quote filled in, the
             // recipient left empty: the one thing a forward cannot guess.
             MenuEntry {
@@ -982,11 +1025,22 @@ export component ReaderMenu inherits Rectangle {
                 shortcut: "R";
                 activated => { root.toggle-unread(); root.dismissed(); }
             }
+            if Layout.compact: MenuEntry {
+                icon: Icons.star;
+                label: root.starred ? "Remove star" : "Star";
+                activated => { root.toggle-star(); root.dismissed(); }
+            }
             MenuSeparator {}
             MenuEntry {
                 icon: Icons.code;
                 label: "View source";
                 activated => { root.view-source(); root.dismissed(); }
+            }
+            if Layout.compact: MenuEntry {
+                icon: Icons.trash;
+                label: "Delete";
+                danger: true;
+                activated => { root.delete-thread(); root.dismissed(); }
             }
         }
     }
@@ -1022,6 +1076,7 @@ export component LinkMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -1273,23 +1328,24 @@ export component ConversationView inherits VerticalLayout {
                         // Where it is: a small folder mark and its name, quiet; red
                         // only for the places mail goes to be gone.
                         // Over "Inbox +2", every folder the conversation is in.
+                        // A small grey plate with its name, as the mockups draw it.
                         if root.folder-label != "": Rectangle {
                             horizontal-stretch: 0;
-                            width: dossier.preferred-width;
+                            y: (parent.height - self.height) / 2;
+                            width: dossier.preferred-width + 16px;
+                            height: dossier.preferred-height + 2px;
+                            border-radius: 6px;
+                            background: root.folder-alarming ? Tokens.error.transparentize(0.88)
+                                : Tokens.surface-active;
                             dossier := HorizontalLayout {
-                                spacing: 4px;
-                                Icon {
-                                    y: (parent.height - self.height) / 2;
-                                    data: Icons.folder;
-                                    size: 13px;
-                                    tint: root.folder-alarming ? Tokens.error : Tokens.text-muted;
-                                }
+                                x: 8px;
+                                width: self.preferred-width;
                                 Text {
                                     text: root.folder-label;
                                     // "Inbox" alone says nothing to a screen reader.
                                     accessible-label: "In " + (root.folder-all != "" ? root.folder-all : root.folder-label);
                                     font-size: 12.5px;
-                                    color: root.folder-alarming ? Tokens.error : Tokens.text-muted;
+                                    color: root.folder-alarming ? Tokens.error : Tokens.text-secondary;
                                     vertical-alignment: center;
                                 }
                             }

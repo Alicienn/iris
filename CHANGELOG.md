@@ -3,6 +3,25 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.7.0 — 2026-10-27
+
+### New
+- On a phone, a long press on a conversation opens its actions, with Done, Snooze, Archive and To task in large.
+- On a phone, a swipe on a conversation shows Undo for a few seconds.
+- On a phone, ⋯ in a conversation opens every action as a sheet you can pull down.
+
+### Improved
+- The chosen conversation is a light blue tint, on a PC as on a phone.
+- On a phone, menus rise from the bottom as sheets, with large entries and a handle.
+- On a phone, the mail list has no bar above its title; search sits beside the title.
+- On a phone, the filters are round pills that scroll sideways, and rows run the full width.
+- On a phone, a conversation's buttons are larger, and its folder shows as a grey label.
+- On a phone, Mailboxes has its own title, and the chosen mailbox shows in grey.
+
+### Fixed
+- On a phone, swiping a conversation no longer stops halfway over its buttons.
+- On a phone, a tapped folder no longer keeps a coloured frame.
+
 ## 6.6.0 — 2026-10-27
 
 ### New

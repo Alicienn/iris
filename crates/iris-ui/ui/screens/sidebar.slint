@@ -336,6 +336,8 @@ export component Sidebar inherits Rectangle {
     callback account-menu(int, length, length);
     /// New message, from the top of the column.
     callback compose();
+    /// On a phone, the page of mailboxes closed by its back arrow.
+    callback closed();
 
     /// When the servers were last heard from: "Synced 2 min ago".
     in property <string> last-sync;
@@ -354,7 +356,48 @@ export component Sidebar inherits Rectangle {
         padding: 0px;
         spacing: 0px;
 
-        if !root.collapsed: SectionRow { text: "Favourites"; }
+        // On a phone, the mockups' head (M3): "Mailboxes" large, what manages them
+        // beside it; no "Favourites" over All accounts.
+        if Layout.compact: HorizontalLayout {
+            vertical-stretch: 0;
+            padding-top: 4px;
+            padding-bottom: 8px;
+            spacing: 2px;
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Back";
+                button-size: 44px;
+                icon-size: 22px;
+                clicked => { root.closed(); }
+            }
+            Text {
+                text: "Mailboxes";
+                font-family: Tokens.font-display;
+                font-size: 22px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.tag;
+                label: "Tags";
+                button-size: 44px;
+                icon-size: 20px;
+                clicked => { root.open-tags(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.plus;
+                label: "Add an account";
+                button-size: 44px;
+                icon-size: 20px;
+                clicked => { root.add-account(); }
+            }
+        }
+        if !root.collapsed && !Layout.compact: SectionRow { text: "Favourites"; }
 
         AccountRow {
             compact: root.collapsed;
@@ -667,6 +710,7 @@ export component AccountContextMenu inherits Rectangle {
     }
 
     if root.tags-open: MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x + 232px;
@@ -770,6 +814,7 @@ export component AccountContextMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;

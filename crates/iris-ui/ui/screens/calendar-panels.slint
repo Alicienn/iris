@@ -874,6 +874,7 @@ export component CalendarContextMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -989,6 +990,7 @@ export component EventContextMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;

@@ -818,5 +818,11 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       add-a-task line as a card, quotes and lists that no longer overlap, the event
       editor without its keyboard on open, the last panic shown at the next start
       (6.6.0).
+- [x] **S47.14** The mail ported to the mockups, second pass: menus as sheets (handle,
+      pulled down to close, 56 px entries, a 19 px title), the long press (four large
+      gestures), Undo after a swipe, the reader's ⋯ as a sheet with every action, the
+      list without a bar (search beside the title), round scrolling pills, full-width
+      rows and a light selection (the PC too), the folder as a pill, Mailboxes' head and
+      grey selection; no hover and no drag-and-drop under a finger (6.7.0).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.

@@ -59,17 +59,22 @@ component ThreadRow inherits Rectangle {
     property <length> lead: root.tel ? 40px : 14px;
     /// Rows run edge to edge; the text starts this far in.
     property <length> inset: 0px;
-    /// Chosen: the accent's plate, the words white on it.
+    /// Chosen: a light tint of the accent, the words as they are (the mockups' 9 %,
+    /// on a PC as on a phone; the full accent with white words was much louder).
     property <bool> plein: root.selected || root.data.marked;
-    property <color> encre: root.plein ? Tokens.accent-text : Tokens.text;
-    property <color> encre-douce: root.plein ? Tokens.accent-text.transparentize(0.18) : Tokens.text-muted;
+    property <color> encre: Tokens.text;
+    property <color> encre-douce: Tokens.text-muted;
+    /// A finger hovers only while it presses: no hover plate, no hover buttons.
+    property <bool> survol: row-touch.has-hover && !Layout.touch-input;
+    /// A long press opens the row's menu, as a right-click does.
+    property <bool> appui-long;
     // Whatever happens inside, nothing is drawn over the next row.
     clip: true;
 
     // The three actions a row offers on hover, drawn at its top right. They have no
     // touch area of their own: the row's reads where it was hit, as it does for the
     // tick box, so nothing competes for the click or the hover.
-    property <bool> actions-shown: row-touch.has-hover && !root.selection-mode;
+    property <bool> actions-shown: root.survol && !root.selection-mode;
     property <length> actions-x: root.width - 10px - 86px;
     property <length> actions-y: root.compact ? (root.height - 32px) / 2 : 7px;
     pure function action-at(x: length, y: length) -> int {
@@ -83,15 +88,16 @@ component ThreadRow inherits Rectangle {
 
     // The chosen row is a rounded plate of the accent, inset in the column, as Apple
     // Mail draws it.
+    // On a phone the whole width, square, as the mockups' rows (M1).
     fond := Rectangle {
-        x: 8px;
-        y: 1px;
-        width: parent.width - 16px;
-        height: parent.height - 2px;
-        border-radius: 8px;
-        background: root.plein
-            ? Tokens.accent
-            : (row-touch.has-hover ? Tokens.surface-hover : transparent);
+        x: root.tel ? 0px : 8px;
+        y: root.tel ? 0px : 1px;
+        width: parent.width - (root.tel ? 0px : 16px);
+        height: parent.height - (root.tel ? 0px : 2px);
+        border-radius: root.tel ? 0px : 8px;
+        background: root.plein || (root.tel && root.targeted)
+            ? Tokens.accent.transparentize(0.91)
+            : (root.survol ? Tokens.surface-hover : transparent);
         animate background { duration: Tokens.instant; }
     }
 
@@ -100,21 +106,22 @@ component ThreadRow inherits Rectangle {
     // The menu does not select the row (that would open and read it), so without this
     // nothing said which of the rows under the menu "Delete" was about. It fades in
     // once, with the menu.
-    Rectangle {
+    // On a phone the row a sheet is about keeps the chosen row's tint instead.
+    if !root.tel: Rectangle {
         x: 8px;
         y: 1px;
         width: parent.width - 16px;
         height: parent.height - 2px;
         border-radius: 8px;
         border-width: 2px;
-        border-color: root.plein ? Tokens.accent-text : Tokens.accent;
+        border-color: Tokens.accent;
         background: root.plein ? transparent : Tokens.accent.transparentize(0.86);
         opacity: root.targeted ? 1.0 : 0.0;
         animate opacity { duration: 150ms; easing: ease-out; }
     }
 
     // A hairline under each row, from where the words start.
-    if !root.plein: Rectangle {
+    if !root.plein || root.tel: Rectangle {
         x: root.tel ? 70px : 30px;
         y: parent.height - 1px;
         width: parent.width - self.x - (root.tel ? 0px : 18px);
@@ -134,13 +141,13 @@ component ThreadRow inherits Rectangle {
 
     // Unread: a dot of the accent in the margin, where the eye runs down the list
     // (white on the chosen row); the tick box takes its place under the pointer.
-    if root.data.unread && !row-touch.has-hover && !root.selection-mode && !root.data.marked: Rectangle {
+    if root.data.unread && !root.survol && !root.selection-mode && !root.data.marked: Rectangle {
         x: root.tel ? 6px : 16px;
         y: root.compact ? (parent.height - self.height) / 2 : root.tel ? 22px : 15px;
         width: root.tel ? 7px : 8px;
         height: root.tel ? 7px : 8px;
         border-radius: self.width / 2;
-        background: root.plein ? Tokens.accent-text : Tokens.accent;
+        background: Tokens.accent;
     }
 
     // Le glisser vers un dossier.
@@ -168,6 +175,8 @@ component ThreadRow inherits Rectangle {
     // permet à une même ligne d'être cliquable et déplaçable sans que les deux gestes se
     // disputent quoi que ce soit.
     drag := DragArea {
+        // Not under a finger: there, pushing a row aside is the swipe.
+        enabled: !Layout.touch-input;
         allow-move: true;
         data: root.payload;
         changed dragging => {
@@ -182,6 +191,17 @@ component ThreadRow inherits Rectangle {
     // premier. Cette zone était déclarée en dernier : elle recouvrait la case à
     // cocher, et cliquer la case ouvrait le message au lieu de le sélectionner.
     // Le geste existait, il n'atteignait jamais sa cible.
+    long-press := Timer {
+        interval: 500ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.appui-long = true;
+            root.context-menu(
+                row-touch.absolute-position.x + row-touch.mouse-x,
+                row-touch.absolute-position.y + row-touch.mouse-y);
+        }
+    }
     row-touch := TouchArea {
         // Right-click is how everyone expects to reach the actions on a list row,
         // and it was reaching nothing.
@@ -212,6 +232,9 @@ component ThreadRow inherits Rectangle {
                     self.absolute-position.y + self.mouse-y);
             } else if (event.button == PointerEventButton.left
                 && event.kind == PointerEventKind.down) {
+                if (Layout.touch-input) {
+                    long-press.running = true;
+                }
                 if (event.modifiers.shift) {
                     root.modified-click = true;
                     root.mark-extended();
@@ -221,7 +244,23 @@ component ThreadRow inherits Rectangle {
                 }
             }
         }
+        // A finger that moves or lifts is not a long press.
+        moved => {
+            if (abs(self.mouse-x - self.pressed-x) > 10px || abs(self.mouse-y - self.pressed-y) > 10px) {
+                long-press.running = false;
+            }
+        }
+        changed pressed => {
+            if (!self.pressed) {
+                long-press.running = false;
+            }
+        }
         clicked => {
+            // The long press already opened the menu: the lift opens nothing.
+            if (root.appui-long) {
+                root.appui-long = false;
+                return;
+            }
             // Un clic simple ouvre. Un clic modifié a déjà été traité à l'appui :
             // ouvrir en plus ferait deux choses pour un seul geste, et la seconde
             // serait celle que l'utilisateur n'a pas demandée.
@@ -266,10 +305,9 @@ component ThreadRow inherits Rectangle {
                 height: 14px;
                 border-radius: 4px;
                 border-width: 1.5px;
-                border-color: root.data.marked ? Tokens.accent-text
-                    : root.plein ? Tokens.accent-text : Tokens.border-strong;
-                background: root.data.marked ? Tokens.accent-text.transparentize(0.75) : transparent;
-                opacity: root.data.marked || root.selection-mode || row-touch.has-hover
+                border-color: root.data.marked ? Tokens.accent : Tokens.border-strong;
+                background: root.data.marked ? Tokens.accent : transparent;
+                opacity: root.data.marked || root.selection-mode || root.survol
                     ? 1.0
                     : 0.0;
                 animate opacity { duration: Tokens.instant; }
@@ -313,7 +351,7 @@ component ThreadRow inherits Rectangle {
                     width: 6px;
                     height: 6px;
                     border-radius: 3px;
-                    background: root.plein ? Tokens.accent-text : root.data.account-tint;
+                    background: root.data.account-tint;
                 }
 
                 Text {
@@ -339,7 +377,7 @@ component ThreadRow inherits Rectangle {
                     data: Icons.star;
                     size: 12px;
                     filled: true;
-                    tint: root.plein ? Tokens.accent-text : Tokens.orange;
+                    tint: Tokens.orange;
                 }
 
                 Rectangle { horizontal-stretch: 1; }
@@ -572,6 +610,7 @@ export component ThreadContextMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -582,24 +621,85 @@ export component ThreadContextMenu inherits Rectangle {
         entries := VerticalLayout {
             padding: 4px;
 
+            // On a phone the queue's gestures first, large, as the mockups' long
+            // press draws them (M4); the rest of the menu under them.
+            if Layout.compact: HorizontalLayout {
+                padding-top: 6px;
+                padding-bottom: 6px;
+                for geste[i] in [
+                    { label: "Done", icon: Icons.check, tint: Tokens.green },
+                    { label: "Snooze", icon: Icons.clock, tint: Tokens.orange },
+                    { label: "Archive", icon: Icons.archive, tint: Tokens.purple },
+                    { label: "To task", icon: Icons.task, tint: Tokens.blue },
+                ]: Rectangle {
+                    height: 82px;
+                    accessible-role: button;
+                    accessible-label: geste.label;
+                    accessible-action-default => { tuile.clicked(); }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 6px;
+                        HorizontalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 48px;
+                                height: 48px;
+                                border-radius: 14px;
+                                background: geste.tint;
+                                opacity: tuile.pressed ? 0.8 : 1;
+                                Icon {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    data: geste.icon;
+                                    size: 22px;
+                                    weight: 2.0;
+                                    tint: Tokens.accent-text;
+                                }
+                            }
+                        }
+                        Text {
+                            text: geste.label;
+                            font-size: 13px;
+                            color: Tokens.text-secondary;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    tuile := TouchArea {
+                        clicked => {
+                            if (i == 0) {
+                                root.mark-done();
+                            } else if (i == 1) {
+                                root.snooze("tomorrow");
+                            } else if (i == 2) {
+                                root.archive();
+                            } else {
+                                root.add-task();
+                            }
+                            root.dismissed();
+                        }
+                    }
+                }
+            }
+            if Layout.compact: MenuSeparator {}
+
             MenuEntry {
                 icon: Icons.envelope-open;
                 label: "Open";
                 activated => { root.open-thread(); root.dismissed(); }
             }
-            MenuEntry {
+            if !Layout.compact: MenuEntry {
                 icon: Icons.check;
                 label: "Mark as done";
                 shortcut: "E";
                 activated => { root.mark-done(); root.dismissed(); }
             }
-            MenuEntry {
+            if !Layout.compact: MenuEntry {
                 icon: Icons.task;
                 label: "Add to tasks";
                 shortcut: "T";
                 activated => { root.add-task(); root.dismissed(); }
             }
-            MenuEntry {
+            if !Layout.compact: MenuEntry {
                 icon: Icons.archive;
                 label: "Archive";
                 shortcut: "A";
@@ -617,7 +717,7 @@ export component ThreadContextMenu inherits Rectangle {
                 label: "Snooze until this evening";
                 activated => { root.snooze("evening"); root.dismissed(); }
             }
-            MenuEntry {
+            if !Layout.compact: MenuEntry {
                 icon: Icons.clock;
                 label: "Snooze until tomorrow morning";
                 shortcut: "S";
@@ -685,6 +785,7 @@ export component SortMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -1311,7 +1412,51 @@ export component ThreadListView inherits VerticalLayout {
     // Cachés pendant une recherche et pendant un lot coché : dans les deux cas la
     // question posée par la liste est déjà autre chose, et un troisième réducteur
     // au-dessus rendrait indevinable ce qui est montré.
-    if !root.searching && root.marked-count == 0: HorizontalLayout {
+    // On a phone the mockups' row of pills, the order among them, sliding sideways
+    // under the thumb when they outrun the screen.
+    if Layout.compact && !root.searching && root.marked-count == 0: Flickable {
+        vertical-stretch: 0;
+        height: 44px;
+        content-width: puces.preferred-width;
+        content-height: self.height;
+        puces := HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-bottom: 10px;
+            spacing: 8px;
+            Pill {
+                text: "Unread";
+                icon: Icons.envelope-closed;
+                on: root.filter-unread;
+                toggled => { root.filter-toggled("unread"); }
+            }
+            Pill {
+                text: "Attachments";
+                icon: Icons.paperclip;
+                on: root.filter-attachments;
+                toggled => { root.filter-toggled("attachments"); }
+            }
+            Pill {
+                text: "Starred";
+                icon: Icons.star;
+                on: root.filter-starred;
+                toggled => { root.filter-toggled("starred"); }
+            }
+            tri-pilule := Pill {
+                text: root.sort-label;
+                icon: Icons.sort;
+                on: root.sort-label != "Date";
+                toggled => {
+                    root.sort-menu(tri-pilule.absolute-position.x, tri-pilule.absolute-position.y + tri-pilule.height);
+                }
+            }
+            if root.filter-unread || root.filter-attachments || root.filter-starred: Pill {
+                text: "Clear";
+                toggled => { root.filter-toggled("none"); }
+            }
+        }
+    }
+    if !Layout.compact && !root.searching && root.marked-count == 0: HorizontalLayout {
         vertical-stretch: 0;
         height: 34px;
         padding-left: 14px;

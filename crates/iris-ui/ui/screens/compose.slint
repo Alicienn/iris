@@ -1117,6 +1117,7 @@ export component ComposePanel inherits Rectangle {
             }
         }
         MenuSurface {
+            dismissed => { root.dismissed(); }
             available-width: root.width;
             available-height: root.height;
             menu-x: max(8px, root.later-x - 200px + 28px);

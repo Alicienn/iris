@@ -2630,6 +2630,7 @@ export component NotesRowMenu inherits Rectangle {
         clicked => { root.dismissed(); }
     }
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -2808,6 +2809,7 @@ export component NotesRowMenu inherits Rectangle {
         root.sous = true;
     }
     if root.sous: MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.sous-x;
@@ -2853,6 +2855,7 @@ export component NotesSpaceMenu inherits Rectangle {
         clicked => { root.dismissed(); }
     }
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;
@@ -3297,6 +3300,7 @@ export component NotesAreaMenu inherits Rectangle {
         }
     }
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;

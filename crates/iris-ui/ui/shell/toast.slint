@@ -173,3 +173,72 @@ export component SendNotice inherits Rectangle {
         }
     }
 }
+
+// What a finger just did to a conversation, with Undo, as the Android mockups draw it
+// (M2): a dark bar across the screen above the tabs, gone after five seconds. A swipe
+// is quick and easy to make by mistake; taking it back must be as quick.
+export component UndoSnack inherits Rectangle {
+    in property <string> message;
+    /// What the window keeps at its foot (the tabs): the bar sits above it.
+    in property <length> foot;
+
+    callback undo();
+    callback dismissed();
+
+    changed message => {
+        if (root.message != "") {
+            expiration.restart();
+        }
+    }
+    expiration := Timer {
+        interval: 5s;
+        running: root.message != "";
+        triggered => { root.dismissed(); }
+    }
+
+    Rectangle {
+        x: 12px;
+        y: parent.height - root.foot - self.height - 12px;
+        width: parent.width - 24px;
+        height: 52px;
+        border-radius: 14px;
+        background: Tokens.text;
+        drop-shadow-blur: Tokens.shadow-float-blur;
+        drop-shadow-offset-y: Tokens.shadow-float-y;
+        drop-shadow-color: Tokens.shadow-float;
+
+        // The bar keeps its taps: nothing behind it is hit through it.
+        TouchArea {}
+
+        HorizontalLayout {
+            padding-left: 18px;
+            padding-right: 8px;
+            spacing: 12px;
+            Text {
+                text: root.message;
+                font-size: 15px;
+                color: Tokens.background;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Rectangle {
+                width: annuler.preferred-width + 24px;
+                accessible-role: button;
+                accessible-label: "Undo";
+                accessible-action-default => { root.undo(); }
+                annuler := Text {
+                    text: "Undo";
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Tokens.dark ? Tokens.accent.darker(0.3) : Tokens.accent.brighter(0.35);
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { root.undo(); }
+                }
+            }
+        }
+    }
+}

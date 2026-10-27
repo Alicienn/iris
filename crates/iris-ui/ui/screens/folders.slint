@@ -529,6 +529,7 @@ export component FolderContextMenu inherits Rectangle {
     }
 
     MenuSurface {
+        dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x;

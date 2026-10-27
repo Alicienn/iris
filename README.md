@@ -91,8 +91,8 @@ the Android Keystore holds.
   floats over the list. *Lists* opens the tasks' lists.
 - Questions rise from the bottom as sheets; forms fill the screen.
 - *Settings* is a list of groups, each opening as a page.
-- Swipe a conversation right for **Done**, left for **Snooze**; a long press opens a
-  row's menu.
+- Swipe a conversation right for **Done**, left for **Snooze**, with **Undo** for a few
+  seconds; a long press opens a row's menu.
 - A note being written has formatting keys under it.
 - `Escape`, or Android's Back, closes what is open, then goes back.
 - Tapping the tab you are in returns to its first screen (Mail's list, today in the

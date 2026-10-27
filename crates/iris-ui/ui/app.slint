@@ -23,7 +23,7 @@ import { Rail, PageHeader, Plate, DetailPanel, Toolbar, EmptyState, Modal, Modal
     from "@iris/layout/frames.slint";
 import { Chrome, SidebarFrame, SidebarFoot, WindowToolbar } from "@iris/shell/chrome.slint";
 import { MailToolbar, PhoneMailHeader } from "@iris/screens/mail-toolbar.slint";
-import { Toast, SendNotice } from "@iris/shell/toast.slint";
+import { Toast, SendNotice, UndoSnack } from "@iris/shell/toast.slint";
 import { TabBar } from "@iris/shell/tabbar.slint";
 import { NavRail } from "@iris/shell/navrail.slint";
 import { HomeView } from "@iris/screens/home.slint";
@@ -2226,6 +2226,8 @@ export component AppWindow inherits Window {
     /// Below 840 pixels, the tasks' column (the views, the habits, the goals, the
     /// lists) open as a page from the list's "Lists" button.
     in-out property <bool> tasks-column-open;
+    /// What a swipe just did to a conversation, with Undo under it ("" when none).
+    in-out property <string> undo-snack;
     /// What the window keeps at its foot: the status bar, or in a narrow window the
     /// five places above the system's gesture bar.
     property <length> pied: Layout.compact ? max(66px + Layout.inset-bottom, root.clavier) : 30px;
@@ -2331,6 +2333,10 @@ export component AppWindow inherits Window {
                         sync-account(id) => { root.sync-account(id); }
                         sync-all => { root.sync-all(); }
                         open-tags => { root.tags-requested(); }
+                        closed => {
+                            root.mailboxes-open = false;
+                            shortcuts.focus();
+                        }
                         grouped: root.group-by-tags;
                         selected-tag: root.selected-tag;
                         tag-selected(t) => {
@@ -2454,7 +2460,7 @@ export component AppWindow inherits Window {
                         search-cleared => { root.search-cleared(); }
                     }
                     // On a phone's list, the large head of the mockup (M1).
-                    if Layout.compact && !root.fil-en-page && !root.searching: PhoneMailHeader {
+                    if Layout.compact && !root.fil-en-page && !root.searching && mail-toolbar.hidden: PhoneMailHeader {
                         title: root.folder-name != "" ? root.folder-name : "All accounts";
                         subtitle: (root.folder-name != "" ? ""
                             : (root.counts.length > 0 ? root.counts[0] : 0) + " to do")
@@ -2464,6 +2470,7 @@ export component AppWindow inherits Window {
                         counts: root.counts;
                         active-tab: root.active-tab;
                         title-clicked => { root.mailboxes-open = true; }
+                        search => { mail-toolbar.focus-search(); }
                         tab-selected(i) => {
                             root.tab-selected(i);
                             root.navigated("tab", "\{i}");
@@ -2545,6 +2552,12 @@ export component AppWindow inherits Window {
                                     root.menu-snooze(id, "tomorrow");
                                 } else {
                                     root.menu-archive(id);
+                                }
+                                // A finger's swipe, on a phone: say it, and offer it back.
+                                if (Layout.touch-input) {
+                                    root.undo-snack = what == "done" ? "Done"
+                                        : what == "snooze" ? "Snoozed until tomorrow morning"
+                                        : "Archived";
                                 }
                                 shortcuts.focus();
                             }
@@ -3904,6 +3917,14 @@ export component AppWindow inherits Window {
             reply(tous) => { root.reply-requested(tous); }
             toggle-unread => { root.thread-toggle-unread(); }
             view-source => { root.view-source(); }
+            starred: root.selected-starred;
+            done => { root.thread-done(); }
+            snooze-open => { root.reader-menu = "snooze"; }
+            waiting => { root.thread-waiting(); }
+            to-task => { root.thread-to-task(root.selected-thread); }
+            archive => { root.thread-archive(); }
+            toggle-star => { root.thread-toggle-star(); }
+            delete-thread => { root.thread-delete(); }
             dismissed => { root.reader-menu = ""; }
         }
 
@@ -4255,6 +4276,18 @@ export component AppWindow inherits Window {
             message: root.send-notice-text;
             seconds: root.send-notice-seconds;
             undone => { root.send-undone(); }
+        }
+
+        if root.undo-snack != "": UndoSnack {
+            width: 100%;
+            height: 100%;
+            message: root.undo-snack;
+            foot: root.pied;
+            undo => {
+                root.undo-snack = "";
+                root.undo();
+            }
+            dismissed => { root.undo-snack = ""; }
         }
 
         if root.toast != "": Toast {

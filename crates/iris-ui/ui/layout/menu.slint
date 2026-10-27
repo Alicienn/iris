@@ -24,9 +24,15 @@ export component MenuEntry inherits Rectangle {
 
     callback activated();
 
-    height: max(30px, Layout.target);
+    /// On a phone menus are sheets, and their entries the mockups' options: 56 pixels,
+    /// a larger label, the icon muted.
+    property <bool> grand: Layout.compact;
+
+    height: root.grand ? 56px : max(30px, Layout.target);
     border-radius: Tokens.radius-small;
+    // A finger leaves no hover behind it: in a sheet, only the press shows.
     background: !root.enabled ? transparent
+        : root.grand ? (touch.pressed ? Tokens.surface-active : transparent)
         : root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
         : touch.has-hover || root.open ? Tokens.surface-active : transparent;
     animate background { duration: Tokens.instant; }
@@ -41,27 +47,29 @@ export component MenuEntry inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 9px;
-        padding-right: 9px;
-        spacing: 10px;
+        padding-left: root.grand ? 18px : 9px;
+        padding-right: root.grand ? 18px : 9px;
+        spacing: root.grand ? 16px : 10px;
 
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 15px;
+            size: root.grand ? 20px : 15px;
             tint: !root.enabled ? Tokens.text-faint
-                : root.danger ? Tokens.error : Tokens.text-secondary;
+                : root.danger ? Tokens.error
+                : root.grand ? Tokens.text-muted : Tokens.text-secondary;
         }
         Text {
             text: root.label;
-            font-size: 13.5px;
+            font-size: root.grand ? 16px : 13.5px;
             color: !root.enabled ? Tokens.text-faint
                 : root.danger ? Tokens.error : Tokens.text;
             vertical-alignment: center;
             overflow: elide;
         }
         Rectangle {}
-        if root.shortcut != "": Text {
+        // A key means nothing on a phone.
+        if root.shortcut != "" && !root.grand: Text {
             text: root.shortcut;
             font-size: 11.5px;
             color: Tokens.text-faint;
@@ -89,14 +97,17 @@ export component MenuEntry inherits Rectangle {
 // What the entries below it are about: "Snooze until".
 export component MenuHeader inherits Rectangle {
     in property <string> text;
-    height: 24px;
+    // A sheet's title on a phone.
+    property <bool> grand: Layout.compact;
+    height: root.grand ? 44px : 24px;
     Text {
-        x: 9px;
+        x: root.grand ? 16px : 9px;
         height: parent.height;
         text: root.text;
-        font-size: 11.5px;
+        font-family: root.grand ? Tokens.font-display : Tokens.font-family;
+        font-size: root.grand ? 19px : 11.5px;
         font-weight: 600;
-        color: Tokens.text-muted;
+        color: root.grand ? Tokens.text : Tokens.text-muted;
         vertical-alignment: center;
     }
 }
@@ -104,9 +115,10 @@ export component MenuHeader inherits Rectangle {
 // A thin rule between groups of entries.
 export component MenuSeparator inherits Rectangle {
     height: 9px;
+    // Edge to edge in a sheet, as the mockups' rule above "Pick a date and time".
     Rectangle {
-        x: 5px;
-        width: parent.width - 10px;
+        x: Layout.compact ? -4px : 5px;
+        width: Layout.compact ? parent.width + 8px : parent.width - 10px;
         height: 1px;
         background: Tokens.border;
     }
@@ -117,6 +129,10 @@ export component MenuSeparator inherits Rectangle {
 // Opaque, and that is the whole point of it existing. Every floating menu in the
 // application was painted on a nine-percent white wash, which over a message list
 // means the list showed through the labels and neither could be read.
+//
+// On a phone it is a sheet, as the Android mockups draw it (`..\Iris-designndroid`,
+// "Snooze until"): the whole width, rounded at the top only, over a dimmed window, a
+// handle at the top that closes it when pulled down, its entries 56 pixels tall.
 export component MenuSurface inherits Rectangle {
     in property <length> menu-x;
     in property <length> menu-y;
@@ -126,36 +142,95 @@ export component MenuSurface inherits Rectangle {
     // component cannot see what it was placed inside.
     in property <length> available-width;
     in property <length> available-height;
-    /// In a narrow window it stays at its point (a menu opened from a button in a top
-    /// bar) instead of rising from the bottom as a sheet.
+    /// In a narrow window it stays at its point instead of rising from the bottom as a
+    /// sheet.
     in property <bool> anchored-in-compact;
+    /// A sheet tapped outside or pulled down. A menu also closes from the veil its
+    /// owner lays under it, which a sheet's own dimming covers.
+    callback dismissed();
 
     property <bool> sheet: Layout.compact && !root.anchored-in-compact;
+    /// The handle's strip at the top of a sheet, and the room left above the gesture
+    /// bar at its foot.
+    property <length> poignee: root.sheet ? 20px : 0px;
+    property <length> pied: root.sheet ? 8px + Layout.inset-bottom : 0px;
+    /// How far a sheet is pulled down.
+    property <length> tire;
 
     // Kept inside the window: a menu opened near an edge must not fall off it.
-    // It drops open: a fade and four pixels, once.
+    // It drops open: a fade and four pixels, once; a sheet rises.
     property <float> entree: 0;
     init => { root.entree = 1; }
     animate entree { duration: Tokens.quick; easing: ease-out; }
-    opacity: root.entree;
+    opacity: root.sheet ? 1 : root.entree;
 
-    x: root.sheet ? 8px : max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
+    x: root.sheet ? 0px : max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
     y: root.sheet
-        ? root.available-height - root.menu-height - Layout.inset-bottom - 8px + (1 - root.entree) * 16px
+        ? root.available-height - self.height + root.tire + (1 - root.entree) * 40px
         : max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px))
             - (1 - root.entree) * 4px;
-    width: root.sheet ? root.available-width - 16px : root.menu-width;
-    height: root.menu-height;
-    border-radius: root.sheet ? 22px : Tokens.radius-large;
-    background: Tokens.panel;
-    border-width: 1px;
+    width: root.sheet ? root.available-width : root.menu-width;
+    height: root.menu-height + root.poignee + root.pied;
+    // A sheet draws its plate itself, over its dimming.
+    border-radius: Tokens.radius-large;
+    background: root.sheet ? transparent : Tokens.panel;
+    border-width: root.sheet ? 0px : 1px;
     border-color: Tokens.border-strong;
-    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-blur: root.sheet ? 0px : Tokens.shadow-float-blur;
     drop-shadow-color: Tokens.shadow-float;
     drop-shadow-offset-y: Tokens.shadow-float-y;
+
+    if root.sheet: Rectangle {
+        x: -root.x;
+        y: -root.y;
+        width: root.available-width;
+        height: root.available-height;
+        background: Tokens.scrim;
+        opacity: root.entree;
+        // No touch area of its own: a tap goes through to the owner's veil, which
+        // closes the menu as it always has.
+    }
+    if root.sheet: Rectangle {
+        border-top-left-radius: 22px;
+        border-top-right-radius: 22px;
+        background: Tokens.panel;
+        drop-shadow-blur: Tokens.shadow-window-blur;
+        drop-shadow-color: Tokens.shadow-window;
+        // The bottom edge reaches past the screen, so a sheet pulled up never shows
+        // a gap under it.
+        height: parent.height + 40px;
+    }
 
     // Swallows clicks, so choosing an item does not also hit the veil behind it.
     TouchArea {}
 
-    @children
+    if root.sheet: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 8px;
+        width: 40px;
+        height: 5px;
+        border-radius: 3px;
+        background: Tokens.border-strong;
+    }
+    if root.sheet: TouchArea {
+        y: 0px;
+        height: 28px;
+        moved => {
+            root.tire = max(0px, self.mouse-y - self.pressed-y);
+        }
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.up) {
+                if (root.tire > 60px) {
+                    root.dismissed();
+                }
+                root.tire = 0px;
+            }
+        }
+    }
+
+    Rectangle {
+        y: root.poignee;
+        height: root.menu-height;
+        @children
+    }
 }

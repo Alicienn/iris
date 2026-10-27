@@ -103,7 +103,17 @@ export component MailToolbar inherits WindowToolbar {
 
     public function focus-search() {
         root.cherche = true;
-        recherche.focus-field();
+        // Hidden a moment ago on a phone's list: the field takes the cursor once shown.
+        root.focus-pending = true;
+    }
+    property <bool> focus-pending;
+    Timer {
+        interval: 1ms;
+        running: root.focus-pending;
+        triggered => {
+            root.focus-pending = false;
+            recherche.focus-field();
+        }
     }
 
     // On a phone, the magnifier turns the whole bar into the search field.
@@ -111,6 +121,14 @@ export component MailToolbar inherits WindowToolbar {
     property <bool> en-recherche: Layout.compact && !root.page && (root.cherche || root.searching);
     /// The list on a phone: the bar keeps its icons, the rest is below it.
     property <bool> liste-telephone: Layout.compact && !root.page;
+    /// A phone's list has no bar at all (the mockups): its magnifier is beside the
+    /// large title, and the bar comes back only to search.
+    out property <bool> hidden: root.liste-telephone && !root.en-recherche;
+    height: root.hidden ? 0px : 52px;
+    visible: !root.hidden;
+    /// A conversation's actions on a phone: the size of a thumb.
+    property <length> bouton: Layout.compact ? 44px : 28px;
+    property <length> icone: Layout.compact ? 20px : 17px;
 
     // On a phone, the page of a conversation goes back to the list.
     if root.page: IconButton {
@@ -181,14 +199,6 @@ export component MailToolbar inherits WindowToolbar {
     if !root.en-recherche: HorizontalLayout {
     spacing: 0px;
     horizontal-stretch: 0;
-    if Layout.compact && !root.page: IconButton {
-        y: (parent.height - self.height) / 2;
-        icon: Icons.search;
-        label: "Search";
-        button-size: 44px;
-        icon-size: 20px;
-        clicked => { root.focus-search(); }
-    }
     if !root.page && !root.liste-telephone: IconButton {
         y: (parent.height - self.height) / 2;
         icon: Icons.pencil;
@@ -203,8 +213,8 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.check;
         label: "Mark as done";
         shortcut: "E";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         clicked => { root.mark-done(); }
     }
     // Snooze asks until when; "S" goes straight to tomorrow morning.
@@ -213,8 +223,8 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.clock;
         label: "Snooze…";
         shortcut: "S";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         clicked => {
             root.snooze-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px);
         }
@@ -224,17 +234,18 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.hourglass;
         label: "Move to Waiting";
         shortcut: "W";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         clicked => { root.waiting(); }
     }
-    if root.has-thread: IconButton {
+    // On a phone in the ⋯ sheet: the bar keeps the mockup's four.
+    if root.has-thread && !Layout.compact: IconButton {
         y: (parent.height - self.height) / 2;
         icon: Icons.task;
         label: "Make it a task";
         shortcut: "T";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         clicked => { root.to-task(); }
     }
     if root.has-thread: IconButton {
@@ -242,8 +253,8 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.archive;
         label: "Archive";
         shortcut: "A";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         clicked => { root.archive(); }
     }
     if root.has-thread && !Layout.compact: IconButton {
@@ -251,8 +262,8 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.trash;
         label: "Delete";
         shortcut: "Del";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         danger: true;
         clicked => { root.delete-thread(); }
     }
@@ -261,8 +272,8 @@ export component MailToolbar inherits WindowToolbar {
         icon: Icons.star;
         label: root.starred ? "Remove star" : "Star";
         shortcut: "F";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         filled: root.starred;
         bounce: true;
         tinted: true;
@@ -274,7 +285,7 @@ export component MailToolbar inherits WindowToolbar {
         y: (parent.height - self.height) / 2;
         icon: root.focused ? Icons.collapse : Icons.expand;
         label: root.focused ? "Leave full screen" : "Read full screen";
-        button-size: 28px;
+        button-size: root.bouton;
         icon-size: 16px;
         active: root.focused;
         clicked => { root.toggle-focus(); }
@@ -284,8 +295,8 @@ export component MailToolbar inherits WindowToolbar {
         y: (parent.height - self.height) / 2;
         icon: Icons.more;
         label: "More actions";
-        button-size: 28px;
-        icon-size: 17px;
+        button-size: root.bouton;
+        icon-size: root.icone;
         clicked => {
             root.more-menu(self.absolute-position.x + self.width, self.absolute-position.y + self.height + 6px);
         }
@@ -322,8 +333,11 @@ export component PhoneMailHeader inherits VerticalLayout {
     in property <int> active-tab;
     callback title-clicked();
     callback tab-selected(int);
+    /// The magnifier beside the title: the bar turns into the search field.
+    callback search();
 
     padding-left: 18px;
+    padding-top: 6px;
     padding-right: 18px;
     padding-bottom: 10px;
     spacing: 2px;
@@ -332,8 +346,12 @@ export component PhoneMailHeader inherits VerticalLayout {
     vertical-stretch: 0;
     max-height: self.preferred-height;
 
+    HorizontalLayout {
+    spacing: 4px;
     Rectangle {
         height: titre.preferred-height;
+        horizontal-stretch: 1;
+        min-width: 0px;
         accessible-role: button;
         accessible-label: "Mailboxes: " + root.title;
         accessible-action-default => { root.title-clicked(); }
@@ -361,6 +379,15 @@ export component PhoneMailHeader inherits VerticalLayout {
             width: titre.width;
             clicked => { root.title-clicked(); }
         }
+    }
+    IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.search;
+        label: "Search";
+        button-size: 44px;
+        icon-size: 21px;
+        clicked => { root.search(); }
+    }
     }
     if root.subtitle != "": Text {
         text: root.subtitle;
