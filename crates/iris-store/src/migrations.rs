@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 26;
+pub const CURRENT_VERSION: i64 = 27;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -148,7 +148,18 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "the compass: areas of life, scores, cycles, vision",
         sql: SCHEMA_V26,
     },
+    Migration {
+        version: 27,
+        name: "folders that keep Iris's queue keywords",
+        sql: SCHEMA_V27,
+    },
 ];
+
+/// Whether a folder keeps keywords of the client's own (`\*` in its PERMANENTFLAGS):
+/// there, To do, Waiting and Done travel as `$IrisWaiting` and `$IrisDone`.
+const SCHEMA_V27: &str = "
+ALTER TABLE folders ADD COLUMN accepts_keywords INTEGER NOT NULL DEFAULT 0;
+";
 
 /// The compass.
 ///

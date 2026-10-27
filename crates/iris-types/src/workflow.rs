@@ -5,7 +5,7 @@
 //! ce qui évite l'erreur classique consistant à en faire un quatrième état — un fil
 //! reporté doit revenir exactement là où il était.
 
-use crate::Timestamp;
+use crate::{Flags, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -65,6 +65,28 @@ impl WorkflowState {
     }
 }
 
+/// The queue state a message's keywords say: `$IrisDone`, `$IrisWaiting`, or neither for
+/// To do. Done wins if a server holds both.
+pub const fn state_of(flags: Flags) -> WorkflowState {
+    if flags.contains(Flags::IRIS_DONE) {
+        WorkflowState::Done
+    } else if flags.contains(Flags::IRIS_WAITING) {
+        WorkflowState::Waiting
+    } else {
+        WorkflowState::Todo
+    }
+}
+
+/// The same flags with the keywords of `state` in place of the old ones.
+pub const fn with_state(flags: Flags, state: WorkflowState) -> Flags {
+    let bare = flags.without(Flags::IRIS_STATE);
+    match state {
+        WorkflowState::Todo => bare,
+        WorkflowState::Waiting => bare.with(Flags::IRIS_WAITING),
+        WorkflowState::Done => bare.with(Flags::IRIS_DONE),
+    }
+}
+
 impl fmt::Display for WorkflowState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -88,6 +110,9 @@ pub enum TransitionCause {
     FollowUpDue,
     /// Une règle utilisateur a agi.
     Rule,
+    /// Iris on another device decided it: its `$IrisWaiting` / `$IrisDone` keywords, or
+    /// a sync between devices. Never written back to the server, which already says it.
+    OtherDevice,
 }
 
 impl TransitionCause {
@@ -152,9 +177,10 @@ impl AutomationSettings {
     /// Cette cause a-t-elle le droit d'agir ?
     pub const fn allows(&self, cause: TransitionCause) -> bool {
         match cause {
-            TransitionCause::Manual | TransitionCause::Rule | TransitionCause::SnoozeExpired => {
-                true
-            }
+            TransitionCause::Manual
+            | TransitionCause::Rule
+            | TransitionCause::SnoozeExpired
+            | TransitionCause::OtherDevice => true,
             TransitionCause::ReplySent => self.reply_marks_waiting,
             TransitionCause::MessageReceived => self.new_message_reopens,
             TransitionCause::FollowUpDue => self.follow_up_enabled,
@@ -214,10 +240,12 @@ pub fn transition(
 
     let to = match cause {
         // L'utilisateur et les règles désignent explicitement la cible.
-        TransitionCause::Manual | TransitionCause::Rule => match target {
-            Some(t) => t,
-            None => return TransitionOutcome::Illegal,
-        },
+        TransitionCause::Manual | TransitionCause::Rule | TransitionCause::OtherDevice => {
+            match target {
+                Some(t) => t,
+                None => return TransitionOutcome::Illegal,
+            }
+        }
         // Répondre à un fil terminé ne le rouvre pas : c'est un post-scriptum, pas
         // une attente. Répondre depuis n'importe quel autre état met en attente.
         TransitionCause::ReplySent => match current {
@@ -252,6 +280,17 @@ mod tests {
 
     fn on() -> AutomationSettings {
         AutomationSettings::default()
+    }
+
+    #[test]
+    fn the_keywords_say_the_state_and_back() {
+        for s in WorkflowState::ALL {
+            let flags = with_state(Flags::SEEN | Flags::IRIS_DONE, s);
+            assert_eq!(state_of(flags), s);
+            assert!(flags.contains(Flags::SEEN), "other flags are kept");
+        }
+        assert_eq!(with_state(Flags::IRIS_STATE, Todo), Flags::NONE);
+        assert_eq!(state_of(Flags::IRIS_STATE), Done, "Done wins over Waiting");
     }
 
     #[test]

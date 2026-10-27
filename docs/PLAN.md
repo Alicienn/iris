@@ -780,3 +780,11 @@ between the areas of one's life, the week reviewed. Design:
       outlined while its menu is open.
 - [x] **S46.5** Folding the accounts column no longer cuts the window's height nor
       crowds its head.
+
+## E47 — Iris on PC and Android, and between devices (6.2.0–)
+
+Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
+
+- [x] **S47.1** To do, Waiting and Done written as `$IrisWaiting` / `$IrisDone` on the
+      thread's newest message where the folder keeps keywords, and read back from
+      another computer's changes and from mail that arrives already marked (6.2.0).

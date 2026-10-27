@@ -765,11 +765,25 @@ fn translate_flags<'a>(flags: impl Iterator<Item = async_imap::types::Flag<'a>>)
             {
                 out.with(Flags::NOT_JUNK)
             }
+            F::Custom(ref k) if k.eq_ignore_ascii_case("$IrisWaiting") => {
+                out.with(Flags::IRIS_WAITING)
+            }
+            F::Custom(ref k) if k.eq_ignore_ascii_case("$IrisDone") => out.with(Flags::IRIS_DONE),
             // Les autres mots-clés propres au serveur ne nous concernent pas.
             _ => out,
         };
     }
     out
+}
+
+/// Whether a folder's PERMANENTFLAGS let Iris keep its queue keywords there.
+fn accepts_keywords<S: AsRef<str>>(permanent: &[S]) -> bool {
+    let a = |nom: &str| {
+        permanent
+            .iter()
+            .any(|f| f.as_ref().eq_ignore_ascii_case(nom))
+    };
+    a("\\*") || (a("$IrisWaiting") && a("$IrisDone"))
 }
 
 /// Construit la liste des drapeaux à poser ou retirer.
@@ -792,6 +806,12 @@ fn flags_to_names(flags: Flags) -> String {
     }
     if flags.contains(Flags::NOT_JUNK) {
         noms.push("$NotJunk");
+    }
+    if flags.contains(Flags::IRIS_WAITING) {
+        noms.push("$IrisWaiting");
+    }
+    if flags.contains(Flags::IRIS_DONE) {
+        noms.push("$IrisDone");
     }
     format!("({})", noms.join(" "))
 }
@@ -1054,6 +1074,7 @@ impl ImapConnection for ImapClient {
 
         let commande = select_command(path, self.capabilities.condstore);
         let (mut validite, mut suivant, mut nombre, mut modseq) = (0, None, 0, 0);
+        let mut mots_cles = false;
         self.run(
             &format!("sélection de « {path} »"),
             &commande,
@@ -1066,6 +1087,7 @@ impl ImapConnection for ImapClient {
                     ResponseCode::UidValidity(v) => validite = *v,
                     ResponseCode::UidNext(n) => suivant = Some(*n),
                     ResponseCode::HighestModSeq(m) => modseq = *m,
+                    ResponseCode::PermanentFlags(f) => mots_cles = accepts_keywords(f),
                     _ => {}
                 },
                 Response::MailboxData(MailboxDatum::Exists(n)) => nombre = *n,
@@ -1100,6 +1122,7 @@ impl ImapConnection for ImapClient {
             uid_next: suivant,
             exists: nombre,
             highest_modseq: modseq,
+            accepts_keywords: mots_cles,
         })
     }
 
@@ -1460,6 +1483,28 @@ mod tests {
         use async_imap::types::Flag as F;
         let traduits = translate_flags([F::Custom("$Important".into()), F::Seen].into_iter());
         assert_eq!(traduits, Flags::SEEN);
+    }
+
+    #[test]
+    fn the_queue_keywords_are_read_and_written() {
+        use async_imap::types::Flag as F;
+        let lus = translate_flags([F::Custom("$irisdone".into()), F::Seen].into_iter());
+        assert_eq!(lus, Flags::SEEN | Flags::IRIS_DONE);
+        let lus = translate_flags([F::Custom("$IrisWaiting".into())].into_iter());
+        assert_eq!(lus, Flags::IRIS_WAITING);
+        let noms = flags_to_names(Flags::IRIS_STATE);
+        assert!(
+            noms.contains("$IrisWaiting") && noms.contains("$IrisDone"),
+            "{noms}"
+        );
+    }
+
+    #[test]
+    fn a_folder_accepts_keywords_when_its_permanent_flags_say_so() {
+        assert!(accepts_keywords(&["\\Seen", "\\*"]));
+        assert!(accepts_keywords(&["$iriswaiting", "$IrisDone"]));
+        assert!(!accepts_keywords(&["\\Seen", "\\Flagged", "$IrisDone"]));
+        assert!(!accepts_keywords::<&str>(&[]));
     }
 
     #[test]

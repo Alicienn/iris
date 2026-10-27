@@ -21,5 +21,6 @@ pub use envelope::{AttachmentMeta, Envelope, Flags, Timestamp, Unsubscribe};
 pub use error::{Error, Result};
 pub use ids::{AccountId, BlobId, FolderId, MessageId, OpId, RfcMessageId, ThreadId, Uid};
 pub use workflow::{
-    transition, AutomationSettings, Snooze, TransitionCause, TransitionOutcome, WorkflowState,
+    state_of, transition, with_state, AutomationSettings, Snooze, TransitionCause,
+    TransitionOutcome, WorkflowState,
 };

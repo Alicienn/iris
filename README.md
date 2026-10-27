@@ -165,7 +165,11 @@ first time brings its newest mail first.
 *Sent*; on Gmail it removes the *Inbox* label only, so labels and stars stay. **Delete**
 moves it to the bin. Undo (`Ctrl`+`Z`) puts it back on the server too, and a
 conversation moved to another folder keeps its state (*Done*, *Waiting*, snoozed), and
-one put back in the inbox from another device is *To do* again. Archiving on a mailbox
+one put back in the inbox from another device is *To do* again. *To do*, *Waiting* and
+*Done* follow the conversation to Iris on your other computers: Iris writes them on the
+server, as the keywords `$IrisWaiting` and `$IrisDone` on its newest message, where the
+server keeps keywords (most do; where one does not, the state stays on this computer).
+Archiving on a mailbox
 without an archive folder makes one, named *Archives*. A
 new message in a conversation you had marked done brings it back to *To do*, unless
 *Settings › A new message reopens the thread* is off. **Back to inbox** (`u`), or
@@ -642,6 +646,10 @@ unsubscribe from it, and to GitHub to ask for
 the latest version. That last request carries no information about your mail or your
 accounts. Backups stay on this computer, and so do your notes: Iris reads and writes
 them in their folders and sends them nowhere.
+
+The state of a conversation (*Waiting*, *Done*) is written on your mail server as two
+keywords, `$IrisWaiting` and `$IrisDone`, so that Iris on your other computers finds it.
+Other mail apps can see these keywords on your messages; they say nothing else.
 
 Removing an account removes from this computer its mail, its passwords and its words
 in the search index.

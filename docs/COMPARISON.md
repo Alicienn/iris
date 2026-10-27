@@ -31,6 +31,7 @@ the first afternoon, and never forgive".
 | Undo | Archive and delete undone on the server too, as Gmail's undo does (4.6.0) |
 | Aliases | A reply leaves from the alias the message was sent to, as Gmail and Thunderbird do (4.7.0) |
 | New mail | Pushed by the server (IMAP IDLE) for the mailbox on screen, as Thunderbird and Apple Mail do (4.11.0) |
+| Queue on several computers | To do, Waiting and Done travel with the mail as IMAP keywords, as Thunderbird's tags do (6.2.0) |
 | Mailing lists | Unsubscribe in one click beside the sender, as Gmail and Apple Mail offer (4.12.0) |
 | Own data | Calendars, tasks and goals backed up daily and restorable; exported as `.ics` (4.12.0) |
 | Notes | Markdown files in folders of your own (an Obsidian vault opens as it is), written as they look, with LaTeX drawn, links and backlinks, callouts, flashcards with spaced repetition, spreadsheets with formulas, and links to mail, events and tasks (4.15.0); blocks selected whole and moved together as in Notion, and a spreadsheet's cells edited inside the note (4.20.0) — Outlook and Thunderbird have no notes beside the mail, Apple's Notes no Markdown, LaTeX or spreadsheets |

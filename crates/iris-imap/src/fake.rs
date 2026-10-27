@@ -34,6 +34,8 @@ pub struct FakeFolder {
     pub highest_modseq: u64,
     /// Numéro de modification de chaque message, pour `CONDSTORE`.
     pub modseqs: BTreeMap<u32, u64>,
+    /// Whether the folder keeps keywords of the client's own (`\*` in PERMANENTFLAGS).
+    pub accepts_keywords: bool,
 }
 
 impl Default for FakeFolder {
@@ -44,6 +46,7 @@ impl Default for FakeFolder {
             messages: BTreeMap::new(),
             highest_modseq: 1,
             modseqs: BTreeMap::new(),
+            accepts_keywords: true,
         }
     }
 }
@@ -112,6 +115,13 @@ impl FakeServer {
     /// Courier).
     pub fn set_delimiter(&self, delimiter: char) {
         self.state.lock().unwrap().delimiter = Some(delimiter);
+    }
+
+    /// Makes a folder refuse (or accept again) keywords of the client's own.
+    pub fn set_accepts_keywords(&self, path: &str, accepts: bool) {
+        if let Some(f) = self.state.lock().unwrap().folders.get_mut(path) {
+            f.accepts_keywords = accepts;
+        }
     }
 
     pub fn add_folder(&self, path: &str, kind: FolderKind) {
@@ -315,6 +325,7 @@ impl ImapConnection for FakeConnection {
             } else {
                 0
             },
+            accepts_keywords: f.accepts_keywords,
         };
         drop(state);
         self.selected = Some(path.to_string());

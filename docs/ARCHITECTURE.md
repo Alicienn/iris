@@ -1357,6 +1357,7 @@ which keeps that term off any index, and a test pins the plan
 | 24 | `folder_accounts`: the mailboxes a folder of one's own was made for, by its shown name; none means every mailbox (4.14.0) |
 | 25 | `habits` (schedule, amount, goal, reminder) and `habit_checks` (a day kept, and how much) (5.0.0) |
 | 26 | `areas` (six to start), `area_id` on goals, habits and task lists, `area_scores` by month, `cycles` and `cycle_goals`, `vision` (5.0.0; unused since 6.0.0) |
+| 27 | `folders.accepts_keywords`: the folder's PERMANENTFLAGS hold `\*`, so the queue state travels there as `$IrisWaiting` / `$IrisDone` (6.2.0) |
 
 A new table or column always arrives as a new migration.
 

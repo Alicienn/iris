@@ -947,6 +947,18 @@ impl SyncEngine {
                                 tracing::warn!(error = %e, "a thread back in the inbox");
                             }
                         }
+                        // Last: what Iris on another computer decided outweighs the
+                        // reopening an arrival caused here.
+                        for (fil, etat) in &r.remote_states {
+                            if let Err(e) = workflow.apply(
+                                *fil,
+                                iris_types::TransitionCause::OtherDevice,
+                                Some(*etat),
+                                now,
+                            ) {
+                                tracing::warn!(error = %e, "a state from another device");
+                            }
+                        }
                     }
                     if let Err(e) = self.unindex(&r.removed_messages) {
                         tracing::warn!(error = %e, "taking deleted mail out of the index");

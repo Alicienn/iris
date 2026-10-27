@@ -76,6 +76,9 @@ pub struct FolderReport {
     /// phone, Gmail's Inbox label put back): to do again. They kept the Done state
     /// their move had left, and stayed hidden.
     pub back_in_inbox: Vec<iris_types::ThreadId>,
+    /// Threads whose newest message carries a queue state another Iris wrote
+    /// (`$IrisWaiting`, `$IrisDone`, or both taken off): the state to give them.
+    pub remote_states: Vec<(iris_types::ThreadId, iris_types::WorkflowState)>,
     /// Le dossier a été relu intégralement.
     pub full_resync: bool,
     /// Le serveur avait reconstruit la boîte.
@@ -107,6 +110,7 @@ pub async fn sync_folder(
 
     let etat = conn.select(&folder.path).await?;
     let capacites = conn.capabilities();
+    store.set_folder_accepts_keywords(folder.id, etat.accepts_keywords)?;
 
     // Le serveur a-t-il reconstruit la boîte ?
     //
@@ -178,7 +182,9 @@ pub async fn sync_folder(
         && etat.highest_modseq > folder.highest_modseq
     {
         let changements = conn.flags_changed_since(folder.highest_modseq).await?;
-        rapport.flags_updated = store.apply_flag_changes(folder.id, &changements)?;
+        let (n, etats) = store.apply_flag_changes_with_states(folder.id, &changements)?;
+        rapport.flags_updated = n;
+        rapport.remote_states.extend(etats);
     }
 
     // --- Nouveaux messages ---
@@ -289,6 +295,14 @@ pub async fn sync_folder(
 
         let inseres = store.insert_messages(&lot)?;
         store.set_message_extras(folder.id, &extras)?;
+        // Mail that comes down already marked Waiting or Done by Iris elsewhere.
+        for (m, i) in lot.iter().zip(&inseres) {
+            if !i.was_known && m.flags.0 & Flags::IRIS_STATE.0 != 0 {
+                if let Some(etat) = store.newest_keyword_state(i.message)? {
+                    rapport.remote_states.push(etat);
+                }
+            }
+        }
         ramenes += lot.len();
         rapport.added += inseres.iter().filter(|i| !i.was_known).count();
         rapport
@@ -343,7 +357,9 @@ pub async fn sync_folder(
         let connus = store.max_uid(folder.id)?;
         if connus > 0 {
             let tous = conn.fetch_flags(UidRange::new(1, connus)).await?;
-            rapport.flags_updated += store.apply_flag_changes(folder.id, &tous)?;
+            let (n, etats) = store.apply_flag_changes_with_states(folder.id, &tous)?;
+            rapport.flags_updated += n;
+            rapport.remote_states.extend(etats);
         }
     }
     if lire_drapeaux && deja_connu && !(capacites.condstore && etat.highest_modseq > 0) {
@@ -351,7 +367,9 @@ pub async fn sync_folder(
         let taille = store.folder_uids(folder.id)?.len();
         if connus > 0 && (taille <= FLAG_RESYNC_EVERY_PASS || options.detect_deletions) {
             let tous = conn.fetch_flags(UidRange::new(1, connus)).await?;
-            rapport.flags_updated += store.apply_flag_changes(folder.id, &tous)?;
+            let (n, etats) = store.apply_flag_changes_with_states(folder.id, &tous)?;
+            rapport.flags_updated += n;
+            rapport.remote_states.extend(etats);
         }
     }
 
@@ -732,6 +750,44 @@ mod tests {
         assert_eq!(r.flags_updated, 1);
         let message = &f.store.thread_messages(iris_types::ThreadId(1)).unwrap()[0];
         assert!(message.flags.contains(Flags::SEEN));
+    }
+
+    #[tokio::test]
+    async fn a_queue_keyword_set_elsewhere_gives_the_thread_its_state() {
+        let f = fixture();
+        f.server
+            .deliver("INBOX", &message("Un", "m1@x"), Flags::NONE);
+        let r = f.sync(FolderSyncOptions::default()).await;
+        assert!(r.remote_states.is_empty());
+        assert!(f.store.folder_accepts_keywords(f.folder().id).unwrap());
+
+        f.server
+            .set_flags_remotely("INBOX", 1, Flags::SEEN | Flags::IRIS_DONE);
+        let r = f.sync(FolderSyncOptions::default()).await;
+        assert_eq!(
+            r.remote_states,
+            vec![(iris_types::ThreadId(1), iris_types::WorkflowState::Done)]
+        );
+
+        f.server.set_flags_remotely("INBOX", 1, Flags::SEEN);
+        let r = f.sync(FolderSyncOptions::default()).await;
+        assert_eq!(
+            r.remote_states,
+            vec![(iris_types::ThreadId(1), iris_types::WorkflowState::Todo)],
+            "both keywords taken off means To do"
+        );
+    }
+
+    #[tokio::test]
+    async fn mail_that_arrives_marked_done_says_so_and_folders_without_keywords_are_known() {
+        let f = fixture();
+        f.server.set_accepts_keywords("INBOX", false);
+        f.server
+            .deliver("INBOX", &message("Un", "m1@x"), Flags::IRIS_WAITING);
+        let r = f.sync(FolderSyncOptions::default()).await;
+        assert_eq!(r.remote_states.len(), 1);
+        assert_eq!(r.remote_states[0].1, iris_types::WorkflowState::Waiting);
+        assert!(!f.store.folder_accepts_keywords(f.folder().id).unwrap());
     }
 
     #[tokio::test]

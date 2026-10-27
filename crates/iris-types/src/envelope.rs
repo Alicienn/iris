@@ -79,10 +79,17 @@ impl Flags {
     /// Thunderbird and Iris set when mail is taken out of the junk folder. It outweighs
     /// the spam filter's headers, which stay on the message for ever.
     pub const NOT_JUNK: Self = Self(1 << 10);
+    /// The `$IrisWaiting` keyword: the conversation waits for an answer. Set on the newest
+    /// message of a thread, so that Iris on another computer finds it in Waiting.
+    pub const IRIS_WAITING: Self = Self(1 << 11);
+    /// The `$IrisDone` keyword: the conversation is done.
+    pub const IRIS_DONE: Self = Self(1 << 12);
+    /// Both queue keywords; neither means To do.
+    pub const IRIS_STATE: Self = Self(Self::IRIS_WAITING.0 | Self::IRIS_DONE.0);
 
     /// What the IMAP server keeps and tells: read, answered, starred, draft, deleted,
-    /// recent, not junk. The rest is worked out here, and a server's answer says
-    /// nothing of it.
+    /// recent, not junk, and the two queue keywords. The rest is worked out here, and a
+    /// server's answer says nothing of it.
     pub const PROTOCOL: Self = Self(
         Self::SEEN.0
             | Self::ANSWERED.0
@@ -90,7 +97,8 @@ impl Flags {
             | Self::DRAFT.0
             | Self::DELETED.0
             | Self::RECENT.0
-            | Self::NOT_JUNK.0,
+            | Self::NOT_JUNK.0
+            | Self::IRIS_STATE.0,
     );
 
     #[inline]

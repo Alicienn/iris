@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.2.0 — 2026-10-27
+
+### New
+- To do, Waiting and Done follow your conversations to Iris on your other computers.
+
 ## 6.1.0 — 2026-10-23
 
 ### Improved

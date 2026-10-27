@@ -24,8 +24,8 @@ use iris_kernel::{Event, EventBus};
 use iris_store::FolderRole;
 use iris_store::{OpKind, Store};
 use iris_types::{
-    transition, AccountId, AutomationSettings, Error, Flags, FolderId, OpId, Result, Snooze,
-    ThreadId, Timestamp, TransitionCause, TransitionOutcome, WorkflowState,
+    transition, with_state, AccountId, AutomationSettings, Error, Flags, FolderId, OpId, Result,
+    Snooze, ThreadId, Timestamp, TransitionCause, TransitionOutcome, WorkflowState,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -299,6 +299,14 @@ impl Workflow {
             // Done is done: a snooze left on it woke later and brought it back.
             if to == WorkflowState::Done && row.snoozed_until.is_some() {
                 self.store.clear_snooze(thread)?;
+            }
+            // A new message says To do by having no keyword; another device's state is
+            // already on the server. Everything else is written there.
+            if !matches!(
+                cause,
+                TransitionCause::MessageReceived | TransitionCause::OtherDevice
+            ) {
+                self.journal_state_keywords(thread, to, now)?;
             }
             if recorded {
                 self.record_undo(before);
@@ -732,6 +740,7 @@ impl Workflow {
         // the journal replays. That is invariant 3: nothing waits for the network.
         let previous = before.state;
         self.store.set_thread_state(thread, etat)?;
+        self.journal_state_keywords(thread, etat, now)?;
         self.record_undo(before);
         self.bus.publish(Event::ThreadStateChanged {
             thread,
@@ -1012,6 +1021,7 @@ impl Workflow {
 
         if current.state != entry.state {
             self.store.set_thread_state(entry.thread, entry.state)?;
+            self.journal_state_keywords(entry.thread, entry.state, now)?;
             self.bus.publish(Event::ThreadStateChanged {
                 thread: entry.thread,
                 from: current.state,
@@ -1266,6 +1276,38 @@ impl Workflow {
             }
         }
         reste
+    }
+
+    /// Writes a thread's queue state as keywords on its newest message (`$IrisWaiting`,
+    /// `$IrisDone`, neither for To do), so that Iris on another computer finds it. Only
+    /// where the folder keeps keywords of the client's own.
+    fn journal_state_keywords(
+        &self,
+        thread: ThreadId,
+        state: WorkflowState,
+        now: Timestamp,
+    ) -> Result<()> {
+        let messages = self.store.thread_messages(thread)?;
+        let Some(last) = messages.last() else {
+            return Ok(());
+        };
+        if !self.store.folder_accepts_keywords(last.folder)? {
+            return Ok(());
+        }
+        let wanted = with_state(last.flags, state);
+        if wanted == last.flags {
+            return Ok(());
+        }
+        self.store.set_message_flags(last.id, wanted)?;
+        let ajout = Flags(wanted.0 & !last.flags.0);
+        let retrait = Flags(last.flags.0 & !wanted.0);
+        if !ajout.is_empty() {
+            self.journal_flags(last.account, last.folder, &[last.uid], ajout, true, now)?;
+        }
+        if !retrait.is_empty() {
+            self.journal_flags(last.account, last.folder, &[last.uid], retrait, false, now)?;
+        }
+        Ok(())
     }
 
     /// Records what the server will have to be told.
@@ -2118,5 +2160,63 @@ mod tests {
                 panic!("le rejeu ne saurait pas lire ce que nous écrivons : {e}")
             });
         }
+    }
+
+    fn set_flag_ops(f: &Fixture) -> Vec<(u32, bool)> {
+        f.store
+            .pending_ops(t(1_000_000), 50)
+            .unwrap()
+            .into_iter()
+            .filter_map(|o| match iris_store::OpPayload::parse(&o.payload).ok()? {
+                iris_store::OpPayload::SetFlags { flags, add, .. } => Some((flags, add)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_queue_state_is_written_as_keywords_on_the_newest_message() {
+        let f = fixture();
+        f.store.set_folder_accepts_keywords(f.folder, true).unwrap();
+        let thread = f.thread();
+
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+        assert_eq!(set_flag_ops(&f), vec![(Flags::IRIS_DONE.0, true)]);
+
+        f.workflow
+            .set_state(thread, WorkflowState::Waiting, t(2))
+            .unwrap();
+        let ops = set_flag_ops(&f);
+        assert!(ops.contains(&(Flags::IRIS_WAITING.0, true)), "{ops:?}");
+        assert!(ops.contains(&(Flags::IRIS_DONE.0, false)), "{ops:?}");
+
+        f.workflow
+            .set_state(thread, WorkflowState::Todo, t(3))
+            .unwrap();
+        assert!(set_flag_ops(&f).contains(&(Flags::IRIS_WAITING.0, false)));
+    }
+
+    #[test]
+    fn no_keyword_where_the_folder_refuses_them_nor_for_another_devices_state() {
+        let f = fixture();
+        let thread = f.thread();
+        f.workflow
+            .set_state(thread, WorkflowState::Done, t(1))
+            .unwrap();
+        assert!(set_flag_ops(&f).is_empty(), "the folder keeps no keywords");
+
+        f.store.set_folder_accepts_keywords(f.folder, true).unwrap();
+        f.workflow
+            .apply(
+                thread,
+                TransitionCause::OtherDevice,
+                Some(WorkflowState::Waiting),
+                t(2),
+            )
+            .unwrap();
+        assert_eq!(f.state(thread), WorkflowState::Waiting);
+        assert!(set_flag_ops(&f).is_empty(), "the server already says it");
     }
 }

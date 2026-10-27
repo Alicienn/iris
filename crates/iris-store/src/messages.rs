@@ -9,7 +9,7 @@
 use crate::model::{Contact, NewMessage, StoredMessage};
 use crate::{sql_err, Store};
 use iris_types::{
-    AccountId, Flags, FolderId, MessageId, Result, ThreadId, Timestamp, WorkflowState,
+    state_of, AccountId, Flags, FolderId, MessageId, Result, ThreadId, Timestamp, WorkflowState,
 };
 use rusqlite::{params, params_from_iter, OptionalExtension, Transaction};
 
@@ -495,11 +495,45 @@ impl Store {
     /// En une transaction, et avec un seul rafraîchissement par fil touché : un
     /// serveur peut annoncer des milliers de changements après une absence.
     pub fn apply_flag_changes(&self, folder: FolderId, changes: &[(u32, Flags)]) -> Result<usize> {
+        self.apply_flag_changes_with_states(folder, changes)
+            .map(|(n, _)| n)
+    }
+
+    /// The queue state a message's keywords give its thread, when it is the thread's
+    /// newest message: where Iris on another computer wrote it.
+    pub fn newest_keyword_state(
+        &self,
+        message: MessageId,
+    ) -> Result<Option<(ThreadId, WorkflowState)>> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT m.thread_id, m.flags FROM messages m
+                 WHERE m.id = ?1 AND m.id = (
+                     SELECT n.id FROM messages n WHERE n.thread_id = m.thread_id
+                     ORDER BY n.received DESC, n.id DESC LIMIT 1)",
+                params![message.get()],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()
+            .map(|r| r.map(|(t, f)| (ThreadId(t), state_of(Flags(f as u32)))))
+            .map_err(|e| sql_err("état des mots-clés", e))
+        })
+    }
+
+    /// `apply_flag_changes`, and the queue states another device gave threads: the
+    /// threads whose newest message's `$IrisWaiting` / `$IrisDone` changed, with the
+    /// state those keywords now say.
+    pub fn apply_flag_changes_with_states(
+        &self,
+        folder: FolderId,
+        changes: &[(u32, Flags)],
+    ) -> Result<(usize, Vec<(ThreadId, WorkflowState)>)> {
         if changes.is_empty() {
-            return Ok(0);
+            return Ok((0, Vec::new()));
         }
         self.with_tx(|tx| {
             let mut touches = std::collections::BTreeSet::new();
+            let mut etats = Vec::new();
             let mut appliques = 0;
             let indesirables: bool = tx
                 .query_row(
@@ -512,18 +546,18 @@ impl Store {
                 .unwrap_or(false);
 
             for (uid, flags) in changes {
-                let existant: Option<(i64, i64)> = {
+                let existant: Option<(i64, i64, i64)> = {
                     let mut stmt = tx
                         .prepare_cached(
-                            "SELECT thread_id, flags FROM messages WHERE folder_id = ?1 AND uid = ?2",
+                            "SELECT thread_id, flags, id FROM messages WHERE folder_id = ?1 AND uid = ?2",
                         )
                         .map_err(|e| sql_err("préparation", e))?;
                     stmt.query_row(params![folder.get(), *uid as i64], |r| {
-                        Ok((r.get(0)?, r.get(1)?))
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                     })
                     .ok()
                 };
-                let Some((thread, actuels)) = existant else { continue };
+                let Some((thread, actuels, message)) = existant else { continue };
 
                 // The server's say on what it knows (read, answered, starred…), ours
                 // kept on what only we work out (spam, attachment, tracker,
@@ -553,6 +587,24 @@ impl Store {
                 stmt.execute(params![fusion.0 as i64, folder.get(), *uid as i64])
                     .map_err(|e| sql_err("mise à jour des drapeaux", e))?;
 
+                // The queue keywords count on the thread's newest message only: that
+                // is where Iris writes them.
+                let avant = Flags(actuels as u32);
+                if state_of(avant) != state_of(fusion) {
+                    let plus_recent: Option<i64> = tx
+                        .prepare_cached(
+                            "SELECT id FROM messages WHERE thread_id = ?1
+                             ORDER BY received DESC, id DESC LIMIT 1",
+                        )
+                        .map_err(|e| sql_err("préparation", e))?
+                        .query_row(params![thread], |r| r.get(0))
+                        .optional()
+                        .map_err(|e| sql_err("message le plus récent", e))?;
+                    if plus_recent == Some(message) {
+                        etats.push((ThreadId(thread), state_of(fusion)));
+                    }
+                }
+
                 touches.insert(ThreadId(thread));
                 appliques += 1;
             }
@@ -560,7 +612,7 @@ impl Store {
             for t in touches {
                 refresh_thread(tx, t)?;
             }
-            Ok(appliques)
+            Ok((appliques, etats))
         })
     }
 

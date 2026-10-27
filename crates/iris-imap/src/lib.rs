@@ -196,6 +196,9 @@ pub struct SelectedFolder {
     pub exists: u32,
     /// Plus grand numéro de modification connu, si `CONDSTORE` est disponible.
     pub highest_modseq: u64,
+    /// The folder keeps keywords of the client's own: `\*` in its PERMANENTFLAGS, or
+    /// both of Iris's queue keywords already listed there.
+    pub accepts_keywords: bool,
 }
 
 /// Un intervalle d'UID, bornes comprises.

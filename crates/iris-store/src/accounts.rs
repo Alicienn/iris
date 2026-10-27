@@ -3,7 +3,7 @@
 use crate::model::{Account, AuthKind, Folder, FolderRole, NewAccount};
 use crate::{sql_err, Store};
 use iris_types::{AccountId, Error, FolderId, Result, Timestamp};
-use rusqlite::{params, Row};
+use rusqlite::{params, OptionalExtension, Row};
 
 fn account_from_row(r: &Row<'_>) -> rusqlite::Result<Account> {
     Ok(Account {
@@ -638,6 +638,32 @@ impl Store {
             Ok(previous != 0 && previous != uid_validity as i64)
         })
     }
+
+    /// Records whether the folder keeps Iris's queue keywords, as its last selection said.
+    pub fn set_folder_accepts_keywords(&self, folder: FolderId, accepts: bool) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE folders SET accepts_keywords = ?1 WHERE id = ?2",
+                params![accepts as i64, folder.get()],
+            )
+            .map(|_| ())
+            .map_err(|e| sql_err("mots-clés du dossier", e))
+        })
+    }
+
+    /// Whether the folder keeps Iris's queue keywords. Unknown (never selected): no.
+    pub fn folder_accepts_keywords(&self, folder: FolderId) -> Result<bool> {
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT accepts_keywords FROM folders WHERE id = ?1",
+                params![folder.get()],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
+            .map(|v| v == Some(1))
+            .map_err(|e| sql_err("mots-clés du dossier", e))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -841,6 +867,20 @@ mod tests {
         let f0 = &s.folders(a).unwrap()[0];
         assert_eq!(f0.uid_validity, 101);
         assert_eq!(f0.highest_modseq, 1);
+    }
+
+    #[test]
+    fn a_folder_remembers_whether_it_keeps_keywords() {
+        let s = store();
+        let a = s
+            .create_account(&NewAccount::new("a@example.com", "i", "s"), now())
+            .unwrap();
+        let f = s.upsert_folder(a, "INBOX", FolderRole::Inbox).unwrap();
+        assert!(!s.folder_accepts_keywords(f).unwrap(), "unknown means no");
+        s.set_folder_accepts_keywords(f, true).unwrap();
+        assert!(s.folder_accepts_keywords(f).unwrap());
+        s.set_folder_accepts_keywords(f, false).unwrap();
+        assert!(!s.folder_accepts_keywords(f).unwrap());
     }
 
     #[test]
