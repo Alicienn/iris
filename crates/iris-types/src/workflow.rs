@@ -134,6 +134,7 @@ impl TransitionCause {
             Self::SnoozeExpired => "snooze_expired",
             Self::FollowUpDue => "follow_up_due",
             Self::Rule => "rule",
+            Self::OtherDevice => "other_device",
         }
     }
 }
