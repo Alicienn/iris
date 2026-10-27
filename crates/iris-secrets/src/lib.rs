@@ -98,7 +98,12 @@ mod keyring {
 
     impl std::fmt::Display for Error {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("no system keyring on this device")
+            match self {
+                Error::NoEntry => f.write_str("no such entry"),
+                Error::PlatformFailure(quoi) => {
+                    write!(f, "no system keyring on this device ({quoi})")
+                }
+            }
         }
     }
 

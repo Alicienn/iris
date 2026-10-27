@@ -137,6 +137,10 @@ jobs:
     name: Android (APK)
     runs-on: ubuntu-latest
     continue-on-error: true
+    # Warnings are shown, not fatal, here: code only Windows uses is dead on Android,
+    # and the lints already ran on Windows.
+    env:
+      RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
