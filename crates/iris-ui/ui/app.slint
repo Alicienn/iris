@@ -59,7 +59,7 @@ import {
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import {
     NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel,
-    NotesHistoryPanel, NotesGraphPanel, BlockPreview, NotesAreaMenu, NoteSelect
+    NotesHistoryPanel, NotesGraphPanel, BlockPreview, NotesAreaMenu, NoteSelect, NotesPhoneSheet
 } from "@iris/screens/notes.slint";
 import { SheetGrid, SheetMenu } from "@iris/screens/sheet.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
@@ -1176,6 +1176,16 @@ export component AppWindow inherits Window {
     callback note-beside-closed();
     in property <bool> note-sheet-open;
     callback notes-new-sheet();
+    // A phone's Notes (the Android mockups): what is pinned and the count under the
+    // space's name; the note's folder, tags, length and flashcards; the sheet over it
+    // ("open", "more", "outline"; "" for none).
+    in property <[NoteTreeRowData]> notes-pinned;
+    in property <string> notes-summary;
+    in property <string> note-folder;
+    in property <[string]> note-tags;
+    in property <string> note-meta;
+    in property <int> note-cards;
+    in-out property <string> notes-sheet;
     // Home's Notes widget.
     in property <[HomeItemData]> home-notes;
     in property <int> home-cards-due;
@@ -1199,6 +1209,13 @@ export component AppWindow inherits Window {
     in property <bool> notes-review-revealed;
     in property <string> notes-review-progress;
     in property <bool> notes-review-finished;
+    // A phone's revising page: what is revised, the card shown of how many, its note,
+    // and how long each grade puts it away.
+    in property <string> notes-review-title;
+    in property <int> notes-review-position;
+    in property <int> notes-review-total;
+    in property <string> notes-review-source;
+    in property <[string]> notes-review-delays;
     callback notes-review-reveal();
     callback notes-review-graded(int);
     /// Quick open searching the notes' words rather than their names.
@@ -1683,7 +1700,7 @@ export component AppWindow inherits Window {
         || root.notes-row-menu-open || root.notes-area-menu-open || root.notes-space-menu-open
         || root.notes-name-asked != ""
         || root.notes-quick-open || root.notes-review-open || SheetGrid.menu != ""
-        || root.notes-history-open || root.notes-graph-open
+        || root.notes-history-open || root.notes-graph-open || (root.notes-sheet != "" && Layout.compact)
         || root.calendar-menu-open || root.calendar-rename-open || root.calendar-delete-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
@@ -1910,6 +1927,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && SheetGrid.menu != "") {
                 SheetGrid.menu = "";
+                return accept;
+            }
+            if (event.text == Key.Escape && root.notes-sheet != "") {
+                root.notes-sheet = "";
                 return accept;
             }
             if (event.text == Key.Escape && root.notes-history-open) {
@@ -3124,6 +3145,13 @@ export component AppWindow inherits Window {
             escaped => { shortcuts.focus(); }
             end-clicked => { root.note-end-clicked(); }
             ctrl-changed(b) => { root.notes-ctrl-held = b; }
+            pinned: root.notes-pinned;
+            summary: root.notes-summary;
+            folder: root.note-folder;
+            tags: root.note-tags;
+            meta: root.note-meta;
+            cards: root.note-cards;
+            phone-sheet <=> root.notes-sheet;
         }
 
         if root.workspace == 3: HomeView {
@@ -3568,6 +3596,11 @@ export component AppWindow inherits Window {
             revealed: root.notes-review-revealed;
             progress: root.notes-review-progress;
             finished: root.notes-review-finished;
+            title: root.notes-review-title;
+            position: root.notes-review-position;
+            total: root.notes-review-total;
+            source: root.notes-review-source;
+            delays: root.notes-review-delays;
             reveal => { root.notes-review-reveal(); }
             graded(g) => { root.notes-review-graded(g); }
             dismissed => {
@@ -3646,6 +3679,47 @@ export component AppWindow inherits Window {
             }
         }
 
+        // A phone's sheets over a note: the notes open, the rest of ⋯, the outline.
+        if root.notes-sheet != "" && Layout.compact: NotesPhoneSheet {
+            width: 100%;
+            height: 100%;
+            kind: root.notes-sheet;
+            tabs: root.notes-tabs;
+            tab-active: root.notes-tab-active;
+            has-cards: root.note-has-cards;
+            source-mode: root.note-source-mode;
+            outline: root.note-outline;
+            backlinks: root.note-backlinks;
+            facts: root.note-facts;
+            chosen(a) => {
+                root.notes-sheet = "";
+                if (a == "new") {
+                    root.notes-tab-new();
+                } else if (a == "source") {
+                    root.note-source-toggled();
+                } else if (a == "revise") {
+                    root.note-revise();
+                } else if (root.notes-tab-active >= 0 && root.notes-tab-active < root.notes-tabs.length) {
+                    // Version history, Share: what the tree's menu does, for the note shown.
+                    root.notes-row-action(a, root.notes-tabs[root.notes-tab-active].key);
+                }
+            }
+            tab-chosen(i) => {
+                root.notes-sheet = "";
+                root.notes-tab-chosen(i);
+            }
+            tab-closed(i) => { root.notes-tab-closed(i); }
+            outline-chosen(k) => {
+                root.notes-sheet = "";
+                root.note-outline-chosen(k);
+            }
+            backlink-chosen(k) => {
+                root.notes-sheet = "";
+                root.note-backlink-chosen(k);
+            }
+            dismissed => { root.notes-sheet = ""; }
+        }
+
         if root.notes-graph-open: NotesGraphPanel {
             width: 100%;
             height: 100%;
@@ -3655,6 +3729,16 @@ export component AppWindow inherits Window {
                 root.notes-graph-open = false;
                 root.notes-graph-chosen(k);
                 shortcuts.focus();
+            }
+            search => {
+                root.notes-graph-open = false;
+                root.notes-quick-beside = false;
+                root.notes-quick-moving = "";
+                root.notes-quick-search = false;
+                root.notes-quick-query = "";
+                root.notes-quick-highlight = 0;
+                root.notes-quick-open = true;
+                root.notes-quick-edited("");
             }
             dismissed => {
                 root.notes-graph-open = false;

@@ -3,8 +3,12 @@ import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 
 // The formatting of a note, for a screen without Ctrl: a row of keys above the
-// keyboard. Each sends the same name as its shortcut ("ctrl+b"), so a phone and a PC
-// format a note one and the same way.
+// keyboard (the Android mockups' `.fmt`). Each sends the same name as its shortcut
+// ("ctrl+b"), so a phone and a PC format a note one and the same way; what has no
+// shortcut sends a name of its own ("block:heading", "hide-keyboard").
+//
+// A spreadsheet has its own row (`sheet`): =, Σ, bold, number, percent, the address,
+// and ✓ at the far end.
 
 component FormatKey inherits Rectangle {
     in property <string> text;
@@ -12,29 +16,38 @@ component FormatKey inherits Rectangle {
     in property <string> key;
     in property <int> weight: 400;
     in property <bool> italic;
+    in property <length> font-size: 16px;
     in property <string> icon;
+    in property <bool> accent;
     callback pressed(string);
 
-    width: 44px;
-    height: 40px;
-    border-radius: 8px;
-    background: touch.pressed ? Tokens.surface-hover : transparent;
+    // 42 pixels a key (`.fmt .ib`), a little less when a narrow phone has not room
+    // for the whole row.
+    min-width: 32px;
+    preferred-width: 42px;
+    max-width: 42px;
+    horizontal-stretch: 1;
+    height: 42px;
+    border-radius: 21px;
+    background: touch.pressed ? Tokens.surface-active : transparent;
 
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.pressed(root.key); }
 
     if root.icon != "": Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
         data: root.icon;
         size: 18px;
-        tint: Tokens.text;
+        tint: root.accent ? Tokens.accent : Tokens.text-secondary;
     }
     if root.icon == "": Text {
         text: root.text;
-        font-size: 16px;
+        font-size: root.font-size;
         font-weight: root.weight;
         font-italic: root.italic;
-        color: Tokens.text;
+        color: root.accent ? Tokens.accent : Tokens.text-secondary;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -43,29 +56,63 @@ component FormatKey inherits Rectangle {
     }
 }
 
+// A thin rule between groups of keys (`.fmt .sep`).
+component KeySeparator inherits Rectangle {
+    width: 7px;
+    Rectangle {
+        x: 3px;
+        y: (parent.height - self.height) / 2;
+        width: 1px;
+        height: 22px;
+        background: Tokens.border;
+    }
+}
+
 export component FormatBar inherits Rectangle {
+    /// The spreadsheet's keys rather than a note's.
+    in property <bool> sheet;
     callback act(string);
 
     height: 48px + Layout.inset-bottom;
-    background: Tokens.surface-low;
+    background: Tokens.surface;
     Rectangle {
         y: 0;
         height: 1px;
         background: Tokens.border;
     }
-    HorizontalLayout {
-        y: 4px;
-        height: 40px;
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 2px;
-        alignment: space-around;
-        FormatKey { text: "B"; weight: 700; label: "Bold"; key: "ctrl+b"; pressed(k) => { root.act(k); } }
-        FormatKey { text: "I"; italic: true; label: "Italic"; key: "ctrl+i"; pressed(k) => { root.act(k); } }
-        FormatKey { text: "S"; label: "Strikethrough"; key: "ctrl+shift+x"; pressed(k) => { root.act(k); } }
-        FormatKey { text: "H"; label: "Highlight"; key: "ctrl+shift+h"; pressed(k) => { root.act(k); } }
-        FormatKey { text: "</>"; label: "Code"; key: "ctrl+e"; pressed(k) => { root.act(k); } }
-        FormatKey { text: "Σ"; label: "Formula"; key: "ctrl+m"; pressed(k) => { root.act(k); } }
+    if !root.sheet: HorizontalLayout {
+        y: 3px;
+        height: 42px;
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 0px;
+        alignment: start;
+        FormatKey { icon: Icons.bold; label: "Bold"; key: "ctrl+b"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.italic; label: "Italic"; key: "ctrl+i"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.heading-1; label: "Heading"; key: "block:heading"; pressed(k) => { root.act(k); } }
+        KeySeparator { }
+        FormatKey { icon: Icons.list; label: "Bullet list"; key: "block:bullet"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.checkbox; label: "Checkbox"; key: "ctrl+enter"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.sigma; label: "Formula"; key: "ctrl+m"; pressed(k) => { root.act(k); } }
         FormatKey { icon: Icons.link; label: "Link"; key: "ctrl+l"; pressed(k) => { root.act(k); } }
+        KeySeparator { }
+        FormatKey { text: "/"; weight: 700; font-size: 18px; label: "All blocks"; key: "type:/"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.chevron-down; label: "Hide the keyboard"; key: "hide-keyboard"; pressed(k) => { root.act(k); } }
+    }
+    if root.sheet: HorizontalLayout {
+        y: 3px;
+        height: 42px;
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 0px;
+        FormatKey { text: "="; weight: 700; font-size: 15px; label: "Formula"; key: "="; pressed(k) => { root.act(k); } }
+        FormatKey { text: "Σ"; weight: 600; font-size: 14px; label: "Sum"; key: "sum"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.bold; label: "Bold"; key: "bold"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "0,0"; weight: 600; font-size: 14px; label: "Number"; key: "number:number"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "%"; weight: 600; font-size: 14px; label: "Percent"; key: "number:percent"; pressed(k) => { root.act(k); } }
+        KeySeparator { }
+        FormatKey { text: "A1"; font-size: 14px; label: "Type in the formula bar"; key: "address"; pressed(k) => { root.act(k); } }
+        Rectangle { horizontal-stretch: 100; }
+        FormatKey { icon: Icons.check; label: "Done"; key: "done"; pressed(k) => { root.act(k); } }
     }
 }
