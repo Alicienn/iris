@@ -67,7 +67,7 @@ The facts this rests on (October 2026, migration 26): every synced table has an
 `event_notes` have an `updated_at`; deletes are hard `DELETE`s; all SQL is in `iris-store`,
 one module per kind. Rules already have a text id.
 
-Migration 27 adds, to every synced table:
+Migration 28 adds, to every synced table (27 is the folders that accept keywords, §3):
 
 - `sync_id TEXT NOT NULL UNIQUE`: 128 random bits from `getrandom`, as hex. Backfilled for
   existing rows. Event uids made by Iris (`{millis}-{pid}@iris`) are kept as they are;
@@ -166,7 +166,7 @@ Notes are optional (they can weigh tens of megabytes) and on by default.
 1. The computer opens a pairing window (Settings › Devices › Pair a device) and starts
    listening on a random TCP port of the local network.
 2. It shows a QR code holding, as a URI:
-   `iris-pair:1?h=192.168.1.20&p=51834&d=<device id>&n=PC-Marie&k=<32 random bytes, base64url>`.
+   `iris-pair:1?h=192.168.1.20&p=51834&d=<device id>&n=PC-Marie&k=<32 random bytes, hex>`.
    The code is good for five minutes and works once.
 3. The phone scans it, connects, and both sides prove they hold `k` (challenge and answer,
    §10). Both then show six digits derived from the session key; the user checks they
@@ -204,11 +204,13 @@ computer"): the phone has nothing yet, so the first sync fills it.
 
 ## 12. Where it goes in the code
 
-- `iris-store`: migration 27, triggers, `iris_clock()`, reading changes since a clock,
-  applying a batch in one transaction. Tested with two stores in memory.
-- A new crate **`iris-peer`**: the clock, the payload format, the merge, the pairing URI,
-  the handshake and framing, the note manifests. No knowledge of the interface; no
-  `unsafe`; tested on its own (two peers over a local socket).
+- `iris-store`: migration 28, triggers, the clock and `iris_clock()`, reading changes since
+  a clock, the merge (next to the SQL it decides), applying a batch in one transaction.
+  Tested with two stores in memory.
+- A new crate **`iris-peer`**: the pairing URI, the handshake and framing, the messages
+  of the exchange, discovery. No knowledge of the interface or of SQL; no `unsafe`; tested
+  on its own (two peers over a local socket).
+- `iris-vault`: the note manifests and the plan of what to copy (§7).
 - `iris-app`: Settings › Devices, the pairing window, the sync summary, the Home nudge; the
   camera and QR reading go through the platform trait (on Android: CameraX with a free QR
   decoder such as ZXing; on Windows, pairing is always started from the computer, which
@@ -218,7 +220,7 @@ computer"): the phone has nothing yet, so the first sync fills it.
 ## 13. Order of work
 
 1. Queue state as IMAP keywords: useful at once, even between two PCs.
-2. Migration 27, triggers and clock; `iris-peer` with the merge, tested on two stores.
+2. Migration 28, triggers, clock and merge in `iris-store`, tested on two stores.
 3. Pairing and the channel between two PCs on one network (no Android needed to test).
 4. Notes.
 5. The Android screens, once the port has its shell.
