@@ -117,6 +117,28 @@ fn les_lieux_sont_en_bas_sur_un_telephone_et_a_gauche_sur_un_pliable() {
     );
 }
 
+fn sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre() {
+    let f = fenetre_de(390.0, 844.0);
+    element(&f, testing::AccessibleRole::Button, "Search")
+        .mock_single_click(slint::platform::PointerEventButton::Left);
+    slint::platform::update_timers_and_animations();
+    let champs: Vec<_> = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::TextInput)
+        .find_all()
+        .into_iter()
+        .filter(|e| e.accessible_label().as_deref() == Some("Search"))
+        .map(|e| (e.absolute_position(), e.size()))
+        .collect();
+    assert!(
+        // From the left edge to the window's own buttons (a narrow PC window).
+        champs
+            .iter()
+            .any(|(p, s)| p.x < 40.0 && s.width > 150.0 && p.y < 120.0),
+        "a field spans the bar at the top: {champs:?}"
+    );
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -133,6 +155,10 @@ fn main() {
         (
             "les_lieux_sont_en_bas_sur_un_telephone_et_a_gauche_sur_un_pliable",
             les_lieux_sont_en_bas_sur_un_telephone_et_a_gauche_sur_un_pliable,
+        ),
+        (
+            "sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre",
+            sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre,
         ),
     ];
 
