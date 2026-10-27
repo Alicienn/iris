@@ -171,6 +171,10 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         .apply(reglages.appearance, crate::platform::system_dark());
 
     let fenetre = shell::build(&services)?;
+    // No mailbox yet: Iris opens on its welcome page.
+    if services.store.accounts().is_ok_and(|v| v.is_empty()) {
+        fenetre.set_first_run(true);
+    }
     crate::memory::mark("fenêtre construite");
     let theme = services.themes.active();
     fenetre

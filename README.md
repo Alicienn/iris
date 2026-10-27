@@ -124,8 +124,15 @@ down the left in a rail; below 600, as on a phone, they go to the foot of the wi
 and each place shows one thing at a time. The mail's list fills the window and a
 conversation opens over it (`Escape` or the arrow goes back); the list's title opens
 the mailboxes and folders, *Lists* the tasks' views and lists, *Notes* the tree of
-notes. Windows that ask a question rise from the bottom; forms fill the window. A
-window made wide again finds everything as it was.
+notes. Windows that ask a question rise from the bottom; forms fill the window. A task
+or a habit opens as a page of its own, a goal in one column, and *Settings* lists its
+groups, each opening as a page (`Escape` or Android's Back goes back to the list). On
+a touch screen, a note being written has a row of formatting keys under it: bold,
+italic, strikethrough, highlight, code, formula and link. A window made wide again
+finds everything as it was.
+
+With no mailbox yet, Iris opens on a welcome page: add your first account, set it up
+from another device (*Settings › Devices*), or restore a backup.
 
 ## Home
 

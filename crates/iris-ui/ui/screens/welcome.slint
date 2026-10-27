@@ -1,0 +1,109 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+import { Button, ButtonKind, Link } from "@iris/controls/button.slint";
+import { IrisBadge } from "@iris/shell/chrome.slint";
+
+// The first page of a copy of Iris with no mailbox yet: what it is, then the three
+// ways in — a first account, another device already set up, a backup.
+
+component Point inherits HorizontalLayout {
+    in property <string> icon;
+    in property <color> tint;
+    in property <string> text;
+    spacing: 12px;
+    Icon {
+        y: (parent.height - self.height) / 2;
+        data: root.icon;
+        size: 20px;
+        tint: root.tint;
+    }
+    Text {
+        text: root.text;
+        font-size: Tokens.size-body;
+        color: Tokens.text;
+        wrap: word-wrap;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+    }
+}
+
+export component WelcomePage inherits Rectangle {
+    callback add-account();
+    callback from-device();
+    callback restore();
+    callback dismissed();
+
+    background: Tokens.surface;
+    // Over what is behind: no click goes through the page.
+    TouchArea {}
+
+    VerticalLayout {
+        x: max(24px, (parent.width - self.width) / 2);
+        width: min(420px, parent.width - 48px);
+        padding-top: Layout.inset-top + (Layout.compact ? 56px : 96px);
+        padding-bottom: Layout.inset-bottom + 24px;
+        spacing: 18px;
+
+        HorizontalLayout {
+            alignment: start;
+            IrisBadge { size: 56px; }
+        }
+        Text {
+            text: "Welcome to Iris";
+            font-family: Tokens.font-display;
+            font-size: 30px;
+            font-weight: 600;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "Your mail, calendar, tasks and notes, in one place that works offline.";
+            font-size: Tokens.size-body;
+            color: Tokens.text-muted;
+            wrap: word-wrap;
+        }
+        VerticalLayout {
+            spacing: 12px;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            Point {
+                icon: Icons.envelope-closed;
+                tint: Tokens.blue;
+                text: "Every mailbox in one queue: To do, Waiting, Done.";
+            }
+            Point {
+                icon: Icons.calendar;
+                tint: Tokens.red;
+                text: "Your calendar and tasks beside your mail.";
+            }
+            Point {
+                icon: Icons.refresh;
+                tint: Tokens.green;
+                text: "On your other devices too, over your Wi-Fi, without an account.";
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+        Button {
+            text: "Add your first account";
+            kind: ButtonKind.primary;
+            clicked => { root.add-account(); }
+        }
+        Button {
+            text: "Set up from another device";
+            kind: ButtonKind.secondary;
+            clicked => { root.from-device(); }
+        }
+        HorizontalLayout {
+            alignment: space-between;
+            Link {
+                text: "Restore a backup";
+                clicked => { root.restore(); }
+            }
+            Link {
+                text: "Not now";
+                clicked => { root.dismissed(); }
+            }
+        }
+    }
+}

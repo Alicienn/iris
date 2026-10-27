@@ -3,6 +3,16 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 6.4.0 — 2026-10-27
+
+### New
+- A welcome page when Iris has no mailbox yet.
+- On a phone, Settings opens as a list of groups, each a page of its own.
+- On a touch screen, formatting keys under the note you write.
+
+### Improved
+- On a phone, a task or a habit opens as a full page, and a goal in one column.
+
 ## 6.3.1 — 2026-10-27
 
 ### Improved

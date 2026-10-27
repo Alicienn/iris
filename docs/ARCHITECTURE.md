@@ -544,6 +544,15 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
 - `nav::system_back` is Android's Back: what is open closes first (by Escape), then the
   history goes back. `examples/apercu_mobile.rs` captures every place at 412 × 892.
 - `tests/largeur.rs` drives the window at 390, 700 and 1280 pixels wide.
+- Pages on a phone (6.4.0): the task and habit panels take the window's width while the
+  list beside them is hidden (`visible` and a zero `max-width`, never an `if`, which
+  would remove the panel nested beside the list); a goal uses its narrow, one-column
+  form below 840 pixels. Settings in compact shows its groups as `GroupLink` rows and
+  one group at a time (`SettingsPanel.group`, `AppWindow.settings-group`; Escape goes
+  back to the list before it closes). `screens/welcome.slint` is shown when `gui::run`
+  finds no account (`first-run`, in `modal-open`). `controls/formatbar.slint` sends
+  a note the names of its shortcuts (`ctrl+b`…) through `note-canvas-key`, on touch
+  screens only.
 
 ### Keyboard, focus and clicks
 

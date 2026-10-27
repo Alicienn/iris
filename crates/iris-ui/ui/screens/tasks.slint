@@ -1565,12 +1565,15 @@ export component TasksView inherits Rectangle {
 
         HorizontalLayout {
             vertical-stretch: 1;
+        // On a phone, a task open is a page of its own: the list steps aside.
         VerticalLayout {
             horizontal-stretch: 1;
+            visible: !(Layout.compact && root.has-detail);
+            max-width: Layout.compact && root.has-detail ? 0px : 100000px;
 
         if root.page == 1: GoalPage {
             vertical-stretch: 1;
-            narrow: root.has-detail;
+            narrow: root.has-detail || !(Layout.width-class == WidthClass.expanded);
             goal: root.goal;
             log: root.goal-log;
             chart: root.goal-chart;
@@ -1819,6 +1822,7 @@ export component TasksView inherits Rectangle {
 
         // --- Right: the chosen task ---
         if root.has-detail: TaskDetail {
+            panel-width: Layout.compact ? Layout.window-width - 12px : 372px;
             detail: root.detail;
             title <=> root.detail-title;
             notes <=> root.detail-notes;

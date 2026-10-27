@@ -156,6 +156,160 @@ fn le_retour_d_android_est_remis_a_l_application() {
     assert_eq!(retours.get(), 1, "Back goes to nav::system_back");
 }
 
+/// The buttons of that name actually laid out (wider than nothing).
+fn boutons_vus(f: &AppWindow, libelle: &str) -> Vec<(slint::LogicalPosition, slint::LogicalSize)> {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .filter(|b| b.accessible_label().as_deref() == Some(libelle) && b.size().width > 0.0)
+        .map(|b| (b.absolute_position(), b.size()))
+        .collect()
+}
+
+fn sur_un_telephone_une_tache_ouverte_est_une_page() {
+    let f = fenetre_de(390.0, 844.0);
+    f.set_workspace(2);
+    f.set_task_has_detail(true);
+    slint::platform::update_timers_and_animations();
+    // The task's own button sits at the right of a panel as wide as the screen.
+    let plus_tard = boutons_vus(&f, "Move it later");
+    assert!(
+        plus_tard.iter().any(|(p, _)| p.x > 250.0),
+        "the task fills the screen: {plus_tard:?}"
+    );
+    // Closed: the list is back.
+    f.set_task_has_detail(false);
+    slint::platform::update_timers_and_animations();
+    assert!(boutons_vus(&f, "Move it later").is_empty());
+}
+
+fn sur_un_telephone_une_habitude_ouverte_est_une_page() {
+    let f = fenetre_de(390.0, 844.0);
+    f.set_workspace(2);
+    f.set_tasks_habits(true);
+    f.set_habits_has_detail(true);
+    slint::platform::update_timers_and_animations();
+    let modifier = boutons_vus(&f, "Edit habit");
+    assert!(
+        modifier.iter().any(|(p, _)| p.x > 250.0),
+        "the habit fills the screen: {modifier:?}"
+    );
+}
+
+fn sur_un_ecran_tactile_une_note_a_sa_barre_de_mise_en_forme() {
+    let f = fenetre_de(390.0, 844.0);
+    f.global::<Layout>().set_touch_input(true);
+    f.set_workspace(4);
+    slint::platform::update_timers_and_animations();
+    let _ = boutons_vus(&f, "Bold");
+    f.set_note_open(true);
+    f.set_note_reading(false);
+    // Opening a note names it: the tree steps aside.
+    f.set_note_title("Chapitre 2".into());
+    let touches = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    {
+        let t = std::rc::Rc::clone(&touches);
+        f.on_note_canvas_key(move |k| {
+            t.borrow_mut().push(k.to_string());
+            true
+        });
+    }
+    slint::platform::update_timers_and_animations();
+    element(&f, testing::AccessibleRole::Button, "Bold")
+        .mock_single_click(slint::platform::PointerEventButton::Left);
+    assert_eq!(
+        *touches.borrow(),
+        ["ctrl+b"],
+        "the same name as the shortcut"
+    );
+
+    // Reading: no bar.
+    f.set_note_reading(true);
+    slint::platform::update_timers_and_animations();
+    assert!(boutons_vus(&f, "Bold").is_empty());
+}
+
+fn sans_compte_iris_s_ouvre_sur_la_bienvenue() {
+    let f = fenetre_de(390.0, 844.0);
+    f.set_first_run(true);
+    slint::platform::update_timers_and_animations();
+    assert!(f.get_modal_open(), "the welcome page owns the keyboard");
+    element(
+        &f,
+        testing::AccessibleRole::Button,
+        "Add your first account",
+    )
+    .mock_single_click(slint::platform::PointerEventButton::Left);
+    assert!(!f.get_first_run());
+    assert!(f.get_add_account_open(), "the account setup opens");
+
+    let f = fenetre_de(390.0, 844.0);
+    f.set_first_run(true);
+    element(
+        &f,
+        testing::AccessibleRole::Button,
+        "Set up from another device",
+    )
+    .mock_single_click(slint::platform::PointerEventButton::Left);
+    slint::platform::update_timers_and_animations();
+    assert!(f.get_settings_open());
+    assert_eq!(f.get_settings_group(), "Devices", "straight to Devices");
+    assert!(!boutons_vus(&f, "Pair a device…").is_empty());
+}
+
+fn sur_un_telephone_les_reglages_sont_des_pages() {
+    let f = fenetre_de(390.0, 844.0);
+    f.set_settings_open(true);
+    slint::platform::update_timers_and_animations();
+    // The list of groups, none of their settings yet.
+    assert!(
+        !boutons_vus(&f, "Appearance").is_empty(),
+        "the groups are listed"
+    );
+    assert!(
+        boutons_vus(&f, "Blue accent").is_empty(),
+        "no setting on the list"
+    );
+
+    let apparence = element(&f, testing::AccessibleRole::Button, "Appearance");
+    apparence.mock_single_click(slint::platform::PointerEventButton::Left);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(f.get_settings_group(), "Appearance");
+    assert!(
+        !boutons_vus(&f, "Blue accent").is_empty(),
+        "the group's page"
+    );
+    assert!(!boutons_vus(&f, "Back to settings").is_empty());
+
+    // Escape (Android's Back) goes back to the list, then closes.
+    let echap = slint::SharedString::from(slint::platform::Key::Escape);
+    for _ in 0..2 {
+        f.window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                text: echap.clone(),
+            });
+        f.window()
+            .dispatch_event(slint::platform::WindowEvent::KeyReleased {
+                text: echap.clone(),
+            });
+        if f.get_settings_group().is_empty() {
+            break;
+        }
+    }
+    assert_eq!(f.get_settings_group(), "");
+    assert!(
+        f.get_settings_open(),
+        "the first Escape went back to the list"
+    );
+
+    // A wide window shows every group at once, as before.
+    let large = fenetre_de(1280.0, 800.0);
+    large.set_settings_open(true);
+    assert!(!boutons_vus(&large, "Blue accent").is_empty());
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -180,6 +334,26 @@ fn main() {
         (
             "le_retour_d_android_est_remis_a_l_application",
             le_retour_d_android_est_remis_a_l_application,
+        ),
+        (
+            "sur_un_telephone_une_tache_ouverte_est_une_page",
+            sur_un_telephone_une_tache_ouverte_est_une_page,
+        ),
+        (
+            "sur_un_telephone_une_habitude_ouverte_est_une_page",
+            sur_un_telephone_une_habitude_ouverte_est_une_page,
+        ),
+        (
+            "sur_un_ecran_tactile_une_note_a_sa_barre_de_mise_en_forme",
+            sur_un_ecran_tactile_une_note_a_sa_barre_de_mise_en_forme,
+        ),
+        (
+            "sans_compte_iris_s_ouvre_sur_la_bienvenue",
+            sans_compte_iris_s_ouvre_sur_la_bienvenue,
+        ),
+        (
+            "sur_un_telephone_les_reglages_sont_des_pages",
+            sur_un_telephone_les_reglages_sont_des_pages,
         ),
     ];
 

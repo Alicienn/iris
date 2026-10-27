@@ -35,6 +35,7 @@ import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, Empty
 import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { PairPanel } from "@iris/screens/devices.slint";
+import { WelcomePage } from "@iris/screens/welcome.slint";
 import { AccountSetupPanel } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import { PluginSettingData } from "@iris/screens/plugins.slint";
@@ -1513,6 +1514,13 @@ export component AppWindow inherits Window {
     /// Closed: the code no longer opens anything.
     callback pair-closed();
     callback pair-copy-code();
+    /// No mailbox yet: the welcome page.
+    in-out property <bool> first-run;
+    /// On a phone, the group of Settings open as a page; "" is the list.
+    in-out property <string> settings-group;
+    changed settings-open => {
+        if (!self.settings-open) { root.settings-group = ""; }
+    }
     /// The system's Back (Android): `nav::system_back`.
     callback system-back();
     /// A code pasted from another device: join it.
@@ -1602,7 +1610,7 @@ export component AppWindow inherits Window {
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.empty-folder-open || root.mailboxes-open || root.tasks-column-open
-        || root.pair-open
+        || root.pair-open || root.first-run
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -1704,6 +1712,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.shortcuts-help-open) {
                 root.shortcuts-help-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.first-run) {
+                root.first-run = false;
                 return accept;
             }
             // The pairing panel sits over the settings: it closes first.
@@ -1899,6 +1911,11 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.add-account-open) {
                 root.add-account-open = false;
+                return accept;
+            }
+            // On a phone, a group of settings open as a page goes back to the list.
+            if (event.text == Key.Escape && root.settings-open && root.settings-group != "") {
+                root.settings-group = "";
                 return accept;
             }
             if (event.text == Key.Escape && root.settings-open) {
@@ -3950,6 +3967,7 @@ export component AppWindow inherits Window {
         x: Layout.compact ? 0px : root.rail + root.cote;
         y: 0px;
         width: parent.width - self.x;
+        group <=> root.settings-group;
         height: parent.height - root.pied;
         appearance: root.appearance;
         accent-index: root.accent-index;
@@ -4020,6 +4038,29 @@ export component AppWindow inherits Window {
         join-device(code) => { root.pair-join(code); }
         device-answered(yes) => { root.device-answered(yes); }
         dismissed => { root.settings-open = false; }
+    }
+
+    // A copy of Iris with no mailbox yet starts here (set by the app at launch).
+    if root.first-run: WelcomePage {
+        width: 100%;
+        height: 100%;
+        add-account => {
+            root.first-run = false;
+            root.add-account-open = true;
+        }
+        from-device => {
+            root.first-run = false;
+            root.settings-open = true;
+            root.settings-group = "Devices";
+        }
+        restore => {
+            root.first-run = false;
+            root.restore-choose();
+        }
+        dismissed => {
+            root.first-run = false;
+            shortcuts.focus();
+        }
     }
 
     if root.pair-open: PairPanel {

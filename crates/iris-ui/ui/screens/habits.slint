@@ -1044,8 +1044,11 @@ export component HabitsView inherits Rectangle {
         }
         HorizontalLayout {
             vertical-stretch: 1;
+            // On a phone, a habit open is a page of its own: the list steps aside.
             HabitsPage {
                 horizontal-stretch: 1;
+                visible: !(Layout.compact && root.has-detail);
+                max-width: Layout.compact && root.has-detail ? 0px : 100000px;
                 focus-request: root.focus-add-request;
                 title: root.title;
                 dates: root.dates;
@@ -1060,6 +1063,7 @@ export component HabitsView inherits Rectangle {
                 add(t) => { root.add(t); }
             }
             if root.has-detail: HabitPanel {
+                panel-width: Layout.compact ? Layout.window-width - 12px : 340px;
                 detail: root.detail;
                 edit => { root.edit(); }
                 delete => { root.delete(); }

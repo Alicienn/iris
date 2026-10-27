@@ -1,5 +1,6 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Icon, Icons } from "@iris/base/icons.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Segmented, Toggle } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
@@ -89,6 +90,34 @@ component ToggleRow inherits SettingRow {
         label: root.label;
         on <=> root.value;
         toggled => { root.toggled(self.on); }
+    }
+}
+
+/// On a phone, a group of settings as a row that opens it as a page.
+component GroupLink inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
+    in property <string> label;
+    in property <bool> first;
+    callback opened();
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.opened(); }
+    height: max(48px, ligne.min-height);
+    ligne := SettingRow {
+        icon: root.icon;
+        tint: root.tint;
+        label: root.label;
+        first: root.first;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: Icons.chevron-right;
+            size: 16px;
+            tint: Tokens.text-muted;
+        }
+    }
+    TouchArea {
+        clicked => { root.opened(); }
     }
 }
 
@@ -251,6 +280,26 @@ export component SettingsPanel inherits Rectangle {
     /// The undo delays offered, in seconds.
     property <[int]> delais: [0, 5, 10, 20, 30];
 
+    /// On a phone, the group open as a page; "" is the list of groups.
+    in-out property <string> group;
+    property <bool> liste: Layout.compact && root.group == "";
+    /// Whether a group shows: always on a wide window, on its own page on a phone.
+    pure function voit(nom: string) -> bool {
+        return !Layout.compact || root.group == nom;
+    }
+    property <[{name: string, icon: string, tint: color}]> groupes: [
+        { name: "General", icon: Icons.sparkle, tint: Tokens.purple },
+        { name: "Appearance", icon: Icons.sparkle, tint: Tokens.blue },
+        { name: "Mail", icon: Icons.envelope-closed, tint: Tokens.orange },
+        { name: "Devices", icon: Icons.refresh, tint: Tokens.blue },
+        { name: "Automations", icon: Icons.hourglass, tint: Tokens.orange },
+        { name: "System", icon: Icons.gear, tint: Tokens.grey },
+        { name: "Sign in with Google or Microsoft", icon: Icons.link, tint: Tokens.teal },
+        { name: "Your calendars and tasks", icon: Icons.calendar, tint: Tokens.red },
+        { name: "Notes", icon: Icons.pencil, tint: Tokens.yellow },
+        { name: "Updates", icon: Icons.download, tint: Tokens.green },
+    ];
+
     // A white page, the groups grey on it (lighter than the page in dark).
     background: Tokens.surface;
 
@@ -259,8 +308,17 @@ export component SettingsPanel inherits Rectangle {
 
     VerticalLayout {
         WindowToolbar {
+            if Layout.compact && root.group != "": IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Back to settings";
+                button-size: 44px;
+                icon-size: 22px;
+                clicked => { root.group = ""; }
+            }
             Text {
-                text: "Settings";
+                text: Layout.compact && root.group != "" ? root.group : "Settings";
+                overflow: elide;
                 font-family: Tokens.font-display;
                 font-size: 15px;
                 font-weight: 600;
@@ -291,8 +349,18 @@ export component SettingsPanel inherits Rectangle {
                 padding-bottom: 32px;
                 spacing: 6px;
 
-                GroupTitle { text: "General"; }
-                Group {
+                // On a phone: the groups as a list, each opening as a page.
+                if root.liste: Group {
+                    for g[i] in root.groupes: GroupLink {
+                        first: i == 0;
+                        icon: g.icon;
+                        tint: g.tint;
+                        label: g.name;
+                        opened => { root.group = g.name; }
+                    }
+                }
+                if root.voit("General"): GroupTitle { text: "General"; }
+                if root.voit("General"): Group {
                     SettingRow {
                         first: true;
                         icon: Icons.sparkle;
@@ -319,8 +387,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                GroupTitle { text: "Appearance"; }
-                Group {
+                if root.voit("Appearance"): GroupTitle { text: "Appearance"; }
+                if root.voit("Appearance"): Group {
                     SettingRow {
                         first: true;
                         icon: Icons.sun;
@@ -391,8 +459,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                GroupTitle { text: "Mail"; }
-                Group {
+                if root.voit("Mail"): GroupTitle { text: "Mail"; }
+                if root.voit("Mail"): Group {
                     ToggleRow {
                         first: true;
                         icon: Icons.bell;
@@ -449,8 +517,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                GroupTitle { text: "Devices"; }
-                Group {
+                if root.voit("Devices"): GroupTitle { text: "Devices"; }
+                if root.voit("Devices"): Group {
                     for d[i] in root.devices: SettingRow {
                         first: i == 0;
                         icon: Icons.refresh;
@@ -525,13 +593,13 @@ export component SettingsPanel inherits Rectangle {
                         }
                     }
                 }
-                if root.device-summary != "": GroupTitle {
+                if root.voit("Devices") && root.device-summary != "": GroupTitle {
                     text: root.device-summary;
                     note: true;
                 }
 
-                GroupTitle { text: "Automations"; }
-                Group {
+                if root.voit("Automations"): GroupTitle { text: "Automations"; }
+                if root.voit("Automations"): Group {
                     ToggleRow {
                         first: true;
                         icon: Icons.hourglass;
@@ -574,8 +642,8 @@ export component SettingsPanel inherits Rectangle {
                     }
                 }
 
-                GroupTitle { text: "System"; }
-                Group {
+                if root.voit("System"): GroupTitle { text: "System"; }
+                if root.voit("System"): Group {
                     // First, because it decides what the commonest gesture does:
                     // closing the window.
                     ToggleRow {
@@ -604,7 +672,7 @@ export component SettingsPanel inherits Rectangle {
                         toggled => { root.system-changed(); }
                     }
                 }
-                if root.system-note != "": GroupTitle {
+                if root.voit("System") && root.system-note != "": GroupTitle {
                     note: true;
                     text: root.system-note;
                     ink: Tokens.warning;
@@ -612,8 +680,8 @@ export component SettingsPanel inherits Rectangle {
 
                 // Signing in with Google or Microsoft through the browser needs a
                 // client of one's own, registered with them.
-                GroupTitle { text: "Sign in with Google or Microsoft"; }
-                Group {
+                if root.voit("Sign in with Google or Microsoft"): GroupTitle { text: "Sign in with Google or Microsoft"; }
+                if root.voit("Sign in with Google or Microsoft"): Group {
                     SettingRow {
                         first: true;
                         icon: Icons.key;
@@ -660,8 +728,8 @@ export component SettingsPanel inherits Rectangle {
 
                 // What exists only on this computer: a copy every day, one to go back
                 // to, and files other applications read.
-                GroupTitle { text: "Your calendars and tasks"; }
-                Group {
+                if root.voit("Your calendars and tasks"): GroupTitle { text: "Your calendars and tasks"; }
+                if root.voit("Your calendars and tasks"): Group {
                     SettingRow {
                         first: true;
                         icon: Icons.archive;
@@ -723,8 +791,8 @@ export component SettingsPanel inherits Rectangle {
                 }
 
                 // Where the notes' spaces are made: a folder of one's own.
-                GroupTitle { text: "Notes"; }
-                Group {
+                if root.voit("Notes"): GroupTitle { text: "Notes"; }
+                if root.voit("Notes"): Group {
                     SettingRow {
                         first: true;
                         icon: Icons.folder;
@@ -756,8 +824,8 @@ export component SettingsPanel inherits Rectangle {
 
                 // Checked at every launch and every few hours after; this is for
                 // whoever wants to know now.
-                GroupTitle { text: "Updates"; }
-                Group {
+                if root.voit("Updates"): GroupTitle { text: "Updates"; }
+                if root.voit("Updates"): Group {
                     SettingRow {
                         first: true;
                         icon: Icons.download;

@@ -12,6 +12,7 @@ import { ScrollView } from "@iris/controls/scroll.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData } from "@iris/types.slint";
 import { SheetView } from "@iris/screens/sheet.slint";
+import { FormatBar } from "@iris/controls/formatbar.slint";
 
 // The block highlighted in the `/` menu, for the card beside it: what is typed, what
 // it becomes (drawn by `family`), and what it is for. Set by Rust.
@@ -2311,6 +2312,12 @@ export component NotesView inherits Rectangle {
                     }
                 }
               }
+            }
+
+            // On a touch screen, the formatting a keyboard's Ctrl gives on a PC.
+            if root.open && !root.reading && Layout.touch-input: FormatBar {
+                vertical-stretch: 0;
+                act(k) => { root.canvas-key(k); }
             }
         }
     }

@@ -803,3 +803,6 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       settings; `iris-peer` (the invite, the sealed session, the exchange) (6.3.0).
 - [x] **S47.7** Sync between devices, in use: discovery, pairing by QR code, Settings ›
       Devices, notes (6.3.0).
+- [x] **S47.8** Pages on a phone: a task and a habit as pages, a goal in one column,
+      Settings as a list of pages, the welcome page, the notes' formatting keys on
+      touch screens, search in the mail's bar, Android's Back (6.3.0–6.4.0).

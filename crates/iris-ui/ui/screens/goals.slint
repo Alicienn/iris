@@ -1,3 +1,4 @@
+import { Layout } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Hairline } from "@iris/base/atoms.slint";
@@ -350,8 +351,8 @@ export component GoalPage inherits VerticalLayout {
     in property <bool> narrow;
     property <bool> side-shown;
 
-    padding-left: 32px;
-    padding-right: 32px;
+    padding-left: Layout.compact ? 16px : 32px;
+    padding-right: Layout.compact ? 16px : 32px;
     padding-top: 18px;
     padding-bottom: 10px;
     spacing: 0px;

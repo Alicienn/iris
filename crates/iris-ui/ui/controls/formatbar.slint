@@ -1,0 +1,71 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+
+// The formatting of a note, for a screen without Ctrl: a row of keys above the
+// keyboard. Each sends the same name as its shortcut ("ctrl+b"), so a phone and a PC
+// format a note one and the same way.
+
+component FormatKey inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <string> key;
+    in property <int> weight: 400;
+    in property <bool> italic;
+    in property <string> icon;
+    callback pressed(string);
+
+    width: 44px;
+    height: 40px;
+    border-radius: 8px;
+    background: touch.pressed ? Tokens.surface-hover : transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.pressed(root.key); }
+
+    if root.icon != "": Icon {
+        data: root.icon;
+        size: 18px;
+        tint: Tokens.text;
+    }
+    if root.icon == "": Text {
+        text: root.text;
+        font-size: 16px;
+        font-weight: root.weight;
+        font-italic: root.italic;
+        color: Tokens.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.pressed(root.key); }
+    }
+}
+
+export component FormatBar inherits Rectangle {
+    callback act(string);
+
+    height: 48px + Layout.inset-bottom;
+    background: Tokens.surface-low;
+    Rectangle {
+        y: 0;
+        height: 1px;
+        background: Tokens.border;
+    }
+    HorizontalLayout {
+        y: 4px;
+        height: 40px;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 2px;
+        alignment: space-around;
+        FormatKey { text: "B"; weight: 700; label: "Bold"; key: "ctrl+b"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "I"; italic: true; label: "Italic"; key: "ctrl+i"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "S"; label: "Strikethrough"; key: "ctrl+shift+x"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "H"; label: "Highlight"; key: "ctrl+shift+h"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "</>"; label: "Code"; key: "ctrl+e"; pressed(k) => { root.act(k); } }
+        FormatKey { text: "Σ"; label: "Formula"; key: "ctrl+m"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.link; label: "Link"; key: "ctrl+l"; pressed(k) => { root.act(k); } }
+    }
+}
