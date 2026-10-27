@@ -33,6 +33,30 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # Whether this commit carries a version not yet published. Only then are the
+  # release binary and the APK built (half an hour each): Release publishes nothing
+  # else, and the lints already compile the whole workspace with its default
+  # features, so an ordinary push loses no check by skipping them.
+  version:
+    name: New version?
+    runs-on: ubuntu-latest
+    outputs:
+      new: ${{ steps.v.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          if gh release view "v$version" -R "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "v$version is already published: no binary, no APK."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$version is new: the binary and the APK are built for it."
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # Ce qui ne dépend d'aucune plateforme n'est vérifié qu'une fois.
   forme:
     name: Format et lints
@@ -105,6 +129,8 @@ jobs:
   binaire:
     name: Binaire complet
     runs-on: windows-latest
+    needs: version
+    if: needs.version.outputs.new == 'true' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -129,13 +155,17 @@ jobs:
           path: target/release/iris.exe
           retention-days: 3
 
-  # Iris for Android: the library built by cargo-ndk for phones (arm64) and the
-  # emulator (x86_64), packaged by Gradle. Its APK goes to the release beside the
-  # installer. `continue-on-error`: a broken Android build is shown here but never
-  # holds back a Windows release (Release follows this workflow's conclusion).
+  # Iris for Android: the library built by cargo-ndk for phones only (arm64; with the
+  # emulator's x86_64 too, the library took 23 minutes in 6.4.1), packaged by
+  # Gradle. Its APK goes to the release beside the installer, so it is built for a
+  # new version only, like the binary. `continue-on-error`: a broken Android build is
+  # shown here but never holds back a Windows release (Release follows this
+  # workflow's conclusion).
   android:
     name: Android (APK)
     runs-on: ubuntu-latest
+    needs: version
+    if: needs.version.outputs.new == 'true' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     # Warnings are shown, not fatal, here: code only Windows uses is dead on Android,
     # and the lints already ran on Windows.
@@ -145,7 +175,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, x86_64-linux-android
+          targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
           key: android
@@ -188,7 +218,7 @@ jobs:
         env:
           CARGO_PROFILE_RELEASE_STRIP: symbols
         run: |
-          cargo ndk -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release -p iris-android
+          cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release -p iris-android
           ls -l android/app/src/main/jniLibs/*/
 
       # The project's signing key when the secrets are there (see android/README.md),

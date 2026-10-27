@@ -8,8 +8,9 @@ Slint's, and the rest is the same Iris as on Windows. Design: the spec
 ## Building
 
 CI does it (job `android` in `.github/workflows/ci.yml`) and the Release workflow
-attaches the APK to each release beside the Windows installer. By hand, with the
-Android SDK, NDK 27 and Java 17:
+attaches the APK to each release beside the Windows installer. CI builds for phones
+only (arm64); the emulator also needs `x86_64`, as below. By hand, with the Android
+SDK, NDK 27 and Java 17:
 
 ```
 rustup target add aarch64-linux-android x86_64-linux-android

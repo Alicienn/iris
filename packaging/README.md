@@ -36,7 +36,8 @@ key, and have to be updated once by hand from the release page.
 ### The APK
 
 CI's `android` job builds Iris for Android: `cargo ndk` makes `libiris_android.so` for
-arm64 and x86_64, Gradle packages it (`android/`), and the job uploads
+phones (arm64; with the emulator's x86_64 too, the library took 23 minutes in 6.4.1),
+Gradle packages it (`android/`), and the job uploads
 `iris-X.Y.Z.apk` as the artifact `iris-apk`. Release downloads it and attaches it to the
 same release as the installer. The job runs with `continue-on-error`: when it fails,
 CI stays green, Windows ships, and the release goes out without an APK (the log says
@@ -47,6 +48,13 @@ APK must replace the previous one by uninstalling it first. When the APK is ther
 `latest.json` names it with its size and SHA-256 (`apk`, `apk_size`, `apk_sha256`),
 signed with the rest; Iris on Android checks the same manifest and, to update, opens
 the APK's download, which Android installs.
+
+**Only a new version builds the binary and the APK.** CI's first job, `version`,
+looks for a release of the `Cargo.toml` version: when there is one, the jobs `binaire`
+(the release build, 26 minutes in 6.4.1) and `android` are skipped, since Release
+would publish nothing from them, and a push takes the time of the tests. The lints
+still compile the whole workspace with its default features. `Run workflow` builds
+both whatever the version.
 
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
 (04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
