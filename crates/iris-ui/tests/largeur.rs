@@ -139,6 +139,23 @@ fn sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre() {
     );
 }
 
+fn le_retour_d_android_est_remis_a_l_application() {
+    let f = fenetre_de(390.0, 844.0);
+    let retours = std::rc::Rc::new(std::cell::Cell::new(0));
+    {
+        let r = std::rc::Rc::clone(&retours);
+        f.on_system_back(move || r.set(r.get() + 1));
+    }
+    let retour = slint::SharedString::from(slint::platform::Key::Back);
+    f.window()
+        .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+            text: retour.clone(),
+        });
+    f.window()
+        .dispatch_event(slint::platform::WindowEvent::KeyReleased { text: retour });
+    assert_eq!(retours.get(), 1, "Back goes to nav::system_back");
+}
+
 fn main() {
     testing::init_no_event_loop();
 
@@ -159,6 +176,10 @@ fn main() {
         (
             "sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre",
             sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre,
+        ),
+        (
+            "le_retour_d_android_est_remis_a_l_application",
+            le_retour_d_android_est_remis_a_l_application,
         ),
     ];
 

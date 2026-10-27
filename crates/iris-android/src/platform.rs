@@ -76,6 +76,25 @@ impl Platform for Android {
         UpdateChannel::Apk
     }
 
+    /// Back on the first page: Iris goes behind, as Android's own apps do, and keeps
+    /// its state (`moveTaskToBack`, not `finish`).
+    fn leave(&self) {
+        let r = (|| -> std::result::Result<(), String> {
+            let contexte = ndk_context::android_context();
+            // SAFETY: the VM and the activity Android gave the process.
+            let vm = unsafe { jni::JavaVM::from_raw(contexte.vm().cast()) }
+                .map_err(|e| e.to_string())?;
+            let activite = unsafe { JObject::from_raw(contexte.context().cast()) };
+            let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+            env.call_method(&activite, "moveTaskToBack", "(Z)Z", &[JValue::Bool(1)])
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        if let Err(e) = r {
+            tracing::warn!(error = %e, "leaving on Back");
+        }
+    }
+
     /// A Wi-Fi drops multicast to save the battery unless an app holds a lock: without
     /// it the other devices' announces never arrive.
     fn multicast(&self, on: bool) {

@@ -289,6 +289,17 @@ pub fn wire_navigation(f: &AppWindow, start: Place) {
     boutons(f);
     {
         let faible = f.as_weak();
+        f.on_system_back(move || {
+            let Some(f) = faible.upgrade() else { return };
+            // Nothing left to go back to: the system takes Back (Android shows the
+            // app before).
+            if !system_back(&f) {
+                crate::platform::current().leave();
+            }
+        });
+    }
+    {
+        let faible = f.as_weak();
         crate::workspace::follow(f, move |w| {
             if let Some(f) = faible.upgrade() {
                 note(&f, "workspace", &w.to_string());

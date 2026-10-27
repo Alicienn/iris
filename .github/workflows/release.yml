@@ -94,15 +94,24 @@ jobs:
       # Iris for Android, built by CI's `android` job. That job may fail without
       # failing CI (it never holds a Windows release back): no APK then, and the
       # release goes out with the installer alone.
+      # Taken from the commit's green CI run whatever started this one: after CI, or a
+      # tag pushed by hand (the way a release that changes the workflows must go out:
+      # the workflow's token may not make a tag on such a commit).
       - name: APK from CI
-        if: env.PUBLISH == 'true' && github.event_name == 'workflow_run'
+        if: env.PUBLISH == 'true'
         continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: iris-apk
-          path: apk-from-ci
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run = "${{ github.event.workflow_run.id }}"
+          if (-not $run) {
+            $run = gh run list --workflow CI --commit $env:TARGET --status success --json databaseId -q '.[0].databaseId'
+          }
+          if (-not $run) { Write-Host "No green CI run for $($env:TARGET): no APK."; exit 0 }
+          gh run download $run -n iris-apk -D apk-from-ci
+          if ($LASTEXITCODE -ne 0) { Write-Host "CI run $run has no APK."; exit 0 }
+          Get-ChildItem apk-from-ci
 
       # CI already checked it on that path; a tag or a manual run has had no CI.
       - name: Changelog matches the version
@@ -190,7 +199,7 @@ jobs:
           if (Test-Path $apk) {
             $fichiers += $apk
           } else {
-            Write-Host "No APK from CI for $env:VERSION: published without it."
+            Write-Host "No APK from CI for $($env:VERSION): published without it."
           }
           gh release create $env:TAG @fichiers `
             --target $env:TARGET `

@@ -587,6 +587,8 @@ pub trait Platform: Send + Sync {
     fn update_channel(&self) -> UpdateChannel {
         UpdateChannel::Installer
     }
+    /// Back with nothing left to close or go back to: on a phone, the app before.
+    fn leave(&self) {}
 }
 
 /// A notification, as Iris asks for it; each system draws it its own way.

@@ -201,7 +201,7 @@ export component Modal inherits Rectangle {
     FocusScope {
         enabled: false;
         key-pressed(event) => {
-            if (event.text == Key.Escape) {
+            if (event.text == Key.Escape || event.text == Key.Back) {
                 root.escaped();
                 return accept;
             }
@@ -350,7 +350,7 @@ export component Popover inherits Rectangle {
     FocusScope {
         enabled: false;
         key-pressed(event) => {
-            if (event.text == Key.Escape) {
+            if (event.text == Key.Escape || event.text == Key.Back) {
                 root.dismissed();
                 return accept;
             }

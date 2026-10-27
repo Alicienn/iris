@@ -1513,6 +1513,8 @@ export component AppWindow inherits Window {
     /// Closed: the code no longer opens anything.
     callback pair-closed();
     callback pair-copy-code();
+    /// The system's Back (Android): `nav::system_back`.
+    callback system-back();
     /// A code pasted from another device: join it.
     callback pair-join(string);
     in-out property <string> join-code;
@@ -1649,6 +1651,11 @@ export component AppWindow inherits Window {
             reject
         }
         key-pressed(event) => {
+            // Android's Back: what is open closes, then the page, then the history.
+            if (event.text == Key.Back) {
+                root.system-back();
+                return accept;
+            }
             // Ctrl held over a drawn note: its links take the click.
             if (event.text == Key.Control) {
                 root.notes-ctrl-held = true;

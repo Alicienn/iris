@@ -51,6 +51,12 @@ the APK's download, which Android installs.
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
 (04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
 
+**A release whose commits change `.github/workflows/`** cannot be tagged by the
+workflow: GitHub refuses its token a tag on such a commit (`HTTP 403: Resource not
+accessible by integration`). Once CI is green on that commit, push the tag by hand
+(`git tag vX.Y.Z <commit>` then `git push origin vX.Y.Z`): Release runs on the tag,
+builds the installer and takes the APK from that commit's CI run.
+
 The test jobs read `.github/cargo-ci.toml`: dependencies at opt-level 1 instead of 2,
 and `rust-lld` as the Windows linker. The release binary does not, so what ships is
 built as before. Every job's cache is saved even when it fails, from `main` only: a
