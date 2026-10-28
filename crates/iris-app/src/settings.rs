@@ -453,7 +453,9 @@ impl Settings {
         }
 
         let heures = lire("office-hours");
-        if !heures.is_empty() && self.triage.office_hours == Default::default() {
+        if !heures.is_empty()
+            && self.triage.office_hours == iris_rules::triage::OfficeHours::default()
+        {
             let h = &mut self.triage.office_hours;
             let heure = |cle: &str, defaut: u8| {
                 heures
