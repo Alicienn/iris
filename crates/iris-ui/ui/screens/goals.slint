@@ -3,7 +3,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { GoalData, GoalLogData } from "@iris/types.slint";
-import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
+import { Button, ButtonKind, ButtonSize, Link, BlockButton } from "@iris/controls/button.slint";
 import { Check, CheckShape, Segmented } from "@iris/controls/choice.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Nav, SectionTitle } from "@iris/lists/nav.slint";
@@ -18,6 +18,10 @@ export component GoalRing inherits Rectangle {
     in property <string> ring;
     in property <color> tint;
     in property <length> size: 15px;
+    /// The ring's thickness; a large one (a goal's page on a phone) is finer.
+    in property <length> stroke: 2.2 / 16 * root.size;
+    /// The track under it: the hairline's colour, or the active surface's.
+    in property <color> track: Tokens.border;
 
     width: root.size;
     height: root.size;
@@ -29,8 +33,8 @@ export component GoalRing inherits Rectangle {
         viewbox-width: 16;
         viewbox-height: 16;
         commands: "M 8 1.5 A 6.5 6.5 0 1 1 8 14.5 A 6.5 6.5 0 1 1 8 1.5";
-        stroke: Tokens.border;
-        stroke-width: 2.2 / 16 * root.size;
+        stroke: root.track;
+        stroke-width: root.stroke;
         fill: transparent;
     }
     if root.ring != "": Path {
@@ -40,7 +44,7 @@ export component GoalRing inherits Rectangle {
         viewbox-height: 16;
         commands: root.ring;
         stroke: root.tint;
-        stroke-width: 2.2 / 16 * root.size;
+        stroke-width: root.stroke;
         stroke-line-cap: round;
         fill: transparent;
     }
@@ -350,15 +354,244 @@ export component GoalPage inherits VerticalLayout {
     /// is read from.
     in property <bool> narrow;
     property <bool> side-shown;
+    /// A phone's "Log one": the sheet to say what was done.
+    callback log-requested();
 
-    padding-left: Layout.compact ? 16px : 32px;
-    padding-right: Layout.compact ? 16px : 32px;
-    padding-top: 18px;
+    // On a phone each part keeps its own margins (the mockups' G4): the cards 16 from
+    // the sides, the words 18.
+    padding-left: Layout.compact ? 0px : 32px;
+    padding-right: Layout.compact ? 0px : 32px;
+    padding-top: Layout.compact ? 0px : 18px;
     padding-bottom: 10px;
     spacing: 0px;
 
+    // On a phone: the flag and its day in the goal's colour, the title, what it is for.
+    // The pencil and ⋯ are in the bar above.
+    if Layout.compact: VerticalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.flag;
+                size: 14px;
+                weight: 2;
+                tint: root.goal.color;
+            }
+            Text {
+                text: "Goal · " + root.goal.due-label;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: root.goal.color;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.goal.title;
+            font-family: Tokens.font-display;
+            font-size: 24px;
+            font-weight: 600;
+            color: Tokens.text;
+            wrap: word-wrap;
+        }
+        if root.goal.why != "": Text {
+            text: root.goal.why;
+            font-size: 14.5px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+    }
+
+    // Where it stands on a phone: the ring with the count in it, the pace, the badge;
+    // Log one and Make time under them.
+    if Layout.compact: HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 16px;
+        Rectangle {
+            height: carte-telephone.preferred-height;
+            border-radius: 18px;
+            background: Tokens.surface;
+            drop-shadow-blur: Tokens.shadow-card-blur;
+            drop-shadow-offset-y: Tokens.shadow-card-y;
+            drop-shadow-color: Tokens.shadow-card;
+            carte-telephone := VerticalLayout {
+                padding: 16px;
+                spacing: 14px;
+                HorizontalLayout {
+                    spacing: 16px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 76px;
+                        height: 76px;
+                        GoalRing {
+                            ring: root.goal.ring;
+                            tint: root.goal.color;
+                            size: 76px;
+                            stroke: 8px;
+                            track: Tokens.surface-active;
+                        }
+                        Text {
+                            width: 100%;
+                            height: 100%;
+                            text: root.goal.done;
+                            font-family: Tokens.font-display;
+                            font-size: 20px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        HorizontalLayout {
+                            spacing: 5px;
+                            alignment: start;
+                            Text {
+                                text: root.goal.done;
+                                font-size: 17px;
+                                font-weight: 700;
+                                color: Tokens.text;
+                                vertical-alignment: bottom;
+                            }
+                            Text {
+                                text: root.goal.of-label;
+                                font-size: 15px;
+                                color: Tokens.text;
+                                vertical-alignment: bottom;
+                                overflow: elide;
+                            }
+                        }
+                        Text {
+                            text: root.goal.pace;
+                            font-size: 14px;
+                            color: Tokens.text-secondary;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            padding-top: 4px;
+                            alignment: start;
+                            GoalBadge {
+                                status: root.goal.status;
+                                text: root.goal.badge;
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    // Equal halves, whatever their words.
+                    if !root.goal.milestones && root.goal.status != 2: BlockButton {
+                        preferred-width: 0px;
+                        text: "Log one";
+                        icon: Icons.plus;
+                        kind: ButtonKind.primary;
+                        clicked => { root.log-requested(); }
+                    }
+                    BlockButton {
+                        preferred-width: 0px;
+                        text: "Make time";
+                        label: "Make time for it";
+                        icon: Icons.calendar;
+                        kind: ButtonKind.secondary;
+                        clicked => { root.make-time(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // The pace on a phone: the dashed ideal and the steps logged, under their title.
+    if Layout.compact: HorizontalLayout {
+        padding-left: 32px;
+        padding-right: 32px;
+        padding-top: 18px;
+        padding-bottom: 7px;
+        Text {
+            text: "Progress";
+            font-size: 13px;
+            font-weight: 600;
+            color: Tokens.text-muted;
+        }
+    }
+    if Layout.compact: HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        Rectangle {
+            height: 148px;
+            border-radius: 14px;
+            background: Tokens.surface;
+            VerticalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                padding-top: 12px;
+                padding-bottom: 10px;
+                spacing: 4px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    accessible-role: image;
+                    accessible-label: "Pace chart: " + root.goal.done + " " + root.goal.of-label
+                        + ", " + root.goal.badge + ". " + root.goal.pace;
+                    Path {
+                        width: 100%;
+                        height: 100%;
+                        viewbox-width: 520;
+                        viewbox-height: 120;
+                        commands: "M 6 114 L 514 6";
+                        stroke: Tokens.border-strong;
+                        stroke-width: 1.5px;
+                    }
+                    Rectangle {
+                        x: parent.width * root.now-x / 520;
+                        width: 1px;
+                        background: Tokens.border;
+                    }
+                    Path {
+                        width: 100%;
+                        height: 100%;
+                        viewbox-width: 520;
+                        viewbox-height: 120;
+                        commands: root.chart;
+                        stroke: root.goal.color;
+                        stroke-width: 2.5px;
+                        fill: transparent;
+                    }
+                }
+                HorizontalLayout {
+                    height: 16px;
+                    Text {
+                        text: root.start-label;
+                        font-size: 11.5px;
+                        color: Tokens.text-muted;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: "Today";
+                        font-size: 11.5px;
+                        color: Tokens.text-secondary;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: root.goal.due-short;
+                        font-size: 11.5px;
+                        color: Tokens.text-muted;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+        }
+    }
+
     // Goal · by Saturday 17 October, in its colour; and the way to delete it.
-    HorizontalLayout {
+    if !Layout.compact: HorizontalLayout {
         height: 26px;
         spacing: 6px;
         GoalRing {
@@ -397,7 +630,7 @@ export component GoalPage inherits VerticalLayout {
         }
     }
     // The title: a click types over it; Enter keeps the new one, Escape the old.
-    if !root.renaming: Rectangle {
+    if !root.renaming && !Layout.compact: Rectangle {
         height: titre.preferred-height + 4px;
         border-radius: Tokens.radius-medium;
         background: renommer.has-hover ? Tokens.surface-hover : transparent;
@@ -427,7 +660,7 @@ export component GoalPage inherits VerticalLayout {
             }
         }
     }
-    if root.renaming: FocusScope {
+    if root.renaming && !Layout.compact: FocusScope {
         enabled: false;
         height: 40px;
         key-pressed(event) => {
@@ -457,16 +690,16 @@ export component GoalPage inherits VerticalLayout {
             }
         }
     }
-    if root.goal.why != "": Text {
+    if root.goal.why != "" && !Layout.compact: Text {
         text: root.goal.why;
         font-size: 14px;
         color: Tokens.text-secondary;
         wrap: word-wrap;
     }
-    Rectangle { height: 12px; }
+    if !Layout.compact: Rectangle { height: 12px; }
 
     // Where it stands, and beside it the pace: one card.
-    Rectangle {
+    if !Layout.compact: Rectangle {
         border-radius: Tokens.radius-large;
         border-width: 1px;
         border-color: Tokens.border;
@@ -614,18 +847,54 @@ export component GoalPage inherits VerticalLayout {
         }
         }
     }
-    Rectangle { height: 14px; }
+    if !Layout.compact: Rectangle { height: 14px; }
 
     HorizontalLayout {
         spacing: 18px;
         vertical-stretch: 1;
+        padding-left: Layout.compact ? 16px : 0px;
+        padding-right: Layout.compact ? 16px : 0px;
 
         // Left: the steps (tasks toward it), then the pace. When narrow, the log
         // shares this column, behind a switch.
         VerticalLayout {
             horizontal-stretch: 14;
             spacing: 0px;
-            HorizontalLayout {
+            // On a phone the group's title, the log a word away at its end.
+            if Layout.compact: HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 10px;
+                padding-top: 18px;
+                padding-bottom: 7px;
+                spacing: 8px;
+                Text {
+                    text: root.side-shown ? (root.goal.milestones ? "Milestones" : "Log") : "Steps";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    width: autre.preferred-width + 12px;
+                    height: 24px;
+                    accessible-role: button;
+                    accessible-label: root.side-shown ? "Show the steps"
+                        : root.goal.milestones ? "Show the milestones" : "Show the log";
+                    accessible-action-default => { root.side-shown = !root.side-shown; }
+                    autre := Text {
+                        text: root.side-shown ? "Steps" : root.goal.milestones ? "Milestones" : "Log";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Tokens.accent;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.side-shown = !root.side-shown; }
+                    }
+                }
+            }
+            if !Layout.compact: HorizontalLayout {
                 height: root.narrow ? 32px : 24px;
                 padding-bottom: root.narrow ? 4px : 0px;
                 spacing: 7px;
@@ -659,14 +928,20 @@ export component GoalPage inherits VerticalLayout {
                 milestone-added(t) => { root.milestone-added(t); }
                 make-time => { root.make-time(); }
             }
-            // The steps; folded away while the log takes the column.
-            VerticalLayout {
+            // The steps; folded away while the log takes the column. On a phone, on a
+            // rounded card.
+            Rectangle {
                 visible: !(root.narrow && root.side-shown);
                 max-height: self.visible ? 100000px : 0px;
                 vertical-stretch: self.visible ? 1 : 0;
-                padding-top: 8px;
-                spacing: 0px;
-            @children
+                border-radius: Layout.compact ? 14px : 0px;
+                background: Layout.compact ? Tokens.surface : transparent;
+                clip: Layout.compact;
+                VerticalLayout {
+                    padding-top: Layout.compact ? 0px : 8px;
+                    spacing: 0px;
+                @children
+                }
             }
         }
 
@@ -705,12 +980,13 @@ export component GoalsOverview inherits VerticalLayout {
     callback chosen(int);
     callback new-goal();
 
-    padding-left: 32px;
-    padding-right: 32px;
-    padding-top: 22px;
+    // On a phone the bar above has New goal; the cards keep 16 from the sides.
+    padding-left: Layout.compact ? 16px : 32px;
+    padding-right: Layout.compact ? 16px : 32px;
+    padding-top: Layout.compact ? 4px : 22px;
     spacing: 14px;
 
-    HorizontalLayout {
+    if !Layout.compact: HorizontalLayout {
         height: 32px;
         spacing: 12px;
         Text {
@@ -736,18 +1012,35 @@ export component GoalsOverview inherits VerticalLayout {
             clicked => { root.new-goal(); }
         }
     }
-    Hairline {}
+    if !Layout.compact: Hairline {}
+    // On a phone the page's large title, how many under it.
+    if Layout.compact: VerticalLayout {
+        padding-left: 2px;
+        spacing: 2px;
+        Text {
+            text: "Goals";
+            font-family: Tokens.font-display;
+            font-size: 32px;
+            font-weight: 600;
+            color: Tokens.text;
+        }
+        Text {
+            text: root.goals.length == 1 ? "1 goal" : root.goals.length + " goals";
+            font-size: 14px;
+            color: Tokens.text-muted;
+        }
+    }
 
     ScrollView {
         vertical-stretch: 1;
         VerticalLayout {
             alignment: start;
-            spacing: 12px;
+            spacing: Layout.compact ? 10px : 12px;
             padding-top: 6px;
             for g in root.goals: Rectangle {
                 height: 104px;
-                border-radius: Tokens.radius-large;
-                border-width: 1px;
+                border-radius: Layout.compact ? 18px : Tokens.radius-large;
+                border-width: Layout.compact ? 0px : 1px;
                 border-color: carte.has-hover ? Tokens.border-strong : Tokens.border;
                 background: Tokens.surface;
 

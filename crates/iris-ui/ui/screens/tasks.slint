@@ -3,21 +3,28 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
-import { Button, ButtonKind, ButtonSize, Link } from "@iris/controls/button.slint";
-import { Check, Segmented, Pill, PillKind, PriorityTag, Priority } from "@iris/controls/choice.slint";
+import { Button, ButtonKind, ButtonSize, Link, BlockButton } from "@iris/controls/button.slint";
+import {
+    Check, Segmented, Pill, PillKind, PriorityTag, Priority, QueueSegments
+} from "@iris/controls/choice.slint";
 import { Nav, NavItem, SectionRow, SectionTitle } from "@iris/lists/nav.slint";
 import { PropertyRow } from "@iris/lists/rows.slint";
+import { SwipeRow } from "@iris/lists/swipe.slint";
 import { Rail, PageHeader, Plate, DetailPanel, Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { DateButton, DatePicker } from "@iris/screens/calendar-panels.slint";
-import { GoalRow, GoalPage, GoalsOverview, GoalNudges } from "@iris/screens/goals.slint";
+import { GoalRow, GoalPage, GoalsOverview, GoalNudges, GoalRing } from "@iris/screens/goals.slint";
+import {
+    BarButton, PhoneBar, BigTitle, GroupTitle, GroupCard, GroupRow, RowTile, RowLabel, RowValue,
+    RowChevron, AccentLink, Token, SheetOption, SheetTitle, DoneBar
+} from "@iris/screens/tasks-phone.slint";
 import {
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, MonthCellData, TaskTokenData,
     TaskOverviewData, GoalData, GoalLogData
 } from "@iris/types.slint";
 import { ComboBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
-import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
+import { SidebarFrame, WindowToolbar, Chrome } from "@iris/shell/chrome.slint";
 
 // The tasks workspace: where things are to do (the rail), what there is to do (a plate
 // of rows, under the day when it is Today), the line to add more, and the task chosen.
@@ -145,19 +152,23 @@ component PlaceTile inherits Rectangle {
             root.dropped(root.place.key);
         }
     }
-    property <bool> on: root.place.selected;
+    // On a phone the overview is a page of its own, left for the view: no tile stays lit.
+    property <bool> on: root.place.selected && !Layout.compact;
 
     // Equal halves of the row whatever their words: the stretch shares only what is
     // left above each one's preferred width.
     horizontal-stretch: 1;
     preferred-width: 0px;
     min-width: 0px;
-    // On a phone the mockups' tiles: taller, rounder, a square of colour for the icon.
-    height: Layout.compact ? 78px : 64px;
-    border-radius: Layout.compact ? 14px : 10px;
+    // On a phone the mockups' cards (T1): 12 by 14 inside, rounder, a square of colour
+    // for the icon, the count at its right and the name under them.
+    height: Layout.compact ? 82px : 64px;
+    border-radius: Layout.compact ? 18px : 10px;
     border-width: root.targeted ? 2px : 0px;
     border-color: Tokens.accent;
-    background: root.on ? Tokens.accent : touch.has-hover ? Tokens.surface-high.mix(Tokens.text, 0.96) : Tokens.surface-high;
+    background: root.on ? Tokens.accent
+        : Layout.compact ? (touch.pressed ? Tokens.surface.mix(Tokens.text, 0.94) : Tokens.surface)
+        : touch.has-hover ? Tokens.surface-high.mix(Tokens.text, 0.96) : Tokens.surface-high;
     drop-shadow-blur: Tokens.shadow-card-blur;
     drop-shadow-offset-y: Tokens.shadow-card-y;
     drop-shadow-color: Tokens.shadow-card;
@@ -172,11 +183,11 @@ component PlaceTile inherits Rectangle {
         clicked => { root.chosen(root.place.key); }
     }
     VerticalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-        padding-top: 8px;
-        padding-bottom: 8px;
-        spacing: 4px;
+        padding-left: Layout.compact ? 14px : 10px;
+        padding-right: Layout.compact ? 14px : 10px;
+        padding-top: Layout.compact ? 12px : 8px;
+        padding-bottom: Layout.compact ? 12px : 8px;
+        spacing: Layout.compact ? 8px : 4px;
         HorizontalLayout {
             Rectangle {
                 width: Layout.compact ? 30px : 26px;
@@ -185,7 +196,8 @@ component PlaceTile inherits Rectangle {
                 background: root.on ? Tokens.accent-text : root.tint;
                 Icon {
                     data: root.place.icon;
-                    size: Layout.compact ? 17px : 14px;
+                    size: Layout.compact ? 18px : 14px;
+                    weight: Layout.compact ? 2 : 1.6;
                     tint: root.on ? Tokens.accent : Tokens.accent-text;
                 }
             }
@@ -194,17 +206,17 @@ component PlaceTile inherits Rectangle {
                 text: root.place.count;
                 font-family: Tokens.font-display;
                 font-size: Layout.compact ? 24px : 20px;
-                font-weight: 700;
+                font-weight: Layout.compact ? 600 : 700;
                 color: root.on ? Tokens.accent-text : Tokens.text;
-                vertical-alignment: top;
+                vertical-alignment: Layout.compact ? center : top;
             }
         }
         if Layout.compact: Rectangle { vertical-stretch: 1; }
         Text {
             text: root.place.name;
-            font-size: Layout.compact ? 14px : 12.5px;
+            font-size: Layout.compact ? 15px : 12.5px;
             font-weight: 600;
-            color: root.on ? Tokens.accent-text : Tokens.text-muted;
+            color: root.on ? Tokens.accent-text : Layout.compact ? Tokens.text-secondary : Tokens.text-muted;
             overflow: elide;
         }
     }
@@ -586,6 +598,239 @@ component TaskRow inherits Rectangle {
     }
 }
 
+// A detail of a task's second line on a phone: an icon and a few words.
+component PhoneMeta inherits HorizontalLayout {
+    in property <string> icon;
+    in property <string> text;
+    in property <color> ink: Tokens.text-muted;
+    spacing: 5px;
+    Icon {
+        y: (parent.height - self.height) / 2;
+        width: 14px;
+        data: root.icon;
+        size: 14px;
+        tint: root.ink;
+    }
+    if root.text != "": Text {
+        text: root.text;
+        font-size: 13px;
+        color: root.ink;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// A line of the list on a phone, as the mockups' `.trow` and `.gh` (T2, T7): the whole
+// width, a 26-pixel circle, the title at 16, what it carries under it, its time and
+// priority at the right; a group's title above, with its count. A finger pushing a
+// task right ticks it, left puts it off (Later).
+component PhoneTaskRow inherits Rectangle {
+    in property <TaskRowData> item;
+    callback selected(TaskRowData);
+    callback toggled(int);
+    callback clear-completed();
+    callback later(TaskRowData, length, length);
+
+    property <bool> tache: root.item.kind == 0;
+    property <bool> has-line: !root.item.done && (root.item.list != "" || root.item.from-mail
+        || root.item.progress != "" || root.item.goal != "" || root.item.estimate != ""
+        || root.item.postponed >= 2 || root.item.repeats != "");
+    property <bool> tagged: root.item.priority > 0 && !root.item.done;
+    // 13 above and below the words; the priority's tag stacks over the time.
+    height: !root.tache ? 45px
+        : root.has-line || (root.tagged && root.item.meta != "") ? 68px : 48px;
+
+    // Just added: a soft plate of the accent for a moment (T4).
+    property <float> halo: root.item.fresh ? 1 : 0;
+    animate halo { duration: 900ms; easing: ease-in; }
+    init => {
+        if (root.item.fresh) {
+            eteindre.running = true;
+        }
+    }
+    eteindre := Timer {
+        interval: 1200ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.halo = 0;
+        }
+    }
+
+    // A group's title: "Overdue 1", "Today 4", "Done 1  Clear".
+    if !root.tache: HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: 18px;
+        padding-bottom: 8px;
+        spacing: 8px;
+        Text {
+            text: root.item.title;
+            font-size: 14px;
+            font-weight: 600;
+            color: root.item.overdue ? Tokens.red : Tokens.text-secondary;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.item.meta;
+            font-size: 14px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if root.item.kind == 4: AccentLink {
+            text: "Clear";
+            label: "Delete completed tasks";
+            clicked => { root.clear-completed(); }
+        }
+    }
+
+    if root.tache: SwipeRow {
+        width: 100%;
+        height: 100%;
+        start-label: root.item.done ? "Not done" : "Done";
+        start-icon: Icons.check;
+        start-color: Tokens.success;
+        end-label: "Later";
+        end-icon: Icons.arrow-right;
+        end-color: Tokens.warning;
+        swiped-start => { root.toggled(root.item.id); }
+        swiped-end => {
+            if (!root.item.done) {
+                root.later(root.item, root.absolute-position.x, root.absolute-position.y);
+            }
+        }
+
+        Rectangle {
+            background: touch.pressed ? Tokens.surface.mix(Tokens.text, 0.94)
+                : Tokens.surface.mix(Tokens.accent, 1 - 0.08 * root.halo);
+            accessible-role: list-item;
+            accessible-label: root.item.title;
+            accessible-action-default => { root.selected(root.item); }
+            touch := TouchArea {
+                clicked => { root.selected(root.item); }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Tokens.border;
+            }
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 13px;
+                padding-bottom: 13px;
+                spacing: 14px;
+
+                VerticalLayout {
+                    alignment: start;
+                    padding-top: 1px;
+                    tick := Check {
+                        animated: true;
+                        size: 26px;
+                        done: root.item.done;
+                        late: root.item.overdue;
+                        label: root.item.title;
+                        toggled => { root.toggled(root.item.id); }
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 3px;
+                    horizontal-stretch: 1;
+                    min-width: 0;
+                    Rectangle {
+                        height: 22px;
+                        titre := Text {
+                            width: parent.width;
+                            text: root.item.title;
+                            font-size: 16px;
+                            color: tick.shown-done ? Tokens.text-muted : Tokens.text;
+                            animate color { duration: 240ms; }
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Rectangle {
+                            x: 0;
+                            y: parent.height / 2;
+                            width: tick.shown-done ? min(titre.preferred-width, parent.width) : 0px;
+                            animate width { duration: 260ms; easing: ease-out; }
+                            height: 1px;
+                            background: Tokens.text-muted;
+                        }
+                    }
+                    if root.has-line: HorizontalLayout {
+                        height: 17px;
+                        spacing: 12px;
+                        alignment: start;
+                        if root.item.list != "": HorizontalLayout {
+                            spacing: 5px;
+                            Rectangle {
+                                y: (parent.height - self.height) / 2;
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: root.item.color;
+                            }
+                            Text {
+                                text: root.item.list;
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        if root.item.goal != "": PhoneMeta {
+                            icon: Icons.flag;
+                            text: root.item.goal;
+                            ink: root.item.goal-color;
+                        }
+                        if root.item.progress != "": PhoneMeta {
+                            icon: Icons.check-circle;
+                            text: root.item.progress;
+                        }
+                        if root.item.estimate != "": PhoneMeta {
+                            icon: Icons.hourglass;
+                            text: root.item.estimate;
+                        }
+                        if root.item.repeats != "": PhoneMeta {
+                            icon: Icons.repeat;
+                            text: root.item.repeats;
+                        }
+                        if root.item.postponed >= 2: PhoneMeta {
+                            icon: Icons.refresh;
+                            text: root.item.postponed + "×";
+                            ink: Tokens.orange;
+                        }
+                        if root.item.from-mail: PhoneMeta {
+                            icon: Icons.envelope-closed;
+                        }
+                    }
+                }
+
+                // Its priority over its time, both at the right.
+                if root.tagged || root.item.meta != "": VerticalLayout {
+                    alignment: start;
+                    spacing: 4px;
+                    padding-top: 2px;
+                    if root.tagged: HorizontalLayout {
+                        alignment: end;
+                        PriorityTag { priority: root.item.priority; }
+                    }
+                    if root.item.meta != "": Text {
+                        text: root.item.meta;
+                        font-size: 14px;
+                        color: root.item.overdue ? Tokens.red
+                            : root.item.done ? Tokens.text-muted : Tokens.text-secondary;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // A step of the chosen task.
 component SubtaskRow inherits Rectangle {
     in property <SubtaskData> step;
@@ -690,6 +935,9 @@ component TaskDetail inherits DetailPanel {
     public function focus-step() {
         etape.focus();
     }
+    /// Raised by Later's "Split into steps": the cursor goes to "Add a subtask".
+    in property <int> step-focus-request;
+    changed step-focus-request => { etape.focus(); }
 
     // Its list above it, Later, and the way out.
     HorizontalLayout {
@@ -1128,6 +1376,589 @@ component TaskDetail inherits DetailPanel {
     }
 }
 
+// The chosen task on a phone: the floating panel becomes a page (the mockups' T5). Its
+// list and Later in the bar; the title; when, how long, a slot and how urgent on one
+// card; the rest behind "More options"; where it came from; its steps; its notes. Copy
+// link and Delete are in the bar's ⋯.
+component TaskPage inherits Rectangle {
+    in property <TaskDetailData> detail;
+    in-out property <string> title;
+    in-out property <string> notes;
+    in-out property <string> time;
+    in property <[string]> lists;
+    in property <[string]> reminders;
+    in property <[string]> repeats;
+    in property <bool> picker-open;
+    in property <string> picker-title;
+    in property <[MonthCellData]> picker-cells;
+    in property <int> step-focus-request;
+
+    callback toggled(int);
+    callback later(length, length);
+    callback slot-requested(length, length);
+    callback unbook();
+    callback estimate-chosen(int);
+    callback estimate-typed(string);
+    callback title-edited(string);
+    callback notes-edited(string);
+    callback time-edited(string);
+    callback picker-toggled();
+    callback picker-navigate(int);
+    callback picker-chosen(string);
+    callback due-cleared();
+    callback reminder-chosen(int);
+    callback repeat-chosen(int);
+    callback priority-chosen(int);
+    callback list-chosen(int);
+    callback step-added(string);
+    callback step-toggled(int);
+    callback step-removed(int);
+    callback open-mail();
+    callback delete();
+    callback closed();
+    /// The bar's ⋯: Copy link, Delete.
+    callback menu();
+
+    property <string> new-step;
+    property <string> other-estimate;
+    property <bool> more;
+    /// The lengths offered, shown under Takes once it is touched.
+    property <bool> takes-open;
+    property <string> takes-label: root.detail.estimate <= 0 ? "Not said"
+        : root.detail.estimate < 60 ? root.detail.estimate + " min"
+        : mod(root.detail.estimate, 60) == 0 ? floor(root.detail.estimate / 60) + " h"
+        : floor(root.detail.estimate / 60) + " h " + mod(root.detail.estimate, 60);
+
+    changed step-focus-request => { etape.focus(); }
+
+    background: Tokens.background;
+
+    VerticalLayout {
+        // Back, its list, Later, ⋯.
+        PhoneBar {
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Close";
+                clicked => { root.closed(); }
+            }
+            Text {
+                text: root.lists.length > root.detail.list-index ? root.lists[root.detail.list-index] : "";
+                font-size: 15px;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            if !root.detail.done: Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: plus-tard.preferred-width + 20px;
+                height: 44px;
+                border-radius: 22px;
+                background: tard.pressed ? Tokens.accent-soft : transparent;
+                accessible-role: button;
+                accessible-label: "Move it later";
+                accessible-action-default => {
+                    root.later(self.absolute-position.x, self.absolute-position.y + self.height);
+                }
+                plus-tard := HorizontalLayout {
+                    x: 10px;
+                    width: self.preferred-width;
+                    spacing: 8px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        data: Icons.arrow-right;
+                        size: 18px;
+                        tint: Tokens.accent;
+                    }
+                    Text {
+                        text: "Later";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Tokens.accent;
+                        vertical-alignment: center;
+                    }
+                }
+                tard := TouchArea {
+                    clicked => {
+                        root.later(parent.absolute-position.x, parent.absolute-position.y + parent.height);
+                    }
+                }
+            }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.more;
+                label: "More";
+                clicked => { root.menu(); }
+            }
+        }
+
+        page := ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            VerticalLayout {
+                width: page.visible-width;
+                alignment: start;
+                padding-bottom: 24px;
+
+                // The circle, and the title to type over.
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    padding-top: 4px;
+                    padding-bottom: 14px;
+                    spacing: 14px;
+                    Check {
+                        y: (parent.height - self.height) / 2;
+                        animated: true;
+                        size: 26px;
+                        done: root.detail.done;
+                        late: root.detail.overdue;
+                        label: "Done";
+                        toggled => { root.toggled(root.detail.id); }
+                    }
+                    TextField {
+                        height: 40px;
+                        bare: true;
+                        accessible-label: "Task title";
+                        font-size: 22px;
+                        text <=> root.title;
+                        edited(t) => { root.title-edited(t); }
+                    }
+                }
+
+                // Put off three times and more: a question rather than a fourth time.
+                if root.detail.postponed >= 3 && !root.detail.done: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 12px;
+                    Rectangle {
+                        height: coince.preferred-height;
+                        border-radius: 14px;
+                        background: Tokens.orange.transparentize(0.89);
+                        coince := VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-top: 12px;
+                            padding-bottom: 12px;
+                            spacing: 10px;
+                            Text {
+                                text: "Put off " + root.detail.postponed + " times.";
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: Tokens.orange;
+                            }
+                            Text {
+                                text: "Split it, give it a slot, or let it go?";
+                                font-size: 14px;
+                                color: Tokens.text-secondary;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+                                Button {
+                                    text: "Split into steps";
+                                    size: ButtonSize.sm;
+                                    clicked => { etape.focus(); }
+                                }
+                                Button {
+                                    text: "Find a slot";
+                                    size: ButtonSize.sm;
+                                    clicked => {
+                                        root.slot-requested(self.absolute-position.x,
+                                            self.absolute-position.y + self.height + 4px);
+                                    }
+                                }
+                                Button {
+                                    text: "Let go";
+                                    label: "Let it go (delete)";
+                                    kind: ButtonKind.ghost;
+                                    size: ButtonSize.sm;
+                                    clicked => { root.delete(); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Due, Takes, Slot, Priority: what a task needs first.
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    GroupCard {
+                        GroupRow {
+                            first: true;
+                            flat: true;
+                            enabled: false;
+                            label: "Due";
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.calendar;
+                                size: 18px;
+                                tint: Tokens.text-muted;
+                            }
+                            RowLabel { text: "Due"; }
+                            Token {
+                                y: (parent.height - self.height) / 2;
+                                text: root.detail.has-due ? root.detail.due-label : "Add a date";
+                                accessible-label: "Due date";
+                                clicked => { root.picker-toggled(); }
+                            }
+                            if root.detail.has-due: TextField {
+                                y: (parent.height - self.height) / 2;
+                                width: 64px;
+                                height: 30px;
+                                accessible-label: "Due time";
+                                placeholder-text: "Time";
+                                text <=> root.time;
+                                edited(t) => { root.time-edited(t); }
+                            }
+                            if root.detail.has-due: IconButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.window-close;
+                                label: "Remove the date";
+                                button-size: 30px;
+                                icon-size: 12px;
+                                clicked => { root.due-cleared(); }
+                            }
+                        }
+                        if root.picker-open: HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-bottom: 8px;
+                            DatePicker {
+                                title: root.picker-title;
+                                cells: root.picker-cells;
+                                navigate(n) => { root.picker-navigate(n); }
+                                chosen(d) => { root.picker-chosen(d); }
+                            }
+                        }
+                        GroupRow {
+                            flat: true;
+                            label: "Takes " + root.takes-label;
+                            clicked => { root.takes-open = !root.takes-open; }
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.hourglass;
+                                size: 18px;
+                                tint: Tokens.text-muted;
+                            }
+                            RowLabel { text: "Takes"; }
+                            RowValue { text: root.takes-label; }
+                        }
+                        // The usual lengths, or any other written out.
+                        if root.takes-open: HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-bottom: 12px;
+                            spacing: 6px;
+                            for m[i] in [15, 30, 60, 120]: Pill {
+                                y: (parent.height - self.height) / 2;
+                                text: ["15 min", "30 min", "1 h", "2 h"][i];
+                                on: root.detail.estimate == m;
+                                toggled => { root.estimate-chosen(root.detail.estimate == m ? 0 : m); }
+                            }
+                            TextField {
+                                y: (parent.height - self.height) / 2;
+                                height: 34px;
+                                min-width: 56px;
+                                horizontal-stretch: 1;
+                                accessible-label: "Other length";
+                                placeholder-text: "45m";
+                                text <=> root.other-estimate;
+                                accepted(t) => {
+                                    root.estimate-typed(t);
+                                    root.other-estimate = "";
+                                }
+                            }
+                        }
+                        // A slot for it in the calendar, found among the day's events.
+                        GroupRow {
+                            flat: true;
+                            label: root.detail.slot != "" ? "Change the slot" : "Find a slot";
+                            clicked => {
+                                root.slot-requested(self.absolute-position.x,
+                                    self.absolute-position.y + self.height);
+                            }
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.clock;
+                                size: 18px;
+                                tint: Tokens.text-muted;
+                            }
+                            RowLabel { text: "Slot"; }
+                            if root.detail.slot != "": RowValue {
+                                text: root.detail.slot;
+                                color: Tokens.text;
+                            }
+                            if root.detail.slot != "": AccentLink {
+                                text: "Remove";
+                                label: "Remove the slot";
+                                font-size: 15px;
+                                clicked => { root.unbook(); }
+                            }
+                            if root.detail.slot == "": Text {
+                                text: "Find a slot";
+                                font-size: 15px;
+                                font-weight: 600;
+                                color: Tokens.accent;
+                                vertical-alignment: center;
+                            }
+                        }
+                        GroupRow {
+                            flat: true;
+                            enabled: false;
+                            label: "Priority";
+                            Text {
+                                width: 18px;
+                                text: "!";
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: Tokens.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            RowLabel { text: "Priority"; }
+                        }
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-bottom: 12px;
+                            QueueSegments {
+                                names: ["None", "Low", "Medium", "High"];
+                                selected: root.detail.priority;
+                                chosen(i) => { root.priority-chosen(i); }
+                            }
+                        }
+                    }
+                }
+
+                // The rest, on demand: what is set shows anyway.
+                HorizontalLayout {
+                    padding-left: 32px;
+                    padding-top: 8px;
+                    alignment: start;
+                    AccentLink {
+                        height: 32px;
+                        text: root.more ? "Fewer options" : "More options";
+                        label: root.more ? "Show fewer options" : "Show more options: reminder, repeat, list";
+                        font-size: 14.5px;
+                        clicked => { root.more = !root.more; }
+                    }
+                }
+                if root.more || root.detail.reminder-index > 0 || root.detail.repeat-index > 0: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 8px;
+                    GroupCard {
+                        GroupRow {
+                            first: true;
+                            flat: true;
+                            enabled: false;
+                            label: "Reminder";
+                            RowLabel { text: "Reminder"; }
+                            ComboBox {
+                                y: (parent.height - self.height) / 2;
+                                width: 170px;
+                                enabled: root.detail.has-due;
+                                accessible-label: "Reminder";
+                                model: root.reminders;
+                                current-index: root.detail.reminder-index;
+                                selected => { root.reminder-chosen(self.current-index); }
+                            }
+                        }
+                        GroupRow {
+                            flat: true;
+                            enabled: false;
+                            label: "Repeats";
+                            RowLabel { text: "Repeats"; }
+                            ComboBox {
+                                y: (parent.height - self.height) / 2;
+                                width: 170px;
+                                enabled: root.detail.has-due;
+                                accessible-label: "Repeats";
+                                accessible-description: root.detail.has-due ? "" : "Give the task a due day first";
+                                model: root.repeats;
+                                current-index: root.detail.repeat-index;
+                                selected => { root.repeat-chosen(self.current-index); }
+                            }
+                        }
+                        if root.more: GroupRow {
+                            flat: true;
+                            enabled: false;
+                            label: "List";
+                            RowLabel { text: "List"; }
+                            ComboBox {
+                                y: (parent.height - self.height) / 2;
+                                width: 170px;
+                                accessible-label: "List";
+                                model: root.lists;
+                                current-index: root.detail.list-index;
+                                selected => { root.list-chosen(self.current-index); }
+                            }
+                        }
+                    }
+                }
+
+                // Where it came from: a conversation, which opens from here, or an event.
+                if root.detail.source != "": HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 12px;
+                    GroupCard {
+                        GroupRow {
+                            first: true;
+                            flat: true;
+                            enabled: root.detail.from-mail;
+                            label: "Open message";
+                            clicked => { root.open-mail(); }
+                            RowTile {
+                                y: (parent.height - self.height) / 2;
+                                quiet: true;
+                                icon: root.detail.from-event ? Icons.calendar : Icons.envelope-closed;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: root.detail.from-event ? "From an event" : "From a message";
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: root.detail.source;
+                                    font-size: 15.5px;
+                                    color: Tokens.text;
+                                    overflow: elide;
+                                }
+                            }
+                            if root.detail.from-mail: Text {
+                                text: "Open";
+                                font-size: 14px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // Its steps, and how far they have got.
+                GroupTitle {
+                    text: "Subtasks";
+                    count: root.detail.subtasks.length > 0
+                        ? root.detail.steps-done + " of " + root.detail.subtasks.length : "";
+                    if root.detail.subtasks.length > 0: DoneBar {
+                        y: (parent.height - self.height) / 2;
+                        width: 70px;
+                        height: 4px;
+                        fraction: root.detail.steps-done / root.detail.subtasks.length;
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    GroupCard {
+                        for step[i] in root.detail.subtasks: GroupRow {
+                            first: i == 0;
+                            flat: true;
+                            enabled: false;
+                            label: step.title;
+                            Check {
+                                y: (parent.height - self.height) / 2;
+                                animated: true;
+                                size: 22px;
+                                done: step.done;
+                                label: step.title;
+                                toggled => { root.step-toggled(step.id); }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                nom := Text {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: step.title;
+                                    font-size: 15.5px;
+                                    color: step.done ? Tokens.text-muted : Tokens.text;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                if step.done: Rectangle {
+                                    x: 0;
+                                    y: parent.height / 2;
+                                    width: min(nom.preferred-width, parent.width);
+                                    height: 1px;
+                                    background: Tokens.text-muted;
+                                }
+                            }
+                            IconButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.window-close;
+                                label: "Remove subtask " + step.title;
+                                button-size: 30px;
+                                icon-size: 11px;
+                                clicked => { root.step-removed(step.id); }
+                            }
+                        }
+                        GroupRow {
+                            first: root.detail.subtasks.length == 0;
+                            flat: true;
+                            enabled: false;
+                            label: "Add a subtask";
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.plus;
+                                size: 18px;
+                                tint: Tokens.text-muted;
+                            }
+                            etape := TextField {
+                                y: (parent.height - self.height) / 2;
+                                height: 36px;
+                                bare: true;
+                                font-size: 15.5px;
+                                accessible-label: "Add a subtask";
+                                placeholder-text: "Add a subtask";
+                                text <=> root.new-step;
+                                accepted(t) => {
+                                    if (t != "") {
+                                        root.step-added(t);
+                                        root.new-step = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Its notes, on a card of their own.
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 14px;
+                    Rectangle {
+                        height: 96px;
+                        border-radius: 14px;
+                        background: Tokens.surface;
+                        TextArea {
+                            x: 10px;
+                            y: 6px;
+                            width: parent.width - 20px;
+                            height: parent.height - 12px;
+                            bare: true;
+                            font-size: 15px;
+                            accessible-label: "Notes";
+                            placeholder-text: "Notes";
+                            text <=> root.notes;
+                            edited(t) => { root.notes-edited(t); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The line to add a task, and what it understood before Enter.
 component AddBar inherits Rectangle {
     in-out property <string> text;
@@ -1145,66 +1976,111 @@ component AddBar inherits Rectangle {
     public function focus-field() { champ.focus(); }
     changed focus-request => { champ.focus(); }
 
+    // On a phone the mockups' dock (T2, T3): a pill to touch at the foot of the page;
+    // touched, the line opens over the keyboard, what Iris understood in tokens above
+    // what is typed, Add at its end.
+    property <bool> phone: Layout.compact;
+    property <bool> open: champ.has-focus || root.text != "";
+    property <bool> jetons-au-dessus: root.phone && root.open && root.tokens.length > 0;
+
     // As Reminders' "New reminder": no box, the accent's plus where a circle would be,
     // a hairline over it; a soft plate while it is typed in.
-    height: Layout.touch-input ? 52px : 46px;
-    border-radius: Layout.touch-input ? Tokens.radius-large : Tokens.radius-medium;
-    // On a phone a card of its own from the start, a shade lighter than the list, so
-    // that the line to add a task is seen before it is touched.
-    background: champ.has-focus ? Tokens.surface-active
+    height: root.phone ? 64px + (root.jetons-au-dessus ? 40px : 0px)
+        : Layout.touch-input ? 52px : 46px;
+    border-radius: root.phone ? 0px : Layout.touch-input ? Tokens.radius-large : Tokens.radius-medium;
+    // A tablet's a card of its own from the start, a shade lighter than the list, so
+    // that the line to add a task is seen before it is touched; a phone's the page's
+    // ground, the panel's once open.
+    background: root.phone ? (root.open ? Tokens.panel : Tokens.surface)
+        : champ.has-focus ? Tokens.surface-active
         : Layout.touch-input ? Tokens.surface-hover : transparent;
+    drop-shadow-blur: root.phone && root.open ? Tokens.shadow-float-blur : 0px;
+    drop-shadow-color: Tokens.shadow-float;
 
-    HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 8px;
-        spacing: 12px;
-        Icon {
-            y: (parent.height - self.height) / 2;
-            width: 20px;
-            data: Icons.plus;
-            size: 18px;
-            weight: 2.0;
-            tint: Tokens.accent;
-        }
-        champ := TextField {
-            y: (parent.height - self.height) / 2;
-            height: 36px;
-            bare: true;
-            font-size: 14px;
-            accessible-label: "Add a task";
-            placeholder-text: root.hint;
-            text <=> root.text;
-            edited(t) => { root.edited(t); }
-            accepted(t) => {
-                if (root.asking != "") {
-                    root.answered(t);
-                } else if (t != "") {
-                    root.add(t);
-                }
+    // The dock's hairline over the list.
+    if root.phone: Rectangle {
+        y: 0px;
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    VerticalLayout {
+        padding-left: root.phone ? 14px : 0px;
+        padding-right: root.phone ? 14px : 0px;
+        padding-top: root.phone ? 10px : 0px;
+        padding-bottom: root.phone ? 10px : 0px;
+        spacing: 10px;
+        if root.jetons-au-dessus: HorizontalLayout {
+            height: 30px;
+            spacing: 8px;
+            alignment: start;
+            for jeton in root.tokens: Token {
+                text: jeton.text;
+                icon: jeton.kind == 0 ? Icons.calendar : "";
+                has-dot: jeton.kind == 1;
+                dot: jeton.color;
+                level: jeton.kind == 2 ? jeton.level : 0;
             }
         }
-        for jeton in root.tokens: Pill {
-            y: (parent.height - self.height) / 2;
-            kind: PillKind.token;
-            text: jeton.text;
-            icon: jeton.kind == 0 ? Icons.calendar : "";
-            has-dot: jeton.kind == 1;
-            dot: jeton.color;
-            tinted: jeton.kind == 2;
-            tint: Priority.tint(jeton.level);
-        }
-        if root.text != "": Button {
-            y: (parent.height - self.height) / 2;
-            text: "Add";
-            shortcut: "Enter";
-            label: "Add the task";
-            kind: ButtonKind.primary;
-            size: ButtonSize.sm;
-            clicked => {
-                if (root.asking != "") {
-                    root.answered(root.text);
-                } else {
-                    root.add(root.text);
+        Rectangle {
+            border-radius: root.phone ? 22px : 0px;
+            background: root.phone && !root.open ? Tokens.well : transparent;
+            HorizontalLayout {
+                padding-left: root.phone ? (root.open ? 0px : 16px) : 14px;
+                padding-right: root.phone ? 0px : 8px;
+                spacing: root.phone ? 10px : 12px;
+                if !(root.phone && root.open): Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: root.phone ? 18px : 20px;
+                    data: Icons.plus;
+                    size: 18px;
+                    weight: 2.0;
+                    tint: root.phone ? Tokens.text-muted : Tokens.accent;
+                }
+                champ := TextField {
+                    y: (parent.height - self.height) / 2;
+                    height: 36px;
+                    bare: true;
+                    font-size: root.phone ? (root.open ? 16px : 15px) : 14px;
+                    accessible-label: "Add a task";
+                    placeholder-text: root.hint;
+                    text <=> root.text;
+                    edited(t) => { root.edited(t); }
+                    accepted(t) => {
+                        if (root.asking != "") {
+                            root.answered(t);
+                        } else if (t != "") {
+                            root.add(t);
+                        }
+                    }
+                }
+                if !root.phone && root.tokens.length > 0: HorizontalLayout {
+                    spacing: 12px;
+                    for jeton in root.tokens: Pill {
+                        y: (parent.height - self.height) / 2;
+                        kind: PillKind.token;
+                        text: jeton.text;
+                        icon: jeton.kind == 0 ? Icons.calendar : "";
+                        has-dot: jeton.kind == 1;
+                        dot: jeton.color;
+                        tinted: jeton.kind == 2;
+                        tint: Priority.tint(jeton.level);
+                    }
+                }
+                if root.text != "": Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Add";
+                    shortcut: "Enter";
+                    label: "Add the task";
+                    kind: ButtonKind.primary;
+                    size: ButtonSize.sm;
+                    clicked => {
+                        if (root.asking != "") {
+                            root.answered(root.text);
+                        } else {
+                            root.add(root.text);
+                        }
+                    }
                 }
             }
         }
@@ -1217,15 +2093,21 @@ component AddBar inherits Rectangle {
 component EstimateBubble inherits Rectangle {
     in property <string> task;
     callback chosen(int);
+    /// Nothing to say: the length is skipped (the phone's "Skip").
+    callback skipped();
 
     property <float> entree: 0;
     init => { root.entree = 1; }
     animate entree { duration: Tokens.moderate; easing: ease-out; }
 
-    width: min(420px, contenu.preferred-width + 28px);
-    height: contenu.preferred-height + 20px;
-    border-radius: Tokens.radius-large;
-    border-width: 1px;
+    /// On a phone, as wide as the screen leaves it.
+    in property <length> phone-width;
+
+    // On a phone the mockups' T4: the width of the screen, pills for the finger, Skip.
+    width: Layout.compact ? root.phone-width : min(420px, contenu.preferred-width + 28px);
+    height: Layout.compact ? telephone.preferred-height + 20px : contenu.preferred-height + 20px;
+    border-radius: Layout.compact ? 16px : Tokens.radius-large;
+    border-width: Layout.compact ? 0px : 1px;
     border-color: Tokens.border;
     background: Tokens.panel;
     drop-shadow-blur: Tokens.shadow-float-blur;
@@ -1237,6 +2119,7 @@ component EstimateBubble inherits Rectangle {
     accessible-label: "How long will " + root.task + " take? Type a length, or press Enter to skip";
 
     contenu := VerticalLayout {
+        visible: !Layout.compact;
         x: 14px;
         y: 10px;
         width: parent.width - 28px;
@@ -1272,6 +2155,213 @@ component EstimateBubble inherits Rectangle {
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
+            }
+        }
+    }
+
+    // A phone's: the question in grey, then the lengths and Skip as pills.
+    telephone := VerticalLayout {
+        visible: Layout.compact;
+        x: 12px;
+        y: 10px;
+        width: parent.width - 24px;
+        spacing: 8px;
+        Text {
+            text: "How long does “" + root.task + "” take?";
+            font-size: 13.5px;
+            color: Tokens.text-muted;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for m[i] in [15, 30, 60, 120]: Pill {
+                text: ["15 min", "30 min", "1 h", "2 h"][i];
+                toggled => { root.chosen(m); }
+            }
+            Pill {
+                text: "Skip";
+                tinted: true;
+                tint: Tokens.text-muted;
+                toggled => { root.skipped(); }
+            }
+        }
+    }
+}
+
+// The overview on a phone (the mockups' T1): the desktop's left column as a page of
+// its own. Search and ⋯ in the bar, the title, the four views as tiles with their
+// counts, Habits and This week, the goals with their rings, the lists.
+component TasksOverviewPage inherits Rectangle {
+    in property <[TaskPlaceData]> places;
+    in property <TaskOverviewData> overview;
+    in property <[GoalData]> goals;
+    /// "2 of 4": the habits done of those due today.
+    in property <string> habits-count;
+    callback place-chosen(string);
+    callback new-goal();
+    callback list-new();
+    callback menu();
+
+    background: Tokens.background;
+
+    VerticalLayout {
+        PhoneBar {
+            Rectangle { horizontal-stretch: 1; }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.search;
+                label: "Search";
+                clicked => { Chrome.palette(); }
+            }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.more;
+                label: "More";
+                clicked => { root.menu(); }
+            }
+        }
+        BigTitle { text: "Tasks"; }
+
+        vue := ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            VerticalLayout {
+                width: vue.visible-width;
+                alignment: start;
+                padding-bottom: 20px;
+
+                // Today, Upcoming, All tasks, From mail: two by two.
+                if root.places.length >= 4: VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 4px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        for k in [0, 1]: PlaceTile {
+                            place: root.places[k];
+                            tint: k == 0 ? Tokens.blue : Tokens.red;
+                            chosen(c) => { root.place-chosen(c); }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        for k in [2, 3]: PlaceTile {
+                            place: root.places[k];
+                            tint: k == 2 ? Tokens.grey : Tokens.orange;
+                            chosen(c) => { root.place-chosen(c); }
+                        }
+                    }
+                }
+
+                // The habits, and the week in review.
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 14px;
+                    GroupCard {
+                        GroupRow {
+                            first: true;
+                            label: "Habits";
+                            clicked => { root.place-chosen("habits"); }
+                            RowTile {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.sprout;
+                                tint: Tokens.green;
+                            }
+                            RowLabel { text: "Habits"; }
+                            if root.habits-count != "": RowValue { text: root.habits-count + " today"; }
+                            RowChevron { y: (parent.height - self.height) / 2; }
+                        }
+                        if root.places.length >= 5 && !root.places[4].is-list: GroupRow {
+                            label: root.places[4].name;
+                            clicked => { root.place-chosen(root.places[4].key); }
+                            RowTile {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.review;
+                                tint: Tokens.purple;
+                            }
+                            RowLabel { text: root.places[4].name; }
+                            RowValue { text: root.overview.week-done + " done"; }
+                            RowChevron { y: (parent.height - self.height) / 2; }
+                        }
+                    }
+                }
+
+                // The goals, each with its ring; one behind counts in red.
+                GroupTitle {
+                    text: "Goals";
+                    add-label: "New goal";
+                    add => { root.new-goal(); }
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    GroupCard {
+                        for g[i] in root.goals: GroupRow {
+                            first: i == 0;
+                            label: g.title;
+                            clicked => { root.place-chosen("goal:" + g.id); }
+                            GoalRing {
+                                y: (parent.height - self.height) / 2;
+                                ring: g.ring;
+                                tint: g.color;
+                                size: 30px;
+                                track: Tokens.border-strong;
+                            }
+                            RowLabel { text: g.title; }
+                            RowValue {
+                                text: g.done + "/" + g.target;
+                                color: g.status == 1 ? Tokens.error : Tokens.text-muted;
+                            }
+                        }
+                        if root.goals.length == 0: GroupRow {
+                            first: true;
+                            flat: true;
+                            label: "New goal";
+                            clicked => { root.new-goal(); }
+                            RowLabel {
+                                text: "No goal yet. A goal is something to reach by a day.";
+                                color: Tokens.text-muted;
+                            }
+                        }
+                    }
+                }
+
+                // The lists, each with its colour and how many are open.
+                GroupTitle {
+                    text: "Lists";
+                    add-label: "New list";
+                    add => { root.list-new(); }
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    GroupCard {
+                        for place[i] in root.places: VerticalLayout {
+                            if place.is-list: GroupRow {
+                                first: i == 0 || !root.places[i - 1].is-list;
+                                label: place.name;
+                                clicked => { root.place-chosen(place.key); }
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 30px;
+                                    height: 12px;
+                                    Rectangle {
+                                        x: 9px;
+                                        width: 12px;
+                                        height: 12px;
+                                        border-radius: 6px;
+                                        background: place.color;
+                                    }
+                                }
+                                RowLabel { text: place.name; }
+                                if place.count > 0: RowValue { text: place.count; }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1364,6 +2454,10 @@ export component TasksView inherits Rectangle {
     callback task-dropped(int, string);
     /// A task let go on another in the column: (it, that one, above rather than below).
     callback task-reordered(int, int, bool);
+    /// A phone's ⋯: "overview", "page", "task", "goal".
+    callback menu-requested(string);
+    /// Raised to put the cursor in the open task's "Add a subtask".
+    in property <int> focus-step;
 
     callback title-edited(string);
     callback notes-edited(string);
@@ -1384,6 +2478,10 @@ export component TasksView inherits Rectangle {
     callback delete();
     callback detail-closed();
 
+    /// A phone's "Log one" sheet is open over the goal; it goes with the goal's page.
+    property <bool> goal-logging;
+    changed page => { root.goal-logging = false; }
+
     // The task in the hand, and where the pointer is, in window coordinates.
     property <int> carried: -1;
     property <string> carried-title;
@@ -1403,20 +2501,22 @@ export component TasksView inherits Rectangle {
         // --- Left: the window's sidebar: the smart views as tiles, the habits, the
         // goals, then the lists and the week. Below 840 pixels, a page of its own,
         // opened from the list's "Lists" button. ---
-        SidebarFrame {
+        // On a phone the column is a page of its own instead (the mockups' T1).
+        if Layout.compact && root.column-open: TasksOverviewPage {
+            horizontal-stretch: 1;
+            places: root.places;
+            overview: root.overview;
+            goals: root.goals;
+            habits-count: root.habits-count;
+            place-chosen(k) => { root.place-chosen(k); }
+            new-goal => { root.new-goal(); }
+            list-new => { root.list-new(); }
+            menu => { root.menu-requested("overview"); }
+        }
+        if !Layout.compact: SidebarFrame {
             visible: Layout.width-class == WidthClass.expanded || root.column-open;
             sidebar-width: root.column-open ? Layout.window-width - (Layout.medium ? 80px : 0px)
                 : Layout.width-class == WidthClass.expanded ? 232px : 0px;
-            // On a phone the overview is a page: its title, large (the mockups' T1).
-            if Layout.compact: Text {
-                height: 52px;
-                text: "Tasks";
-                font-family: Tokens.font-display;
-                font-size: 32px;
-                font-weight: 600;
-                color: Tokens.text;
-                vertical-alignment: center;
-            }
             // Today, Upcoming, All tasks, From mail: four tiles, two by two, as
             // Reminders has them.
             if root.places.length >= 4: VerticalLayout {
@@ -1553,14 +2653,62 @@ export component TasksView inherits Rectangle {
 
             // The window's toolbar: a new task. Over a goal's grey page, the page's
             // own grey and no line.
-            WindowToolbar {
+            // On a phone the mockups' bar instead (T2, T7, G4): back to the overview,
+            // then what the page has: Plan my day on Today, the goal's pencil, ⋯. A task
+            // open draws its own.
+            if Layout.compact && !root.has-detail: PhoneBar {
+                BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.arrow-left;
+                    label: "Lists";
+                    clicked => { root.column-open = true; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                // Today's tasks with no hour, laid into the free time.
+                if root.page == 0 && root.overview.show-day: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.sparkle;
+                    label: "Plan my day";
+                    enabled: root.overview.to-plan > 0;
+                    clicked => { root.plan-day(); }
+                }
+                if root.page == 1: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.pencil;
+                    label: "Edit goal";
+                    clicked => { root.goal-edit(); }
+                }
+                if root.page == 2: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.plus;
+                    label: "New goal";
+                    clicked => { root.new-goal(); }
+                }
+                // A list's ⋯ renames or deletes it; a view's and a goal's have theirs.
+                if root.page != 2: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.more;
+                    label: "More";
+                    clicked => {
+                        if (root.page == 1) {
+                            root.menu-requested("goal");
+                        } else if (root.overview.list-place >= 0
+                            && root.overview.list-place < root.places.length) {
+                            root.place-menu(root.places[root.overview.list-place],
+                                self.absolute-position.x, self.absolute-position.y + self.height);
+                        } else {
+                            root.menu-requested("page");
+                        }
+                    }
+                }
+            }
+            if !Layout.compact: WindowToolbar {
                 hairline: root.page == 0;
                 background: root.page == 0 ? Tokens.surface : Tokens.background;
                 // No column beside the list: its views and lists open as a page.
-                // On a phone the overview is the page before this one: a back arrow.
                 if Layout.width-class != WidthClass.expanded: IconButton {
                     y: (parent.height - self.height) / 2;
-                    icon: Layout.compact ? Icons.arrow-left : Icons.list;
+                    icon: Icons.list;
                     label: "Lists";
                     button-size: Layout.touch-input ? 44px : 30px;
                     icon-size: Layout.touch-input ? 22px : 18px;
@@ -1607,6 +2755,7 @@ export component TasksView inherits Rectangle {
             edit-goal => { root.goal-edit(); }
             renamed(t) => { root.goal-renamed(t); }
             rename-closed => { root.goal-rename-closed(); }
+            log-requested => { root.goal-logging = true; }
 
             // The steps: the tasks toward it.
             etapes := ScrollView {
@@ -1617,13 +2766,23 @@ export component TasksView inherits Rectangle {
                 VerticalLayout {
                     width: etapes.visible-width;
                     alignment: start;
-                    spacing: 6px;
-                    for ligne[i] in root.rows: TaskRow {
-                        item: ligne;
-                        selected(r) => { root.row-selected(r); }
-                        toggled(id) => { root.toggled(id); }
-                        clear-completed => { root.clear-completed(); }
-                        later(r, x, y) => { root.task-later(r.id, x, y); }
+                    spacing: Layout.compact ? 0px : 6px;
+                    for ligne[i] in root.rows: VerticalLayout {
+                        if !Layout.compact: TaskRow {
+                            item: ligne;
+                            selected(r) => { root.row-selected(r); }
+                            toggled(id) => { root.toggled(id); }
+                            clear-completed => { root.clear-completed(); }
+                            later(r, x, y) => { root.task-later(r.id, x, y); }
+                        }
+                        // A step on a phone: the list's own row, on its card.
+                        if Layout.compact: PhoneTaskRow {
+                            item: ligne;
+                            selected(r) => { root.row-selected(r); }
+                            toggled(id) => { root.toggled(id); }
+                            clear-completed => { root.clear-completed(); }
+                            later(r, x, y) => { root.task-later(r.id, x, y); }
+                        }
                     }
                     if root.rows.length == 0: Text {
                         height: 44px;
@@ -1658,20 +2817,42 @@ export component TasksView inherits Rectangle {
             // The name of the view in large, in its list's colour, and how many are open
             // beside it, as Reminders writes them; the day and how much is done under.
             property <color> encre: root.overview.tint.alpha == 0 ? Tokens.accent : root.overview.tint;
-            // On a phone the mockups' head: the margins of a narrow screen, the title
-            // in the text's colour.
-            HorizontalLayout {
+            // On a phone the mockups' head (T2, T7): the title large in the text's
+            // colour, the day under it, how much is done at its right over a bar.
+            if Layout.compact: HorizontalLayout {
+                padding-right: 18px;
+                spacing: 10px;
+                BigTitle {
+                    horizontal-stretch: 1;
+                    text: root.title;
+                    sub: root.subtitle;
+                }
+                if root.overview.progress != "": VerticalLayout {
+                    width: 110px;
+                    alignment: end;
+                    padding-bottom: 16px;
+                    spacing: 5px;
+                    Text {
+                        text: root.overview.progress;
+                        font-size: 13px;
+                        color: Tokens.text-secondary;
+                        horizontal-alignment: right;
+                    }
+                    DoneBar { fraction: root.overview.fraction; }
+                }
+            }
+            if !Layout.compact: HorizontalLayout {
                 height: 52px;
-                padding-left: Layout.compact ? 18px : 40px;
-                padding-right: Layout.compact ? 18px : 32px;
+                padding-left: 40px;
+                padding-right: 32px;
                 padding-top: 8px;
                 spacing: 12px;
                 Text {
                     text: root.title;
                     font-family: Tokens.font-display;
-                    font-size: Layout.compact ? 28px : 30px;
+                    font-size: 30px;
                     font-weight: 700;
-                    color: Layout.compact ? Tokens.text : colonne-page.encre;
+                    color: colonne-page.encre;
                     vertical-alignment: bottom;
                     horizontal-stretch: 1;
                     overflow: elide;
@@ -1685,10 +2866,10 @@ export component TasksView inherits Rectangle {
                     vertical-alignment: bottom;
                 }
             }
-            HorizontalLayout {
+            if !Layout.compact: HorizontalLayout {
                 height: 30px;
-                padding-left: Layout.compact ? 18px : 40px;
-                padding-right: Layout.compact ? 18px : 32px;
+                padding-left: 40px;
+                padding-right: 32px;
                 spacing: 12px;
                 Text {
                     text: root.subtitle;
@@ -1739,7 +2920,7 @@ export component TasksView inherits Rectangle {
                 }
             }
 
-            if root.nudges.length > 0: HorizontalLayout {
+            if root.nudges.length > 0 && !Layout.compact: HorizontalLayout {
                 padding-left: 32px;
                 padding-right: 32px;
                 padding-top: 10px;
@@ -1749,7 +2930,118 @@ export component TasksView inherits Rectangle {
                     chosen(id) => { root.place-chosen("goal:" + id); }
                 }
             }
-            if root.nudges.length > 0: Hairline {}
+            if root.nudges.length > 0 && !Layout.compact: Hairline {}
+
+            // On a phone (T2): the goal that needs attention, a card of its own; then
+            // what the calendar holds next today, and how many more.
+            if Layout.compact: VerticalLayout {
+                for g in root.nudges: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 4px;
+                    Rectangle {
+                        height: 44px;
+                        border-radius: 14px;
+                        border-width: 1px;
+                        border-color: Tokens.border;
+                        background: pousse.pressed ? Tokens.surface-active : transparent;
+                        accessible-role: button;
+                        accessible-label: g.title;
+                        accessible-description: g.pace;
+                        accessible-action-default => { root.place-chosen("goal:" + g.id); }
+                        pousse := TouchArea {
+                            clicked => { root.place-chosen("goal:" + g.id); }
+                        }
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 10px;
+                            GoalRing {
+                                y: (parent.height - self.height) / 2;
+                                ring: g.ring;
+                                tint: g.color;
+                                size: 20px;
+                                stroke: 2.8px;
+                                track: Tokens.border-strong;
+                            }
+                            Text {
+                                text: g.title;
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: Tokens.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                max-width: self.preferred-width;
+                            }
+                            Text {
+                                text: "· " + (g.status == 1 ? g.badge + ", " : "") + g.pace;
+                                font-size: 14px;
+                                color: Tokens.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                    }
+                }
+                // The next event today (the first not past), and the rest counted.
+                for a[i] in root.overview.agenda: VerticalLayout {
+                    if !a.past && (i == 0 || root.overview.agenda[i - 1].past): Rectangle {
+                        height: 46px;
+                        background: vers-agenda.pressed ? Tokens.surface-active : transparent;
+                        accessible-role: button;
+                        accessible-label: a.meta + " " + a.title;
+                        accessible-action-default => { root.open-calendar(); }
+                        vers-agenda := TouchArea {
+                            clicked => { root.open-calendar(); }
+                        }
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            background: Tokens.border;
+                        }
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            spacing: 10px;
+                            Rectangle {
+                                y: (parent.height - self.height) / 2;
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: a.color;
+                            }
+                            Text {
+                                text: a.meta;
+                                font-size: 14px;
+                                color: Tokens.text-secondary;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: a.title;
+                                font-size: 14px;
+                                color: Tokens.text-secondary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            if root.overview.agenda.length - i - 1 > 0: Text {
+                                text: "+" + (root.overview.agenda.length - i - 1)
+                                    + (root.overview.agenda.length - i - 1 == 1 ? " event" : " events");
+                                font-size: 14px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                            }
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.chevron-right;
+                                size: 14px;
+                                tint: Tokens.text-muted;
+                            }
+                        }
+                    }
+                }
+            }
 
             liste-taches := ScrollView {
                 vertical-stretch: 1;
@@ -1761,13 +3053,23 @@ export component TasksView inherits Rectangle {
                 VerticalLayout {
                     width: liste-taches.visible-width;
                     alignment: start;
-                    // The rows' own 12 px inset brings their circles to the title's 40
-                    // (18 on a phone).
-                    padding-left: Layout.compact ? 6px : 28px;
-                    padding-right: Layout.compact ? 8px : 32px;
-                    padding-top: 6px;
+                    // The rows' own 12 px inset brings their circles to the title's 40.
+                    // On a phone the rows run edge to edge, their own 18 inside.
+                    padding-left: Layout.compact ? 0px : 28px;
+                    padding-right: Layout.compact ? 0px : 32px;
+                    padding-top: Layout.compact ? 0px : 6px;
                     padding-bottom: 12px;
                     spacing: 0px;
+                        if Layout.compact: VerticalLayout {
+                            for ligne in root.rows: PhoneTaskRow {
+                                item: ligne;
+                                selected(r) => { root.row-selected(r); }
+                                toggled(id) => { root.toggled(id); }
+                                clear-completed => { root.clear-completed(); }
+                                later(r, x, y) => { root.task-later(r.id, x, y); }
+                            }
+                        }
+                        if !Layout.compact: VerticalLayout {
                         for ligne[i] in root.rows: TaskRow {
                             item: ligne;
                             selected(r) => { root.row-selected(r); }
@@ -1800,6 +3102,7 @@ export component TasksView inherits Rectangle {
                                 root.carried = -1;
                             }
                         }
+                        }
                         if root.rows.length == 0: Text {
                             height: 120px;
                             text: "Nothing here. Add a task below.";
@@ -1819,10 +3122,11 @@ export component TasksView inherits Rectangle {
                 vertical-stretch: 0;
                 visible: root.page != 2;
                 max-height: root.page == 2 ? 0px : 200px;
-                padding-left: root.page == 1 ? 36px : 32px;
-                padding-right: root.page == 1 ? 36px : 32px;
-                padding-top: root.page == 1 ? 8px : 20px;
-                padding-bottom: 18px;
+                // On a phone the dock runs edge to edge at the page's foot.
+                padding-left: Layout.compact ? 0px : root.page == 1 ? 36px : 32px;
+                padding-right: Layout.compact ? 0px : root.page == 1 ? 36px : 32px;
+                padding-top: Layout.compact ? 0px : root.page == 1 ? 8px : 20px;
+                padding-bottom: Layout.compact ? 0px : 18px;
                 Rectangle { horizontal-stretch: 1; }
                 ajout := AddBar {
                     horizontal-stretch: 1000;
@@ -1841,8 +3145,9 @@ export component TasksView inherits Rectangle {
         }
 
         // --- Right: the chosen task ---
-        if root.has-detail: TaskDetail {
-            panel-width: Layout.compact ? Layout.window-width - 12px : 372px;
+        if root.has-detail && !Layout.compact: TaskDetail {
+            panel-width: 372px;
+            step-focus-request: root.focus-step;
             detail: root.detail;
             title <=> root.detail-title;
             notes <=> root.detail-notes;
@@ -1878,18 +3183,156 @@ export component TasksView inherits Rectangle {
             delete => { root.delete(); }
             closed => { root.detail-closed(); }
         }
+        // On a phone, the task as a page of its own (T5).
+        if root.has-detail && Layout.compact: TaskPage {
+            horizontal-stretch: 1;
+            detail: root.detail;
+            title <=> root.detail-title;
+            notes <=> root.detail-notes;
+            time <=> root.detail-time;
+            lists: root.lists;
+            reminders: root.reminders;
+            repeats: root.repeats;
+            picker-open: root.picker-open;
+            picker-title: root.picker-title;
+            picker-cells: root.picker-cells;
+            step-focus-request: root.focus-step;
+            later(x, y) => { root.task-later(root.detail.id, x, y); }
+            slot-requested(x, y) => { root.slot-requested(x, y); }
+            unbook => { root.unbook(); }
+            estimate-chosen(m) => { root.estimate-chosen(m); }
+            estimate-typed(t) => { root.estimate-typed(t); }
+            toggled(id) => { root.toggled(id); }
+            title-edited(t) => { root.title-edited(t); }
+            notes-edited(t) => { root.notes-edited(t); }
+            time-edited(t) => { root.time-edited(t); }
+            picker-toggled => { root.picker-toggled(); }
+            picker-navigate(n) => { root.picker-navigate(n); }
+            picker-chosen(d) => { root.picker-chosen(d); }
+            due-cleared => { root.due-cleared(); }
+            reminder-chosen(i) => { root.reminder-chosen(i); }
+            repeat-chosen(i) => { root.repeat-chosen(i); }
+            priority-chosen(p) => { root.priority-chosen(p); }
+            list-chosen(i) => { root.list-chosen(i); }
+            step-added(t) => { root.step-added(t); }
+            step-toggled(id) => { root.step-toggled(id); }
+            step-removed(id) => { root.step-removed(id); }
+            open-mail => { root.open-mail(); }
+            delete => { root.delete(); }
+            closed => { root.detail-closed(); }
+            menu => { root.menu-requested("task"); }
+        }
         }
         }
     }
 
-    // Its length, asked over the add bar, centred on the middle column.
+    // Its length, asked over the add bar, centred on the middle column; on a phone,
+    // the width of the screen just over the dock.
     if root.asking != "" && root.page != 2 && !root.column-only: EstimateBubble {
-        property <length> colonne: 232px;
+        property <length> colonne: Layout.compact ? 0px : 232px;
         property <length> milieu: root.width - self.colonne - (root.has-detail ? 384px : 0px);
-        x: self.colonne + (self.milieu - self.width) / 2;
-        y: root.height - 18px - 50px - 8px - self.height;
+        x: Layout.compact ? 14px : self.colonne + (self.milieu - self.width) / 2;
+        y: Layout.compact ? root.height - 64px - (root.add-tokens.length > 0 ? 40px : 0px) - 10px - self.height
+            : root.height - 18px - 50px - 8px - self.height;
+        phone-width: root.width - 28px;
+        visible: !(Layout.compact && (root.has-detail || root.column-open));
         task: root.asking;
         chosen(m) => { root.asked-estimate(m); }
+        skipped => { root.add-answered(""); }
+    }
+
+    // Log one on a phone (the mockups' G5): a sheet over the goal, just above the
+    // keyboard, a word on what was done and Log. Iris never counts on its own.
+    if root.goal-logging && Layout.compact && root.page == 1: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Tokens.scrim;
+        FocusScope {
+            width: 100%;
+            height: 100%;
+            enabled: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape || event.text == Key.Back) {
+                    root.goal-logging = false;
+                    return accept;
+                }
+                return reject;
+            }
+            TouchArea {
+                clicked => { root.goal-logging = false; }
+            }
+            Rectangle {
+                x: 0px;
+                y: parent.height - self.height;
+                width: parent.width;
+                height: feuille.preferred-height;
+                border-top-left-radius: 22px;
+                border-top-right-radius: 22px;
+                background: Tokens.panel;
+                drop-shadow-blur: Tokens.shadow-window-blur;
+                drop-shadow-color: Tokens.shadow-window;
+                TouchArea {}
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: 8px;
+                    width: 40px;
+                    height: 5px;
+                    border-radius: 3px;
+                    background: Tokens.border-strong;
+                }
+                feuille := VerticalLayout {
+                    padding-top: 17px;
+                    SheetTitle {
+                        text: "Log one";
+                        end: (root.goal.done + 1) + " of " + root.goal.target;
+                    }
+                    HorizontalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        padding-bottom: 6px;
+                        Rectangle {
+                            height: 48px;
+                            border-radius: 12px;
+                            background: Tokens.group;
+                            TextField {
+                                x: 8px;
+                                width: parent.width - 16px;
+                                height: parent.height;
+                                bare: true;
+                                font-size: 16px;
+                                accessible-label: "What did you do?";
+                                placeholder-text: "What did you do? (optional)";
+                                text <=> root.goal-note;
+                                init => { self.focus(); }
+                                accepted(t) => {
+                                    root.goal-logging = false;
+                                    root.goal-logged(t);
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        padding-top: 6px;
+                        padding-bottom: 14px;
+                        spacing: 8px;
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Log";
+                            label: "Log one";
+                            kind: ButtonKind.primary;
+                            size: ButtonSize.sm;
+                            clicked => {
+                                root.goal-logging = false;
+                                root.goal-logged(root.goal-note);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // The task in the hand: a lifted card that follows the pointer, a little off it
@@ -1934,8 +3377,14 @@ export component LaterMenu inherits Rectangle {
     in property <string> task;
     in property <length> menu-x;
     in property <length> menu-y;
+    /// Where Tonight, Tomorrow, This weekend and Next week land: shown on a phone.
+    in property <[string]> days;
+    /// How often it was put off: from three, a phone's sheet asks first.
+    in property <int> postponed;
     callback chosen(string);
     callback pick-date();
+    /// "split", "slot" or "letgo": the answers to the question.
+    callback action(string);
     callback dismissed();
 
     TouchArea {
@@ -1951,9 +3400,11 @@ export component LaterMenu inherits Rectangle {
         menu-x: root.menu-x;
         menu-y: root.menu-y;
         menu-width: 240px;
-        menu-height: entrees.preferred-height + 8px;
+        menu-height: Layout.compact ? feuille.preferred-height : entrees.preferred-height + 8px;
 
+        // The PC's menu.
         entrees := VerticalLayout {
+            visible: !Layout.compact;
             padding: 4px;
             MenuHeader { text: "Move “" + root.task + "” to"; }
             MenuEntry {
@@ -1988,6 +3439,99 @@ export component LaterMenu inherits Rectangle {
                 activated => { root.chosen("someday"); root.dismissed(); }
             }
         }
+
+        // A phone's sheet (the mockups' T6): put off three times, the question comes
+        // first; then each choice with the day it lands on.
+        feuille := VerticalLayout {
+            visible: Layout.compact;
+            padding-bottom: 4px;
+            SheetTitle { text: "Later"; }
+            if root.postponed >= 3: HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                padding-bottom: 10px;
+                Rectangle {
+                    height: question.preferred-height;
+                    border-radius: 14px;
+                    background: Tokens.orange.transparentize(0.89);
+                    question := VerticalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        padding-top: 12px;
+                        padding-bottom: 12px;
+                        spacing: 2px;
+                        Text {
+                            text: "Put off " + root.postponed + " times.";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Tokens.orange;
+                        }
+                        Text {
+                            text: "Split it, give it a slot, or let it go?";
+                            font-size: 14px;
+                            color: Tokens.text-secondary;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            padding-top: 8px;
+                            spacing: 8px;
+                            alignment: start;
+                            Button {
+                                text: "Split into steps";
+                                size: ButtonSize.sm;
+                                clicked => { root.action("split"); }
+                            }
+                            Button {
+                                text: "Find a slot";
+                                size: ButtonSize.sm;
+                                clicked => { root.action("slot"); }
+                            }
+                            Button {
+                                text: "Let go";
+                                label: "Let it go (delete)";
+                                kind: ButtonKind.ghost;
+                                size: ButtonSize.sm;
+                                clicked => { root.action("letgo"); }
+                            }
+                        }
+                    }
+                }
+            }
+            SheetOption {
+                icon: Icons.moon;
+                label: "Tonight";
+                value: root.days.length > 0 ? root.days[0] : "";
+                activated => { root.chosen("tonight"); root.dismissed(); }
+            }
+            SheetOption {
+                icon: Icons.sun;
+                label: "Tomorrow";
+                value: root.days.length > 1 ? root.days[1] : "";
+                activated => { root.chosen("tomorrow"); root.dismissed(); }
+            }
+            SheetOption {
+                icon: Icons.calendar;
+                label: "This weekend";
+                value: root.days.length > 2 ? root.days[2] : "";
+                activated => { root.chosen("weekend"); root.dismissed(); }
+            }
+            SheetOption {
+                icon: Icons.arrow-right;
+                label: "Next week";
+                value: root.days.length > 3 ? root.days[3] : "";
+                activated => { root.chosen("nextweek"); root.dismissed(); }
+            }
+            SheetOption {
+                icon: Icons.pencil;
+                label: "Pick a date…";
+                activated => { root.pick-date(); root.dismissed(); }
+            }
+            SheetOption {
+                icon: Icons.cards;
+                label: "Someday";
+                activated => { root.chosen("someday"); root.dismissed(); }
+            }
+        }
     }
 }
 
@@ -2001,11 +3545,23 @@ export component SlotPicker inherits Rectangle {
     in property <[string]> slots;
     in property <length> menu-x;
     in property <length> menu-y;
+    /// For a phone's sheet: the length ("30 min"), what is taken as hours and titles,
+    /// the free stretches by their start, and two other days.
+    in property <string> length;
+    in property <[string]> busy-times;
+    in property <[string]> busy-titles;
+    in property <[string]> starts;
+    in property <[string]> other-days;
     callback chosen(int);
     callback typed(string);
+    /// The first (0) or the second (1) of `other-days`.
+    callback day-chosen(int);
     callback dismissed();
 
     property <string> autre;
+    /// On a phone a stretch is picked first, then blocked.
+    property <int> choisi: 0;
+    changed starts => { root.choisi = 0; }
 
     TouchArea {
         width: 100%;
@@ -2020,9 +3576,123 @@ export component SlotPicker inherits Rectangle {
         menu-x: root.menu-x;
         menu-y: root.menu-y;
         menu-width: 330px;
-        menu-height: carte.preferred-height;
+        menu-height: Layout.compact ? feuille.preferred-height : carte.preferred-height;
+
+        // A phone's sheet (the mockups' T8): the hours already taken, the free ones as
+        // pills, another day, and Block.
+        feuille := VerticalLayout {
+            visible: Layout.compact;
+            padding-bottom: 6px;
+            SheetTitle {
+                text: "Find a slot";
+                end: root.length + " · " + root.day;
+            }
+            HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                Text {
+                    text: "Between your events and timed tasks";
+                    font-size: 13.5px;
+                    color: Tokens.text-muted;
+                }
+            }
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 6px;
+                for heure[i] in root.busy-times: HorizontalLayout {
+                    height: 28px;
+                    spacing: 10px;
+                    Text {
+                        width: 100px;
+                        text: heure;
+                        font-size: 13.5px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.busy-titles.length > i ? root.busy-titles[i] : "";
+                        font-size: 13.5px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                }
+            }
+            // The free stretches by their start, five to a row.
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 12px;
+                padding-bottom: 6px;
+                spacing: 8px;
+                for rang in ceil(root.starts.length / 5): HorizontalLayout {
+                    alignment: start;
+                    height: 34px;
+                    // Each pill with the gap after it; those of other rows take no room.
+                    for s[i] in root.starts: Rectangle {
+                        property <bool> ici: floor(i / 5) == rang;
+                        visible: self.ici;
+                        width: self.ici ? puce.width + 8px : 0px;
+                        puce := Pill {
+                            x: 0px;
+                            text: s;
+                            on: i == root.choisi;
+                            toggled => { root.choisi = i; }
+                        }
+                    }
+                }
+                if root.starts.length == 0: Text {
+                    text: "No free stretch left that day.";
+                    font-size: 13.5px;
+                    color: Tokens.text-muted;
+                }
+            }
+            if root.other-days.length >= 2: HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 10px;
+                padding-bottom: 6px;
+                spacing: 0px;
+                alignment: start;
+                Text {
+                    text: "Another day: ";
+                    font-size: 14px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                AccentLink {
+                    text: root.other-days[0];
+                    label: "Find a slot on " + root.other-days[0];
+                    clicked => { root.day-chosen(0); }
+                }
+                Text {
+                    text: " · ";
+                    font-size: 14px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+                AccentLink {
+                    text: root.other-days[1];
+                    label: "Find a slot on " + root.other-days[1];
+                    clicked => { root.day-chosen(1); }
+                }
+            }
+            if root.starts.length > 0: HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 12px;
+                padding-bottom: 10px;
+                BlockButton {
+                    text: "Block " + (root.slots.length > root.choisi ? root.slots[root.choisi] : "");
+                    clicked => { root.chosen(root.choisi); }
+                }
+            }
+        }
 
         carte := VerticalLayout {
+            visible: !Layout.compact;
             padding: 16px;
             spacing: 8px;
             Text {
@@ -2188,6 +3858,85 @@ export component TaskListNamePanel inherits Rectangle {
                 text: root.is-new ? "Create" : "Rename";
                 kind: ButtonKind.primary;
                 clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
+// A phone's ⋯ in Tasks, as a sheet: what the page has besides its own buttons. The
+// overview and a view make things (a list, a goal, a habit) and, on Today, take the
+// plan back; a task copies its link or goes; a goal or a habit goes.
+export component TasksMenu inherits Rectangle {
+    /// "overview", "page", "task", "goal", "habit".
+    in property <string> kind;
+    in property <bool> can-unplan;
+    /// "new-list", "new-goal", "new-habit", "unplan", "copy-link", "delete-task",
+    /// "delete-goal", "delete-habit".
+    callback chosen(string);
+    callback dismissed();
+
+    property <bool> creer: root.kind == "overview" || root.kind == "page";
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.width - 248px;
+        menu-y: 56px;
+        menu-width: 240px;
+        menu-height: entrees.preferred-height;
+
+        entrees := VerticalLayout {
+            padding-bottom: 4px;
+            if root.kind == "page" && root.can-unplan: SheetOption {
+                icon: Icons.undo;
+                label: "Undo plan";
+                activated => { root.chosen("unplan"); }
+            }
+            if root.creer: SheetOption {
+                icon: Icons.list;
+                label: "New list";
+                activated => { root.chosen("new-list"); }
+            }
+            if root.creer: SheetOption {
+                icon: Icons.flag;
+                label: "New goal";
+                activated => { root.chosen("new-goal"); }
+            }
+            if root.creer: SheetOption {
+                icon: Icons.sprout;
+                label: "New habit";
+                activated => { root.chosen("new-habit"); }
+            }
+            if root.kind == "task": SheetOption {
+                icon: Icons.link;
+                label: "Copy link";
+                value: "for a note";
+                activated => { root.chosen("copy-link"); }
+            }
+            if root.kind == "task": SheetOption {
+                icon: Icons.trash;
+                label: "Delete task";
+                danger: true;
+                activated => { root.chosen("delete-task"); }
+            }
+            if root.kind == "goal": SheetOption {
+                icon: Icons.trash;
+                label: "Delete goal";
+                danger: true;
+                activated => { root.chosen("delete-goal"); }
+            }
+            if root.kind == "habit": SheetOption {
+                icon: Icons.trash;
+                label: "Delete habit";
+                danger: true;
+                activated => { root.chosen("delete-habit"); }
             }
         }
     }

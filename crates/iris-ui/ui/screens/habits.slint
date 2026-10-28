@@ -10,6 +10,11 @@ import { ComboBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { DetailPanel, Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
+import { QueueSegments } from "@iris/controls/choice.slint";
+import {
+    BarButton, PhoneBar, BigTitle, GroupTitle, GroupCard, GroupRow, RowTile, RowLabel, RowValue,
+    RowChevron
+} from "@iris/screens/tasks-phone.slint";
 
 // Habits: a circle a day, filled when it was kept. A habit is only ever about today:
 // a day missed is a day missed, never one owed.
@@ -272,6 +277,110 @@ export component HabitRow inherits Rectangle {
     }
 }
 
+/// A habit on a phone (the mockups' G1): its tile, name and what it is, its streak at
+/// the right; its days under it on a line of their own, so that each is a 32-pixel
+/// disc a thumb can tick. The month's and the year's share the same line.
+component PhoneHabitRow inherits Rectangle {
+    in property <HabitData> item;
+    /// 0 the week, 1 the month, 2 the year.
+    in property <int> mode;
+    callback selected(int);
+    callback cell-clicked(int, string);
+
+    height: 12px + 30px + 10px + 32px + 12px;
+    background: ligne.pressed ? Tokens.surface.mix(Tokens.text, 0.94) : Tokens.surface;
+
+    accessible-role: list-item;
+    accessible-label: root.item.title;
+    accessible-description: root.item.subtitle + ", " + root.item.streak;
+    accessible-action-default => { root.selected(root.item.id); }
+
+    ligne := TouchArea {
+        clicked => { root.selected(root.item.id); }
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    VerticalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 10px;
+        HorizontalLayout {
+            height: 30px;
+            spacing: 12px;
+            HabitTile {
+                icon: root.item.icon;
+                tint: root.item.color;
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.item.title;
+                    font-size: 15.5px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
+                if root.item.subtitle != "": Text {
+                    text: root.item.subtitle;
+                    font-size: 13px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                if root.item.flame: Icon {
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.flame;
+                    size: 16px;
+                    filled: true;
+                    weight: 0;
+                    tint: root.item.hot ? Tokens.orange : Tokens.text-faint;
+                }
+                Text {
+                    text: root.item.streak;
+                    font-size: 14px;
+                    font-weight: root.item.hot ? 600 : 500;
+                    color: root.item.hot ? Tokens.text : root.item.flame ? Tokens.text : Tokens.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        // The days, as many equal columns, under the name.
+        HorizontalLayout {
+            height: 32px;
+            padding-left: 42px;
+            for c in root.item.cells: Rectangle {
+                // Equal columns whatever they hold: the disc follows the column.
+                horizontal-stretch: 1;
+                min-width: 0px;
+                preferred-width: 0px;
+                if root.mode != 2: HabitCell {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    cell: c;
+                    tint: root.item.color;
+                    size: min(32px, parent.width - 2px);
+                    clicked(d) => { root.cell-clicked(root.item.id, d); }
+                }
+                if root.mode == 2: HabitMonth {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    cell: c;
+                    tint: root.item.color;
+                }
+            }
+        }
+    }
+}
+
 /// The page: this week (or month, or year), the habits by group, and the line to add
 /// one.
 export component HabitsPage inherits VerticalLayout {
@@ -295,7 +404,8 @@ export component HabitsPage inherits VerticalLayout {
 
     changed focus-request => { ajout.focus(); }
 
-    HorizontalLayout {
+    // On a phone the window above draws the bar, the title and the switch.
+    if !Layout.compact: HorizontalLayout {
         padding-left: 36px;
         padding-right: 36px;
         padding-top: 20px;
@@ -316,7 +426,7 @@ export component HabitsPage inherits VerticalLayout {
             vertical-alignment: bottom;
         }
     }
-    HorizontalLayout {
+    if !Layout.compact: HorizontalLayout {
         padding-left: 36px;
         padding-right: 36px;
         padding-top: 4px;
@@ -336,12 +446,12 @@ export component HabitsPage inherits VerticalLayout {
         VerticalLayout {
             width: liste.visible-width;
             alignment: start;
-            padding-left: 24px;
-            padding-right: 24px;
+            padding-left: Layout.compact ? 0px : 24px;
+            padding-right: Layout.compact ? 0px : 24px;
             padding-bottom: 8px;
             spacing: 0px;
-            for r in root.rows: VerticalLayout {
-                if r.kind == 1: GroupHead {
+            for r[i] in root.rows: VerticalLayout {
+                if r.kind == 1 && !Layout.compact: GroupHead {
                     text: r.title;
                     end: r.streak;
                     labels: root.labels;
@@ -349,7 +459,43 @@ export component HabitsPage inherits VerticalLayout {
                     cell-size: root.cell-size;
                     cell-gap: root.cell-gap;
                 }
-                if r.kind == 0: HabitRow {
+                // A group's title on a phone, and over the first the days' letters,
+                // each above its column of discs.
+                if r.kind == 1 && Layout.compact: HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    padding-top: 18px;
+                    padding-bottom: 4px;
+                    Text {
+                        text: r.title;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Tokens.text-secondary;
+                    }
+                }
+                if r.kind == 1 && Layout.compact && i == 0 && root.mode == 0: HorizontalLayout {
+                    padding-left: 60px;
+                    padding-right: 18px;
+                    height: 18px;
+                    for l[j] in root.labels: Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        preferred-width: 0px;
+                        text: l;
+                        font-size: 12px;
+                        font-weight: j == root.today ? 700 : 400;
+                        color: j == root.today ? Tokens.accent : Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                if r.kind == 0 && Layout.compact: PhoneHabitRow {
+                    item: r;
+                    mode: root.mode;
+                    selected(id) => { root.selected(id); }
+                    cell-clicked(id, d) => { root.cell-clicked(id, d); }
+                }
+                if r.kind == 0 && !Layout.compact: HabitRow {
                     item: r;
                     mode: root.mode;
                     cell-size: root.cell-size;
@@ -369,39 +515,57 @@ export component HabitsPage inherits VerticalLayout {
         }
     }
 
-    // A habit in one line: "Read 20 pages every day", "Run 3 times a week".
-    HorizontalLayout {
-        padding-left: 36px;
-        padding-right: 36px;
-        padding-top: 6px;
-        padding-bottom: 16px;
-        spacing: 12px;
-        height: 58px;
-        Rectangle {
-            y: (parent.height - self.height) / 2;
-            width: 30px;
-            height: 30px;
-            border-radius: 9px;
-            border-width: 1.5px;
-            border-color: ajout.has-focus ? Tokens.accent : Tokens.border-strong;
-            Icon {
-                data: Icons.plus;
-                size: 16px;
-                weight: 2;
-                tint: Tokens.accent;
-            }
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => { ajout.focus(); }
-            }
+    // A habit in one line: "Read 20 pages every day", "Run 3 times a week". On a phone
+    // the mockups' dock: a pill at the page's foot, a hairline over it.
+    Rectangle {
+        height: Layout.compact ? 64px : 58px;
+        background: Layout.compact ? Tokens.surface : transparent;
+        if Layout.compact: Rectangle {
+            y: 0px;
+            height: 1px;
+            background: Tokens.border;
         }
-        ajout := TextField {
-            y: (parent.height - self.height) / 2;
-            bare: true;
-            accessible-label: "New habit";
-            placeholder-text: "New habit — “read 20 pages every day”, “run 3 times a week”";
-            text <=> root.add-text;
-            accepted(t) => { root.add(t); }
+        HorizontalLayout {
+            padding-left: Layout.compact ? 14px : 36px;
+            padding-right: Layout.compact ? 14px : 36px;
+            padding-top: Layout.compact ? 10px : 6px;
+            padding-bottom: Layout.compact ? 10px : 16px;
+            Rectangle {
+                border-radius: Layout.compact ? 22px : 0px;
+                background: Layout.compact && !ajout.has-focus ? Tokens.well : transparent;
+                HorizontalLayout {
+                    padding-left: Layout.compact ? 16px : 0px;
+                    spacing: Layout.compact ? 10px : 12px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: Layout.compact ? 18px : 30px;
+                        height: Layout.compact ? 18px : 30px;
+                        border-radius: 9px;
+                        border-width: Layout.compact ? 0px : 1.5px;
+                        border-color: ajout.has-focus ? Tokens.accent : Tokens.border-strong;
+                        Icon {
+                            data: Icons.plus;
+                            size: Layout.compact ? 18px : 16px;
+                            weight: 2;
+                            tint: Layout.compact ? Tokens.text-muted : Tokens.accent;
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { ajout.focus(); }
+                        }
+                    }
+                    ajout := TextField {
+                        y: (parent.height - self.height) / 2;
+                        bare: true;
+                        font-size: Layout.compact ? 15px : Tokens.size-body;
+                        accessible-label: "New habit";
+                        placeholder-text: Layout.compact ? "New habit — “run 3 times a week”"
+                            : "New habit — “read 20 pages every day”, “run 3 times a week”";
+                        text <=> root.add-text;
+                        accepted(t) => { root.add(t); }
+                    }
+                }
+            }
         }
     }
 }
@@ -709,6 +873,339 @@ export component HabitPanel inherits DetailPanel {
     }
 }
 
+/// A round button of a habit's page: − and + for its amount.
+component RoundButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <color> fill: Tokens.well;
+    in property <color> ink: Tokens.text-secondary;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 52px;
+    height: 52px;
+    border-radius: 26px;
+    background: touch.pressed ? root.fill.darker(0.12) : root.fill;
+    opacity: root.enabled ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    Icon {
+        data: root.icon;
+        size: 22px;
+        weight: 2;
+        tint: root.ink;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// One of a habit's figures on a phone: a card, the number large, what it counts.
+component FigureCard inherits Rectangle {
+    in property <string> value;
+    in property <string> label;
+    in property <color> tint: Tokens.text;
+    // Three equal thirds, as the mockup's grid.
+    horizontal-stretch: 1;
+    min-width: 0px;
+    preferred-width: 0px;
+    height: chiffre.preferred-height;
+    border-radius: 18px;
+    background: Tokens.surface;
+    drop-shadow-blur: Tokens.shadow-card-blur;
+    drop-shadow-offset-y: Tokens.shadow-card-y;
+    drop-shadow-color: Tokens.shadow-card;
+    chiffre := VerticalLayout {
+        padding: 12px;
+        spacing: 0px;
+        Text {
+            text: root.value;
+            font-family: Tokens.font-display;
+            font-size: 24px;
+            font-weight: 600;
+            color: root.tint;
+        }
+        Text {
+            text: root.label;
+            font-size: 12.5px;
+            color: Tokens.text-muted;
+            overflow: elide;
+        }
+    }
+}
+
+/// The habit chosen, on a phone (the mockups' G2): the floating panel becomes a page.
+/// Its mark and sentence; − and + in large for an amount; its figures; the last six
+/// months day by day; the goal it counts toward; its reminder. The pencil changes the
+/// rest; ⋯ deletes it.
+export component HabitPage inherits Rectangle {
+    in property <HabitDetailData> detail;
+    callback edit();
+    callback closed();
+    callback goal-opened(int);
+    callback amount-step(int);
+    callback menu();
+
+    background: Tokens.background;
+
+    VerticalLayout {
+        PhoneBar {
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Close";
+                clicked => { root.closed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.pencil;
+                label: "Edit habit";
+                clicked => { root.edit(); }
+            }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.more;
+                label: "More";
+                clicked => { root.menu(); }
+            }
+        }
+
+        page := ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            VerticalLayout {
+                width: page.visible-width;
+                alignment: start;
+                padding-bottom: 24px;
+
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    spacing: 14px;
+                    HabitTile {
+                        y: (parent.height - self.height) / 2;
+                        size: 48px;
+                        icon: root.detail.icon;
+                        tint: root.detail.color;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: root.detail.title;
+                            font-family: Tokens.font-display;
+                            font-size: 24px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.detail.sentence;
+                            font-size: 14px;
+                            color: Tokens.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+
+                // Today, for a habit with an amount: a step less or more, in large.
+                if root.detail.amount > 0: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 18px;
+                    Rectangle {
+                        height: 80px;
+                        border-radius: 18px;
+                        background: Tokens.surface;
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 22px;
+                            RoundButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.minus;
+                                label: "Less today";
+                                enabled: root.detail.today-amount > 0;
+                                clicked => { root.amount-step(-1); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    alignment: center;
+                                    spacing: 4px;
+                                    Text {
+                                        text: root.detail.today-amount;
+                                        font-family: Tokens.font-display;
+                                        font-size: 34px;
+                                        font-weight: 600;
+                                        color: root.detail.today-amount >= root.detail.amount
+                                            ? root.detail.color : Tokens.text;
+                                        vertical-alignment: bottom;
+                                    }
+                                    Text {
+                                        text: "of " + root.detail.amount;
+                                        font-size: 15px;
+                                        color: Tokens.text-muted;
+                                        vertical-alignment: bottom;
+                                        y: -5px;
+                                    }
+                                }
+                                Text {
+                                    text: "today";
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                            RoundButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.plus;
+                                label: "More today";
+                                fill: root.detail.color;
+                                ink: Tokens.accent-text;
+                                clicked => { root.amount-step(1); }
+                            }
+                        }
+                    }
+                }
+
+                // In a row, how long it runs, the best it ran, the last thirty days.
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 12px;
+                    spacing: 10px;
+                    FigureCard {
+                        value: root.detail.streak;
+                        label: root.detail.streak-label;
+                        tint: root.detail.color;
+                    }
+                    FigureCard {
+                        value: root.detail.best;
+                        label: "best streak";
+                    }
+                    FigureCard {
+                        value: root.detail.rate;
+                        label: "last 30 days";
+                    }
+                }
+
+                // The last six months, a column a week, Monday at the top.
+                GroupTitle {
+                    text: "Last six months";
+                    Text {
+                        text: root.detail.grid-count;
+                        font-size: 13px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    Rectangle {
+                        border-radius: 14px;
+                        background: Tokens.surface;
+                        height: grille.preferred-height + 28px;
+                        grille := VerticalLayout {
+                            x: 14px;
+                            y: 14px;
+                            width: parent.width - 28px;
+                            spacing: 6px;
+                            // 26 weeks across, a gap of 3 between the squares.
+                            property <length> cote: (self.width - 25 * 3px) / 26;
+                            Rectangle {
+                                height: 7 * grille.cote + 6 * 3px;
+                                for c[i] in root.detail.grid: Rectangle {
+                                    x: floor(i / 7) * (grille.cote + 3px);
+                                    y: mod(i, 7) * (grille.cote + 3px);
+                                    width: grille.cote;
+                                    height: grille.cote;
+                                    border-radius: 3px;
+                                    background: c.state == 1 ? root.detail.color
+                                        : c.state == 2 ? root.detail.color.transparentize(0.55)
+                                        : Tokens.surface-active;
+                                    opacity: c.state == 5 || c.state == 6 ? 0.4 : 1.0;
+                                }
+                            }
+                            HorizontalLayout {
+                                alignment: space-between;
+                                for m in root.detail.months: Text {
+                                    text: m;
+                                    font-size: 11.5px;
+                                    color: Tokens.text-muted;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // The goal it counts toward.
+                if root.detail.has-goal: GroupTitle { text: "Counts toward"; }
+                if root.detail.has-goal: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    GroupCard {
+                        GroupRow {
+                            first: true;
+                            label: "Open " + root.detail.goal-title;
+                            clicked => { root.goal-opened(root.detail.goal-id); }
+                            RowTile {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.flag;
+                                tint: root.detail.goal-color;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: root.detail.goal-title;
+                                    font-size: 15.5px;
+                                    color: Tokens.text;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: root.detail.goal-line;
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                    overflow: elide;
+                                }
+                            }
+                            RowChevron { y: (parent.height - self.height) / 2; }
+                        }
+                    }
+                }
+
+                // How often, and the reminder.
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 14px;
+                    GroupCard {
+                        GroupRow {
+                            first: true;
+                            flat: true;
+                            enabled: false;
+                            label: "Reminder";
+                            RowLabel { text: "Reminder"; }
+                            RowValue { text: root.detail.reminder; }
+                        }
+                        GroupRow {
+                            flat: true;
+                            enabled: false;
+                            label: "How often";
+                            RowLabel { text: "How often"; }
+                            RowValue { text: root.detail.schedule; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A row of the habit window: its name at the left, what sets it after.
 component FormRow inherits HorizontalLayout {
     in property <string> name;
@@ -754,7 +1251,372 @@ export component NewHabitPanel inherits Rectangle {
         "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
     ];
 
-    Modal {
+    // On a phone the window is a page (the mockups' G3): ✕, its title and Add in the
+    // bar; the name beside its tile; the colour and the icon; more or less; how often,
+    // the times a week with − and +; then each time, the goal, the reminder.
+    if Layout.compact: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Tokens.background;
+
+        FocusScope {
+            enabled: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape || event.text == Key.Back) {
+                    root.dismissed();
+                    return accept;
+                }
+                return reject;
+            }
+
+        // Clicks stay on the page.
+        TouchArea {}
+
+        VerticalLayout {
+            padding-top: Layout.inset-top;
+            padding-bottom: Layout.inset-bottom;
+            Rectangle {
+                height: 56px;
+                background: Tokens.surface;
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Tokens.border;
+                }
+                PhoneBar {
+                    BarButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.window-close;
+                        label: "Cancel";
+                        clicked => { root.dismissed(); }
+                    }
+                    Text {
+                        text: root.editing ? "Edit habit" : "New habit";
+                        font-family: Tokens.font-display;
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                    Button {
+                        y: (parent.height - self.height) / 2;
+                        text: root.editing ? "Save" : "Add";
+                        label: root.editing ? "Save" : "Create habit";
+                        kind: ButtonKind.primary;
+                        size: ButtonSize.sm;
+                        clicked => { root.confirmed(); }
+                    }
+                    Rectangle { width: 6px; }
+                }
+            }
+
+            formulaire := ScrollView {
+                vertical-stretch: 1;
+                content-width: self.visible-width;
+                VerticalLayout {
+                    width: formulaire.visible-width;
+                    alignment: start;
+                    padding-top: 14px;
+                    padding-bottom: 24px;
+
+                    // Its name beside its tile.
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        GroupCard {
+                            GroupRow {
+                                first: true;
+                                flat: true;
+                                enabled: false;
+                                label: "Habit";
+                                HabitTile {
+                                    y: (parent.height - self.height) / 2;
+                                    size: 40px;
+                                    icon: HabitIcons.words.length > root.icon ? HabitIcons.words[root.icon] : "";
+                                    tint: root.colors.length > root.hue ? root.colors[root.hue] : Tokens.accent;
+                                }
+                                TextField {
+                                    y: (parent.height - self.height) / 2;
+                                    height: 44px;
+                                    bare: true;
+                                    font-size: 18px;
+                                    accessible-label: "Habit";
+                                    placeholder-text: "Read, Run, Spanish";
+                                    text <=> root.title;
+                                    // Opened to be written: the first key is the habit's.
+                                    init => { self.focus(); }
+                                    accepted => { root.confirmed(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // Its colour: discs, the chosen one ringed.
+                    HorizontalLayout {
+                        padding-left: 18px;
+                        padding-right: 18px;
+                        padding-top: 14px;
+                        spacing: 10px;
+                        alignment: start;
+                        for c[i] in root.colors: Rectangle {
+                            width: 34px;
+                            height: 34px;
+                            border-radius: 17px;
+                            background: c;
+                            accessible-role: button;
+                            accessible-label: "Colour " + (i + 1);
+                            accessible-item-selected: i == root.hue;
+                            accessible-action-default => { root.hue = i; }
+                            if i == root.hue: Rectangle {
+                                width: 44px;
+                                height: 44px;
+                                border-radius: 22px;
+                                border-width: 2px;
+                                border-color: c;
+                            }
+                            TouchArea {
+                                clicked => { root.hue = i; }
+                            }
+                        }
+                    }
+
+                    // Its icon, seven to a row.
+                    VerticalLayout {
+                        padding-left: 18px;
+                        padding-right: 18px;
+                        padding-top: 12px;
+                        spacing: 6px;
+                        for rang in ceil(HabitIcons.words.length / 7): HorizontalLayout {
+                            alignment: start;
+                            height: 44px;
+                            for w[i] in HabitIcons.words: Rectangle {
+                                property <bool> ici: floor(i / 7) == rang;
+                                visible: self.ici;
+                                width: self.ici ? 50px : 0px;
+                                Rectangle {
+                                    x: 0px;
+                                    width: 44px;
+                                    height: 44px;
+                                    border-radius: 22px;
+                                    background: i == root.icon ? Tokens.accent-soft : Tokens.surface;
+                                    accessible-role: button;
+                                    accessible-label: w;
+                                    accessible-item-selected: i == root.icon;
+                                    accessible-action-default => { root.icon = i; }
+                                    Icon {
+                                        data: HabitIcons.path(w);
+                                        size: 22px;
+                                        weight: 1.8;
+                                        tint: i == root.icon ? Tokens.accent : Tokens.text-secondary;
+                                    }
+                                    TouchArea {
+                                        clicked => { root.icon = i; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 16px;
+                        QueueSegments {
+                            names: ["Do more", "Do less"];
+                            selected: root.kind;
+                            chosen(i) => { root.kind = i; }
+                        }
+                    }
+
+                    GroupTitle { text: "How often"; }
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        QueueSegments {
+                            names: ["Every day", "Some days", "Times a week"];
+                            selected: root.often;
+                            chosen(i) => { root.often = i; }
+                        }
+                    }
+
+                    // Some days: which.
+                    if root.often == 1: HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 12px;
+                        spacing: 6px;
+                        for l[i] in root.lettres: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 44px;
+                            border-radius: 22px;
+                            background: root.days[i] ? Tokens.accent : Tokens.surface;
+                            accessible-role: checkbox;
+                            accessible-label: root.noms[i];
+                            accessible-checked: root.days[i];
+                            accessible-action-default => { root.day-toggled(i); }
+                            Text {
+                                text: l;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: root.days[i] ? Tokens.accent-text : Tokens.text-secondary;
+                            }
+                            TouchArea {
+                                clicked => { root.day-toggled(i); }
+                            }
+                        }
+                    }
+
+                    // So many times a week: − and + round the number.
+                    if root.often == 2: HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 12px;
+                        Rectangle {
+                            height: 64px;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 22px;
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 44px;
+                                    height: 44px;
+                                    border-radius: 22px;
+                                    background: moins.pressed ? Tokens.surface-active : Tokens.well;
+                                    accessible-role: button;
+                                    accessible-label: "Fewer times a week";
+                                    accessible-action-default => {
+                                        root.times = max(1, root.times.to-float() - 1);
+                                    }
+                                    Icon {
+                                        data: Icons.minus;
+                                        size: 20px;
+                                        tint: Tokens.text-secondary;
+                                    }
+                                    moins := TouchArea {
+                                        clicked => { root.times = max(1, root.times.to-float() - 1); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 5px;
+                                    Text {
+                                        text: root.times;
+                                        font-size: 17px;
+                                        font-weight: 700;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: "times a week";
+                                        font-size: 17px;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 44px;
+                                    height: 44px;
+                                    border-radius: 22px;
+                                    background: plus.pressed ? Tokens.surface-active : Tokens.well;
+                                    accessible-role: button;
+                                    accessible-label: "More times a week";
+                                    accessible-action-default => {
+                                        root.times = min(7, root.times.to-float() + 1);
+                                    }
+                                    Icon {
+                                        data: Icons.plus;
+                                        size: 20px;
+                                        tint: Tokens.text-secondary;
+                                    }
+                                    plus := TouchArea {
+                                        clicked => { root.times = min(7, root.times.to-float() + 1); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Each time, the goal it supports, the reminder.
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 14px;
+                        GroupCard {
+                            GroupRow {
+                                first: true;
+                                flat: true;
+                                enabled: false;
+                                label: "Each time";
+                                RowLabel { text: "Each time"; }
+                                TextField {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 56px;
+                                    height: 36px;
+                                    accessible-label: "How much";
+                                    placeholder-text: "5";
+                                    text <=> root.amount;
+                                }
+                                TextField {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 96px;
+                                    height: 36px;
+                                    accessible-label: "Of what";
+                                    placeholder-text: "km";
+                                    text <=> root.unit;
+                                }
+                            }
+                            GroupRow {
+                                flat: true;
+                                enabled: false;
+                                label: "Supports";
+                                RowLabel { text: "Supports"; }
+                                ComboBox {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 170px;
+                                    accessible-label: "Supports";
+                                    model: root.goals;
+                                    current-index <=> root.goal;
+                                }
+                            }
+                            GroupRow {
+                                flat: true;
+                                enabled: false;
+                                label: "Remind me";
+                                RowLabel { text: "Remind me"; }
+                                TextField {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 80px;
+                                    height: 36px;
+                                    accessible-label: "Reminder";
+                                    placeholder-text: "18:30";
+                                    text <=> root.remind;
+                                }
+                            }
+                        }
+                    }
+
+                    if root.error != "": HorizontalLayout {
+                        padding-left: 18px;
+                        padding-right: 18px;
+                        padding-top: 12px;
+                        Text {
+                            text: root.error;
+                            font-size: 13px;
+                            color: Tokens.error;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    if !Layout.compact: Modal {
         width: 100%;
         height: 100%;
         title: root.editing ? "Edit habit" : "New habit";
@@ -998,11 +1860,51 @@ export component HabitsView inherits Rectangle {
     callback amount-step(int);
     /// Below 840 pixels, the tasks' column (where the habits were picked) as a page.
     callback lists-requested();
+    /// A phone's ⋯: "overview" for the page, "habit" for the habit open.
+    callback menu-requested(string);
 
     background: Tokens.surface;
 
     VerticalLayout {
-        WindowToolbar {
+        // On a phone the mockups' G1: back to the overview, New habit, ⋯; the title
+        // with today's count and the dates; the week, month or year.
+        if Layout.compact && !root.has-detail: PhoneBar {
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Lists";
+                clicked => { root.lists-requested(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.plus;
+                label: "New habit";
+                clicked => { root.new-habit(); }
+            }
+            BarButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.more;
+                label: "More";
+                clicked => { root.menu-requested("overview"); }
+            }
+        }
+        if Layout.compact && !root.has-detail: BigTitle {
+            text: "Habits";
+            sub: (root.count != "" ? root.count + " · " : "")
+                + (root.mode == 0 ? root.dates : root.title + (root.dates != "" ? " " + root.dates : ""));
+        }
+        if Layout.compact && !root.has-detail: HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-bottom: 8px;
+            QueueSegments {
+                names: ["Week", "Month", "Year"];
+                selected: root.mode;
+                chosen(i) => { root.mode-chosen(i); }
+            }
+        }
+        if !Layout.compact: WindowToolbar {
             if Layout.width-class != WidthClass.expanded: IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.list;
@@ -1062,14 +1964,24 @@ export component HabitsView inherits Rectangle {
                 cell-clicked(id, d) => { root.cell-clicked(id, d); }
                 add(t) => { root.add(t); }
             }
-            if root.has-detail: HabitPanel {
-                panel-width: Layout.compact ? Layout.window-width - 12px : 340px;
+            if root.has-detail && !Layout.compact: HabitPanel {
+                panel-width: 340px;
                 detail: root.detail;
                 edit => { root.edit(); }
                 delete => { root.delete(); }
                 closed => { root.closed(); }
                 goal-opened(id) => { root.goal-opened(id); }
                 amount-step(n) => { root.amount-step(n); }
+            }
+            // On a phone, the habit as a page of its own (G2).
+            if root.has-detail && Layout.compact: HabitPage {
+                horizontal-stretch: 1;
+                detail: root.detail;
+                edit => { root.edit(); }
+                closed => { root.closed(); }
+                goal-opened(id) => { root.goal-opened(id); }
+                amount-step(n) => { root.amount-step(n); }
+                menu => { root.menu-requested("habit"); }
             }
         }
     }

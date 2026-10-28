@@ -50,7 +50,8 @@ import { CalendarView } from "@iris/screens/calendar.slint";
 import { CalendarsSheet } from "@iris/screens/calendar-phone.slint";
 import { CalendarPhoneData } from "@iris/types.slint";
 import {
-    TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker
+    TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker,
+    TasksMenu
 } from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
 import { NewHabitPanel, HabitDeletePanel, HabitsView } from "@iris/screens/habits.slint";
@@ -1404,6 +1405,17 @@ export component AppWindow inherits Window {
     callback task-later-requested(int);
     callback task-later-chosen(string);
     callback task-later-pick-date();
+    /// Where Tonight, Tomorrow, This weekend and Next week land ("by 23:59", "Tue 27"…),
+    /// and how often the task was put off: the phone's sheet says both.
+    in property <[string]> task-later-days;
+    in property <int> task-later-postponed;
+    /// Put off three times: "split" (its steps), "slot" (Find a slot), "letgo" (delete).
+    callback task-later-action(string);
+    /// Raised to put the cursor in the open task's "Add a subtask".
+    in-out property <int> task-focus-step;
+    /// A menu of Tasks on a phone (its ⋯): "overview", "page", "task", "goal", "habit";
+    /// empty when none is open.
+    in-out property <string> tasks-menu;
     /// A slot for the task shown: the day's events and free stretches.
     in-out property <length> task-slot-x;
     in-out property <length> task-slot-y;
@@ -1412,6 +1424,14 @@ export component AppWindow inherits Window {
     in property <string> task-slot-need;
     in property <[string]> task-slot-busy;
     in property <[string]> task-slots;
+    /// The same for the phone's sheet: the length ("30 min"), what is taken as hours and
+    /// titles, the free stretches by their start, and two other days to look at.
+    in property <string> task-slot-length;
+    in property <[string]> task-slot-busy-times;
+    in property <[string]> task-slot-busy-titles;
+    in property <[string]> task-slot-starts;
+    in property <[string]> task-slot-other-days;
+    callback task-slot-day-chosen(int);
     callback task-slot-requested();
     callback task-slot-chosen(int);
     callback task-slot-typed(string);
@@ -1750,7 +1770,7 @@ export component AppWindow inherits Window {
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
-        || root.task-later-open || root.task-slot-open
+        || root.task-later-open || root.task-slot-open || root.tasks-menu != ""
         || root.habit-new-open || root.habit-delete-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
@@ -1890,6 +1910,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == Key.Escape && root.task-slot-open) {
                 root.task-slot-open = false;
+                return accept;
+            }
+            if (event.text == Key.Escape && root.tasks-menu != "") {
+                root.tasks-menu = "";
                 return accept;
             }
             // Escape asks, like the close button, when something is written; an
@@ -2946,6 +2970,9 @@ export component AppWindow inherits Window {
                 : parent.width - root.rail;
             column-open <=> root.tasks-column-open;
             height: parent.height - root.pied - Layout.inset-top;
+            // A phone's ⋯, and the open task's subtasks asked for by Later's question.
+            menu-requested(k) => { root.tasks-menu = k; }
+            focus-step: root.task-focus-step;
             column-only: root.tasks-habits;
             habits-shown: root.tasks-habits;
             habits-count: root.habits-nav-count;
@@ -3301,6 +3328,7 @@ export component AppWindow inherits Window {
             width: parent.width - self.x;
             height: parent.height - root.pied - Layout.inset-top;
             lists-requested => { root.tasks-column-open = true; }
+            menu-requested(k) => { root.tasks-menu = k; }
             mode: root.habits-mode;
             title: root.habits-title;
             dates: root.habits-dates;
@@ -3388,8 +3416,16 @@ export component AppWindow inherits Window {
             task: root.task-later-title;
             menu-x: root.task-later-x;
             menu-y: root.task-later-y;
+            days: root.task-later-days;
+            postponed: root.task-later-postponed;
             chosen(quand) => { root.task-later-chosen(quand); }
             pick-date => { root.task-later-pick-date(); }
+            // Find a slot opens where Later was.
+            action(a) => {
+                root.task-slot-x = root.task-later-x;
+                root.task-slot-y = root.task-later-y;
+                root.task-later-action(a);
+            }
             dismissed => { root.task-later-open = false; }
         }
 
@@ -3402,9 +3438,47 @@ export component AppWindow inherits Window {
             slots: root.task-slots;
             menu-x: root.task-slot-x;
             menu-y: root.task-slot-y;
+            length: root.task-slot-length;
+            busy-times: root.task-slot-busy-times;
+            busy-titles: root.task-slot-busy-titles;
+            starts: root.task-slot-starts;
+            other-days: root.task-slot-other-days;
+            day-chosen(i) => { root.task-slot-day-chosen(i); }
             chosen(i) => { root.task-slot-chosen(i); }
             typed(t) => { root.task-slot-typed(t); }
             dismissed => { root.task-slot-open = false; }
+        }
+
+        // A phone's ⋯ in Tasks: what the page has besides its own buttons.
+        if root.tasks-menu != "": TasksMenu {
+            width: 100%;
+            height: 100%;
+            kind: root.tasks-menu;
+            can-unplan: root.task-overview.can-unplan;
+            dismissed => { root.tasks-menu = ""; }
+            chosen(quoi) => {
+                root.tasks-menu = "";
+                if (quoi == "new-list") {
+                    root.task-list-name-new = true;
+                    root.task-list-name = "";
+                    root.task-list-name-open = true;
+                } else if (quoi == "new-goal") {
+                    root.goal-new-requested();
+                } else if (quoi == "new-habit") {
+                    root.habit-new-requested();
+                } else if (quoi == "unplan") {
+                    root.task-unplan-day();
+                } else if (quoi == "copy-link") {
+                    root.task-copy-link();
+                } else if (quoi == "delete-task") {
+                    root.task-delete();
+                    shortcuts.focus();
+                } else if (quoi == "delete-goal") {
+                    root.goal-delete-open = true;
+                } else if (quoi == "delete-habit") {
+                    root.habit-delete-open = true;
+                }
+            }
         }
 
         if root.goal-new-open: NewGoalPanel {
