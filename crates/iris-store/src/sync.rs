@@ -37,14 +37,17 @@ const fn t(name: &'static str) -> SyncedTable {
 }
 
 /// The synced tables, parents before children.
+///
+/// `area_id` stays on task lists, goals and habits (migration 29 dropped the areas it
+/// pointed to, not the column), but it no longer travels: a device on 6.x still sends
+/// it as an area's `sync_id`, which means nothing here, and is left out.
 pub const SYNCED: &[SyncedTable] = &[
-    t("areas"),
     SyncedTable {
-        parents: &[("area_id", "areas")],
+        local_columns: &["area_id"],
         ..t("task_lists")
     },
     SyncedTable {
-        parents: &[("area_id", "areas")],
+        local_columns: &["area_id"],
         ..t("goals")
     },
     SyncedTable {
@@ -65,8 +68,8 @@ pub const SYNCED: &[SyncedTable] = &[
         ..t("goal_milestones")
     },
     SyncedTable {
-        parents: &[("goal_id", "goals"), ("area_id", "areas")],
-        local_columns: &["reminded_day"],
+        parents: &[("goal_id", "goals")],
+        local_columns: &["reminded_day", "area_id"],
         ..t("habits")
     },
     SyncedTable {
@@ -74,23 +77,6 @@ pub const SYNCED: &[SyncedTable] = &[
         natural_key: Some(&["habit_id", "day"]),
         without_rowid_key: Some(&["habit_id", "day"]),
         ..t("habit_checks")
-    },
-    SyncedTable {
-        parents: &[("area_id", "areas")],
-        natural_key: Some(&["area_id", "month"]),
-        without_rowid_key: Some(&["area_id", "month"]),
-        ..t("area_scores")
-    },
-    t("cycles"),
-    SyncedTable {
-        parents: &[("cycle_id", "cycles"), ("goal_id", "goals")],
-        natural_key: Some(&["cycle_id", "goal_id"]),
-        without_rowid_key: Some(&["cycle_id", "goal_id"]),
-        ..t("cycle_goals")
-    },
-    SyncedTable {
-        natural_key: Some(&["id"]),
-        ..t("vision")
     },
     SyncedTable {
         where_local: Some("account_id IS NULL"),
@@ -163,9 +149,39 @@ pub const SYNCED: &[SyncedTable] = &[
     },
 ];
 
-/// The table of that name, if it travels.
+/// The table of that name, if it travels. A table this version no longer has (the
+/// compass's, sent by a device on 6.x) does not: its rows and tombstones are ignored.
 pub fn synced(name: &str) -> Option<&'static SyncedTable> {
     SYNCED.iter().find(|t| t.name == name)
+}
+
+/// The compass's tables as migration 28 made them travel, before migration 29 dropped
+/// them. Kept for that migration alone, which must still give a new base what it gave
+/// every base before (its seeds name `areas` and `vision`).
+const COMPASS_V28: &[SyncedTable] = &[
+    t("areas"),
+    SyncedTable {
+        parents: &[("area_id", "areas")],
+        natural_key: Some(&["area_id", "month"]),
+        without_rowid_key: Some(&["area_id", "month"]),
+        ..t("area_scores")
+    },
+    t("cycles"),
+    SyncedTable {
+        parents: &[("cycle_id", "cycles"), ("goal_id", "goals")],
+        natural_key: Some(&["cycle_id", "goal_id"]),
+        without_rowid_key: Some(&["cycle_id", "goal_id"]),
+        ..t("cycle_goals")
+    },
+    SyncedTable {
+        natural_key: Some(&["id"]),
+        ..t("vision")
+    },
+];
+
+/// The tables migration 28 makes travel: today's, and the compass's.
+pub(crate) fn synced_v28() -> impl Iterator<Item = &'static SyncedTable> {
+    SYNCED.iter().chain(COMPASS_V28)
 }
 
 /// The columns, backfill and index that make one table travel. Part of migration 28:

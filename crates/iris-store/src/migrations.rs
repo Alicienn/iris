@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 28;
+pub const CURRENT_VERSION: i64 = 29;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -159,7 +159,34 @@ pub const MIGRATIONS: &[Migration] = &[
         // Built at run time from the synced tables: `schema_v28`.
         sql: "",
     },
+    Migration {
+        version: 29,
+        name: "the compass goes",
+        sql: SCHEMA_V29,
+    },
 ];
+
+/// The compass goes: nothing showed its areas, scores, cycles or vision any more.
+///
+/// The `area_id` columns of goals, habits and task lists stay (dropping a column means
+/// rebuilding the table and its triggers), emptied first. They still say
+/// `REFERENCES areas(id)`, and SQLite refuses every insert into a table whose parent
+/// table is missing: `areas` is therefore made again as a bare, empty table of ids,
+/// without its columns, its seeds or its sync triggers. A device still on 6.x may send
+/// rows of the compass's tables; the merge ignores a table it does not know.
+const SCHEMA_V29: &str = "
+UPDATE goals SET area_id = NULL WHERE area_id IS NOT NULL;
+UPDATE habits SET area_id = NULL WHERE area_id IS NOT NULL;
+UPDATE task_lists SET area_id = NULL WHERE area_id IS NOT NULL;
+DROP TABLE cycle_goals;
+DROP TABLE cycles;
+DROP TABLE area_scores;
+DROP TABLE vision;
+DROP TABLE areas;
+CREATE TABLE areas (id INTEGER PRIMARY KEY);
+DELETE FROM sync_tombstones
+    WHERE tbl IN ('areas', 'area_scores', 'cycles', 'cycle_goals', 'vision');
+";
 
 /// Sync between devices, its first half: what is static. The columns and triggers of
 /// each synced table come after it, from `sync::schema_for` (`schema_v28`).
@@ -209,11 +236,11 @@ UPDATE vision SET sync_id = 'seed-vision' WHERE id = 1;
 /// is watched only once that migration makes the trigger again.
 fn schema_v28(conn: &Connection) -> Result<String> {
     let mut sql = String::from(SCHEMA_V28);
-    for table in crate::sync::SYNCED {
+    for table in crate::sync::synced_v28() {
         sql.push_str(&crate::sync::columns_for(table));
     }
     sql.push_str(SEEDS_V28);
-    for table in crate::sync::SYNCED {
+    for table in crate::sync::synced_v28() {
         let mut s = conn
             .prepare(&format!("PRAGMA table_info({})", table.name))
             .map_err(|e| Error::store(format!("migration 28, {}: {e}", table.name)))?;
@@ -1233,12 +1260,63 @@ mod tests {
                 .map(|r| r.unwrap())
                 .collect()
         };
-        let semees = "SELECT sync_id FROM areas UNION ALL SELECT sync_id FROM task_lists
+        let semees = "SELECT sync_id FROM task_lists
                       UNION ALL SELECT sync_id FROM calendars ORDER BY 1";
         assert_eq!(ids(&a, semees), ids(&b, semees));
-        assert_eq!(ids(&a, semees).len(), 8);
+        assert_eq!(ids(&a, semees).len(), 2);
         let appareil = "SELECT id FROM sync_device";
         assert_ne!(ids(&a, appareil), ids(&b, appareil));
+    }
+
+    #[test]
+    fn the_compass_is_gone_and_goals_habits_and_lists_still_take_rows() {
+        let c = conn();
+        c.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        // A base of 6.x, with an area in use, then 7.0's migration.
+        let v28 = MIGRATIONS.iter().filter(|m| m.version <= 28);
+        for m in v28 {
+            let sql = if m.version == 28 {
+                schema_v28(&c).unwrap()
+            } else {
+                m.sql.to_string()
+            };
+            c.execute_batch(&format!(
+                "BEGIN; {sql} PRAGMA user_version = {}; COMMIT;",
+                m.version
+            ))
+            .unwrap();
+        }
+        c.execute_batch(
+            "INSERT INTO goals (title, due_day, color, created_at, area_id)
+                 VALUES ('Run', '2026-12-31', '#000', 0, 2);
+             INSERT INTO cycles (name, start_day, created_at) VALUES ('Autumn', '2026-09-07', 0);",
+        )
+        .unwrap();
+        assert_eq!(migrate(&c).unwrap(), 29);
+
+        let tables = |nom: &str| -> i64 {
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [nom],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        for nom in ["area_scores", "cycles", "cycle_goals", "vision"] {
+            assert_eq!(tables(nom), 0, "{nom}");
+        }
+        let n = |sql: &str| -> i64 { c.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(n("SELECT count(*) FROM areas"), 0, "a bare table, empty");
+        assert_eq!(n("SELECT count(*) FROM goals WHERE area_id IS NOT NULL"), 0);
+
+        // Still writable, the foreign keys pointing at `areas` notwithstanding.
+        c.execute_batch(
+            "INSERT INTO goals (title, due_day, color, created_at) VALUES ('Read', '2026-12-31', '#000', 0);
+             INSERT INTO task_lists (name, color, created_at) VALUES ('Work', '#000', 0);
+             INSERT INTO habits (title, color, created_at) VALUES ('Walk', '#000', 0);
+             UPDATE goals SET title = 'Run far' WHERE title = 'Run';",
+        )
+        .unwrap();
     }
 
     #[test]
