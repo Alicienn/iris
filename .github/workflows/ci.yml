@@ -86,9 +86,11 @@ jobs:
     name: Tests (windows-latest)
     runs-on: windows-latest
 
-    # No Slint debug info for the interface here: with it, the generated code of every
-    # element ran LLVM out of memory on the runner (7.0.0). The tests find elements by
-    # their accessible role and label, which need none.
+    # Slint's debug info for the interface: the tests find elements through it (Slint's
+    # ElementHandle API refuses to work without it). It no longer runs the runner out
+    # of memory since the generated code is compiled once, in iris-ui-views (7.0.0).
+    env:
+      IRIS_UI_DEBUG_INFO: "1"
 
     steps:
       - uses: actions/checkout@v7

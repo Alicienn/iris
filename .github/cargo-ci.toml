@@ -16,8 +16,8 @@ linker = "rust-lld.exe"
 
 # No Rust line tables for the interface crate: its generated code is one very large
 # module, and with them LLVM ran out of memory on the runners (6.8.0). Slint's own debug
-# info is off too (no IRIS_UI_DEBUG_INFO in ci.yml, and `debug = false` makes the build
-# script's DEBUG false): the tests find elements by accessible role and label.
+# info, which the interface tests need, is asked for by ci.yml (IRIS_UI_DEBUG_INFO=1,
+# read by crates/iris-ui-views/build.rs), since `debug = false` makes DEBUG false.
 [profile.dev.package.iris-ui-views]
 debug = false
 # Unoptimised, the generated code is so large that LLVM ran out of memory even without

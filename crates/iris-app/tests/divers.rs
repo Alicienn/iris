@@ -77,6 +77,7 @@ mod cablage {
             "crates/iris-app/src/tags.rs",
             "crates/iris-app/src/workspace.rs",
             "crates/iris-app/src/home.rs",
+            "crates/iris-app/src/partout.rs",
             "crates/iris-app/src/nav.rs",
             "crates/iris-app/src/backup.rs",
             "crates/iris-app/src/caldav.rs",

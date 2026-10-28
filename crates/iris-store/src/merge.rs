@@ -970,8 +970,7 @@ mod tests {
         );
         sql(
             &b,
-            "INSERT INTO unsubscribed (address, at) VALUES ('news@example.com', 1);
-             UPDATE vision SET text = 'Calm' WHERE id = 1;",
+            "INSERT INTO unsubscribed (address, at) VALUES ('news@example.com', 1);",
         );
         envoyer(&a, &b);
         envoyer(&b, &a);
@@ -1001,14 +1000,14 @@ mod tests {
         let a = Store::in_memory().unwrap();
         sql(
             &a,
-            "INSERT INTO cycles (name, start_day, created_at) VALUES ('Old', '2026-01-05', 0);
-             DELETE FROM cycles WHERE name = 'Old';",
+            "INSERT INTO goals (title, due_day, color, created_at) VALUES ('Old', '2026-12-31', '#000', 0);
+             DELETE FROM goals WHERE title = 'Old';",
         );
         let premier = un(&a, "SELECT sync_at FROM sync_tombstones").unwrap();
         sql(
             &a,
-            "INSERT INTO cycles (name, start_day, created_at) VALUES ('New', '2026-02-02', 0);
-             DELETE FROM cycles WHERE name = 'New';",
+            "INSERT INTO goals (title, due_day, color, created_at) VALUES ('New', '2026-12-31', '#000', 0);
+             DELETE FROM goals WHERE title = 'New';",
         );
         let second = un(&a, "SELECT max(sync_at) FROM sync_tombstones").unwrap();
         assert!(second > premier);
