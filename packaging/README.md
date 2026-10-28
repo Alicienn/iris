@@ -70,8 +70,9 @@ pinned `ubuntu-24.04` rather than `ubuntu-latest`, which moves to Ubuntu 26 on i
 timetable, and the APK's job points `ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` at the
 same, newest NDK.
 
-Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
-(04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
+Release follows `ci.yml` (Windows) only. There is no macOS workflow since 7.0: Iris
+targets Windows and Android, and the `cfg(not(windows))` code Android uses is built by
+CI's `android` job.
 
 **A release whose commits change `release.yml`** could not be tagged by the workflow
 (6.3.0 and 6.3.1; 6.5.0, which changed `ci.yml` only, was tagged as usual): GitHub

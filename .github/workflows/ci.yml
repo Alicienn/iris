@@ -4,8 +4,8 @@
 # lints d'abord, parce qu'ils échouent en une minute ; la compilation ensuite ; les
 # tests en dernier, parce qu'ils sont les plus longs.
 #
-# Windows only: it is what ships, and Release follows this workflow. macOS runs the
-# same tests in `macos.yml`, once a day, without holding a release back.
+# Windows only: it is what ships, and Release follows this workflow. Android's APK is
+# built here too, for a new version.
 
 name: CI
 
@@ -81,9 +81,7 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets
 
-  # macOS runs the same tests in `macos.yml`, a workflow of its own: Release waits for
-  # this one, and the installer is Windows-only, so it no longer waits for macOS —
-  # which took up to twenty minutes longer than everything here. It runs once a day.
+  # Windows only: Iris ships for Windows and Android (macOS's daily run went in 7.0).
   tests:
     name: Tests (windows-latest)
     runs-on: windows-latest
