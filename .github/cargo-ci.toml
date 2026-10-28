@@ -9,7 +9,7 @@
 [profile.dev.package."*"]
 opt-level = 1
 
-# LLVM's linker rather than Microsoft's: nine integration-test binaries each link the
+# LLVM's linker rather than Microsoft's: seven integration-test binaries each link the
 # whole application or interface.
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
