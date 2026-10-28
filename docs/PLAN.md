@@ -830,5 +830,10 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       white rows on grey, the long press's head, selection as a bar, the composer's
       bar and To's suggestions, the search everywhere, the account found page,
       Android's clipboard (6.8.0).
+- [x] **S47.17** Calendar (bar, week strip, agenda, To plan, month list, event sheet,
+      New event page, quick add, Calendars sheet), Settings (list with values, account
+      pages, Appearance, Rules and plugins, Updates, Devices) and Notes (tree page,
+      writing and reading bars, "/" sheet, spreadsheet, graph card, revise page, open
+      notes) against the mockups (6.8.0).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.

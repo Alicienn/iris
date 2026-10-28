@@ -12,6 +12,16 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - On a phone, New message has close at the left and attach, send later and Send at the top.
 - On a phone, suggestions under To show each person's name and address.
 - Copy link for a note works on Android.
+- On a phone, the calendar has a strip of the week's days, the month's title opening the month, and a Today button.
+- On a phone, an event opens as a sheet you pull up, with its tasks, your notes and Join.
+- On a phone, New event is a page with keys for the hour and the quarter.
+- On a phone, touching a free time opens a line above the keyboard to name the event.
+- On a phone, calendars are in a sheet, grouped by where they come from.
+- On a phone, Settings shows each group's value at a glance, and each account has its own page.
+- On a phone, the theme is picked from pictures of it, and the text size with a slider.
+- On a phone, Notes opens on your pinned notes and folders, with how many notes and cards are due.
+- On a phone, revising flashcards is a page with large Again, Hard, Good and Easy buttons.
+- On a phone, the notes you have open are listed from a counter at the top.
 
 ### Improved
 - On a phone, Mailboxes rises as a tall sheet over the list.
@@ -19,6 +29,15 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - On a phone, a long press shows the conversation's subject, sender and messages; Select starts a selection.
 - On a phone, a selected conversation shows a round tick and is tinted across the whole row.
 - On a phone, the mail's search field is large, and results come as you type.
+- On a phone, the agenda shows where each event is, the time now, and Join on the next call.
+- On a phone, tasks without an hour are planned by touching one, then a time.
+- On a phone, the month lists the chosen day's events under the grid.
+- On a phone, Back from a window opened in Settings returns to its page.
+- Removing an account from its settings page asks first.
+- On a phone, the formatting keys over the keyboard add heading, list, checkbox and "/" for all blocks.
+- On a phone, a note being read shows its tags, when it was edited and its length.
+- On a phone, spreadsheets have the formula bar on top and their sheets as tabs.
+- On a phone, a long press on a note or folder opens its menu.
 
 ### Fixed
 - On a phone, Open in a conversation's menu opens it.

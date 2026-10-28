@@ -606,6 +606,16 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   suggestions come with names, addresses and initials. `AccountFoundPage` follows a
   successful add on a phone (`add-account-found`). Android's clipboard goes through
   `Platform::clipboard_set/get` (JNI `ClipboardManager`), which `presse` uses there.
+- The places' phone screens (6.8.0): `screens/calendar-phone.slint` (bar, `WeekStrip`,
+  `PhoneAgenda`, `ToPlanBand`, `PhoneMonth`, `CalendarsSheet`), filled by
+  `calendar::telephone()` into `calendar-phone`; the event sheet and New event page in
+  `calendar-panels.slint`. Settings in compact (`settings.slint`, `root.large` keeps the
+  PC page): the list with values (`settings-accounts`, `backup-when`, `version-number`),
+  an account's page (`account-page`, `settings-account`), windows opened from a page go
+  over it. Notes in compact: the tree as a page with pinned and counts
+  (`notes-summary`), the writing and reading bars, `NotesPhoneSheet` (`notes-sheet`:
+  the "/" blocks, the outline, open notes), the spreadsheet's phone bars, the graph's
+  card, the revise page.
 - The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
   Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
   lost its title and arrows off a phone's screen.
