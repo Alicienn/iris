@@ -3,16 +3,12 @@
 //! L'objectif produit : **une adresse et un mot de passe suffisent**. La découverte
 //! s'occupe du reste, et quand elle échoue, elle dit ce qu'elle a essayé au lieu de
 //! renvoyer un formulaire vide.
-//!
-//! Deux entrées : une par compte, et un import en lot, parce qu'ajouter cent boîtes
-//! une par une n'est pas une expérience, c'est une punition.
 
 use iris_discover::{Auth, Discovery, RealIo, ServerConfig, Source};
 use iris_imap::{client::RustlsConnector, Connector, Credentials, Endpoint};
 use iris_secrets::{Secret, SecretKind, SecretStore};
 use iris_store::{AuthKind, NewAccount, Store};
 use iris_types::{AccountId, Error, Result, Timestamp};
-use std::sync::Arc;
 
 /// Ce qu'un ajout a produit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,69 +19,6 @@ pub struct AddedAccount {
     pub source: Source,
     /// La configuration est une conjecture : l'interface doit le dire.
     pub needs_review: bool,
-}
-
-/// Une ligne d'import en lot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BulkEntry {
-    pub email: String,
-    pub password: String,
-    /// Groupe libre, pour ranger cent boîtes.
-    pub group: Option<String>,
-}
-
-/// Résultat d'un import en lot.
-#[derive(Debug, Clone, Default)]
-pub struct BulkReport {
-    pub added: Vec<AddedAccount>,
-    pub failed: Vec<(String, String)>,
-}
-
-impl BulkReport {
-    pub fn summary(&self) -> String {
-        match (self.added.len(), self.failed.len()) {
-            (n, 0) => format!("{n} compte(s) ajouté(s)."),
-            (0, m) => format!("Aucun compte ajouté, {m} échec(s)."),
-            (n, m) => format!("{n} compte(s) ajouté(s), {m} échec(s)."),
-        }
-    }
-}
-
-/// Analyse un fichier d'import.
-///
-/// Format volontairement trivial : `adresse;mot de passe;groupe`, une ligne par
-/// compte, `#` pour les commentaires. Demander un format structuré pour une liste de
-/// mots de passe serait une coquetterie.
-pub fn parse_bulk(contents: &str) -> (Vec<BulkEntry>, Vec<String>) {
-    let mut entries = Vec::new();
-    let mut erreurs = Vec::new();
-
-    for (numero, ligne) in contents.lines().enumerate() {
-        let ligne = ligne.trim();
-        if ligne.is_empty() || ligne.starts_with('#') {
-            continue;
-        }
-
-        let champs: Vec<&str> = ligne.split(';').map(str::trim).collect();
-        match champs.as_slice() {
-            [email, password, reste @ ..] if !email.is_empty() && !password.is_empty() => {
-                entries.push(BulkEntry {
-                    email: email.to_lowercase(),
-                    password: (*password).to_string(),
-                    group: reste
-                        .first()
-                        .map(|g| g.to_string())
-                        .filter(|g| !g.is_empty()),
-                });
-            }
-            _ => erreurs.push(format!(
-                "ligne {} : « {ligne} » n'est pas exploitable",
-                numero + 1
-            )),
-        }
-    }
-
-    (entries, erreurs)
 }
 
 /// Ouvre une connexion et se présente, sans rien écrire.
@@ -141,103 +74,6 @@ pub async fn verify_login(config: &ServerConfig, password: &str) -> Result<()> {
     })??;
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), connexion.logout()).await;
     Ok(())
-}
-
-/// Ajoute un compte à partir de son adresse et de son mot de passe.
-pub async fn add_account(
-    store: &Store,
-    secrets: &dyn SecretStore,
-    email: &str,
-    password: &str,
-    group: Option<String>,
-    now: Timestamp,
-) -> Result<AddedAccount> {
-    let email = email.trim().to_lowercase();
-
-    if store.account_by_email(&email)?.is_some() {
-        return Err(Error::Config(format!("le compte « {email} » existe déjà")));
-    }
-
-    let decouverte = Discovery::new(RealIo::new()).discover(&email).await?;
-    let mut config = decouverte.config.clone();
-
-    // The command line has no browser to sign in with: given a password, a Gmail or
-    // Outlook account signs in with it (an app password), as the window does without a
-    // client set. Made a Google account with a password stored, it could never sign
-    // in. And the password is tried before anything is kept, as the window does.
-    config.auth = Auth::Password;
-    verify_login(&config, password).await?;
-
-    // Le mot de passe est enregistré **avant** le compte : si le trousseau refuse,
-    // mieux vaut n'avoir rien créé qu'un compte inutilisable.
-    secrets.set(&email, SecretKind::Password, &Secret::new(password))?;
-
-    let nouveau = NewAccount {
-        email: email.clone(),
-        display_name: String::new(),
-        imap_host: config.imap_host.clone(),
-        imap_port: config.imap_port,
-        imap_tls: config.imap_transport == iris_discover::Transport::Tls,
-        smtp_host: config.smtp_host.clone(),
-        smtp_port: config.smtp_port,
-        smtp_tls: config.smtp_transport == iris_discover::Transport::Tls,
-        auth: match config.auth {
-            Auth::Password => AuthKind::Password,
-            Auth::OAuthGoogle => AuthKind::OAuthGoogle,
-            Auth::OAuthMicrosoft => AuthKind::OAuthMicrosoft,
-        },
-        group,
-        imap_user: config.imap_user.clone().unwrap_or_default(),
-        smtp_user: config.smtp_user.clone().unwrap_or_default(),
-    };
-
-    let id = match store.create_account(&nouveau, now) {
-        Ok(id) => id,
-        Err(e) => {
-            // On ne laisse pas un secret orphelin derrière soi.
-            let _ = secrets.delete(&email, SecretKind::Password);
-            return Err(e);
-        }
-    };
-
-    Ok(AddedAccount {
-        id,
-        email,
-        needs_review: !decouverte.source.is_authoritative(),
-        source: decouverte.source,
-        config,
-    })
-}
-
-/// Ajoute plusieurs comptes.
-///
-/// Un échec n'interrompt pas le lot : sur cent lignes, une adresse mal orthographiée
-/// ne doit pas condamner les quatre-vingt-dix-neuf autres.
-pub async fn add_bulk(
-    store: Arc<Store>,
-    secrets: Arc<dyn SecretStore>,
-    entries: &[BulkEntry],
-    now: Timestamp,
-) -> BulkReport {
-    let mut rapport = BulkReport::default();
-
-    for entree in entries {
-        match add_account(
-            &store,
-            secrets.as_ref(),
-            &entree.email,
-            &entree.password,
-            entree.group.clone(),
-            now,
-        )
-        .await
-        {
-            Ok(compte) => rapport.added.push(compte),
-            Err(e) => rapport.failed.push((entree.email.clone(), e.to_string())),
-        }
-    }
-
-    rapport
 }
 
 /// Ajoute un compte dont la configuration est fournie à la main.
@@ -622,56 +458,6 @@ mod tests {
     }
 
     #[test]
-    fn l_import_analyse_les_lignes_completes() {
-        let (entrees, erreurs) = parse_bulk(
-            "# mes comptes\n\
-             contact@example.com;motdepasse;Clients\n\
-             \n\
-             facturation@example.com;autre\n",
-        );
-
-        assert!(erreurs.is_empty());
-        assert_eq!(entrees.len(), 2);
-        assert_eq!(entrees[0].group.as_deref(), Some("Clients"));
-        assert_eq!(entrees[1].group, None);
-    }
-
-    #[test]
-    fn l_import_signale_les_lignes_inexploitables_sans_tout_rejeter() {
-        // Sur cent lignes, une faute ne doit pas condamner les autres.
-        let (entrees, erreurs) = parse_bulk(
-            "bon@example.com;motdepasse\n\
-             ligne sans separateur\n\
-             ;motdepasse\n\
-             autre@example.com;motdepasse\n",
-        );
-
-        assert_eq!(entrees.len(), 2);
-        assert_eq!(erreurs.len(), 2);
-        assert!(erreurs[0].contains("ligne 2"));
-    }
-
-    #[test]
-    fn l_import_ignore_les_commentaires_et_les_lignes_vides() {
-        let (entrees, erreurs) = parse_bulk("# rien\n\n   \n# encore\n");
-        assert!(entrees.is_empty());
-        assert!(erreurs.is_empty());
-    }
-
-    #[test]
-    fn l_import_normalise_les_adresses() {
-        let (entrees, _) = parse_bulk("  Contact@Example.COM ; motdepasse \n");
-        assert_eq!(entrees[0].email, "contact@example.com");
-        assert_eq!(entrees[0].password, "motdepasse");
-    }
-
-    #[test]
-    fn un_mot_de_passe_contenant_des_espaces_est_conserve() {
-        let (entrees, _) = parse_bulk("a@x.fr;mot de passe long\n");
-        assert_eq!(entrees[0].password, "mot de passe long");
-    }
-
-    #[test]
     fn l_ajout_manuel_enregistre_compte_et_secret() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::in_memory().unwrap();
@@ -821,14 +607,5 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::in_memory().unwrap();
         assert!(!remove_account(&store, &coffre(dir.path()), AccountId(999)).unwrap());
-    }
-
-    #[test]
-    fn le_resume_d_import_est_lisible() {
-        let mut r = BulkReport::default();
-        assert!(r.summary().contains("0 compte"));
-
-        r.failed.push(("a@x.fr".into(), "échec".into()));
-        assert!(r.summary().starts_with("Aucun compte ajouté"));
     }
 }

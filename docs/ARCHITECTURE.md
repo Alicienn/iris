@@ -35,17 +35,16 @@ cargo run -p iris-app           # starts the application
 
 ```
 iris [run]                     Start the application
-iris add-account <address>     Add an account (prompts for the password)
-iris import <file>             Add accounts in bulk
-iris accounts                  List configured accounts
-iris sync                      Synchronise once, without the interface
 iris doctor                    Check the installation
-iris memory                    Break down what the data layer costs
 iris register                  Offer Iris to Windows as a mail client
 iris unregister                Withdraw that offer
 iris --tray                    Start into the notification area
 iris mailto:<address>          Start and compose to that address
 ```
+
+Since 7.0 the command line only starts, checks and registers Iris: adding, importing,
+listing and synchronising accounts, which duplicated the window, are done there
+(`add-account`, `import`, `accounts`, `sync` and `memory` are gone).
 
 An address and a password are enough: discovery chains an embedded table, the domain's
 autoconfiguration, the Mozilla database, DNS `SRV`, `MX` and probing — and **says where
