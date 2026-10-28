@@ -2343,8 +2343,11 @@ export component AppWindow inherits Window {
     /// What the phone's keyboard covers at the foot of the window while it is up. The
     /// places end above it, as they end above the tabs: the line being typed in (a
     /// task to add) rises over the keyboard instead of staying under it.
+    // From `Layout.window-height`, which a change handler copies, never from the
+    // window's own height: the window's height depends on its layout, whose padding
+    // is this, and Slint warned of a loop that may panic at runtime.
     property <length> clavier: self.virtual-keyboard-size.height > 0
-        ? max(0px, self.height - self.virtual-keyboard-position.y) : 0px;
+        ? max(0px, Layout.window-height - self.virtual-keyboard-position.y) : 0px;
     /// What the rail of places takes at the left, at medium width.
     property <length> rail: Layout.medium ? 80px : 0px;
     /// The accounts column folded to a strip: 0 open, 1 folded, animated between.
