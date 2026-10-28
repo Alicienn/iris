@@ -1648,6 +1648,10 @@ fn appairer_ouvre_le_code_et_echap_le_ferme() {
         f.on_key_pressed(move |k| t.borrow_mut().push(k.to_string()));
     }
     f.set_settings_open(true);
+    // Tall enough for the whole page: Devices comes after Sorting (7.0.0), below the
+    // fold of an 800-pixel window, and the harness skips what is scrolled away.
+    f.window().set_size(slint::LogicalSize::new(1280.0, 3000.0));
+    slint::platform::update_timers_and_animations();
     clic(&bouton(&f, "Pair a device…"));
     assert!(f.get_pair_open());
     assert_eq!(*demandes.borrow(), 1, "the app is asked for a code");

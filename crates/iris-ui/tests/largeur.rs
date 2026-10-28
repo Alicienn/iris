@@ -131,10 +131,11 @@ fn sur_un_telephone_la_loupe_ouvre_la_recherche_sur_toute_la_barre() {
         .map(|e| (e.absolute_position(), e.size()))
         .collect();
     assert!(
-        // From the left edge to the window's own buttons (a narrow PC window).
+        // From just after the back arrow to the window's own buttons (a narrow PC
+        // window: on a phone, without them, the field is wider still).
         champs
             .iter()
-            .any(|(p, s)| p.x < 40.0 && s.width > 150.0 && p.y < 120.0),
+            .any(|(p, s)| p.x < 100.0 && s.width > 100.0 && p.y < 120.0),
         "a field spans the bar at the top: {champs:?}"
     );
 }
