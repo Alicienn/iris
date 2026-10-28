@@ -3,6 +3,41 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.2.0 — 2026-10-28
+
+### New
+- On a phone, a sync button beside the mail's search shows each account coming in, then a green tick.
+- Sync all accounts from the search shows how far it has got, then says when everything is synced.
+- Adding an account on a phone ticks off what was found one by one and counts the messages as they arrive.
+- Passwords can be shown with the eye at the end of the field.
+- Attach a file works on Android, with the phone's own file picker.
+- When the camera can't read a code, Iris explains how to allow it, or lets you type the code.
+- On a phone, the day and three-day views swipe to the next days, as the month does.
+- On a phone, Home's date moves into the top bar as you scroll down.
+
+### Improved
+- On a phone, New message has full-width rows with no boxes, and its formatting keys sit above the keyboard.
+- Recipients you add on a phone stay whole, one under the other.
+- Contacts are suggested only once you type a letter, on a card that stands out.
+- Searches find words as you type them, and ignore case and accents in tasks and events.
+- On a phone, the mail search stays open when you clear it, and Back closes it first.
+- Swiping a message shows the green or orange at once, and keeps going if your finger drifts down.
+- Opening a message again starts at its top.
+- The Mailboxes sheet has sync and tags at the top, and no footer.
+- The Tasks tab opens on Tasks, and Back from a list returns to it.
+- Add account, New goal and New list start at the top of the screen.
+- Continue on Add account puts the keyboard away.
+- Send later and Attach put the keyboard away first.
+- Save this message as a draft? is a sheet with large buttons on a phone.
+- Every place on a phone has the same background.
+
+### Fixed
+- A long press no longer reopens the message's menu while you read it.
+- Touching "Inbox" opens Mailboxes, not only its arrow.
+- Creating a label from Mailboxes is no longer hidden behind it.
+- Colour dots, icons and arrows in phone rows are centred (calendar in Edit event, task lists, Habits, This week).
+- Closing the Send later menu no longer closes the message.
+
 ## 7.1.0 — 2026-10-28
 
 ### New

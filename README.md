@@ -115,8 +115,9 @@ the Android Keystore holds.
   Undo send*).
 - **Replying**: `Ctrl`+`R`, or `Ctrl`+`Shift`+`R` for everyone; the conversation shows
   under what you write.
-- **Searching** (`/`): free text and `from:`, `is:unread`, `has:attachment`,
-  `newer_than:7d`, or the pills under the field.
+- **Searching** (`/`): free text, each word found as you type it (`réu` finds
+  *réunion*), and `from:`, `is:unread`, `has:attachment`, `newer_than:7d`, or the pills
+  under the field.
 - **Folders** are one name across your mailboxes, made on all of them or the ones you
   tick.
 - **Tags** group your mailboxes (*Clients*, *Personal*…); click one to see its mail
@@ -210,7 +211,8 @@ them; an Obsidian vault opens as it is.
    Iris on it; on a computer, paste the code (**Copy the code**, then *Join with a code*).
 3. Both show the same six digits, and the first sync runs; the joining device ticks off
    accounts, tasks, calendars, settings and notes as they arrive. Scanning on Android
-   needs Google Play services.
+   needs Google Play services and its camera permission; when it is refused, Iris says
+   where to allow it, or the code can be typed (*Join with a code*).
 
 What travels: task lists and tasks, goals, habits, your own calendars and events, your
 accounts with their passwords, tags, rules, shared settings and note spaces. Mail
@@ -246,7 +248,8 @@ itself comes from your servers on each device.
 ## Current limits
 
 - **Android is a preview**: mail is fetched only while Iris is open, with no
-  notifications yet; files, the clipboard and Google or Microsoft sign-in are not wired.
+  notifications yet; opening files and Google or Microsoft sign-in are not wired
+  (attaching a file uses the phone's picker).
 - Iris speaks IMAP; POP accounts are not supported. Iris ships without an OAuth client
   of its own for Google and Microsoft.
 - Attachments are limited to 25 MB per message, as on most servers.

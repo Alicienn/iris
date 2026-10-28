@@ -1217,6 +1217,10 @@ export component ConversationView inherits VerticalLayout {
     /// painted has been given back.
     in property <bool> bodies-suspended;
 
+    /// On a phone, the conversation's page is open. Opened again, it starts from the
+    /// top, even on the conversation that was read to its end.
+    in property <bool> shown: true;
+
     // The entrance of a newly opened thread: 0 on the change, 1 one frame later, and
     // the animations on `fil` travel between the two.
     property <float> entree: 1;
@@ -1278,6 +1282,13 @@ export component ConversationView inherits VerticalLayout {
         defil := ScrollView {
             vertical-stretch: 1;
             content-height: fil.preferred-height + 26px + 20px;
+            // The page opened again, on the same conversation or another: from its top.
+            property <bool> montre: root.shown;
+            changed montre => {
+                if (self.montre) {
+                    self.content-y = 0px;
+                }
+            }
 
             fil := VerticalLayout {
                 x: max(32px, (defil.visible-width - root.column) / 2);

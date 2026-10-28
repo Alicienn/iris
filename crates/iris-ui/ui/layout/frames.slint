@@ -21,7 +21,8 @@ export component Rail inherits Rectangle {
     in property <length> rail-width: 240px;
 
     width: root.rail-width;
-    background: Tokens.surface-low;
+    // On a phone the column is the page: the same ground as every other place.
+    background: Layout.compact ? Tokens.background : Tokens.surface-low;
 
     VerticalLayout {
         padding: 12px;
@@ -267,6 +268,7 @@ export component Modal inherits Rectangle {
         contenu := VerticalLayout {
             // A form that grows with its content keeps its own height on a page, from
             // the top: spread over the whole screen, its fields drifted apart.
+            y: 0px;
             height: root.page && root.fit ? min(self.preferred-height, parent.height) : parent.height;
             padding: 20px;
             padding-top: root.page ? 6px + Layout.inset-top : root.sheet ? 26px : 18px;

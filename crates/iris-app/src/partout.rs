@@ -49,11 +49,13 @@ pub fn decouper(titre: &str, requete: &str) -> (String, String, String) {
     (titre.to_string(), String::new(), String::new())
 }
 
+/// Every word of the query is in the text, case and accents aside: "reunion" finds
+/// "Réunion", as the notes' search does.
 fn contient(texte: &str, requete: &str) -> bool {
-    let bas = texte.to_lowercase();
+    let plie = iris_notes::fuzzy::folded(texte);
     requete
         .split_whitespace()
-        .all(|mot| bas.contains(&mot.to_lowercase()))
+        .all(|mot| plie.contains(&iris_notes::fuzzy::folded(mot)))
 }
 
 /// What the query finds, place by place, in the order the page shows them.
@@ -229,5 +231,12 @@ mod tests {
     fn tous_les_mots_doivent_y_etre() {
         assert!(contient("Send the quote to Marie", "quote marie"));
         assert!(!contient("Send the quote to Marie", "quote paul"));
+    }
+
+    #[test]
+    fn ni_la_casse_ni_les_accents_ne_comptent() {
+        for requete in ["réu", "reunion", "RÉUNION", "Réunion de"] {
+            assert!(contient("Réunion de jeudi", requete), "« {requete} »");
+        }
     }
 }

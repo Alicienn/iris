@@ -1,0 +1,169 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons } from "@iris/base/icons.slint";
+
+// Sync all, as a round button that shows what it is doing: the arrows at rest; while
+// the mailboxes come, a ring filling with how many are done ("2/5" inside it), or a
+// short arc running round while the count is not known yet; then green rising in the
+// ring like a liquid, a tick springing in, and back to the arrows a moment later.
+export component SyncButton inherits Rectangle {
+    in property <bool> syncing;
+    /// Mailboxes done, and how many there are; 0 of 0 while not known.
+    in property <int> done;
+    in property <int> total;
+    in property <length> button-size: 44px;
+    in property <length> icon-size: 20px;
+    callback clicked();
+
+    width: root.button-size;
+    height: root.button-size;
+
+    accessible-role: button;
+    accessible-label: root.syncing
+        ? (root.total > 0 ? "Syncing, \{root.done} of \{root.total}" : "Syncing")
+        : "Sync all accounts";
+    accessible-action-default => { if (!root.syncing) { root.clicked(); } }
+
+    // How far along, eased so the ring fills rather than jumps.
+    property <float> part: root.total > 0 ? min(1, root.done / root.total) : 0;
+    property <float> rempli: root.part;
+    animate rempli { duration: 400ms; easing: ease-out; }
+
+    // The count not known yet: an arc runs round. Work under way, the one loop allowed.
+    property <float> tour;
+    Timer {
+        interval: 30ms;
+        running: root.syncing && root.total == 0;
+        triggered => { root.tour = mod(root.tour + 0.025, 1); }
+    }
+
+    // Done: the green and its tick, held a moment, then the arrows again.
+    property <bool> valide;
+    changed syncing => {
+        if (self.syncing) {
+            root.valide = false;
+        } else {
+            root.valide = true;
+            retour.running = true;
+        }
+    }
+    retour := Timer {
+        interval: 1600ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.valide = false;
+        }
+    }
+    property <float> plein: root.valide ? 1 : 0;
+    property <float> coche: root.valide ? 1 : 0;
+    animate coche { duration: 380ms; delay: 360ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+    // The ring's arc: from where it starts to where it ends, clockwise from the top.
+    property <float> longueur: root.total > 0 ? max(0.02, min(0.999, root.rempli)) : 0.28;
+    property <angle> debut: root.total > 0 ? -90deg : root.tour * 360deg - 90deg;
+    property <angle> fin: root.debut + root.longueur * 360deg;
+    property <length> anneau: root.icon-size + 10px;
+
+    fond := Rectangle {
+        border-radius: self.width / 2;
+        background: touche.pressed ? Tokens.surface-active : touche.has-hover ? Tokens.surface-hover : transparent;
+        animate background { duration: Tokens.instant; }
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        visible: !root.syncing && root.plein < 0.5;
+        data: Icons.refresh;
+        size: root.icon-size;
+        tint: Tokens.text;
+    }
+
+    // The ring while it works.
+    Rectangle {
+        visible: root.syncing;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.anneau;
+        height: root.anneau;
+        border-radius: self.width / 2;
+        border-width: 2.5px;
+        border-color: Tokens.surface-active;
+        Path {
+            width: 100%;
+            height: 100%;
+            viewbox-width: 30;
+            viewbox-height: 30;
+            stroke: Tokens.accent;
+            stroke-width: 2.5px;
+            stroke-line-cap: round;
+            fill: transparent;
+            MoveTo {
+                x: 15 + 13.75 * Math.cos(root.debut);
+                y: 15 + 13.75 * Math.sin(root.debut);
+            }
+            ArcTo {
+                x: 15 + 13.75 * Math.cos(root.fin);
+                y: 15 + 13.75 * Math.sin(root.fin);
+                radius-x: 13.75;
+                radius-y: 13.75;
+                large-arc: root.longueur > 0.5;
+                sweep: true;
+            }
+        }
+        if root.total > 0: Text {
+            text: "\{root.done}/\{root.total}";
+            font-size: 9.5px;
+            font-weight: 600;
+            color: Tokens.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    // All done: the green rises in the ring, two waves, then the tick.
+    Rectangle {
+        visible: root.plein > 0.01;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.anneau;
+        height: root.anneau;
+        border-radius: self.width / 2;
+        clip: true;
+        Rectangle {
+            x: -self.width / 4 - parent.width * 0.3 * (1 - root.plein);
+            y: parent.height * (1 - 1.5 * root.plein) - 2px;
+            width: parent.width * 1.6;
+            height: parent.width * 1.6;
+            border-radius: self.width / 2;
+            background: Tokens.green.transparentize(0.5);
+            animate x, y { duration: 520ms; easing: cubic-bezier(0.45, 0, 0.25, 1); }
+        }
+        Rectangle {
+            x: -self.width / 4 + parent.width * 0.3 * (1 - root.plein);
+            y: parent.height * (1 - 1.5 * root.plein) + 3px;
+            width: parent.width * 1.6;
+            height: parent.width * 1.6;
+            border-radius: self.width / 2;
+            background: Tokens.green;
+            animate x, y { duration: 640ms; easing: cubic-bezier(0.45, 0, 0.25, 1); }
+        }
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            data: Icons.check;
+            size: root.icon-size * 0.8 * root.coche;
+            weight: 2.6;
+            tint: Tokens.accent-text;
+        }
+    }
+
+    touche := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (!root.syncing) {
+                root.clicked();
+            }
+        }
+    }
+}

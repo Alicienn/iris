@@ -17,6 +17,10 @@ component Field inherits VerticalLayout {
 
     callback accepted();
 
+    public function release() {
+        champ.release();
+    }
+
     spacing: 4px;
 
     Text {
@@ -26,12 +30,13 @@ component Field inherits VerticalLayout {
         color: Tokens.text-muted;
     }
 
-    TextField {
+    champ := TextField {
         min-height: Layout.compact ? 52px : 0px;
         accessible-label: root.label;
         placeholder-text: root.placeholder;
         font-size: Tokens.size-body;
         input-type: root.password ? InputType.password : InputType.text;
+        revealable: root.password;
         text <=> root.value;
         accepted => { root.accepted(); }
     }
@@ -152,7 +157,7 @@ export component AccountSetupPanel inherits Rectangle {
             color: Tokens.text-muted;
         }
 
-        Field {
+        adresse := Field {
             label: Layout.compact ? "Address" : "Email address";
             placeholder: "you@example.com";
             value <=> root.email;
@@ -170,19 +175,28 @@ export component AccountSetupPanel inherits Rectangle {
             color: Tokens.text-muted;
         }
 
-        Field {
+        mot-de-passe := Field {
             label: "Password";
             placeholder: Layout.compact ? "Password or app password" : "";
             password: true;
             value <=> root.password;
-            accepted => { root.manual ? root.save-manual() : root.discover(); }
+            accepted => {
+                self.release();
+                root.manual ? root.save-manual() : root.discover();
+            }
         }
 
         // On a phone: Continue under the fields, then the other ways in.
         if Layout.compact: BlockButton {
             text: root.busy ? "Looking up…" : ((root.manual || root.editing) ? "Save" : "Continue");
             enabled: !root.busy;
-            clicked => { root.manual ? root.save-manual() : root.discover(); }
+            clicked => {
+                // The keyboard goes down: what comes next (the servers found, an
+                // error) shows in full.
+                adresse.release();
+                mot-de-passe.release();
+                root.manual ? root.save-manual() : root.discover();
+            }
         }
         if Layout.compact && !root.editing && !root.manual: HorizontalLayout {
             spacing: 12px;
@@ -333,10 +347,24 @@ export component AccountSetupPanel inherits Rectangle {
 }
 
 // A row of what was found: a green tile with its tick, what it is, how it is reached.
+// It fills once, in its turn: the green rises in the tile like a liquid, two curved
+// layers sloshing up at slightly different speeds, then the tick springs in.
 component FoundRow inherits Rectangle {
     in property <string> label;
     in property <string> detail;
     in property <bool> first;
+    /// When this row's turn comes, after the page opened.
+    in property <duration> delay;
+
+    property <float> plein: 0;
+    property <float> coche: 0;
+    init => {
+        root.plein = 1;
+        root.coche = 1;
+    }
+    animate plein { duration: 620ms; delay: root.delay; easing: cubic-bezier(0.45, 0, 0.25, 1); }
+    animate coche { duration: 420ms; delay: root.delay + 500ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
+
     height: 60px;
     Rectangle {
         visible: !root.first;
@@ -354,12 +382,30 @@ component FoundRow inherits Rectangle {
             width: 30px;
             height: 30px;
             border-radius: 8px;
-            background: Tokens.green;
+            background: Tokens.surface-active;
+            clip: true;
+            // The back wave, paler, a little ahead; the front one, full green.
+            Rectangle {
+                x: -25px + 10px * root.plein;
+                y: 26px - 41px * root.plein;
+                width: 60px;
+                height: 60px;
+                border-radius: 30px;
+                background: Tokens.green.transparentize(0.5);
+            }
+            Rectangle {
+                x: -5px - 10px * root.plein;
+                y: 32px - 47px * root.plein;
+                width: 60px;
+                height: 60px;
+                border-radius: 30px;
+                background: Tokens.green;
+            }
             Icon {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 data: Icons.check;
-                size: 18px;
+                size: 18px * root.coche;
                 weight: 2.4;
                 tint: Tokens.accent-text;
             }
@@ -371,12 +417,14 @@ component FoundRow inherits Rectangle {
                 text: root.label;
                 font-size: 15.5px;
                 color: Tokens.text;
+                opacity: 0.4 + 0.6 * root.plein;
             }
             Text {
                 text: root.detail;
                 font-size: 13px;
                 color: Tokens.text-muted;
                 overflow: elide;
+                opacity: root.plein;
             }
         }
     }
@@ -394,8 +442,11 @@ export component AccountFoundPage inherits Rectangle {
     /// Where the password went: "password kept in Android's keystore".
     in property <string> keeper;
     in property <bool> syncing;
-    /// What the sync says it is doing: "Inbox · 1 240 of 3 260".
-    in property <string> progress;
+    /// "Found in 0.8 s".
+    in property <string> took;
+    /// The messages arrived so far, and for how long they have been coming.
+    in property <int> count;
+    in property <string> elapsed;
     callback continued();
     callback another();
 
@@ -408,6 +459,9 @@ export component AccountFoundPage inherits Rectangle {
             root.va = root.va >= 1 ? 0 : root.va + 0.02;
         }
     }
+    // Once it is all here, the bar fills to its end and turns green.
+    property <float> fini: root.syncing ? 0 : 1;
+    animate fini { duration: 700ms; easing: cubic-bezier(0.45, 0, 0.25, 1); }
 
     background: Tokens.background;
     TouchArea {}
@@ -434,6 +488,11 @@ export component AccountFoundPage inherits Rectangle {
             color: Tokens.text-muted;
             wrap: word-wrap;
         }
+        if root.took != "": Text {
+            text: root.took;
+            font-size: 13px;
+            color: Tokens.text-faint;
+        }
         Rectangle { height: 20px; }
         Rectangle {
             height: 180px;
@@ -441,9 +500,9 @@ export component AccountFoundPage inherits Rectangle {
             background: Tokens.surface;
             clip: true;
             VerticalLayout {
-                FoundRow { first: true; label: "Incoming"; detail: root.incoming; }
-                FoundRow { label: "Outgoing"; detail: root.outgoing; }
-                FoundRow { label: "Signed in"; detail: root.keeper; }
+                FoundRow { first: true; label: "Incoming"; detail: root.incoming; delay: 150ms; }
+                FoundRow { label: "Outgoing"; detail: root.outgoing; delay: 450ms; }
+                FoundRow { label: "Signed in"; detail: root.keeper; delay: 750ms; }
             }
         }
         Rectangle { height: 26px; }
@@ -459,19 +518,37 @@ export component AccountFoundPage inherits Rectangle {
             border-radius: 3px;
             background: Tokens.surface-active;
             clip: true;
+            // While it comes: a soft band running along, fading at its ends.
             Rectangle {
-                x: root.syncing ? (parent.width + self.width) * root.va - self.width : 0px;
-                width: root.syncing ? parent.width * 0.38 : parent.width;
+                visible: root.syncing;
+                x: (parent.width + self.width) * root.va - self.width;
+                width: parent.width * 0.38;
                 border-radius: 3px;
-                background: Tokens.accent;
+                background: @linear-gradient(90deg, Tokens.accent.transparentize(1) 0%, Tokens.accent 45%, Tokens.accent 60%, Tokens.accent.transparentize(1) 100%);
+            }
+            // Then it fills from the left, and the accent turns green as it ends.
+            Rectangle {
+                x: 0px;
+                width: parent.width * root.fini;
+                border-radius: 3px;
+                background: Tokens.accent.mix(Tokens.green, 1 - root.fini);
             }
         }
         Rectangle { height: 6px; }
-        Text {
-            text: root.progress;
-            font-size: 13.5px;
-            color: Tokens.text-muted;
-            overflow: elide;
+        HorizontalLayout {
+            Text {
+                text: root.count == 0 ? (root.syncing ? "Waiting for the first messages" : "No message yet")
+                    : root.count == 1 ? "1 message" : "\{root.count} messages";
+                font-size: 13.5px;
+                color: Tokens.text-muted;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: root.elapsed;
+                font-size: 13.5px;
+                color: Tokens.text-faint;
+            }
         }
         Rectangle { vertical-stretch: 1; }
         BlockButton {

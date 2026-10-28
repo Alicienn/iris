@@ -587,9 +587,20 @@ pub trait Platform: Send + Sync {
     fn can_scan(&self) -> bool {
         false
     }
-    /// Scans a QR code with the camera; `None` when cancelled or impossible.
-    fn scan_qr(&self, done: Box<dyn FnOnce(Option<String>) + Send>) {
-        done(None)
+    /// Scans a QR code with the camera.
+    fn scan_qr(&self, done: Box<dyn FnOnce(Scan) + Send>) {
+        done(Scan::Cancelled)
+    }
+    /// Files are chosen with `pick_files` here, the system's picker answering later,
+    /// rather than with a dialog that waits.
+    fn picks_files(&self) -> bool {
+        false
+    }
+    /// Opens the system's picker for files (images only, or any), and gives the files
+    /// chosen, copied where Iris can read them; none when cancelled.
+    fn pick_files(&self, images_only: bool, done: Box<dyn FnOnce(Vec<std::path::PathBuf>) + Send>) {
+        let _ = images_only;
+        done(Vec::new())
     }
     /// The link Iris was opened with since the last call (a pairing code read by the
     /// phone's own camera), once.
@@ -612,6 +623,18 @@ pub trait Platform: Send + Sync {
     fn clipboard_get(&self) -> Option<String> {
         None
     }
+}
+
+/// What a scan of a QR code came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scan {
+    /// The code's text.
+    Read(String),
+    /// Closed without a code.
+    Cancelled,
+    /// The camera could not be used (no permission, the scanner not installed); why, as
+    /// the system said it.
+    Failed(String),
 }
 
 /// A notification, as Iris asks for it; each system draws it its own way.

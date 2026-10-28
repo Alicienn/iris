@@ -59,11 +59,12 @@ component SettingRow inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
-    // Inset by placing it: a layout's top padding is written over the `y` of what is
-    // in it, and a control centred there rose to the top.
+    // The row's whole height, no vertical padding: a layout's top padding is written
+    // over the `y` of what is in it, and a control passed in centres itself against the
+    // row (its `parent`), so the two heights must be one.
     rang := HorizontalLayout {
-        y: 9px;
-        height: parent.height - 18px;
+        y: 0px;
+        height: parent.height;
         spacing: Layout.compact ? 14px : 10px;
         IconTile {
             y: (parent.height - self.height) / 2;
@@ -236,12 +237,12 @@ component PhoneRow inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
-    // Inset by placing it, not by padding: a layout's top padding is written over the
-    // `y` of each element in it, and what centres itself there (a control, a dot) rose
-    // to the top.
+    // The row's whole height, no vertical padding: a layout's top padding is written
+    // over the `y` of each element in it, and what is passed in (a control, a dot)
+    // centres itself against the row (its `parent`), so the two heights must be one.
     rang := HorizontalLayout {
-        y: 8px;
-        height: parent.height - 16px;
+        y: 0px;
+        height: parent.height;
         padding-left: 16px;
         padding-right: 16px;
         spacing: 14px;
@@ -1285,9 +1286,10 @@ export component SettingsPanel inherits Rectangle {
                         tapped => { root.scan-requested(); }
                     }
                 }
-                // Without a camera, the code is copied there and pasted here.
-                if root.ouvert("Devices") && !Layout.camera: GroupTitle { text: "Join with a code"; }
-                if root.ouvert("Devices") && !Layout.camera: Group {
+                // Without a camera, or when it is refused, the code is copied there and
+                // pasted here.
+                if root.ouvert("Devices"): GroupTitle { text: "Join with a code"; }
+                if root.ouvert("Devices"): Group {
                     HorizontalLayout {
                         padding-left: 16px;
                         padding-right: 16px;

@@ -13,6 +13,9 @@ export component ScrollView inherits Rectangle {
     in-out property <length> content-x <=> f.content-x;
     in-out property <length> content-y <=> f.content-y;
     in property <bool> mouse-drag-pan-enabled <=> f.mouse-drag-pan-enabled;
+    /// False while a row is being swiped: a finger drifting down must not hand the
+    /// gesture over to the scroll.
+    in property <bool> interactive <=> f.interactive;
     callback scrolled <=> f.flicked;
 
     min-height: 50px;
@@ -85,4 +88,11 @@ export component ScrollView inherits Rectangle {
         background: Tokens.text.transparentize(root.saisie ? 0.55 : 0.78);
         animate background { duration: 150ms; }
     }
+}
+
+// The style's ListView on this ScrollView: the same rows made only as they show (Slint
+// does that for any "ListView" with these properties), plus `interactive`, which the
+// style's does not offer.
+export component ListView inherits ScrollView {
+    accessible-role: list;
 }

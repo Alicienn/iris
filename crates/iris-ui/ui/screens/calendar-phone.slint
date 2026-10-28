@@ -198,7 +198,7 @@ export component PhoneCalendarBar inherits HorizontalLayout {
 /// What shows one period (a month, a week) on a phone: it follows the finger while
 /// swiped, and when the period changes (swiped, Today, a day picked elsewhere) the new
 /// one comes in from the side it lies on, later from the right, earlier from the left.
-component PeriodSlide inherits Rectangle {
+export component PeriodSlide inherits Rectangle {
     /// Grows with time: the month's or the week's number.
     in property <int> period;
     /// How far the finger has pulled it.

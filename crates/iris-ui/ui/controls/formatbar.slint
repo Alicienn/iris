@@ -72,16 +72,37 @@ component KeySeparator inherits Rectangle {
 export component FormatBar inherits Rectangle {
     /// The spreadsheet's keys rather than a note's.
     in property <bool> sheet;
+    /// A message's keys (bold, italic, underline, link, list, quote), each sending the
+    /// name the writing window's own strip sends.
+    in property <bool> mail;
     callback act(string);
 
-    height: 48px + Layout.inset-bottom;
+    // Over the keyboard, the gesture bar is under the keyboard: no room for it.
+    height: 48px + (Layout.keyboard > 0 ? 0px : Layout.inset-bottom);
     background: Tokens.surface;
     Rectangle {
         y: 0;
         height: 1px;
         background: Tokens.border;
     }
-    if !root.sheet: HorizontalLayout {
+    if root.mail: HorizontalLayout {
+        y: 3px;
+        height: 42px;
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 0px;
+        alignment: start;
+        FormatKey { icon: Icons.bold; label: "Bold"; key: "bold"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.italic; label: "Italic"; key: "italic"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.underline; label: "Underline"; key: "underline"; pressed(k) => { root.act(k); } }
+        KeySeparator { }
+        FormatKey { icon: Icons.link; label: "Insert link"; key: "link"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.list; label: "Bulleted list"; key: "list"; pressed(k) => { root.act(k); } }
+        FormatKey { icon: Icons.quote; label: "Quote"; key: "quote"; pressed(k) => { root.act(k); } }
+        Rectangle { horizontal-stretch: 100; }
+        FormatKey { icon: Icons.chevron-down; label: "Hide the keyboard"; key: "hide-keyboard"; pressed(k) => { root.act(k); } }
+    }
+    if !root.sheet && !root.mail: HorizontalLayout {
         y: 3px;
         height: 42px;
         padding-left: 4px;

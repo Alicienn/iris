@@ -5,6 +5,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { Check } from "@iris/controls/choice.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { EverywhereHitData } from "@iris/types.slint";
+import { SyncButton } from "@iris/controls/sync.slint";
 
 // The search everywhere, as a page of its own on a phone (the Android mockups' S1 and
 // S2): back and the field at the top, the accent round it while typing; before a key,
@@ -143,6 +144,89 @@ component ActionRow inherits Rectangle {
     }
 }
 
+// Sync all, as a row that shows the sync: the ring with "2/5" in the icon's place, a
+// bar filling under the words, then the green and its tick, "All accounts synced", and
+// back to rest a moment later.
+component SyncActionRow inherits Rectangle {
+    in property <bool> syncing;
+    in property <int> done;
+    in property <int> total;
+    callback clicked();
+
+    property <bool> fini;
+    changed syncing => {
+        if (self.syncing) {
+            root.fini = false;
+        } else {
+            root.fini = true;
+            repos.running = true;
+        }
+    }
+    repos := Timer {
+        interval: 1800ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.fini = false;
+        }
+    }
+    property <float> part: root.total > 0 ? min(1, root.done / root.total) : 0;
+    property <float> barre: root.fini ? 1 : root.part;
+    animate barre { duration: 450ms; easing: ease-out; }
+
+    height: 52px;
+    background: touch.pressed && !root.syncing ? Tokens.surface-active : transparent;
+    accessible-role: button;
+    accessible-label: root.syncing ? "Syncing" : "Sync all accounts";
+    accessible-action-default => { if (!root.syncing) { root.clicked(); } }
+    touch := TouchArea {
+        clicked => { if (!root.syncing) { root.clicked(); } }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 14px;
+        spacing: 10px;
+        Rectangle {
+            width: 28px;
+            SyncButton {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                button-size: 28px;
+                icon-size: 18px;
+                syncing: root.syncing;
+                done: root.done;
+                total: root.total;
+                clicked => { root.clicked(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 5px;
+            Text {
+                text: root.syncing
+                    ? (root.total > 0 ? "Syncing \{root.done} of \{root.total} accounts" : "Syncing…")
+                    : root.fini ? "All accounts synced" : "Sync all accounts";
+                font-size: 15px;
+                color: root.fini ? Tokens.green : Tokens.text;
+                animate color { duration: 300ms; }
+            }
+            if root.syncing || root.fini: Rectangle {
+                height: 4px;
+                border-radius: 2px;
+                background: Tokens.surface-active;
+                clip: true;
+                Rectangle {
+                    x: 0px;
+                    width: parent.width * root.barre;
+                    border-radius: 2px;
+                    background: root.fini ? Tokens.green : Tokens.accent;
+                    animate background { duration: 300ms; }
+                }
+            }
+        }
+    }
+}
+
 component GroupTitle inherits Text {
     height: 34px;
     font-size: 13px;
@@ -160,6 +244,10 @@ export component EverywherePage inherits Rectangle {
     callback task-toggled(string);
     /// "message", "task", "event", "note", "sync".
     callback action(string);
+    /// Sync all under way: how many accounts are done, of how many.
+    in property <bool> syncing;
+    in property <int> sync-done;
+    in property <int> sync-total;
     callback dismissed();
 
     background: Tokens.background;
@@ -263,7 +351,12 @@ export component EverywherePage inherits Rectangle {
                         ActionRow { icon: Icons.plus; label: "New task"; clicked => { root.action("task"); } }
                         ActionRow { icon: Icons.calendar; label: "New event"; clicked => { root.action("event"); } }
                         ActionRow { icon: Icons.notes; label: "New note"; clicked => { root.action("note"); } }
-                        ActionRow { icon: Icons.refresh; label: "Sync all accounts"; last: true; clicked => { root.action("sync"); } }
+                        SyncActionRow {
+                            syncing: root.syncing;
+                            done: root.sync-done;
+                            total: root.sync-total;
+                            clicked => { root.action("sync"); }
+                        }
                     }
                 }
 

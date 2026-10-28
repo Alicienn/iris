@@ -372,6 +372,16 @@ export component Sidebar inherits Rectangle {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
+            // The foot's sync, up here: the sheet has no foot on a phone.
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.refresh;
+                label: root.syncing ? "Syncing… " + root.sync-progress : "Sync all accounts";
+                button-size: 44px;
+                icon-size: 20px;
+                active: root.syncing;
+                clicked => { root.sync-all(); }
+            }
             IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.tag;
@@ -535,8 +545,9 @@ export component Sidebar inherits Rectangle {
 
         // --- Foot: how fresh the mail is, and what runs the column ---
         // (Settings are on the rail, always one click away.)
-        Rectangle { height: 1px; background: Tokens.border; }
-        Rectangle { height: 7px; }
+        // A phone's sheet has none: its sync and tags are in its head.
+        if !Layout.compact: Rectangle { height: 1px; background: Tokens.border; }
+        if !Layout.compact: Rectangle { height: 7px; }
 
         // Collapsed, the column has 30px of content: the buttons stack, and each
         // keeps its tooltip — which also carries the progress the text shows.
@@ -575,7 +586,7 @@ export component Sidebar inherits Rectangle {
             }
         }
 
-        if !root.collapsed: HorizontalLayout {
+        if !root.collapsed && !Layout.compact: HorizontalLayout {
             spacing: 6px;
             vertical-stretch: 0;
             height: 26px;

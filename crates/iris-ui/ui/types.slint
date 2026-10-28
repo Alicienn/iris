@@ -400,6 +400,8 @@ export struct CalendarPhoneData {
     // what shows it slides in from the side it lies on.
     month-number: int,
     week-number: int,
+    // The day chosen, as days since 1970: the day and three-day grids slide with it.
+    day-number: int,
     // Under the month: the day chosen, "Monday 26", and its events.
     day-heading: string,
     day-today: bool,

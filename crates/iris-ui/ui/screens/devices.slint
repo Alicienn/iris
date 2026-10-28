@@ -413,3 +413,97 @@ export component SyncPage inherits Rectangle {
         }
     }
 }
+
+/// One step of the camera's help: its number in a round tile, what to do.
+component HelpStep inherits HorizontalLayout {
+    in property <string> number;
+    in property <string> text;
+    spacing: 12px;
+    Rectangle {
+        y: 0px;
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        background: Tokens.accent.transparentize(0.85);
+        Text {
+            text: root.number;
+            font-size: 13px;
+            font-weight: 700;
+            color: Tokens.accent;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    Text {
+        text: root.text;
+        font-size: Layout.compact ? 15px : 13px;
+        color: Tokens.text;
+        wrap: word-wrap;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+    }
+}
+
+/// The camera could not read a code: what to change, in three steps, and the other
+/// way in (the code typed).
+export component CameraHelpPanel inherits Rectangle {
+    /// Why, as the system said it, small under the steps.
+    in property <string> reason;
+    callback retry();
+    callback type-code();
+    callback dismissed();
+
+    Modal {
+        kind: ModalKind.question;
+        width: 100%;
+        height: 100%;
+        title: "Iris can't use the camera";
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: "Codes are read by Google Play services' camera. Let it in, then try again:";
+            font-size: Layout.compact ? 15px : 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+        VerticalLayout {
+            spacing: 12px;
+            HelpStep { number: "1"; text: "Open Settings › Apps › Google Play services › Permissions."; }
+            HelpStep { number: "2"; text: "Set Camera to Allow (or Ask every time)."; }
+            HelpStep { number: "3"; text: "If it still fails, update Google Play services in the Play Store."; }
+        }
+        if root.reason != "": Text {
+            text: root.reason;
+            font-size: 12px;
+            color: Tokens.text-faint;
+            wrap: word-wrap;
+        }
+        if Layout.compact: VerticalLayout {
+            spacing: 6px;
+            BlockButton {
+                text: "Try again";
+                clicked => { root.retry(); }
+            }
+            BlockButton {
+                text: "Type the code instead";
+                kind: ButtonKind.ghost;
+                clicked => { root.type-code(); }
+            }
+        }
+        if !Layout.compact: HorizontalLayout {
+            spacing: 8px;
+            Button {
+                text: "Type the code instead";
+                kind: ButtonKind.ghost;
+                clicked => { root.type-code(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "Try again";
+                kind: ButtonKind.primary;
+                clicked => { root.retry(); }
+            }
+        }
+    }
+}

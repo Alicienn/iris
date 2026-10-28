@@ -689,6 +689,12 @@ impl SyncEngine {
         })
     }
 
+    /// Whether a pass is under way for some account: the phone's "account added" page
+    /// says the mail is still coming while one is.
+    pub fn passing(&self) -> bool {
+        self.en_cours.lock().map(|t| !t.is_empty()).unwrap_or(false)
+    }
+
     /// Why this account last failed, if it did.
     pub fn failure(&self, account: AccountId) -> Option<AccountFailure> {
         self.failures.read().ok()?.get(&account).cloned()

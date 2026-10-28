@@ -1,10 +1,10 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
-import { SwipeRow } from "@iris/lists/swipe.slint";
+import { SwipeRow, Swiping } from "@iris/lists/swipe.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ThreadRowData } from "@iris/types.slint";
 import { Avatar } from "@iris/base/atoms.slint";
-import { ListView } from "std-widgets.slint";
+import { ListView } from "@iris/controls/scroll.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { QueueTabs, Pill } from "@iris/controls/choice.slint";
@@ -199,6 +199,12 @@ component ThreadRow inherits Rectangle {
         running: false;
         triggered => {
             self.running = false;
+            // Only a finger still down is a long press: a tap whose lift was missed
+            // (the message it opened covering the list) must not open the menu later,
+            // over what is being read.
+            if (!row-touch.pressed) {
+                return;
+            }
             root.appui-long = true;
             root.context-menu(
                 row-touch.absolute-position.x + row-touch.mouse-x,
@@ -236,6 +242,9 @@ component ThreadRow inherits Rectangle {
             } else if (event.button == PointerEventButton.left
                 && event.kind == PointerEventKind.down) {
                 if (Layout.touch-input) {
+                    // A new press: a long press before it whose lift went to the menu
+                    // is over.
+                    root.appui-long = false;
                     long-press.running = true;
                 }
                 if (event.modifiers.shift) {
@@ -245,6 +254,10 @@ component ThreadRow inherits Rectangle {
                     root.modified-click = true;
                     root.mark-toggled();
                 }
+            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                // Here, not in `changed pressed`: that runs later, and a quick tap's
+                // down and up in one frame never showed it a change.
+                long-press.running = false;
             }
         }
         // A finger that moves or lifts is not a long press.
@@ -259,6 +272,7 @@ component ThreadRow inherits Rectangle {
             }
         }
         clicked => {
+            long-press.running = false;
             // The long press already opened the menu: the lift opens nothing.
             if (root.appui-long) {
                 root.appui-long = false;
@@ -577,10 +591,10 @@ component ThreadEntry inherits Rectangle {
         enabled: Layout.touch-input && !root.selection-mode;
         start-label: "Done";
         start-icon: Icons.check;
-        start-color: Tokens.success;
+        start-color: Tokens.green;
         end-label: "Snooze";
         end-icon: Icons.clock;
-        end-color: Tokens.warning;
+        end-color: Tokens.orange;
         swiped-start => { root.quick("done"); }
         swiped-end => { root.quick("snooze"); }
 
@@ -1738,6 +1752,8 @@ export component ThreadListView inherits VerticalLayout {
         }
 
     list := ListView {
+        // Still while a row is swiped: the finger may drift down as it pushes.
+        interactive: !Swiping.active;
         for entry in root.rows: ThreadEntry {
             data: entry;
             selected: entry.id == root.selected-id;

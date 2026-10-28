@@ -131,11 +131,13 @@ export component GroupRow inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
-    // Inset by placing it, not by padding: a layout's top padding is written over the
-    // `y` of each element in it, and what centres itself there rose to the top.
+    // The row's whole height, no vertical padding: a layout's top padding is written
+    // over the `y` of each element in it, and what is passed in centres itself against
+    // the row (its `parent`), so the two heights must be one: inset, the lists' dots,
+    // Habits' and This week's chevrons sat eight pixels low.
     rang := HorizontalLayout {
-        y: 8px;
-        height: parent.height - 16px;
+        y: 0px;
+        height: parent.height;
         padding-left: 16px;
         padding-right: 16px;
         spacing: 14px;

@@ -85,6 +85,9 @@ component Foot inherits Text {
 export component HomeView inherits Rectangle {
     in property <string> greeting;
     in property <string> date;
+    /// How far the date has gone into the bar: 0 at the top of the page, 1 once the
+    /// page has scrolled it away (about 30 pixels), in between with the scroll.
+    property <float> dock: clamp((-page.content-y - 4px) / 26px, 0, 1);
     in property <string> summary;
     /// The next thing of the day, first in the list: an event (no id) or a task.
     in property <[HomeItemData]> next;
@@ -222,7 +225,23 @@ export component HomeView inherits Rectangle {
             WindowToolbar {
                 hairline: false;
                 background: Tokens.background;
-                Rectangle { horizontal-stretch: 1; }
+                // On a phone, the day's date docks here as the page scrolls it away: it
+                // rises into the bar and grows as the one under the greeting goes, and
+                // goes back down the same way (the mockups' H1 scrolled).
+                if Layout.compact: Rectangle {
+                    horizontal-stretch: 1;
+                    Text {
+                        x: 6px;
+                        y: (parent.height - self.height) / 2 + (1 - root.dock) * 14px;
+                        text: root.date;
+                        font-size: 12px + 4px * root.dock;
+                        font-weight: 600;
+                        letter-spacing: 0.4px * (1 - root.dock);
+                        color: Tokens.red;
+                        opacity: root.dock;
+                    }
+                }
+                if !Layout.compact: Rectangle { horizontal-stretch: 1; }
                 // On a phone, Mail's floating button writes: Home keeps search and
                 // settings, as the mockups (H1).
                 if !Layout.compact: IconButton {
@@ -276,6 +295,8 @@ export component HomeView inherits Rectangle {
                         font-weight: 600;
                         letter-spacing: 0.4px;
                         color: Tokens.red;
+                        // It hands over to the bar's as it goes under it.
+                        opacity: Layout.compact ? 1 - root.dock : 1;
                     }
                     Rectangle { height: 4px; }
                     Text {

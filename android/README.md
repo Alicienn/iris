@@ -38,11 +38,14 @@ keytool -genkeypair -v -keystore iris-release.jks -alias iris -keyalg RSA -keysi
 
 `app/src/main/java/fr/iris/mail/IrisActivity.java` is the activity: Android's
 `NativeActivity` with Google's code scanner (`play-services-code-scanner`, which needs
-Play services and no camera permission) and the `iris-pair:` link a pairing code read
-by the phone's camera opens Iris with. Rust calls it through JNI and polls its answers.
+Play services and no camera permission of Iris's own; its screen is fetched with
+`ModuleInstall` from `play-services-base` when missing), the `iris-pair:` link a pairing
+code read by the phone's camera opens Iris with, and the system's document picker for
+attachments (the files chosen copied into the app's cache). Rust calls it through JNI
+and polls its answers.
 
 ## What is not there yet
 
 The platform's other services that need Android's Java API (notifications and their
-actions, background mail, the document picker, widgets) follow the plan
+actions, background mail, widgets) follow the plan
 `docs/superpowers/plans/2026-10-26-iris-android-platform.md`, beside `IrisActivity`.

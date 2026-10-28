@@ -7,7 +7,9 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { ListView } from "std-widgets.slint";
 import { ComboBox } from "@iris/controls/pickers.slint";
 import { MenuEntry, MenuHeader, MenuSurface } from "@iris/layout/menu.slint";
-import { Modal } from "@iris/layout/frames.slint";
+import { Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
+import { FormatBar as KeyboardBar } from "@iris/controls/formatbar.slint";
+import { Button, ButtonKind, BlockButton } from "@iris/controls/button.slint";
 import { ScheduledMailData } from "@iris/types.slint";
 import { Pill } from "@iris/controls/choice.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
@@ -133,10 +135,12 @@ component RecipientChip inherits Rectangle {
     in property <string> address;
     in property <bool> valid: true;
     callback removed();
+    /// The widest the words may be: on a phone, the whole line beside the label.
+    in property <length> cap: 220px;
 
-    height: 22px;
-    width: min(220px, mesure.preferred-width) + 34px;
-    border-radius: 11px;
+    height: Layout.compact ? 30px : 22px;
+    width: min(root.cap, mesure.preferred-width) + 34px;
+    border-radius: self.height / 2;
     background: root.valid ? Tokens.surface-active : Tokens.error.transparentize(0.86);
     border-width: root.valid ? 0px : 1px;
     border-color: Tokens.error;
@@ -145,7 +149,7 @@ component RecipientChip inherits Rectangle {
     mesure := Text {
         visible: false;
         text: root.text;
-        font-size: Tokens.size-small;
+        font-size: Layout.compact ? 15px : Tokens.size-small;
     }
 
     // The address, pointed at, when the chip shows a name.
@@ -155,22 +159,22 @@ component RecipientChip inherits Rectangle {
     }
 
     Text {
-        x: 10px;
+        x: Layout.compact ? 12px : 10px;
         width: root.width - 34px;
         height: root.height;
         text: root.text;
-        font-size: Tokens.size-small;
+        font-size: Layout.compact ? 15px : Tokens.size-small;
         color: root.valid ? Tokens.text : Tokens.error;
         vertical-alignment: center;
         overflow: elide;
     }
 
     Rectangle {
-        x: root.width - 20px;
+        x: root.width - (Layout.compact ? 24px : 20px);
         y: (root.height - self.height) / 2;
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
+        width: Layout.compact ? 20px : 16px;
+        height: self.width;
+        border-radius: self.width / 2;
         background: retirer.has-hover ? Tokens.surface-hover : transparent;
 
         accessible-role: button;
@@ -215,8 +219,16 @@ component Field inherits VerticalLayout {
     callback accepted();
     callback edited(string);
     callback picked(string);
+    out property <bool> has-focus: champ.has-focus;
 
-    spacing: 2px;
+    // On a phone, the mockups' rows (M10): fifty pixels, no box, a hairline across the
+    // whole width under each, the accent and two pixels under the one being typed in.
+    property <bool> tel: Layout.compact;
+    property <length> etiquette: root.tel ? (root.label == "Subject" ? 56px : 40px) : 34px;
+    /// A phone's line: a chip's, or the one being typed in under the chips.
+    property <length> ligne: root.chips.length > 0 ? 38px : 50px;
+
+    spacing: root.tel ? 0px : 2px;
 
     property <bool> puces: root.addresses && ComposeRecipients.ready;
     /// The recipients made into chips, and what is being typed after them.
@@ -269,24 +281,54 @@ component Field inherits VerticalLayout {
     }
 
     HorizontalLayout {
-        spacing: Tokens.space-2;
-        height: 30px;
+        spacing: root.tel ? 12px : Tokens.space-2;
+        padding-left: root.tel ? 18px : 0px;
+        padding-right: root.tel ? 18px : 0px;
+        // A phone's chips one under the other, then the line: never cut at the left.
+        padding-top: root.tel && root.chips.length > 0 ? 6px : 0px;
+        padding-bottom: root.tel && root.chips.length > 0 ? 6px : 0px;
+        height: root.tel ? self.preferred-height : 30px;
 
-        Text {
-            width: 34px;
-            text: root.label;
-            font-size: Tokens.size-small;
-            color: Tokens.text-muted;
-            vertical-alignment: center;
+        VerticalLayout {
+            width: root.etiquette;
+            alignment: start;
+            Text {
+                height: root.tel ? root.ligne : 30px;
+                text: root.label;
+                font-size: root.tel ? 15px : Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
         }
+
+        colonne := VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 0px;
+
+            if root.tel && root.chips.length > 0: VerticalLayout {
+                for puce[i] in root.chips: HorizontalLayout {
+                    alignment: start;
+                    height: root.ligne;
+                    RecipientChip {
+                        y: (parent.height - self.height) / 2;
+                        // From the window, not the column: the column's width comes from
+                        // its chips, and back again would loop.
+                        cap: Layout.window-width - 36px - root.etiquette - 12px - 34px;
+                        text: puce.label;
+                        address: puce.address;
+                        valid: puce.valid;
+                        removed => { root.remove(i); }
+                    }
+                }
+            }
 
         // The field's box: its chips, then the line being typed in. Longer than the
         // box, it slides left to keep the cursor in view, as a line of text does.
         cadre := Rectangle {
-            horizontal-stretch: 1;
-            background: Tokens.surface;
+            height: root.tel ? root.ligne : 30px;
+            background: root.tel ? transparent : Tokens.surface;
             border-radius: Tokens.radius-small;
-            border-width: 1px;
+            border-width: root.tel ? 0px : 1px;
             border-color: champ.has-focus ? Tokens.accent : Tokens.border-strong;
             clip: true;
             animate border-color { duration: Tokens.instant; }
@@ -302,15 +344,18 @@ component Field inherits VerticalLayout {
                 x: min(0px, cadre.width - self.width);
                 width: max(cadre.width, self.preferred-width);
                 height: cadre.height;
-                padding-left: root.chips.length > 0 ? 4px : 0px;
+                padding-left: root.chips.length > 0 && !root.tel ? 4px : 0px;
                 spacing: 4px;
 
-                for puce[i] in root.chips: RecipientChip {
-                    y: (parent.height - self.height) / 2;
-                    text: puce.label;
-                    address: puce.address;
-                    valid: puce.valid;
-                    removed => { root.remove(i); }
+                if !root.tel: HorizontalLayout {
+                    spacing: 4px;
+                    for puce[i] in root.chips: RecipientChip {
+                        y: (parent.height - self.height) / 2;
+                        text: puce.label;
+                        address: puce.address;
+                        valid: puce.valid;
+                        removed => { root.remove(i); }
+                    }
                 }
 
                 // Backspace with nothing typed takes the last chip back. Seen before
@@ -338,7 +383,7 @@ component Field inherits VerticalLayout {
                         init => { if (root.autofocus) { self.focus(); } }
                         accessible-label: root.label;
                         placeholder-text: root.chips.length == 0 ? root.placeholder : "";
-                        font-size: Tokens.size-body;
+                        font-size: root.tel ? 15px : Tokens.size-body;
                         text <=> root.pending;
                         accepted => {
                             root.commit();
@@ -349,6 +394,15 @@ component Field inherits VerticalLayout {
                 }
             }
         }
+        } // colonne
+
+        // What the row offers beside the field (Reply all, Cc Bcc).
+        @children
+    }
+
+    if root.tel: Rectangle {
+        height: champ.has-focus ? 2px : 1px;
+        background: champ.has-focus ? Tokens.accent : Tokens.border;
     }
 
     // Les correspondants proposés, en pastilles sous le champ.
@@ -359,13 +413,23 @@ component Field inherits VerticalLayout {
     // pixels le temps qu'on choisisse, et c'est tout.
     // On a phone, a card under the field as the mockups' C2: each a face, the name,
     // the address under it, a finger's height. Still under the field, never over.
-    if Layout.compact && champ.has-focus && root.suggestions.length > 0: Rectangle {
+    // Nothing offered before a letter is typed: an empty field asks for nothing.
+    // The card stands out from the page: the panel's white, a border and the floating
+    // shadow, inset from the edges.
+    if Layout.compact && champ.has-focus && root.pending != "" && root.suggestions.length > 0: HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 2px;
+        padding-bottom: 8px;
+    Rectangle {
         height: liste-tel.preferred-height;
-        border-radius: 12px;
-        background: Tokens.surface;
-        drop-shadow-blur: Tokens.shadow-card-blur;
-        drop-shadow-offset-y: Tokens.shadow-card-y;
-        drop-shadow-color: Tokens.shadow-card;
+        border-radius: 14px;
+        background: Tokens.panel;
+        border-width: 1px;
+        border-color: Tokens.border-strong;
+        drop-shadow-blur: Tokens.shadow-float-blur;
+        drop-shadow-offset-y: Tokens.shadow-float-y;
+        drop-shadow-color: Tokens.shadow-float;
         liste-tel := VerticalLayout {
             padding-top: 4px;
             padding-bottom: 4px;
@@ -410,7 +474,8 @@ component Field inherits VerticalLayout {
             }
         }
     }
-    if !Layout.compact && champ.has-focus && root.suggestions.length > 0: HorizontalLayout {
+    }
+    if !Layout.compact && champ.has-focus && root.pending != "" && root.suggestions.length > 0: HorizontalLayout {
         padding-left: 34px + Tokens.space-2;
         spacing: Tokens.space-1;
         height: 24px;
@@ -513,37 +578,6 @@ component FormatBar inherits HorizontalLayout {
     }
 
     Rectangle {}
-}
-
-// A button of the close question.
-component ComposeChoice inherits Rectangle {
-    in property <string> text;
-    in property <bool> primary;
-    in property <bool> danger;
-    callback clicked();
-
-    width: libelle.preferred-width + 2 * Tokens.space-3;
-    border-radius: Tokens.radius-small;
-    border-width: root.primary ? 0px : 1px;
-    border-color: Tokens.border;
-    background: root.primary ? Tokens.accent
-        : touch.has-hover ? Tokens.surface-hover : transparent;
-
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-action-default => { root.clicked(); }
-
-    libelle := Text {
-        text: root.text;
-        font-size: Tokens.size-small;
-        font-weight: root.primary ? Tokens.weight-bold : Tokens.weight-body;
-        color: root.primary ? Tokens.accent-text : root.danger ? Tokens.error : Tokens.text-secondary;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-    }
 }
 
 // Writing a message.
@@ -734,9 +768,10 @@ export component ComposePanel inherits Rectangle {
             : (root.width - root.grand-w) / 2;
         y: root.minimised
             ? root.height - 40px - Tokens.space-3
-            : (root.height - root.grand-h) / 2;
+            : root.tel ? 0px : (root.height - root.grand-h) / 2;
         width: root.minimised ? 300px : root.grand-w;
-        height: root.minimised ? 40px : root.grand-h;
+        // On a phone, above the keyboard: the formatting keys stand on it.
+        height: root.minimised ? 40px : root.tel ? root.height - Layout.keyboard : root.grand-h;
 
         animate x, y, width, height {
             duration: Tokens.moderate;
@@ -745,18 +780,34 @@ export component ComposePanel inherits Rectangle {
 
         TouchArea {}
 
+        // Where the cursor goes to put the keyboard down (Send later's sheet must not
+        // be hidden under it): no size, under everything, so it takes no click.
+        puits := FocusScope {
+            x: 0px;
+            y: 0px;
+            width: 0px;
+            height: 0px;
+        }
+
         VerticalLayout {
+            // On a phone the rows run edge to edge, each with its own margins and
+            // hairline, as the mockups' (M10).
             padding: root.minimised ? Tokens.space-2 : Tokens.space-4;
+            padding-left: root.tel ? 0px : root.minimised ? Tokens.space-2 : Tokens.space-4;
+            padding-right: root.tel ? 0px : root.minimised ? Tokens.space-2 : Tokens.space-4;
             // Clear of the status bar and the gesture bar on a phone.
-            padding-top: (root.minimised ? Tokens.space-2 : Tokens.space-4) + (Layout.compact && !root.minimised ? Layout.inset-top : 0px);
-            padding-bottom: (root.minimised ? Tokens.space-2 : Tokens.space-4) + (Layout.compact && !root.minimised ? Layout.inset-bottom : 0px);
-            spacing: root.minimised ? 0px : Tokens.space-2;
+            padding-top: root.tel ? Layout.inset-top + 2px : root.minimised ? Tokens.space-2 : Tokens.space-4;
+            padding-bottom: root.tel ? (Layout.keyboard > 0 ? 0px : Layout.inset-bottom)
+                : root.minimised ? Tokens.space-2 : Tokens.space-4;
+            spacing: root.minimised || root.tel ? 0px : Tokens.space-2;
             animate padding, spacing { duration: Tokens.moderate; }
 
             // --- Title row, present in both states ---
             HorizontalLayout {
                 spacing: Tokens.space-2;
-                height: root.minimised ? 24px : root.tel ? 48px : 28px;
+                padding-left: root.tel ? 4px : 0px;
+                padding-right: root.tel ? 8px : 0px;
+                height: root.minimised ? 24px : root.tel ? 52px : 28px;
 
                 // On a phone, the mockups' bar (C1): close at the left, large; the
                 // title; attach, later and Send at the right. No sizes to choose: the
@@ -816,7 +867,10 @@ export component ComposePanel inherits Rectangle {
                     label: "Attach a file";
                     button-size: 44px;
                     icon-size: 21px;
-                    clicked => { root.attach(); }
+                    clicked => {
+                        puits.focus();
+                        root.attach();
+                    }
                 }
                 // Later: Android wakes Iris at the hour chosen, closed or not.
                 if root.tel: IconButton {
@@ -826,6 +880,8 @@ export component ComposePanel inherits Rectangle {
                     button-size: 44px;
                     icon-size: 21px;
                     clicked => {
+                        // The keyboard down first: the times rise from where it was.
+                        puits.focus();
                         root.later-x = self.absolute-position.x - root.absolute-position.x;
                         root.later-y = self.absolute-position.y - root.absolute-position.y;
                         root.later-open = true;
@@ -890,33 +946,36 @@ export component ComposePanel inherits Rectangle {
             // A picker rather than a fixed address: with a hundred mailboxes, sending
             // from the wrong one is the mistake that costs, and it is invisible until
             // the reply arrives somewhere unexpected.
-            if !root.minimised: HorizontalLayout {
-                spacing: Tokens.space-2;
-                height: 30px;
+            if !root.minimised: VerticalLayout {
+                HorizontalLayout {
+                    spacing: root.tel ? 12px : Tokens.space-2;
+                    padding-left: root.tel ? 18px : 0px;
+                    padding-right: root.tel ? 18px : 0px;
+                    height: root.tel ? 50px : 30px;
 
-                Text {
-                    width: 34px;
-                    text: "From";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
+                    Text {
+                        width: root.tel ? 40px : 34px;
+                        text: "From";
+                        font-size: root.tel ? 15px : Tokens.size-small;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                    ComboBox {
+                        bare: root.tel;
+                        accessible-label: "From";
+                        model: root.senders;
+                        current-index: root.sender-index;
+                        selected(value) => { root.sender-chosen(self.current-index); }
+                    }
                 }
-                ComboBox {
-                    accessible-label: "From";
-                    model: root.senders;
-                    current-index: root.sender-index;
-                    selected(value) => { root.sender-chosen(self.current-index); }
-                }
+                if root.tel: Rectangle { height: 1px; background: Tokens.border; }
             }
 
-            if !root.minimised: HorizontalLayout {
-                spacing: Tokens.space-2;
-
-                Field {
+            if !root.minimised: Field {
                     label: "To";
                     addresses: true;
                     autofocus: root.to == "";
-                    placeholder: "Separate addresses with commas";
+                    placeholder: root.tel ? "" : "Separate addresses with commas";
                     value <=> root.to;
                     suggestions: root.suggestions;
                     suggestion-names: root.suggestion-names;
@@ -924,7 +983,6 @@ export component ComposePanel inherits Rectangle {
                     suggestion-initials: root.suggestion-initials;
                     edited(t) => { root.recipient-typed("to", t); }
                     picked(c) => { root.recipient-picked("to", c); }
-                }
 
                 // A reply goes to the sender; this puts the others of the
                 // conversation in copy, and takes them out again.
@@ -945,8 +1003,8 @@ export component ComposePanel inherits Rectangle {
                 // furniture between the writer and the writing. The button stays, to
                 // fold them again; a field with something in it never folds away.
                 Rectangle {
-                    width: 54px;
-                    height: 30px;
+                    width: root.tel ? 64px : 54px;
+                    height: root.tel ? 38px : 30px;
                     border-radius: Tokens.radius-small;
                     background: root.show-cc ? Tokens.surface-active
                         : cc-touch.has-hover ? Tokens.surface-hover : transparent;
@@ -957,7 +1015,7 @@ export component ComposePanel inherits Rectangle {
 
                     Text {
                         text: "Cc Bcc";
-                        font-size: Tokens.size-small;
+                        font-size: root.tel ? 14px : Tokens.size-small;
                         color: root.show-cc ? Tokens.text-secondary : Tokens.text-muted;
                         horizontal-alignment: center;
                         vertical-alignment: center;
@@ -999,21 +1057,29 @@ export component ComposePanel inherits Rectangle {
                 value <=> root.subject;
             }
 
-            if !root.minimised: Rectangle { height: 1px; background: Tokens.border; }
+            if !root.minimised && !root.tel: Rectangle { height: 1px; background: Tokens.border; }
 
-            if !root.minimised: FormatBar {
+            // On a phone the formatting keys are over the keyboard, below.
+            if !root.minimised && !root.tel: FormatBar {
                 apply(what) => { root.format(what); }
             }
 
-            if !root.minimised: TextArea {
-                // A reply or a mailto: link arrives with its recipient: the writing is
-                // what is left to do.
-                init => { if (root.to != "") { self.focus(); } }
-                accessible-label: "Message";
-                placeholder-text: "Write your message…";
-                font-size: Tokens.size-body;
-                text <=> root.body;
+            // On a phone the page itself, no box: the words start under the subject.
+            if !root.minimised: HorizontalLayout {
                 vertical-stretch: 1;
+                padding-left: root.tel ? 10px : 0px;
+                padding-right: root.tel ? 10px : 0px;
+                padding-top: root.tel ? 6px : 0px;
+                TextArea {
+                    // A reply or a mailto: link arrives with its recipient: the writing is
+                    // what is left to do.
+                    init => { if (root.to != "") { self.focus(); } }
+                    bare: root.tel;
+                    accessible-label: "Message";
+                    placeholder-text: root.tel ? "Write…" : "Write your message…";
+                    font-size: root.tel ? 16px : Tokens.size-body;
+                    text <=> root.body;
+                }
             }
 
             // --- The conversation being answered ---
@@ -1021,12 +1087,16 @@ export component ComposePanel inherits Rectangle {
             // Read only, newest first, each message one level of quoting deeper than
             // the one after it, a bar per level. What is sent still quotes the message
             // answered under what is written, as before.
-            if !root.minimised && root.replying && root.history.length > 0: SectionHeader {
-                title: "Conversation";
-                count: root.history.length == 1 ? "1 message" : "\{root.history.length} messages";
-                link: root.history-open ? "Hide" : "Show";
-                link-label: root.history-open ? "Hide the conversation" : "Show the conversation";
-                open => { root.history-open = !root.history-open; }
+            if !root.minimised && root.replying && root.history.length > 0: HorizontalLayout {
+                padding-left: root.tel ? 18px : 0px;
+                padding-right: root.tel ? 18px : 0px;
+                SectionHeader {
+                    title: "Conversation";
+                    count: root.history.length == 1 ? "1 message" : "\{root.history.length} messages";
+                    link: root.history-open ? "Hide" : "Show";
+                    link-label: root.history-open ? "Hide the conversation" : "Show the conversation";
+                    open => { root.history-open = !root.history-open; }
+                }
             }
             if !root.minimised && root.replying && root.history.length > 0 && root.history-open: ScrollView {
                 vertical-stretch: 1;
@@ -1036,8 +1106,8 @@ export component ComposePanel inherits Rectangle {
 
                 fil := VerticalLayout {
                     width: parent.width;
-                    padding-left: Tokens.space-2;
-                    padding-right: Tokens.space-3;
+                    padding-left: root.tel ? 18px : Tokens.space-2;
+                    padding-right: root.tel ? 18px : Tokens.space-3;
                     spacing: Tokens.space-3;
 
                     for m[i] in root.history: HorizontalLayout {
@@ -1088,7 +1158,11 @@ export component ComposePanel inherits Rectangle {
             // --- What is going with it ---
             if !root.minimised && root.attachments.length > 0: HorizontalLayout {
                 spacing: Tokens.space-1;
-                height: 24px;
+                height: root.tel ? 40px : 24px;
+                padding-left: root.tel ? 18px : 0px;
+                padding-right: root.tel ? 18px : 0px;
+                padding-top: root.tel ? 4px : 0px;
+                padding-bottom: root.tel ? 8px : 0px;
 
                 for name[i] in root.attachments: Rectangle {
                     width: label.preferred-width + 34px;
@@ -1133,11 +1207,29 @@ export component ComposePanel inherits Rectangle {
                 Rectangle {}
             }
 
-            if !root.minimised && root.error != "": Text {
-                text: root.error;
-                font-size: Tokens.size-small;
-                color: Tokens.error;
-                wrap: word-wrap;
+            if !root.minimised && root.error != "": HorizontalLayout {
+                padding-left: root.tel ? 18px : 0px;
+                padding-right: root.tel ? 18px : 0px;
+                padding-bottom: root.tel ? 8px : 0px;
+                Text {
+                    text: root.error;
+                    font-size: Tokens.size-small;
+                    color: Tokens.error;
+                    wrap: word-wrap;
+                }
+            }
+
+            // On a phone, the formatting keys over the keyboard, while it is up.
+            if !root.minimised && root.tel && Layout.keyboard > 0: KeyboardBar {
+                mail: true;
+                vertical-stretch: 0;
+                act(k) => {
+                    if (k == "hide-keyboard") {
+                        puits.focus();
+                    } else {
+                        root.format(k);
+                    }
+                }
             }
 
             // --- The bottom row (on a phone, all of it is in the bar at the top) ---
@@ -1261,7 +1353,8 @@ export component ComposePanel inherits Rectangle {
             }
         }
         MenuSurface {
-            dismissed => { root.dismissed(); }
+            // The sheet of times closes, not the message under it.
+            dismissed => { root.later-open = false; }
             available-width: root.width;
             available-height: root.height;
             menu-x: max(8px, root.later-x - 200px + 28px);
@@ -1286,62 +1379,66 @@ export component ComposePanel inherits Rectangle {
 
     // Closing a message with something in it asks what to do with it. Closing an
     // empty one just closes.
-    if root.confirm-close: Rectangle {
-        background: Tokens.scrim;
+    // The app's own question: a sheet from the bottom on a phone, with its buttons a
+    // thumb's size, the centred card on a PC.
+    if root.confirm-close: Modal {
+        kind: ModalKind.question;
+        width: 100%;
+        height: 100%;
+        title: "Save this message as a draft?";
+        wrap-title: true;
+        close-label: "Keep writing";
+        fit: true;
+        dismissed => { root.confirm-close = false; }
 
-        TouchArea {
-            clicked => { root.confirm-close = false; }
+        Text {
+            text: "A draft is kept in the Drafts folder of the account it is written from.";
+            font-size: Layout.compact ? 15px : 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
         }
-
-        Floating {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            width: min(420px, parent.width - 40px);
-            height: question.preferred-height;
-
-            TouchArea {}
-
-            question := VerticalLayout {
-                padding: Tokens.space-4;
-                spacing: Tokens.space-3;
-
-                Text {
-                    text: "Save this message as a draft?";
-                    font-family: Tokens.font-family;
-                    font-size: Tokens.size-title;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
+        if Layout.compact: VerticalLayout {
+            spacing: 6px;
+            BlockButton {
+                text: "Save draft";
+                clicked => {
+                    root.confirm-close = false;
+                    root.save-draft();
                 }
-                Text {
-                    text: "A draft is kept in the Drafts folder of the account it is written from.";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-secondary;
-                    wrap: word-wrap;
+            }
+            BlockButton {
+                text: "Discard";
+                kind: ButtonKind.danger;
+                clicked => {
+                    root.confirm-close = false;
+                    root.discard();
                 }
-                HorizontalLayout {
-                    spacing: Tokens.space-2;
-                    height: 28px;
-                    ComposeChoice {
-                        text: "Discard";
-                        danger: true;
-                        clicked => {
-                            root.confirm-close = false;
-                            root.discard();
-                        }
-                    }
-                    Rectangle {}
-                    ComposeChoice {
-                        text: "Cancel";
-                        clicked => { root.confirm-close = false; }
-                    }
-                    ComposeChoice {
-                        text: "Save draft";
-                        primary: true;
-                        clicked => {
-                            root.confirm-close = false;
-                            root.save-draft();
-                        }
-                    }
+            }
+            BlockButton {
+                text: "Keep writing";
+                kind: ButtonKind.ghost;
+                clicked => { root.confirm-close = false; }
+            }
+        }
+        if !Layout.compact: ModalFooter {
+            Button {
+                text: "Discard";
+                kind: ButtonKind.danger;
+                clicked => {
+                    root.confirm-close = false;
+                    root.discard();
+                }
+            }
+            Button {
+                text: "Cancel";
+                clicked => { root.confirm-close = false; }
+            }
+            Button {
+                text: "Save draft";
+                kind: ButtonKind.primary;
+                clicked => {
+                    root.confirm-close = false;
+                    root.save-draft();
                 }
             }
         }

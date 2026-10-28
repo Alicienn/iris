@@ -34,7 +34,7 @@ import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, Empty
 import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountPageData } from "@iris/types.slint";
-import { PairPanel, SyncPage } from "@iris/screens/devices.slint";
+import { PairPanel, SyncPage, CameraHelpPanel } from "@iris/screens/devices.slint";
 import { WelcomePage } from "@iris/screens/welcome.slint";
 import { AccountSetupPanel, AccountFoundPage } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
@@ -495,6 +495,9 @@ export component AppWindow inherits Window {
 
     in property <bool> syncing-all;
     in property <string> sync-progress;
+    /// The same as numbers, for the sync button's ring: mailboxes done, of how many.
+    in property <int> sync-done;
+    in property <int> sync-total;
     in-out property <bool> sidebar-collapsed;
     in property <bool> conversation-empty: true;
     in-out property <bool> window-maximised <=> Chrome.maximised;
@@ -641,6 +644,12 @@ export component AppWindow inherits Window {
     in property <string> add-account-found-incoming;
     in property <string> add-account-found-outgoing;
     in property <string> add-account-found-keeper;
+    /// "Found in 0.8 s": how long the lookup took.
+    in property <string> add-account-found-took;
+    /// The messages arrived since the account was added, and for how long.
+    in property <int> add-account-found-count;
+    in property <string> add-account-found-elapsed;
+    in property <bool> add-account-found-syncing;
     in property <bool> add-account-manual;
     in property <string> add-account-error;
     in property <string> add-account-hint;
@@ -1566,6 +1575,10 @@ export component AppWindow inherits Window {
     /// closes, one layer per call: a search, a task's or a habit's page, the tasks'
     /// column. True when something closed. Android's Back asks it after the windows.
     public function close-layer() -> bool {
+        // A phone's search page, open with or without words in it.
+        if (root.workspace == 0 && mail-toolbar.leave-search()) {
+            return true;
+        }
         if (root.searching) {
             root.search-query = "";
             root.search-cleared();
@@ -1575,7 +1588,8 @@ export component AppWindow inherits Window {
             root.reading-focus = false;
             return true;
         }
-        if (root.workspace == 2 && root.tasks-column-open) {
+        // On a phone the page of everything is Tasks' root, not a layer over Today.
+        if (root.workspace == 2 && root.tasks-column-open && !Layout.compact) {
             root.tasks-column-open = false;
             return true;
         }
@@ -1589,6 +1603,11 @@ export component AppWindow inherits Window {
             shortcuts.focus();
             return true;
         }
+        // A list, Today or the habits on a phone: Back goes up to Tasks.
+        if (root.workspace == 2 && Layout.compact && !root.tasks-column-open) {
+            root.tasks-column-open = true;
+            return true;
+        }
         return false;
     }
 
@@ -1600,6 +1619,10 @@ export component AppWindow inherits Window {
     public function close-top() -> bool {
         if (root.shortcuts-help-open) {
             root.shortcuts-help-open = false;
+            return true;
+        }
+        if (root.camera-help-open) {
+            root.camera-help-open = false;
             return true;
         }
         // The sync's page goes; the sync itself carries on.
@@ -1620,7 +1643,7 @@ export component AppWindow inherits Window {
             root.mailboxes-open = false;
             return true;
         }
-        if (root.tasks-column-open) {
+        if (root.tasks-column-open && !Layout.compact) {
             root.tasks-column-open = false;
             return true;
         }
@@ -1878,7 +1901,7 @@ export component AppWindow inherits Window {
         } else if (root.workspace == 1) {
             root.calendar-today();
         } else if (root.workspace == 2) {
-            root.tasks-column-open = false;
+            root.tasks-column-open = Layout.compact;
             if (root.task-has-detail) { root.task-detail-closed(); }
             if (root.habits-has-detail) { root.habit-detail-closed(); }
         }
@@ -1936,6 +1959,9 @@ export component AppWindow inherits Window {
     /// The page of a sync with another device: who, where it is (0 connecting, 1
     /// syncing, 2 done, 3 failed), and what arrived, kind by kind.
     in-out property <bool> sync-page-open;
+    /// The camera could not read a code (its permission refused): what to do.
+    in-out property <bool> camera-help-open;
+    in property <string> camera-help-reason;
     in property <string> sync-peer;
     in property <int> sync-state;
     in property <[SyncStepData]> sync-steps;
@@ -2031,8 +2057,9 @@ export component AppWindow inherits Window {
         || root.problem-open || root.source-open || root.signature-open || root.alias-open
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
-        || root.empty-folder-open || root.mailboxes-open || root.tasks-column-open
+        || root.empty-folder-open || root.mailboxes-open || (root.tasks-column-open && !Layout.compact)
         || root.pair-open || root.first-run || root.everywhere-open || root.sync-page-open
+        || root.camera-help-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -2352,6 +2379,11 @@ export component AppWindow inherits Window {
             }
             root.workspace = Chrome.request-arg;
             root.workspace-changed(Chrome.request-arg);
+            // On a phone the Tasks tab opens on Tasks, the page of everything (the
+            // mockups' T1), not on Today.
+            if (Layout.compact && Chrome.request-arg == 2) {
+                root.tasks-column-open = true;
+            }
             shortcuts.focus();
         } else if (Chrome.request == "minimise") {
             root.window-minimise();
@@ -2503,12 +2535,21 @@ export component AppWindow inherits Window {
                             root.navigated("unified", "");
                             shortcuts.focus();
                         }
-                        resume-account(id) => { root.resume-account(id); }
+                        // On a phone, what the sheet hands to a window of its own closes
+                        // it first: those windows are drawn under it, and the name being
+                        // typed for a new label was hidden behind the mailboxes.
+                        resume-account(id) => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
+                            root.resume-account(id);
+                        }
                         add-account => { root.add-account-open = true; }
                         filter-changed(t) => { root.account-filter-changed(t); }
                         sync-account(id) => { root.sync-account(id); }
                         sync-all => { root.sync-all(); }
-                        open-tags => { root.tags-requested(); }
+                        open-tags => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
+                            root.tags-requested();
+                        }
                         closed => {
                             root.mailboxes-open = false;
                             shortcuts.focus();
@@ -2530,6 +2571,7 @@ export component AppWindow inherits Window {
                         probe-x: root.account-probe-x;
                         probe-y: root.account-probe-y;
                         account-menu(id, mx, my) => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
                             root.account-menu-x = mx;
                             root.account-menu-y = my;
                             root.account-menu-requested(id);
@@ -2659,6 +2701,10 @@ export component AppWindow inherits Window {
                         active-tab: root.active-tab;
                         title-clicked => { root.mailboxes-open = true; }
                         search => { mail-toolbar.focus-search(); }
+                        syncing: root.syncing-all;
+                        sync-done: root.sync-done;
+                        sync-total: root.sync-total;
+                        sync => { root.sync-all(); }
                         tab-selected(i) => {
                             root.tab-selected(i);
                             root.navigated("tab", "\{i}");
@@ -2812,6 +2858,7 @@ export component AppWindow inherits Window {
                     ConversationView {
                         width: 100%;
                         height: 100%;
+                        shown: !Layout.compact || root.fil-en-page;
                         body-width-changed(w) => { root.reader-width(w); }
                         message: root.message;
                         messages: root.messages;
@@ -4278,12 +4325,21 @@ export component AppWindow inherits Window {
                             root.navigated("unified", "");
                             shortcuts.focus();
                         }
-                        resume-account(id) => { root.resume-account(id); }
+                        // On a phone, what the sheet hands to a window of its own closes
+                        // it first: those windows are drawn under it, and the name being
+                        // typed for a new label was hidden behind the mailboxes.
+                        resume-account(id) => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
+                            root.resume-account(id);
+                        }
                         add-account => { root.add-account-open = true; }
                         filter-changed(t) => { root.account-filter-changed(t); }
                         sync-account(id) => { root.sync-account(id); }
                         sync-all => { root.sync-all(); }
-                        open-tags => { root.tags-requested(); }
+                        open-tags => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
+                            root.tags-requested();
+                        }
                         closed => {
                             root.mailboxes-open = false;
                             shortcuts.focus();
@@ -4305,6 +4361,7 @@ export component AppWindow inherits Window {
                         probe-x: root.account-probe-x;
                         probe-y: root.account-probe-y;
                         account-menu(id, mx, my) => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
                             root.account-menu-x = mx;
                             root.account-menu-y = my;
                             root.account-menu-requested(id);
@@ -4338,11 +4395,18 @@ export component AppWindow inherits Window {
                                 root.folder-fold-toggled(p);
                                 shortcuts.focus();
                             }
-                            new-folder => { root.new-folder-requested(); }
+                            new-folder => {
+                                root.mailboxes-open = false;
+                                root.new-folder-requested();
+                            }
                             scheduled: root.scheduled-count;
-                            scheduled-requested => { root.scheduled-requested(); }
+                            scheduled-requested => {
+                                root.mailboxes-open = false;
+                                root.scheduled-requested();
+                            }
                             folder-dropped(p) => { root.folder-dropped(p); }
                             folder-menu(p, mx, my) => {
+                                root.mailboxes-open = false;
                                 root.folder-menu-x = mx;
                                 root.folder-menu-y = my;
                                 root.folder-menu-requested(p);
@@ -4636,8 +4700,10 @@ export component AppWindow inherits Window {
             incoming: root.add-account-found-incoming;
             outgoing: root.add-account-found-outgoing;
             keeper: root.add-account-found-keeper;
-            syncing: root.syncing-all;
-            progress: root.sync-progress;
+            took: root.add-account-found-took;
+            count: root.add-account-found-count;
+            elapsed: root.add-account-found-elapsed;
+            syncing: root.add-account-found-syncing || root.syncing-all;
             continued => {
                 root.add-account-found = false;
                 root.first-run = false;
@@ -4831,6 +4897,26 @@ export component AppWindow inherits Window {
             retry => { root.pair-scan(); }
         }
 
+        // The camera refused to read a code: how to let it in, or type the code.
+        if root.camera-help-open: CameraHelpPanel {
+            width: 100%;
+            height: 100%;
+            reason: root.camera-help-reason;
+            retry => {
+                root.camera-help-open = false;
+                root.pair-scan();
+            }
+            type-code => {
+                root.camera-help-open = false;
+                root.settings-open = true;
+                root.settings-group = "Devices";
+            }
+            dismissed => {
+                root.camera-help-open = false;
+                shortcuts.focus();
+            }
+        }
+
         if root.pair-open: PairPanel {
             width: 100%;
             height: 100%;
@@ -4867,7 +4953,15 @@ export component AppWindow inherits Window {
                     root.home-note-opened(hit.id);
                 }
             }
+            syncing: root.syncing-all;
+            sync-done: root.sync-done;
+            sync-total: root.sync-total;
             action(quoi) => {
+                // Sync stays on the page, its row showing how far it has got.
+                if (quoi == "sync") {
+                    root.sync-all();
+                    return;
+                }
                 root.everywhere-open = false;
                 if (quoi == "message") {
                     root.compose-minimised = false;

@@ -324,11 +324,13 @@ component PhoneRow inherits Rectangle {
         enabled: root.tappable;
         clicked => { root.clicked(); }
     }
-    // Inset by placing it, not by padding: a layout's top padding is written over the
-    // `y` of each element in it, and the calendar's dot rose to the top.
+    // The row's whole height, no vertical padding: a layout's top padding is written
+    // over the `y` of each element in it, and what is passed in measures its centre
+    // against this row's height (`parent` is the row), so the two must be the same:
+    // inset by eight pixels, the calendar's dot sat eight pixels low.
     rang := HorizontalLayout {
-        y: 8px;
-        height: parent.height - 16px;
+        y: 0px;
+        height: parent.height;
         padding-left: root.inset;
         padding-right: root.inset;
         spacing: 14px;
@@ -1226,12 +1228,17 @@ export component EventEditorPanel inherits Rectangle {
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
                                     }
+                                    // A box the row stretches, the dot centred in it: a
+                                    // `y` of its own in the row was written over.
                                     if n == 2 && root.calendar-colors.length > root.calendar-index: Rectangle {
-                                        y: (parent.height - self.height) / 2;
                                         width: 8px;
-                                        height: 8px;
-                                        border-radius: 4px;
-                                        background: root.calendar-colors[root.calendar-index];
+                                        Rectangle {
+                                            y: (parent.height - self.height) / 2;
+                                            width: 8px;
+                                            height: 8px;
+                                            border-radius: 4px;
+                                            background: root.calendar-colors[root.calendar-index];
+                                        }
                                     }
                                     montre := Text {
                                         text: n == 0 ? (root.repeats.length > root.repeat-index ? root.repeats[root.repeat-index] : "")

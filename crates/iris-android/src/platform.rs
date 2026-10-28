@@ -1,6 +1,6 @@
 //! What Android answers when Iris asks about the system.
 
-use iris_app::platform::{Platform, UpdateChannel};
+use iris_app::platform::{Platform, Scan, UpdateChannel};
 use iris_secrets::Secret;
 use iris_types::{Error, Result};
 use jni::objects::{JObject, JString};
@@ -127,31 +127,79 @@ impl Platform for Android {
 
     /// Opens the scanner, then waits for its answer off the window's thread: the
     /// activity keeps it until asked.
-    fn scan_qr(&self, done: Box<dyn FnOnce(Option<String>) + Send>) {
+    fn scan_qr(&self, done: Box<dyn FnOnce(Scan) + Send>) {
         let ouvert = avec_activite(|env, activite| {
             env.call_method(activite, jni_str!("scanQr"), jni_sig!("()V"), &[])?;
             Ok(())
         });
         if let Err(e) = ouvert {
             tracing::warn!(error = %e, "opening the code scanner");
-            return done(None);
+            return done(Scan::Failed(e));
         }
         std::thread::spawn(move || {
             // Ten minutes at most: someone who walked away has not scanned anything.
             for _ in 0..3000 {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 match chaine_de_l_activite("takeScan") {
-                    Ok(Some(texte)) => {
-                        return done((!texte.is_empty()).then_some(texte));
+                    // The activity marks a failure with a leading U+0001.
+                    Ok(Some(texte)) if texte.starts_with('\u{1}') => {
+                        return done(Scan::Failed(texte[1..].to_string()));
                     }
+                    Ok(Some(texte)) if texte.is_empty() => return done(Scan::Cancelled),
+                    Ok(Some(texte)) => return done(Scan::Read(texte)),
                     Ok(None) => {}
                     Err(e) => {
                         tracing::warn!(error = %e, "reading the code scanner");
-                        return done(None);
+                        return done(Scan::Failed(e));
                     }
                 }
             }
-            done(None)
+            done(Scan::Cancelled)
+        });
+    }
+
+    /// Android's document picker, through `IrisActivity`: what is chosen is copied
+    /// into the app's cache, and the paths come back the way the scanner's code does.
+    fn picks_files(&self) -> bool {
+        true
+    }
+
+    fn pick_files(&self, images_only: bool, done: Box<dyn FnOnce(Vec<std::path::PathBuf>) + Send>) {
+        let ouvert = avec_activite(|env, activite| {
+            env.call_method(
+                activite,
+                jni_str!("pickFiles"),
+                jni_sig!("(Z)V"),
+                &[JValue::Bool(images_only)],
+            )?;
+            Ok(())
+        });
+        if let Err(e) = ouvert {
+            tracing::warn!(error = %e, "opening the file picker");
+            return done(Vec::new());
+        }
+        std::thread::spawn(move || {
+            for _ in 0..3000 {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                match chaine_de_l_activite("takePicked") {
+                    // One path a line; empty when the picker was closed.
+                    Ok(Some(lignes)) => {
+                        return done(
+                            lignes
+                                .lines()
+                                .filter(|l| !l.is_empty())
+                                .map(std::path::PathBuf::from)
+                                .collect(),
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, "reading the file picker");
+                        return done(Vec::new());
+                    }
+                }
+            }
+            done(Vec::new())
         });
     }
 

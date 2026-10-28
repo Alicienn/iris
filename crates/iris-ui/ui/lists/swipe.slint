@@ -3,12 +3,20 @@ import { Layout } from "@iris/theme/layout.slint";
 import { Icon } from "@iris/base/icons.slint";
 
 // A row a finger can push aside: right for one action, left for another, as phones
-// have taught everyone. Past 96 pixels the ground takes the action's colour and
-// letting go does it; short of that the row springs back. A drag that is more up
-// than across is a scroll, and the row lets the list have it.
+// have taught everyone. The ground is the action's colour from the first pixel, as
+// the mockups have it; past 96 pixels its icon grows and letting go does it; short of
+// that the row springs back. A drag that is more up than across is a scroll, and the
+// row lets the list have it.
 //
 // Every action a swipe does is also in the row's menu (long press, right-click): a
 // gesture is never the only way.
+
+/// A row is being swiped: the list it is in stops scrolling until it is let go, or a
+/// finger drifting down mid-swipe handed the gesture to the scroll and the row sprang
+/// back.
+export global Swiping {
+    in-out property <bool> active;
+}
 
 export component SwipeRow inherits Rectangle {
     /// On by default where the main input is a finger.
@@ -27,47 +35,65 @@ export component SwipeRow inherits Rectangle {
     property <length> seuil: 96px;
     property <length> decalage: 0px;
     property <bool> glisse: geste.swiping;
+    changed glisse => { Swiping.active = self.glisse; }
+    /// Past the threshold: letting go does it.
+    property <bool> arme: root.decalage >= root.seuil || -root.decalage >= root.seuil;
 
     clip: true;
 
-    // What the row uncovers.
+    // What the row uncovers: the action's colour at once, white on it; the icon grows
+    // once letting go would do it.
     if root.decalage > 0: Rectangle {
-        background: root.decalage >= root.seuil ? root.start-color : Tokens.surface-active;
+        background: root.start-color;
         HorizontalLayout {
             padding-left: 24px;
             spacing: 10px;
             alignment: start;
-            Icon {
-                y: (parent.height - self.height) / 2;
-                data: root.start-icon;
-                size: 20px;
-                tint: root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+            Rectangle {
+                width: 26px;
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    data: root.start-icon;
+                    size: root.arme ? 24px : 19px;
+                    weight: 2.2;
+                    tint: Tokens.accent-text;
+                    animate size { duration: 160ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
+                }
             }
             Text {
                 text: root.start-label;
+                font-size: 15px;
                 font-weight: 600;
-                color: root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+                color: Tokens.accent-text;
                 vertical-alignment: center;
             }
         }
     }
     if root.decalage < 0: Rectangle {
-        background: -root.decalage >= root.seuil ? root.end-color : Tokens.surface-active;
+        background: root.end-color;
         HorizontalLayout {
             padding-right: 24px;
             spacing: 10px;
             alignment: end;
             Text {
                 text: root.end-label;
+                font-size: 15px;
                 font-weight: 600;
-                color: -root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+                color: Tokens.accent-text;
                 vertical-alignment: center;
             }
-            Icon {
-                y: (parent.height - self.height) / 2;
-                data: root.end-icon;
-                size: 20px;
-                tint: -root.decalage >= root.seuil ? #ffffff : Tokens.text-muted;
+            Rectangle {
+                width: 26px;
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    data: root.end-icon;
+                    size: root.arme ? 24px : 19px;
+                    weight: 2.2;
+                    tint: Tokens.accent-text;
+                    animate size { duration: 160ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
+                }
             }
         }
     }

@@ -1,5 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Icon } from "@iris/base/icons.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Kbd } from "@iris/base/atoms.slint";
 import { ScrollView } from "std-widgets.slint";
 
@@ -41,6 +41,8 @@ export component TextField inherits FieldFrame {
     /// The key that brings the cursor here, shown at the end: "Ctrl F".
     in property <string> shortcut;
     out property <bool> has-focus: input.has-focus;
+    /// A password field: an eye at the end shows what was typed, and hides it again.
+    in property <bool> revealable;
 
     callback accepted(string);
     callback edited(string);
@@ -49,11 +51,17 @@ export component TextField inherits FieldFrame {
         input.select-all();
     }
 
+    /// The cursor leaves the field: on a phone, the keyboard goes down.
+    public function release() {
+        input.clear-focus();
+    }
+
+    property <bool> revealed;
     // How far the text has scrolled left to keep the cursor in view.
     property <length> offset: 0px;
     property <length> pad: Tokens.space-2;
     property <length> gauche: root.icon != "" ? 33px : root.pad + 2px;
-    property <length> droite: root.shortcut != "" ? touche.width + 12px : root.pad;
+    property <length> droite: root.revealable ? 40px : root.shortcut != "" ? touche.width + 12px : root.pad;
     property <length> utile: root.width - root.gauche - root.droite;
 
     // focus() on the field reaches the text inside it.
@@ -124,7 +132,7 @@ export component TextField inherits FieldFrame {
         height: 100%;
         text <=> root.text;
         font-size: root.font-size;
-        input-type: root.input-type;
+        input-type: root.revealable && root.revealed ? InputType.text : root.input-type;
         read-only: root.read-only;
         single-line: true;
         vertical-alignment: center;
@@ -146,6 +154,16 @@ export component TextField inherits FieldFrame {
         }
     }
     } // zone
+
+    if root.revealable: IconButton {
+        x: root.width - self.width - 4px;
+        y: (parent.height - self.height) / 2;
+        icon: root.revealed ? Icons.eye-off : Icons.eye;
+        label: root.revealed ? "Hide the password" : "Show the password";
+        button-size: 36px;
+        icon-size: 19px;
+        clicked => { root.revealed = !root.revealed; }
+    }
 }
 
 // Several lines, scrolling.

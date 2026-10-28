@@ -389,6 +389,8 @@ pub fn wire_sync(
             }
             fenetre.set_syncing_all(true);
             fenetre.set_sync_progress("0/…".into());
+            fenetre.set_sync_done(0);
+            fenetre.set_sync_total(0);
 
             let engine = Arc::clone(&engine);
             let services_all = services_all.clone();
@@ -408,6 +410,8 @@ pub fn wire_sync(
                         };
                         let _ = faible_progres.upgrade_in_event_loop(move |fenetre| {
                             fenetre.set_sync_progress(texte.into());
+                            fenetre.set_sync_done(done.min(i32::MAX as usize) as i32);
+                            fenetre.set_sync_total(total.min(i32::MAX as usize) as i32);
                         });
                     })
                     .await;
@@ -3872,6 +3876,12 @@ pub fn wire_account_setup(
             fenetre.set_add_account_error(Default::default());
             fenetre.set_add_account_hint("Recherche de la configuration…".into());
 
+            // What the phone's "account added" page counts from: the messages already
+            // here (another account's), and when the lookup began.
+            let deja = store.message_count().unwrap_or(0);
+            let debut = std::time::Instant::now();
+            let moteur_suivi = Arc::clone(&engine);
+            let store_suivi = Arc::clone(&store);
             let store = Arc::clone(&store);
             let secrets = Arc::clone(&secrets);
             let engine = Arc::clone(&engine);
@@ -3946,7 +3956,11 @@ pub fn wire_account_setup(
                                     }
                                     .into(),
                                 );
+                                fenetre.set_add_account_found_took(
+                                    format!("Found in {}", duree_courte(debut.elapsed())).into(),
+                                );
                                 fenetre.set_add_account_found(true);
+                                suivre_l_arrivee(&fenetre, store_suivi, moteur_suivi, deja);
                             } else {
                                 // The welcome stayed under the setup: done with now.
                                 fenetre.set_first_run(false);
@@ -4315,6 +4329,62 @@ async fn ajouter(
 /// ailleurs retrouve le fait en bas de la fenêtre.
 fn announce(fenetre: &AppWindow, message: String) {
     fenetre.set_toast(message.into());
+}
+
+/// "0.8 s", "12 s", "2 min 5 s": how long something took, for a person.
+fn duree_courte(d: std::time::Duration) -> String {
+    let s = d.as_secs_f64();
+    if s < 10.0 {
+        format!("{s:.1} s")
+    } else if s < 60.0 {
+        format!("{} s", s as u64)
+    } else {
+        format!("{} min {} s", s as u64 / 60, s as u64 % 60)
+    }
+}
+
+thread_local! {
+    /// The poll of the phone's "account added" page, while it shows.
+    static ARRIVEE: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
+}
+
+/// On the phone's "account added" page: how many messages have come and for how long,
+/// twice a second, until no pass is under way any more.
+fn suivre_l_arrivee(
+    fenetre: &AppWindow,
+    store: Arc<iris_store::Store>,
+    moteur: Arc<iris_sync::SyncEngine>,
+    deja: u64,
+) {
+    let debut = std::time::Instant::now();
+    fenetre.set_add_account_found_count(0);
+    fenetre.set_add_account_found_syncing(true);
+    fenetre.set_add_account_found_elapsed(Default::default());
+    let faible = fenetre.as_weak();
+    let minuteur = slint::Timer::default();
+    minuteur.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(500),
+        move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let arrives = store.message_count().unwrap_or(0).saturating_sub(deja);
+            fenetre.set_add_account_found_count(arrives.min(i32::MAX as u64) as i32);
+            fenetre.set_add_account_found_elapsed(duree_courte(debut.elapsed()).into());
+            // The first pass may not have begun yet: a few seconds' grace.
+            let encore = moteur.passing() || debut.elapsed().as_secs() < 3;
+            fenetre.set_add_account_found_syncing(encore);
+            if !encore || !fenetre.get_add_account_found() {
+                ARRIVEE.with(|a| {
+                    if let Some(t) = a.borrow().as_ref() {
+                        t.stop();
+                    }
+                });
+            }
+        },
+    );
+    ARRIVEE.with(|a| *a.borrow_mut() = Some(minuteur));
 }
 
 /// Bascule l'écran en configuration manuelle, champs préremplis.
@@ -7524,6 +7594,25 @@ fn attach_files(
     pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
     images_only: bool,
 ) {
+    // Android's document picker answers later, from another thread: the files it chose
+    // are copied into Iris's cache, then read here as any others.
+    let plateforme = crate::platform::current();
+    if plateforme.picks_files() {
+        let faible = fenetre.as_weak();
+        let pieces = Arc::clone(pieces);
+        plateforme.pick_files(
+            images_only,
+            Box::new(move |chemins| {
+                let _ = faible.upgrade_in_event_loop(move |fenetre| {
+                    if !chemins.is_empty() {
+                        joindre(&fenetre, &pieces, chemins);
+                    }
+                });
+            }),
+        );
+        return;
+    }
+
     let mut dialogue = crate::dialogue::FileDialog::new();
     if images_only {
         dialogue = dialogue.add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
@@ -7532,7 +7621,15 @@ fn attach_files(
     let Some(chemins) = dialogue.pick_files() else {
         return;
     };
+    joindre(fenetre, pieces, chemins);
+}
 
+/// Reads the files chosen into the draft, refusing what would make it too heavy.
+fn joindre(
+    fenetre: &AppWindow,
+    pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
+    chemins: Vec<std::path::PathBuf>,
+) {
     let mut liste = pieces.lock().expect("poisoned attachments");
     let mut refuses = Vec::new();
 

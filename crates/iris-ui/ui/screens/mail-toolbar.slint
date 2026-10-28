@@ -4,6 +4,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { QueueTabs, QueueSegments } from "@iris/controls/choice.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
+import { SyncButton } from "@iris/controls/sync.slint";
 
 // The search field as Apple puts it in a toolbar: a grey capsule, the magnifier in it.
 export component SearchCapsule inherits Rectangle {
@@ -12,6 +13,8 @@ export component SearchCapsule inherits Rectangle {
     in property <string> placeholder: "Search";
     callback submitted(string);
     callback cleared();
+    /// On a phone: the field emptied, the search still open.
+    callback emptied();
 
     public function focus-field() {
         champ.focus();
@@ -41,22 +44,27 @@ export component SearchCapsule inherits Rectangle {
             text <=> root.query;
             accepted(t) => { root.submitted(t); }
             // Emptying the field is enough to leave the search. On a phone the results
-            // come as the words are typed, as the mockups have them.
+            // come as the words are typed, as the mockups have them, and the field
+            // stays open while the words are rubbed out and others typed.
             edited(t) => {
-                if (t == "" && root.active) {
+                if (t == "" && root.tel) {
+                    root.emptied();
+                } else if (t == "" && root.active) {
                     root.cleared();
-                } else if (root.tel && t != "") {
+                } else if (root.tel) {
                     root.submitted(t);
                 }
             }
         }
-        if root.active || (root.tel && root.query != ""): Rectangle {
+        // On a phone the cross only rubs the words out (the arrow leaves); on a PC it
+        // leaves the search.
+        if (root.active && !root.tel) || (root.tel && root.query != ""): Rectangle {
             width: root.tel ? 40px : 24px;
             accessible-role: button;
-            accessible-label: "Leave search";
+            accessible-label: root.tel ? "Clear the search" : "Leave search";
             accessible-action-default => {
                 root.query = "";
-                root.cleared();
+                root.tel ? root.emptied() : root.cleared();
             }
             Icon {
                 x: (parent.width - self.width) / 2;
@@ -68,7 +76,12 @@ export component SearchCapsule inherits Rectangle {
             fermer := TouchArea {
                 clicked => {
                     root.query = "";
-                    root.cleared();
+                    if (root.tel) {
+                        root.emptied();
+                        champ.focus();
+                    } else {
+                        root.cleared();
+                    }
                 }
             }
         }
@@ -117,6 +130,17 @@ export component MailToolbar inherits WindowToolbar {
         root.cherche = true;
         // Hidden a moment ago on a phone's list: the field takes the cursor once shown.
         root.focus-pending = true;
+    }
+
+    /// Back on a phone: the search's page closes before Back goes anywhere else.
+    public function leave-search() -> bool {
+        if (!root.en-recherche) {
+            return false;
+        }
+        root.cherche = false;
+        root.search-query = "";
+        root.search-cleared();
+        return true;
     }
     property <bool> focus-pending;
     Timer {
@@ -342,6 +366,9 @@ export component MailToolbar inherits WindowToolbar {
             root.cherche = false;
             root.search-cleared();
         }
+        // On a phone the words rubbed out: no results, and the field stays to type
+        // others. The arrow or Back leaves it.
+        emptied => { root.search-cleared(); }
     }
 }
 
@@ -360,6 +387,11 @@ export component PhoneMailHeader inherits VerticalLayout {
     callback tab-selected(int);
     /// The magnifier beside the title: the bar turns into the search field.
     callback search();
+    /// Sync all, beside the magnifier, with how far it has got.
+    in property <bool> syncing;
+    in property <int> sync-done;
+    in property <int> sync-total;
+    callback sync();
 
     padding-left: 18px;
     padding-top: 6px;
@@ -400,10 +432,20 @@ export component PhoneMailHeader inherits VerticalLayout {
             tint: Tokens.text;
         }
     }
+        // From the left, over the title and its chevron: with a width and no x it
+        // was centred, over the chevron only, and a touch on "Inbox" did nothing.
         TouchArea {
+            x: 0px;
             width: titre.width;
             clicked => { root.title-clicked(); }
         }
+    }
+    SyncButton {
+        y: (parent.height - self.height) / 2;
+        syncing: root.syncing;
+        done: root.sync-done;
+        total: root.sync-total;
+        clicked => { root.sync(); }
     }
     IconButton {
         y: (parent.height - self.height) / 2;

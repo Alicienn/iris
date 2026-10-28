@@ -13,7 +13,8 @@ import { TextField } from "@iris/controls/field.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import {
-    CalPill, RoundFab, PhoneCalendarBar, WeekStrip, PhoneAgenda, ToPlanBand, PhoneMonth
+    CalPill, RoundFab, PhoneCalendarBar, WeekStrip, PhoneAgenda, ToPlanBand, PhoneMonth,
+    PeriodSlide
 } from "@iris/screens/calendar-phone.slint";
 
 // The panels' buttons, in the words they were written with: the shared `Button`,
@@ -398,8 +399,12 @@ component WeekGrid inherits VerticalLayout {
     /// next touch on the grid books it there, as (day, minute of the day).
     in property <int> picked-task: -1;
     callback slot-picked(string, int);
-    /// The three days' header swiped on a phone: three days later (1) or earlier (-1).
+    /// The three days' header or the grid swiped on a phone: a period later (1) or
+    /// earlier (-1).
     callback swiped(int);
+    /// The first day shown, as a number that grows with time: when it changes, the
+    /// days slide in from the side they lie on.
+    in property <int> period;
     /// The colour of the calendar an event typed on a slot goes into.
     in property <color> quick-color;
 
@@ -538,6 +543,9 @@ component WeekGrid inherits VerticalLayout {
         cancelled => {
             root.glisse = 0px;
         }
+        PeriodSlide {
+            period: root.period;
+            drag: root.glisse;
         HorizontalLayout {
             padding-top: 4px;
             padding-bottom: 8px;
@@ -569,6 +577,7 @@ component WeekGrid inherits VerticalLayout {
                 }
             }
         }
+        } // PeriodSlide
     }
     if Layout.compact && root.days.length > 1: Hairline {}
 
@@ -650,8 +659,35 @@ component WeekGrid inherits VerticalLayout {
     }
     if root.journee: Hairline {}
 
-    defil := ScrollView {
+    // On a phone the hours themselves are swiped sideways, as the month is: the next
+    // days follow the finger and slide in. Up and down stays the scroll.
+    SwipeGestureHandler {
         vertical-stretch: 1;
+        handle-swipe-left: Layout.compact && root.drag-mode == 0 && root.draft-day < 0;
+        handle-swipe-right: Layout.compact && root.drag-mode == 0 && root.draft-day < 0;
+        moved => {
+            root.glisse = self.current-position.x - self.pressed-position.x;
+        }
+        swiped => {
+            if (root.glisse < -40px) {
+                root.swiped(1);
+            } else if (root.glisse > 40px) {
+                root.swiped(-1);
+            }
+            root.glisse = 0px;
+        }
+        cancelled => {
+            root.glisse = 0px;
+        }
+    PeriodSlide {
+        width: parent.width;
+        height: parent.height;
+        period: root.period;
+        drag: root.glisse;
+
+    defil := ScrollView {
+        width: parent.width;
+        height: parent.height;
         content-height: root.hour * 24;
         // The mouse carries events; the wheel scrolls.
         mouse-drag-pan-enabled: false;
@@ -1083,6 +1119,8 @@ component WeekGrid inherits VerticalLayout {
             }
         }
     }
+    } // PeriodSlide
+    } // SwipeGestureHandler
 
     // A phone's slot opened: the title is typed here, over the keyboard, Enter or Add
     // makes the event; its time opens the whole editor (the desktop's double click).
@@ -1547,6 +1585,7 @@ export component CalendarView inherits Rectangle {
                     root.task-planned(tache, d, m);
                 }
                 swiped(n) => { root.navigate(n); }
+                period: root.phone.day-number;
                 quick-color: root.phone.quick-color;
                 event-menu(k, x, y) => { root.event-menu(k, x, y); }
                 days: root.week-days;

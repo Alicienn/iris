@@ -865,3 +865,24 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S49.3** Rows centred again (a padded layout's top was written over their `y`),
       sheets sliding down, the month and week sliding in, live dark mode on Android,
       sheets over the keyboard, Move to… no longer crashing, empty new spaces (7.1.0).
+
+## E50 — The phone, polished (7.2.0)
+
+- [x] **S50.1** First run: Add account from the top, the password's eye, the keyboard
+      down on Continue; the found page's ticks filling in turn and the messages counted
+      as they come (`passing()` on the engine, a poll while the page shows) (7.2.0).
+- [x] **S50.2** Mail on a phone: the sync button with its ring (`SyncButton`), the
+      search kept open when emptied and closed first by Back, the swipe's colour at
+      once and the list still while a row is swiped (Iris's own `ListView`, whose
+      Flickable can be made not interactive), a message opened again from its top,
+      the Mailboxes sheet's head, the long press that came back, the title that did
+      nothing (7.2.0).
+- [x] **S50.3** New message on a phone as the mockup M10: rows edge to edge, chips one
+      under the other, suggestions after a letter, the formatting keys over the
+      keyboard, the draft question as a sheet; Android's document picker for
+      attachments (7.2.0).
+- [x] **S50.4** The day and three-day grids swiped and sliding, Home's date docking in
+      its bar, the Tasks tab on Tasks, rows whose passed-in children are centred
+      against the row (no inset), one ground for every place, prefix search in the
+      mail index and folded matching in tasks and events, the camera's help when the
+      scanner fails (7.2.0).

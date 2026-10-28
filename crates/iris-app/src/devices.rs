@@ -512,10 +512,19 @@ pub fn wire_devices(
         fenetre.on_pair_scan(move || {
             let (rejoindre, faible) = (Arc::clone(&rejoindre), faible.clone());
             crate::platform::current().scan_qr(Box::new(move |lu| match lu {
-                Some(code) => rejoindre(code),
-                None => {
+                crate::platform::Scan::Read(code) => rejoindre(code),
+                crate::platform::Scan::Cancelled => {
                     let _ = faible.upgrade_in_event_loop(|f| {
                         f.set_sync_page_open(false);
+                    });
+                }
+                // The camera refused: what to change, rather than nothing at all.
+                crate::platform::Scan::Failed(pourquoi) => {
+                    tracing::warn!(raison = %pourquoi, "the code scanner");
+                    let _ = faible.upgrade_in_event_loop(move |f| {
+                        f.set_sync_page_open(false);
+                        f.set_camera_help_reason(pourquoi.into());
+                        f.set_camera_help_open(true);
                     });
                 }
             }));

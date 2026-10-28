@@ -68,6 +68,8 @@ export component ComboBox inherits Rectangle {
     out property <string> current-value: root.current-index >= 0 && root.current-index < root.model.length
         ? root.model[root.current-index] : "";
     in property <bool> enabled: true;
+    /// No key drawn: the value and its chevron on the row (a phone's From).
+    in property <bool> bare;
     callback selected(string);
 
     min-width: 64px;
@@ -84,6 +86,7 @@ export component ComboBox inherits Rectangle {
     Rectangle {
         opacity: root.enabled ? 1.0 : 0.45;
         Rectangle {
+            visible: !root.bare;
             border-radius: Tokens.radius-small;
             background: touch.has-hover && root.enabled ? Tokens.surface-hover : Tokens.control;
             drop-shadow-blur: 2px;
@@ -92,24 +95,26 @@ export component ComboBox inherits Rectangle {
             animate background { duration: Tokens.instant; }
         }
         HorizontalLayout {
-            padding-left: 10px;
+            padding-left: root.bare ? 0px : 10px;
             padding-right: 8px;
             spacing: 6px;
             valeur := Text {
                 text: root.current-value;
-                font-size: 13px;
+                font-size: root.bare ? 15px : 13px;
                 color: Tokens.text;
                 vertical-alignment: center;
                 overflow: elide;
-                horizontal-stretch: 1;
+                horizontal-stretch: root.bare ? 0 : 1;
             }
             Icon {
                 y: (parent.height - self.height) / 2;
                 data: Icons.chevron-down;
-                size: 11px;
+                size: root.bare ? 13px : 11px;
                 weight: 2;
                 tint: Tokens.text-muted;
             }
+            // Bare, the chevron follows the words; the rest of the row is empty.
+            if root.bare: Rectangle { horizontal-stretch: 1; }
         }
     }
     touch := TouchArea {

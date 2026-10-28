@@ -282,6 +282,12 @@ impl SearchIndex {
             QueryParser::for_index(&self.index, vec![f.subject, f.body, f.from, f.recipients]);
         parser.set_field_boost(f.subject, 3.0);
         parser.set_field_boost(f.from, 2.0);
+        // Each word matches the words it begins: "réu" finds "réunion" as it is typed,
+        // and the whole word still finds it (a word begins itself). Exact words only,
+        // the results came and went with each key.
+        for champ in [f.subject, f.body, f.from, f.recipients] {
+            parser.set_field_fuzzy(champ, true, 0, true);
+        }
 
         let parsed = parser
             .parse_query(query)
@@ -480,6 +486,20 @@ mod tests {
 
         let hits = idx.search("devis", 10).unwrap();
         assert_eq!(hits[0].thread, ThreadId(1));
+    }
+
+    #[test]
+    fn un_debut_de_mot_et_le_mot_entier_trouvent_le_meme_message() {
+        // Typed a key at a time: the results must not come and go with each key.
+        let idx = index_with(&[
+            msg(1, 1, "Réunion de jeudi", "On se retrouve au bureau."),
+            msg(2, 2, "Facture", "Le paiement a bien été reçu."),
+        ]);
+        for requete in ["réu", "réunion", "Réunion", "RÉUNION", "bur", "bureau"] {
+            let hits = idx.search(requete, 10).unwrap();
+            assert_eq!(hits.len(), 1, "« {requete} »");
+            assert_eq!(hits[0].thread, ThreadId(1), "« {requete} »");
+        }
     }
 
     #[test]

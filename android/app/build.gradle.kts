@@ -64,4 +64,6 @@ dependencies {
     // Google's code scanner: the camera and the reading are Play services', so Iris
     // asks for no camera permission and ships no camera code.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // ModuleInstall: the scanner's screen fetched first when Play services lacks it.
+    implementation("com.google.android.gms:play-services-base:18.5.0")
 }

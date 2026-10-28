@@ -525,9 +525,12 @@ export component SidebarFrame inherits Rectangle {
     /// Folded to a strip (the accounts column): the head stacks what it holds.
     in property <bool> compact;
     width: root.sidebar-width;
-    background: Tokens.surface-low;
+    // On a phone it is a page of its own: the ground every place has there, not the
+    // darker grey of a column beside one (the notes looked greyer than the tasks).
+    background: Layout.compact ? Tokens.background : Tokens.surface-low;
 
     Rectangle {
+        visible: !Layout.compact;
         x: parent.width - 1px;
         width: 1px;
         background: Tokens.border;

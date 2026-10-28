@@ -1550,6 +1550,29 @@ of `NativeActivity` (`android/app/src/main/java`); it also takes the `iris-pair:
 the phone's own camera opens Iris with (an intent filter; `onNewIntent` keeps the
 intent). Rust asks both through JNI and polls the answers (`takeScan` every 200 ms
 while the scanner is open, `takeLink` every second): no native method to register.
+Before scanning, the activity asks Play services' `ModuleInstall` for the scanner's
+screen and fetches it when missing; a failure comes back as U+0001 then the reason
+(`Scan::Failed`), and the window shows the camera's help (`CameraHelpPanel`: Play
+services' camera permission, an update, or the code typed). The same activity opens
+Android's document picker for attachments (`pickFiles`, `ACTION_OPEN_DOCUMENT`):
+what is chosen is copied into the cache on a thread of its own and the paths are
+polled with `takePicked`, then read by the same `joindre` as the desktop's dialog
+(`Platform::picks_files`, `pick_files`).
+
+**The phone's lists and swipes** (7.2.0). The mail list is Iris's own `ListView`
+(`controls/scroll.slint`): a `ScrollView` named so, which Slint builds row by row as
+the style's, and which can be set not `interactive`. A Flickable takes a press that
+moves eight pixels on its axis in the first half second, so a finger drifting down
+while swiping a row handed the gesture to the scroll; `SwipeRow` now sets the
+`Swiping` global while it is swiped and the list stops scrolling until it is let go.
+The day and three-day grids sit in a `SwipeGestureHandler` and the `PeriodSlide` the
+month and week use, keyed on the day chosen (`day-number`).
+
+**Search as one types** (7.2.0). The mail index matches each word as a prefix
+(`QueryParser::set_field_fuzzy(field, prefix, 0)`): a word begins itself, so the
+results no longer came and went at each key. Tasks and events in the search
+everywhere compare folded texts (`iris_notes::fuzzy::folded`: case and accents
+aside), as the notes already did.
 
 **Sync between devices: the model** (6.3.0; spec
 `superpowers/specs/2026-10-26-iris-sync-design.md`). Each row of the tables in
