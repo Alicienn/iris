@@ -22,7 +22,6 @@ pub mod home;
 pub mod invite;
 pub mod later;
 pub mod logging;
-pub mod memory;
 pub mod modules;
 pub mod nav;
 pub mod notes;

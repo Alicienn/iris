@@ -108,7 +108,6 @@ fn run() -> Result<()> {
         "accounts" => cmd_list_accounts(),
         "sync" => cmd_sync(),
         "doctor" => cmd_doctor(),
-        "memory" => cmd_memory(),
         "--help" | "-h" | "help" => {
             print_help();
             Ok(())
@@ -176,7 +175,6 @@ fn print_help() {
          \x20 iris accounts                  List configured accounts\n\
          \x20 iris sync                      Synchronise once, without the interface\n\
          \x20 iris doctor                    Check the installation\n\
-         \x20 iris memory                    Break down what the data layer costs\n\
          \x20 iris register                  Offer Iris to Windows as a mail client\n\
          \x20 iris unregister                Withdraw that offer\n\
          \x20 iris --tray                    Start into the notification area\n\
@@ -408,37 +406,6 @@ fn free_space(path: &std::path::Path) -> Option<u64> {
 #[cfg(not(windows))]
 fn free_space(_path: &std::path::Path) -> Option<u64> {
     None
-}
-
-/// Décompose la mémoire de la couche de données, sans interface.
-///
-/// La moitié de la question « pourquoi cinq cents mégaoctets » se règle ici : ce que
-/// coûtent la base, l'index et le coffre *seuls*, sans fenêtre, sans police et sans
-/// pilote graphique. Le reste de la facture est la différence entre ce chiffre et
-/// celui de l'application ouverte — et cette différence, mesurée plutôt que supposée,
-/// désigne le coupable.
-fn cmd_memory() -> Result<()> {
-    iris_app::memory::track_sites(true);
-    iris_app::memory::mark("processus démarré");
-
-    let services = open_services()?;
-    iris_app::memory::mark("base, index, coffre");
-
-    // Lire vraiment : un index ouvert et jamais interrogé n'a encore rien chargé, et
-    // mesurer cela reviendrait à mesurer un fichier fermé.
-    let comptes = services.store.accounts()?;
-    let messages = services.store.message_count()?;
-    iris_app::memory::mark("comptes et messages lus");
-
-    let documents = services.index.document_count();
-    iris_app::memory::mark("index interrogé");
-
-    println!(
-        "{} compte(s), {messages} message(s), {documents} document(s) indexés",
-        comptes.len()
-    );
-    println!("{}", iris_app::memory::report());
-    Ok(())
 }
 
 fn cmd_doctor() -> Result<()> {

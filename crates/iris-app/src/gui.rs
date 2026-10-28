@@ -147,21 +147,14 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         start_in_tray: demarre_reduit,
         instance,
     } = options;
-    // La décomposition mémoire se règle avant tout le reste : ce qui est alloué avant
-    // qu'elle soit allumée est compté, mais sans provenance.
-    let rapport_memoire = crate::memory::requested_interval();
-    crate::memory::track_sites(rapport_memoire.is_some());
-    crate::memory::mark("processus démarré");
 
     // The renderer is chosen before the first window, and the services opened (see
     // `prepare` in main.rs: why the software renderer, measured).
     let services = prepare()?;
-    crate::memory::mark("base, index, coffre");
 
     // L'exécuteur asynchrone tourne dans ses propres fils : la synchronisation ne
     // partage rien avec l'affichage.
     let runtime = crate::services::runtime()?;
-    crate::memory::mark("exécuteur asynchrone");
 
     // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
     // la première image, et non apparaître après un clignotement.
@@ -186,7 +179,6 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     if let Some(panne) = crate::logging::take_last_panic(&services.paths) {
         fenetre.set_toast(format!("Iris stopped last time: {panne}").into());
     }
-    crate::memory::mark("fenêtre construite");
     let theme = services.themes.active();
     fenetre
         .global::<iris_ui::Layout>()
@@ -203,10 +195,6 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     // Le moteur de rendu des corps est construit une fois : ouvrir un peripherique
     // graphique par message serait absurde.
     let renderer: Arc<dyn iris_htmlview::HtmlRenderer> = Arc::new(shell::build_renderer());
-    // Ce jalon-ci est le plus instructif des six : construire le moteur ouvre un
-    // second périphérique graphique, et ce que cela engage n'apparaît dans aucun
-    // compteur de tas.
-    crate::memory::mark("moteur HTML (périph. GPU)");
 
     // La sélection courante, partagée entre le puits d'instantanés et la zone de
     // réponse : répondre s'adresse au fil affiché.
@@ -657,40 +645,6 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
                 }
             });
         });
-    }
-
-    crate::memory::mark("câblage terminé");
-
-    // Le jalon qui manquait.
-    //
-    // Les cinq précédents sont pris avant la boucle d'événements, donc avant que la
-    // fenêtre soit réellement présentée — et c'est la présentation qui ouvre le
-    // périphérique graphique. Sans ce relevé-ci, la plus grosse dépense du processus
-    // tombait dans l'intervalle entre le dernier jalon et le premier rapport, c'est-à-dire
-    // nulle part. Deux secondes : le temps que les premières images soient passées.
-    if rapport_memoire.is_some() {
-        slint::Timer::single_shot(std::time::Duration::from_secs(2), || {
-            crate::memory::mark("premières images affichées");
-        });
-    }
-
-    // Le rapport périodique, sur son propre fil.
-    //
-    // Sur un fil à lui parce que la question posée est « que retient l'application
-    // quand elle ne fait rien » : la poser depuis la boucle d'interface ne la ferait
-    // jamais poser pendant que la boucle travaille, c'est-à-dire précisément aux
-    // moments qui coûtent.
-    if let Some(intervalle) = rapport_memoire {
-        let fichier = services.paths.cache.join("memoire.txt");
-        std::thread::Builder::new()
-            .name("memoire".into())
-            .spawn(move || loop {
-                std::thread::sleep(intervalle);
-                let rapport = crate::memory::report();
-                let _ = std::fs::write(&fichier, &rapport);
-                tracing::info!("décomposition mémoire écrite dans {}", fichier.display());
-            })
-            .map_err(|e| iris_types::Error::other(format!("fil de rapport : {e}")))?;
     }
 
     // `run_event_loop_until_quit` et non `run` : la boucle doit survivre à la
