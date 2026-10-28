@@ -193,11 +193,14 @@ export component Icon inherits Rectangle {
 
     width: root.size;
     height: root.size;
-    opacity: root.alpha;
 
     in property <bool> filled;
 
+    // The alpha on the drawing, not on the root: an `opacity` on a component's root
+    // makes Slint copy the whole component into every place it is used (157 here),
+    // and the generated code outgrew the CI's memory (7.0.0).
     Path {
+        opacity: root.alpha;
         width: 100%;
         height: 100%;
         viewbox-x: 0;
@@ -257,13 +260,20 @@ export component IconButton inherits Rectangle {
 
     width: root.button-size;
     height: root.button-size;
-    border-radius: root.button-size >= 28px ? Tokens.radius-medium : Tokens.radius-small;
-    // Pressed reads as pressed: the active surface while the pointer is down, so a
-    // click is felt before its result shows.
-    background: root.active || (touch.pressed && root.enabled)
-        ? Tokens.surface-active
-        : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
-    animate background { duration: Tokens.instant; }
+
+    // The plate is a child, not the root's own background: an animated `background` on
+    // a component's root makes Slint copy the whole component (its tooltip included)
+    // into each of the 138 places it is used, and the generated code outgrew the CI's
+    // memory (7.0.0). Drawn first, it stays under the icon.
+    Rectangle {
+        border-radius: root.button-size >= 28px ? Tokens.radius-medium : Tokens.radius-small;
+        // Pressed reads as pressed: the active surface while the pointer is down, so a
+        // click is felt before its result shows.
+        background: root.active || (touch.pressed && root.enabled)
+            ? Tokens.surface-active
+            : (touch.has-hover && root.enabled ? Tokens.surface-hover : transparent);
+        animate background { duration: Tokens.instant; }
+    }
 
     accessible-role: button;
     accessible-label: root.label;

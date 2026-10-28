@@ -252,19 +252,24 @@ export component Pill inherits Rectangle {
     property <bool> grand: Layout.compact && !root.jeton;
     height: root.grand ? 34px : 24px;
     width: rang.preferred-width + (root.grand ? 26px : 18px);
-    border-radius: root.grand ? self.height / 2 : Tokens.radius-small;
-    border-width: root.grand && !root.on && !root.tinted ? 1px : 0px;
-    border-color: Tokens.border-strong;
-    background: root.tinted ? root.tint.transparentize(0.88)
-        : root.on ? Tokens.accent-soft
-        : root.jeton ? Tokens.surface-active
-        : root.grand ? Tokens.surface
-        : touch.has-hover ? Tokens.surface-hover : Tokens.control;
     property <bool> releve: !root.jeton && !root.on && !root.tinted && !root.grand;
-    drop-shadow-blur: root.releve ? Tokens.shadow-card-blur / 2 : 0px;
-    drop-shadow-offset-y: root.releve ? 1px : 0px;
-    drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.15) : transparent;
-    animate background { duration: Tokens.instant; }
+
+    // The plate as a child: an animated background or a shadow on the root made Slint
+    // copy the whole pill into every place it is used (7.0.0, the CI's memory).
+    Rectangle {
+        border-radius: root.grand ? self.height / 2 : Tokens.radius-small;
+        border-width: root.grand && !root.on && !root.tinted ? 1px : 0px;
+        border-color: Tokens.border-strong;
+        background: root.tinted ? root.tint.transparentize(0.88)
+            : root.on ? Tokens.accent-soft
+            : root.jeton ? Tokens.surface-active
+            : root.grand ? Tokens.surface
+            : touch.has-hover ? Tokens.surface-hover : Tokens.control;
+        drop-shadow-blur: root.releve ? Tokens.shadow-card-blur / 2 : 0px;
+        drop-shadow-offset-y: root.releve ? 1px : 0px;
+        drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.15) : transparent;
+        animate background { duration: Tokens.instant; }
+    }
 
     accessible-role: checkbox;
     accessible-label: root.text;

@@ -43,20 +43,7 @@ export component Button inherits Rectangle {
     // The Mac's push button: low, a small radius, a raised white key when secondary.
     height: max(root.size == ButtonSize.sm ? 24px : 28px, Layout.touch-input ? 44px : 0px);
     width: rang.preferred-width + (root.size == ButtonSize.sm ? 20px : 24px);
-    border-radius: Tokens.radius-small;
-    border-width: 0px;
-    background: root.kind == ButtonKind.primary
-        ? (touch.pressed ? Tokens.accent.darker(0.18) : touch.has-hover ? Tokens.accent.darker(0.07) : Tokens.accent)
-        : root.kind == ButtonKind.danger
-        ? (touch.pressed ? Tokens.error.darker(0.2) : touch.has-hover ? Tokens.error.darker(0.08) : Tokens.error)
-        : (touch.pressed ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover
-            : root.kind == ButtonKind.secondary ? Tokens.control : transparent);
     property <bool> releve: root.kind != ButtonKind.ghost;
-    drop-shadow-blur: root.releve ? 2px : 0px;
-    drop-shadow-offset-y: root.releve ? 1px : 0px;
-    drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.18) : transparent;
-    opacity: root.enabled ? 1.0 : 0.45;
-    animate background, border-color { duration: Tokens.instant; }
 
     accessible-role: button;
     accessible-label: root.label != "" ? root.label : root.text;
@@ -64,29 +51,49 @@ export component Button inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
 
-    // Centred: the same as a fixed inset for a button sized to its words, and right
-    // for one given a width (the rail's New event).
-    rang := HorizontalLayout {
-        x: (root.width - self.width) / 2;
-        width: self.preferred-width;
-        spacing: 6px;
-        if root.icon != "": Icon {
-            y: (parent.height - self.height) / 2;
-            data: root.icon;
-            size: root.size == ButtonSize.sm ? 14px : 15px;
-            weight: 1.6;
-            tint: root.encre;
-            alpha: root.busy ? 0.45 : 1.0;
+    // Everything drawn is in this child, dimmed as one when disabled: an animated
+    // background, a shadow or an opacity on the root made Slint copy the whole button
+    // into each of its 96 places (the generated code outgrew the CI's memory, 7.0.0).
+    Rectangle {
+        opacity: root.enabled ? 1.0 : 0.45;
+        Rectangle {
+            border-radius: Tokens.radius-small;
+            background: root.kind == ButtonKind.primary
+                ? (touch.pressed ? Tokens.accent.darker(0.18) : touch.has-hover ? Tokens.accent.darker(0.07) : Tokens.accent)
+                : root.kind == ButtonKind.danger
+                ? (touch.pressed ? Tokens.error.darker(0.2) : touch.has-hover ? Tokens.error.darker(0.08) : Tokens.error)
+                : (touch.pressed ? Tokens.surface-active : touch.has-hover ? Tokens.surface-hover
+                    : root.kind == ButtonKind.secondary ? Tokens.control : transparent);
+            drop-shadow-blur: root.releve ? 2px : 0px;
+            drop-shadow-offset-y: root.releve ? 1px : 0px;
+            drop-shadow-color: root.releve ? Tokens.shadow-card.with-alpha(0.18) : transparent;
+            animate background { duration: Tokens.instant; }
         }
-        if root.text != "": Text {
-            text: root.text;
-            font-size: root.size == ButtonSize.sm ? 12.5px : 13px;
-            font-weight: root.plein ? 500 : 400;
-            color: root.encre;
-            vertical-alignment: center;
+
+        // Centred: the same as a fixed inset for a button sized to its words, and right
+        // for one given a width (the rail's New event).
+        rang := HorizontalLayout {
+            x: (root.width - self.width) / 2;
+            width: self.preferred-width;
+            spacing: 6px;
+            if root.icon != "": Icon {
+                y: (parent.height - self.height) / 2;
+                data: root.icon;
+                size: root.size == ButtonSize.sm ? 14px : 15px;
+                weight: 1.6;
+                tint: root.encre;
+                alpha: root.busy ? 0.45 : 1.0;
+            }
+            if root.text != "": Text {
+                text: root.text;
+                font-size: root.size == ButtonSize.sm ? 12.5px : 13px;
+                font-weight: root.plein ? 500 : 400;
+                color: root.encre;
+                vertical-alignment: center;
+            }
+            // The key is said to a screen reader and in the shortcuts' help, not drawn:
+            // a keycap widened every button past the Mac's.
         }
-        // The key is said to a screen reader and in the shortcuts' help, not drawn: a
-        // keycap widened every button past the Mac's.
     }
 
     touch := TouchArea {

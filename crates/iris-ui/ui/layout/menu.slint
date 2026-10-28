@@ -29,13 +29,19 @@ export component MenuEntry inherits Rectangle {
     property <bool> grand: Layout.compact;
 
     height: root.grand ? 56px : max(30px, Layout.target);
-    border-radius: Tokens.radius-small;
-    // A finger leaves no hover behind it: in a sheet, only the press shows.
-    background: !root.enabled ? transparent
-        : root.grand ? (touch.pressed ? Tokens.surface-active : transparent)
-        : root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
-        : touch.has-hover || root.open ? Tokens.surface-active : transparent;
-    animate background { duration: Tokens.instant; }
+
+    // The plate as a child: an animated `background` on the root made Slint copy the
+    // whole entry into each of its 127 places (the generated code outgrew the CI's
+    // memory, 7.0.0).
+    Rectangle {
+        border-radius: Tokens.radius-small;
+        // A finger leaves no hover behind it: in a sheet, only the press shows.
+        background: !root.enabled ? transparent
+            : root.grand ? (touch.pressed ? Tokens.surface-active : transparent)
+            : root.danger && touch.has-hover ? Tokens.error.transparentize(0.88)
+            : touch.has-hover || root.open ? Tokens.surface-active : transparent;
+        animate background { duration: Tokens.instant; }
+    }
 
     accessible-role: button;
     accessible-label: root.label;

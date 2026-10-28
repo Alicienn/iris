@@ -358,6 +358,13 @@ Since 7.0.0 the code Slint generates from those files is compiled by a crate of 
 compiles, and inside `iris-ui` a test build compiled it twice (the library and its unit
 tests), which ran the CI runner out of memory.
 
+The generated code's size comes mostly from copies: Slint inlines a component into each
+place it is used when its root has an animated built-in property, an `opacity`,
+`visible`, a drop shadow or a `%` size (`i-slint-compiler` `passes/inlining.rs`), and
+each copy brings its own tooltip popup. Since 7.0.0 `Icon`, `IconButton`, `Button`,
+`MenuEntry` and `Pill` draw their plate in a child, so each exists once (about 530
+places used to hold a copy).
+
 The interface files sit in layer folders under `crates/iris-ui/ui/`, imported through the
 `@iris` library path (`build.rs` maps it to that folder), so a file's imports read the
 same wherever it lives. A layer only imports the ones above it in this list:
