@@ -606,6 +606,10 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   suggestions come with names, addresses and initials. `AccountFoundPage` follows a
   successful add on a phone (`add-account-found`). Android's clipboard goes through
   `Platform::clipboard_set/get` (JNI `ClipboardManager`), which `presse` uses there.
+  `iris-android` is on jni 0.22 (the one Slint's backend uses): every call goes
+  through `avec_activite`, which attaches the thread with a closure, hands it the
+  activity, and returns a Java exception as an error; names and signatures are
+  `jni_str!` / `jni_sig!`.
 - The places' phone screens (6.8.0): `screens/calendar-phone.slint` (bar, `WeekStrip`,
   `PhoneAgenda`, `ToPlanBand`, `PhoneMonth`, `CalendarsSheet`), filled by
   `calendar::telephone()` into `calendar-phone`; the event sheet and New event page in

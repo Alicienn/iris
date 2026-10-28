@@ -44,7 +44,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -84,7 +84,7 @@ jobs:
       # same release profile. Building it again took half an hour of the release.
       - name: Binary from CI
         if: env.PUBLISH == 'true' && github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: iris-exe
           path: target/release
