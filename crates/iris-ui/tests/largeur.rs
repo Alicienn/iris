@@ -366,8 +366,12 @@ fn sans_compte_iris_s_ouvre_sur_la_bienvenue() {
         "Add your first account",
     )
     .mock_single_click(slint::platform::PointerEventButton::Left);
-    assert!(!f.get_first_run());
     assert!(f.get_add_account_open(), "the account setup opens");
+    // The welcome stays under it: Back returns there, not to an empty mailbox.
+    assert!(f.get_first_run());
+    assert!(f.invoke_close_top(), "Back closes the account setup");
+    assert!(!f.get_add_account_open());
+    assert!(f.get_first_run(), "and the welcome page is there again");
 
     let f = fenetre_de(390.0, 844.0);
     f.set_first_run(true);
