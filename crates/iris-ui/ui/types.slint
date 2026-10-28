@@ -510,6 +510,9 @@ export struct TaskOverviewData {
     // time; and whether the last plan can be taken back.
     to-plan: int,
     can-unplan: bool,
+    // The list shown, as its place among the places (for a phone's ⋯: rename, delete);
+    // -1 for a view.
+    list-place: int,
 }
 
 // A step of a task.

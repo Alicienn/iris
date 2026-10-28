@@ -1,0 +1,345 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+
+// The pieces the phone's pages of Tasks, its habits and its goals are made of, as the
+// Android mockups draw them (`..\Iris-design\android\tasks.html` and `growth.html`):
+// the bar at the top, the large title, rows grouped on rounded cards over the grey
+// ground, a group's title above them. Only drawn below 600 pixels; the PC keeps its
+// columns.
+
+/// A button of the bar at the top of a phone's page: 44 pixels, its icon 22, in the
+/// secondary ink.
+export component BarButton inherits IconButton {
+    button-size: 44px;
+    icon-size: 22px;
+    tinted: true;
+    tint: Tokens.text-secondary;
+}
+
+/// The bar at the top of a phone's page: 56 pixels, its buttons at 6 from the edges.
+export component PhoneBar inherits HorizontalLayout {
+    height: 56px;
+    padding-left: 6px;
+    padding-right: 6px;
+    spacing: 2px;
+    @children
+}
+
+/// A page's title, large, and what it is about under it ("Monday 26 October").
+export component BigTitle inherits VerticalLayout {
+    in property <string> text;
+    in property <string> sub;
+    padding-left: 18px;
+    padding-right: 18px;
+    padding-top: 2px;
+    padding-bottom: 10px;
+    spacing: 2px;
+    Text {
+        text: root.text;
+        font-family: Tokens.font-display;
+        font-size: 32px;
+        font-weight: 600;
+        color: Tokens.text;
+        overflow: elide;
+    }
+    if root.sub != "": Text {
+        text: root.sub;
+        font-size: 14px;
+        color: Tokens.text-muted;
+        overflow: elide;
+    }
+}
+
+/// The title over a card of rows, with an optional plus at its end ("Goals +").
+export component GroupTitle inherits HorizontalLayout {
+    in property <string> text;
+    /// After the title, lighter: "1 of 3".
+    in property <string> count;
+    /// What the plus adds, for a screen reader; no plus when empty.
+    in property <string> add-label;
+    callback add();
+
+    padding-left: 32px;
+    padding-right: 26px;
+    padding-top: 18px;
+    padding-bottom: 7px;
+    spacing: 8px;
+    Text {
+        text: root.text;
+        font-size: 13px;
+        font-weight: 600;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+    }
+    if root.count != "": Text {
+        text: root.count;
+        font-size: 13px;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+    }
+    Rectangle { horizontal-stretch: 1; }
+    @children
+    if root.add-label != "": IconButton {
+        y: (parent.height - self.height) / 2;
+        icon: Icons.plus;
+        label: root.add-label;
+        button-size: 30px;
+        icon-size: 18px;
+        tinted: true;
+        tint: Tokens.accent;
+        clicked => { root.add(); }
+    }
+}
+
+/// A card of rows: 16 pixels from the screen's sides, rounded, on the grey ground.
+export component GroupCard inherits Rectangle {
+    border-radius: 14px;
+    background: Tokens.surface;
+    clip: true;
+    height: rangs.preferred-height;
+    rangs := VerticalLayout {
+        @children
+    }
+}
+
+/// A row of a card: 52 pixels at least, its content 16 from the card's sides. Each row
+/// but the first draws the hairline above it, from where the words start (52), or
+/// from the card's inset when the rows have no icon (`flat`).
+export component GroupRow inherits Rectangle {
+    in property <bool> first;
+    in property <bool> flat;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback clicked();
+
+    height: max(52px, rang.preferred-height);
+    background: touch.pressed && root.enabled ? Tokens.surface-active : transparent;
+    accessible-role: button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.label;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    if !root.first: Rectangle {
+        x: root.flat ? 16px : 52px;
+        y: 0px;
+        width: parent.width - self.x;
+        height: 1px;
+        background: Tokens.border;
+    }
+    rang := HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 14px;
+        @children
+    }
+}
+
+/// A square of colour with a white icon on it, at the start of a row.
+export component RowTile inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
+    /// The icon in the secondary ink on a grey well, rather than white on colour.
+    in property <bool> quiet;
+    in property <length> size: 30px;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size * 0.27;
+    background: root.quiet ? Tokens.well : root.tint;
+    Icon {
+        data: root.icon;
+        size: root.size * 0.6;
+        weight: 2;
+        tint: root.quiet ? Tokens.text-secondary : Tokens.accent-text;
+    }
+}
+
+/// A row's label, 15.5 pixels, cut short at the end.
+export component RowLabel inherits Text {
+    font-size: 15.5px;
+    color: Tokens.text;
+    vertical-alignment: center;
+    overflow: elide;
+    horizontal-stretch: 1;
+}
+
+/// A row's value at its end, lighter: "2 of 4 today", "21:30".
+export component RowValue inherits Text {
+    font-size: 14.5px;
+    color: Tokens.text-muted;
+    vertical-alignment: center;
+    horizontal-alignment: right;
+}
+
+/// The chevron at the end of a row that leads further.
+export component RowChevron inherits Icon {
+    data: Icons.chevron-right;
+    size: 18px;
+    tint: Tokens.text-faint;
+}
+
+/// Words in the accent that do something: "Clear", "Find a slot", "More options".
+export component AccentLink inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    in property <length> font-size: 14px;
+    callback clicked();
+    width: mot.preferred-width;
+    min-height: mot.preferred-height;
+    accessible-role: button;
+    accessible-label: root.label != "" ? root.label : root.text;
+    accessible-action-default => { root.clicked(); }
+    mot := Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        font-size: root.font-size;
+        font-weight: 600;
+        color: lien.pressed ? Tokens.accent.darker(0.2) : Tokens.accent;
+        vertical-alignment: center;
+    }
+    lien := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+/// What the line to add a task understood, or a task's date: a small plate, its
+/// colour for a priority.
+export component Token inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> has-dot;
+    in property <color> dot;
+    /// 0 plain, 2 medium, 3 high.
+    in property <int> level;
+    callback clicked();
+
+    property <color> encre: root.level >= 3 ? Tokens.red : root.level == 2 ? Tokens.orange
+        : Tokens.text-secondary;
+    height: 30px;
+    width: rang.preferred-width + 22px;
+    border-radius: 8px;
+    background: root.level >= 2 ? root.encre.transparentize(0.87) : Tokens.surface-active;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    rang := HorizontalLayout {
+        x: 11px;
+        width: self.preferred-width;
+        spacing: 6px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 14px;
+            tint: root.encre;
+        }
+        if root.has-dot: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.dot;
+        }
+        Text {
+            text: root.text;
+            font-size: 13.5px;
+            color: root.encre;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// An option of a phone's sheet: its icon, its words, and where it leads at the end
+/// ("Tomorrow · Tue 27"). 56 pixels, as the mockups' `.opt`.
+export component SheetOption inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> value;
+    in property <bool> danger;
+    callback activated();
+
+    height: 56px;
+    background: touch.pressed ? Tokens.surface-active : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-description: root.value;
+    accessible-action-default => { root.activated(); }
+    touch := TouchArea {
+        clicked => { root.activated(); }
+    }
+    HorizontalLayout {
+        padding-left: 22px;
+        padding-right: 22px;
+        spacing: 16px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 22px;
+            tint: root.danger ? Tokens.error : Tokens.text-muted;
+        }
+        Text {
+            text: root.label;
+            font-size: 16px;
+            color: root.danger ? Tokens.error : Tokens.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        if root.value != "": Text {
+            text: root.value;
+            font-size: 14.5px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// A sheet's title: 19 pixels, and a word at its end ("30 min · today").
+export component SheetTitle inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> end;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 8px;
+    padding-bottom: 12px;
+    spacing: 8px;
+    Text {
+        text: root.text;
+        font-family: Tokens.font-display;
+        font-size: 19px;
+        font-weight: 600;
+        color: Tokens.text;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+        overflow: elide;
+    }
+    if root.end != "": Text {
+        text: root.end;
+        font-size: 14px;
+        color: Tokens.text-muted;
+        vertical-alignment: center;
+    }
+}
+
+/// A thin bar of how much is done, in green.
+export component DoneBar inherits Rectangle {
+    in property <float> fraction;
+    height: 5px;
+    border-radius: self.height / 2;
+    background: Tokens.surface-active;
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(root.fraction, 0, 1);
+        animate width { duration: 450ms; easing: ease-out; }
+        border-radius: parent.border-radius;
+        background: Tokens.success;
+    }
+}

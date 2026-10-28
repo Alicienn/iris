@@ -92,6 +92,8 @@ struct Etat {
     plus_tard: Option<i64>,
     /// The free stretches offered for the task shown, in minutes since midnight.
     creneaux: Vec<i32>,
+    /// Another day asked of Find a slot than the task's own; `None`, its own.
+    jour_creneaux: Option<NaiveDate>,
     /// The task just added whose length is asked over the add bar.
     a_estimer: Option<i64>,
     /// The task just added, to slide in once at the next drawing of the column.
@@ -365,6 +367,7 @@ fn apercu(
             0
         },
         can_unplan: vue == Vue::Today && plan_a_reprendre(),
+        list_place: -1,
     }
 }
 
@@ -700,7 +703,7 @@ struct Occupation {
 /// The first free stretch for a task, as *Find a slot* would offer it first: its day,
 /// and the minute it starts. `None` when the day has no room left.
 pub(crate) fn first_free(services: &Services, id: i64) -> Option<(NaiveDate, i32)> {
-    let o = occupation(services, id)?;
+    let o = occupation(services, id, None)?;
     let libres = iris_tasks::slots::free_slots(
         &o.occupe
             .iter()
@@ -713,13 +716,15 @@ pub(crate) fn first_free(services: &Services, id: i64) -> Option<(NaiveDate, i32
     libres.first().map(|m| (o.jour, *m))
 }
 
-fn creneaux(f: &AppWindow, services: &Services, id: i64) -> Vec<i32> {
+/// Offers the free stretches of `voulu` (the task's own day when `None`) and opens
+/// Find a slot on them.
+fn creneaux(f: &AppWindow, services: &Services, id: i64, voulu: Option<NaiveDate>) -> Vec<i32> {
     let Some(Occupation {
         jour: jour_vise,
         longueur,
         occupe,
         depuis,
-    }) = occupation(services, id)
+    }) = occupation(services, id, voulu)
     else {
         return Vec::new();
     };
@@ -759,15 +764,56 @@ fn creneaux(f: &AppWindow, services: &Services, id: i64) -> Vec<i32> {
             .map(|m| SharedString::from(format!("{}–{}", hm(*m), hm(m + longueur))))
             .collect::<Vec<_>>(),
     )));
+    // The phone's sheet: the length and the day in a word, what is taken as an hour
+    // and a title side by side, the free stretches by when they start, and two other
+    // days to look at.
+    f.set_task_slot_length(iris_tasks::goals::duration_label(longueur).into());
+    let a_venir: Vec<&(i32, i32, String)> = occupe
+        .iter()
+        .filter(|(_, b, _)| *b > depuis)
+        .take(4)
+        .collect();
+    f.set_task_slot_busy_times(ModelRc::new(VecModel::from(
+        a_venir
+            .iter()
+            .map(|(a, b, _)| SharedString::from(format!("{} – {}", hm(*a), hm(*b))))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slot_busy_titles(ModelRc::new(VecModel::from(
+        a_venir
+            .iter()
+            .map(|(_, _, titre)| SharedString::from(titre.as_str()))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slot_starts(ModelRc::new(VecModel::from(
+        libres
+            .iter()
+            .map(|m| SharedString::from(hm(*m)))
+            .collect::<Vec<_>>(),
+    )));
+    f.set_task_slot_other_days(ModelRc::new(VecModel::from(
+        (1..=2)
+            .map(|k| {
+                let j = jour_vise + Duration::days(k);
+                SharedString::from(if j == today + Duration::days(1) {
+                    "Tomorrow".to_string()
+                } else {
+                    j.format("%a %-d").to_string()
+                })
+            })
+            .collect::<Vec<_>>(),
+    )));
     f.set_task_slot_open(true);
     libres
 }
 
-fn occupation(services: &Services, id: i64) -> Option<Occupation> {
+fn occupation(services: &Services, id: i64, voulu: Option<NaiveDate>) -> Option<Occupation> {
     let t = services.store.task(id).ok().flatten()?;
     let maintenant = maintenant_local();
     let today = maintenant.date();
-    let jour_vise = jour(&t.task).filter(|j| *j >= today).unwrap_or(today);
+    let jour_vise = voulu
+        .filter(|j| *j >= today)
+        .unwrap_or_else(|| jour(&t.task).filter(|j| *j >= today).unwrap_or(today));
     let longueur = t.task.estimate.unwrap_or(30);
     let occupe = occupe_le(services, jour_vise, Some(id));
     let depuis = if jour_vise == today {
@@ -1067,6 +1113,14 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             ..Default::default()
         });
     }
+    // The list shown, by its place: a phone's ⋯ renames or deletes it.
+    let place_de_liste = match etat.vue {
+        Vue::List(id) => lieux
+            .iter()
+            .position(|p| p.is_list && p.list_id as i64 == id)
+            .map_or(-1, |i| i as i32),
+        _ => -1,
+    };
     f.set_task_places(ModelRc::new(VecModel::from(lieux)));
     f.set_task_lists(ModelRc::new(VecModel::from(
         etat.listes
@@ -1195,6 +1249,7 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             .unwrap_or_default(),
         _ => slint::Color::default(),
     };
+    vue_d_ensemble.list_place = place_de_liste;
     f.set_task_overview(vue_d_ensemble);
     f.set_tasks_title(titre_vue(etat.vue, &etat.listes).into());
     f.set_tasks_subtitle(match etat.vue {
@@ -1207,6 +1262,20 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
                 (lundi + Duration::days(6)).format("%a %-d %b")
             )
             .into()
+        }
+        // What lies ahead, as the phone's page says it under its title.
+        Vue::Upcoming => {
+            let n = dessus
+                .iter()
+                .filter(|t| {
+                    jour(&t.task).is_some_and(|j| j > today && j <= today + Duration::days(14))
+                })
+                .count();
+            match n {
+                0 => "Nothing in the next two weeks".into(),
+                1 => "1 task in the next two weeks".into(),
+                n => format!("{n} tasks in the next two weeks").into(),
+            }
         }
         _ => SharedString::default(),
     });
@@ -1643,6 +1712,7 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         supprimees: Vec::new(),
         plus_tard: None,
         creneaux: Vec::new(),
+        jour_creneaux: None,
         a_estimer: None,
         nouvelle: None,
     }));
@@ -1929,7 +1999,61 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
             };
             etat.borrow_mut().plus_tard = Some(id as i64);
             f.set_task_later_title(titre.into());
+            // Where each choice lands, said beside it on the phone's sheet; and how
+            // often it was put off, for the question asked at the third time.
+            let today = maintenant_local().date();
+            let jour_de = |quand: iris_tasks::slots::Later| {
+                quand
+                    .day(today)
+                    .map(|j| {
+                        if j.month() == today.month() {
+                            j.format("%a %-d").to_string()
+                        } else {
+                            j.format("%a %-d %b").to_string()
+                        }
+                    })
+                    .unwrap_or_default()
+            };
+            f.set_task_later_days(ModelRc::new(VecModel::from(vec![
+                SharedString::from("by 23:59"),
+                jour_de(iris_tasks::slots::Later::Tomorrow).into(),
+                jour_de(iris_tasks::slots::Later::Weekend).into(),
+                jour_de(iris_tasks::slots::Later::NextWeek).into(),
+            ])));
+            f.set_task_later_postponed(t.task.postponed);
             f.set_task_later_open(true);
+        }
+    );
+    // The question asked of a task put off three times, from Later's sheet: make it
+    // smaller (its page, the cursor in its steps), give it a slot, or let it go.
+    geste!(
+        on_task_later_action,
+        [services, etat, redessiner, f, controller],
+        |mot| {
+            let Some(id) = etat.borrow_mut().plus_tard.take() else {
+                return;
+            };
+            f.set_task_later_open(false);
+            {
+                let mut e = etat.borrow_mut();
+                if e.choisie != Some(id) {
+                    e.choisie = Some(id);
+                    e.remplie = None;
+                    e.mois = None;
+                }
+            }
+            redessiner();
+            match mot.as_str() {
+                "split" => f.set_task_focus_step(f.get_task_focus_step() + 1),
+                "slot" => {
+                    let offerts = creneaux(f, services, id, None);
+                    let mut e = etat.borrow_mut();
+                    e.creneaux = offerts;
+                    e.jour_creneaux = None;
+                }
+                "letgo" => f.invoke_task_delete(),
+                _ => {}
+            }
         }
     );
     geste!(
@@ -2017,23 +2141,50 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
             let Some(id) = etat.borrow().choisie else {
                 return;
             };
-            let offerts = creneaux(f, services, id);
-            etat.borrow_mut().creneaux = offerts;
+            let offerts = creneaux(f, services, id, None);
+            let mut e = etat.borrow_mut();
+            e.creneaux = offerts;
+            e.jour_creneaux = None;
+        }
+    );
+    // Another day for Find a slot: the first or the second after the one shown.
+    geste!(
+        on_task_slot_day_chosen,
+        [services, etat, redessiner, f, controller],
+        |i| {
+            let (id, montre) = {
+                let e = etat.borrow();
+                (e.choisie, e.jour_creneaux)
+            };
+            let Some(id) = id else {
+                return;
+            };
+            let jour_neuf = montre.unwrap_or_else(|| jour_des_creneaux(services, id))
+                + Duration::days(1 + i.clamp(0, 1) as i64);
+            let offerts = creneaux(f, services, id, Some(jour_neuf));
+            let mut e = etat.borrow_mut();
+            e.creneaux = offerts;
+            e.jour_creneaux = Some(jour_neuf);
         }
     );
     geste!(
         on_task_slot_chosen,
         [services, etat, redessiner, f, controller],
         |i| {
-            let (id, minute) = {
+            let (id, minute, autre_jour) = {
                 let e = etat.borrow();
-                (e.choisie, e.creneaux.get(i as usize).copied())
+                (
+                    e.choisie,
+                    e.creneaux.get(i as usize).copied(),
+                    e.jour_creneaux,
+                )
             };
             let (Some(id), Some(minute)) = (id, minute) else {
                 return;
             };
             f.set_task_slot_open(false);
-            match reserver(services, id, jour_des_creneaux(services, id), minute) {
+            let jour_vise = autre_jour.unwrap_or_else(|| jour_des_creneaux(services, id));
+            match reserver(services, id, jour_vise, minute) {
                 Ok(message) => f.set_status(message.into()),
                 Err(message) => f.set_status(message.into()),
             }
@@ -2044,7 +2195,11 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         on_task_slot_typed,
         [services, etat, redessiner, f, controller],
         |texte| {
-            let Some(id) = etat.borrow().choisie else {
+            let (id, autre_jour) = {
+                let e = etat.borrow();
+                (e.choisie, e.jour_creneaux)
+            };
+            let Some(id) = id else {
                 return;
             };
             let Some(minute) = lire_heure(&texte) else {
@@ -2052,7 +2207,8 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
                 return;
             };
             f.set_task_slot_open(false);
-            match reserver(services, id, jour_des_creneaux(services, id), minute as i32) {
+            let jour_vise = autre_jour.unwrap_or_else(|| jour_des_creneaux(services, id));
+            match reserver(services, id, jour_vise, minute as i32) {
                 Ok(message) => f.set_status(message.into()),
                 Err(message) => f.set_status(message.into()),
             }
