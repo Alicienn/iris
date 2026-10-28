@@ -692,6 +692,9 @@ export struct NoteTreeRowData {
     // A folder's colour of its own; transparent when none.
     color: color,
     pinned: bool,
+    // What a phone writes at the row's right edge: a folder's count of notes ("12"),
+    // when a pinned file last changed ("2 h").
+    meta: string,
 }
 
 // A block of the open note: its source while it is edited, its rendering otherwise.
@@ -814,6 +817,8 @@ export struct NoteGraphNodeData {
     y: float,
     size: float,
     current: bool,
+    // "4 links · mentioned by 3", on the card of a node tapped on a phone.
+    detail: string,
 }
 
 // A cell of a spreadsheet as drawn: where (in the grid's content), what, and how.

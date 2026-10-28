@@ -1,6 +1,8 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField } from "@iris/controls/field.slint";
+import { FormatBar } from "@iris/controls/formatbar.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { SheetCellData, SheetHeaderData } from "@iris/types.slint";
 
@@ -175,8 +177,11 @@ component Separator inherits Rectangle {
 
 export component SheetView inherits Rectangle {
     background: Tokens.surface;
-    property <length> entete-w: 46px;
+    // A phone's row numbers take 34 pixels (the mockups' N5); its headers stand on the
+    // grouped grey.
+    property <length> entete-w: Layout.compact ? 34px : 46px;
     property <length> entete-h: 24px;
+    property <brush> entete-fond: Layout.compact ? Tokens.group : Tokens.surface-low;
     property <int> demande: SheetGrid.focus-serial;
     changed demande => { touches.focus(); }
 
@@ -213,8 +218,9 @@ export component SheetView inherits Rectangle {
     }
 
     VerticalLayout {
-        // The formats of the selection.
-        HorizontalLayout {
+        // The formats of the selection. A phone has its keys over the keyboard
+        // instead, at the foot, and the rest in the top bar's menu.
+        if !Layout.compact: HorizontalLayout {
             height: 40px;
             padding-left: 10px;
             padding-right: 10px;
@@ -355,34 +361,35 @@ export component SheetView inherits Rectangle {
                 clicked => { root.menu("more", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
             }
         }
-        Rectangle {
+        if !Layout.compact: Rectangle {
             height: 1px;
             background: Tokens.border;
         }
 
-        // The formula bar: the address, and what the active cell holds.
+        // The formula bar: the address, and what the active cell holds. On a phone it
+        // heads the page: the address small and grey, the field taller on its well.
         HorizontalLayout {
-            height: 36px;
-            padding-left: 10px;
-            padding-right: 10px;
-            padding-top: 4px;
-            padding-bottom: 4px;
-            spacing: 8px;
+            height: Layout.compact ? 52px : 36px;
+            padding-left: Layout.compact ? 14px : 10px;
+            padding-right: Layout.compact ? 14px : 10px;
+            padding-top: Layout.compact ? 6px : 4px;
+            padding-bottom: Layout.compact ? 8px : 4px;
+            spacing: Layout.compact ? 10px : 8px;
             Rectangle {
-                width: 84px;
+                width: Layout.compact ? 30px : 84px;
                 border-radius: Tokens.radius-small;
-                background: Tokens.surface-low;
+                background: Layout.compact ? transparent : Tokens.surface-low;
                 Text {
                     text: SheetGrid.address;
-                    font-size: 12.5px;
-                    font-weight: 600;
-                    color: Tokens.text-secondary;
-                    horizontal-alignment: center;
+                    font-size: Layout.compact ? 13px : 12.5px;
+                    font-weight: Layout.compact ? 700 : 600;
+                    color: Layout.compact ? Tokens.text-muted : Tokens.text-secondary;
+                    horizontal-alignment: Layout.compact ? TextHorizontalAlignment.left : TextHorizontalAlignment.center;
                     vertical-alignment: center;
                     overflow: elide;
                 }
             }
-            Icon {
+            if !Layout.compact: Icon {
                 y: (parent.height - self.height) / 2;
                 data: Icons.function;
                 size: 16px;
@@ -390,6 +397,8 @@ export component SheetView inherits Rectangle {
             }
             barre := TextField {
                 horizontal-stretch: 1;
+                font-size: Layout.compact ? 15px : Tokens.size-body;
+                border-radius: Layout.compact ? 10px : Tokens.radius-small;
                 placeholder-text: "A value, or = and a formula";
                 property <int> demande: SheetGrid.input-serial;
                 changed demande => { self.text = SheetGrid.input; }
@@ -416,7 +425,7 @@ export component SheetView inherits Rectangle {
                 y: 0px;
                 width: root.entete-w;
                 height: root.entete-h;
-                background: Tokens.surface-low;
+                background: root.entete-fond;
                 Rectangle {
                     x: parent.width - 1px;
                     width: 1px;
@@ -442,7 +451,7 @@ export component SheetView inherits Rectangle {
                 width: parent.width - root.entete-w;
                 height: root.entete-h;
                 clip: true;
-                background: Tokens.surface-low;
+                background: root.entete-fond;
                 for c in SheetGrid.columns: Rectangle {
                     x: c.pos + f.content-x;
                     width: c.size;
@@ -498,13 +507,13 @@ export component SheetView inherits Rectangle {
                 width: root.entete-w;
                 height: parent.height - root.entete-h;
                 clip: true;
-                background: Tokens.surface-low;
+                background: root.entete-fond;
                 for r in SheetGrid.rows: Rectangle {
                     y: r.index < SheetGrid.frozen-rows ? r.pos : r.pos + f.content-y;
                     visible: r.index < SheetGrid.frozen-rows || r.pos + f.content-y >= SheetGrid.frozen-height - r.size;
                     height: r.size;
                     width: parent.width;
-                    background: r.selected ? Tokens.accent.transparentize(0.86) : Tokens.surface-low;
+                    background: r.selected ? Tokens.accent.transparentize(0.86) : root.entete-fond;
                     Text {
                         text: r.label;
                         font-size: 11.5px;
@@ -731,23 +740,30 @@ export component SheetView inherits Rectangle {
             height: 1px;
             background: Tokens.border;
         }
-        // The sheets, and what the selection adds up to.
+        // The sheets, and what the selection adds up to. On a phone the sheets are
+        // pills (the mockups' `.chip`), the one shown in the accent's tint.
         HorizontalLayout {
-            height: 32px;
-            padding-left: 8px;
-            padding-right: 12px;
-            spacing: 2px;
+            height: Layout.compact ? 46px : 32px;
+            padding-left: Layout.compact ? 10px : 8px;
+            padding-right: Layout.compact ? 10px : 12px;
+            spacing: Layout.compact ? 6px : 2px;
             for s[i] in SheetGrid.sheets: Rectangle {
-                y: 3px;
-                height: parent.height - 6px;
-                width: onglet.preferred-width + 24px;
-                border-radius: Tokens.radius-small;
-                background: i == SheetGrid.sheet ? Tokens.surface-hover : zone.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent;
+                y: Layout.compact ? 8px : 3px;
+                height: Layout.compact ? 30px : parent.height - 6px;
+                width: onglet.preferred-width + (Layout.compact ? 28px : 24px);
+                border-radius: Layout.compact ? 15px : Tokens.radius-small;
+                background: Layout.compact
+                    ? (i == SheetGrid.sheet ? Tokens.accent-soft : Tokens.surface)
+                    : (i == SheetGrid.sheet ? Tokens.surface-hover : zone.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent);
+                border-width: Layout.compact && i != SheetGrid.sheet ? 1px : 0px;
+                border-color: Tokens.border-strong;
                 onglet := Text {
                     text: s;
-                    font-size: 12.5px;
+                    font-size: Layout.compact ? 13.5px : 12.5px;
                     font-weight: i == SheetGrid.sheet ? 600 : 400;
-                    color: i == SheetGrid.sheet ? Tokens.text : Tokens.text-secondary;
+                    color: Layout.compact
+                        ? (i == SheetGrid.sheet ? Tokens.accent : Tokens.text-secondary)
+                        : (i == SheetGrid.sheet ? Tokens.text : Tokens.text-secondary);
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -765,7 +781,7 @@ export component SheetView inherits Rectangle {
                     double-clicked => { root.menu("sheet", self.absolute-position.x, self.absolute-position.y - 80px); }
                 }
             }
-            IconButton {
+            if !Layout.compact: IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.plus;
                 label: "New sheet";
@@ -773,12 +789,67 @@ export component SheetView inherits Rectangle {
                 icon-size: 13px;
                 clicked => { SheetGrid.action("sheet-add"); touches.focus(); }
             }
+            if Layout.compact: Rectangle {
+                y: 8px;
+                height: 30px;
+                width: 40px;
+                border-radius: 15px;
+                background: ajout.pressed ? Tokens.surface-active : Tokens.surface;
+                border-width: 1px;
+                border-color: Tokens.border-strong;
+                accessible-role: button;
+                accessible-label: "New sheet";
+                accessible-action-default => { SheetGrid.action("sheet-add"); }
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.plus;
+                    size: 16px;
+                    tint: Tokens.text-secondary;
+                }
+                ajout := TouchArea {
+                    clicked => { SheetGrid.action("sheet-add"); touches.focus(); }
+                }
+            }
             Rectangle { horizontal-stretch: 1; }
             Text {
                 text: SheetGrid.status;
-                font-size: 12px;
+                font-size: Layout.compact ? 13.5px : 12px;
                 color: Tokens.text-muted;
                 vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: Layout.compact ? 1 : 0;
+                horizontal-alignment: right;
+            }
+        }
+
+        // A phone's keys over the keyboard (the mockups' N5): =, Σ, bold, number,
+        // percent, the formula bar, and ✓ to finish the cell.
+        if Layout.compact: FormatBar {
+            sheet: true;
+            vertical-stretch: 0;
+            act(k) => {
+                if (k == "=" || k == "sum") {
+                    // Writing in the cell: added where it ends. Else a cell begun.
+                    if (SheetGrid.editing) {
+                        saisie.text = saisie.text + (k == "sum" ? "SUM(" : "=");
+                        SheetGrid.edit-changed(saisie.text);
+                    } else if (k == "sum") {
+                        SheetGrid.action("sum");
+                    } else {
+                        SheetGrid.key("=", false, false);
+                    }
+                } else if (k == "address") {
+                    barre.focus();
+                } else if (k == "done") {
+                    if (SheetGrid.editing) {
+                        SheetGrid.edit-done(saisie.text, 0);
+                    }
+                    touches.focus();
+                } else {
+                    SheetGrid.action(k);
+                    touches.focus();
+                }
             }
         }
     }

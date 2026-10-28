@@ -3,7 +3,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Hairline } from "@iris/base/atoms.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Button, ButtonKind, ButtonSize, Fab } from "@iris/controls/button.slint";
+import { BlockButton, Button, ButtonKind, ButtonSize, Fab } from "@iris/controls/button.slint";
 import { Check } from "@iris/controls/choice.slint";
 import { Nav, SectionRow } from "@iris/lists/nav.slint";
 import { EmptyState, Modal, ModalKind } from "@iris/layout/frames.slint";
@@ -11,7 +11,7 @@ import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { SidebarFrame, WindowToolbar } from "@iris/shell/chrome.slint";
 import { NoteSpaceData, NoteTreeRowData, NoteBlockData, NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData } from "@iris/types.slint";
-import { SheetView } from "@iris/screens/sheet.slint";
+import { SheetView, SheetGrid } from "@iris/screens/sheet.slint";
 import { FormatBar } from "@iris/controls/formatbar.slint";
 
 // The block highlighted in the `/` menu, for the card beside it: what is typed, what
@@ -1332,6 +1332,274 @@ component NoteBlock inherits Rectangle {
     }
 }
 
+// --- On a phone ---------------------------------------------------------------------
+//
+// What the Android mockups (`..\Iris-design\android\notes.html`) draw in place of the
+// side column and the toolbar: a page of the tree, a bar at the top of a note, sheets.
+// Shown when the window is compact only; a PC keeps its columns.
+
+// A button of a phone's top bar (the mockups' `.ib`): 44 pixels, its icon 22, grey.
+component BarButton inherits IconButton {
+    button-size: 44px;
+    icon-size: 22px;
+    tinted: true;
+    tint: Tokens.text-secondary;
+}
+
+// A group's title over its rounded plate (`.grp-t`): "Pinned", "Folders".
+component GroupTitle inherits Text {
+    font-size: 13px;
+    font-weight: 600;
+    color: Tokens.text-muted;
+    vertical-alignment: bottom;
+}
+
+// A line of the tree on a phone (`.tree .li`): 46 pixels, a folder's chevron, its
+// icon, its name and, at the right, its count or when it changed. A folder opens and
+// closes at a tap anywhere on it. A press held half a second asks for the row's menu,
+// as a right-click does on a PC; a finger that moves is scrolling and asks nothing.
+component PhoneTreeRow inherits Rectangle {
+    in property <NoteTreeRowData> item;
+    in property <bool> renaming;
+    /// A row of the tree, stepped in by its depth; the pinned ones stand flat, without
+    /// a chevron's room.
+    in property <bool> nested: true;
+    callback clicked(string);
+    callback toggled(string);
+    callback menu(string, length, length);
+    callback renamed(string, string);
+    callback rename-cancelled();
+
+    property <bool> folder: root.item.kind == 0;
+    /// Held long enough: the menu came, and the finger lifting is no tap.
+    property <bool> held;
+    property <bool> drifted;
+
+    height: 46px;
+    background: root.item.selected ? Tokens.surface-active
+        : touch.pressed && !root.drifted ? Tokens.surface-hover : transparent;
+
+    accessible-role: list-item;
+    accessible-label: root.item.name;
+    accessible-item-selected: root.item.selected;
+    accessible-expanded: root.folder && root.item.expanded;
+    accessible-action-default => { root.clicked(root.item.key); }
+
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.held = false;
+                root.drifted = false;
+            }
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.menu(root.item.key, self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
+        }
+        moved => {
+            if (self.pressed && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+                root.drifted = true;
+            }
+        }
+        clicked => {
+            if (root.held || root.drifted) {
+                root.held = false;
+                return;
+            }
+            if (root.folder) {
+                root.toggled(root.item.key);
+            } else {
+                root.clicked(root.item.key);
+            }
+        }
+    }
+    Timer {
+        interval: 500ms;
+        running: touch.pressed && !root.held && !root.drifted && !root.renaming;
+        triggered => {
+            root.held = true;
+            root.menu(root.item.key, touch.absolute-position.x + touch.mouse-x,
+                touch.absolute-position.y + touch.mouse-y);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 16px + (root.nested ? root.item.depth * 24px : 0px);
+        padding-right: 16px;
+        spacing: 14px;
+        // A folder's chevron; the room it takes kept for a file, so names line up.
+        if root.nested: Rectangle {
+            width: 14px;
+            if root.folder && root.item.has-children: Icon {
+                y: (parent.height - self.height) / 2;
+                data: root.item.expanded ? Icons.chevron-down : Icons.chevron-right;
+                size: 14px;
+                weight: 2;
+                tint: Tokens.text-muted;
+            }
+        }
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.item.kind == 0 ? Icons.folder
+                : root.item.kind == 1 ? Icons.notes
+                : root.item.kind == 2 ? Icons.table
+                : root.item.kind == 3 ? Icons.image
+                : Icons.paperclip;
+            size: 18px;
+            tint: root.item.color.alpha > 0 ? root.item.color : Tokens.text-muted;
+        }
+        if !root.renaming: Text {
+            text: root.item.name;
+            font-size: 15.5px;
+            // The chosen row, and a top folder open over what it holds, in bold.
+            font-weight: root.item.selected || (root.nested && root.folder && root.item.expanded && root.item.depth == 0) ? 600 : 400;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        // Escape, which the field does not want, comes up here: the old name stays.
+        if root.renaming: FocusScope {
+            horizontal-stretch: 1;
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.rename-cancelled();
+                    return accept;
+                }
+                reject
+            }
+            TextField {
+                y: (parent.height - self.height) / 2;
+                height: 34px;
+                width: parent.width;
+                text: root.item.name;
+                font-size: 15.5px;
+                init => {
+                    self.focus();
+                    self.select-all();
+                }
+                accepted(t) => { root.renamed(root.item.key, t); }
+            }
+        }
+        if root.item.meta != "": Text {
+            text: root.item.meta;
+            font-size: 14.5px;
+            color: Tokens.text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// How many notes are open, in the top bar of a note (the mockups' N8): a small
+// rounded square with the count; a tap lists them.
+component CountButton inherits Rectangle {
+    in property <int> count;
+    callback clicked();
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    background: zone.pressed ? Tokens.surface-active : transparent;
+    accessible-role: button;
+    accessible-label: "Open notes";
+    accessible-description: "" + root.count + " open";
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        border-width: 1.7px;
+        border-color: Tokens.text-secondary;
+        Text {
+            text: "" + root.count;
+            font-size: 11px;
+            font-weight: 700;
+            color: Tokens.text-secondary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// The quiet one of a phone's floating buttons (N3's "Revise 6"): the page's own plate
+// and words, the accent kept for the pencil beside it.
+component QuietFab inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    callback clicked();
+    width: rangee.preferred-width + 40px;
+    height: 56px;
+    border-radius: 18px;
+    background: zone.pressed ? Tokens.surface-active : Tokens.surface;
+    drop-shadow-blur: Tokens.shadow-float-blur;
+    drop-shadow-offset-y: Tokens.shadow-float-y;
+    drop-shadow-color: Tokens.shadow-float;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    rangee := HorizontalLayout {
+        x: 18px;
+        width: self.preferred-width;
+        spacing: 10px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            data: root.icon;
+            size: 18px;
+            tint: Tokens.text;
+        }
+        Text {
+            text: root.text;
+            font-size: 15.5px;
+            font-weight: 600;
+            color: Tokens.text;
+            vertical-alignment: center;
+        }
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A grade of a flashcard on a phone (N7): its name in its colour, and under it how
+// long it puts the card away.
+component GradeButton inherits Rectangle {
+    in property <string> text;
+    in property <string> delay;
+    in property <color> tint;
+    callback clicked();
+    horizontal-stretch: 1;
+    height: 62px;
+    border-radius: 22px;
+    background: zone.pressed ? Tokens.surface-active : Tokens.well;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-description: root.delay;
+    accessible-action-default => { root.clicked(); }
+    VerticalLayout {
+        alignment: center;
+        Text {
+            text: root.text;
+            font-size: 15px;
+            font-weight: 600;
+            color: root.tint;
+            horizontal-alignment: center;
+        }
+        if root.delay != "": Text {
+            text: root.delay;
+            font-size: 12px;
+            color: Tokens.text-muted;
+            horizontal-alignment: center;
+        }
+    }
+    zone := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 // --- The place ------------------------------------------------------------------------
 
 export component NotesView inherits Rectangle {
@@ -1479,6 +1747,21 @@ export component NotesView inherits Rectangle {
     /// The graph of the space's links.
     callback graph();
 
+    // On a phone: what is pinned, over the tree, and under the space's name how many
+    // notes it holds and how many flashcards wait.
+    in property <[NoteTreeRowData]> pinned;
+    in property <string> summary;
+    /// The note's folder without the space: the breadcrumb of a phone's top bar.
+    in property <string> folder;
+    /// Under a phone's title, while reading: its tags, then "Edited yesterday · 1 240
+    /// words". And how many flashcards it holds, on its Revise button.
+    in property <[string]> tags;
+    in property <string> meta;
+    in property <int> cards;
+    /// The sheet a phone shows over the note: "open" the notes open, "more" what else
+    /// it can do, "outline" its headings and mentions. "" for none.
+    in-out property <string> phone-sheet;
+
     // What is carried in the tree, and where the pointer is.
     property <string> carried;
     property <string> carried-name;
@@ -1496,16 +1779,16 @@ export component NotesView inherits Rectangle {
 
     HorizontalLayout {
         // Below 840 pixels the tree is a page of its own, the one Notes opens on;
-        // a note opens over it, and its "Notes" button brings the tree back.
-        if !root.focus-mode: SidebarFrame {
+        // a note opens over it, and its "Notes" button brings the tree back. On a
+        // phone that page is drawn as the mockups have it, further down.
+        if !root.focus-mode && !Layout.compact: SidebarFrame {
             visible: Layout.width-class == WidthClass.expanded || root.tree-open;
             sidebar-width: root.tree-open && Layout.width-class != WidthClass.expanded
                 ? Layout.window-width - (Layout.medium ? 80px : 0px)
                 : Layout.width-class == WidthClass.expanded ? 232px : 0px;
-            // The space: its colour and name; a click lists the others. On a phone the
-            // page's large title, as the mockups' N1.
+            // The space: its colour and name; a click lists the others.
             Rectangle {
-                height: Layout.compact ? 56px : 34px;
+                height: 34px;
                 border-radius: Tokens.radius-small;
                 background: choix.has-hover && !Layout.touch-input ? Tokens.surface-hover : transparent;
                 accessible-role: button;
@@ -1524,21 +1807,19 @@ export component NotesView inherits Rectangle {
                     }
                     Text {
                         text: root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].name : "";
-                        font-family: Layout.compact ? Tokens.font-display : Tokens.font-family;
-                        font-size: Layout.compact ? 32px : 14px;
+                        font-size: 14px;
                         font-weight: 600;
                         color: Tokens.text;
                         vertical-alignment: center;
                         overflow: elide;
-                        horizontal-stretch: Layout.compact ? 0 : 1;
+                        horizontal-stretch: 1;
                     }
                     Icon {
                         y: (parent.height - self.height) / 2;
                         data: Icons.chevron-down;
-                        size: Layout.compact ? 18px : 12px;
-                        tint: Layout.compact ? Tokens.text : Tokens.text-muted;
+                        size: 12px;
+                        tint: Tokens.text-muted;
                     }
-                    if Layout.compact: Rectangle { horizontal-stretch: 1; }
                 }
                 choix := TouchArea {
                     clicked => { root.space-menu(self.absolute-position.x, self.absolute-position.y + parent.height); }
@@ -1677,7 +1958,110 @@ export component NotesView inherits Rectangle {
             visible: !(root.tree-open && Layout.width-class != WidthClass.expanded);
             max-width: root.tree-open && Layout.width-class != WidthClass.expanded ? 0px : 100000px;
 
-            WindowToolbar {
+            // A phone's top bar (the mockups' N2, N3, N5, N8): back to the tree; then,
+            // writing, where the note is, Undo and Done; reading, the notes open, the
+            // outline and the rest; a spreadsheet, its name, Undo and its menu.
+            if Layout.compact: HorizontalLayout {
+                height: 56px;
+                vertical-stretch: 0;
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 2px;
+                BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.arrow-left;
+                    label: "Back to the notes";
+                    clicked => {
+                        root.phone-sheet = "";
+                        root.tree-open = true;
+                    }
+                }
+                if root.open && !root.reading: Text {
+                    text: root.folder;
+                    font-size: 14px;
+                    color: Tokens.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                if root.sheet-open: Text {
+                    text: root.tab-active >= 0 && root.tab-active < root.tabs.length ? root.tabs[root.tab-active].title : "";
+                    font-family: Tokens.font-display;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                if !(root.open && !root.reading) && !root.sheet-open: Rectangle { horizontal-stretch: 1; }
+                // Writing: one step back, and Done (back to reading). The `/` sheet
+                // up, Undo steps aside as the mockups' N4.
+                if root.open && !root.reading && root.completion.length == 0: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.undo;
+                    label: "Undo";
+                    clicked => { root.canvas-key("ctrl+z"); }
+                }
+                if root.open && !root.reading: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.check;
+                    label: "Done";
+                    tint: Tokens.accent;
+                    clicked => {
+                        if (root.source-mode) {
+                            root.source-toggled();
+                        } else {
+                            root.reading-toggled();
+                        }
+                    }
+                }
+                // Reading: the notes open (when more than one), the outline, the rest.
+                if root.open && root.reading && root.tabs.length > 1: CountButton {
+                    y: (parent.height - self.height) / 2;
+                    count: root.tabs.length;
+                    clicked => { root.phone-sheet = "open"; }
+                }
+                if root.open && root.reading: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.list;
+                    label: "Outline and links";
+                    clicked => {
+                        if (!root.side) {
+                            root.side-toggled();
+                        }
+                        root.phone-sheet = "outline";
+                    }
+                }
+                if root.open && root.reading: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.more;
+                    label: "More";
+                    clicked => { root.phone-sheet = "more"; }
+                }
+                // A spreadsheet: Undo, then its menu (rows, columns, export).
+                if root.sheet-open: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.undo;
+                    label: "Undo";
+                    clicked => {
+                        SheetGrid.action("undo");
+                        SheetGrid.focus-serial += 1;
+                    }
+                }
+                if root.sheet-open: BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.more;
+                    label: "Rows, columns, export";
+                    clicked => {
+                        SheetGrid.menu-x = self.absolute-position.x;
+                        SheetGrid.menu-y = self.absolute-position.y + self.height;
+                        SheetGrid.menu = "more";
+                    }
+                }
+            }
+
+            if !Layout.compact: WindowToolbar {
                 if Layout.width-class != WidthClass.expanded: IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.notes;
@@ -1778,8 +2162,9 @@ export component NotesView inherits Rectangle {
             }
 
             // The notes open in tabs, as in Obsidian: a click shows one, its cross closes
-            // it (a middle click too), + opens a new note in a new one.
-            if root.tabs.length > 0: Rectangle {
+            // it (a middle click too), + opens a new note in a new one. A phone lists
+            // them in a sheet instead, from the count in its top bar.
+            if root.tabs.length > 0 && !Layout.compact: Rectangle {
                 height: 34px;
                 background: Tokens.surface-low;
                 Rectangle {
@@ -1855,7 +2240,7 @@ export component NotesView inherits Rectangle {
 
             if !root.open && !root.sheet-open: EmptyState {
                 vertical-stretch: 1;
-                text: "No note open. Pick one on the left, or start one.";
+                text: Layout.compact ? "No note open. Pick one in the notes, or start one." : "No note open. Pick one on the left, or start one.";
                 action: "New note";
                 act => { root.new-note(); }
             }
@@ -1872,9 +2257,10 @@ export component NotesView inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1000;
                         max-width: 760px;
-                        padding-left: 36px;
-                        padding-right: 36px;
-                        padding-top: 28px;
+                        // A phone's page as the mockups' `.md`: 22 pixels each side.
+                        padding-left: Layout.compact ? 22px : 36px;
+                        padding-right: Layout.compact ? 22px : 36px;
+                        padding-top: Layout.compact ? 12px : 28px;
                         padding-bottom: 120px;
                         alignment: start;
                         spacing: 0px;
@@ -1900,10 +2286,13 @@ export component NotesView inherits Rectangle {
                             edited => { root.title-edited(self.text); }
                             text: root.title;
                             font-family: Tokens.font-display;
-                            font-size: 30px;
-                            font-weight: 700;
+                            // A phone's title (`.md h1`): 27 pixels, on as many lines
+                            // as it takes; Enter still goes to the note.
+                            font-size: Layout.compact ? 27px : 30px;
+                            font-weight: Layout.compact ? 600 : 700;
                             color: Tokens.text;
-                            single-line: true;
+                            single-line: !Layout.compact;
+                            wrap: Layout.compact ? TextWrap.word-wrap : TextWrap.no-wrap;
                             selection-background-color: Tokens.accent.transparentize(0.7);
                             accessible-role: text-input;
                             accessible-label: "Note title";
@@ -1926,14 +2315,43 @@ export component NotesView inherits Rectangle {
                                 reject
                             }
                         }
-                        Rectangle { height: 14px; }
+                        // Read on a phone: the note's tags, when it was written, how long
+                        // it is (the mockups' N3).
+                        if Layout.compact && root.reading: HorizontalLayout {
+                            padding-top: 4px;
+                            spacing: 8px;
+                            alignment: start;
+                            for t in root.tags: Rectangle {
+                                y: (parent.height - self.height) / 2;
+                                width: etiquette.preferred-width + 14px;
+                                height: etiquette.preferred-height + 4px;
+                                border-radius: 5px;
+                                background: Tokens.surface-active;
+                                etiquette := Text {
+                                    text: t;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: Tokens.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                text: root.meta;
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Rectangle { height: Layout.compact ? 10px : 14px; }
 
                         // The note, drawn as Rust laid it out: one surface for the whole
                         // text, its cursor and its selection; every key and click goes to
                         // Rust, which knows where each character is.
                         if !root.source-mode: Rectangle {
                             height: max(root.view-height, 40px);
-                            property <length> largeur: min(760px, page.visible-width) - 72px;
+                            property <length> largeur: min(760px, page.visible-width) - (Layout.compact ? 44px : 72px);
                             init => { root.canvas-width(self.largeur); }
                             changed largeur => { root.canvas-width(self.largeur); }
 
@@ -2176,7 +2594,7 @@ export component NotesView inherits Rectangle {
               }
 
               // Another note beside, to read while writing: drawn, links followed.
-              if root.beside.length > 0: Rectangle {
+              if root.beside.length > 0 && !Layout.compact: Rectangle {
                 horizontal-stretch: 0.8;
                 background: Tokens.surface;
                 Rectangle {
@@ -2233,7 +2651,7 @@ export component NotesView inherits Rectangle {
               }
 
               // Beside the note: its outline, what mentions it, its tags and length.
-              if root.side: Rectangle {
+              if root.side && !Layout.compact: Rectangle {
                 width: 250px;
                 background: Tokens.surface-low;
                 Rectangle {
@@ -2318,10 +2736,17 @@ export component NotesView inherits Rectangle {
               }
             }
 
-            // On a touch screen, the formatting a keyboard's Ctrl gives on a PC.
+            // On a touch screen, the formatting a keyboard's Ctrl gives on a PC. Its
+            // last key puts the keyboard away: the shortcuts take the keys back.
             if root.open && !root.reading && Layout.touch-input: FormatBar {
                 vertical-stretch: 0;
-                act(k) => { root.canvas-key(k); }
+                act(k) => {
+                    if (k == "hide-keyboard") {
+                        root.escaped();
+                    } else {
+                        root.canvas-key(k);
+                    }
+                }
             }
         }
     }
@@ -2331,7 +2756,7 @@ export component NotesView inherits Rectangle {
     // The completion list: it scrolls to the row the arrows reach; the `/` menu shows
     // an icon on each row and, beside it, a card of the block highlighted.
     property <length> ligne-completion: root.completion.length > 0 && root.completion[0].detail != "" ? 40px : 30px;
-    if root.completion.length > 0: Rectangle {
+    if root.completion.length > 0 && !Layout.compact: Rectangle {
         x: min(root.popup-x - root.absolute-position.x, root.width - 300px);
         y: min(root.popup-y - root.absolute-position.y, root.height - self.height - 8px);
         width: 290px;
@@ -2398,11 +2823,88 @@ export component NotesView inherits Rectangle {
             }
         }
     }
-    // Beside it, on the side with room.
-    if root.completion.length > 0 && BlockPreview.family != "": BlockPreviewCard {
+    // Beside it, on the side with room. A phone has no room: the icon says enough.
+    if root.completion.length > 0 && BlockPreview.family != "" && !Layout.compact: BlockPreviewCard {
         property <length> gauche: min(root.popup-x - root.absolute-position.x, root.width - 300px);
         x: self.gauche + 290px + 8px + self.width <= root.width ? self.gauche + 298px : max(8px, self.gauche - self.width - 8px);
         y: min(root.popup-y - root.absolute-position.y, root.height - self.height - 8px);
+    }
+
+    // On a phone the list rises as a sheet over the keyboard, which stays up: typing
+    // goes on filtering it (the mockups' N4). The `/` blocks stand in two columns,
+    // each its icon and name; notes to link to, one a line with their folder.
+    property <bool> completion-blocs: root.completion.length > 0 && BlockPreview.icon(root.completion[0].key) != "";
+    property <length> case-largeur: (root.width - 16px) / 2;
+    if root.completion.length > 0 && Layout.compact: Rectangle {
+        y: root.height - self.height;
+        width: root.width;
+        height: min(liste-tel.height + 21px, 420px);
+        border-top-left-radius: 22px;
+        border-top-right-radius: 22px;
+        background: Tokens.panel;
+        drop-shadow-blur: Tokens.shadow-window-blur;
+        drop-shadow-color: Tokens.shadow-window;
+        clip: true;
+        // Taps inside stay inside.
+        TouchArea {}
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 8px;
+            width: 40px;
+            height: 5px;
+            border-radius: 3px;
+            background: Tokens.border-strong;
+        }
+        Flickable {
+            y: 17px;
+            height: parent.height - 17px;
+            content-height: liste-tel.height + 4px;
+            liste-tel := Rectangle {
+                y: 4px;
+                width: root.width;
+                height: (root.completion-blocs ? ceil(root.completion.length / 2) * 56px : root.completion.length * 56px) + 14px;
+                for c[i] in root.completion: Rectangle {
+                    x: root.completion-blocs ? 8px + mod(i, 2) * root.case-largeur : 8px;
+                    y: root.completion-blocs ? floor(i / 2) * 56px : i * 56px;
+                    width: root.completion-blocs ? root.case-largeur : root.width - 16px;
+                    height: 56px;
+                    border-radius: 12px;
+                    background: i == root.completion-highlight || choix-tel.pressed ? Tokens.surface-active : transparent;
+                    accessible-role: button;
+                    accessible-label: c.title;
+                    accessible-action-default => { root.completion-chosen(i); }
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        spacing: 12px;
+                        if BlockPreview.icon(c.key) != "" || !root.completion-blocs: Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: BlockPreview.icon(c.key) != "" ? BlockPreview.icon(c.key) : Icons.notes;
+                            size: 22px;
+                            tint: Tokens.text-muted;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: c.title;
+                                font-size: 16px;
+                                color: Tokens.text;
+                                overflow: elide;
+                            }
+                            if !root.completion-blocs && c.detail != "": Text {
+                                text: c.detail;
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    choix-tel := TouchArea {
+                        clicked => { root.completion-chosen(i); }
+                    }
+                }
+            }
+        }
     }
 
     // The bubble over a selection: the marks, a colour, a link.
@@ -2614,8 +3116,171 @@ export component NotesView inherits Rectangle {
         }
     }
 
-    // Under the thumb on a phone, as the mockups draw them: New note over the tree, the
-    // pencil over a note being read (writing it).
+    // A note or a spreadsheet tapped in a phone's tree takes the page, even the one
+    // already open (its title does not change, so nothing else would turn the page).
+    function open-row(key: string, kind: int) {
+        root.row-clicked(key);
+        if (kind == 1 || kind == 2) {
+            root.tree-open = false;
+        }
+    }
+
+    // A phone's first page (the mockups' N1): the space's name, large, and what it
+    // holds; what is pinned; then the folders, as a tree on one rounded plate. The
+    // bar over it opens the graph, Quick open and what can be made.
+    if Layout.compact && root.tree-open: Rectangle {
+        background: Tokens.background;
+        VerticalLayout {
+            HorizontalLayout {
+                height: 56px;
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 2px;
+                Rectangle { horizontal-stretch: 1; }
+                BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.graph;
+                    label: "Links between the notes";
+                    clicked => { root.graph(); }
+                }
+                BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.search;
+                    label: "Open a note";
+                    clicked => { root.quick-open(); }
+                }
+                BarButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.more;
+                    label: "New, and the space's folder";
+                    clicked => { root.area-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+                }
+            }
+            // The space: a tap lists the others.
+            VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 2px;
+                padding-bottom: 10px;
+                spacing: 2px;
+                Rectangle {
+                    height: 37px;
+                    accessible-role: button;
+                    accessible-label: "Space: " + (root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].name : "");
+                    accessible-action-default => { root.space-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 6px;
+                        Text {
+                            text: root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].name : "";
+                            font-family: Tokens.font-display;
+                            font-size: 32px;
+                            font-weight: 600;
+                            letter-spacing: -0.4px;
+                            color: Tokens.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Icon {
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.chevron-down;
+                            size: 18px;
+                            tint: Tokens.text;
+                        }
+                    }
+                    TouchArea {
+                        clicked => { root.space-menu(self.absolute-position.x, self.absolute-position.y + parent.height); }
+                    }
+                }
+                if root.summary != "": Text {
+                    text: root.summary;
+                    font-size: 14px;
+                    color: Tokens.text-muted;
+                }
+            }
+            arbre-tel := ScrollView {
+                vertical-stretch: 1;
+                mouse-drag-pan-enabled: false;
+                content-width: self.visible-width;
+                VerticalLayout {
+                    width: arbre-tel.visible-width;
+                    alignment: start;
+                    // Room under the last row for New note, floating over it.
+                    padding-bottom: 88px;
+                    if root.pinned.length > 0: HorizontalLayout {
+                        padding-left: 32px;
+                        padding-right: 32px;
+                        padding-top: 18px;
+                        padding-bottom: 7px;
+                        GroupTitle { text: "Pinned"; }
+                    }
+                    if root.pinned.length > 0: HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        Rectangle {
+                            height: root.pinned.length * 46px;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            clip: true;
+                            VerticalLayout {
+                                for p in root.pinned: PhoneTreeRow {
+                                    item: p;
+                                    nested: false;
+                                    renaming: root.renaming == p.key;
+                                    clicked(k) => { root.open-row(k, p.kind); }
+                                    toggled(k) => { root.row-toggled(k); }
+                                    menu(k, x, y) => { root.row-menu(k, x, y); }
+                                    renamed(k, t) => { root.renamed(k, t); }
+                                    rename-cancelled => { root.rename-cancelled(); }
+                                }
+                            }
+                        }
+                    }
+                    if root.tree.length > 0: HorizontalLayout {
+                        padding-left: 32px;
+                        padding-right: 32px;
+                        padding-top: 18px;
+                        padding-bottom: 7px;
+                        GroupTitle { text: root.filter != "" ? "Found" : "Folders"; }
+                    }
+                    if root.tree.length > 0: HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        Rectangle {
+                            height: root.tree.length * 46px + 8px;
+                            border-radius: 14px;
+                            background: Tokens.surface;
+                            clip: true;
+                            VerticalLayout {
+                                padding-top: 4px;
+                                padding-bottom: 4px;
+                                for r in root.tree: PhoneTreeRow {
+                                    item: r;
+                                    renaming: root.renaming == r.key;
+                                    clicked(k) => { root.open-row(k, r.kind); }
+                                    toggled(k) => { root.row-toggled(k); }
+                                    menu(k, x, y) => { root.row-menu(k, x, y); }
+                                    renamed(k, t) => { root.renamed(k, t); }
+                                    rename-cancelled => { root.rename-cancelled(); }
+                                }
+                            }
+                        }
+                    }
+                    if root.tree.length == 0 && root.pinned.length == 0: Text {
+                        height: 120px;
+                        text: "No note yet. New note starts one.";
+                        font-size: 15px;
+                        color: Tokens.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // Under the thumb on a phone, as the mockups draw them: New note over the tree; over
+    // a note being read, the pencil (writing it) and, when it holds flashcards, Revise.
     if Layout.compact && root.tree-open: Fab {
         x: parent.width - self.width - 16px;
         y: parent.height - self.height - 16px;
@@ -2624,11 +3289,21 @@ export component NotesView inherits Rectangle {
         clicked => { root.new-note(); }
     }
     if Layout.compact && !root.tree-open && root.open && root.reading && !root.sheet-open: Fab {
+        // Round: the pencil alone says it (`.fab.round`).
+        width: 56px;
         x: parent.width - self.width - 16px;
         y: parent.height - self.height - 16px;
-        text: "Edit";
+        text: "";
         icon: Icons.pencil;
+        accessible-label: "Edit";
         clicked => { root.reading-toggled(); }
+    }
+    if Layout.compact && !root.tree-open && root.open && root.reading && !root.sheet-open && root.cards > 0: QuietFab {
+        x: 16px;
+        y: parent.height - self.height - 16px;
+        text: "Revise " + root.cards;
+        icon: Icons.cards;
+        clicked => { root.revise(); }
     }
 }
 
@@ -2730,14 +3405,15 @@ export component NotesRowMenu inherits Rectangle {
             }
             if root.kind == 0: MenuSeparator {}
 
-            // Opening it.
-            if root.kind == 1 || root.kind == 2: MenuEntry {
+            // Opening it. A phone has no tabs side by side, no note beside, no other
+            // app to hand a file to: its menu is the mockups' N1 list.
+            if (root.kind == 1 || root.kind == 2) && !Layout.compact: MenuEntry {
                 icon: Icons.plus;
                 label: "Open in a new tab";
                 shortcut: "Ctrl+T";
                 activated => { root.chosen("new-tab"); }
             }
-            if root.kind == 1: MenuEntry {
+            if root.kind == 1 && !Layout.compact: MenuEntry {
                 icon: Icons.sidebar;
                 label: "Open beside";
                 shortcut: "Ctrl+\\";
@@ -2748,12 +3424,12 @@ export component NotesRowMenu inherits Rectangle {
                 label: "Open as a spreadsheet";
                 activated => { root.chosen("import-sheet"); }
             }
-            if root.kind != 0: MenuEntry {
+            if root.kind != 0 && !Layout.compact: MenuEntry {
                 icon: Icons.open-external;
                 label: "Open with the default app";
                 activated => { root.chosen("open-default"); }
             }
-            if root.kind != 0: MenuSeparator {}
+            if root.kind != 0 && (!Layout.compact || root.kind == 4): MenuSeparator {}
 
             // Arranging it.
             MenuEntry {
@@ -2774,38 +3450,46 @@ export component NotesRowMenu inherits Rectangle {
             }
             MenuEntry {
                 icon: Icons.star;
-                label: root.pinned ? "Unpin" : "Pin to the top";
+                label: root.pinned ? "Unpin" : Layout.compact ? "Pin" : "Pin to the top";
                 activated => { root.chosen("pin"); }
             }
             MenuSeparator {}
 
-            // Taking it elsewhere.
+            // Taking it elsewhere. On a phone a note or a file copies its link at
+            // once; a folder still offers its paths.
             copier := MenuEntry {
-                icon: Icons.copy;
-                label: "Copy path";
-                chevron: true;
+                property <bool> lien: Layout.compact && root.kind != 0;
+                icon: self.lien ? Icons.link : Icons.copy;
+                label: self.lien ? "Copy link" : "Copy path";
+                chevron: !self.lien;
                 open: root.sous;
                 changed hovered => {
-                    if (self.hovered) { root.ouvrir-sous(); }
+                    if (self.hovered && !self.lien) { root.ouvrir-sous(); }
                 }
-                activated => { root.ouvrir-sous(); }
+                activated => {
+                    if (self.lien) {
+                        root.chosen("copy-link");
+                    } else {
+                        root.ouvrir-sous();
+                    }
+                }
             }
             if root.kind == 1: MenuEntry {
                 icon: Icons.history;
-                label: "Version history…";
+                label: Layout.compact ? "History" : "Version history…";
                 activated => { root.chosen("history"); }
             }
-            if root.kind == 1: MenuEntry {
+            if root.kind == 1 && !Layout.compact: MenuEntry {
                 icon: Icons.download;
                 label: "Export as a web page…";
                 activated => { root.chosen("export"); }
             }
             if root.kind == 1: MenuEntry {
-                icon: Icons.notes;
-                label: "Print or save as PDF…";
+                icon: Layout.compact ? Icons.open-external : Icons.notes;
+                label: Layout.compact ? "Share" : "Print or save as PDF…";
                 activated => { root.chosen("print"); }
             }
-            MenuEntry {
+            if !Layout.compact: MenuEntry {
                 icon: Icons.folder;
                 label: "Show in Explorer";
                 activated => { root.chosen("reveal"); }
@@ -2813,7 +3497,7 @@ export component NotesRowMenu inherits Rectangle {
             MenuSeparator {}
             MenuEntry {
                 icon: Icons.trash;
-                label: "Move to the Recycle Bin";
+                label: Layout.compact ? "Delete" : "Move to the Recycle Bin";
                 danger: true;
                 activated => { root.chosen("delete"); }
             }
@@ -2967,11 +3651,208 @@ export component NotesReviewPanel inherits Rectangle {
     /// "3 of 12", or what was revised when it is over.
     in property <string> progress;
     in property <bool> finished;
+    // A phone's page: what is revised (a folder, a note), the card shown of how many,
+    // the note the card comes from, and how long each grade puts it away.
+    in property <string> title;
+    in property <int> position;
+    in property <int> total;
+    in property <string> source;
+    in property <[string]> delays;
     callback reveal();
     callback graded(int);
     callback dismissed();
 
-    Modal {
+    // On a phone (the mockups' N7): a page of its own, one card at a time; a tap on
+    // the card shows the answer, then the four grades are large buttons, each with
+    // the time it gives.
+    if Layout.compact: Rectangle {
+        background: Tokens.background;
+        FocusScope {
+            enabled: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape || event.text == Key.Back) {
+                    root.dismissed();
+                    return accept;
+                }
+                return reject;
+            }
+            TouchArea {}
+            VerticalLayout {
+                padding-top: Layout.inset-top;
+                padding-bottom: Layout.inset-bottom;
+                HorizontalLayout {
+                    height: 56px;
+                    padding-left: 6px;
+                    padding-right: 20px;
+                    spacing: 2px;
+                    BarButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.window-close;
+                        label: "Stop revising";
+                        clicked => { root.dismissed(); }
+                    }
+                    Text {
+                        text: root.title != "" ? "Revise · " + root.title : "Revise";
+                        font-family: Tokens.font-display;
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    if root.total > 0: Text {
+                        text: "" + root.position + " / " + root.total;
+                        font-size: 14px;
+                        color: Tokens.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+                // How far through.
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    Rectangle {
+                        height: 4px;
+                        border-radius: 2px;
+                        background: Tokens.surface-active;
+                        Rectangle {
+                            x: 0px;
+                            width: parent.width * (root.total > 0 ? min(1, root.position / root.total) : 0);
+                            border-radius: 2px;
+                            background: Tokens.accent;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    vertical-stretch: 1;
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    padding-top: 24px;
+                    padding-bottom: 24px;
+                    Rectangle {
+                        border-radius: 18px;
+                        background: Tokens.surface;
+                        drop-shadow-blur: Tokens.shadow-card-blur;
+                        drop-shadow-offset-y: Tokens.shadow-card-y;
+                        drop-shadow-color: Tokens.shadow-card;
+                        accessible-role: button;
+                        accessible-label: root.revealed || root.finished ? "" : "Show the answer";
+                        TouchArea {
+                            clicked => {
+                                if (!root.revealed && !root.finished) {
+                                    root.reveal();
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            padding-left: 22px;
+                            padding-right: 22px;
+                            padding-top: 24px;
+                            padding-bottom: 24px;
+                            spacing: 0px;
+                            if root.finished: Text {
+                                text: root.progress;
+                                font-family: Tokens.font-display;
+                                font-size: 20px;
+                                font-weight: 600;
+                                color: Tokens.text;
+                                wrap: word-wrap;
+                            }
+                            if !root.finished: Text {
+                                text: "Question";
+                                font-size: 12.5px;
+                                font-weight: 600;
+                                color: Tokens.text-muted;
+                            }
+                            if !root.finished: Rectangle { height: 8px; }
+                            if !root.finished: Text {
+                                text: root.question;
+                                font-family: Tokens.font-display;
+                                font-size: 20px;
+                                font-weight: 600;
+                                color: Tokens.text;
+                                wrap: word-wrap;
+                            }
+                            if !root.finished && root.revealed: Rectangle {
+                                height: 41px;
+                                Rectangle {
+                                    y: 22px;
+                                    height: 1px;
+                                    background: Tokens.border;
+                                }
+                            }
+                            if !root.finished && root.revealed: Text {
+                                text: "Answer";
+                                font-size: 12.5px;
+                                font-weight: 600;
+                                color: Tokens.text-muted;
+                            }
+                            if !root.finished && root.revealed: Rectangle { height: 8px; }
+                            if !root.finished && root.revealed: Text {
+                                text: root.answer;
+                                font-size: 17px;
+                                color: Tokens.text;
+                                wrap: word-wrap;
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                            if !root.finished && !root.revealed: Text {
+                                text: "Tap the card for the answer.";
+                                font-size: 14px;
+                                color: Tokens.text-muted;
+                                horizontal-alignment: center;
+                            }
+                            if !root.finished && !root.revealed: Rectangle { height: 16px; }
+                            if !root.finished && root.source != "": Text {
+                                text: root.source;
+                                font-size: 13px;
+                                color: Tokens.text-muted;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+                if !root.finished && root.revealed: HorizontalLayout {
+                    height: 62px + 16px;
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 16px;
+                    spacing: 8px;
+                    for g[i] in [
+                        { label: "Again", tint: Tokens.red },
+                        { label: "Hard", tint: Tokens.orange },
+                        { label: "Good", tint: Tokens.green },
+                        { label: "Easy", tint: Tokens.blue },
+                    ]: GradeButton {
+                        text: g.label;
+                        tint: g.tint;
+                        delay: i < root.delays.length ? root.delays[i] : "";
+                        clicked => { root.graded(i); }
+                    }
+                }
+                if !root.finished && !root.revealed: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 16px;
+                    BlockButton {
+                        text: "Show the answer";
+                        clicked => { root.reveal(); }
+                    }
+                }
+                if root.finished: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 16px;
+                    BlockButton {
+                        text: "Done";
+                        clicked => { root.dismissed(); }
+                    }
+                }
+            }
+        }
+    }
+
+    if !Layout.compact: Modal {
         width: 100%;
         height: 100%;
         title: "Revise";
@@ -3245,9 +4126,163 @@ export component NotesGraphPanel inherits Rectangle {
     /// Every link, as path commands in a 1000 × 1000 square.
     in property <string> edges;
     callback chosen(string);
+    /// A phone's search in the bar: Quick open, in place of the graph.
+    callback search();
     callback dismissed();
 
-    Modal {
+    // On a phone (the mockups' N6): a page, Graph at its top; a tap on a node lights
+    // it and lays its card at the foot, whose Open opens the note.
+    property <int> touche: -1;
+
+    if Layout.compact: Rectangle {
+        background: Tokens.background;
+        FocusScope {
+            enabled: false;
+            key-pressed(event) => {
+                if (event.text == Key.Escape || event.text == Key.Back) {
+                    root.dismissed();
+                    return accept;
+                }
+                return reject;
+            }
+            // Taps on the empty page put the card away.
+            TouchArea {
+                clicked => { root.touche = -1; }
+            }
+            VerticalLayout {
+                padding-top: Layout.inset-top;
+                padding-bottom: Layout.inset-bottom;
+                HorizontalLayout {
+                    height: 56px;
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 2px;
+                    BarButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.arrow-left;
+                        label: "Close the graph";
+                        clicked => { root.dismissed(); }
+                    }
+                    Text {
+                        text: "Graph";
+                        font-family: Tokens.font-display;
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    BarButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.search;
+                        label: "Open a note";
+                        clicked => { root.search(); }
+                    }
+                }
+                cadre-tel := Rectangle {
+                    vertical-stretch: 1;
+                    clip: true;
+                    carre-tel := Rectangle {
+                        width: min(cadre-tel.width, cadre-tel.height) - 24px;
+                        height: self.width;
+                        x: (cadre-tel.width - self.width) / 2;
+                        y: (cadre-tel.height - self.height) / 2;
+                        Path {
+                            width: 100%;
+                            height: 100%;
+                            viewbox-x: 0;
+                            viewbox-y: 0;
+                            viewbox-width: 1000;
+                            viewbox-height: 1000;
+                            commands: root.edges;
+                            stroke: Tokens.border-strong;
+                            stroke-width: 1.4px;
+                        }
+                        for n[i] in root.nodes: Rectangle {
+                            property <bool> eclaire: i == root.touche || (root.touche < 0 && n.current);
+                            property <length> d: (12 + n.size * 16) * 1px;
+                            x: n.x * carre-tel.width - self.width / 2;
+                            y: n.y * carre-tel.height - self.d / 2;
+                            width: max(self.d, nom-noeud.preferred-width + 8px);
+                            height: self.d + 22px;
+                            Rectangle {
+                                x: (parent.width - parent.d) / 2;
+                                y: 0px;
+                                width: parent.d;
+                                height: parent.d;
+                                border-radius: parent.d / 2;
+                                background: parent.eclaire ? Tokens.accent : Tokens.grey;
+                            }
+                            nom-noeud := Text {
+                                y: parent.d + 4px;
+                                width: parent.width;
+                                text: n.label;
+                                font-size: 13px;
+                                font-weight: parent.eclaire ? 600 : 400;
+                                color: parent.eclaire ? Tokens.text : Tokens.text-secondary;
+                                horizontal-alignment: center;
+                            }
+                            accessible-role: button;
+                            accessible-label: n.label;
+                            accessible-action-default => { root.touche = i; }
+                            TouchArea {
+                                clicked => { root.touche = i; }
+                            }
+                        }
+                    }
+                }
+            }
+            // The node tapped: its note, its links, and Open.
+            if root.touche >= 0 && root.touche < root.nodes.length: Rectangle {
+                x: 16px;
+                width: parent.width - 32px;
+                y: parent.height - self.height - 16px - Layout.inset-bottom;
+                height: carte-noeud.preferred-height;
+                border-radius: 18px;
+                background: Tokens.surface;
+                drop-shadow-blur: Tokens.shadow-card-blur;
+                drop-shadow-offset-y: Tokens.shadow-card-y;
+                drop-shadow-color: Tokens.shadow-card;
+                TouchArea {}
+                carte-noeud := HorizontalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        data: Icons.notes;
+                        size: 22px;
+                        tint: Tokens.accent;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: root.nodes[root.touche].label;
+                            font-size: 15.5px;
+                            font-weight: 600;
+                            color: Tokens.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.nodes[root.touche].detail;
+                            font-size: 13px;
+                            color: Tokens.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                    Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "Open";
+                        kind: ButtonKind.primary;
+                        size: ButtonSize.sm;
+                        clicked => { root.chosen(root.nodes[root.touche].key); }
+                    }
+                }
+            }
+        }
+    }
+
+    if !Layout.compact: Modal {
         width: 100%;
         height: 100%;
         title: "Links between the notes";
@@ -3351,6 +4386,255 @@ export component NotesAreaMenu inherits Rectangle {
                 icon: Icons.open-external;
                 label: "Open the space's folder";
                 activated => { root.chosen("reveal-space"); }
+            }
+        }
+    }
+}
+
+// A phone's sheets over a note, rising from the bottom (the mockups' N8, and N3's two
+// buttons): the notes open, which are the PC's tabs, with New and what else the note
+// can do; that same rest alone, from ⋯; the note's outline and what mentions it, the
+// PC's side column.
+export component NotesPhoneSheet inherits Rectangle {
+    /// "open", "more" or "outline".
+    in property <string> kind;
+    in property <[NoteFoundData]> tabs;
+    in property <int> tab-active;
+    in property <bool> has-cards;
+    in property <bool> source-mode;
+    in property <[NoteFoundData]> outline;
+    in property <[NoteFoundData]> backlinks;
+    in property <string> facts;
+    /// "new", "history", "source", "print", "revise".
+    callback chosen(string);
+    callback tab-chosen(int);
+    callback tab-closed(int);
+    callback outline-chosen(string);
+    callback backlink-chosen(string);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+    MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: 0px;
+        menu-y: 0px;
+        menu-width: root.width;
+        menu-height: min(contenu.preferred-height, root.height - 96px);
+        contenu := VerticalLayout {
+            padding-bottom: 4px;
+
+            // The notes open: a tap shows one, × closes it, New opens a new one.
+            if root.kind == "open": HorizontalLayout {
+                height: 52px;
+                padding-left: 20px;
+                padding-right: 12px;
+                padding-bottom: 8px;
+                spacing: 8px;
+                Text {
+                    text: "Open notes";
+                    font-family: Tokens.font-display;
+                    font-size: 19px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "New";
+                    icon: Icons.plus;
+                    label: "New note";
+                    kind: ButtonKind.ghost;
+                    size: ButtonSize.sm;
+                    clicked => { root.chosen("new"); }
+                }
+            }
+            if root.kind == "open": VerticalLayout {
+                for t[i] in root.tabs: HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    Rectangle {
+                        height: 56px;
+                        border-radius: 12px;
+                        background: i == root.tab-active ? Tokens.surface-active
+                            : ligne.pressed ? Tokens.surface-hover : transparent;
+                        accessible-role: tab;
+                        accessible-label: t.title;
+                        accessible-item-selected: i == root.tab-active;
+                        accessible-action-default => { root.tab-chosen(i); }
+                        ligne := TouchArea {
+                            clicked => { root.tab-chosen(i); }
+                        }
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 4px;
+                            spacing: 14px;
+                            Icon {
+                                y: (parent.height - self.height) / 2;
+                                data: Icons.notes;
+                                size: 18px;
+                                tint: Tokens.text-muted;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: t.title;
+                                    font-size: 15.5px;
+                                    font-weight: i == root.tab-active ? 600 : 400;
+                                    color: Tokens.text;
+                                    overflow: elide;
+                                }
+                                if t.detail != "": Text {
+                                    text: t.detail;
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                    overflow: elide;
+                                }
+                            }
+                            IconButton {
+                                y: (parent.height - self.height) / 2;
+                                icon: Icons.window-close;
+                                label: "Close " + t.title;
+                                button-size: 44px;
+                                icon-size: 14px;
+                                clicked => { root.tab-closed(i); }
+                            }
+                        }
+                    }
+                }
+            }
+            if root.kind == "open": MenuSeparator { }
+
+            // What else the note can do.
+            if root.kind == "open" || root.kind == "more": VerticalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                MenuEntry {
+                    icon: Icons.history;
+                    label: "Version history…";
+                    activated => { root.chosen("history"); }
+                }
+                MenuEntry {
+                    icon: Icons.code;
+                    label: root.source-mode ? "Back to the blocks" : "Edit as plain text";
+                    activated => { root.chosen("source"); }
+                }
+                MenuEntry {
+                    icon: Icons.open-external;
+                    label: "Share or export as PDF…";
+                    activated => { root.chosen("print"); }
+                }
+                if root.kind == "more" && root.has-cards: MenuEntry {
+                    icon: Icons.cards;
+                    label: "Revise the flashcards";
+                    activated => { root.chosen("revise"); }
+                }
+            }
+
+            // The outline, then what mentions the note; its length and tags above.
+            if root.kind == "outline": VerticalLayout {
+                MenuHeader { text: "Outline"; }
+                if root.facts != "": HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 6px;
+                    Text {
+                        text: root.facts;
+                        font-size: 13px;
+                        color: Tokens.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+                plan-tel := ScrollView {
+                    height: min(plan-liste.preferred-height, root.height * 0.6);
+                    mouse-drag-pan-enabled: false;
+                    content-width: self.visible-width;
+                    plan-liste := VerticalLayout {
+                        width: plan-tel.visible-width;
+                        alignment: start;
+                        padding-left: 4px;
+                        padding-right: 4px;
+                        if root.outline.length == 0: HorizontalLayout {
+                            height: 40px;
+                            padding-left: 12px;
+                            Text {
+                                text: "No headings.";
+                                font-size: 14px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                        for h in root.outline: Rectangle {
+                            height: 48px;
+                            border-radius: 12px;
+                            background: titre-zone.pressed ? Tokens.surface-active : transparent;
+                            accessible-role: button;
+                            accessible-label: h.title;
+                            accessible-action-default => { root.outline-chosen(h.key); }
+                            Text {
+                                x: 14px + (h.detail.to-float() - 1) * 16px;
+                                width: parent.width - self.x - 14px;
+                                text: h.title;
+                                font-size: 15.5px;
+                                font-weight: h.detail == "1" ? 600 : 400;
+                                color: Tokens.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            titre-zone := TouchArea {
+                                clicked => { root.outline-chosen(h.key); }
+                            }
+                        }
+                        MenuSeparator { }
+                        MenuHeader { text: "Mentioned in"; }
+                        if root.backlinks.length == 0: HorizontalLayout {
+                            height: 40px;
+                            padding-left: 12px;
+                            Text {
+                                text: "No note links here yet.";
+                                font-size: 14px;
+                                color: Tokens.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                        for l in root.backlinks: Rectangle {
+                            height: 56px;
+                            border-radius: 12px;
+                            background: retour-zone.pressed ? Tokens.surface-active : transparent;
+                            accessible-role: button;
+                            accessible-label: l.title;
+                            accessible-action-default => { root.backlink-chosen(l.key); }
+                            VerticalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                alignment: center;
+                                Text {
+                                    text: l.title;
+                                    font-size: 15.5px;
+                                    font-weight: 600;
+                                    color: Tokens.accent;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: l.detail;
+                                    font-size: 13px;
+                                    color: Tokens.text-muted;
+                                    overflow: elide;
+                                }
+                            }
+                            retour-zone := TouchArea {
+                                clicked => { root.backlink-chosen(l.key); }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

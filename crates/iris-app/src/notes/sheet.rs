@@ -876,6 +876,8 @@ fn action(f: &AppWindow, fe: &mut Feuille, quoi: &str) {
     let actif = fe.feuille().format(fe.cursor);
     let sel = fe.selection();
     match quoi {
+        // A phone's Σ key: a sum started in the cell, its range to be tapped.
+        "sum" => commencer(f, fe, "=SUM("),
         "undo" => annuler(f, fe, false),
         "redo" => annuler(f, fe, true),
         "bold" => appliquer_format(f, fe, |x| x.bold = !actif.bold),

@@ -243,16 +243,67 @@ fn montrer_espaces(f: &AppWindow, e: &Etat) {
     f.set_notes_space(e.space as i32);
 }
 
+/// What a row of the tree holds, as the window numbers it.
+fn genre_de(kind: EntryKind) -> i32 {
+    match kind {
+        EntryKind::Folder => 0,
+        EntryKind::Note => 1,
+        EntryKind::Sheet => 2,
+        EntryKind::Image => 3,
+        EntryKind::Other => 4,
+    }
+}
+
+/// When a file changed, as short as a row's right edge has room for: `12 min`, `2 h`,
+/// `Fri`, `7 Oct`.
+fn depuis(millis: i64) -> String {
+    use chrono::TimeZone;
+    let Some(t) = chrono::Local.timestamp_millis_opt(millis).single() else {
+        return String::new();
+    };
+    let maintenant = chrono::Local::now();
+    let ecart = maintenant.signed_duration_since(t);
+    if ecart.num_minutes() < 1 {
+        "now".to_string()
+    } else if ecart.num_minutes() < 60 {
+        format!("{} min", ecart.num_minutes())
+    } else if ecart.num_hours() < 24 {
+        format!("{} h", ecart.num_hours())
+    } else if ecart.num_days() < 6 {
+        t.format("%a").to_string()
+    } else {
+        t.format("%-d %b").to_string()
+    }
+}
+
+/// A count as a phone's page writes it: `1 240`, the thousands apart.
+fn milliers(n: usize) -> String {
+    let chiffres = n.to_string();
+    let mut sortie = String::new();
+    for (i, c) in chiffres.chars().enumerate() {
+        if i > 0 && (chiffres.len() - i) % 3 == 0 {
+            sortie.push('\u{a0}');
+        }
+        sortie.push(c);
+    }
+    sortie
+}
+
 fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
     let Some(espace) = e.espace() else {
         f.set_notes_tree(ModelRc::default());
+        f.set_notes_pinned(ModelRc::default());
+        f.set_notes_summary(SharedString::default());
         return;
     };
     let config = espace.config.clone();
+    // Every note once: the filter ranks them, a folder counts its own, the phone's
+    // title counts them all.
+    let toutes = espace.notes();
     let entrees: Vec<iris_vault::Entry> = if e.filter.trim().is_empty() {
         espace.tree(&e.expanded).unwrap_or_default()
     } else {
-        let notes = espace.notes();
+        let notes = &toutes;
         let noms: Vec<String> = notes.iter().map(|n| stem(n)).collect();
         let refs: Vec<&str> = noms.iter().map(String::as_str).collect();
         iris_notes::fuzzy::rank(&e.filter, &refs, 200)
@@ -267,20 +318,84 @@ fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
             })
             .collect()
     };
-    e.tree_keys = entrees.iter().map(|x| (x.rel.clone(), x.kind)).collect();
     let ouverte = e.note.as_ref().map(|n| n.rel.clone());
+    let choisi = |rel: &str| {
+        e.selected.as_deref() == Some(rel)
+            || (e.selected.is_none() && ouverte.as_deref() == Some(rel))
+    };
+    // A phone lists what is pinned above the tree, each with when it last changed.
+    let epingles: Vec<NoteTreeRowData> = config
+        .pinned
+        .iter()
+        .filter_map(|rel| {
+            let chemin = espace.path(rel).ok()?;
+            if !chemin.exists() {
+                return None;
+            }
+            let dossier = chemin.is_dir();
+            let kind = if dossier {
+                EntryKind::Folder
+            } else {
+                EntryKind::of(rel)
+            };
+            let fichier = rel.rsplit('/').next().unwrap_or(rel).to_string();
+            Some(NoteTreeRowData {
+                key: rel.as_str().into(),
+                name: match kind {
+                    EntryKind::Note | EntryKind::Sheet => stem(rel),
+                    _ => fichier,
+                }
+                .into(),
+                depth: 0,
+                kind: genre_de(kind),
+                expanded: false,
+                has_children: false,
+                selected: choisi(rel.as_str()),
+                color: config
+                    .folder_colors
+                    .get(rel)
+                    .map(|c| crate::calendar::couleur(c))
+                    .unwrap_or(slint::Color::from_argb_u8(0, 0, 0, 0)),
+                pinned: true,
+                meta: if dossier {
+                    SharedString::default()
+                } else {
+                    espace.modified(rel).map(depuis).unwrap_or_default().into()
+                },
+            })
+        })
+        .collect();
+    // The phone's title line: how many notes, and how many flashcards wait today.
+    let modeles = format!("{}/", config.templates);
+    let combien = toutes.iter().filter(|n| !n.starts_with(&modeles)).count();
+    let jour = aujourdhui();
+    let dues = espace.review().values().filter(|c| c.due <= jour).count();
+    let mut resume = format!(
+        "{} note{}",
+        milliers(combien),
+        if combien == 1 { "" } else { "s" }
+    );
+    if dues > 0 {
+        resume.push_str(&format!(
+            " · {dues} card{} due",
+            if dues == 1 { "" } else { "s" }
+        ));
+    }
     let lignes: Vec<NoteTreeRowData> = entrees
         .iter()
         .map(|x| NoteTreeRowData {
             key: x.rel.as_str().into(),
             name: x.name.as_str().into(),
             depth: x.depth as i32,
-            kind: match x.kind {
-                EntryKind::Folder => 0,
-                EntryKind::Note => 1,
-                EntryKind::Sheet => 2,
-                EntryKind::Image => 3,
-                EntryKind::Other => 4,
+            kind: genre_de(x.kind),
+            meta: if x.kind == EntryKind::Folder {
+                let dedans = format!("{}/", x.rel);
+                match toutes.iter().filter(|n| n.starts_with(&dedans)).count() {
+                    0 => SharedString::default(),
+                    n => n.to_string().into(),
+                }
+            } else {
+                SharedString::default()
             },
             expanded: e.expanded.contains(&x.rel),
             has_children: x.has_children,
@@ -294,7 +409,10 @@ fn montrer_arbre(f: &AppWindow, e: &mut Etat) {
             pinned: config.pinned.contains(&x.rel),
         })
         .collect();
+    e.tree_keys = entrees.iter().map(|x| (x.rel.clone(), x.kind)).collect();
     f.set_notes_tree(ModelRc::new(VecModel::from(lignes)));
+    f.set_notes_pinned(ModelRc::new(VecModel::from(epingles)));
+    f.set_notes_summary(resume.into());
 }
 
 /// The note laid out again and drawn — every block when `tout`, else those that
@@ -356,16 +474,70 @@ fn montrer_note(f: &AppWindow, e: &mut Etat) {
                 }
                 .into(),
             );
+            f.set_note_folder(dossier.replace('/', " › ").into());
             f.set_note_has_cards(!iris_notes::meta::flashcards(&n.text).is_empty());
+            montrer_entete(f, n);
         }
         None => {
             f.set_note_has_cards(false);
             f.set_note_open(false);
             f.set_note_title(SharedString::default());
             f.set_note_path(SharedString::default());
+            f.set_note_folder(SharedString::default());
+            f.set_note_meta(SharedString::default());
+            f.set_note_tags(ModelRc::default());
+            f.set_note_cards(0);
         }
     }
     rendre(f, e, true);
+}
+
+/// When a note was last written, as its heading says it: `Edited yesterday`.
+fn edite(millis: i64) -> String {
+    use chrono::TimeZone;
+    let Some(t) = chrono::Local.timestamp_millis_opt(millis).single() else {
+        return String::new();
+    };
+    let jour = t.date_naive();
+    let aujourd = aujourdhui();
+    let ecart = (aujourd - jour).num_days();
+    if ecart <= 0 {
+        "Edited today".to_string()
+    } else if ecart == 1 {
+        "Edited yesterday".to_string()
+    } else if ecart < 7 {
+        t.format("Edited %A").to_string()
+    } else if t.format("%Y").to_string() == aujourd.format("%Y").to_string() {
+        t.format("Edited %-d %b").to_string()
+    } else {
+        t.format("Edited %-d %b %Y").to_string()
+    }
+}
+
+/// Under a note's title on a phone: its tags, when it was last written, how long it
+/// is; and how many flashcards it holds, for its Revise button.
+fn montrer_entete(f: &AppWindow, note: &Ouverte) {
+    let mots = iris_notes::meta::word_count(&note.text);
+    let longueur = format!(
+        "{} word{}",
+        milliers(mots),
+        if mots == 1 { "" } else { "s" }
+    );
+    let quand = note.modified.map(edite).unwrap_or_default();
+    f.set_note_meta(
+        if quand.is_empty() {
+            longueur
+        } else {
+            format!("{quand} · {longueur}")
+        }
+        .into(),
+    );
+    let etiquettes: Vec<SharedString> = iris_notes::meta::tags(&note.text)
+        .into_iter()
+        .map(|t| format!("#{t}").into())
+        .collect();
+    f.set_note_tags(ModelRc::new(VecModel::from(etiquettes)));
+    f.set_note_cards(iris_notes::meta::flashcards(&note.text).len() as i32);
 }
 
 // --- Files ----------------------------------------------------------------------------
@@ -395,6 +567,7 @@ fn ecrire(f: &AppWindow, e: &mut Etat) {
             note.modified = Some(m);
             note.dirty = false;
             f.set_note_status("Saved".into());
+            montrer_entete(f, note);
         }
         Ok(WriteOutcome::Conflict { saved_as, modified }) => {
             note.modified = Some(modified);
@@ -554,6 +727,7 @@ fn ouvrir_tableur(f: &AppWindow, e: &mut Etat, rel: &str) {
         }
         .into(),
     );
+    f.set_note_folder(dossier.replace('/', " › ").into());
     if let Some(dir) = e.espace().map(|s| s.dir().display().to_string()) {
         crate::settings::update(|s| s.notes_last = format!("{dir}|{rel}"));
     }
@@ -581,13 +755,30 @@ fn retenir_onglet(f: &AppWindow, e: &mut Etat, rel: &str) {
 }
 
 fn montrer_onglets(f: &AppWindow, e: &Etat) {
+    // Where each is, for a phone's list of the notes open: pinned, or its folder.
+    let epingles: Vec<String> = e
+        .espace()
+        .map(|s| s.config.pinned.clone())
+        .unwrap_or_default();
+    let espace_nom = e
+        .espace()
+        .map(|s| s.config.name.clone())
+        .unwrap_or_default();
     let lignes: Vec<NoteFoundData> = e
         .onglets
         .iter()
         .map(|r| NoteFoundData {
             key: r.as_str().into(),
             title: stem(r).into(),
-            detail: SharedString::default(),
+            detail: if epingles.contains(r) {
+                "Pinned".to_string()
+            } else {
+                match parent_of(r) {
+                    d if d.is_empty() => espace_nom.clone(),
+                    d => d.replace('/', " › "),
+                }
+            }
+            .into(),
         })
         .collect();
     f.set_notes_tabs(ModelRc::new(VecModel::from(lignes)));
@@ -892,6 +1083,25 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             };
             retenir(e, true);
             appliquer(f, e, ed, true, None);
+            true
+        }
+        // A phone's formatting bar: the line made a heading or a list item, or a line
+        // of words again when it already is one.
+        "block:heading" | "block:bullet" => {
+            let voulue = if nom == "block:heading" { "# " } else { "- " };
+            let m = render::prefixe(&kind, &texte).min(texte.len());
+            let mots = &texte[m..];
+            let (t, debut) = if &texte[..m] == voulue {
+                (mots.to_string(), 0)
+            } else {
+                (format!("{voulue}{mots}"), voulue.len())
+            };
+            let c = if cursor <= m {
+                debut
+            } else {
+                cursor.min(texte.len()) - m + debut
+            };
+            remplacer(f, e, i, &t, c, c);
             true
         }
         "ctrl+enter" => {
@@ -2001,6 +2211,7 @@ fn reviser(f: &AppWindow, e: &mut Etat) {
     let Some(rel) = e.note.as_ref().map(|n| n.rel.clone()) else {
         return;
     };
+    f.set_notes_review_title(stem(&rel).into());
     reviser_notes(f, e, &[rel]);
 }
 
@@ -2015,6 +2226,13 @@ fn reviser_dossier(f: &AppWindow, e: &mut Etat, folder: &str) {
         .into_iter()
         .filter(|n| !n.starts_with(&modeles) && (folder.is_empty() || n.starts_with(&prefixe)))
         .collect();
+    // What a phone's page is titled: the folder revised, or the space.
+    let titre = if folder.is_empty() {
+        espace.config.name.clone()
+    } else {
+        folder.rsplit('/').next().unwrap_or(folder).to_string()
+    };
+    f.set_notes_review_title(titre.into());
     reviser_notes(f, e, &notes);
 }
 
@@ -2072,10 +2290,20 @@ fn reviser_notes(f: &AppWindow, e: &mut Etat, notes: &[String]) {
     f.set_notes_review_open(true);
 }
 
+/// How long a grade puts a card away, on its button: `5 d`, `3 mo`, `2 y`.
+fn delai(jours: u32) -> String {
+    match jours {
+        0..=29 => format!("{jours} d"),
+        30..=364 => format!("{} mo", (jours + 15) / 30),
+        _ => format!("{} y", (jours + 182) / 365),
+    }
+}
+
 fn montrer_revision(f: &AppWindow, e: &Etat) {
     let Some(r) = &e.revision else { return };
+    f.set_notes_review_total(r.total as i32);
     match r.cards.front() {
-        Some((_, q, a)) => {
+        Some((cle, q, a)) => {
             f.set_notes_review_finished(false);
             f.set_notes_review_question(q.as_str().into());
             f.set_notes_review_answer(a.as_str().into());
@@ -2083,8 +2311,37 @@ fn montrer_revision(f: &AppWindow, e: &Etat) {
             f.set_notes_review_progress(
                 format!("{} of {}", (r.done + 1).min(r.total), r.total).into(),
             );
+            f.set_notes_review_position((r.done + 1).min(r.total) as i32);
+            // The note the card comes from: its key is the note, then the question.
+            f.set_notes_review_source(
+                cle.split_once('|')
+                    .map(|(rel, _)| format!("From {}", stem(rel)))
+                    .unwrap_or_default()
+                    .into(),
+            );
+            // What each grade would do to it, written on its button. Again keeps it
+            // for the end of this round.
+            use iris_notes::review::{grade, CardState, Grade};
+            let jour = aujourdhui();
+            let avant = r
+                .states
+                .get(cle)
+                .cloned()
+                .unwrap_or_else(|| CardState::new(jour));
+            let delais: Vec<SharedString> = [Grade::Again, Grade::Hard, Grade::Good, Grade::Easy]
+                .into_iter()
+                .map(|g| {
+                    if g == Grade::Again {
+                        "Soon".into()
+                    } else {
+                        delai(grade(&avant, g, jour).interval).into()
+                    }
+                })
+                .collect();
+            f.set_notes_review_delays(ModelRc::new(VecModel::from(delais)));
         }
         None => {
+            f.set_notes_review_position(r.total as i32);
             f.set_notes_review_finished(true);
             f.set_notes_review_progress(
                 match r.again {
@@ -2352,6 +2609,7 @@ fn graphe(f: &AppWindow, e: &mut Etat) {
         .map(|(i, n)| (n.as_str(), i))
         .collect();
     let mut aretes: HashSet<(usize, usize)> = HashSet::new();
+    let mut citations: HashSet<(usize, usize)> = HashSet::new();
     for (i, rel) in notes.iter().enumerate() {
         let Ok((texte, _)) = espace.read(rel) else {
             continue;
@@ -2362,9 +2620,15 @@ fn graphe(f: &AppWindow, e: &mut Etat) {
             {
                 if i != j {
                     aretes.insert((i.min(j), i.max(j)));
+                    citations.insert((i, j));
                 }
             }
         }
+    }
+    // How many notes mention each, for the card a phone shows of a node tapped.
+    let mut cite_par = vec![0usize; notes.len()];
+    for &(_, j) in &citations {
+        cite_par[j] += 1;
     }
     let aretes: Vec<(usize, usize)> = aretes.into_iter().collect();
     let places = iris_notes::graph::layout(notes.len(), &aretes);
@@ -2394,6 +2658,18 @@ fn graphe(f: &AppWindow, e: &mut Etat) {
             y: places[i].1,
             size: (degre[i] as f32 / max).sqrt(),
             current: ouverte.as_deref() == Some(rel.as_str()),
+            detail: {
+                let liens = match degre[i] {
+                    0 => "No links".to_string(),
+                    1 => "1 link".to_string(),
+                    n => format!("{n} links"),
+                };
+                match cite_par[i] {
+                    0 => liens,
+                    n => format!("{liens} · mentioned by {n}"),
+                }
+            }
+            .into(),
         })
         .collect();
     f.set_notes_graph_nodes(ModelRc::new(VecModel::from(noeuds)));
