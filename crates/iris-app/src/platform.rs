@@ -550,6 +550,10 @@ pub trait Platform: Send + Sync {
     fn touch(&self) -> bool {
         false
     }
+    /// A folder Iris keeps can be shown in the system's file manager.
+    fn folders(&self) -> bool {
+        true
+    }
     /// What the system draws over the window, in logical pixels: (top, bottom).
     fn insets(&self) -> (f32, f32) {
         (0.0, 0.0)
@@ -579,9 +583,18 @@ pub trait Platform: Send + Sync {
     fn multicast(&self, on: bool) {
         let _ = on;
     }
+    /// A QR code can be read with the camera here.
+    fn can_scan(&self) -> bool {
+        false
+    }
     /// Scans a QR code with the camera; `None` when cancelled or impossible.
     fn scan_qr(&self, done: Box<dyn FnOnce(Option<String>) + Send>) {
         done(None)
+    }
+    /// The link Iris was opened with since the last call (a pairing code read by the
+    /// phone's own camera), once.
+    fn take_link(&self) -> Option<String> {
+        None
     }
     /// How a new version reaches this copy.
     fn update_channel(&self) -> UpdateChannel {

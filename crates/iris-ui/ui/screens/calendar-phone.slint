@@ -195,10 +195,58 @@ export component PhoneCalendarBar inherits HorizontalLayout {
     }
 }
 
+/// What shows one period (a month, a week) on a phone: it follows the finger while
+/// swiped, and when the period changes (swiped, Today, a day picked elsewhere) the new
+/// one comes in from the side it lies on, later from the right, earlier from the left.
+component PeriodSlide inherits Rectangle {
+    /// Grows with time: the month's or the week's number.
+    in property <int> period;
+    /// How far the finger has pulled it.
+    in property <length> drag;
+    property <int> vu;
+    property <length> decale;
+    property <float> voile: 1;
+    property <bool> anime;
+    // What slides beside stays inside.
+    clip: true;
+    init => { root.vu = root.period; }
+    changed period => {
+        // Put at the side at once, then brought in on the next frame.
+        root.anime = false;
+        root.decale = (root.period > root.vu ? 1 : -1) * min(120px, root.width / 3);
+        root.voile = 0;
+        root.vu = root.period;
+        entree.running = true;
+    }
+    entree := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.anime = true;
+            root.decale = 0px;
+            root.voile = 1;
+        }
+    }
+
+    Rectangle {
+        x: root.drag * 0.6;
+        Rectangle {
+            x: root.decale;
+            opacity: root.voile;
+            animate x { duration: root.anime ? 280ms : 0ms; easing: ease-out; }
+            animate opacity { duration: root.anime ? 220ms : 0ms; }
+            @children
+        }
+    }
+}
+
 // The week of the day chosen, the mini-calendar of a phone: the chosen day in a red
 // disc, today in red, a dot under a day that has something. Swiped, the next week.
 export component WeekStrip inherits Rectangle {
     in property <[StripDayData]> days;
+    /// The week shown, as a number that grows: a new one slides in.
+    in property <int> week-number;
     callback chosen(string);
     /// Swiped: a week later (1) or earlier (-1).
     callback swiped(int);
@@ -227,6 +275,9 @@ export component WeekStrip inherits Rectangle {
             root.glisse = 0px;
         }
 
+        PeriodSlide {
+            period: root.week-number;
+            drag: root.glisse;
         HorizontalLayout {
             padding-left: 10px;
             padding-right: 10px;
@@ -280,6 +331,7 @@ export component WeekStrip inherits Rectangle {
                     clicked => { root.chosen(d.date); }
                 }
             }
+        }
         }
     }
 }
@@ -629,6 +681,8 @@ export component PhoneMonth inherits VerticalLayout {
     in property <string> heading;
     in property <bool> heading-today;
     in property <[AgendaRowData]> rows;
+    /// The month shown, as a number that grows: a new one slides in.
+    in property <int> month-number;
     callback day-chosen(string);
     callback navigate(int);
     callback event-opened(string);
@@ -657,6 +711,9 @@ export component PhoneMonth inherits VerticalLayout {
             root.glisse = 0px;
         }
 
+        PeriodSlide {
+            period: root.month-number;
+            drag: root.glisse;
         VerticalLayout {
             padding-left: 6px;
             padding-right: 6px;
@@ -749,6 +806,7 @@ export component PhoneMonth inherits VerticalLayout {
                 }
             }
         }
+        }
     }
 
     Rectangle {
@@ -820,7 +878,7 @@ component SheetCalendarRow inherits Rectangle {
         padding-bottom: 8px;
         spacing: 14px;
         Rectangle {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             width: 22px;
             height: 22px;
             border-radius: 6px;
@@ -859,7 +917,7 @@ component SheetCalendarRow inherits Rectangle {
             max-width: 140px;
         }
         IconButton {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             icon: Icons.more;
             label: "More for " + root.cal.name;
             button-size: 40px;
@@ -919,7 +977,7 @@ export component CalendarsSheet inherits Rectangle {
                         horizontal-stretch: 1;
                     }
                     IconButton {
-                        y: (parent.height - self.height) / 2;
+                        cross-axis-self-alignment: center;
                         icon: Icons.plus;
                         label: "New calendar";
                         button-size: 44px;

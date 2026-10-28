@@ -261,6 +261,21 @@ impl Store {
         })
     }
 
+    /// The keys of the shared settings this base holds, set here or merged.
+    pub fn shared_setting_keys(&self) -> Result<Vec<String>> {
+        self.with_conn(|c| {
+            let mut q = c
+                .prepare("SELECT key FROM sync_settings")
+                .map_err(|e| sql_err("the shared settings", e))?;
+            let lignes = q
+                .query_map([], |l| l.get::<_, String>(0))
+                .map_err(|e| sql_err("the shared settings", e))?;
+            lignes
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| sql_err("the shared settings", e))
+        })
+    }
+
     /// Merges what another device sent, in one transaction: all of it or nothing.
     /// `peer_last_clock` is how far this device had merged that one before: a row
     /// changed here after it, and there too, is a conflict.

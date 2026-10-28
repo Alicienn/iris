@@ -1336,6 +1336,8 @@ export component ThreadListView inherits VerticalLayout {
     // onglets : « Trash » avec les trois files allumées au-dessus décrirait un écran
     // qui n'existe pas.
     in property <string> folder-name;
+    /// The folder's name touched: the mailboxes, to go elsewhere.
+    callback folder-clicked();
     /// The inbox emptied, and the days in a row (0: it is not): a reward, not a
     /// sentence.
     in property <int> inbox-zero-streak;
@@ -1501,11 +1503,15 @@ export component ThreadListView inherits VerticalLayout {
         padding-bottom: 10px;
         spacing: 2px;
 
-        // The folder in the queue's place, on the same plate a chosen queue has.
+        // The folder in the queue's place, on the same plate a chosen queue has. A
+        // touch on it opens the mailboxes, as the title above does.
         Rectangle {
             width: dossier.preferred-width + 20px;
             border-radius: Tokens.radius-medium;
-            background: Tokens.surface-active;
+            background: dossier-touch.pressed ? Tokens.surface-hover : Tokens.surface-active;
+            accessible-role: button;
+            accessible-label: "Mailboxes: " + root.folder-name;
+            accessible-action-default => { root.folder-clicked(); }
             dossier := Text {
                 x: 10px;
                 height: parent.height;
@@ -1514,6 +1520,10 @@ export component ThreadListView inherits VerticalLayout {
                 font-weight: Tokens.weight-bold;
                 color: Tokens.text;
                 vertical-alignment: center;
+            }
+            dossier-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.folder-clicked(); }
             }
         }
 

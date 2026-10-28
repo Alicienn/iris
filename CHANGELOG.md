@@ -3,6 +3,35 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.1.0 — 2026-10-28
+
+### New
+- On a phone, Set up from another device opens the camera to scan the computer's code.
+- A pairing code scanned with the phone's own camera opens Iris and pairs at once.
+- Syncing with another device shows a page that ticks off accounts, tasks, calendars, settings and notes as they arrive.
+
+### Improved
+- The welcome page shows the Iris icon.
+- Back from adding an account or pairing returns to the welcome page.
+- Back closes New event, the calendars' sheet and the pages of Settings, wherever the keyboard is.
+- Closing a page opened from the calendars' sheet brings the sheet back.
+- Sheets slide down when they close.
+- On a phone, the month and the week slide in from the side they come from.
+- Touching the folder's name in the mail list opens the mailboxes.
+- The Home tab leaves Settings and goes back Home.
+- Settings has a gear icon, and each page of Settings has icons beside its rows.
+- A paired device on the same Wi-Fi says so in green.
+- Iris follows the phone's light or dark theme as soon as it changes.
+- A sheet asking for a name rises above the keyboard.
+- New spaces in Notes start empty, without their files' and templates' folders.
+
+### Fixed
+- Accounts, tasks, goals, notes and your first name from another device show at once, without a restart.
+- Your first name now reaches your other devices.
+- Icons, chevrons and colour dots in rows are centred again.
+- Move to… on a note no longer closes Iris.
+- Folder entries that do nothing on a phone are gone from the Notes menus.
+
 ## 7.0.0 — 2026-10-28
 
 ### New

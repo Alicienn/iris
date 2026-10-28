@@ -80,7 +80,7 @@ export component GroupTitle inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
     @children
     if root.add-label != "": IconButton {
-        y: (parent.height - self.height) / 2;
+        cross-axis-self-alignment: center;
         icon: Icons.plus;
         label: root.add-label;
         button-size: 30px;
@@ -112,7 +112,7 @@ export component GroupRow inherits Rectangle {
     in property <string> label;
     callback clicked();
 
-    height: max(52px, rang.preferred-height);
+    height: max(52px, rang.preferred-height + 16px);
     background: touch.pressed && root.enabled ? Tokens.surface-active : transparent;
     accessible-role: button;
     accessible-enabled: root.enabled;
@@ -131,11 +131,13 @@ export component GroupRow inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
+    // Inset by placing it, not by padding: a layout's top padding is written over the
+    // `y` of each element in it, and what centres itself there rose to the top.
     rang := HorizontalLayout {
+        y: 8px;
+        height: parent.height - 16px;
         padding-left: 16px;
         padding-right: 16px;
-        padding-top: 8px;
-        padding-bottom: 8px;
         spacing: 14px;
         @children
     }

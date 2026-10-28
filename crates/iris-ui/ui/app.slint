@@ -10,7 +10,7 @@ import {
     TaskTokenData, TaskOverviewData, GoalData, GoalLogData, PlanTaskData, ScheduledMailData,
     AliasData, FolderMailboxData, NoteSpaceData, NoteTreeRowData, NoteBlockData,
     NoteFoundData, NoteGraphNodeData, NoteViewBlock, NoteRectData,
-    HabitData, HabitCellData, HabitDetailData, EverywhereHitData } from "@iris/types.slint";
+    HabitData, HabitCellData, HabitDetailData, EverywhereHitData, SyncStepData } from "@iris/types.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Label, Dot, Kbd, Hairline, VHairline, Avatar } from "@iris/base/atoms.slint";
 import { Button, ButtonKind, ButtonSize, Link, Fab } from "@iris/controls/button.slint";
@@ -34,7 +34,7 @@ import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, Empty
 import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountPageData } from "@iris/types.slint";
-import { PairPanel } from "@iris/screens/devices.slint";
+import { PairPanel, SyncPage } from "@iris/screens/devices.slint";
 import { WelcomePage } from "@iris/screens/welcome.slint";
 import { AccountSetupPanel, AccountFoundPage } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
@@ -1592,10 +1592,278 @@ export component AppWindow inherits Window {
         return false;
     }
 
+    /// Closes the window, panel or menu on top, one per call: what Escape and
+    /// Android's Back do. True when something closed. Called directly rather than by
+    /// a key, so that it works wherever the keyboard is (a field of the event, a
+    /// page of Settings): a key goes to the focused element and never reached the
+    /// shortcuts from there.
+    public function close-top() -> bool {
+        if (root.shortcuts-help-open) {
+            root.shortcuts-help-open = false;
+            return true;
+        }
+        // The sync's page goes; the sync itself carries on.
+        if (root.sync-page-open) {
+            root.sync-page-open = false;
+            if (root.sync-state == 2) {
+                root.first-run = false;
+            }
+            return true;
+        }
+        // The pairing panel sits over the settings: it closes first.
+        if (root.pair-open) {
+            root.pair-open = false;
+            root.pair-closed();
+            return true;
+        }
+        if (root.mailboxes-open) {
+            root.mailboxes-open = false;
+            return true;
+        }
+        if (root.tasks-column-open) {
+            root.tasks-column-open = false;
+            return true;
+        }
+        // A conversation open as a page on a phone: Escape is Back.
+        if (root.fil-en-page && !root.modal-open) {
+            root.page = "";
+            root.navigated("page", "");
+            return true;
+        }
+        // Escape does not throw away a draft: leaving the window open is
+        // recoverable, losing what someone wrote is not.
+        if (root.problem-open) {
+            root.problem-open = false;
+            return true;
+        }
+        if (root.context-menu-open) {
+            root.context-menu-open = false;
+            return true;
+        }
+        if (root.reader-menu != "") {
+            root.reader-menu = "";
+            return true;
+        }
+        if (root.task-later-open) {
+            root.task-later-open = false;
+            return true;
+        }
+        if (root.task-slot-open) {
+            root.task-slot-open = false;
+            return true;
+        }
+        if (root.tasks-menu != "") {
+            root.tasks-menu = "";
+            return true;
+        }
+        // Escape asks, like the close button, when something is written; an open
+        // question is answered "no" by Escape.
+        if (root.compose-open && root.compose-confirm-close) {
+            root.compose-confirm-close = false;
+            return true;
+        }
+        if (root.compose-open) {
+            if (root.compose-has-content) {
+                root.compose-minimised = false;
+                root.compose-confirm-close = true;
+            } else {
+                root.compose-dismissed();
+                root.compose-open = false;
+            }
+            return true;
+        }
+        // The small month first: Escape folds it and leaves the event open.
+        if (root.event-editor-open && root.editor-picker >= 0) {
+            root.editor-picker = -1;
+            return true;
+        }
+        if (root.event-editor-open) {
+            root.event-editor-open = false;
+            return true;
+        }
+        if (root.task-list-menu-open) {
+            root.task-list-menu-open = false;
+            return true;
+        }
+        if (root.task-list-name-open) {
+            root.task-list-name-open = false;
+            return true;
+        }
+        if (root.task-list-delete-open) {
+            root.task-list-delete-open = false;
+            return true;
+        }
+        if (root.link-menu-open) {
+            root.link-menu-open = false;
+            return true;
+        }
+        if (root.empty-folder-open) {
+            root.empty-folder-open = false;
+            return true;
+        }
+        if (root.calendar-menu-open) {
+            root.calendar-menu-open = false;
+            return true;
+        }
+        if (root.calendar-sheet-open) {
+            root.calendar-sheet-open = false;
+            return true;
+        }
+        if (root.event-menu-open) {
+            root.event-menu-open = false;
+            return true;
+        }
+        if (root.scheduled-open) {
+            root.scheduled-open = false;
+            return true;
+        }
+        if (root.sort-menu-open) {
+            root.sort-menu-open = false;
+            return true;
+        }
+        if (root.calendar-rename-open) {
+            root.calendar-rename-open = false;
+            return true;
+        }
+        if (root.calendar-delete-open) {
+            root.calendar-delete-open = false;
+            return true;
+        }
+        if (root.event-detail-open) {
+            root.event-detail-open = false;
+            return true;
+        }
+        if (root.subscribe-open && !root.subscribe-busy) {
+            root.subscribe-open = false;
+            return true;
+        }
+        if (SheetGrid.menu != "") {
+            SheetGrid.menu = "";
+            return true;
+        }
+        if (root.notes-sheet != "") {
+            root.notes-sheet = "";
+            return true;
+        }
+        if (root.notes-history-open) {
+            root.notes-history-open = false;
+            return true;
+        }
+        if (root.notes-graph-open) {
+            root.notes-graph-open = false;
+            return true;
+        }
+        if (root.notes-review-open) {
+            root.notes-review-open = false;
+            return true;
+        }
+        if (root.notes-quick-open) {
+            root.notes-quick-open = false;
+            return true;
+        }
+        if (root.notes-name-asked != "") {
+            root.notes-name-asked = "";
+            return true;
+        }
+        if (root.notes-area-menu-open) {
+            root.notes-area-menu-open = false;
+            return true;
+        }
+        if (root.notes-row-menu-open) {
+            root.notes-row-menu-open = false;
+            return true;
+        }
+        if (root.notes-space-menu-open) {
+            root.notes-space-menu-open = false;
+            return true;
+        }
+        if (root.connect-open && !root.connect-busy) {
+            root.connect-open = false;
+            root.connect-password = "";
+            return true;
+        }
+        if (root.tags-open) {
+            root.tags-open = false;
+            return true;
+        }
+        if (root.account-menu-open) {
+            root.account-menu-dismissed();
+            return true;
+        }
+        if (root.changelog-open) {
+            root.changelog-open = false;
+            return true;
+        }
+        // Not while installing: the choice is made, and the panel is the only thing
+        // saying what is happening.
+        if (root.update-open && !root.update-busy) {
+            root.update-open = false;
+            return true;
+        }
+        if (root.source-open) {
+            root.source-open = false;
+            return true;
+        }
+        if (root.modules-open) {
+            root.modules-open = false;
+            return true;
+        }
+        if (root.add-account-open) {
+            // Found and added: the same as Continue.
+            if (root.add-account-found) {
+                root.add-account-found = false;
+                root.first-run = false;
+            }
+            root.add-account-open = false;
+            root.add-account-dismissed();
+            return true;
+        }
+        // On a phone, an account's page goes back to the accounts, a group of
+        // settings open as a page to the list.
+        if (root.settings-open && root.settings-account >= 0) {
+            root.settings-account = -1;
+            return true;
+        }
+        if (root.settings-open && root.settings-group != "") {
+            root.settings-group = "";
+            return true;
+        }
+        if (root.settings-open) {
+            root.settings-open = false;
+            return true;
+        }
+        if (root.palette-open) {
+            root.palette-open = false;
+            return true;
+        }
+        if (root.everywhere-open) {
+            root.everywhere-open = false;
+            return true;
+        }
+        return false;
+    }
+
+    /// The calendars' sheet opened what is over it now (a calendar's menu, a new
+    /// calendar, a subscription): closing that brings the sheet back, as Back does
+    /// on a phone.
+    property <bool> calendar-sheet-under;
+    property <bool> calendar-sheet-child: root.calendar-menu-open || root.calendar-rename-open
+        || root.calendar-delete-open || root.subscribe-open || root.connect-open;
+    changed calendar-sheet-child => {
+        if (!self.calendar-sheet-child && root.calendar-sheet-under) {
+            root.calendar-sheet-under = false;
+            root.calendar-sheet-open = true;
+        }
+    }
+
     /// The place chosen again from the tabs: back to its first screen. The mail's
     /// list, out of the conversation and the mailboxes; the calendar on today; the
     /// tasks without a task open.
     function place-root() {
+        // Settings, opened from Home's gear, is over the place: its tab brings the
+        // place back.
+        root.settings-open = false;
+        root.everywhere-open = false;
         if (root.searching) {
             root.search-query = "";
             root.search-cleared();
@@ -1663,6 +1931,19 @@ export component AppWindow inherits Window {
     callback system-back();
     /// A code pasted from another device: join it.
     callback pair-join(string);
+    /// The camera, to read another device's code; what it reads is joined.
+    callback pair-scan();
+    /// The page of a sync with another device: who, where it is (0 connecting, 1
+    /// syncing, 2 done, 3 failed), and what arrived, kind by kind.
+    in-out property <bool> sync-page-open;
+    in property <string> sync-peer;
+    in property <int> sync-state;
+    in property <[SyncStepData]> sync-steps;
+    /// What changed on both sides, said once: "1 task changed on both…".
+    in property <string> sync-note;
+    in property <string> sync-error;
+    /// What another device sent is in the base: the places show it.
+    callback devices-merged();
     in-out property <string> join-code;
     in-out property <int> text-size: 100;
     callback automation-changed();
@@ -1751,7 +2032,7 @@ export component AppWindow inherits Window {
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
         || root.rename-folder-open || root.new-folder-open || root.palette-open
         || root.empty-folder-open || root.mailboxes-open || root.tasks-column-open
-        || root.pair-open || root.first-run || root.everywhere-open
+        || root.pair-open || root.first-run || root.everywhere-open || root.sync-page-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -1852,239 +2133,22 @@ export component AppWindow inherits Window {
                 root.shortcuts-help-open = true;
                 return accept;
             }
-            if (event.text == Key.Escape && root.shortcuts-help-open) {
-                root.shortcuts-help-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.first-run) {
-                root.first-run = false;
-                return accept;
-            }
-            // The pairing panel sits over the settings: it closes first.
-            if (event.text == Key.Escape && root.pair-open) {
-                root.pair-open = false;
-                root.pair-closed();
-                return accept;
-            }
-            if (event.text == Key.Escape && root.mailboxes-open) {
-                root.mailboxes-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.tasks-column-open) {
-                root.tasks-column-open = false;
-                return accept;
-            }
-            // A conversation open as a page on a phone: Escape is Back.
-            if (event.text == Key.Escape && root.fil-en-page && !root.modal-open) {
-                root.page = "";
-                root.navigated("page", "");
-                return accept;
-            }
             // "c" writes a new message, the convention every mail client shares.
             if (event.text == "c" && !root.modal-open) {
                 root.compose-minimised = false;
                 root.compose-open = true;
                 return accept;
             }
-            // Escape does not throw away a draft: leaving the window open is
-            // recoverable, losing what someone wrote is not.
-            if (event.text == Key.Escape && root.problem-open) {
-                root.problem-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.context-menu-open) {
-                root.context-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.reader-menu != "") {
-                root.reader-menu = "";
-                return accept;
-            }
-            if (event.text == Key.Escape && root.task-later-open) {
-                root.task-later-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.task-slot-open) {
-                root.task-slot-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.tasks-menu != "") {
-                root.tasks-menu = "";
-                return accept;
-            }
-            // Escape asks, like the close button, when something is written; an
-            // open question is answered "no" by Escape.
-            if (event.text == Key.Escape && root.compose-open && root.compose-confirm-close) {
-                root.compose-confirm-close = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.compose-open) {
-                if (root.compose-has-content) {
-                    root.compose-minimised = false;
-                    root.compose-confirm-close = true;
-                } else {
-                    root.compose-dismissed();
-                    root.compose-open = false;
+            // Escape closes what is open, the one on top first; with nothing over it,
+            // the welcome page.
+            if (event.text == Key.Escape) {
+                if (root.close-top()) {
+                    return accept;
                 }
-                return accept;
-            }
-            // The small month first: Escape folds it and leaves the event open.
-            if (event.text == Key.Escape && root.event-editor-open && root.editor-picker >= 0) {
-                root.editor-picker = -1;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.event-editor-open) {
-                root.event-editor-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.task-list-menu-open) {
-                root.task-list-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.task-list-name-open) {
-                root.task-list-name-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.task-list-delete-open) {
-                root.task-list-delete-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.link-menu-open) {
-                root.link-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.empty-folder-open) {
-                root.empty-folder-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.calendar-menu-open) {
-                root.calendar-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.calendar-sheet-open) {
-                root.calendar-sheet-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.event-menu-open) {
-                root.event-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.scheduled-open) {
-                root.scheduled-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.sort-menu-open) {
-                root.sort-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.calendar-rename-open) {
-                root.calendar-rename-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.calendar-delete-open) {
-                root.calendar-delete-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.event-detail-open) {
-                root.event-detail-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.subscribe-open && !root.subscribe-busy) {
-                root.subscribe-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && SheetGrid.menu != "") {
-                SheetGrid.menu = "";
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-sheet != "") {
-                root.notes-sheet = "";
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-history-open) {
-                root.notes-history-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-graph-open) {
-                root.notes-graph-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-review-open) {
-                root.notes-review-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-quick-open) {
-                root.notes-quick-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-name-asked != "") {
-                root.notes-name-asked = "";
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-area-menu-open) {
-                root.notes-area-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-row-menu-open) {
-                root.notes-row-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.notes-space-menu-open) {
-                root.notes-space-menu-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.connect-open && !root.connect-busy) {
-                root.connect-open = false;
-                root.connect-password = "";
-                return accept;
-            }
-            if (event.text == Key.Escape && root.tags-open) {
-                root.tags-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.account-menu-open) {
-                root.account-menu-dismissed();
-                return accept;
-            }
-            if (event.text == Key.Escape && root.changelog-open) {
-                root.changelog-open = false;
-                return accept;
-            }
-            // Not while installing: the choice is made, and the panel is the only
-            // thing saying what is happening.
-            if (event.text == Key.Escape && root.update-open && !root.update-busy) {
-                root.update-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.source-open) {
-                root.source-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.modules-open) {
-                root.modules-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.add-account-open) {
-                root.add-account-open = false;
-                return accept;
-            }
-            // On a phone, an account's page goes back to the accounts, a group of
-            // settings open as a page to the list.
-            if (event.text == Key.Escape && root.settings-open && root.settings-account >= 0) {
-                root.settings-account = -1;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.settings-open && root.settings-group != "") {
-                root.settings-group = "";
-                return accept;
-            }
-            if (event.text == Key.Escape && root.settings-open) {
-                root.settings-open = false;
-                return accept;
-            }
-            if (event.text == Key.Escape && root.palette-open) {
-                root.palette-open = false;
-                return accept;
+                if (root.first-run) {
+                    root.first-run = false;
+                    return accept;
+                }
             }
             // Nothing below this line reaches past an open window: Escape, handled
             // above, is the only key that concerns it.
@@ -2344,6 +2408,8 @@ export component AppWindow inherits Window {
     // is this, and Slint warned of a loop that may panic at runtime.
     property <length> clavier: self.virtual-keyboard-size.height > 0
         ? max(0px, Layout.window-height - self.virtual-keyboard-position.y) : 0px;
+    // Shared, so that a sheet asking for a name rises above the keyboard.
+    changed clavier => { Layout.keyboard = self.clavier; }
     /// What the rail of places takes at the left, at medium width.
     property <length> rail: Layout.medium ? 80px : 0px;
     /// The accounts column folded to a strip: 0 open, 1 folded, animated between.
@@ -2650,6 +2716,12 @@ export component AppWindow inherits Window {
                             count-labels: root.count-labels;
                             count-fulls: root.count-fulls;
                             folder-name: root.folder-name;
+                            // Wide, the mailboxes are already beside the list.
+                            folder-clicked => {
+                                if (Layout.width-class != WidthClass.expanded) {
+                                    root.mailboxes-open = true;
+                                }
+                            }
                             inbox-zero-streak: root.inbox-zero-streak;
                             folder-left => { root.folder-cleared(); }
                             marked-count: root.marked-count;
@@ -3671,6 +3743,7 @@ export component AppWindow inherits Window {
             toggled(id) => { root.calendar-toggled(id); }
             menu(c, x, y) => {
                 root.calendar-sheet-open = false;
+                root.calendar-sheet-under = true;
                 root.calendar-menu-cal = c;
                 root.calendar-menu-x = x;
                 root.calendar-menu-y = y;
@@ -3678,18 +3751,21 @@ export component AppWindow inherits Window {
             }
             new-calendar => {
                 root.calendar-sheet-open = false;
+                root.calendar-sheet-under = true;
                 root.calendar-rename-new = true;
                 root.calendar-rename-name = "";
                 root.calendar-rename-open = true;
             }
             subscribe => {
                 root.calendar-sheet-open = false;
+                root.calendar-sheet-under = true;
                 root.subscribe-url = "";
                 root.subscribe-name = "";
                 root.subscribe-open = true;
             }
             connect => {
                 root.calendar-sheet-open = false;
+                root.calendar-sheet-under = true;
                 root.connect-server = "";
                 root.connect-user = "";
                 root.connect-password = "";
@@ -4700,22 +4776,30 @@ export component AppWindow inherits Window {
             }
             sync-device(id) => { root.sync-device(id); }
             join-device(code) => { root.pair-join(code); }
+            scan-requested => { root.pair-scan(); }
             device-answered(yes) => { root.device-answered(yes); }
             dismissed => { root.settings-open = false; }
         }
 
-        // A copy of Iris with no mailbox yet starts here (set by the app at launch).
-        if root.first-run: WelcomePage {
+        // A copy of Iris with no mailbox yet starts here (set by the app at launch). It
+        // stays under what it opens (adding an account, pairing), so that Back comes
+        // back to it; set up, the app leaves it.
+        if root.first-run && !root.add-account-open && !root.settings-open && !root.pair-open
+            && !root.sync-page-open: WelcomePage {
             width: 100%;
             height: 100%;
             add-account => {
-                root.first-run = false;
                 root.add-account-open = true;
             }
+            // Straight to the camera where there is one (the mockups' Y7); otherwise
+            // the devices' page, where a copied code is pasted.
             from-device => {
-                root.first-run = false;
-                root.settings-open = true;
-                root.settings-group = "Devices";
+                if (Layout.camera) {
+                    root.pair-scan();
+                } else {
+                    root.settings-open = true;
+                    root.settings-group = "Devices";
+                }
             }
             restore => {
                 root.first-run = false;
@@ -4725,6 +4809,26 @@ export component AppWindow inherits Window {
                 root.first-run = false;
                 shortcuts.focus();
             }
+        }
+
+        // A sync with another device, step by step: what it brought, kind by kind.
+        if root.sync-page-open: SyncPage {
+            width: 100%;
+            height: 100%;
+            peer: root.sync-peer;
+            state: root.sync-state;
+            steps: root.sync-steps;
+            note: root.sync-note;
+            error: root.sync-error;
+            finished => {
+                root.sync-page-open = false;
+                if (root.sync-state == 2) {
+                    root.first-run = false;
+                    root.settings-open = false;
+                }
+                shortcuts.focus();
+            }
+            retry => { root.pair-scan(); }
         }
 
         if root.pair-open: PairPanel {

@@ -786,7 +786,7 @@ component InviteBanner inherits Rectangle {
         spacing: 12px;
 
         Rectangle {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             width: 34px;
             height: 34px;
             border-radius: Tokens.radius-medium;
@@ -840,7 +840,7 @@ component InviteBanner inherits Rectangle {
             }
         }
         if root.state == 1 && !root.repondre: Button {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Add to calendar";
             icon: Icons.plus;
             kind: ButtonKind.primary;
@@ -848,20 +848,20 @@ component InviteBanner inherits Rectangle {
             clicked => { root.accept(); }
         }
         if root.state == 3 && root.reply == "": Button {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Update";
             kind: ButtonKind.primary;
             size: ButtonSize.sm;
             clicked => { root.accept(); }
         }
         if root.state == 4: Button {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Remove from calendar";
             size: ButtonSize.sm;
             clicked => { root.accept(); }
         }
         if root.state == 2 || root.state == 3: Button {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Open";
             size: ButtonSize.sm;
             clicked => { root.open(); }

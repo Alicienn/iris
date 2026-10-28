@@ -66,13 +66,13 @@ component RuleRow inherits Rectangle {
         }
 
         Button {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Try it";
             size: ButtonSize.sm;
             clicked => { root.simulate(); }
         }
         Button {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Delete";
             kind: ButtonKind.ghost;
             size: ButtonSize.sm;

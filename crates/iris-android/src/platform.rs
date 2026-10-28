@@ -40,9 +40,15 @@ impl Platform for Android {
     }
 
     fn system_dark(&self) -> bool {
-        // Configuration.UI_MODE_NIGHT_YES. Read by its name: the type lives in the `ndk`
-        // crate, which android-activity does not hand on.
-        format!("{:?}", self.app.config().ui_mode_night()) == "Yes"
+        // The activity's own configuration, asked each time: the copy android-activity
+        // keeps was read from the assets once and stayed light when the phone turned
+        // dark with Iris open.
+        match mode_nuit() {
+            Ok(nuit) => nuit,
+            // Configuration.UI_MODE_NIGHT_YES. Read by its name: the type lives in the
+            // `ndk` crate, which android-activity does not hand on.
+            Err(_) => format!("{:?}", self.app.config().ui_mode_night()) == "Yes",
+        }
     }
 
     fn number_style(&self) -> (char, char, bool) {
@@ -51,6 +57,11 @@ impl Platform for Android {
 
     fn touch(&self) -> bool {
         true
+    }
+
+    /// Iris's folders are inside its own storage, out of the Files app's reach.
+    fn folders(&self) -> bool {
+        false
     }
 
     /// The status bar above the content, the gesture bar below it, in logical pixels.
@@ -107,6 +118,45 @@ impl Platform for Android {
 
     fn clipboard_get(&self) -> Option<String> {
         presse_papiers(None).ok().flatten()
+    }
+
+    /// Google's code scanner, through `IrisActivity` (Play services' camera).
+    fn can_scan(&self) -> bool {
+        true
+    }
+
+    /// Opens the scanner, then waits for its answer off the window's thread: the
+    /// activity keeps it until asked.
+    fn scan_qr(&self, done: Box<dyn FnOnce(Option<String>) + Send>) {
+        let ouvert = avec_activite(|env, activite| {
+            env.call_method(activite, jni_str!("scanQr"), jni_sig!("()V"), &[])?;
+            Ok(())
+        });
+        if let Err(e) = ouvert {
+            tracing::warn!(error = %e, "opening the code scanner");
+            return done(None);
+        }
+        std::thread::spawn(move || {
+            // Ten minutes at most: someone who walked away has not scanned anything.
+            for _ in 0..3000 {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                match chaine_de_l_activite("takeScan") {
+                    Ok(Some(texte)) => {
+                        return done((!texte.is_empty()).then_some(texte));
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, "reading the code scanner");
+                        return done(None);
+                    }
+                }
+            }
+            done(None)
+        });
+    }
+
+    fn take_link(&self) -> Option<String> {
+        chaine_de_l_activite("takeLink").ok().flatten()
     }
 
     /// A Wi-Fi drops multicast to save the battery unless an app holds a lock: without
@@ -175,6 +225,48 @@ fn avec_activite<T>(
         f(env, &activite)
     })
     .map_err(|e: jni::errors::Error| e.to_string())
+}
+
+/// A method of `IrisActivity` that takes nothing and gives a string or null.
+fn chaine_de_l_activite(methode: &str) -> std::result::Result<Option<String>, String> {
+    avec_activite(|env, activite| {
+        let nom = jni::strings::JNIString::from(methode);
+        let valeur = env
+            .call_method(activite, &nom, jni_sig!("()Ljava/lang/String;"), &[])?
+            .l()?;
+        if valeur.is_null() {
+            return Ok(None);
+        }
+        let chaine = env.cast_local::<JString>(valeur)?;
+        Ok(Some(chaine.try_to_string(env)?))
+    })
+}
+
+/// `getResources().getConfiguration().uiMode` is night (`UI_MODE_NIGHT_YES`).
+fn mode_nuit() -> std::result::Result<bool, String> {
+    avec_activite(|env, activite| {
+        let ressources = env
+            .call_method(
+                activite,
+                jni_str!("getResources"),
+                jni_sig!("()Landroid/content/res/Resources;"),
+                &[],
+            )?
+            .l()?;
+        let config = env
+            .call_method(
+                &ressources,
+                jni_str!("getConfiguration"),
+                jni_sig!("()Landroid/content/res/Configuration;"),
+                &[],
+            )?
+            .l()?;
+        let mode = env
+            .get_field(&config, jni_str!("uiMode"), jni_sig!(jint))?
+            .i()?;
+        // UI_MODE_NIGHT_MASK, UI_MODE_NIGHT_YES.
+        Ok(mode & 0x30 == 0x20)
+    })
 }
 
 /// Hands a web link to the system, as a tap on it in any app would (`ACTION_VIEW`).

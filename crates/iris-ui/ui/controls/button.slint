@@ -135,7 +135,9 @@ export component BlockButton inherits Rectangle {
             ? (touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent)
             : root.kind == ButtonKind.secondary
             ? (touch.pressed ? Tokens.surface-active : Tokens.surface)
-            : (touch.pressed ? Tokens.surface-hover : transparent);
+            // Pressed, the words' button gets a plate too: a touch is seen at once.
+            : (touch.pressed ? Tokens.surface-active : transparent);
+        animate background { duration: Tokens.instant; }
 
         HorizontalLayout {
             alignment: center;

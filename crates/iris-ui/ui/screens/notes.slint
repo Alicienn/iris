@@ -2322,7 +2322,7 @@ export component NotesView inherits Rectangle {
                             spacing: 8px;
                             alignment: start;
                             for t in root.tags: Rectangle {
-                                y: (parent.height - self.height) / 2;
+                                cross-axis-self-alignment: center;
                                 width: etiquette.preferred-width + 14px;
                                 height: etiquette.preferred-height + 4px;
                                 border-radius: 5px;
@@ -3368,7 +3368,7 @@ export component NotesRowMenu inherits Rectangle {
                 spacing: 6px;
                 height: 30px;
                 aucune := Rectangle {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     width: 18px;
                     height: 18px;
                     border-radius: 9px;
@@ -3391,7 +3391,7 @@ export component NotesRowMenu inherits Rectangle {
                     }
                 }
                 for c[i] in root.palette: Rectangle {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     width: 18px;
                     height: 18px;
                     border-radius: 9px;
@@ -3584,12 +3584,13 @@ export component NotesSpaceMenu inherits Rectangle {
                 label: "New space…";
                 activated => { root.new-space(); }
             }
-            MenuEntry {
+            // A phone has no folder of its own to pick or show.
+            if Layout.folders: MenuEntry {
                 icon: Icons.folder;
                 label: "Open a folder as a space…";
                 activated => { root.open-folder(); }
             }
-            MenuEntry {
+            if Layout.folders: MenuEntry {
                 icon: Icons.folder;
                 label: "Show the space in Explorer";
                 activated => { root.reveal(); }
@@ -4251,7 +4252,7 @@ export component NotesGraphPanel inherits Rectangle {
                     padding: 16px;
                     spacing: 12px;
                     Icon {
-                        y: (parent.height - self.height) / 2;
+                        cross-axis-self-alignment: center;
                         data: Icons.notes;
                         size: 22px;
                         tint: Tokens.accent;
@@ -4274,7 +4275,7 @@ export component NotesGraphPanel inherits Rectangle {
                         }
                     }
                     Button {
-                        y: (parent.height - self.height) / 2;
+                        cross-axis-self-alignment: center;
                         text: "Open";
                         kind: ButtonKind.primary;
                         size: ButtonSize.sm;
@@ -4384,8 +4385,8 @@ export component NotesAreaMenu inherits Rectangle {
                 label: "New folder";
                 activated => { root.chosen("new-folder"); }
             }
-            MenuSeparator { }
-            MenuEntry {
+            if Layout.folders: MenuSeparator { }
+            if Layout.folders: MenuEntry {
                 icon: Icons.open-external;
                 label: "Open the space's folder";
                 activated => { root.chosen("reveal-space"); }

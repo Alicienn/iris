@@ -392,7 +392,7 @@ export component SheetView inherits Rectangle {
                 }
             }
             if !Layout.compact: Icon {
-                y: (parent.height - self.height) / 2;
+                cross-axis-self-alignment: center;
                 data: Icons.function;
                 size: 16px;
                 tint: Tokens.text-muted;

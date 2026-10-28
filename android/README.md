@@ -34,9 +34,15 @@ one key only accept updates signed with it.
 keytool -genkeypair -v -keystore iris-release.jks -alias iris -keyalg RSA -keysize 4096 -validity 36500
 ```
 
+## Java
+
+`app/src/main/java/fr/iris/mail/IrisActivity.java` is the activity: Android's
+`NativeActivity` with Google's code scanner (`play-services-code-scanner`, which needs
+Play services and no camera permission) and the `iris-pair:` link a pairing code read
+by the phone's camera opens Iris with. Rust calls it through JNI and polls its answers.
+
 ## What is not there yet
 
-The platform's services that need Android's Java API (notifications and their actions,
-background mail, the document picker, the clipboard, the camera, widgets) come with
-their Kotlin sources under `app/src/main/kotlin`, following the plan
-`docs/superpowers/plans/2026-10-26-iris-android-platform.md`.
+The platform's other services that need Android's Java API (notifications and their
+actions, background mail, the document picker, widgets) follow the plan
+`docs/superpowers/plans/2026-10-26-iris-android-platform.md`, beside `IrisActivity`.

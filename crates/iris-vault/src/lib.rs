@@ -67,7 +67,8 @@ impl Vault {
         Ok(espaces)
     }
 
-    /// A new space in the root, with its folders and its templates.
+    /// A new space in the root, empty: its files' and templates' folders are made
+    /// when something first goes in them, not shown before.
     pub fn create_space(&self, name: &str) -> Result<Space> {
         let nom = space::nom_valide(name)?;
         let dir = space::libre(&self.root, &nom, "");
@@ -75,7 +76,6 @@ impl Vault {
         let mut espace = Space::open(dir)?;
         espace.config.name = space::nom(espace.dir());
         espace.save_config()?;
-        espace.make_defaults()?;
         Ok(espace)
     }
 
@@ -95,7 +95,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_first_space_is_made_with_its_folders() {
+    fn a_first_space_is_made_empty() {
         let dir = tempfile::tempdir().unwrap();
         let v = Vault::open(dir.path().join("Iris")).unwrap();
         let espaces = v.spaces(&[]).unwrap();
@@ -103,8 +103,9 @@ mod tests {
         let s = &espaces[0];
         assert_eq!(s.config.name, "Notes");
         assert!(s.dir().join(".iris").join("space.json").is_file());
-        assert!(s.dir().join(ATTACHMENTS).is_dir());
-        assert!(s.dir().join(TEMPLATES).join("Cours.md").is_file());
+        // No folder shown before anything goes in it.
+        assert!(!s.dir().join(ATTACHMENTS).exists());
+        assert!(!s.dir().join(TEMPLATES).exists());
         // Found again, not made twice.
         assert_eq!(v.spaces(&[]).unwrap().len(), 1);
         v.create_space("Cours").unwrap();

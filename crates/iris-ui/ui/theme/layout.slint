@@ -22,10 +22,16 @@ export global Layout {
     out property <bool> medium: width-class == WidthClass.medium;
     /// The main input is a finger.
     in-out property <bool> touch-input: false;
+    /// The system can show a folder of Iris's in its file manager (not a phone's).
+    in-out property <bool> folders: true;
+    /// A QR code can be read with the camera (a phone's pairing code).
+    in-out property <bool> camera: false;
     /// What the system draws over the window: the status bar and a cut-out at the top,
     /// the gesture bar at the bottom.
     in-out property <length> inset-top: 0px;
     in-out property <length> inset-bottom: 0px;
+    /// What the phone's keyboard covers at the foot of the window while it is up.
+    in-out property <length> keyboard: 0px;
     /// The user's text size, 0.85 to 1.30.
     in-out property <float> text-scale: 1.0;
     /// The least height a thing to press may have.

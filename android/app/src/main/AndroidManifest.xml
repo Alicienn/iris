@@ -14,15 +14,20 @@
         android:label="Iris"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:hasCode="false"
+        android:hasCode="true"
         android:allowBackup="false"
         android:theme="@style/Iris">
 
         <!-- The keyboard resizes the window rather than covering it: what sits at the
              foot of a page (the reply, the quick add) rises with it. The window is not
              recreated when it turns, folds or changes theme: Iris lays itself out again. -->
+        <!-- Google's code scanner, fetched with the app rather than at its first use. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
+
         <activity
-            android:name="android.app.NativeActivity"
+            android:name=".IrisActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
@@ -33,6 +38,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- A pairing code read by the phone's own camera opens Iris on it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="iris-pair" />
             </intent-filter>
         </activity>
     </application>

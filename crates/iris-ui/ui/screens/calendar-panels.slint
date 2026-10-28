@@ -309,7 +309,7 @@ component PhoneRow inherits Rectangle {
     in property <bool> tappable;
     callback clicked();
 
-    height: max(root.row-height, rang.preferred-height);
+    height: max(root.row-height, rang.preferred-height + 16px);
     background: root.tappable && touche.pressed ? Tokens.surface-hover : transparent;
 
     Rectangle {
@@ -324,11 +324,13 @@ component PhoneRow inherits Rectangle {
         enabled: root.tappable;
         clicked => { root.clicked(); }
     }
+    // Inset by placing it, not by padding: a layout's top padding is written over the
+    // `y` of each element in it, and the calendar's dot rose to the top.
     rang := HorizontalLayout {
+        y: 8px;
+        height: parent.height - 16px;
         padding-left: root.inset;
         padding-right: root.inset;
-        padding-top: 8px;
-        padding-bottom: 8px;
         spacing: 14px;
         @children
     }
@@ -1729,7 +1731,7 @@ export component CalendarContextMenu inherits Rectangle {
                 for couleur[i] in root.palette: Rectangle {
                     width: 20px;
                     height: 20px;
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     border-radius: 10px;
                     background: couleur;
                     border-width: root.cal.color == couleur ? 2px : (pastille.has-hover ? 2px : 0px);
@@ -1841,7 +1843,7 @@ export component EventContextMenu inherits Rectangle {
                     property <bool> portee: root.event.own-color && root.event.color == couleur;
                     width: 20px;
                     height: 20px;
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     border-radius: 10px;
                     background: couleur;
                     border-width: self.portee || pastille.has-hover ? 2px : 0px;

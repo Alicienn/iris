@@ -396,6 +396,10 @@ export struct CalendarPhoneData {
     today: string,
     // The week of the day chosen.
     strip: [StripDayData],
+    // The month and the week shown, as numbers that grow with time: when one changes,
+    // what shows it slides in from the side it lies on.
+    month-number: int,
+    week-number: int,
     // Under the month: the day chosen, "Monday 26", and its events.
     day-heading: string,
     day-today: bool,
@@ -414,6 +418,16 @@ export struct DeviceRowData {
     status: string,
     // Seen on the network: it can be synced with now.
     here: bool,
+}
+
+// One kind of thing on the page that shows a sync with another device: Accounts,
+// Tasks, goals and habits…
+export struct SyncStepData {
+    label: string,
+    // "2 added to this phone", "Up to date".
+    detail: string,
+    // 0 waiting, 1 under way, 2 done.
+    state: int,
 }
 
 // An event placed in the week or day grid. Positions are fractions, so the grid can

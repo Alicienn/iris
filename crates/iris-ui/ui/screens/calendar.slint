@@ -1438,6 +1438,7 @@ export component CalendarView inherits Rectangle {
             if Layout.compact && !root.drafting && (root.mode == 4 || root.mode == 2): WeekStrip {
                 vertical-stretch: 0;
                 days: root.phone.strip;
+                week-number: root.phone.week-number;
                 chosen(d) => { root.day-chosen(d); }
                 swiped(n) => { root.week-navigate(n); }
             }
@@ -1522,6 +1523,7 @@ export component CalendarView inherits Rectangle {
                 heading: root.phone.day-heading;
                 heading-today: root.phone.day-today;
                 rows: root.phone.day-list;
+                month-number: root.phone.month-number;
                 day-chosen(d) => { root.day-chosen(d); }
                 navigate(n) => { root.navigate(n); }
                 event-opened(k) => { root.event-opened(k); }

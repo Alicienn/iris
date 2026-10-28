@@ -399,7 +399,7 @@ component TaskRow inherits Rectangle {
             horizontal-stretch: 1;
         }
         if root.item.kind == 4: Link {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             text: "Clear";
             label: "Delete completed tasks";
             clicked => { root.clear-completed(); }
@@ -1513,7 +1513,7 @@ component TaskPage inherits Rectangle {
                     padding-bottom: 14px;
                     spacing: 14px;
                     Check {
-                        y: (parent.height - self.height) / 2;
+                        cross-axis-self-alignment: center;
                         animated: true;
                         size: 26px;
                         done: root.detail.done;
@@ -2594,7 +2594,7 @@ export component TasksView inherits Rectangle {
                     }
                 }
                 IconButton {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     icon: Icons.plus;
                     label: "New goal";
                     button-size: 20px;
@@ -3324,7 +3324,7 @@ export component TasksView inherits Rectangle {
                         spacing: 8px;
                         Rectangle { horizontal-stretch: 1; }
                         Button {
-                            y: (parent.height - self.height) / 2;
+                            cross-axis-self-alignment: center;
                             text: "Log";
                             label: "Log one";
                             kind: ButtonKind.primary;

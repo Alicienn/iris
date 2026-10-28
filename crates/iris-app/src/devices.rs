@@ -5,10 +5,10 @@
 //! devices (with "On this Wi-Fi" for those seen), the pairing panel and its QR code,
 //! what each sync did, and the question when another device removed an account.
 
-use crate::peers::{Event, Peers};
+use crate::peers::{Event, Kind, Peers};
 use iris_secrets::SecretStore;
 use iris_store::Store;
-use iris_ui::{AppWindow, DeviceRowData};
+use iris_ui::{AppWindow, DeviceRowData, SyncStepData};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -19,6 +19,77 @@ use std::time::{Duration, Instant};
 const AUTO_SYNC: Duration = Duration::from_secs(10 * 60);
 
 type Vus = Arc<Mutex<HashMap<String, (SocketAddr, Instant)>>>;
+
+thread_local! {
+    /// Looks every second for a pairing link the phone's camera opened Iris with.
+    static LIENS: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The lines of the page that shows a sync, in its order (the window draws each one's
+/// icon by its place).
+const ETAPES: [(Kind, &str); 5] = [
+    (Kind::Accounts, "Accounts"),
+    (Kind::Tasks, "Tasks, goals and habits"),
+    (Kind::Calendars, "Calendars"),
+    (Kind::Settings, "Tags, rules and settings"),
+    (Kind::Notes, "Notes"),
+];
+
+/// Where the page that shows a sync is: who, how far (0 connecting, 1 syncing, 2 done,
+/// 3 failed), and each line's count once it arrived.
+#[derive(Debug, Default, Clone)]
+struct Page {
+    peer: String,
+    state: i32,
+    recus: [Option<usize>; 5],
+}
+
+/// "2 accounts from PC-Marie", "Already up to date".
+fn step_detail(kind: Kind, n: usize, peer: &str) -> String {
+    if n == 0 {
+        return "Already up to date".into();
+    }
+    let (un, plusieurs) = match kind {
+        Kind::Accounts => ("account", "accounts"),
+        Kind::Notes => ("note", "notes"),
+        _ => ("change", "changes"),
+    };
+    let mot = if n == 1 { un } else { plusieurs };
+    if peer.is_empty() {
+        format!("{n} {mot}")
+    } else {
+        format!("{n} {mot} from {peer}")
+    }
+}
+
+fn step_rows(page: &Page) -> Vec<SyncStepData> {
+    ETAPES
+        .iter()
+        .zip(page.recus)
+        .map(|((kind, label), recu)| SyncStepData {
+            label: (*label).into(),
+            detail: recu
+                .map(|n| step_detail(*kind, n, &page.peer))
+                .unwrap_or_default()
+                .into(),
+            state: match (recu, page.state) {
+                (Some(_), _) | (None, 2) => 2,
+                (None, 1) => 1,
+                _ => 0,
+            },
+        })
+        .collect()
+}
+
+/// Draws the page as it is now.
+fn show_page(fenetre: &slint::Weak<AppWindow>, page: &Page) {
+    let page = page.clone();
+    let _ = fenetre.upgrade_in_event_loop(move |f| {
+        f.set_sync_peer(page.peer.as_str().into());
+        f.set_sync_state(page.state);
+        f.set_sync_steps(ModelRc::new(VecModel::from(step_rows(&page))));
+    });
+}
 
 /// This computer's address on the local network: the one its default route leaves
 /// from. Nothing is sent: a UDP socket only picks its address when "connected".
@@ -91,7 +162,8 @@ pub fn summary_line(peer: &str, s: &iris_peer::Summary) -> String {
     ligne
 }
 
-/// How a paired device reads in the list.
+/// How a paired device reads in the list, after "On this Wi-Fi", which the window
+/// draws in green before it when the device is seen.
 fn status_line(here: bool, last_seen_secs: i64, now_secs: i64) -> String {
     let ecart = (now_secs - last_seen_secs).max(0);
     let quand = match ecart {
@@ -102,7 +174,7 @@ fn status_line(here: bool, last_seen_secs: i64, now_secs: i64) -> String {
         _ => format!("synced {} days ago", ecart / 86_400),
     };
     if here {
-        format!("On this Wi-Fi · {quand}")
+        quand
     } else {
         let mut q = quand;
         if let Some(c) = q.get_mut(0..1) {
@@ -161,6 +233,7 @@ pub fn wire_devices(
     let pairs: Arc<OnceLock<Peers>> = Arc::new(OnceLock::new());
     let vus: Vus = Arc::new(Mutex::new(HashMap::new()));
     let a_retirer: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let page: Arc<Mutex<Page>> = Arc::new(Mutex::new(Page::default()));
     let faible = fenetre.as_weak();
     fenetre.set_devices(ModelRc::new(VecModel::from(rows(&services, &vus))));
 
@@ -177,10 +250,12 @@ pub fn wire_devices(
             Arc::clone(&a_retirer),
         );
         let rt = runtime.clone();
+        let page = Arc::clone(&page);
         Arc::new(move || {
             if demarre.swap(true, std::sync::atomic::Ordering::SeqCst) {
                 return;
             }
+            let page = Arc::clone(&page);
             let (pairs, vus, services, faible, a_retirer) = (
                 Arc::clone(&pairs),
                 Arc::clone(&vus),
@@ -241,8 +316,49 @@ pub fn wire_devices(
                                 f.set_pair_digits(digits.into());
                             });
                         }
+                        Event::Met { name } => {
+                            let mut p = page.lock().unwrap_or_else(|e| e.into_inner());
+                            *p = Page {
+                                peer: name,
+                                state: 1,
+                                recus: [None; 5],
+                            };
+                            show_page(&faible, &p);
+                        }
+                        Event::Step { kind, count } => {
+                            let mut p = page.lock().unwrap_or_else(|e| e.into_inner());
+                            if let Some(i) = ETAPES.iter().position(|(k, _)| *k == kind) {
+                                p.recus[i] = Some(count);
+                            }
+                            show_page(&faible, &p);
+                        }
                         Event::Done(o) => {
                             refresh(&faible, &services, &vus);
+                            {
+                                let mut p = page.lock().unwrap_or_else(|e| e.into_inner());
+                                p.state = if o.result.is_ok() { 2 } else { 3 };
+                                show_page(&faible, &p);
+                            }
+                            let (note, erreur_page) = match &o.result {
+                                Ok(s) if !s.conflicts.is_empty() => (
+                                    format!(
+                                        "Changed on both devices, the newer change was kept: {}.",
+                                        s.conflicts.join(", ")
+                                    ),
+                                    String::new(),
+                                ),
+                                Ok(_) => (String::new(), String::new()),
+                                Err(e) => (String::new(), e.clone()),
+                            };
+                            let arrive = o.result.is_ok();
+                            let _ = faible.upgrade_in_event_loop(move |f| {
+                                f.set_sync_note(note.into());
+                                f.set_sync_error(erreur_page.into());
+                                // What came is in the base: the places show it.
+                                if arrive {
+                                    f.invoke_devices_merged();
+                                }
+                            });
                             let nom = if o.peer_name.is_empty() {
                                 "the other device".to_string()
                             } else {
@@ -304,21 +420,44 @@ pub fn wire_devices(
             }
         });
     }
-    // Joining a device by its code pasted here: this one is the "phone".
-    {
-        let (pairs, faible, demarrer) = (Arc::clone(&pairs), faible.clone(), Arc::clone(&demarrer));
+    // Joining a device by its code (pasted, scanned, or the link the phone's camera
+    // opened Iris with): this one is the "phone". The sync's page shows it step by step.
+    let rejoindre: Arc<dyn Fn(String) + Send + Sync> = {
+        let (pairs, faible, demarrer, page) = (
+            Arc::clone(&pairs),
+            faible.clone(),
+            Arc::clone(&demarrer),
+            Arc::clone(&page),
+        );
         let rt = runtime.clone();
-        fenetre.on_pair_join(move |code| {
+        Arc::new(move |code: String| {
             let code = code.trim().to_string();
-            if iris_peer::Invite::parse(&code).is_err() {
-                if let Some(f) = faible.upgrade() {
-                    f.set_device_summary("This is not an Iris pairing code.".into());
+            let invite = match iris_peer::Invite::parse(&code) {
+                Ok(i) => i,
+                Err(_) => {
+                    let _ = faible.upgrade_in_event_loop(|f| {
+                        f.set_device_summary("This is not an Iris pairing code.".into());
+                        f.set_toast("This is not an Iris pairing code.".into());
+                    });
+                    return;
                 }
-                return;
+            };
+            {
+                let mut p = page.lock().unwrap_or_else(|e| e.into_inner());
+                *p = Page {
+                    peer: invite.name.clone(),
+                    state: 0,
+                    recus: [None; 5],
+                };
+                show_page(&faible, &p);
             }
+            let _ = faible.upgrade_in_event_loop(|f| {
+                f.set_sync_note("".into());
+                f.set_sync_error("".into());
+                f.set_sync_page_open(true);
+            });
             demarrer();
-            let pairs = Arc::clone(&pairs);
-            let faible = faible.clone();
+            let (pairs, faible, page) = (Arc::clone(&pairs), faible.clone(), Arc::clone(&page));
             rt.spawn(async move {
                 for _ in 0..40 {
                     if pairs.get().is_some() {
@@ -327,17 +466,77 @@ pub fn wire_devices(
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
                 let Some(p) = pairs.get().cloned() else {
+                    let mut pg = page.lock().unwrap_or_else(|e| e.into_inner());
+                    pg.state = 3;
+                    show_page(&faible, &pg);
+                    let _ = faible.upgrade_in_event_loop(|f| {
+                        f.set_sync_error("Iris could not use the network.".into())
+                    });
                     return;
                 };
-                // The outcome reaches the window through the events, like any sync.
-                if p.pair_with(&code, iris_peer::Wants::default())
-                    .await
-                    .is_ok()
-                {
-                    let _ = faible.upgrade_in_event_loop(|f| f.set_join_code("".into()));
+                // The outcome reaches the window through the events, like any sync;
+                // a failure before the exchange (unreachable, refused) is said here.
+                match p.pair_with(&code, iris_peer::Wants::default()).await {
+                    Ok(_) => {
+                        let _ = faible.upgrade_in_event_loop(|f| f.set_join_code("".into()));
+                    }
+                    Err(e) => {
+                        let mut pg = page.lock().unwrap_or_else(|e| e.into_inner());
+                        if pg.state < 2 {
+                            pg.state = 3;
+                            show_page(&faible, &pg);
+                            let message = match e {
+                                iris_peer::PeerError::Io(_) => {
+                                    "The other device could not be reached. Are both on the same Wi-Fi, with its pairing code still open?".to_string()
+                                }
+                                iris_peer::PeerError::Refused => {
+                                    "The code was refused: it works once, for five minutes. Show a new one.".to_string()
+                                }
+                                e => e.to_string(),
+                            };
+                            let _ = faible
+                                .upgrade_in_event_loop(move |f| f.set_sync_error(message.into()));
+                        }
+                    }
                 }
             });
+        })
+    };
+    {
+        let rejoindre = Arc::clone(&rejoindre);
+        fenetre.on_pair_join(move |code| rejoindre(code.to_string()));
+    }
+    // The camera: what it reads is joined.
+    {
+        let (rejoindre, faible) = (Arc::clone(&rejoindre), faible.clone());
+        fenetre.on_pair_scan(move || {
+            let (rejoindre, faible) = (Arc::clone(&rejoindre), faible.clone());
+            crate::platform::current().scan_qr(Box::new(move |lu| match lu {
+                Some(code) => rejoindre(code),
+                None => {
+                    let _ = faible.upgrade_in_event_loop(|f| {
+                        f.set_sync_page_open(false);
+                    });
+                }
+            }));
         });
+    }
+    // A pairing code read by the phone's own camera opens Iris with it as a link.
+    {
+        let rejoindre = Arc::clone(&rejoindre);
+        let minuterie = slint::Timer::default();
+        minuterie.start(
+            slint::TimerMode::Repeated,
+            Duration::from_secs(1),
+            move || {
+                if let Some(lien) = crate::platform::current().take_link() {
+                    if lien.starts_with("iris-pair:") {
+                        rejoindre(lien);
+                    }
+                }
+            },
+        );
+        LIENS.with(|m| *m.borrow_mut() = Some(minuterie));
     }
 
     // Pairing: a fresh code each time the panel opens.
@@ -512,10 +711,7 @@ mod tests {
 
     #[test]
     fn a_device_seen_is_on_this_wifi() {
-        assert_eq!(
-            status_line(true, 1000, 1000 + 7200),
-            "On this Wi-Fi · synced 2 h ago"
-        );
+        assert_eq!(status_line(true, 1000, 1000 + 7200), "synced 2 h ago");
         assert_eq!(
             status_line(false, 1000, 1000 + 3 * 86_400),
             "Synced 3 days ago"

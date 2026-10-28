@@ -49,7 +49,7 @@ component SettingRow inherits Rectangle {
     /// The group's first row: no line above it.
     in property <bool> first;
 
-    min-height: max(40px, rang.preferred-height);
+    min-height: max(40px, rang.preferred-height + 18px);
     vertical-stretch: 0;
 
     Rectangle {
@@ -59,12 +59,14 @@ component SettingRow inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
+    // Inset by placing it: a layout's top padding is written over the `y` of what is
+    // in it, and a control centred there rose to the top.
     rang := HorizontalLayout {
-        padding-top: 9px;
-        padding-bottom: 9px;
+        y: 9px;
+        height: parent.height - 18px;
         spacing: Layout.compact ? 14px : 10px;
         IconTile {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             icon: root.icon;
             tint: root.tint;
         }
@@ -209,6 +211,9 @@ component PhoneRow inherits Rectangle {
     in property <bool> avatar;
     in property <string> label;
     in property <string> hint;
+    /// Before the hint, in its own colour: "● On this Wi-Fi", in green.
+    in property <string> lead;
+    in property <color> lead-ink: Tokens.green;
     in property <string> value;
     in property <bool> chevron;
     in property <bool> first;
@@ -219,7 +224,7 @@ component PhoneRow inherits Rectangle {
     in property <bool> centred;
     in property <bool> pressed;
 
-    min-height: max(52px, rang.preferred-height);
+    min-height: max(52px, rang.preferred-height + 16px);
     vertical-stretch: 0;
     background: root.pressed ? Tokens.surface-active : transparent;
 
@@ -231,22 +236,26 @@ component PhoneRow inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
+    // Inset by placing it, not by padding: a layout's top padding is written over the
+    // `y` of each element in it, and what centres itself there (a control, a dot) rose
+    // to the top.
     rang := HorizontalLayout {
+        y: 8px;
+        height: parent.height - 16px;
         padding-left: 16px;
         padding-right: 16px;
-        padding-top: 8px;
-        padding-bottom: 8px;
         spacing: 14px;
         alignment: root.centred ? center : stretch;
         if root.avatar: Avatar {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             size: 40px;
             initials: root.initials;
             tint: Tokens.accent;
         }
-        Rectangle {
-            visible: root.icon != "" && !root.bare;
-            y: (parent.height - self.height) / 2;
+        // The tile keeps its room only when drawn: an invisible one left a gap before
+        // a bare icon (Add an account, Pair a device).
+        if root.icon != "" && !root.bare: Rectangle {
+            cross-axis-self-alignment: center;
             width: 30px;
             height: 30px;
             border-radius: 8px;
@@ -261,7 +270,7 @@ component PhoneRow inherits Rectangle {
             }
         }
         if root.icon != "" && root.bare: Icon {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             data: root.icon;
             size: 18px;
             weight: 2;
@@ -279,12 +288,27 @@ component PhoneRow inherits Rectangle {
                 horizontal-alignment: root.centred ? center : left;
                 wrap: word-wrap;
             }
-            if root.hint != "": Text {
+            if root.hint != "" && root.lead == "": Text {
                 text: root.hint;
                 font-size: 13px;
                 color: Tokens.text-muted;
                 horizontal-alignment: root.centred ? center : left;
                 wrap: word-wrap;
+            }
+            if root.lead != "": HorizontalLayout {
+                spacing: 0px;
+                Text {
+                    text: root.lead;
+                    font-size: 13px;
+                    color: root.lead-ink;
+                }
+                Text {
+                    text: root.hint != "" ? " · " + root.hint : "";
+                    font-size: 13px;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
             }
         }
         if root.value != "": Text {
@@ -295,7 +319,7 @@ component PhoneRow inherits Rectangle {
         }
         @children
         if root.chevron: Icon {
-            y: (parent.height - self.height) / 2;
+            cross-axis-self-alignment: center;
             data: Icons.chevron-right;
             size: 18px;
             tint: Tokens.text-faint;
@@ -626,6 +650,8 @@ export component SettingsPanel inherits Rectangle {
     callback pair-device();
     callback sync-device(string);
     callback join-device(string);
+    /// The camera, to read the code another device shows.
+    callback scan-requested();
     in-out property <string> join-code;
     callback device-answered(bool);
     callback dismissed();
@@ -1106,11 +1132,15 @@ export component SettingsPanel inherits Rectangle {
                 if root.compte: Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.refresh;
+                        tint: Tokens.blue;
                         label: "Sync this mailbox";
                         on: root.account-enabled;
                         toggled => { root.account-enable(); }
                     }
                     PhoneToggle {
+                        icon: Icons.star;
+                        tint: Tokens.orange;
                         label: "Pin to the top";
                         on: root.account-pinned;
                         toggled => { root.account-pin(); }
@@ -1162,6 +1192,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Notifications & sync"): Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.bell;
+                        tint: Tokens.red;
                         label: "New mail";
                         hint: "One notification per sync, not one per message.";
                         on <=> root.notifications;
@@ -1172,6 +1204,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Notifications & sync"): Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.refresh;
+                        tint: Tokens.green;
                         label: "Keep running when I close the window";
                         hint: "Iris stays in the notification area and keeps syncing.";
                         on <=> root.keep-running;
@@ -1183,12 +1217,16 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Notifications & sync") && !Layout.touch-input: Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.computer;
+                        tint: Tokens.grey;
                         label: "Start with Windows";
                         hint: "Iris waits in the notification area rather than opening a window.";
                         on <=> root.start-at-login;
                         toggled => { root.system-changed(); }
                     }
                     PhoneToggle {
+                        icon: Icons.envelope-closed;
+                        tint: Tokens.blue;
                         label: "Offer Iris for mailto: links";
                         hint: "Windows still decides the default in its own settings.";
                         on <=> root.handle-mailto;
@@ -1205,9 +1243,10 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Devices") && root.devices.length > 0: Group {
                     for d[i] in root.devices: PhoneRow {
                         first: i == 0;
-                        icon: Icons.refresh;
+                        icon: Icons.computer;
                         tint: Tokens.blue;
                         label: d.name;
+                        lead: d.here ? "● On this Wi-Fi" : "";
                         hint: d.status;
                         if d.here: Button {
                             y: (parent.height - self.height) / 2;
@@ -1233,9 +1272,22 @@ export component SettingsPanel inherits Rectangle {
                         say: "Pair a device…";
                         tapped => { root.pair-device(); }
                     }
+                    // The other device shows its code: the camera reads it.
+                    if Layout.camera: PhoneLink {
+                        icon: Icons.qr;
+                        bare: true;
+                        flat: false;
+                        ink: Tokens.accent;
+                        strong: true;
+                        chevron: false;
+                        label: "Scan a code";
+                        say: "Scan the code another device shows";
+                        tapped => { root.scan-requested(); }
+                    }
                 }
-                if root.ouvert("Devices"): GroupTitle { text: "Join with a code"; }
-                if root.ouvert("Devices"): Group {
+                // Without a camera, the code is copied there and pasted here.
+                if root.ouvert("Devices") && !Layout.camera: GroupTitle { text: "Join with a code"; }
+                if root.ouvert("Devices") && !Layout.camera: Group {
                     HorizontalLayout {
                         padding-left: 16px;
                         padding-right: 16px;
@@ -1243,7 +1295,7 @@ export component SettingsPanel inherits Rectangle {
                         padding-bottom: 8px;
                         spacing: 10px;
                         TextField {
-                            y: (parent.height - self.height) / 2;
+                            cross-axis-self-alignment: center;
                             height: 40px;
                             text <=> root.join-code;
                             placeholder-text: "iris-pair:1?…";
@@ -1251,7 +1303,7 @@ export component SettingsPanel inherits Rectangle {
                             accepted(t) => { root.join-device(t); }
                         }
                         Button {
-                            y: (parent.height - self.height) / 2;
+                            cross-axis-self-alignment: center;
                             text: "Join";
                             kind: ButtonKind.primary;
                             enabled: root.join-code != "";
@@ -1259,7 +1311,7 @@ export component SettingsPanel inherits Rectangle {
                         }
                     }
                 }
-                if root.ouvert("Devices"): GroupTitle {
+                if root.ouvert("Devices") && !Layout.camera: GroupTitle {
                     note: true;
                     text: "Paste the code copied on the other device.";
                 }
@@ -1347,7 +1399,7 @@ export component SettingsPanel inherits Rectangle {
                             vertical-alignment: center;
                         }
                         SizeSlider {
-                            y: (parent.height - self.height) / 2;
+                            cross-axis-self-alignment: center;
                             value: root.text-size;
                             chosen(p) => { root.text-size-chosen(p); }
                         }
@@ -1398,24 +1450,32 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Mail"): Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.hourglass;
+                        tint: Tokens.orange;
                         label: "Replying marks the thread as waiting";
                         hint: "The thread leaves your queue and waits for the other side.";
                         on <=> root.reply-marks-waiting;
                         toggled => { root.automation-changed(); }
                     }
                     PhoneToggle {
+                        icon: Icons.inbox;
+                        tint: Tokens.blue;
                         label: "A new message reopens the thread";
                         hint: "A finished thread that gets a follow-up comes back to your queue.";
                         on <=> root.new-message-reopens;
                         toggled => { root.automation-changed(); }
                     }
                     PhoneToggle {
+                        icon: Icons.clock;
+                        tint: Tokens.purple;
                         label: "Follow up on unanswered threads";
                         hint: "A thread waiting too long comes back on its own.";
                         on <=> root.follow-up-enabled;
                         toggled => { root.automation-changed(); }
                     }
                     if root.follow-up-enabled: PhoneRow {
+                        icon: Icons.repeat;
+                        tint: Tokens.purple;
                         label: "Bring it back after";
                         hint: "Days without an answer";
                         SpinBox {
@@ -1438,17 +1498,19 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Notes"): Group {
                     PhoneRow {
                         first: true;
+                        icon: Icons.folder;
+                        tint: Tokens.blue;
                         label: "Folder";
                         hint: root.notes-folder;
                     }
-                    PhoneLink {
+                    if Layout.folders: PhoneLink {
                         label: "Open folder";
                         say: "Open the notes folder";
                         ink: Tokens.accent;
                         chevron: false;
                         tapped => { root.notes-folder-open(); }
                     }
-                    PhoneLink {
+                    if Layout.folders: PhoneLink {
                         label: "Change…";
                         say: "Change the notes folder";
                         ink: Tokens.accent;
@@ -1460,6 +1522,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Notes"): Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.sigma;
+                        tint: Tokens.purple;
                         label: "Show formulas as you type them";
                         on <=> root.notes-math-preview;
                         toggled(v) => { root.notes-math-preview-toggled(v); }
@@ -1474,6 +1538,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Home"): Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.home;
+                        tint: Tokens.red;
                         label: "Open Iris on Home";
                         on <=> root.home-at-startup;
                         toggled => { root.system-changed(); }
@@ -1511,12 +1577,16 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Sorting"): Group {
                     PhoneToggle {
                         first: true;
+                        icon: Icons.clock;
+                        tint: Tokens.blue;
                         label: "Hold mail outside working hours";
                         hint: "It waits for the next working morning.";
                         on <=> root.office-hours-enabled;
                         toggled => { root.triage-changed(); }
                     }
                     if root.office-hours-enabled: PhoneRow {
+                        icon: Icons.sun;
+                        tint: Tokens.orange;
                         label: "Starts at";
                         hint: "Hour, UTC";
                         SpinBox {
@@ -1530,6 +1600,8 @@ export component SettingsPanel inherits Rectangle {
                         }
                     }
                     if root.office-hours-enabled: PhoneRow {
+                        icon: Icons.moon;
+                        tint: Tokens.purple;
                         label: "Ends at";
                         hint: "Hour, UTC";
                         SpinBox {
@@ -1543,6 +1615,8 @@ export component SettingsPanel inherits Rectangle {
                         }
                     }
                     if root.office-hours-enabled: PhoneToggle {
+                        icon: Icons.calendar;
+                        tint: Tokens.grey;
                         label: "Hold weekend mail too";
                         on <=> root.office-hours-weekend;
                         toggled => { root.triage-changed(); }
@@ -1580,6 +1654,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Rules"): Group {
                     for r[i] in root.rules: PhoneToggle {
                         first: i == 0;
+                        icon: Icons.rule;
+                        tint: Tokens.teal;
                         label: r.name;
                         hint: r.summary;
                         on: r.enabled;
@@ -1601,6 +1677,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Backups & export"): Group {
                     PhoneRow {
                         first: true;
+                        icon: Icons.history;
+                        tint: Tokens.green;
                         label: "Back up every day";
                         hint: root.backup-status;
                     }
@@ -1610,7 +1688,7 @@ export component SettingsPanel inherits Rectangle {
                         chevron: false;
                         tapped => { root.backup-now(); }
                     }
-                    PhoneLink {
+                    if Layout.folders: PhoneLink {
                         label: "Open the backups' folder";
                         ink: Tokens.accent;
                         chevron: false;
@@ -1621,6 +1699,8 @@ export component SettingsPanel inherits Rectangle {
                 if root.ouvert("Backups & export"): Group {
                     PhoneRow {
                         first: true;
+                        icon: Icons.undo;
+                        tint: Tokens.orange;
                         label: "Restore a backup";
                         hint: root.restore-question != ""
                             ? root.restore-question
@@ -1946,10 +2026,10 @@ export component SettingsPanel inherits Rectangle {
                 if root.large: Group {
                     for d[i] in root.devices: SettingRow {
                         first: i == 0;
-                        icon: Icons.refresh;
+                        icon: Icons.computer;
                         tint: Tokens.blue;
                         label: d.name;
-                        hint: d.status;
+                        hint: d.here ? "On this Wi-Fi · " + d.status : d.status;
                         if d.here: Button {
                             y: (parent.height - self.height) / 2;
                             text: "Sync now";

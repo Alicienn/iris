@@ -1536,6 +1536,21 @@ deletes (to the Recycle Bin) what was deleted there and not changed here, and ke
 its own copy as a revision when both changed. Paths from the other side are checked
 to stay inside the space.
 
+The joining side (7.1.0) shows the exchange on a page of its own (`SyncPage`): the
+events `Met` (the other device's name), `Step` (one kind arrived — accounts, tasks,
+calendars, settings counted from the change set's tables in `apply_changes`, notes from
+the files written) and `Done` tick its lines. `Done` also calls the window's
+`devices-merged`, which reloads the accounts into the engine (`load_accounts`), the
+senders, the shared settings and the place on screen: what came used to wait for a
+restart. At launch the shared settings set away from their default and not yet in
+`sync_settings` are written there once, so a first name typed before pairing travels.
+On Android the code is read by Google's code scanner (`play-services-code-scanner`,
+Play services' camera: no camera permission) through `IrisActivity`, Iris's subclass
+of `NativeActivity` (`android/app/src/main/java`); it also takes the `iris-pair:` link
+the phone's own camera opens Iris with (an intent filter; `onNewIntent` keeps the
+intent). Rust asks both through JNI and polls the answers (`takeScan` every 200 ms
+while the scanner is open, `takeLink` every second): no native method to register.
+
 **Sync between devices: the model** (6.3.0; spec
 `superpowers/specs/2026-10-26-iris-sync-design.md`). Each row of the tables in
 `iris-store/src/sync.rs` (`SYNCED`, parents first: task lists, tasks, goals, habits and

@@ -1,6 +1,9 @@
 import { Tokens } from "@iris/theme/tokens.slint";
-import { Button, ButtonKind } from "@iris/controls/button.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { BlockButton, Button, ButtonKind } from "@iris/controls/button.slint";
 import { Modal, ModalKind } from "@iris/layout/frames.slint";
+import { SyncStepData } from "@iris/types.slint";
 
 // Iris on the other devices of the same Wi-Fi: the pairing code, and what a sync did.
 
@@ -97,6 +100,315 @@ export component PairPanel inherits Rectangle {
                     kind: root.summary != "" ? ButtonKind.primary : ButtonKind.secondary;
                     clicked => { root.dismissed(); }
                 }
+            }
+        }
+    }
+}
+
+/// How far a sync is, as a ring: the arc grows from the top, clockwise.
+component SyncRing inherits Rectangle {
+    in property <float> progress;
+    in property <color> ink: Tokens.accent;
+    // Never a whole turn: an arc that ends where it starts draws nothing.
+    property <float> p: max(0.02, min(0.999, root.progress));
+    property <angle> fin: root.p * 360deg - 90deg;
+    width: 52px;
+    height: 52px;
+
+    Rectangle {
+        border-radius: self.width / 2;
+        border-width: 6px;
+        border-color: Tokens.surface-active;
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 52;
+        viewbox-height: 52;
+        stroke: root.ink;
+        stroke-width: 6px;
+        stroke-line-cap: round;
+        fill: transparent;
+        MoveTo { x: 26; y: 5; }
+        ArcTo {
+            x: 26 + 21 * Math.cos(root.fin);
+            y: 26 + 21 * Math.sin(root.fin);
+            radius-x: 21;
+            radius-y: 21;
+            large-arc: root.p > 0.5;
+            sweep: true;
+        }
+    }
+}
+
+/// One kind of thing the sync carries: its tile turns green with a tick when it has
+/// arrived, one after the other down the list (`index`).
+component SyncRow inherits Rectangle {
+    in property <SyncStepData> step;
+    in property <int> index;
+    in property <bool> first;
+    property <bool> fait: root.step.state == 2;
+    property <bool> encours: root.step.state == 1;
+    // It comes in once, down the list.
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+
+    height: 60px;
+
+    Rectangle {
+        opacity: root.entree;
+        animate opacity { duration: Tokens.moderate; delay: root.index * 60ms; easing: ease-out; }
+        Rectangle {
+            visible: !root.first;
+            x: 60px;
+            y: 0px;
+            width: parent.width - self.x;
+            height: 1px;
+            background: Tokens.border;
+        }
+        Rectangle {
+            x: 16px;
+            y: (parent.height - self.height) / 2;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            background: root.fait ? Tokens.green : Tokens.well;
+            animate background { duration: Tokens.moderate; delay: root.fait ? root.index * 140ms : 0ms; }
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                // In the page's order: accounts, tasks, calendars, settings, notes.
+                data: root.fait ? Icons.check
+                    : root.index == 0 ? Icons.envelope-closed
+                    : root.index == 1 ? Icons.task
+                    : root.index == 2 ? Icons.calendar
+                    : root.index == 3 ? Icons.tag : Icons.notes;
+                size: 18px;
+                weight: 2.2;
+                tint: root.fait ? white : root.encours ? Tokens.accent : Tokens.text-faint;
+            }
+        }
+        VerticalLayout {
+            x: 60px;
+            width: parent.width - self.x - 16px;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.step.label;
+                font-size: 15.5px;
+                color: root.step.state == 0 ? Tokens.text-muted : Tokens.text;
+                overflow: elide;
+            }
+            if root.step.detail != "": Text {
+                text: root.step.detail;
+                font-size: 13px;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+/// A sync with another device, as the mockups' Y5 draws it: who, how far it is, then
+/// what it carries kind by kind, each line ticked green as it arrives. A page over
+/// everything; Back hides it and the sync carries on.
+export component SyncPage inherits Rectangle {
+    in property <string> peer;
+    /// 0 connecting, 1 syncing, 2 done, 3 failed.
+    in property <int> state;
+    in property <[SyncStepData]> steps;
+    /// What changed on both sides, said once.
+    in property <string> note;
+    in property <string> error;
+    callback finished();
+    callback retry();
+
+    property <int> faits: (root.steps.length > 0 && root.steps[0].state == 2 ? 1 : 0)
+        + (root.steps.length > 1 && root.steps[1].state == 2 ? 1 : 0)
+        + (root.steps.length > 2 && root.steps[2].state == 2 ? 1 : 0)
+        + (root.steps.length > 3 && root.steps[3].state == 2 ? 1 : 0)
+        + (root.steps.length > 4 && root.steps[4].state == 2 ? 1 : 0);
+    /// Connected counts for a little, each kind arrived for its share.
+    property <float> avance: root.state == 2 ? 1.0
+        : root.state == 0 ? 0.06
+        : 0.12 + 0.88 * root.faits / max(1, root.steps.length);
+    property <float> montre: root.avance;
+    animate montre { duration: 700ms; easing: ease-out; }
+    // It slides in from the right, as a page does.
+    property <float> entree: 0;
+    init => { root.entree = 1; }
+    animate entree { duration: Tokens.moderate; easing: ease-out; }
+
+    background: Tokens.background;
+    // Over what is behind: no touch goes through.
+    TouchArea {}
+
+    VerticalLayout {
+        x: max(0px, (parent.width - self.width) / 2) + (1 - root.entree) * 40px;
+        width: min(520px, parent.width);
+        opacity: root.entree;
+        padding-top: Layout.inset-top;
+        padding-bottom: Layout.inset-bottom + 18px;
+
+        // The bar: back, and the other device's name.
+        HorizontalLayout {
+            height: 56px;
+            padding-left: 4px;
+            padding-right: 16px;
+            spacing: 4px;
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.arrow-left;
+                label: "Back";
+                button-size: 48px;
+                icon-size: 22px;
+                clicked => { root.finished(); }
+            }
+            Text {
+                text: root.peer != "" ? root.peer : "Another device";
+                font-family: Tokens.font-display;
+                font-size: 19px;
+                font-weight: 600;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-top: 10px;
+            vertical-stretch: 1;
+
+            // Where it is: the ring, then a tick in a green disc once done.
+            HorizontalLayout {
+                spacing: 14px;
+                Rectangle {
+                    width: 52px;
+                    height: 52px;
+                    SyncRing {
+                        visible: root.state != 2;
+                        progress: root.montre;
+                        ink: root.state == 3 ? Tokens.red : Tokens.accent;
+                    }
+                    Rectangle {
+                        property <bool> pret: root.state == 2;
+                        width: self.pret ? 52px : 20px;
+                        height: self.width;
+                        border-radius: self.width / 2;
+                        background: Tokens.green;
+                        opacity: self.pret ? 1 : 0;
+                        animate width { duration: 380ms; easing: ease-out-back; }
+                        animate opacity { duration: Tokens.quick; }
+                        Icon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            data: Icons.check;
+                            size: parent.width * 0.5;
+                            weight: 2.6;
+                            tint: white;
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Text {
+                        text: root.state == 0 ? "Connecting…"
+                            : root.state == 1 ? "Syncing…"
+                            : root.state == 2 ? "All set" : "Could not sync";
+                        font-family: Tokens.font-display;
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Tokens.text;
+                    }
+                    Text {
+                        text: root.state == 3 ? root.error
+                            : root.state == 2 ? "Everything is on this device."
+                            : "Keep both devices on the same Wi-Fi.";
+                        font-size: 14px;
+                        color: root.state == 3 ? Tokens.red : Tokens.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            Rectangle { height: 18px; }
+            // The bar under it: the same progress, from the left.
+            Rectangle {
+                height: 6px;
+                border-radius: 3px;
+                background: Tokens.surface-active;
+                Rectangle {
+                    x: 0px;
+                    width: parent.width * root.montre;
+                    height: 100%;
+                    border-radius: 3px;
+                    background: root.state == 2 ? Tokens.green : root.state == 3 ? Tokens.red : Tokens.accent;
+                    animate background { duration: Tokens.moderate; }
+                }
+            }
+            Rectangle { height: 20px; }
+
+            // What it carries, kind by kind.
+            Rectangle {
+                height: liste.preferred-height;
+                border-radius: 14px;
+                background: Tokens.surface;
+                clip: true;
+                liste := VerticalLayout {
+                    for s[i] in root.steps: SyncRow {
+                        step: s;
+                        index: i;
+                        first: i == 0;
+                    }
+                }
+            }
+
+            // Changed on both sides: the newer was kept, and it is said once.
+            if root.note != "": Rectangle { height: 14px; }
+            if root.note != "": Rectangle {
+                height: avis.preferred-height;
+                border-radius: 14px;
+                background: Tokens.surface;
+                avis := HorizontalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    Icon {
+                        data: Icons.info;
+                        size: 18px;
+                        tint: Tokens.text-muted;
+                    }
+                    Text {
+                        text: root.note;
+                        font-size: 14px;
+                        color: Tokens.text-secondary;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                    }
+                }
+            }
+            Rectangle { vertical-stretch: 1; }
+        }
+
+        // The way on, at the foot, once it is over.
+        VerticalLayout {
+            padding-left: 20px;
+            padding-right: 20px;
+            spacing: 6px;
+            if root.state == 2: BlockButton {
+                text: "Continue";
+                clicked => { root.finished(); }
+            }
+            if root.state == 3 && Layout.camera: BlockButton {
+                text: "Scan again";
+                clicked => { root.retry(); }
+            }
+            if root.state == 3: BlockButton {
+                text: "Close";
+                kind: ButtonKind.ghost;
+                clicked => { root.finished(); }
             }
         }
     }

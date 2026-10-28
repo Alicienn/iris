@@ -444,6 +444,18 @@ fn focaliser(f: &AppWindow, e: &mut Etat, block: usize, anchor: usize, cursor: u
     saisie::clavier(f);
 }
 
+/// Fills the quick list (a note by name, Move to…) once the state is free: its handler
+/// borrows the state too, and calling it from inside a gesture panicked ("RefCell
+/// already borrowed", Move to… on a phone).
+fn remplir_liste_rapide(f: &AppWindow) {
+    let faible = f.as_weak();
+    slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+        if let Some(f) = faible.upgrade() {
+            f.invoke_notes_quick_edited(SharedString::default());
+        }
+    });
+}
+
 fn sans_focus(f: &AppWindow, e: &mut Etat) {
     e.focus = -1;
     f.set_note_caret_visible(false);
@@ -1290,7 +1302,7 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
             f.set_notes_quick_query(SharedString::default());
             f.set_notes_quick_highlight(0);
             f.set_notes_quick_open(true);
-            f.invoke_notes_quick_edited(SharedString::default());
+            remplir_liste_rapide(f);
             true
         }
         "ctrl+shift+c" | "ctrl+shift+C" => {
@@ -3443,7 +3455,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
                 f.set_notes_quick_highlight(0);
                 e.deplacement = Some(cle);
                 f.set_notes_quick_open(true);
-                f.invoke_notes_quick_edited(SharedString::default());
+                remplir_liste_rapide(&f);
             }
             "revise" => reviser_dossier(&f, e, &cle),
             "new-tab" => {

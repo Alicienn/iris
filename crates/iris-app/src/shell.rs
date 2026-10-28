@@ -50,6 +50,8 @@ pub fn appliquer_toucher(fenetre: &AppWindow) {
     let plateforme = crate::platform::current();
     let toucher = plateforme.touch() || std::env::var("IRIS_TOUCH").is_ok_and(|v| v == "1");
     layout.set_touch_input(toucher);
+    layout.set_folders(plateforme.folders());
+    layout.set_camera(plateforme.can_scan());
     // The window's own safe area, when the system reports one, is taken by the window
     // itself (`take-safe-area`) and kept: nothing here sets it back to zero.
     let (haut, bas) = plateforme.insets();
@@ -2934,6 +2936,42 @@ pub fn wire_settings(
         });
     }
 
+    // The shared settings already set here go into the sync once: a first name typed
+    // before pairing was never sent, since only a change was. Only those set away from
+    // their default: a new phone's defaults must not overwrite the computer's choices.
+    {
+        let reglages = courant.lock().expect("réglages empoisonnés").clone();
+        let defauts = Settings::default().shared_values();
+        let deja = services.store.shared_setting_keys().unwrap_or_default();
+        for (cle, valeur) in reglages.shared_values() {
+            if !deja.contains(&cle) && !defauts.contains(&(cle.clone(), valeur.clone())) {
+                if let Err(e) = services.store.set_shared_setting(&cle, &valeur) {
+                    tracing::warn!(error = %e, key = cle, "a shared setting");
+                }
+            }
+        }
+    }
+
+    // What another device sent is in the base: the accounts start syncing, the
+    // senders and the shared settings show, and the place on screen draws itself again.
+    {
+        let services = services.clone();
+        let controller = Arc::clone(&controller);
+        let runtime = runtime.clone();
+        let faible = fenetre.as_weak();
+        fenetre.on_devices_merged(move || {
+            let Some(f) = faible.upgrade() else {
+                return;
+            };
+            montrer_reglages_partages(&f, &crate::settings::current());
+            refresh_accounts(&f, &services, &[]);
+            charger_expediteurs(&f, &services);
+            recharger_les_comptes(&services, &runtime);
+            controller.send(Request::Bootstrap);
+            f.invoke_workspace_changed(f.get_workspace());
+        });
+    }
+
     // L'état initial du panneau.
     {
         let reglages = courant.lock().expect("réglages empoisonnés").clone();
@@ -3910,6 +3948,8 @@ pub fn wire_account_setup(
                                 );
                                 fenetre.set_add_account_found(true);
                             } else {
+                                // The welcome stayed under the setup: done with now.
+                                fenetre.set_first_run(false);
                                 fenetre.invoke_add_account_dismissed();
                             }
                             announce(&fenetre, format!("{adresse} added and working."));
@@ -6260,6 +6300,22 @@ pub fn wire_account_menu(
             }
         });
     }
+}
+
+/// The settings another device may have changed, as the window shows them.
+fn montrer_reglages_partages(fenetre: &AppWindow, reglages: &Settings) {
+    fenetre.set_first_name(reglages.first_name.as_str().into());
+    fenetre.set_profile_initials(iris_ui::format::initials(&reglages.first_name).into());
+    fenetre.set_density(reglages.density.index() as i32);
+    fenetre.set_reply_marks_waiting(reglages.automation.reply_marks_waiting);
+    fenetre.set_new_message_reopens(reglages.automation.new_message_reopens);
+    fenetre.set_follow_up_enabled(reglages.automation.follow_up_enabled);
+    fenetre.set_follow_up_days(reglages.automation.follow_up_days as i32);
+    fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
+    fenetre.set_group_by_tags(reglages.accounts_by_tag);
+    fenetre.set_home_at_startup(reglages.home_at_startup);
+    fenetre.set_accent_index(reglages.accent as i32);
+    fenetre.set_notes_math_preview(reglages.notes_math_preview);
 }
 
 /// Tells the engine which accounts are on: one switched off or removed leaves the

@@ -272,7 +272,17 @@ pub fn forward(f: &AppWindow) {
 /// there was nothing left to do, and the system may leave Iris.
 pub fn system_back(f: &AppWindow) -> bool {
     if f.get_modal_open() {
-        // Every window over the others closes on Escape: the same key, the same way.
+        // The one on top closes, wherever the keyboard is: a key sent to the window
+        // went to the focused field (an event's title, a page of Settings) and never
+        // reached what closes it.
+        if f.invoke_close_top() {
+            return true;
+        }
+        // Nothing under the welcome page: Back leaves, as on the system's first screen.
+        if f.get_first_run() {
+            return false;
+        }
+        // A window closing on its own Escape.
         let echap = slint::SharedString::from(slint::platform::Key::Escape);
         f.window()
             .dispatch_event(slint::platform::WindowEvent::KeyPressed {

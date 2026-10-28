@@ -215,11 +215,13 @@ export component Modal inherits Rectangle {
     carte := Rectangle {
         x: root.page || root.sheet ? 0px : (parent.width - self.width) / 2;
         y: root.page ? (1 - root.entree) * 12px
-            : root.sheet ? parent.height - self.height + root.tire + (1 - root.entree) * 24px
+            // A sheet stands on the keyboard while it is up: the name being typed (a
+            // new folder) shows above it rather than under it.
+            : root.sheet ? parent.height - self.height + root.tire + (1 - root.entree) * 24px - Layout.keyboard
             : (parent.height - self.height) / 2 + (1 - root.entree) * 12px;
         width: root.page || root.sheet ? parent.width : min(root.card-width, parent.width - 60px);
         height: root.page ? parent.height
-            : root.sheet ? min(contenu.preferred-height + Layout.inset-bottom, parent.height - 48px - Layout.inset-top)
+            : root.sheet ? min(contenu.preferred-height, parent.height - 48px - Layout.inset-top - Layout.keyboard)
             : min(root.fit ? contenu.preferred-height : root.card-height, parent.height - 60px);
         border-top-left-radius: root.page ? 0px : root.sheet ? 22px : Tokens.radius-large;
         border-top-right-radius: root.page ? 0px : root.sheet ? 22px : Tokens.radius-large;
@@ -268,7 +270,7 @@ export component Modal inherits Rectangle {
             height: root.page && root.fit ? min(self.preferred-height, parent.height) : parent.height;
             padding: 20px;
             padding-top: root.page ? 6px + Layout.inset-top : root.sheet ? 26px : 18px;
-            padding-bottom: root.page || root.sheet ? 20px + Layout.inset-bottom : 20px;
+            padding-bottom: (root.page || root.sheet) && Layout.keyboard == 0 ? 20px + Layout.inset-bottom : 20px;
             spacing: 14px;
 
             // A page, as a phone has it: back at the top left, the title large under it.
@@ -397,11 +399,14 @@ export component Popover inherits Rectangle {
                 ? root.anchor-left - root.card-width - 12px
                 : min(root.anchor-right + 12px, root.width - root.card-width - 8px))
                 + (1 - root.entree) * (root.a-gauche ? -8px : 8px);
-        y: root.sheet ? root.height - self.height + max(0px, root.tire)
+        // A sheet stands on the keyboard while it is up: the name being typed (a new
+        // folder) shows above it rather than under it.
+        y: root.sheet ? root.height - self.height + max(0px, root.tire) - Layout.keyboard
             : max(8px, min(root.anchor-top - 24px, root.height - root.hauteur - 8px));
         width: root.sheet ? root.width : root.card-width;
         height: root.sheet
-            ? (root.haute ? root.height - 48px - Layout.inset-top : root.height / 2)
+            ? min(root.haute ? root.height - 48px - Layout.inset-top : root.height / 2,
+                root.height - Layout.keyboard - 24px - Layout.inset-top)
             : root.hauteur;
         opacity: root.entree;
         border-top-left-radius: root.sheet ? 22px : Tokens.radius-large;
@@ -449,7 +454,7 @@ export component Popover inherits Rectangle {
         contenu := VerticalLayout {
             padding: 16px;
             padding-top: root.sheet ? 26px : 16px;
-            padding-bottom: root.sheet ? 16px + Layout.inset-bottom : 16px;
+            padding-bottom: root.sheet && Layout.keyboard == 0 ? 16px + Layout.inset-bottom : 16px;
             spacing: 12px;
             @children
         }

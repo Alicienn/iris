@@ -171,8 +171,9 @@ export component MenuSurface inherits Rectangle {
     opacity: root.sheet ? 1 : root.entree;
 
     x: root.sheet ? 0px : max(8px, min(root.menu-x, root.available-width - root.menu-width - 8px));
+    // A sheet rises from below the screen, and goes back down there when it closes.
     y: root.sheet
-        ? root.available-height - self.height + root.tire + (1 - root.entree) * 40px
+        ? root.available-height - self.height + root.tire + (1 - root.entree) * self.height
         : max(8px, min(root.menu-y, root.available-height - root.menu-height - 8px))
             - (1 - root.entree) * 4px;
     width: root.sheet ? root.available-width : root.menu-width;
@@ -186,6 +187,25 @@ export component MenuSurface inherits Rectangle {
     drop-shadow-color: Tokens.shadow-float;
     drop-shadow-offset-y: Tokens.shadow-float-y;
 
+    /// Closes it: a sheet slides down and its dimming fades first, then it is gone.
+    public function close() {
+        if (!root.sheet) {
+            root.dismissed();
+            return;
+        }
+        root.sortie = true;
+        root.entree = 0;
+    }
+    property <bool> sortie;
+    Timer {
+        interval: Tokens.quick;
+        running: root.sortie;
+        triggered => {
+            root.sortie = false;
+            root.dismissed();
+        }
+    }
+
     Rectangle {
         visible: root.sheet;
         x: -root.x;
@@ -194,8 +214,11 @@ export component MenuSurface inherits Rectangle {
         height: root.available-height;
         background: Tokens.scrim;
         opacity: root.entree;
-        // No touch area of its own: a tap goes through to the owner's veil, which
-        // closes the menu as it always has.
+        // A tap on the dimming closes the sheet as it slides down; a menu's taps go
+        // through to the owner's veil, which closes it as it always has.
+        TouchArea {
+            clicked => { root.close(); }
+        }
     }
     if root.sheet: Rectangle {
         border-top-left-radius: 22px;
@@ -229,7 +252,7 @@ export component MenuSurface inherits Rectangle {
         pointer-event(e) => {
             if (e.kind == PointerEventKind.up) {
                 if (root.tire > 60px) {
-                    root.dismissed();
+                    root.close();
                 }
                 root.tire = 0px;
             }

@@ -36,7 +36,41 @@ pub enum Event {
     Connected {
         digits: String,
     },
+    /// The other device said who it is: the exchange has begun.
+    Met {
+        name: String,
+    },
+    /// One kind of thing arrived from the other device, and how many of it.
+    Step {
+        kind: Kind,
+        count: usize,
+    },
     Done(Outcome),
+}
+
+/// What a sync carries, as the page that shows it counts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Accounts,
+    Tasks,
+    Calendars,
+    Settings,
+    Notes,
+}
+
+impl Kind {
+    /// The kind a synced table's rows count for. Accounts are counted by the
+    /// accounts themselves; their tags and aliases go with them uncounted.
+    fn of_table(table: &str) -> Option<Kind> {
+        match table {
+            "accounts" => Some(Kind::Accounts),
+            "account_tags" | "account_tag_links" | "account_aliases" | "scheduled_mail" => None,
+            "calendars" | "calendar_events" | "event_notes" | "event_colors" | "event_links"
+            | "invite_replies" => Some(Kind::Calendars),
+            "rules" | "unsubscribed" => Some(Kind::Settings),
+            _ => Some(Kind::Tasks),
+        }
+    }
 }
 
 struct Pairing {
@@ -261,11 +295,17 @@ impl Peers {
                 .unwrap_or_else(|e| e.into_inner())
                 .clone(),
             mine: Mutex::new(Vec::new()),
+            events: self.inner.events.clone(),
+            notes_received: 0,
         };
         let bilan = exchange(session, &mut cote, wants).await?;
         if !cote.settings.is_empty() {
             crate::settings::apply_remote(&cote.settings);
         }
+        let _ = self.inner.events.send(Event::Step {
+            kind: Kind::Notes,
+            count: cote.notes_received,
+        });
         Ok(bilan)
     }
 
@@ -297,6 +337,10 @@ struct AppSide {
     notes_root: Option<std::path::PathBuf>,
     /// This side's manifests, as sent.
     mine: Mutex<Vec<(String, Vec<ManifestEntry>)>>,
+    /// Where each step is told, for the page that shows the sync.
+    events: tokio::sync::mpsc::UnboundedSender<Event>,
+    /// Note files written here from the other device.
+    notes_received: usize,
 }
 
 /// The secrets that travel with an account.
@@ -319,6 +363,9 @@ impl Side for AppSide {
         if let Err(e) = self.store.remember_peer(peer, name) {
             tracing::warn!(error = %e, "remembering a paired device");
         }
+        let _ = self.events.send(Event::Met {
+            name: name.to_string(),
+        });
     }
 
     fn last_clock_of(&self, peer: &str) -> String {
@@ -341,6 +388,29 @@ impl Side for AppSide {
             .apply_changes(&set, &depuis)
             .map_err(|e| PeerError::Exchange(e.to_string()))?;
         self.settings = r.settings.clone();
+        // What came, kind by kind, for the page that shows the sync.
+        let mut comptes = [0usize; 4];
+        let tables = set
+            .rows
+            .iter()
+            .map(|l| l.table.as_str())
+            .chain(set.tombstones.iter().map(|t| t.table.as_str()));
+        for table in tables {
+            match Kind::of_table(table) {
+                Some(Kind::Accounts) => comptes[0] += 1,
+                Some(Kind::Tasks) => comptes[1] += 1,
+                Some(Kind::Calendars) => comptes[2] += 1,
+                Some(Kind::Settings) => comptes[3] += 1,
+                Some(Kind::Notes) | None => {}
+            }
+        }
+        comptes[3] += set.settings.len();
+        for (kind, count) in [Kind::Accounts, Kind::Tasks, Kind::Calendars, Kind::Settings]
+            .into_iter()
+            .zip(comptes)
+        {
+            let _ = self.events.send(Event::Step { kind, count });
+        }
         Ok(Summary {
             inserted: r.inserted,
             updated: r.updated,
@@ -448,7 +518,9 @@ impl Side for AppSide {
         // Next to it, then over it: a cut never leaves half a note.
         let provisoire = chemin.with_extension("iris-tmp");
         std::fs::write(&provisoire, bytes)?;
-        std::fs::rename(&provisoire, &chemin)
+        std::fs::rename(&provisoire, &chemin)?;
+        self.notes_received += 1;
+        Ok(())
     }
 
     fn delete_file(&mut self, space: &str, path: &str) -> std::io::Result<()> {

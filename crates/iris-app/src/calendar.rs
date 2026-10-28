@@ -857,6 +857,10 @@ fn telephone(
         title: etat.jour.format(motif).to_string().into(),
         today: today.day().to_string().into(),
         strip: ModelRc::new(VecModel::from(bande)),
+        month_number: etat.jour.year() * 12 + etat.jour.month0() as i32,
+        // Weeks since the Monday of 1970-01-05, which only need to grow.
+        week_number: ((debut - NaiveDate::from_ymd_opt(1970, 1, 5).unwrap_or_default()).num_days()
+            / 7) as i32,
         day_heading: titre_jour.into(),
         day_today: etat.jour == today,
         day_list: ModelRc::new(VecModel::from(liste)),

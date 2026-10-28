@@ -2,6 +2,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { BlockButton, ButtonKind } from "@iris/controls/button.slint";
+import { IrisBadge } from "@iris/shell/chrome.slint";
 
 // The first page of a copy of Iris with no mailbox yet, as the Android mockup draws it
 // (`..\Iris-design\android\onboarding.html`, O1): the mark, what Iris is in a line,
@@ -61,28 +62,17 @@ export component WelcomePage inherits Rectangle {
 
             HorizontalLayout {
                 alignment: start;
+                // The app's own icon: mail, calendar and tasks as three arcs of one
+                // iris around its pupil, on its white plate.
                 Rectangle {
                     width: 84px;
                     height: 84px;
                     border-radius: 24px;
-                    background: @linear-gradient(135deg, Tokens.mark-from 0%, Tokens.mark-mid 55%, Tokens.mark-to 100%);
                     drop-shadow-blur: Tokens.shadow-float-blur;
                     drop-shadow-offset-y: Tokens.shadow-float-y;
                     drop-shadow-color: Tokens.shadow-float;
-                    // The iris: a ring and its pupil.
-                    Rectangle {
-                        width: 32px;
-                        height: 32px;
-                        border-radius: 16px;
-                        border-width: 2.4px;
-                        border-color: white;
-                    }
-                    Rectangle {
-                        width: 12px;
-                        height: 12px;
-                        border-radius: 6px;
-                        background: white;
-                    }
+                    background: #ffffff;
+                    IrisBadge { size: 84px; }
                 }
             }
             Rectangle { height: 28px; }

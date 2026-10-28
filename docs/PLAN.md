@@ -852,3 +852,16 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       renderer; the memory diagnostics (`memory.rs`, `IRIS_MEMREPORT`, `iris memory`);
       the command-line `add-account`, `import`, `accounts` and `sync`; the macOS
       workflow; three iris-app test binaries made one (7.0.0).
+
+## E49 — The phone, finished (7.1.0)
+
+- [x] **S49.1** Pairing from the phone: Google's code scanner from the welcome page and
+      Settings › Devices, the `iris-pair:` link the camera opens Iris with, a page that
+      ticks off what each sync brings; what arrives (accounts, tasks, notes, the first
+      name) shows without a restart (7.1.0).
+- [x] **S49.2** Back closes the top window wherever the keyboard is (`close-top`), and
+      returns to the welcome page and to the calendars' sheet; the Home tab leaves
+      Settings (7.1.0).
+- [x] **S49.3** Rows centred again (a padded layout's top was written over their `y`),
+      sheets sliding down, the month and week sliding in, live dark mode on Android,
+      sheets over the keyboard, Move to… no longer crashing, empty new spaces (7.1.0).

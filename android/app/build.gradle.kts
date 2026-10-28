@@ -1,6 +1,5 @@
-// The APK: NativeActivity loads libiris_android.so, which is all of Iris. No Java or
-// Kotlin of our own yet; the platform's services that need one come with their own
-// sources under src/main/kotlin.
+// The APK: IrisActivity, Android's NativeActivity with a QR scanner and the link it was
+// opened with (src/main/java), loads libiris_android.so, which is all of Iris.
 
 plugins {
     id("com.android.application")
@@ -59,4 +58,10 @@ android {
             useLegacyPackaging = true
         }
     }
+}
+
+dependencies {
+    // Google's code scanner: the camera and the reading are Play services', so Iris
+    // asks for no camera permission and ships no camera code.
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

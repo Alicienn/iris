@@ -205,9 +205,12 @@ them; an Obsidian vault opens as it is.
 ## Sync between devices
 
 1. On one device: *Settings › Devices › **Pair a device…*** shows a QR code.
-2. On the other, on the same Wi-Fi: scan it, or paste the code (**Copy the code**,
-   then *Join with a code*).
-3. Both show the same six digits, and the first sync runs.
+2. On the other, on the same Wi-Fi: on a phone, *Scan a code* (or *Set up from another
+   device* on the welcome page), or scan it with the phone's own camera, which opens
+   Iris on it; on a computer, paste the code (**Copy the code**, then *Join with a code*).
+3. Both show the same six digits, and the first sync runs; the joining device ticks off
+   accounts, tasks, calendars, settings and notes as they arrive. Scanning on Android
+   needs Google Play services.
 
 What travels: task lists and tasks, goals, habits, your own calendars and events, your
 accounts with their passwords, tags, rules, shared settings and note spaces. Mail
