@@ -3683,14 +3683,8 @@ dependencies = [
 name = "iris-kernel"
 version = "6.8.0"
 dependencies = [
- "async-trait",
  "iris-types",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
  "tokio",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
 ]
 
 [[package]]
