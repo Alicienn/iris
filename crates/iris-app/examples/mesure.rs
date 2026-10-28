@@ -6,10 +6,9 @@
 //! 1. fenêtre ouverte, infolettre affichée ;
 //! 2. fenêtre rangée dans la zone de notification, mémoire rendue.
 //!
-//! Le moteur de rendu de l'interface se choisit comme pour l'application :
+//! The interface is drawn by Slint's software renderer, the only one Iris builds:
 //!
 //! ```text
-//! $env:SLINT_BACKEND="winit-femtovg";  cargo run --release -p iris-app --example mesure
 //! $env:SLINT_BACKEND="winit-software"; cargo run --release -p iris-app --example mesure
 //! ```
 //!

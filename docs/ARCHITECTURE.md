@@ -727,7 +727,8 @@ These rules come from bugs users hit, and each has a scenario in
   open and the newsletter shown, 9.6 MB at start, 2.0 MB in the notification area. The difference is what the graphics
   driver reserves for a GL context, and it shows in no counter of the application. A
   mail client redraws little, and the software renderer repaints only what changed.
-  `SLINT_BACKEND=winit-femtovg` restores the old path, for comparison only.
+  Since 7.0 it is the only renderer built in: the OpenGL one (femtovg), kept for that
+  comparison, is no longer compiled.
 - **Message bodies** are rich text by default, and go to a **full HTML engine** (Blitz)
   only when the layout demands it — newsletters in nested tables, pixel-exact layouts.
   The choice is measured, not guessed. Blitz lays the document out **once**, at the

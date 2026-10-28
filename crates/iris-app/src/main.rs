@@ -499,7 +499,8 @@ fn cmd_doctor() -> Result<()> {
 
 // --- Interface ---
 
-/// Le rendu logiciel de Slint, sauf si `SLINT_BACKEND` en demande un autre.
+/// Slint's software renderer, the only one built in, unless `SLINT_BACKEND` names a
+/// backend (`winit-software` for the previews).
 fn select_software_renderer() {
     if std::env::var_os("SLINT_BACKEND").is_none() {
         if let Err(e) = slint::BackendSelector::new()

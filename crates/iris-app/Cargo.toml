@@ -71,10 +71,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 ring = "0.17"
 hex = "0.4"
 
-# A desktop: Slint over winit (the software renderer, femtovg for comparison), the
-# clipboard's images, the system's file dialogs.
+# A desktop: Slint over winit (the software renderer only), the clipboard's images,
+# the system's file dialogs.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "std", "unstable-winit-030"] }
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-software", "std", "unstable-winit-030"] }
 # An image pasted into a note: read from the clipboard, written as PNG beside it.
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 # Native file pickers. `xdg-portal` off: the Windows build has no use for it and
