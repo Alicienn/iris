@@ -30,6 +30,7 @@ iris-secrets = { path = "crates/iris-secrets" }
 iris-oauth = { path = "crates/iris-oauth" }
 iris-htmlview = { path = "crates/iris-htmlview", default-features = false }
 iris-ui = { path = "crates/iris-ui" }
+iris-ui-views = { path = "crates/iris-ui-views" }
 iris-calendar = { path = "crates/iris-calendar" }
 iris-caldav = { path = "crates/iris-caldav" }
 iris-tasks = { path = "crates/iris-tasks" }
@@ -92,7 +93,7 @@ debug = false
 # memory in 6.8.0: the Android build was killed while it was optimised. Sixteen parts
 # rather than one in release lower the compiler's peak. Its debug build keeps its
 # line tables: the interface tests find their elements through the debug info.
-[profile.release.package.iris-ui]
+[profile.release.package.iris-ui-views]
 codegen-units = 16
 # Optimised for size: what it holds is bindings and layouts, not loops, and LLVM needs
 # far less memory for it (the Android runner was killed at level 3).

@@ -56,7 +56,7 @@ would publish nothing from them, and a push takes the time of the tests. The lin
 still compile the whole workspace with its default features. `Run workflow` builds
 both whatever the version.
 
-The interface crate (`iris-ui`, every screen's generated code) is the heaviest thing
+The interface's generated code (`iris-ui-views` since 7.0.0, every screen) is the heaviest thing
 CI compiles: since 6.8.0 it has sixteen codegen units and `opt-level = "s"` in release
 (`Cargo.toml`; its debug build keeps the line tables the interface tests need); the
 APK's job adds 10 GB of swap, the tests' job a 16 GB page file and neither Rust line tables

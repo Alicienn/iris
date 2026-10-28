@@ -18,7 +18,7 @@ linker = "rust-lld.exe"
 # module, and with them LLVM ran out of memory on the runners (6.8.0). Slint's own debug
 # info is off too (no IRIS_UI_DEBUG_INFO in ci.yml, and `debug = false` makes the build
 # script's DEBUG false): the tests find elements by accessible role and label.
-[profile.dev.package.iris-ui]
+[profile.dev.package.iris-ui-views]
 debug = false
 # Unoptimised, the generated code is so large that LLVM ran out of memory even without
 # line tables; built as the release builds it (size, sixteen parts), it fits.

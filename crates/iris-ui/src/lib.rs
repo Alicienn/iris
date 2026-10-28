@@ -12,10 +12,8 @@
 //!   données, pas du code d'interface, donc reconfigurables ;
 //! - le **pont** ([`bridge`]) : de la conversion de type, jamais de décision.
 
-// Le code engendré par Slint contient des blocs non sûrs qu'il annote lui-même ;
-// « forbid » interdirait cette annotation. Notre propre code, lui, n'en contient
-// aucun — c'est ce que vérifie « deny », qui reste levable ligne par ligne mais
-// n'a jamais eu à l'être.
+// No unsafe code of our own. (The code Slint generates, which annotates its own unsafe
+// blocks, now lives in iris-ui-views; `deny` rather than `forbid` is kept from then.)
 #![deny(unsafe_code)]
 
 pub mod bridge;
@@ -27,5 +25,7 @@ pub mod recipients;
 pub use commands::{builtin_commands, Command, CommandKind};
 pub use keymap::{KeyOutcome, Keymap};
 
-// Types et composants engendrés à partir des fichiers `.slint`.
-slint::include_modules!();
+// The window, its screens and components, generated from `ui/` in a crate of their own
+// (iris-ui-views) and re-exported here, so that everything keeps naming them
+// `iris_ui::…` and `crate::…`.
+pub use iris_ui_views::*;

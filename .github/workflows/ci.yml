@@ -125,11 +125,9 @@ jobs:
         # memory (6.8.0).
         env:
           CARGO_BUILD_JOBS: 2
-        # iris-ui's own unit tests first and alone: the crate is compiled twice (the
-        # library and its unit tests), and side by side the two did not fit (7.0.0).
-        run: |
-          cargo test --config .github/cargo-ci.toml -p iris-ui --no-default-features --lib --no-run
-          cargo test --config .github/cargo-ci.toml --workspace --no-default-features --lib --tests --no-run
+        # The generated interface is its own crate (iris-ui-views) since 7.0.0: built
+        # once, never a second time for iris-ui's unit tests.
+        run: cargo test --config .github/cargo-ci.toml --workspace --no-default-features --lib --tests --no-run
 
       - name: Tests
         # Every failing binary reported in one run, not only the first.

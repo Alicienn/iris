@@ -1,0 +1,23 @@
+[package]
+name = "iris-ui-views"
+description = "Iris's window, screens and components, compiled from the .slint files of iris-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Only the code Slint generates from `crates/iris-ui/ui`, in a crate of its own: it is
+# the largest thing the workspace compiles (tens of megabytes of Rust), and on its own
+# it is compiled once, never again for iris-ui's unit tests, nor when only iris-ui's
+# Rust changes.
+
+# Slint over winit on a desktop; on Android the backend comes from iris-app's own
+# (android-activity), and the interface itself is the same.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-software", "std"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "renderer-software", "std"] }
+
+[build-dependencies]
+slint-build = "1.17"

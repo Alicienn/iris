@@ -180,7 +180,7 @@ Five layers, plus a cross-cutting kernel. No diagonal dependency: a layer only k
 contract of the one before it.
 
 ```
-  Presentation   iris-ui · iris-htmlview · iris-theme        never any I/O
+  Presentation   iris-ui (+ iris-ui-views) · iris-htmlview · iris-theme   never any I/O
   View model     iris-viewmodel                              testable without UI
   Domain         iris-workflow · iris-thread · iris-rules    pure, no I/O
                  iris-search · iris-mime
@@ -351,6 +351,12 @@ Rust follower, because Slint keeps only one handler per callback. The status bar
 at the bottom.
 
 ### Components in layers (2.0.0)
+
+Since 7.0.0 the code Slint generates from those files is compiled by a crate of its own,
+`iris-ui-views` (its `build.rs` reads `crates/iris-ui/ui`), and `iris-ui` re-exports it
+(`pub use iris_ui_views::*`): the generated code is the heaviest thing the workspace
+compiles, and inside `iris-ui` a test build compiled it twice (the library and its unit
+tests), which ran the CI runner out of memory.
 
 The interface files sit in layer folders under `crates/iris-ui/ui/`, imported through the
 `@iris` library path (`build.rs` maps it to that folder), so a file's imports read the

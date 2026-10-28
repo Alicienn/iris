@@ -28,7 +28,8 @@ fn compiler() {
     // from where the importing file happens to sit: the files live in layer folders
     // (theme, base, controls, lists, layout, screens, shell), and a path relative to
     // each of them would change every time one moves.
-    let racine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui");
+    // The files stay with the Rust that feeds them, in iris-ui.
+    let racine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iris-ui/ui");
     config = config.with_library_paths(std::collections::HashMap::from([(
         "iris".to_string(),
         racine,
@@ -47,7 +48,8 @@ fn compiler() {
         config = config.with_debug_info(true);
     }
 
-    slint_build::compile_with_config("ui/app.slint", config).expect("compilation de l'interface");
+    slint_build::compile_with_config("../iris-ui/ui/app.slint", config)
+        .expect("compilation de l'interface");
     println!("cargo:rerun-if-env-changed=DEBUG");
     println!("cargo:rerun-if-env-changed=IRIS_UI_DEBUG_INFO");
 }

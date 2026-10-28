@@ -3774,11 +3774,19 @@ dependencies = [
  "iris-store",
  "iris-theme",
  "iris-types",
+ "iris-ui-views",
  "iris-viewmodel",
  "serde_json",
  "slint",
- "slint-build",
  "tracing",
+]
+
+[[package]]
+name = "iris-ui-views"
+version = "7.0.0"
+dependencies = [
+ "slint",
+ "slint-build",
 ]
 
 [[package]]
