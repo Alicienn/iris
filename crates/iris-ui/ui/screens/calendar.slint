@@ -663,6 +663,9 @@ component WeekGrid inherits VerticalLayout {
     // days follow the finger and slide in. Up and down stays the scroll.
     SwipeGestureHandler {
         vertical-stretch: 1;
+        // Off entirely on a PC and while an event is carried: even with no direction
+        // to take, it held the press, and an event dragged in the week no longer moved.
+        enabled: Layout.compact && root.drag-mode == 0 && root.draft-day < 0;
         handle-swipe-left: Layout.compact && root.drag-mode == 0 && root.draft-day < 0;
         handle-swipe-right: Layout.compact && root.drag-mode == 0 && root.draft-day < 0;
         moved => {

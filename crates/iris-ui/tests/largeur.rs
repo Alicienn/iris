@@ -232,7 +232,10 @@ fn le_retour_ferme_une_tache_avant_de_quitter() {
     assert!(f.invoke_close_layer(), "a task open is a layer");
     assert!(fermee.get());
     f.set_task_has_detail(false);
-    assert!(!f.invoke_close_layer(), "nothing left over the list");
+    // The list then goes up to Tasks, the page of everything; there, nothing is left.
+    assert!(f.invoke_close_layer(), "a list goes back up to Tasks");
+    assert!(f.get_tasks_column_open(), "Tasks shows");
+    assert!(!f.invoke_close_layer(), "nothing left over Tasks");
 }
 
 fn l_onglet_ouvert_touche_ramene_a_sa_liste() {
