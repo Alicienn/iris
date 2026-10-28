@@ -91,12 +91,9 @@ opt-level = 2
 debug = false
 
 # The interface's generated code (every screen, one crate) outgrew the CI machines'
-# memory in 6.8.0: the test build ran LLVM out of memory and the Android build was
-# killed. No line tables for it in debug (nobody steps through generated code), and
-# sixteen parts rather than one in release, which lowers the compiler's peak.
-[profile.dev.package.iris-ui]
-debug = false
-
+# memory in 6.8.0: the Android build was killed while it was optimised. Sixteen parts
+# rather than one in release lower the compiler's peak. Its debug build keeps its
+# line tables: the interface tests find their elements through the debug info.
 [profile.release.package.iris-ui]
 codegen-units = 16
 # Optimised for size: what it holds is bindings and layouts, not loops, and LLVM needs

@@ -94,6 +94,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      # Room for the interface crate's debug build (see Compilation).
+      - uses: al-cheb/configure-pagefile-action@v1.5
+        with:
+          minimum-size: 16GB
+          maximum-size: 24GB
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -117,6 +122,11 @@ jobs:
       # `cargo-ci.toml`: lighter optimisation of the dependencies and a faster linker,
       # for these tests only (see the file).
       - name: Compilation
+        # Two compilers at a time, over a larger page file: the interface crate alone
+        # takes most of the runner's memory, and beside the rest it ran rustc out of
+        # memory (6.8.0).
+        env:
+          CARGO_BUILD_JOBS: 2
         run: cargo test --config .github/cargo-ci.toml --workspace --no-default-features --lib --tests --no-run
 
       - name: Tests
