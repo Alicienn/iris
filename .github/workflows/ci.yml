@@ -88,9 +88,10 @@ jobs:
     name: Tests (windows-latest)
     runs-on: windows-latest
 
-    # Keep the dev profile's debug info: iris-ui's build script emits the interface's
-    # debug info only when it is on (`DEBUG=true`), and the interface tests find their
-    # elements through it.
+    # The interface tests find their elements through Slint's debug info. cargo-ci.toml
+    # turns Rust's line tables off for iris-ui (memory), so it is asked for by name.
+    env:
+      IRIS_UI_DEBUG_INFO: "1"
 
     steps:
       - uses: actions/checkout@v7

@@ -38,10 +38,16 @@ fn compiler() {
     // élément par son libellé d'accessibilité. Elles ne sont émises que dans les
     // profils de développement : en production elles n'ont pas d'usage, et elles
     // gonflent le binaire de la structure complète de l'interface.
-    if std::env::var("DEBUG").as_deref() == Ok("true") {
+    // `IRIS_UI_DEBUG_INFO=1` asks for them without Rust's own line tables: CI's test
+    // build turns those off for this crate (the generated code ran LLVM out of memory
+    // with them, 6.8.0) and still needs the elements' labels.
+    if std::env::var("DEBUG").as_deref() == Ok("true")
+        || std::env::var("IRIS_UI_DEBUG_INFO").as_deref() == Ok("1")
+    {
         config = config.with_debug_info(true);
     }
 
     slint_build::compile_with_config("ui/app.slint", config).expect("compilation de l'interface");
     println!("cargo:rerun-if-env-changed=DEBUG");
+    println!("cargo:rerun-if-env-changed=IRIS_UI_DEBUG_INFO");
 }

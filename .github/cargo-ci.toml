@@ -13,3 +13,10 @@ opt-level = 1
 # whole application or interface. Ignored on macOS.
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
+
+# No Rust line tables for the interface crate: its generated code is one very large
+# module, and with them LLVM ran out of memory on the runners (6.8.0). The tests still
+# find elements by label: ci.yml sets IRIS_UI_DEBUG_INFO=1, which keeps Slint's own
+# debug info (crates/iris-ui/build.rs).
+[profile.dev.package.iris-ui]
+debug = false
