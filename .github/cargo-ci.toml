@@ -20,3 +20,7 @@ linker = "rust-lld.exe"
 # debug info (crates/iris-ui/build.rs).
 [profile.dev.package.iris-ui]
 debug = false
+# Unoptimised, the generated code is so large that LLVM ran out of memory even without
+# line tables; built as the release builds it (size, sixteen parts), it fits.
+opt-level = "s"
+codegen-units = 16
