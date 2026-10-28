@@ -1432,8 +1432,9 @@ export component ThreadListView inherits VerticalLayout {
             return;
         }
         let ligne = root.rows[index];
-        root.menu-row = ligne;
         root.row-context-menu(ligne.id, px, py, ligne.unread, ligne.flagged);
+        // Last: the generated code moves the row into the property.
+        root.menu-row = root.rows[index];
     }
 
     /// Whether row `i`'s content (its day title left out) covers `y` in the list.
@@ -1732,8 +1733,8 @@ export component ThreadListView inherits VerticalLayout {
             clicked => { root.row-clicked(entry.id); }
             drag-started => { root.row-drag-started(entry.id); }
             context-menu(x, y) => {
-                root.menu-row = entry;
                 root.row-context-menu(entry.id, x, y, entry.unread, entry.flagged);
+                root.menu-row = entry;
             }
             mark-toggled => { root.row-mark-toggled(entry.id); }
             mark-extended => { root.row-mark-extended(entry.id); }
