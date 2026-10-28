@@ -99,3 +99,6 @@ debug = false
 
 [profile.release.package.iris-ui]
 codegen-units = 16
+# Optimised for size: what it holds is bindings and layouts, not loops, and LLVM needs
+# far less memory for it (the Android runner was killed at level 3).
+opt-level = "s"

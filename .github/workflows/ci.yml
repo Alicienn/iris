@@ -173,6 +173,15 @@ jobs:
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
+      # Room to compile the interface crate: the runner has no swap, and without it
+      # the build was killed while that crate was being optimised (6.8.0).
+      - name: Swap
+        run: |
+          sudo fallocate -l 10G /swapfile2
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2
+          sudo swapon /swapfile2
+          free -h
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
