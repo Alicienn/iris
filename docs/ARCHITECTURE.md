@@ -12,9 +12,10 @@ Three stances set it apart:
 2. **Performance is a design constraint**, not an optimisation. It dictates the
    architecture — cursor pagination, event coalescing, a view model off the display
    thread — and not the other way round.
-3. **Everything is a module.** The kernel does not know what a mail is. Rules,
-   protocols and extensions are modules, and a third-party plugin sees the same
-   permission model as an internal module.
+3. **The kernel does not know what a mail is.** It carries typed events between the
+   layers and coalesces them for the display; rules, protocols and sorting live in
+   their own crates on top of it. (Until 7.0 it also held a module registry, and
+   third-party WebAssembly plugins ran in a sandbox; neither had a use left.)
 
 ---
 
@@ -22,8 +23,9 @@ Three stances set it apart:
 
 The foundation is complete and exercised: the suite holds about **1,500 tests** (1,358
 tests and 142 interface scenarios, measured for 3.4.0),
-including those that genuinely put synchronisation, the plugin sandbox and the rendering
-engine at fault, and two headless interface suites driven by real pointer and key events.
+including those that genuinely put synchronisation and the rendering engine at fault,
+and two headless interface suites driven by real pointer and key events. (7.0 removed the
+plugin sandbox and its tests; the count has not been measured again since.)
 
 ```bash
 cargo test --workspace          # the full suite
@@ -159,8 +161,8 @@ depending on what the operating system has cached. Publishing the best run would
 flattering and less true.
 
 A triage action cost **41 µs** in an earlier version. It now costs 97, and that is a
-deliberate trade: every action is now announced on the bus — without which plugins do
-not see the user's triage — and undoing it restores the snooze and the flags, not only
+deliberate trade: every action is now announced on the bus — without which the rest of
+Iris does not see the user's triage — and undoing it restores the snooze and the flags, not only
 the state. A measure that never goes up is a measure that has stopped being confronted
 with what the product must do.
 
@@ -190,8 +192,7 @@ contract of the one before it.
   Network        iris-sync · iris-imap · iris-smtp           tokio
                  iris-discover · iris-secrets · iris-oauth
                  iris-caldav · iris-peer (device to device)
-  Cross-cutting  iris-kernel · iris-types
-                 iris-plugins (host) · iris-plugin-sdk (guest)
+  Cross-cutting  iris-kernel (event bus) · iris-types
   Assembly       iris-app                                    binary, wiring
                  iris-android (cdylib) + android/ (Gradle)  Android's entry point
 ```
@@ -205,9 +206,8 @@ the `platform::Platform` trait (the desktop's code is its default; Android's is 
 (`arboard` and `rfd` on a desktop, stand-ins on Android). On Android, `android_logger`
 owns the `log` crate's logger (logcat) before the journal starts; `logging::install`
 therefore uses `try_init`, which installs the `tracing` subscriber and leaves `log` to
-logcat (`tests/journal.rs`). The three bundled modules (`iris-plugin-vip`,
-`iris-plugin-office-hours`, `iris-plugin-filer`) are WebAssembly crates built on the SDK;
-see [PLUGINS.md](PLUGINS.md).
+logcat (`tests/divers.rs`, module `journal`). VIP, Office hours and Filer, WebAssembly
+plugins until 7.0, are part of Iris (see [Sorting](#sorting-vip-office-hours-filer)).
 
 ### The four invariants
 
@@ -284,6 +284,13 @@ Stated here so they are decided rather than discovered:
   `unstable-winit-030` accessor: inside the interface, whatever row or button is under
   the pointer takes the press first. The accessor is tied to Slint's minor version.
 - `iris-ui` and `iris-workflow` depend on `iris-store` directly.
+- **Office hours are in UTC**, as they were as a plugin: the settings say so. Following
+  the machine's zone (as the calendar does) would shift the hours migrated from 6.x.
+- **Filer sees an attachment's name only once the body is fetched**: the attachments are
+  recorded with the body, and new mail is sorted at header time.
+- **Migration 29 keeps `areas`** as a bare table of ids, because the `area_id` columns
+  still reference it; dropping the columns would mean rebuilding three synced tables and
+  their triggers.
 - **Notes read and write their files on the display thread.** A note is read when
   opened and written after typing stops, in milliseconds; but search, backlinks, the
   graph and Home's widget read every note of the space there too. A space of a few
@@ -643,7 +650,7 @@ These rules come from bugs users hit, and each has a scenario in
   `FocusScope` that does not have the focus consumes the click that gives it focus; on
   top, it swallowed the first click on every field.
 - **An open window owns the keyboard.** `modal-open` in `app.slint` is the OR of every
-  overlay — compose, settings, modules, palette, menus, calendar and task panels. While
+  overlay — compose, settings, rules, palette, menus, calendar and task panels. While
   it is true, only `Escape` (and `Ctrl`+`K`) get through; when it turns false, focus goes
   back to the shortcuts.
 - Home, calendar and tasks have their own keys (Home has none) and accept them, so a
@@ -735,7 +742,13 @@ These rules come from bugs users hit, and each has a scenario in
   512-point tiles**, straight into the interface's buffer. Only tiles near the viewport
   are painted; those scrolling away are released. There is no GPU device of our own and
   never one image the height of the message: a 51,000-pixel newsletter costs two tiles,
-  which `cargo test -p iris-app --test memoire` enforces.
+  which `cargo test -p iris-app --test memoire` enforces (on the heap's peak, counted
+  by that test binary's own allocator).
+- **How memory is measured**: the resident size (`vitals.rs`, the status bar's figure),
+  with the `mesure` example and `tests/memoire.rs`. Until 7.0 the application also
+  carried a counting global allocator, a capture of where large blocks came from, an
+  address-space breakdown and start-up milestones (`memory.rs`, `IRIS_MEMREPORT`,
+  `iris memory`); they had done their work and are gone.
 - Past 4 MB of HTML, 20,000 tags or 400,000 pixels of height, the body falls back to rich
   text, which cannot fail.
 - **Memory is given back in the tray.** When the window closes to the notification area,
@@ -1098,9 +1111,9 @@ place `"goals"`, each row `goal:{id}`, recorded by Back and forward as tasks pla
 Home, a habit's goal and Today's nudges open them through `tasks::open`.
 
 **The compass** (5.0.0, removed in 6.0.0). Areas of life, monthly scores, cycles and
-the vision were dropped from the interface and the code; their tables (migration 26)
-and `area_id` columns stay in the base, unused, and are still copied by the daily
-backup so a restore keeps them.
+the vision were dropped from the interface in 6.0.0; the store's code for them
+(`compass.rs`) stayed until 7.0, which removed it, and migration 29 drops their tables
+(the `area_id` columns stay, emptied, and `areas` remains as a bare table they point to).
 
 ## Sending, and undoing a send
 
@@ -1482,7 +1495,8 @@ which keeps that term off any index, and a test pins the plan
 | 25 | `habits` (schedule, amount, goal, reminder) and `habit_checks` (a day kept, and how much) (5.0.0) |
 | 26 | `areas` (six to start), `area_id` on goals, habits and task lists, `area_scores` by month, `cycles` and `cycle_goals`, `vision` (5.0.0; unused since 6.0.0) |
 | 27 | `folders.accepts_keywords`: the folder's PERMANENTFLAGS hold `\*`, so the queue state travels there as `$IrisWaiting` / `$IrisDone` (6.2.0) |
-| 28 | Sync between devices: `sync_id` and `sync_at` on every table of `sync::SYNCED`, with three triggers each (stamp on insert and update, a tombstone on delete, none while a merge writes); `sync_device`, `sync_tombstones`, `sync_peers`, `sync_settings`; seeded rows get fixed ids (6.3.0) |
+| 28 | Sync between devices: `sync_id` and `sync_at` on every table of `sync::SYNCED`, with three triggers each (stamp on insert and update, a tombstone on delete, none while a merge writes); `sync_device`, `sync_tombstones`, `sync_peers`, `sync_settings`; seeded rows get fixed ids (6.3.0). Built from `sync::synced_v28`, which keeps the compass's tables as they travelled then |
+| 29 | The compass goes: `area_id` emptied on goals, habits and task lists (the columns stay), `area_scores`, `cycles`, `cycle_goals` and `vision` dropped, `areas` made again as a bare table of ids (the `area_id` columns still reference it, and SQLite refuses inserts under a missing parent), their tombstones dropped (7.0.0) |
 
 A new table or column always arrives as a new migration.
 
@@ -1507,9 +1521,9 @@ to stay inside the space.
 **Sync between devices: the model** (6.3.0; spec
 `superpowers/specs/2026-10-26-iris-sync-design.md`). Each row of the tables in
 `iris-store/src/sync.rs` (`SYNCED`, parents first: task lists, tasks, goals, habits and
-their days, the compass, the local calendars and their events, event notes, colours and
+their days, the local calendars and their events, event notes, colours and
 links, invitation answers, account tags, accounts, aliases, rules, lists left, mail sent
-later) carries a `sync_id`, the same on every device, and a `sync_at`, a hybrid logical
+later; the compass's tables until 7.0) carries a `sync_id`, the same on every device, and a `sync_at`, a hybrid logical
 clock (`clock.rs`: milliseconds, a counter, the device; fixed widths, so that string
 order is clock order). SQLite's triggers keep both through two functions the store
 registers on its connection, `iris_clock()` and `iris_merging()`; a delete writes a
@@ -1520,21 +1534,24 @@ with the triggers silenced: the newer clock wins a row, a tombstone deletes only
 was not changed after it, rows made on both sides before they met are matched by their
 natural key (an account by its address, a tag by its name) and keep the smaller id,
 and **an account is never removed by a merge**: its address is returned for the app to
-ask. Settings shared between devices (`settings::SHARED`: first name, density, accent…)
+ask. Rows and tombstones of a table this version does not sync (the compass's, from a
+device still on 6.x) are ignored, and `area_id` neither travels nor is written: a 6.x
+device sends it as an area's `sync_id`. Settings shared between devices (`settings::SHARED`: first name, density, accent…)
 go through `sync_settings`. `iris-peer` carries the sets between devices: the pairing
 invite of a QR code, a session sealed with XChaCha20-Poly1305 under a key derived from
 the invite's (BLAKE3), and the symmetric exchange of records, secrets and notes.
 
 **Backups of one's own data** (4.12.0, `iris-store/src/backup.rs`,
 `iris-app/src/backup.rs`). Mail comes back from its servers; calendars, events and
-what is set beside them, task lists, tasks, goals, habits and the compass do not. Once a day (looked at a
+what is set beside them, task lists, tasks, goals and habits do not. Once a day (looked at a
 minute after launch, then every hour) `back_up_personal` attaches a new file and copies
-those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals, habits and their days, the compass's areas, scores, cycles and vision) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
+those tables (the calendar accounts and their calendars, events, deletions not sent, notes, colours, call links, invitation answers, task lists, tasks, goals, habits and their days) into it with `CREATE TABLE … AS SELECT`, in one transaction, with
 an `about` row (schema version, time); the file is written as `.partial` and renamed.
 They sit in `data/backups/personal-YYYY-MM-DD.db`, fourteen kept. `restore_personal`
 empties the same tables children first and fills them parents first from the backup,
 by the columns both sides have, in one transaction: a backup from an older schema
-restores into a newer one, its missing columns taking their defaults. What was there is
+restores into a newer one, its missing columns taking their defaults (`area_id` is never
+restored: a 6.x backup's areas are gone). What was there is
 first kept as `before-restore-….db`. *Export for other apps* writes each own calendar
 and the tasks as iCalendar (`iris_calendar::write`: events with their zone named by
 `TZID`, rules, exceptions, changed occurrences and first reminder; tasks as `VTODO`
@@ -1562,9 +1579,7 @@ with their list as `CATEGORIES`).
   by `crates/iris-app/src/changelog.rs`; the same file feeds the Changelog window, the
   GitHub release notes and the repository. A test fails if its first section is not the
   `Cargo.toml` version, or if the format breaks.
-- **The updater is part of the core, not a module**: the plugin sandbox has no network,
-  no file system and no way to start a process, and an updater needs all three. Iris
-  asks GitHub for the latest release 8 seconds after launch and then every 6 hours —
+- **The updater is part of the core.** Iris asks GitHub for the latest release 8 seconds after launch and then every 6 hours —
   it can sit in the tray for weeks, so "at launch" would mean "never". Since 3.8.0 it
   reads no API. Each release carries `latest.json` (version, tag, installer name, size,
   SHA-256) and `latest.json.sig`, an Ed25519 signature made by the release workflow with
@@ -1581,9 +1596,8 @@ with their list as `CATEGORIES`).
   being offline is not news.
 - **CI** (`.github/workflows/ci.yml`): format and clippy with warnings denied, the test
   suite on Windows without the HTML engine (no GPU there), and a Windows release build
-  kept as an artifact. The same tests run on macOS in `macos.yml`, a separate workflow
-  so that Release, which follows CI, does not wait for the slowest runner: the
-  installer is Windows-only. The test jobs build unit and integration tests
+  kept as an artifact, and for a new version Android's APK. There is no macOS run since
+  7.0: Iris targets Windows and Android. The test jobs build unit and integration tests
   only (`--lib --tests`, no examples, no doc-tests); a push that only
   touches `docs/`, a README or `CLAUDE.md` runs nothing, and a newer push to a pull
   request cancels the older run.
@@ -1594,27 +1608,36 @@ with their list as `CATEGORIES`).
 
 ---
 
-## Extensions
+## Sorting: VIP, Office hours, Filer
 
-Plugins are WebAssembly, run in a sandbox. The question "can a plugin do harm?" has three
-answers, each verified by a test that genuinely puts a plugin at fault:
+Until 7.0 these three were WebAssembly plugins, run by a wasmtime sandbox
+(`iris-plugins`) with an SDK of their own. They never acted: the sync announces new mail
+with an empty list of ids, and the plugin host only looked at the first. 7.0 removed the
+host, the SDK, the Modules window's plugin half and the `wasm32` release target, and
+made the three part of Iris:
 
-- **fuel** bounds execution time — an infinite loop stops within microseconds, and the
-  plugin is disabled;
-- **memory** is capped — a greedy plugin is refused, not the machine;
-- **capabilities** bound what it may ask for, and the keychain is never granted: a plugin
-  able to read passwords is no longer a plugin.
+- **The decision** is pure, in `iris-rules::triage`: `Triage::is_vip` (a whole address,
+  or an `@domain` matched with its `@`, case-insensitive), `OfficeHours::reopens_at`
+  (the start of the next working hour, in UTC, Saturday and Sunday closed or not; an end
+  not after the start works until midnight), `parse_filer` and `filer_destination`
+  (`pattern -> Folder` or `→`, `#` comments, faulty lines skipped one by one; a
+  case-insensitive substring of the subject or an attachment's name; the first line
+  wins).
+- **The action** is the sync's rules pass (`iris-sync/src/rules.rs`,
+  `SyncEngine::apply_triage`), on the pass's new mail, right after the rules and in the
+  same undo batch, through the workflow: VIP stars the newest message and sets the
+  thread to do; Office hours snoozes it until the hours open, unless that time has
+  already passed (mail seen only after the morning has nothing to wait for); Filer calls
+  `Workflow::move_to_folder`, which never makes a folder. Each acts once per message,
+  recorded in `rule_applications` as `iris:vip`, `iris:office-hours`, `iris:filer`.
+- **The settings** are `Settings::triage` (`iris.toml`, this device's), given to the
+  engine at start and at every change (`SyncEngine::set_triage`), shown in Settings'
+  *Sorting* group (a phone page of its own). `Settings::migrate_plugins` reads the old
+  `<data>/plugins/{vip,office-hours,filer}/settings.toml` once, keeps what is already set,
+  and removes that folder.
 
-A failing plugin is disabled, never fatal. The contract lives in
-[`wit/iris.wit`](../crates/iris-plugins/wit/iris.wit); a complete example, run by the
-tests, is in
-[`examples/marquer-infolettres`](../crates/iris-plugins/examples/marquer-infolettres).
-
-Plugins run in their own thread: a plugin that loops burns its fuel, not a frame. What
-they receive is deliberately poor — sender, subject, labels, never the body nor the
-account identifier — and what they ask for comes back as intents, applied through the
-same path as the keyboard. The commands they declare appear in the palette without a
-restart.
+The rules people write themselves stay in their window (*Settings › Rules*, the former
+Modules window).
 
 Google and Microsoft accounts go through the system browser, never an embedded window:
 one must see one's provider's address bar to know who is being given the password. The
@@ -1647,7 +1670,6 @@ authentication failure.
 - [Design specification](superpowers/specs/2026-09-13-iris-design.md) — the original
   decisions and their reasons, and what changed since.
 - [Implementation plan](PLAN.md) — epics and stories, with their status.
-- [Modules](PLUGINS.md) — the bundled plugins, and what running them took.
 - [Comparison](COMPARISON.md) — Iris beside the clients people arrive from.
 - [Packaging](../packaging/README.md) — the installer, and what it keeps.
 - [Changelog](../CHANGELOG.md) — what users got, version by version.

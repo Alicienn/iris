@@ -3,6 +3,20 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.0.0 — 2026-10-28
+
+### New
+- VIP, Office hours and Filer are now part of Iris, in Settings › Sorting; your settings are kept.
+
+### Fixed
+- VIP, Office hours and Filer now act on new mail; as plugins they never received it.
+
+### Removed
+- Plugins and the Modules window are gone: rules open from Settings.
+- The command line no longer adds, imports, lists or syncs accounts: the window does.
+- The installer no longer installs bundled modules.
+- Areas, cycles and the vision page, shown nowhere any more, are deleted.
+
 ## 6.8.0 — 2026-10-28
 
 ### New

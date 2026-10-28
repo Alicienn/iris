@@ -32,7 +32,7 @@
 - <img src="docs/assets/icons/smartphone.svg" width="16" alt=""> **Any width** — the same Iris on a wide screen, a narrow window, a foldable or a phone.
 - <img src="docs/assets/icons/zap.svg" width="16" alt=""> **Instant** — opening, archiving and searching never wait, even with hundreds of thousands of messages.
 - <img src="docs/assets/icons/shield.svg" width="16" alt=""> **Private** — remote images and trackers blocked by default; no telemetry.
-- <img src="docs/assets/icons/layers.svg" width="16" alt=""> **Modules** — rules and sandboxed plugins.
+- <img src="docs/assets/icons/layers.svg" width="16" alt=""> **Sorting** — rules, VIP, office hours and filing, on mail as it arrives.
 
 ## Install
 
@@ -124,6 +124,13 @@ the Android Keystore holds.
 - **Invitations** show as a banner: **Accept**, **Maybe** or **Decline**, and the
   calendar follows.
 - **Unsubscribe** beside a mailing list's sender, in one click.
+- **Sorting** (*Settings › Sorting*), on new mail, each off until you fill it in:
+  **VIP** pins mail from the addresses or `@domains` you list and puts it back to do;
+  **Office hours** holds mail that arrives outside your working hours (in UTC, weekends
+  optionally) until the next working morning; **Filer** files a conversation into the
+  first folder whose `pattern -> Folder` line matches its subject or an attachment's
+  name (the folder must exist). **Rules** (*Settings › Rules*) mark mail from a sender
+  or a domain done as it arrives, and can be tried on past mail first.
 - **Safety**: links open only in your browser; attachments are marked as downloaded,
   so Windows warns before running them.
 
@@ -246,6 +253,10 @@ itself comes from your servers on each device.
   travel yet; a note space added from elsewhere does not travel.
 - Notes: input methods (Chinese, Japanese, Korean) do not type yet; spreadsheets have no
   charts, merged cells or conditional formats.
+- Office hours are set in UTC. Filer reads an attachment's name only once the message's
+  body has been fetched. Iris has no plugins since 7.0.
+- The command line only starts, checks (`iris doctor`) and registers Iris
+  (`iris register`, `iris unregister`); accounts are added and synced in the window.
 
 ## Privacy
 
