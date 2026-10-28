@@ -237,7 +237,8 @@ export component Modal inherits Rectangle {
         TouchArea {}
 
         // A sheet's handle: pulled down far enough, it closes the sheet.
-        if root.sheet: Rectangle {
+        Rectangle {
+            visible: root.sheet;
             x: (parent.width - self.width) / 2;
             y: 8px;
             width: 40px;
@@ -417,7 +418,8 @@ export component Popover inherits Rectangle {
 
         TouchArea {}
 
-        if root.sheet: Rectangle {
+        Rectangle {
+            visible: root.sheet;
             x: (parent.width - self.width) / 2;
             y: 8px;
             width: 40px;

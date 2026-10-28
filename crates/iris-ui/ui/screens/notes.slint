@@ -2454,7 +2454,8 @@ export component NotesView inherits Rectangle {
                                     background: s.color;
                                     border-radius: s.radius;
                                 }
-                                if root.caret-visible && !root.reading: Rectangle {
+                                Rectangle {
+                                    visible: root.caret-visible && !root.reading;
                                     x: root.caret-x;
                                     y: root.caret-y;
                                     width: 1.5px;
@@ -2954,14 +2955,16 @@ export component NotesView inherits Rectangle {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
-                if f.k == "underline": Rectangle {
+                Rectangle {
+                    visible: f.k == "underline";
                     y: parent.height - 8px;
                     x: (parent.width - 10px) / 2;
                     width: 10px;
                     height: 1px;
                     background: Tokens.text;
                 }
-                if f.k == "strike": Rectangle {
+                Rectangle {
+                    visible: f.k == "strike";
                     y: parent.height / 2;
                     x: (parent.width - 10px) / 2;
                     width: 10px;

@@ -84,7 +84,8 @@ export component TextField inherits FieldFrame {
         clicked => { input.focus(); }
     }
 
-    if root.icon != "": Icon {
+    Icon {
+        visible: root.icon != "";
         x: 9px;
         y: (parent.height - self.height) / 2;
         data: root.icon;

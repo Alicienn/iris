@@ -107,7 +107,8 @@ component ThreadRow inherits Rectangle {
     // nothing said which of the rows under the menu "Delete" was about. It fades in
     // once, with the menu.
     // On a phone the row a sheet is about keeps the chosen row's tint instead.
-    if !root.tel: Rectangle {
+    Rectangle {
+        visible: !root.tel;
         x: 8px;
         y: 1px;
         width: parent.width - 16px;
@@ -121,7 +122,8 @@ component ThreadRow inherits Rectangle {
     }
 
     // A hairline under each row, from where the words start.
-    if !root.plein || root.tel: Rectangle {
+    Rectangle {
+        visible: !root.plein || root.tel;
         x: root.tel ? 70px : 30px;
         y: parent.height - 1px;
         width: parent.width - self.x - (root.tel ? 0px : 18px);
@@ -141,7 +143,8 @@ component ThreadRow inherits Rectangle {
 
     // Unread: a dot of the accent in the margin, where the eye runs down the list
     // (white on the chosen row); the tick box takes its place under the pointer.
-    if root.data.unread && !root.survol && !root.selection-mode && !root.data.marked: Rectangle {
+    Rectangle {
+        visible: root.data.unread && !root.survol && !root.selection-mode && !root.data.marked;
         x: root.tel ? 6px : 16px;
         y: root.compact ? (parent.height - self.height) / 2 : root.tel ? 22px : 15px;
         width: root.tel ? 7px : 8px;
@@ -307,7 +310,8 @@ component ThreadRow inherits Rectangle {
                 border-width: root.data.marked ? 0px : 2px;
                 border-color: Tokens.border-strong;
                 background: root.data.marked ? Tokens.accent : transparent;
-                if root.data.marked: Icon {
+                Icon {
+                    visible: root.data.marked;
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     data: Icons.check;

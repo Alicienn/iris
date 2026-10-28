@@ -123,7 +123,8 @@ export component GroupRow inherits Rectangle {
         enabled: root.enabled;
         clicked => { root.clicked(); }
     }
-    if !root.first: Rectangle {
+    Rectangle {
+        visible: !root.first;
         x: root.flat ? 16px : 52px;
         y: 0px;
         width: parent.width - self.x;

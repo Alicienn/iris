@@ -658,7 +658,8 @@ component Attachments inherits VerticalLayout {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
-                if !fichier.pdf && !fichier.picture: Icon {
+                Icon {
+                    visible: !fichier.pdf && !fichier.picture;
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     data: piece.icon == "archive" ? Icons.archive
@@ -1494,7 +1495,8 @@ export component ConversationView inherits VerticalLayout {
                         // Open, a hairline under the header, between it and the body,
                         // across the whole pane: from the list's edge to the window's,
                         // as Mail draws it, not just the reading column's width.
-                        if message.expanded: Rectangle {
+                        Rectangle {
+                            visible: message.expanded;
                             x: -fil.x;
                             y: parent.height + 4px;
                             width: defil.visible-width;

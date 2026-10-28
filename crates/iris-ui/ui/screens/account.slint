@@ -338,7 +338,8 @@ component FoundRow inherits Rectangle {
     in property <string> detail;
     in property <bool> first;
     height: 60px;
-    if !root.first: Rectangle {
+    Rectangle {
+        visible: !root.first;
         x: 16px;
         height: 1px;
         y: 0px;

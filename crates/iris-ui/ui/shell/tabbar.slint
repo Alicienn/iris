@@ -54,7 +54,8 @@ component Tab inherits Rectangle {
             color: Tokens.accent-text;
         }
     }
-    if root.dot && root.badge == 0: Rectangle {
+    Rectangle {
+        visible: root.dot && root.badge == 0;
         x: parent.width / 2 + 9px;
         y: 10px;
         width: 8px;

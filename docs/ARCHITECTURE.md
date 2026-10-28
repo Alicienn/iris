@@ -363,7 +363,12 @@ place it is used when its root has an animated built-in property, an `opacity`,
 `visible`, a drop shadow or a `%` size (`i-slint-compiler` `passes/inlining.rs`), and
 each copy brings its own tooltip popup. Since 7.0.0 `Icon`, `IconButton`, `Button`,
 `MenuEntry` and `Pill` draw their plate in a child, so each exists once (about 530
-places used to hold a copy).
+places used to hold a copy); so do `BlockButton`, `ComboBox`, `Link` and `NavItem`.
+Each `if` is a sub-tree of its own in the generated code, too: a small decorative
+element placed by `x`/`y` (a dot, a hairline, a sheet's handle) shows by `visible`
+instead (42 of them in 7.0.0). An element in a layout keeps its `if`, since an
+invisible one still takes its room there, and so does any text, which the interface
+tests find even when hidden.
 
 The interface files sit in layer folders under `crates/iris-ui/ui/`, imported through the
 `@iris` library path (`build.rs` maps it to that folder), so a file's imports read the

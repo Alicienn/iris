@@ -147,7 +147,8 @@ export component ListRow inherits Rectangle {
     }
 
     // Unread: a small dot in the margin.
-    if root.unread: Rectangle {
+    Rectangle {
+        visible: root.unread;
         x: 3px;
         y: (parent.height - self.height) / 2;
         width: 5px;
@@ -207,7 +208,8 @@ export component ListRow inherits Rectangle {
                             : root.compact && !root.unread ? Tokens.text-secondary : Tokens.text;
                         overflow: elide;
                     }
-                    if root.done: Rectangle {
+                    Rectangle {
+                        visible: root.done;
                         x: 0;
                         y: parent.height / 2;
                         width: min(titre.preferred-width, parent.width);
@@ -349,7 +351,8 @@ export component TimeRow inherits Rectangle {
                 label: root.title;
                 toggled => { root.toggled(); }
             }
-            if !root.task: Dot {
+            Dot {
+                visible: !root.task;
                 x: 4px;
                 y: (parent.height - self.height) / 2;
                 tint: root.tint;
@@ -369,7 +372,8 @@ export component TimeRow inherits Rectangle {
                 vertical-alignment: center;
                 overflow: elide;
             }
-            if root.done: Rectangle {
+            Rectangle {
+                visible: root.done;
                 x: 0;
                 y: parent.height / 2;
                 width: min(nom.preferred-width, parent.width);

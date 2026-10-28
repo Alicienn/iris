@@ -147,7 +147,8 @@ export component GoalBar inherits Rectangle {
         border-radius: 4px;
         background: root.tint;
     }
-    if root.fraction < 1: Rectangle {
+    Rectangle {
+        visible: root.fraction < 1;
         x: parent.width * clamp(root.expected, 0, 1) - 1px;
         y: -3px;
         width: 2px;

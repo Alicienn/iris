@@ -73,37 +73,43 @@ export component ComboBox inherits Rectangle {
     min-width: 64px;
     preferred-width: max(120px, valeur.preferred-width + 38px);
     preferred-height: 26px;
-    border-radius: Tokens.radius-small;
-    background: touch.has-hover && root.enabled ? Tokens.surface-hover : Tokens.control;
-    drop-shadow-blur: 2px;
-    drop-shadow-offset-y: 1px;
-    drop-shadow-color: Tokens.shadow-card.with-alpha(0.18);
-    opacity: root.enabled ? 1.0 : 0.45;
-    animate background { duration: Tokens.instant; }
 
     accessible-role: combobox;
     accessible-value: root.current-value;
     accessible-enabled: root.enabled;
     accessible-action-default => { if (root.enabled) { choix.show(); } }
 
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 8px;
-        spacing: 6px;
-        valeur := Text {
-            text: root.current-value;
-            font-size: 13px;
-            color: Tokens.text;
-            vertical-alignment: center;
-            overflow: elide;
-            horizontal-stretch: 1;
+    // Drawn in a child, dimmed as one: a shadow, an opacity or an animated background
+    // on the root made Slint copy the whole box into every place it is used (7.0.0).
+    Rectangle {
+        opacity: root.enabled ? 1.0 : 0.45;
+        Rectangle {
+            border-radius: Tokens.radius-small;
+            background: touch.has-hover && root.enabled ? Tokens.surface-hover : Tokens.control;
+            drop-shadow-blur: 2px;
+            drop-shadow-offset-y: 1px;
+            drop-shadow-color: Tokens.shadow-card.with-alpha(0.18);
+            animate background { duration: Tokens.instant; }
         }
-        Icon {
-            y: (parent.height - self.height) / 2;
-            data: Icons.chevron-down;
-            size: 11px;
-            weight: 2;
-            tint: Tokens.text-muted;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 8px;
+            spacing: 6px;
+            valeur := Text {
+                text: root.current-value;
+                font-size: 13px;
+                color: Tokens.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                data: Icons.chevron-down;
+                size: 11px;
+                weight: 2;
+                tint: Tokens.text-muted;
+            }
         }
     }
     touch := TouchArea {

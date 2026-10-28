@@ -274,7 +274,8 @@ component PlaceTab inherits Rectangle {
         size: 15px;
         tint: root.on || touch.has-hover ? Tokens.text : Tokens.text-muted;
     }
-    if root.badge > 0: Rectangle {
+    Rectangle {
+        visible: root.badge > 0;
         // Inside the segment, beside its icon, clear of the well's rounded edge.
         x: parent.width / 2 + 6px;
         y: 4px;

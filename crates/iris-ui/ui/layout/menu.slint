@@ -186,7 +186,8 @@ export component MenuSurface inherits Rectangle {
     drop-shadow-color: Tokens.shadow-float;
     drop-shadow-offset-y: Tokens.shadow-float-y;
 
-    if root.sheet: Rectangle {
+    Rectangle {
+        visible: root.sheet;
         x: -root.x;
         y: -root.y;
         width: root.available-width;
@@ -210,7 +211,8 @@ export component MenuSurface inherits Rectangle {
     // Swallows clicks, so choosing an item does not also hit the veil behind it.
     TouchArea {}
 
-    if root.sheet: Rectangle {
+    Rectangle {
+        visible: root.sheet;
         x: (parent.width - self.width) / 2;
         y: 8px;
         width: 40px;

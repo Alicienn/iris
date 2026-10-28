@@ -312,7 +312,8 @@ component PhoneRow inherits Rectangle {
     height: max(root.row-height, rang.preferred-height);
     background: root.tappable && touche.pressed ? Tokens.surface-hover : transparent;
 
-    if !root.first: Rectangle {
+    Rectangle {
+        visible: !root.first;
         x: root.inset;
         y: 0;
         width: parent.width - root.inset;

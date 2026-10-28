@@ -122,14 +122,16 @@ component SheetCell inherits Rectangle {
     property <length> largeur: min(t.preferred-width, t.width);
     property <length> debut: root.item.align == 2 ? t.x + t.width - root.largeur
         : root.item.align == 1 ? t.x + (t.width - root.largeur) / 2 : t.x;
-    if root.item.underline && !root.item.wrap: Rectangle {
+    Rectangle {
+        visible: root.item.underline && !root.item.wrap;
         x: root.debut;
         y: parent.height / 2 + 8px;
         width: root.largeur;
         height: 1px;
         background: root.item.color;
     }
-    if root.item.strike && !root.item.wrap: Rectangle {
+    Rectangle {
+        visible: root.item.strike && !root.item.wrap;
         x: root.debut;
         y: parent.height / 2;
         width: root.largeur;

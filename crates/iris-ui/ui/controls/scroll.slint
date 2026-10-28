@@ -72,7 +72,8 @@ export component ScrollView inherits Rectangle {
         triggered => { root.bouge = false; }
     }
 
-    if root.montre: Rectangle {
+    Rectangle {
+        visible: root.montre;
         opacity: root.bouge || root.saisie || barre.has-hover ? 1 : 0;
         animate opacity { duration: 250ms; }
         width: root.saisie ? 6px : 3px;

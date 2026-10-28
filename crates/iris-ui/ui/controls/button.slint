@@ -118,38 +118,43 @@ export component BlockButton inherits Rectangle {
 
     height: root.kind == ButtonKind.primary ? 52px : 50px;
     horizontal-stretch: 1;
-    border-radius: self.height / 2;
-    border-width: root.kind == ButtonKind.secondary ? 1px : 0px;
-    border-color: Tokens.border-strong;
-    background: root.kind == ButtonKind.primary
-        ? (touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent)
-        : root.kind == ButtonKind.secondary
-        ? (touch.pressed ? Tokens.surface-active : Tokens.surface)
-        : (touch.pressed ? Tokens.surface-hover : transparent);
-    opacity: root.enabled ? 1.0 : 0.45;
 
     accessible-role: button;
     accessible-label: root.label != "" ? root.label : root.text;
     accessible-enabled: root.enabled;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
 
-    HorizontalLayout {
-        alignment: center;
-        spacing: 10px;
-        if root.icon != "": Icon {
-            y: (parent.height - self.height) / 2;
-            data: root.icon;
-            size: 18px;
-            tint: root.kind == ButtonKind.primary ? Tokens.accent-text : Tokens.text;
-        }
-        @children
-        Text {
-            text: root.text;
-            font-size: 15px;
-            font-weight: 600;
-            color: root.kind == ButtonKind.primary ? Tokens.accent-text
-                : root.kind == ButtonKind.ghost ? Tokens.accent : Tokens.text;
-            vertical-alignment: center;
+    // Drawn in a child, dimmed as one: an opacity on the root made Slint copy the
+    // whole button into every place it is used (7.0.0).
+    Rectangle {
+        opacity: root.enabled ? 1.0 : 0.45;
+        border-radius: root.height / 2;
+        border-width: root.kind == ButtonKind.secondary ? 1px : 0px;
+        border-color: Tokens.border-strong;
+        background: root.kind == ButtonKind.primary
+            ? (touch.pressed ? Tokens.accent.darker(0.18) : Tokens.accent)
+            : root.kind == ButtonKind.secondary
+            ? (touch.pressed ? Tokens.surface-active : Tokens.surface)
+            : (touch.pressed ? Tokens.surface-hover : transparent);
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 10px;
+            if root.icon != "": Icon {
+                y: (parent.height - self.height) / 2;
+                data: root.icon;
+                size: 18px;
+                tint: root.kind == ButtonKind.primary ? Tokens.accent-text : Tokens.text;
+            }
+            @children
+            Text {
+                text: root.text;
+                font-size: 15px;
+                font-weight: 600;
+                color: root.kind == ButtonKind.primary ? Tokens.accent-text
+                    : root.kind == ButtonKind.ghost ? Tokens.accent : Tokens.text;
+                vertical-alignment: center;
+            }
         }
     }
     touch := TouchArea {
@@ -211,9 +216,13 @@ export component Link inherits Rectangle {
 
     width: rang.preferred-width + 12px;
     height: max(26px, Layout.touch-input ? 44px : 0px);
-    border-radius: Tokens.radius-small;
-    background: touch.has-hover ? Tokens.surface-hover : transparent;
-    animate background { duration: Tokens.instant; }
+
+    // The plate as a child, so that Slint keeps one copy of the link (7.0.0).
+    Rectangle {
+        border-radius: Tokens.radius-small;
+        background: touch.has-hover ? Tokens.surface-hover : transparent;
+        animate background { duration: Tokens.instant; }
+    }
 
     accessible-role: button;
     accessible-label: root.label != "" ? root.label : root.text;

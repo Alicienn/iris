@@ -105,9 +105,13 @@ export component NavItem inherits Rectangle {
     property <length> pli: 22px;
 
     height: max(root.row-height, Layout.target);
-    border-radius: Tokens.radius-small;
-    background: Nav.background(root.selected, touch.has-hover);
-    animate background { duration: Tokens.instant; }
+
+    // The plate as a child, so that Slint keeps one copy of the row (7.0.0).
+    Rectangle {
+        border-radius: Tokens.radius-small;
+        background: Nav.background(root.selected, touch.has-hover);
+        animate background { duration: Tokens.instant; }
+    }
 
     accessible-role: list-item;
     accessible-label: root.label;

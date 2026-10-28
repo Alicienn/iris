@@ -35,7 +35,8 @@ component FormatKey inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.pressed(root.key); }
 
-    if root.icon != "": Icon {
+    Icon {
+        visible: root.icon != "";
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         data: root.icon;

@@ -43,7 +43,8 @@ component RailPlace inherits Rectangle {
             horizontal-alignment: center;
         }
     }
-    if root.mark: Rectangle {
+    Rectangle {
+        visible: root.mark;
         x: parent.width / 2 + 7px;
         y: 8px;
         width: 8px;
