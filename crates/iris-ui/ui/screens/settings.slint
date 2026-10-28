@@ -66,7 +66,7 @@ component SettingRow inherits Rectangle {
         height: parent.height - 18px;
         spacing: Layout.compact ? 14px : 10px;
         IconTile {
-            cross-axis-self-alignment: center;
+            y: (parent.height - self.height) / 2;
             icon: root.icon;
             tint: root.tint;
         }
@@ -247,7 +247,7 @@ component PhoneRow inherits Rectangle {
         spacing: 14px;
         alignment: root.centred ? center : stretch;
         if root.avatar: Avatar {
-            cross-axis-self-alignment: center;
+            y: (parent.height - self.height) / 2;
             size: 40px;
             initials: root.initials;
             tint: Tokens.accent;
@@ -255,7 +255,7 @@ component PhoneRow inherits Rectangle {
         // The tile keeps its room only when drawn: an invisible one left a gap before
         // a bare icon (Add an account, Pair a device).
         if root.icon != "" && !root.bare: Rectangle {
-            cross-axis-self-alignment: center;
+            y: (parent.height - self.height) / 2;
             width: 30px;
             height: 30px;
             border-radius: 8px;
@@ -270,7 +270,7 @@ component PhoneRow inherits Rectangle {
             }
         }
         if root.icon != "" && root.bare: Icon {
-            cross-axis-self-alignment: center;
+            y: (parent.height - self.height) / 2;
             data: root.icon;
             size: 18px;
             weight: 2;
@@ -319,7 +319,7 @@ component PhoneRow inherits Rectangle {
         }
         @children
         if root.chevron: Icon {
-            cross-axis-self-alignment: center;
+            y: (parent.height - self.height) / 2;
             data: Icons.chevron-right;
             size: 18px;
             tint: Tokens.text-faint;
