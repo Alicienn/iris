@@ -7,19 +7,6 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 
 ### New
 - VIP, Office hours and Filer are now part of Iris, in Settings › Sorting; your settings are kept.
-
-### Fixed
-- VIP, Office hours and Filer now act on new mail; as plugins they never received it.
-
-### Removed
-- Plugins and the Modules window are gone: rules open from Settings.
-- The command line no longer adds, imports, lists or syncs accounts: the window does.
-- The installer no longer installs bundled modules.
-- Areas, cycles and the vision page, shown nowhere any more, are deleted.
-
-## 6.8.0 — 2026-10-28
-
-### New
 - On a phone, Home's search looks through mail, tasks, events and notes at once, grouped by place, the word found marked; tasks tick from there.
 - On a phone, adding an account shows where its servers were found and the mail arriving.
 - On a phone, selecting conversations turns the top bar into their actions, with large buttons.
@@ -62,7 +49,14 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Upcoming says how many tasks are due in the next two weeks.
 
 ### Fixed
+- VIP, Office hours and Filer now act on new mail; as plugins they never received it.
 - On a phone, Open in a conversation's menu opens it.
+
+### Removed
+- Plugins and the Modules window are gone: rules open from Settings.
+- The command line no longer adds, imports, lists or syncs accounts: the window does.
+- The installer no longer installs bundled modules.
+- Areas, cycles and the vision page, shown nowhere any more, are deleted.
 
 ## 6.7.1 — 2026-10-27
 
