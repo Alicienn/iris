@@ -198,7 +198,7 @@ fn une_liste_vide_ne_ment_pas_pendant_le_chargement() {
 
     let textes = testing::ElementQuery::from_root(&f)
         .match_descendants()
-        .match_type_name("Text")
+        .match_accessible_role(testing::AccessibleRole::Text)
         .find_all();
     let dit_vide = textes
         .iter()
@@ -608,7 +608,7 @@ fn rule(id: &str, name: &str, enabled: bool, applied: i32) -> RuleRowData {
 fn textes(f: &AppWindow) -> Vec<String> {
     testing::ElementQuery::from_root(f)
         .match_descendants()
-        .match_type_name("Text")
+        .match_accessible_role(testing::AccessibleRole::Text)
         .find_all()
         .into_iter()
         .filter_map(|t| t.accessible_label().map(|l| l.to_string()))
@@ -1190,7 +1190,7 @@ fn la_version_est_toujours_affichee() {
 
     let textes = testing::ElementQuery::from_root(&f)
         .match_descendants()
-        .match_type_name("Text")
+        .match_accessible_role(testing::AccessibleRole::Text)
         .find_all();
     assert!(
         textes

@@ -59,9 +59,9 @@ both whatever the version.
 The interface crate (`iris-ui`, every screen's generated code) is the heaviest thing
 CI compiles: since 6.8.0 it has sixteen codegen units and `opt-level = "s"` in release
 (`Cargo.toml`; its debug build keeps the line tables the interface tests need); the
-APK's job adds 10 GB of swap, the tests' job a 16 GB page file and no Rust line tables
-for `iris-ui` (`cargo-ci.toml`; `IRIS_UI_DEBUG_INFO=1` keeps Slint's debug info, which
-the interface tests need), and both build two crates at a time (`CARGO_BUILD_JOBS`). Without them, the test build ran out of memory and the Android
+APK's job adds 10 GB of swap, the tests' job a 16 GB page file and neither Rust line tables
+nor Slint debug info for `iris-ui`, which it builds for size in sixteen parts
+(`cargo-ci.toml`; the interface tests find elements by accessible role and label), and both build two crates at a time (`CARGO_BUILD_JOBS`). Without them, the test build ran out of memory and the Android
 runner was killed.
 
 The workflows use actions that run on Node 24 (`checkout@v7`, `setup-java@v6`,
