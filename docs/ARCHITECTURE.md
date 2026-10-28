@@ -1556,7 +1556,7 @@ screen and fetches it when missing; a failure comes back as U+0001 then the reas
 services' camera permission, an update, or the code typed). The same activity opens
 Android's document picker for attachments (`pickFiles`, `ACTION_OPEN_DOCUMENT`):
 what is chosen is copied into the cache on a thread of its own and the paths are
-polled with `takePicked`, then read by the same `joindre` as the desktop's dialog
+polled with `takePicked`, then read by the same `lire_les_fichiers` as the desktop's dialog
 (`Platform::picks_files`, `pick_files`).
 
 **The phone's lists and swipes** (7.2.0). The mail list is Iris's own `ListView`

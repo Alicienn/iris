@@ -7605,7 +7605,7 @@ fn attach_files(
             Box::new(move |chemins| {
                 let _ = faible.upgrade_in_event_loop(move |fenetre| {
                     if !chemins.is_empty() {
-                        joindre(&fenetre, &pieces, chemins);
+                        lire_les_fichiers(&fenetre, &pieces, chemins);
                     }
                 });
             }),
@@ -7621,11 +7621,11 @@ fn attach_files(
     let Some(chemins) = dialogue.pick_files() else {
         return;
     };
-    joindre(fenetre, pieces, chemins);
+    lire_les_fichiers(fenetre, pieces, chemins);
 }
 
 /// Reads the files chosen into the draft, refusing what would make it too heavy.
-fn joindre(
+fn lire_les_fichiers(
     fenetre: &AppWindow,
     pieces: &Arc<std::sync::Mutex<Vec<iris_smtp::Attachment>>>,
     chemins: Vec<std::path::PathBuf>,
