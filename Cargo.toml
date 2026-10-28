@@ -26,12 +26,10 @@ iris-imap = { path = "crates/iris-imap" }
 iris-smtp = { path = "crates/iris-smtp" }
 iris-sync = { path = "crates/iris-sync" }
 iris-discover = { path = "crates/iris-discover" }
-iris-plugin-sdk = { path = "crates/iris-plugin-sdk" }
 iris-secrets = { path = "crates/iris-secrets" }
 iris-oauth = { path = "crates/iris-oauth" }
 iris-htmlview = { path = "crates/iris-htmlview", default-features = false }
 iris-ui = { path = "crates/iris-ui" }
-iris-plugins = { path = "crates/iris-plugins" }
 iris-calendar = { path = "crates/iris-calendar" }
 iris-caldav = { path = "crates/iris-caldav" }
 iris-tasks = { path = "crates/iris-tasks" }
@@ -86,7 +84,7 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 2
 # Aucune information de débogage pour les dépendances. On ne pose pas de point d'arrêt
-# dans « wasmtime » ; en garder les symboles complets revient à payer plusieurs
+# dans une dépendance ; en garder les symboles complets revient à payer plusieurs
 # dizaines de gigaoctets pour un pas-à-pas que personne ne fera.
 debug = false
 

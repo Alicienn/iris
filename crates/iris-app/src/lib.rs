@@ -32,7 +32,6 @@ pub mod partout;
 pub mod paths;
 pub mod peers;
 pub mod platform;
-pub mod plugins;
 pub mod presse;
 pub mod sending;
 pub mod services;

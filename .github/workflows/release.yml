@@ -75,8 +75,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         if: env.PUBLISH == 'true'
-        with:
-          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         if: env.PUBLISH == 'true'
 

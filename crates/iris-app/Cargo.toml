@@ -40,7 +40,6 @@ iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }
 iris-rules = { workspace = true }
 iris-ui = { workspace = true }
-iris-plugins = { workspace = true }
 iris-calendar = { workspace = true }
 iris-notes = { path = "../iris-notes" }
 iris-vault = { path = "../iris-vault" }
@@ -113,7 +112,6 @@ winresource = "0.1"
 [dev-dependencies]
 log = "0.4"
 tempfile = "3"
-wat = "1"
 iris-viewmodel = { workspace = true }
 iris-workflow = { workspace = true }
 iris-rules = { workspace = true }

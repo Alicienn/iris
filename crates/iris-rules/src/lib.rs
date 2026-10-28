@@ -18,6 +18,8 @@
 use iris_types::{Flags, Timestamp, WorkflowState};
 use serde::{Deserialize, Serialize};
 
+pub mod triage;
+
 /// Les faits observables d'un message, sur lesquels portent les conditions.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Facts {

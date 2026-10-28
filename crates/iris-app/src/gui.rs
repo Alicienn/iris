@@ -165,7 +165,14 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
 
     // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
     // la première image, et non apparaître après un clignotement.
-    let reglages = crate::settings::Settings::load(services.paths.settings());
+    let mut reglages = crate::settings::Settings::load(services.paths.settings());
+    // VIP, Office hours and Filer were plugins until 7.0: what they were told comes
+    // over once, and their folder goes.
+    if reglages.migrate_plugins(&services.paths.data) {
+        if let Err(e) = reglages.save(services.paths.settings()) {
+            tracing::warn!(error = %e, "saving the settings");
+        }
+    }
     services
         .themes
         .apply(reglages.appearance, crate::platform::system_dark());
@@ -187,6 +194,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     shell::appliquer_apparence(&fenetre, &theme, reglages.density);
     shell::appliquer_accent(&fenetre, reglages.accent, theme.dark);
     services.engine.set_automation(reglages.automation);
+    services.engine.set_triage(reglages.triage.clone());
     services.workflow.set_settings(reglages.automation);
     // Les identifiants clients OAuth passent aux services : c'est le fournisseur
     // d'identifiants qui s'en sert, à chaque renouvellement de jeton.
@@ -253,7 +261,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         Arc::clone(&controller),
         runtime.handle().clone(),
     );
-    let carnet = shell::wire_callbacks(
+    shell::wire_callbacks(
         &fenetre,
         Arc::clone(&controller),
         iris_ui::Keymap::standard(),
@@ -351,64 +359,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     shell::wire_remote_images(&fenetre, services.clone(), Arc::clone(&renderer));
     shell::wire_folders(&fenetre, &services, Arc::clone(&controller));
     shell::wire_bulk(&fenetre, Arc::clone(&controller));
-    shell::wire_plugin_settings(&fenetre, &services);
-
-    // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
-    // son carburant, pas une frame ni un tour de synchronisation.
-    {
-        let controller_plugins = Arc::clone(&controller);
-        let carnet_effets = Arc::clone(&carnet);
-        let faible = fenetre.as_weak();
-        let (service, _fil) = crate::plugins::PluginService::spawn(
-            crate::plugins::ensure_dir(services.paths.plugins()),
-            Arc::clone(&services.store),
-            move |effet| {
-                // Une commande déclarée entre dans le carnet : c'est ce qui la rend
-                // atteignable depuis la palette, sans redémarrage.
-                if let crate::plugins::PluginEffect::Command { plugin, spec } = &effet {
-                    if carnet_effets.add_plugin(plugin, spec).is_none() {
-                        tracing::warn!(plugin = %plugin, "invalid plugin command");
-                    }
-                }
-
-                let message = crate::plugins::apply_effect(&effet, &controller_plugins);
-                if let Some(message) = message {
-                    let _ = faible.upgrade_in_event_loop(move |fenetre| {
-                        fenetre.set_status(message.into());
-                    });
-                }
-            },
-        );
-
-        // What the modules screen shows: every plugin the registry accepted, with the
-        // powers its manifest asked for.
-        let vues = crate::modules::plugin_views(&service.manifests());
-        shell::wire_modules(&fenetre, &services, vues);
-
-        let rapport = service.report();
-        if !rapport.loaded.is_empty() || !rapport.rejected.is_empty() {
-            tracing::info!(bilan = %rapport.summary(), "plugins");
-        }
-
-        if _fil.is_some() {
-            let service = Arc::new(service);
-
-            // La palette rend les commandes de plugin à leur auteur.
-            {
-                let service = Arc::clone(&service);
-                carnet.set_sink(move |plugin, spec| {
-                    tracing::info!(plugin = %plugin, "plugin command invoked");
-                    service.invoke(spec, None);
-                });
-            }
-
-            let bus = services.bus.clone();
-            let store = Arc::clone(&services.store);
-            runtime.spawn(async move {
-                crate::plugins::pump(&bus, store, service).await;
-            });
-        }
-    }
+    shell::wire_modules(&fenetre, &services);
 
     // News pushed by the server (IMAP IDLE) for the mailbox on screen: synced as it
     // comes rather than at the next poll. Watched again on another mailbox when the

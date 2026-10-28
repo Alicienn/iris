@@ -2,7 +2,7 @@
 //!
 //! Trois répertoires, séparés à dessein :
 //!
-//! - **données** : la base, les thèmes de l'utilisateur, les plugins. Ce qu'il perdra
+//! - **données** : la base, les thèmes de l'utilisateur. Ce qu'il perdra
 //!   s'il n'en fait pas de copie ;
 //! - **cache** : les corps de messages et l'index. Entièrement reconstructible ;
 //! - **configuration** : les réglages.
@@ -70,10 +70,6 @@ impl Paths {
         self.data.join("secrets.json")
     }
 
-    pub fn plugins(&self) -> PathBuf {
-        self.data.join("plugins")
-    }
-
     /// Corps et pièces jointes. Dans le cache : tout est retéléchargeable.
     pub fn blobs(&self) -> PathBuf {
         self.cache.join("blobs")
@@ -127,7 +123,6 @@ mod tests {
         let p = Paths::under("/tmp/iris");
         assert!(p.database().starts_with(&p.data));
         assert!(p.vault().starts_with(&p.data));
-        assert!(p.plugins().starts_with(&p.data));
     }
 
     #[test]

@@ -248,18 +248,6 @@ export struct RuleRowData {
     applied: int,
 }
 
-// An installed plugin.
-export struct PluginRowData {
-    id: string,
-    name: string,
-    version: string,
-    description: string,
-    // What it was allowed to do, in plain words.
-    permissions: string,
-    // Set when the host took it out of circulation, with the reason.
-    disabled-reason: string,
-}
-
 export struct FolderNodeData {
     // Le chemin complet, qui est l'identité du dossier.
     path: string,

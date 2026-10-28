@@ -113,6 +113,8 @@ pub struct SyncEngine {
     /// Magasin de contenus, nécessaire au téléchargement des corps.
     blobs: Option<Arc<iris_blobs::BlobStore>>,
     automation: std::sync::RwLock<iris_types::AutomationSettings>,
+    /// VIP, Office hours and Filer: what they were told, run with the rules.
+    triage: std::sync::RwLock<iris_rules::triage::Triage>,
     /// The state machine, when one is attached. The time-based passes delegate to it
     /// rather than reimplementing the rules a second time.
     workflow: Option<Arc<iris_workflow::Workflow>>,
@@ -284,6 +286,7 @@ impl SyncEngine {
             index: None,
             blobs: None,
             automation: std::sync::RwLock::new(iris_types::AutomationSettings::default()),
+            triage: std::sync::RwLock::new(Default::default()),
             workflow: None,
             failures: std::sync::RwLock::new(std::collections::BTreeMap::new()),
             en_cours: std::sync::Mutex::new(std::collections::HashSet::new()),
@@ -300,6 +303,15 @@ impl SyncEngine {
 
     pub fn set_automation(&self, settings: iris_types::AutomationSettings) {
         *self.automation.write().expect("réglages empoisonnés") = settings;
+    }
+
+    /// What VIP, Office hours and Filer do with new mail, from the next pass on.
+    pub fn triage(&self) -> iris_rules::triage::Triage {
+        self.triage.read().expect("réglages empoisonnés").clone()
+    }
+
+    pub fn set_triage(&self, settings: iris_rules::triage::Triage) {
+        *self.triage.write().expect("réglages empoisonnés") = settings;
     }
 
     /// Branche l'index plein texte.
@@ -1111,17 +1123,22 @@ impl SyncEngine {
             w.begin_automatic_batch();
         }
         let resultat = self.apply_rules(&ids, now);
+        // After the rules: VIP puts back to do what a rule may just have taken out.
+        let tri = self.apply_triage(&ids, now);
         if let Some(w) = &self.workflow {
             w.end_batch();
         }
-        match resultat {
-            Ok(report) if report.changed() => tracing::info!(
-                affected = report.affected,
-                actions = report.actions,
-                "rules applied"
-            ),
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = %e, "applying the rules"),
+        for (quoi, resultat) in [("rules", resultat), ("triage", tri)] {
+            match resultat {
+                Ok(report) if report.changed() => tracing::info!(
+                    pass = quoi,
+                    affected = report.affected,
+                    actions = report.actions,
+                    "rules applied"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(pass = quoi, error = %e, "applying the rules"),
+            }
         }
     }
 

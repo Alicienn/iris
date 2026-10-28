@@ -57,9 +57,6 @@ pub enum Error {
         requester: String,
     },
 
-    #[error("plugin \"{plugin}\": {message}")]
-    Plugin { plugin: String, message: String },
-
     #[error("input/output: {0}")]
     Io(#[from] std::io::Error),
 

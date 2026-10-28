@@ -15,9 +15,7 @@ use iris_types::{ThreadId, WorkflowState};
 use iris_ui::bridge;
 use iris_ui::commands::{self, CommandKind};
 use iris_ui::keymap::{KeyOutcome, Keymap};
-use iris_ui::{
-    AccountRowData, AppWindow, AttachmentData, FolderNodeData, PluginSettingData, Tokens,
-};
+use iris_ui::{AccountRowData, AppWindow, AttachmentData, FolderNodeData, Tokens};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -447,67 +445,16 @@ pub fn refresh_vitals(
     });
 }
 
-/// Les commandes disponibles, celles de l'application et celles des plugins.
-///
-/// La liste doit pouvoir grandir : un plugin déclare ses commandes en s'exécutant,
-/// c'est-à-dire après que la palette a été branchée. Un tableau figé au démarrage
-/// obligerait à redémarrer pour voir une extension apparaître.
+/// The commands the palette offers.
 pub struct CommandBook {
     commandes: std::sync::Mutex<Vec<commands::Command>>,
-    /// Ce que la palette doit envoyer aux plugins, par identifiant de commande.
-    plugin_specs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
-    /// Où acheminer une commande de plugin. Rempli une fois, quand le service des
-    /// plugins existe — c'est-à-dire après que la palette a été branchée.
-    #[allow(clippy::type_complexity)]
-    sink: std::sync::OnceLock<Box<dyn Fn(&str, &str) + Send + Sync>>,
 }
 
 impl CommandBook {
     pub fn new() -> Self {
         Self {
             commandes: std::sync::Mutex::new(commands::builtin_commands()),
-            plugin_specs: std::sync::Mutex::new(Default::default()),
-            sink: std::sync::OnceLock::new(),
         }
-    }
-
-    /// Désigne le destinataire des commandes de plugin.
-    pub fn set_sink(&self, sink: impl Fn(&str, &str) + Send + Sync + 'static) {
-        let _ = self.sink.set(Box::new(sink));
-    }
-
-    /// Achemine une commande de plugin, si un destinataire est en place.
-    ///
-    /// Sans destinataire, la commande est perdue plutôt que mise en attente : une
-    /// commande qui s'exécuterait plus tard, à un moment que l'utilisateur n'a pas
-    /// choisi, serait pire qu'une commande sans effet.
-    fn route(&self, plugin: &str, spec: &str) -> bool {
-        match self.sink.get() {
-            Some(sink) => {
-                sink(plugin, spec);
-                true
-            }
-            None => {
-                tracing::warn!(plugin = %plugin, "plugin command with nowhere to go");
-                false
-            }
-        }
-    }
-
-    /// Ajoute une commande déclarée par un plugin. Rend son intitulé.
-    ///
-    /// Redéclarer la même commande la remplace : un plugin qui se réinitialise ne
-    /// doit pas laisser deux entrées identiques dans la palette.
-    pub fn add_plugin(&self, plugin: &str, spec: &str) -> Option<String> {
-        let commande = commands::Command::from_plugin(plugin, spec)?;
-        let id = commande.id.clone();
-        let label = commande.label.clone();
-
-        let mut liste = self.commandes.lock().ok()?;
-        liste.retain(|c| c.id != id);
-        liste.push(commande);
-        self.plugin_specs.lock().ok()?.insert(id, spec.to_string());
-        Some(label)
     }
 
     /// Filtre les commandes pour la palette.
@@ -537,7 +484,6 @@ impl std::fmt::Debug for CommandBook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CommandBook")
             .field("commandes", &self.len())
-            .field("destinataire", &self.sink.get().is_some())
             .finish()
     }
 }
@@ -549,14 +495,7 @@ impl Default for CommandBook {
 }
 
 /// Branche les rappels de la fenêtre sur le contrôleur.
-///
-/// Rend le carnet de commandes, pour que les plugins puissent y ajouter les leurs
-/// une fois qu'ils tournent.
-pub fn wire_callbacks(
-    fenetre: &AppWindow,
-    controller: Arc<Controller>,
-    keymap: Keymap,
-) -> Arc<CommandBook> {
+pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: Keymap) {
     let commandes = Arc::new(CommandBook::new());
 
     // Palette : la liste est recalculée à chaque frappe, côté Rust.
@@ -796,42 +735,23 @@ pub fn wire_callbacks(
             let Some(commande) = commandes.find(id.as_str()) else {
                 return;
             };
-            dispatch(&c, &commande.kind, &faible, &commandes);
+            dispatch(&c, &commande.kind, &faible);
         });
     }
 
     {
         let c = Arc::clone(&controller);
-        let carnet = Arc::clone(&commandes);
         let faible = fenetre.as_weak();
         fenetre.on_key_pressed(move |touche| match keymap.resolve(touche.as_str()) {
             KeyOutcome::Move(m) => c.send(Request::Move(m)),
-            KeyOutcome::Command(kind) => dispatch(&c, &kind, &faible, &carnet),
+            KeyOutcome::Command(kind) => dispatch(&c, &kind, &faible),
             KeyOutcome::OpenPalette | KeyOutcome::Ignored => {}
         });
     }
-
-    commandes
 }
 
-/// Reconnaît une commande de plugin, pour les tests et les appelants curieux.
-pub fn plugin_command(kind: &CommandKind) -> Option<(&str, &str)> {
+fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<AppWindow>) {
     match kind {
-        CommandKind::Plugin { plugin, spec } => Some((plugin, spec)),
-        _ => None,
-    }
-}
-
-fn dispatch(
-    controller: &Controller,
-    kind: &CommandKind,
-    fenetre: &slint::Weak<AppWindow>,
-    carnet: &CommandBook,
-) {
-    match kind {
-        CommandKind::Plugin { plugin, spec } => {
-            carnet.route(plugin, spec);
-        }
         // `S` and "Snooze until tomorrow" mean tomorrow morning, here: the keyboard
         // knows no clock, so it says 24 hours, which is not what it promises.
         CommandKind::Thread(iris_viewmodel::Action::SnoozeHours(24)) => {
@@ -3036,6 +2956,13 @@ pub fn wire_settings(
         fenetre.set_oauth_google_id(reglages.oauth.google_client_id.as_str().into());
         fenetre.set_oauth_google_secret(reglages.oauth.google_client_secret.as_str().into());
         fenetre.set_oauth_microsoft_id(reglages.oauth.microsoft_client_id.as_str().into());
+        let tri = &reglages.triage;
+        fenetre.set_vip_people(tri.vip.as_str().into());
+        fenetre.set_office_hours_enabled(tri.office_hours.enabled);
+        fenetre.set_office_hours_start(tri.office_hours.start as i32);
+        fenetre.set_office_hours_end(tri.office_hours.end as i32);
+        fenetre.set_office_hours_weekend(tri.office_hours.weekend);
+        fenetre.set_filer_lines(tri.filer.as_str().into());
 
         // Les deux derniers viennent du système, pas du fichier : le fichier dit ce
         // qu'on a demandé, le registre dit ce qui est. Une désinstallation, une
@@ -3324,6 +3251,8 @@ pub fn wire_settings(
         });
     }
 
+    wire_triage(fenetre, &courant, enregistrer.clone(), Arc::clone(&engine));
+
     // --- Les automatismes ---
     {
         let courant = Arc::clone(&courant);
@@ -3353,6 +3282,41 @@ pub fn wire_settings(
             runtime.spawn(async move {
                 engine.set_automation(automatismes);
             });
+        });
+    }
+}
+
+/// VIP, Office hours, Filer: saved as typed, used from the next sync on.
+fn wire_triage(
+    fenetre: &AppWindow,
+    courant: &Arc<std::sync::Mutex<Settings>>,
+    enregistrer: impl Fn(&Settings) + 'static,
+    engine: Arc<iris_sync::SyncEngine>,
+) {
+    {
+        let courant = Arc::clone(courant);
+        let faible = fenetre.as_weak();
+        fenetre.on_triage_changed(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            // Not trimmed while typing: the field would lose the line just begun.
+            let heure = |h: i32| h.clamp(0, 23) as u8;
+            let tri = iris_rules::triage::Triage {
+                vip: fenetre.get_vip_people().to_string(),
+                office_hours: iris_rules::triage::OfficeHours {
+                    enabled: fenetre.get_office_hours_enabled(),
+                    start: heure(fenetre.get_office_hours_start()),
+                    end: heure(fenetre.get_office_hours_end()),
+                    weekend: fenetre.get_office_hours_weekend(),
+                },
+                filer: fenetre.get_filer_lines().to_string(),
+            };
+            let mut reglages = courant.lock().expect("réglages empoisonnés");
+            reglages.triage = tri.clone();
+            enregistrer(&reglages);
+            drop(reglages);
+            engine.set_triage(tri);
         });
     }
 }
@@ -5934,106 +5898,6 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
     }
 }
 
-/// Wires the per-module settings.
-///
-/// Un seul répertoire, celui des plugins : les réglages d'un module vivent dans le
-/// sien, si bien qu'un module retiré ne laisse rien derrière lui.
-pub fn wire_plugin_settings(fenetre: &AppWindow, services: &Services) {
-    let repertoire = crate::plugins::ensure_dir(services.paths.plugins());
-
-    // --- Les réglages d'un module ---
-    {
-        let dossier = repertoire.clone();
-        let faible = fenetre.as_weak();
-
-        fenetre.on_plugin_settings_requested(move |id| {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let id = id.to_string();
-            if crate::plugins::validate_id(&id).is_err() {
-                return;
-            }
-
-            let module = dossier.join(&id);
-            let Some(manifeste) = lire_manifeste(&module) else {
-                fenetre.set_plugin_settings_error("Its manifest could not be read.".into());
-                fenetre.set_plugin_settings_open(true);
-                return;
-            };
-
-            let valeurs = iris_plugins::SettingValues::load(&module);
-            let lignes: Vec<PluginSettingData> = manifeste
-                .settings
-                .iter()
-                .filter(|s| s.is_valid_key())
-                .map(|s| PluginSettingData {
-                    key: s.key.as_str().into(),
-                    label: s.display_label().into(),
-                    hint: s.hint.as_str().into(),
-                    kind: s.kind.as_str().into(),
-                    value: valeurs.get(s).into(),
-                })
-                .collect();
-
-            fenetre.set_plugin_settings_name(manifeste.name.as_str().into());
-            fenetre.set_plugin_settings(ModelRc::new(VecModel::from(lignes)));
-            fenetre.set_plugin_settings_error(Default::default());
-            fenetre.set_plugin_settings_id(id.as_str().into());
-            fenetre.set_plugin_settings_open(true);
-        });
-    }
-
-    {
-        let dossier = repertoire.clone();
-        let faible = fenetre.as_weak();
-
-        fenetre.on_plugin_setting_changed(move |cle, valeur| {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            let id = fenetre.get_plugin_settings_id().to_string();
-            if crate::plugins::validate_id(&id).is_err() {
-                return;
-            }
-
-            let module = dossier.join(&id);
-            let Some(manifeste) = lire_manifeste(&module) else {
-                return;
-            };
-            let Some(spec) = manifeste.settings.iter().find(|s| s.key == cle.as_str()) else {
-                // Une clé que le manifeste ne déclare pas n'a pas de place dans le
-                // fichier : elle viendrait d'un module qui a changé sous nos pieds, et
-                // l'écrire y laisserait une entrée que plus rien ne lit.
-                return;
-            };
-
-            let mut valeurs = iris_plugins::SettingValues::load(&module);
-            valeurs.set(spec, valeur.as_str());
-            if let Err(e) = valeurs.save(&module) {
-                fenetre.set_plugin_settings_error(format!("Could not save: {e}").into());
-            } else {
-                fenetre.set_plugin_settings_error(Default::default());
-            }
-        });
-    }
-
-    {
-        let faible = fenetre.as_weak();
-        fenetre.on_plugin_settings_dismissed(move || {
-            if let Some(fenetre) = faible.upgrade() {
-                fenetre.set_plugin_settings_open(false);
-            }
-        });
-    }
-}
-
-/// Lit le manifeste d'un module installé.
-fn lire_manifeste(dir: &std::path::Path) -> Option<iris_plugins::Manifest> {
-    let texte = std::fs::read_to_string(dir.join("plugin.toml")).ok()?;
-    toml::from_str(&texte).ok()
-}
-
 /// Wires the menu a right-click on an account opens.
 ///
 /// Everything here already existed and none of it was reachable from the row it
@@ -7865,20 +7729,12 @@ pub fn clear_compose(fenetre: &AppWindow) {
     oublier_reponse(fenetre);
 }
 
-/// Wires the modules screen: rules and plugins.
+/// Wires the rules window.
 ///
 /// The list is rebuilt from the store after every change rather than patched in
 /// place. It holds tens of rows, and a screen that recomputes itself cannot show
 /// something the database does not contain.
-pub fn wire_modules(
-    fenetre: &AppWindow,
-    services: &Services,
-    plugins: Vec<crate::modules::PluginView>,
-) {
-    fenetre.set_plugin_folder(services.paths.plugins().display().to_string().into());
-    fenetre.set_plugins(ModelRc::new(VecModel::from(
-        plugins.iter().map(plugin_row).collect::<Vec<_>>(),
-    )));
+pub fn wire_modules(fenetre: &AppWindow, services: &Services) {
     refresh_rules(fenetre, services);
 
     // --- Enable or disable ---
@@ -7970,20 +7826,6 @@ pub fn wire_modules(
             show_simulation(&fenetre, &services, id.as_str());
         });
     }
-
-    // --- Reload the plugin folder ---
-    {
-        let faible = fenetre.as_weak();
-        fenetre.on_plugins_reloaded(move || {
-            let Some(fenetre) = faible.upgrade() else {
-                return;
-            };
-            // Loading WebAssembly into a running host mid-session is a restart-shaped
-            // problem; saying so is better than pretending to reload and doing
-            // nothing.
-            fenetre.set_status("Plugins are loaded at startup: restart to pick up changes.".into());
-        });
-    }
 }
 
 /// A rule row, ready to draw.
@@ -7998,18 +7840,6 @@ fn rule_row(view: &crate::modules::RuleView) -> iris_ui::RuleRowData {
         enabled: view.enabled,
         summary: view.summary.as_str().into(),
         applied: view.applied.min(i32::MAX as u64) as i32,
-    }
-}
-
-/// A plugin row, ready to draw.
-fn plugin_row(view: &crate::modules::PluginView) -> iris_ui::PluginRowData {
-    iris_ui::PluginRowData {
-        id: view.id.as_str().into(),
-        name: view.name.as_str().into(),
-        version: view.version.as_str().into(),
-        description: view.description.as_str().into(),
-        permissions: view.permissions.as_str().into(),
-        disabled_reason: view.disabled_reason.as_str().into(),
     }
 }
 
@@ -8394,7 +8224,6 @@ mod tests {
                 | CommandKind::Modules
                 | CommandKind::Compose
                 | CommandKind::TaskFromThread
-                | CommandKind::Plugin { .. }
                 | CommandKind::Quit => {}
                 CommandKind::Settings | CommandKind::Reload => {}
             }
@@ -8516,49 +8345,10 @@ mod tests {
     }
 
     #[test]
-    fn le_carnet_accueille_une_commande_de_plugin() {
-        // Un plugin déclare ses commandes en s'exécutant, donc après que la palette
-        // a été branchée : une liste figée obligerait à redémarrer.
+    fn the_book_holds_the_built_in_commands() {
         let carnet = CommandBook::new();
-        let avant = carnet.len();
-
-        let label = carnet.add_plugin("tri", r#"{"id":"vider","label":"Vider"}"#);
-        assert_eq!(label.as_deref(), Some("Vider"));
-        assert_eq!(carnet.len(), avant + 1);
-        assert!(carnet.find("plugin:tri:vider").is_some());
-    }
-
-    #[test]
-    fn redeclarer_une_commande_la_remplace() {
-        // Un plugin qui se réinitialise ne doit pas laisser deux entrées identiques.
-        let carnet = CommandBook::new();
-        carnet.add_plugin("tri", r#"{"id":"x","label":"Ancien"}"#);
-        carnet.add_plugin("tri", r#"{"id":"x","label":"Nouveau"}"#);
-
-        assert_eq!(carnet.find("plugin:tri:x").unwrap().label, "Nouveau");
-        assert_eq!(carnet.filter("Ancien", false).len(), 0);
-    }
-
-    #[test]
-    fn une_declaration_invalide_n_entre_pas_dans_le_carnet() {
-        let carnet = CommandBook::new();
-        let avant = carnet.len();
-        assert!(carnet.add_plugin("tri", "n'importe quoi").is_none());
-        assert_eq!(carnet.len(), avant);
-    }
-
-    #[test]
-    fn une_commande_de_plugin_se_reconnait() {
-        let carnet = CommandBook::new();
-        carnet.add_plugin("tri", r#"{"id":"vider","label":"Vider"}"#);
-        let commande = carnet.find("plugin:tri:vider").unwrap();
-
-        let (plugin, spec) = plugin_command(&commande.kind).expect("une commande de plugin");
-        assert_eq!(plugin, "tri");
-        assert!(spec.contains("vider"));
-
-        let ordinaire = carnet.find("app.quit").unwrap();
-        assert!(plugin_command(&ordinaire.kind).is_none());
+        assert_eq!(carnet.len(), builtin_commands().len());
+        assert!(carnet.find("app.quit").is_some());
     }
 
     #[test]

@@ -2,8 +2,7 @@
 //!
 //! Un seul type énuméré plutôt qu'un bus générique par message : le nombre
 //! d'événements du domaine est fini et connu, et une énumération fermée permet au
-//! compilateur de vérifier que chaque abonné traite les cas qui le concernent. Les
-//! extensions passent par la variante `Custom`, qui est le seul point ouvert.
+//! compilateur de vérifier que chaque abonné traite les cas qui le concernent.
 
 use iris_types::{
     AccountId, FolderId, MessageId, ThreadId, Timestamp, TransitionCause, WorkflowState,
@@ -81,15 +80,6 @@ pub enum Event {
     IndexUpdated {
         documents: u64,
     },
-
-    // --- Extensions ---
-    /// Émis par un plugin. `source` est l'identifiant du plugin, ce qui permet de
-    /// tracer qui a produit quoi et de filtrer par origine.
-    Custom {
-        source: Arc<str>,
-        name: Arc<str>,
-        payload: Arc<serde_json::Value>,
-    },
 }
 
 /// Famille d'un événement, pour s'abonner sans énumérer chaque variante.
@@ -100,7 +90,6 @@ pub enum EventKind {
     Workflow,
     Sync,
     Presentation,
-    Custom,
 }
 
 impl Event {
@@ -117,7 +106,6 @@ impl Event {
             | Self::ThreadUnsnoozed { .. } => EventKind::Workflow,
             Self::SyncPhaseChanged { .. } | Self::SyncFailed { .. } => EventKind::Sync,
             Self::ThemeReloaded { .. } | Self::IndexUpdated { .. } => EventKind::Presentation,
-            Self::Custom { .. } => EventKind::Custom,
         }
     }
 

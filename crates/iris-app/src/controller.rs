@@ -51,16 +51,11 @@ pub enum Request {
     /// Le glisser-déposer et l'entrée « Déplacer vers » du menu passent tous deux par
     /// ici : deux gestes, une seule règle sur ce qu'ils atteignent.
     MoveMarkedToFolder(String),
-    /// Ranger un fil désigné. C'est par là que passent les plugins de classement :
-    /// ils agissent sur ce qu'on leur a montré, pas sur ce que l'utilisateur regarde
-    /// au moment où ils répondent.
-    MoveThreadToFolder(ThreadId, String),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
-    /// Agit sur un fil désigné plutôt que sur la sélection. C'est par là que
-    /// passent les plugins : ils agissent sur ce qu'on leur a montré, pas sur ce que
-    /// l'utilisateur regarde au moment où ils répondent.
+    /// Agit sur un fil désigné plutôt que sur la sélection : le menu d'une ligne agit
+    /// sur cette ligne, pas sur ce que l'utilisateur regarde au même moment.
     ApplyTo(iris_types::ThreadId, Action),
     Undo,
     /// Refait ce que la dernière annulation a défait.
@@ -298,17 +293,6 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
             Ok(true)
         }
         Request::ClearMarks => Ok(vm.clear_marks()),
-        Request::MoveThreadToFolder(fil, chemin) => {
-            let maintenant = Timestamp::from_millis(now_millis());
-            if !actions.move_to_folder(fil, &chemin, maintenant)? {
-                return Ok(false);
-            }
-            let mut diff = ViewDiff::default();
-            diff.threads.insert(fil);
-            diff.full_refresh = true;
-            vm.apply_diff(&diff)?;
-            Ok(true)
-        }
         Request::MoveMarkedToFolder(chemin) => {
             let cibles = vm.selection().targets();
             if cibles.is_empty() {
@@ -424,7 +408,7 @@ fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result
 
 /// Applique une action à un fil désigné.
 ///
-/// Chemin unique, partagé par le clavier, la palette et les plugins : l'action passe
+/// Chemin unique, partagé par le clavier, la palette et les menus : l'action passe
 /// ensuite par le même diff qu'un changement venu du réseau, pour qu'il n'y ait
 /// qu'une seule façon de mettre la vue à jour.
 fn appliquer(

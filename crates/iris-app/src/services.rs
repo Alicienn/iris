@@ -35,7 +35,7 @@ pub struct Services {
     pub bus: EventBus,
     pub engine: Arc<SyncEngine>,
     /// The one state machine. Everything that changes a thread goes through it:
-    /// the keyboard, the palette, the plugins and the passage of time.
+    /// the keyboard, the palette, the rules and the passage of time.
     pub workflow: Arc<iris_workflow::Workflow>,
     /// Les identifiants clients OAuth, partagés avec le fournisseur d'identifiants.
     /// Modifiables en cours de route : renseigner un identifiant client ne doit pas
@@ -70,7 +70,7 @@ impl Services {
         let bus = EventBus::new();
 
         // One state machine, shared by everything that changes a thread: the
-        // keyboard, the palette, the plugins and the passage of time.
+        // keyboard, the palette, the rules and the passage of time.
         let workflow = Arc::new(iris_workflow::Workflow::new(
             Arc::clone(&store),
             bus.clone(),
