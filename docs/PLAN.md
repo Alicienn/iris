@@ -835,5 +835,7 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       pages, Appearance, Rules and plugins, Updates, Devices) and Notes (tree page,
       writing and reading bars, "/" sheet, spreadsheet, graph card, revise page, open
       notes) against the mockups (6.8.0).
+- [x] **S47.18** Tasks, habits and goals against the mockups: pages, swipes, the task's
+      page, Later and Find a slot as sheets, habits' day discs (6.8.0).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.

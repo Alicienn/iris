@@ -495,10 +495,10 @@ component SizeSlider inherits Rectangle {
 
 /// A line of the changelog on the Updates page: a version, a section, an item.
 component ChangeLine inherits VerticalLayout {
-    in property <ChangelogRowData> row;
+    in property <ChangelogRowData> entry;
     in property <bool> first;
     // Between two versions, a line.
-    if root.row.kind == 0 && !root.first: Rectangle {
+    if root.entry.kind == 0 && !root.first: Rectangle {
         height: 27px;
         Rectangle {
             y: 14px;
@@ -506,10 +506,10 @@ component ChangeLine inherits VerticalLayout {
             background: Tokens.border;
         }
     }
-    if root.row.kind == 0: HorizontalLayout {
+    if root.entry.kind == 0: HorizontalLayout {
         alignment: start;
         Text {
-            text: root.row.text;
+            text: root.entry.text;
             font-family: Tokens.font-display;
             font-size: 17px;
             font-weight: 600;
@@ -517,14 +517,14 @@ component ChangeLine inherits VerticalLayout {
             vertical-alignment: bottom;
         }
         Text {
-            text: root.row.detail != "" ? " · " + root.row.detail : "";
+            text: root.entry.detail != "" ? " · " + root.entry.detail : "";
             font-size: 13px;
             color: Tokens.text-muted;
             vertical-alignment: bottom;
         }
     }
-    if root.row.kind == 1: Text {
-        text: root.row.text;
+    if root.entry.kind == 1: Text {
+        text: root.entry.text;
         font-size: 12.5px;
         font-weight: 600;
         color: Tokens.text-muted;
@@ -532,8 +532,8 @@ component ChangeLine inherits VerticalLayout {
         height: self.preferred-height + 10px;
         vertical-alignment: bottom;
     }
-    if root.row.kind == 2: Text {
-        text: "· " + root.row.text;
+    if root.entry.kind == 2: Text {
+        text: "· " + root.entry.text;
         font-size: 14.5px;
         color: Tokens.text-secondary;
         wrap: word-wrap;
@@ -1609,7 +1609,7 @@ export component SettingsPanel inherits Rectangle {
                         padding-top: 14px;
                         padding-bottom: 14px;
                         for ligne[i] in root.changelog: ChangeLine {
-                            row: ligne;
+                            entry: ligne;
                             first: i == 0;
                         }
                     }

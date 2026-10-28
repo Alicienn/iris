@@ -616,6 +616,11 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   (`notes-summary`), the writing and reading bars, `NotesPhoneSheet` (`notes-sheet`:
   the "/" blocks, the outline, open notes), the spreadsheet's phone bars, the graph's
   card, the revise page.
+  Tasks, habits and goals in compact: `screens/tasks-phone.slint` (bars, titles, cards,
+  rows, sheet options), the overview as its own page, task rows swiped (tick, Later),
+  the add line as a dock, the task's page on cards, `LaterMenu` and `SlotPicker` as
+  sheets (another day's slots through `task-slot-day-chosen`), `TasksMenu`; habits with
+  day discs, the habit and goal pages, New habit as a page.
 - The calendar in compact (6.6.0): the period as a 26 px title with its arrows and
   Today, the views as `QueueSegments` under it, New event as a `Fab`; the PC's one bar
   lost its title and arrows off a phone's screen.

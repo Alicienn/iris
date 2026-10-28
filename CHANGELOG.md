@@ -22,6 +22,11 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - On a phone, Notes opens on your pinned notes and folders, with how many notes and cards are due.
 - On a phone, revising flashcards is a page with large Again, Hard, Good and Easy buttons.
 - On a phone, the notes you have open are listed from a counter at the top.
+- On a phone, Tasks opens on full pages: the overview, Today, each list and Upcoming.
+- On a phone, swipe a task right to tick it, left to put it off.
+- On a phone, a task, a habit, a new habit and a goal open as full pages.
+- Later shows where each choice lands, and asks what to do with a task put off three times.
+- Find a slot shows free times as buttons, looks at another day, and blocks the chosen time.
 
 ### Improved
 - On a phone, Mailboxes rises as a tall sheet over the list.
@@ -38,6 +43,9 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - On a phone, a note being read shows its tags, when it was edited and its length.
 - On a phone, spreadsheets have the formula bar on top and their sheets as tabs.
 - On a phone, a long press on a note or folder opens its menu.
+- On a phone, the line to add a task shows what it understood above the keyboard.
+- On a phone, habits show each day as a large disc under the habit's name.
+- Upcoming says how many tasks are due in the next two weeks.
 
 ### Fixed
 - On a phone, Open in a conversation's menu opens it.
