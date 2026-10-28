@@ -4,12 +4,12 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Avatar } from "@iris/base/atoms.slint";
 import { Button, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 import { Segmented, QueueSegments, Toggle, Check, CheckShape } from "@iris/controls/choice.slint";
-import { TextField } from "@iris/controls/field.slint";
+import { TextField, TextArea } from "@iris/controls/field.slint";
 import { ComboBox, SpinBox } from "@iris/controls/pickers.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { WindowToolbar } from "@iris/shell/chrome.slint";
 import {
-    DeviceRowData, AccountRowData, AccountTagData, AccountPageData, RuleRowData, PluginRowData,
+    DeviceRowData, AccountRowData, AccountTagData, AccountPageData, RuleRowData,
     ChangelogRowData
 } from "@iris/types.slint";
 
@@ -637,10 +637,18 @@ export component SettingsPanel inherits Rectangle {
     /// The last versions' changes, for the Updates page.
     in property <[ChangelogRowData]> changelog;
     in property <[RuleRowData]> rules;
-    in property <[PluginRowData]> plugins;
     callback rule-toggled(string, bool);
-    callback plugin-opened(string);
     callback open-changelog();
+    /// VIP: one address or @domain per line.
+    in-out property <string> vip-people;
+    /// Office hours, in UTC: on, from, to (excluded), and the weekend outside them.
+    in-out property <bool> office-hours-enabled;
+    in-out property <int> office-hours-start: 8;
+    in-out property <int> office-hours-end: 18;
+    in-out property <bool> office-hours-weekend: true;
+    /// Filer: one `pattern -> Folder` per line.
+    in-out property <string> filer-lines;
+    callback triage-changed();
 
     /// The account whose page is open, -1 for none (the list of accounts).
     in-out property <int> account: -1;
@@ -705,15 +713,6 @@ export component SettingsPanel inherits Rectangle {
     property <bool> tags-open;
     property <bool> removing;
     property <color> account-tint;
-    /// The bundled plugins' tiles, as the mockups draw them; any other, a puzzle piece.
-    pure function plugin-icon(id: string) -> string {
-        return id == "vip" ? Icons.star : id == "office-hours" ? Icons.clock
-            : id == "filer" ? Icons.folder : Icons.puzzle;
-    }
-    pure function plugin-tint(id: string) -> color {
-        return id == "vip" ? Tokens.orange : id == "office-hours" ? Tokens.blue
-            : id == "filer" ? Tokens.green : Tokens.grey;
-    }
 
     // A white page, the groups grey on it (lighter than the page in dark). On a phone
     // the other way round, as Android's settings: the groups white on the grey page.
@@ -782,8 +781,8 @@ export component SettingsPanel inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            // A new rule is made in the modules' window, where rules are written.
-            if root.ouvert("Rules and plugins"): IconButton {
+            // A new rule is made in the rules' window, where rules are written.
+            if root.ouvert("Rules"): IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.plus;
                 label: "New rule";
@@ -893,12 +892,18 @@ export component SettingsPanel inherits Rectangle {
                 if root.liste: Group {
                     PhoneLink {
                         first: true;
+                        icon: Icons.star;
+                        tint: Tokens.orange;
+                        label: "Sorting";
+                        hint: "VIP, office hours, filing";
+                        tapped => { root.group = "Sorting"; }
+                    }
+                    PhoneLink {
                         icon: Icons.puzzle;
                         tint: Tokens.grey;
-                        label: "Rules and plugins";
-                        value: root.rules.length + root.plugins.length > 0
-                            ? "\{root.rules.length + root.plugins.length}" : "";
-                        tapped => { root.group = "Rules and plugins"; }
+                        label: "Rules";
+                        value: root.rules.length > 0 ? "\{root.rules.length}" : "";
+                        tapped => { root.group = "Rules"; }
                     }
                     PhoneLink {
                         icon: Icons.history;
@@ -1474,12 +1479,100 @@ export component SettingsPanel inherits Rectangle {
                     text: "Your day at a glance first. Off: Iris opens on your mail.";
                 }
 
-                // --- Rules and plugins ---
-                if root.ouvert("Rules and plugins"): GroupTitle {
+                // --- Sorting: VIP, Office hours, Filer ---
+                if root.ouvert("Sorting"): GroupTitle {
+                    text: "VIP";
+                    lead: true;
+                }
+                if root.ouvert("Sorting"): Group {
+                    HorizontalLayout {
+                        padding: 12px;
+                        TextArea {
+                            height: 96px;
+                            font-size: 15px;
+                            accessible-label: "VIP addresses";
+                            placeholder-text: "marie@example.com\n@example.org";
+                            wrap: TextWrap.no-wrap;
+                            text <=> root.vip-people;
+                            edited => { root.triage-changed(); }
+                        }
+                    }
+                }
+                if root.ouvert("Sorting"): GroupTitle {
+                    note: true;
+                    text: "Mail from these people is pinned and put back to do. One address or @domain per line.";
+                }
+                if root.ouvert("Sorting"): GroupTitle { text: "Office hours"; }
+                if root.ouvert("Sorting"): Group {
+                    PhoneToggle {
+                        first: true;
+                        label: "Hold mail outside working hours";
+                        hint: "It waits for the next working morning.";
+                        on <=> root.office-hours-enabled;
+                        toggled => { root.triage-changed(); }
+                    }
+                    if root.office-hours-enabled: PhoneRow {
+                        label: "Starts at";
+                        hint: "Hour, UTC";
+                        SpinBox {
+                            y: (parent.height - self.height) / 2;
+                            width: 96px;
+                            height: 36px;
+                            minimum: 0;
+                            maximum: 23;
+                            value <=> root.office-hours-start;
+                            edited => { root.triage-changed(); }
+                        }
+                    }
+                    if root.office-hours-enabled: PhoneRow {
+                        label: "Ends at";
+                        hint: "Hour, UTC";
+                        SpinBox {
+                            y: (parent.height - self.height) / 2;
+                            width: 96px;
+                            height: 36px;
+                            minimum: 0;
+                            maximum: 23;
+                            value <=> root.office-hours-end;
+                            edited => { root.triage-changed(); }
+                        }
+                    }
+                    if root.office-hours-enabled: PhoneToggle {
+                        label: "Hold weekend mail too";
+                        on <=> root.office-hours-weekend;
+                        toggled => { root.triage-changed(); }
+                    }
+                }
+                if root.ouvert("Sorting"): GroupTitle {
+                    note: true;
+                    text: "Hours are in UTC.";
+                }
+                if root.ouvert("Sorting"): GroupTitle { text: "Filer"; }
+                if root.ouvert("Sorting"): Group {
+                    HorizontalLayout {
+                        padding: 12px;
+                        TextArea {
+                            height: 96px;
+                            font-size: 15px;
+                            accessible-label: "Filing lines";
+                            placeholder-text: "invoice -> Accounts";
+                            wrap: TextWrap.no-wrap;
+                            text <=> root.filer-lines;
+                            edited => { root.triage-changed(); }
+                        }
+                    }
+                }
+                if root.ouvert("Sorting"): GroupTitle {
+                    note: true;
+                    text: "One per line: pattern -> Folder. Looked for in the subject and attachment names; the first match files the thread. The folder must already exist.";
+                }
+
+                // --- Rules ---
+                if root.ouvert("Rules"): GroupTitle {
                     text: "Rules";
                     lead: true;
                 }
-                if root.ouvert("Rules and plugins"): Group {
+                if root.ouvert("Rules"): Group {
                     for r[i] in root.rules: PhoneToggle {
                         first: i == 0;
                         label: r.name;
@@ -1493,27 +1586,6 @@ export component SettingsPanel inherits Rectangle {
                         hint: "+ writes one: sort mail as it arrives.";
                         ink: Tokens.text-muted;
                     }
-                }
-                if root.ouvert("Rules and plugins"): GroupTitle { text: "Plugins"; }
-                // A plugin opens its own settings, in the modules' window.
-                if root.ouvert("Rules and plugins"): Group {
-                    for p[i] in root.plugins: PhoneLink {
-                        first: i == 0;
-                        icon: root.plugin-icon(p.id);
-                        tint: root.plugin-tint(p.id);
-                        label: p.name;
-                        hint: p.disabled-reason != "" ? p.disabled-reason : p.description;
-                        tapped => { root.plugin-opened(p.id); }
-                    }
-                    if root.plugins.length == 0: PhoneRow {
-                        first: true;
-                        label: "No plugins installed";
-                        ink: Tokens.text-muted;
-                    }
-                }
-                if root.ouvert("Rules and plugins"): GroupTitle {
-                    note: true;
-                    text: "Each plugin runs isolated, with only what it asks for.";
                 }
 
                 // --- Backups & export: what exists only on this device ---
@@ -1771,14 +1843,96 @@ export component SettingsPanel inherits Rectangle {
                     SettingRow {
                         icon: Icons.puzzle;
                         tint: Tokens.purple;
-                        label: "Rules and plugins";
-                        hint: "Sort mail as it arrives, and extend Iris.";
+                        label: "Rules";
+                        hint: "Sort mail as it arrives, by sender.";
                         Button {
                             y: (parent.height - self.height) / 2;
-                            text: "Open modules";
-                            label: "Modules: rules and plugins";
+                            text: "Open rules";
+                            label: "Open the rules";
                             size: ButtonSize.sm;
                             clicked => { root.open-modules(); }
+                        }
+                    }
+                }
+
+                if root.large: GroupTitle { text: "Sorting"; }
+                if root.large: Group {
+                    SettingRow {
+                        first: true;
+                        icon: Icons.star;
+                        tint: Tokens.orange;
+                        label: "VIP";
+                        hint: "Mail from these people is pinned and put back to do. One address or @domain per line.";
+                        TextArea {
+                            width: 240px;
+                            height: 64px;
+                            font-size: 12px;
+                            accessible-label: "VIP addresses";
+                            placeholder-text: "marie@example.com\n@example.org";
+                            wrap: TextWrap.no-wrap;
+                            text <=> root.vip-people;
+                            edited => { root.triage-changed(); }
+                        }
+                    }
+                    ToggleRow {
+                        icon: Icons.clock;
+                        tint: Tokens.blue;
+                        label: "Office hours";
+                        hint: "Mail arriving outside working hours waits for the next working morning.";
+                        value <=> root.office-hours-enabled;
+                        toggled => { root.triage-changed(); }
+                    }
+                    if root.office-hours-enabled: SettingRow {
+                        icon: Icons.calendar;
+                        tint: Tokens.blue;
+                        label: "Working hours";
+                        hint: "From, to, in UTC";
+                        HorizontalLayout {
+                            spacing: 6px;
+                            SpinBox {
+                                y: (parent.height - self.height) / 2;
+                                width: 80px;
+                                height: 26px;
+                                minimum: 0;
+                                maximum: 23;
+                                accessible-label: "Working day starts at";
+                                value <=> root.office-hours-start;
+                                edited => { root.triage-changed(); }
+                            }
+                            SpinBox {
+                                y: (parent.height - self.height) / 2;
+                                width: 80px;
+                                height: 26px;
+                                minimum: 0;
+                                maximum: 23;
+                                accessible-label: "Working day ends at";
+                                value <=> root.office-hours-end;
+                                edited => { root.triage-changed(); }
+                            }
+                        }
+                    }
+                    if root.office-hours-enabled: ToggleRow {
+                        icon: Icons.sun;
+                        tint: Tokens.blue;
+                        label: "Hold weekend mail too";
+                        hint: "Saturday and Sunday count as outside working hours.";
+                        value <=> root.office-hours-weekend;
+                        toggled => { root.triage-changed(); }
+                    }
+                    SettingRow {
+                        icon: Icons.folder;
+                        tint: Tokens.green;
+                        label: "Filer";
+                        hint: "One per line: pattern -> Folder. Looked for in the subject and attachment names; the first match files the thread. The folder must already exist.";
+                        TextArea {
+                            width: 240px;
+                            height: 64px;
+                            font-size: 12px;
+                            accessible-label: "Filing lines";
+                            placeholder-text: "invoice -> Accounts";
+                            wrap: TextWrap.no-wrap;
+                            text <=> root.filer-lines;
+                            edited => { root.triage-changed(); }
                         }
                     }
                 }

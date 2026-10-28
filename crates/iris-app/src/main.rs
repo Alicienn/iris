@@ -13,13 +13,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(unsafe_code)]
 
-use iris_app::{accounts, paths, services};
+use iris_app::{paths, services};
 use iris_secrets::Secret;
 use iris_types::Result;
 use paths::Paths;
-use services::{now, Services};
-
-use std::sync::Arc;
+use services::Services;
 
 fn main() {
     if let Err(e) = run() {
@@ -103,12 +101,7 @@ fn run() -> Result<()> {
                 open_services()
             },
         ),
-        "add-account" => cmd_add_account(&args[1..]),
-        "import" => cmd_import(&args[1..]),
-        "accounts" => cmd_list_accounts(),
-        "sync" => cmd_sync(),
         "doctor" => cmd_doctor(),
-        "memory" => cmd_memory(),
         "--help" | "-h" | "help" => {
             print_help();
             Ok(())
@@ -171,18 +164,13 @@ fn print_help() {
          \n\
          Usage:\n\
          \x20 iris [run]                     Start the application\n\
-         \x20 iris add-account <address>     Add an account (prompts for the password)\n\
-         \x20 iris import <file>             Add accounts in bulk\n\
-         \x20 iris accounts                  List configured accounts\n\
-         \x20 iris sync                      Synchronise once, without the interface\n\
          \x20 iris doctor                    Check the installation\n\
-         \x20 iris memory                    Break down what the data layer costs\n\
          \x20 iris register                  Offer Iris to Windows as a mail client\n\
          \x20 iris unregister                Withdraw that offer\n\
          \x20 iris --tray                    Start into the notification area\n\
          \x20 iris mailto:<address>          Start and compose to that address\n\
          \n\
-         Import format: one line per account, \"address;password;group\".\n"
+         Accounts are added and synchronised in the application.\n"
     );
 }
 
@@ -243,130 +231,6 @@ fn prompt_secret(invite: &str) -> Result<Secret> {
 
 // --- Commandes ---
 
-fn cmd_add_account(args: &[String]) -> Result<()> {
-    let Some(adresse) = args.first() else {
-        return Err(iris_types::Error::Config(
-            "usage : iris add-account <adresse>".into(),
-        ));
-    };
-
-    let services = open_services()?;
-    let motdepasse = prompt_secret(&format!("Mot de passe pour {adresse} : "))?;
-
-    let runtime = iris_app::services::runtime()?;
-
-    let ajoute = runtime.block_on(accounts::add_account(
-        &services.store,
-        services.secrets.as_ref(),
-        adresse,
-        motdepasse.expose(),
-        None,
-        now(),
-    ))?;
-
-    println!("Account added: {}", ajoute.email);
-    println!(
-        "  IMAP  {}:{}\n  SMTP  {}:{}\n  Source : {}",
-        ajoute.config.imap_host,
-        ajoute.config.imap_port,
-        ajoute.config.smtp_host,
-        ajoute.config.smtp_port,
-        ajoute.source.describe()
-    );
-    if ajoute.needs_review {
-        println!(
-            "\n  ⚠ Cette configuration est déduite, pas certifiée. Vérifiez-la si la \n\
-             \x20   synchronisation échoue."
-        );
-    }
-    if let Some(note) = &ajoute.config.note {
-        println!("\n  {note}");
-    }
-    Ok(())
-}
-
-fn cmd_import(args: &[String]) -> Result<()> {
-    let Some(fichier) = args.first() else {
-        return Err(iris_types::Error::Config(
-            "usage : iris import <fichier>".into(),
-        ));
-    };
-
-    let contenu = std::fs::read_to_string(fichier)?;
-    let (entrees, erreurs) = accounts::parse_bulk(&contenu);
-
-    for e in &erreurs {
-        eprintln!("  skipped: {e}");
-    }
-    if entrees.is_empty() {
-        return Err(iris_types::Error::Config(
-            "aucun compte exploitable dans le fichier".into(),
-        ));
-    }
-
-    println!("{} account(s) to add…", entrees.len());
-    let services = open_services()?;
-    let runtime = iris_app::services::runtime()?;
-
-    let rapport = runtime.block_on(accounts::add_bulk(
-        Arc::clone(&services.store),
-        Arc::clone(&services.secrets),
-        &entrees,
-        now(),
-    ));
-
-    for compte in &rapport.added {
-        println!("  ✓ {}", compte.email);
-    }
-    for (adresse, raison) in &rapport.failed {
-        println!("  ✗ {adresse}: {raison}");
-    }
-    println!("\n{}", rapport.summary());
-    Ok(())
-}
-
-fn cmd_list_accounts() -> Result<()> {
-    let services = open_services()?;
-    let comptes = services.store.accounts()?;
-
-    if comptes.is_empty() {
-        println!("No accounts configured. Run \"iris add-account <address>\" to begin.");
-        return Ok(());
-    }
-
-    for c in comptes {
-        let marque = if c.pinned { "★" } else { " " };
-        let etat = if c.enabled { "" } else { "  (désactivé)" };
-        println!(
-            "{marque} {:<38} {}:{}{etat}",
-            c.email, c.imap_host, c.imap_port
-        );
-    }
-    Ok(())
-}
-
-fn cmd_sync() -> Result<()> {
-    let services = open_services()?;
-    let runtime = iris_app::services::runtime()?;
-
-    runtime.block_on(async {
-        let inscrits = services.engine.load_accounts(now()).await?;
-        println!("{inscrits} account(s) to synchronise…");
-
-        let rapport = services.engine.tick(now()).await;
-        println!(
-            "{} compte(s) synchronisé(s), {} message(s) ajouté(s), {} drapeau(x) mis à jour.",
-            rapport.accounts_synced, rapport.messages_added, rapport.flags_updated
-        );
-        for (compte, erreur) in &rapport.failures {
-            println!("  ✗ account {compte}: {erreur}");
-        }
-        Ok::<(), iris_types::Error>(())
-    })?;
-
-    Ok(())
-}
-
 /// La place restante sur le volume qui porte ce chemin.
 ///
 /// `None` quand le système refuse de le dire : c'est un diagnostic, et un diagnostic
@@ -408,37 +272,6 @@ fn free_space(path: &std::path::Path) -> Option<u64> {
 #[cfg(not(windows))]
 fn free_space(_path: &std::path::Path) -> Option<u64> {
     None
-}
-
-/// Décompose la mémoire de la couche de données, sans interface.
-///
-/// La moitié de la question « pourquoi cinq cents mégaoctets » se règle ici : ce que
-/// coûtent la base, l'index et le coffre *seuls*, sans fenêtre, sans police et sans
-/// pilote graphique. Le reste de la facture est la différence entre ce chiffre et
-/// celui de l'application ouverte — et cette différence, mesurée plutôt que supposée,
-/// désigne le coupable.
-fn cmd_memory() -> Result<()> {
-    iris_app::memory::track_sites(true);
-    iris_app::memory::mark("processus démarré");
-
-    let services = open_services()?;
-    iris_app::memory::mark("base, index, coffre");
-
-    // Lire vraiment : un index ouvert et jamais interrogé n'a encore rien chargé, et
-    // mesurer cela reviendrait à mesurer un fichier fermé.
-    let comptes = services.store.accounts()?;
-    let messages = services.store.message_count()?;
-    iris_app::memory::mark("comptes et messages lus");
-
-    let documents = services.index.document_count();
-    iris_app::memory::mark("index interrogé");
-
-    println!(
-        "{} compte(s), {messages} message(s), {documents} document(s) indexés",
-        comptes.len()
-    );
-    println!("{}", iris_app::memory::report());
-    Ok(())
 }
 
 fn cmd_doctor() -> Result<()> {
@@ -499,7 +332,8 @@ fn cmd_doctor() -> Result<()> {
 
 // --- Interface ---
 
-/// Le rendu logiciel de Slint, sauf si `SLINT_BACKEND` en demande un autre.
+/// Slint's software renderer, the only one built in, unless `SLINT_BACKEND` names a
+/// backend (`winit-software` for the previews).
 fn select_software_renderer() {
     if std::env::var_os("SLINT_BACKEND").is_none() {
         if let Err(e) = slint::BackendSelector::new()

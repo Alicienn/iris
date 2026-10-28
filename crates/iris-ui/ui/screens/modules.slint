@@ -1,10 +1,6 @@
-import { Layout } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { TextField } from "@iris/controls/field.slint";
-import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
-import { Floating } from "@iris/base/glass.slint";
-import { RuleRowData, PluginRowData } from "@iris/types.slint";
-import { PluginSettingsBody, PluginSettingData } from "@iris/screens/plugins.slint";
+import { RuleRowData } from "@iris/types.slint";
 import { Modal } from "@iris/layout/frames.slint";
 import { ListView } from "std-widgets.slint";
 import { CheckBox } from "@iris/controls/pickers.slint";
@@ -85,155 +81,32 @@ component RuleRow inherits Rectangle {
     }
 }
 
-// One installed plugin.
-component PluginRow inherits Rectangle {
-    in property <PluginRowData> plugin;
-
-    callback configure();
-
-    height: 62px;
-    background: survol.has-hover ? Tokens.surface-hover : transparent;
-    animate background { duration: Tokens.instant; }
-    border-radius: Tokens.radius-small;
-
-    accessible-role: list-item;
-    accessible-label: root.plugin.name;
-    accessible-description: root.plugin.disabled-reason != ""
-        ? "Out of circulation: " + root.plugin.disabled-reason
-        : root.plugin.permissions;
-
-    HorizontalLayout {
-        padding: Tokens.space-2;
-        spacing: Tokens.space-2;
-
-        VerticalLayout {
-            spacing: 2px;
-
-            HorizontalLayout {
-                spacing: Tokens.space-2;
-                Text {
-                    text: root.plugin.name;
-                    font-size: Tokens.size-body;
-                    font-weight: Tokens.weight-bold;
-                    color: Tokens.text;
-                }
-                Text {
-                    text: root.plugin.version;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    vertical-alignment: center;
-                }
-                Rectangle {}
-            }
-
-            Text {
-                text: root.plugin.description;
-                font-size: Tokens.size-small;
-                color: Tokens.text-secondary;
-                overflow: elide;
-            }
-
-            // Permissions are shown, always. A plugin's power is the thing worth
-            // knowing about it, and burying it one click away is how people end up
-            // running code they never agreed to.
-            Text {
-                text: root.plugin.disabled-reason != ""
-                    ? "Out of circulation: " + root.plugin.disabled-reason
-                    : root.plugin.permissions;
-                font-size: Tokens.size-small;
-                color: root.plugin.disabled-reason != "" ? Tokens.error : Tokens.text-muted;
-                overflow: elide;
-            }
-        }
-
-        // Le bouton n'apparaît qu'au survol. Un module sans réglage ouvrira un
-        // panneau qui le dit — c'est plus honnête qu'un bouton grisé, qui laisse
-        // croire qu'il y a quelque chose derrière et qu'on n'y a pas droit.
-        if survol.has-hover || Layout.touch-input: IconButton {
-            y: (parent.height - self.height) / 2;
-            icon: Icons.gear;
-            label: "Configure " + root.plugin.name;
-            button-size: 26px;
-            icon-size: 14px;
-            clicked => { root.configure(); }
-        }
-    }
-
-    survol := TouchArea {
-        // Sous le contenu : la zone sert au survol, pas à intercepter le bouton.
-        clicked => { root.configure(); }
-    }
-}
-
-// The modules screen: rules and plugins, in one place.
+// The rules window: what acts on your mail without you.
 //
-// Both are "things that act on your mail without you". Putting them behind one door
-// means there is a single answer to "what is this application doing on its own?", and
-// a single place to make it stop.
+// VIP, Office hours and Filer are in Settings, beside the rest of the mail's
+// automations; here are the rules people write themselves.
 export component ModulesPanel inherits Rectangle {
     in property <[RuleRowData]> rules;
-    in property <[PluginRowData]> plugins;
-    in property <string> plugin-folder;
     // Result of the last dry run, if any.
     in property <string> simulation;
     in-out property <string> new-rule-name;
     in-out property <string> new-rule-sender;
 
-    /// Le module dont on règle les options, ou rien du tout.
-    ///
-    /// Ce panneau montre alors ses réglages **à la place** de la liste, dans la même
-    /// fenêtre. Ils s'ouvraient auparavant dans une seconde modale, déclarée plus haut
-    /// que celle-ci : le dernier frère passant devant, l'écran des modules recouvrait
-    /// entièrement ce qu'il venait d'ouvrir, et cliquer « Settings » n'avait l'air de
-    /// rien faire.
-    in property <string> settings-plugin;
-    in property <[PluginSettingData]> plugin-settings;
-    in property <string> settings-error;
-
-    callback settings-changed(string, string);
-    callback settings-closed();
-
     callback rule-toggled(string, bool);
     callback rule-simulated(string);
     callback rule-removed(string);
     callback rule-added();
-    callback plugins-reloaded();
-    callback configure-plugin(string);
     callback dismissed();
 
     Modal {
         width: 100%;
         height: 100%;
-        title: root.settings-plugin != "" ? root.settings-plugin : "Modules";
+        title: "Rules";
         card-width: 680px;
         card-height: 640px;
         dismissed => { root.dismissed(); }
 
-            // Le retour, et non une croix : on est descendu d'un cran dans la même
-            // fenêtre, et ce qu'on veut est remonter, pas tout fermer.
-            if root.settings-plugin != "": HorizontalLayout {
-                Button {
-                    text: "Modules";
-                    label: "‹ Modules";
-                    icon: Icons.chevron-left;
-                    kind: ButtonKind.ghost;
-                    size: ButtonSize.sm;
-                    clicked => { root.settings-closed(); }
-                }
-                Rectangle {}
-            }
-
-            if root.settings-plugin != "": PluginSettingsBody {
-                vertical-stretch: 1;
-                settings: root.plugin-settings;
-                error: root.settings-error;
-                changed(k, v) => { root.settings-changed(k, v); }
-            }
-
-            // Toute la liste, cachée d'un bloc quand on règle un module. Un seul
-            // conditionnel plutôt que dix : en oublier un laisserait la moitié de
-            // l'écran précédent visible sous les réglages.
-            if root.settings-plugin == "": VerticalLayout {
+        VerticalLayout {
             spacing: Tokens.space-3;
 
             SectionTitle { text: "Rules"; }
@@ -279,7 +152,7 @@ export component ModulesPanel inherits Rectangle {
             }
 
             if root.rules.length > 0: ListView {
-                height: 180px;
+                vertical-stretch: 1;
                 for rule in root.rules: RuleRow {
                     rule: rule;
                     toggled(on) => { root.rule-toggled(rule.id, on); }
@@ -288,47 +161,7 @@ export component ModulesPanel inherits Rectangle {
                 }
             }
 
-            Rectangle { height: 1px; background: Tokens.border; }
-
-            HorizontalLayout {
-                spacing: Tokens.space-1;
-                SectionTitle { text: "Plugins"; }
-                Rectangle {}
-                Button {
-                    text: "Reload";
-                    icon: Icons.refresh;
-                    kind: ButtonKind.ghost;
-                    size: ButtonSize.sm;
-                    clicked => { root.plugins-reloaded(); }
-                }
-            }
-
-            if root.plugins.length == 0: VerticalLayout {
-                spacing: 2px;
-                Text {
-                    text: "No plugins installed.";
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                }
-                // Telling people where to put one is the whole of the install flow:
-                // a folder is a distribution channel that needs no store.
-                Text {
-                    text: "Drop a plugin folder in " + root.plugin-folder;
-                    font-size: Tokens.size-small;
-                    color: Tokens.text-muted;
-                    wrap: word-wrap;
-                }
-            }
-
-            if root.plugins.length > 0: ListView {
-                for plugin in root.plugins: PluginRow {
-                    plugin: plugin;
-                    configure => { root.configure-plugin(plugin.id); }
-                }
-            }
-
-            Rectangle {}
-
-            }
+            if root.rules.length == 0: Rectangle { vertical-stretch: 1; }
+        }
     }
 }

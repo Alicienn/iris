@@ -147,25 +147,25 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         start_in_tray: demarre_reduit,
         instance,
     } = options;
-    // La décomposition mémoire se règle avant tout le reste : ce qui est alloué avant
-    // qu'elle soit allumée est compté, mais sans provenance.
-    let rapport_memoire = crate::memory::requested_interval();
-    crate::memory::track_sites(rapport_memoire.is_some());
-    crate::memory::mark("processus démarré");
 
     // The renderer is chosen before the first window, and the services opened (see
     // `prepare` in main.rs: why the software renderer, measured).
     let services = prepare()?;
-    crate::memory::mark("base, index, coffre");
 
     // L'exécuteur asynchrone tourne dans ses propres fils : la synchronisation ne
     // partage rien avec l'affichage.
     let runtime = crate::services::runtime()?;
-    crate::memory::mark("exécuteur asynchrone");
 
     // Les réglages sont lus avant la fenêtre : l'apparence choisie doit être là dès
     // la première image, et non apparaître après un clignotement.
-    let reglages = crate::settings::Settings::load(services.paths.settings());
+    let mut reglages = crate::settings::Settings::load(services.paths.settings());
+    // VIP, Office hours and Filer were plugins until 7.0: what they were told comes
+    // over once, and their folder goes.
+    if reglages.migrate_plugins(&services.paths.data) {
+        if let Err(e) = reglages.save(services.paths.settings()) {
+            tracing::warn!(error = %e, "saving the settings");
+        }
+    }
     services
         .themes
         .apply(reglages.appearance, crate::platform::system_dark());
@@ -179,7 +179,6 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     if let Some(panne) = crate::logging::take_last_panic(&services.paths) {
         fenetre.set_toast(format!("Iris stopped last time: {panne}").into());
     }
-    crate::memory::mark("fenêtre construite");
     let theme = services.themes.active();
     fenetre
         .global::<iris_ui::Layout>()
@@ -187,6 +186,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     shell::appliquer_apparence(&fenetre, &theme, reglages.density);
     shell::appliquer_accent(&fenetre, reglages.accent, theme.dark);
     services.engine.set_automation(reglages.automation);
+    services.engine.set_triage(reglages.triage.clone());
     services.workflow.set_settings(reglages.automation);
     // Les identifiants clients OAuth passent aux services : c'est le fournisseur
     // d'identifiants qui s'en sert, à chaque renouvellement de jeton.
@@ -195,10 +195,6 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     // Le moteur de rendu des corps est construit une fois : ouvrir un peripherique
     // graphique par message serait absurde.
     let renderer: Arc<dyn iris_htmlview::HtmlRenderer> = Arc::new(shell::build_renderer());
-    // Ce jalon-ci est le plus instructif des six : construire le moteur ouvre un
-    // second périphérique graphique, et ce que cela engage n'apparaît dans aucun
-    // compteur de tas.
-    crate::memory::mark("moteur HTML (périph. GPU)");
 
     // La sélection courante, partagée entre le puits d'instantanés et la zone de
     // réponse : répondre s'adresse au fil affiché.
@@ -253,7 +249,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         Arc::clone(&controller),
         runtime.handle().clone(),
     );
-    let carnet = shell::wire_callbacks(
+    shell::wire_callbacks(
         &fenetre,
         Arc::clone(&controller),
         iris_ui::Keymap::standard(),
@@ -351,64 +347,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     shell::wire_remote_images(&fenetre, services.clone(), Arc::clone(&renderer));
     shell::wire_folders(&fenetre, &services, Arc::clone(&controller));
     shell::wire_bulk(&fenetre, Arc::clone(&controller));
-    shell::wire_plugin_settings(&fenetre, &services);
-
-    // Les plugins. Leur fil est indépendant : un plugin qui part en boucle consomme
-    // son carburant, pas une frame ni un tour de synchronisation.
-    {
-        let controller_plugins = Arc::clone(&controller);
-        let carnet_effets = Arc::clone(&carnet);
-        let faible = fenetre.as_weak();
-        let (service, _fil) = crate::plugins::PluginService::spawn(
-            crate::plugins::ensure_dir(services.paths.plugins()),
-            Arc::clone(&services.store),
-            move |effet| {
-                // Une commande déclarée entre dans le carnet : c'est ce qui la rend
-                // atteignable depuis la palette, sans redémarrage.
-                if let crate::plugins::PluginEffect::Command { plugin, spec } = &effet {
-                    if carnet_effets.add_plugin(plugin, spec).is_none() {
-                        tracing::warn!(plugin = %plugin, "invalid plugin command");
-                    }
-                }
-
-                let message = crate::plugins::apply_effect(&effet, &controller_plugins);
-                if let Some(message) = message {
-                    let _ = faible.upgrade_in_event_loop(move |fenetre| {
-                        fenetre.set_status(message.into());
-                    });
-                }
-            },
-        );
-
-        // What the modules screen shows: every plugin the registry accepted, with the
-        // powers its manifest asked for.
-        let vues = crate::modules::plugin_views(&service.manifests());
-        shell::wire_modules(&fenetre, &services, vues);
-
-        let rapport = service.report();
-        if !rapport.loaded.is_empty() || !rapport.rejected.is_empty() {
-            tracing::info!(bilan = %rapport.summary(), "plugins");
-        }
-
-        if _fil.is_some() {
-            let service = Arc::new(service);
-
-            // La palette rend les commandes de plugin à leur auteur.
-            {
-                let service = Arc::clone(&service);
-                carnet.set_sink(move |plugin, spec| {
-                    tracing::info!(plugin = %plugin, "plugin command invoked");
-                    service.invoke(spec, None);
-                });
-            }
-
-            let bus = services.bus.clone();
-            let store = Arc::clone(&services.store);
-            runtime.spawn(async move {
-                crate::plugins::pump(&bus, store, service).await;
-            });
-        }
-    }
+    shell::wire_modules(&fenetre, &services);
 
     // News pushed by the server (IMAP IDLE) for the mailbox on screen: synced as it
     // comes rather than at the next poll. Watched again on another mailbox when the
@@ -706,40 +645,6 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
                 }
             });
         });
-    }
-
-    crate::memory::mark("câblage terminé");
-
-    // Le jalon qui manquait.
-    //
-    // Les cinq précédents sont pris avant la boucle d'événements, donc avant que la
-    // fenêtre soit réellement présentée — et c'est la présentation qui ouvre le
-    // périphérique graphique. Sans ce relevé-ci, la plus grosse dépense du processus
-    // tombait dans l'intervalle entre le dernier jalon et le premier rapport, c'est-à-dire
-    // nulle part. Deux secondes : le temps que les premières images soient passées.
-    if rapport_memoire.is_some() {
-        slint::Timer::single_shot(std::time::Duration::from_secs(2), || {
-            crate::memory::mark("premières images affichées");
-        });
-    }
-
-    // Le rapport périodique, sur son propre fil.
-    //
-    // Sur un fil à lui parce que la question posée est « que retient l'application
-    // quand elle ne fait rien » : la poser depuis la boucle d'interface ne la ferait
-    // jamais poser pendant que la boucle travaille, c'est-à-dire précisément aux
-    // moments qui coûtent.
-    if let Some(intervalle) = rapport_memoire {
-        let fichier = services.paths.cache.join("memoire.txt");
-        std::thread::Builder::new()
-            .name("memoire".into())
-            .spawn(move || loop {
-                std::thread::sleep(intervalle);
-                let rapport = crate::memory::report();
-                let _ = std::fs::write(&fichier, &rapport);
-                tracing::info!("décomposition mémoire écrite dans {}", fichier.display());
-            })
-            .map_err(|e| iris_types::Error::other(format!("fil de rapport : {e}")))?;
     }
 
     // `run_event_loop_until_quit` et non `run` : la boucle doit survivre à la

@@ -165,6 +165,9 @@ pub struct Settings {
     /// The text size, in percent of the normal one: 85 to 130.
     #[serde(default = "cent")]
     pub text_size: u32,
+    /// VIP, Office hours and Filer. Each does nothing until told something.
+    #[serde(default)]
+    pub triage: iris_rules::triage::Triage,
 }
 
 fn cent() -> u32 {
@@ -245,6 +248,7 @@ impl Default for Settings {
             notes_math_preview: true,
             notes_tabs: Vec::new(),
             text_size: 100,
+            triage: Default::default(),
         }
     }
 }
@@ -418,7 +422,66 @@ impl Settings {
         self.calendar_view = self.calendar_view.clamp(0, 4);
         self.first_name = self.first_name.trim().chars().take(40).collect();
         self.text_size = self.text_size.clamp(85, 130);
+        self.triage = self.triage.sanitize();
         self
+    }
+
+    /// Takes over what the VIP, Office hours and Filer plugins were told, from their
+    /// `settings.toml` files under the old plugins folder (`<data>/plugins`), and
+    /// removes that folder: plugins are no longer read. Returns whether anything was
+    /// found, so the caller writes the settings.
+    ///
+    /// A value already set here is not overwritten, and a file that cannot be read
+    /// leaves its sorter as it is: one lost list is better than a start that fails.
+    pub fn migrate_plugins(&mut self, data: &Path) -> bool {
+        let dossier = data.join("plugins");
+        if !dossier.is_dir() {
+            return false;
+        }
+        let lire = |id: &str| -> std::collections::BTreeMap<String, String> {
+            std::fs::read_to_string(dossier.join(id).join("settings.toml"))
+                .ok()
+                .and_then(|t| toml::from_str(&t).ok())
+                .unwrap_or_default()
+        };
+
+        let vip = lire("vip");
+        if let Some(gens) = vip.get("people") {
+            if self.triage.vip.trim().is_empty() {
+                self.triage.vip = gens.trim().to_string();
+            }
+        }
+
+        let heures = lire("office-hours");
+        if !heures.is_empty()
+            && self.triage.office_hours == iris_rules::triage::OfficeHours::default()
+        {
+            let h = &mut self.triage.office_hours;
+            let heure = |cle: &str, defaut: u8| {
+                heures
+                    .get(cle)
+                    .and_then(|v| v.trim().parse::<i64>().ok())
+                    .map(|v| v.clamp(0, 23) as u8)
+                    .unwrap_or(defaut)
+            };
+            h.enabled = heures.get("enabled").is_some_and(|v| v == "true");
+            h.start = heure("start", 8);
+            h.end = heure("end", 18);
+            h.weekend = heures.get("weekend").is_none_or(|v| v != "false");
+        }
+
+        let rangement = lire("filer");
+        if let Some(lignes) = rangement.get("rules") {
+            if self.triage.filer.trim().is_empty() {
+                self.triage.filer = lignes.trim().to_string();
+            }
+        }
+
+        if let Err(e) = std::fs::remove_dir_all(&dossier) {
+            tracing::warn!(folder = %dossier.display(), error = %e, "removing the old plugins folder");
+        }
+        tracing::info!("the plugins' settings were taken over");
+        true
     }
 }
 
@@ -471,6 +534,16 @@ mod tests {
             notes_math_preview: false,
             notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
             text_size: 115,
+            triage: iris_rules::triage::Triage {
+                vip: "marie@client.example\n@direction.example".into(),
+                office_hours: iris_rules::triage::OfficeHours {
+                    enabled: true,
+                    start: 7,
+                    end: 17,
+                    weekend: false,
+                },
+                filer: "invoice -> Accounts".into(),
+            },
         };
 
         reglages.save(&chemin).unwrap();
@@ -695,6 +768,106 @@ mod tests {
         assert!(!chemin.parent().unwrap().exists());
         Settings::default().save(&chemin).unwrap();
         assert!(chemin.exists());
+    }
+
+    /// An old plugins folder as 6.x left it: one folder per plugin, its settings beside
+    /// its manifest.
+    fn anciens_plugins(data: &Path, fichiers: &[(&str, &str)]) {
+        for (id, contenu) in fichiers {
+            let dossier = data.join("plugins").join(id);
+            std::fs::create_dir_all(&dossier).unwrap();
+            std::fs::write(dossier.join("plugin.toml"), "id = \"x\"\n").unwrap();
+            std::fs::write(dossier.join("settings.toml"), contenu).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_plugins_settings_are_taken_over_and_their_folder_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        anciens_plugins(
+            dir.path(),
+            &[
+                (
+                    "vip",
+                    "people = \"marie@client.example, @direction.example\"\n",
+                ),
+                (
+                    "office-hours",
+                    "enabled = \"true\"\nstart = \"7\"\nend = \"19\"\nweekend = \"false\"\n",
+                ),
+                (
+                    "filer",
+                    "rules = \"invoice -> Accounts\\ncontract -> Legal\"\n",
+                ),
+            ],
+        );
+
+        let mut s = Settings::default();
+        assert!(s.migrate_plugins(dir.path()));
+        assert_eq!(s.triage.vip, "marie@client.example, @direction.example");
+        assert_eq!(
+            s.triage.office_hours,
+            iris_rules::triage::OfficeHours {
+                enabled: true,
+                start: 7,
+                end: 19,
+                weekend: false,
+            }
+        );
+        assert_eq!(s.triage.filer_rules().len(), 2);
+        assert!(!dir.path().join("plugins").exists(), "the folder is gone");
+
+        // Once gone, nothing more to do.
+        assert!(!s.migrate_plugins(dir.path()));
+    }
+
+    #[test]
+    fn a_plugin_never_set_keeps_the_defaults() {
+        // Office hours installed but never switched on: still off, at 8 to 18.
+        let dir = tempfile::tempdir().unwrap();
+        anciens_plugins(dir.path(), &[("office-hours", "start = \"30\"\n")]);
+        std::fs::create_dir_all(dir.path().join("plugins").join("vip")).unwrap();
+
+        let mut s = Settings::default();
+        assert!(s.migrate_plugins(dir.path()));
+        assert!(!s.triage.office_hours.enabled);
+        assert_eq!(
+            s.triage.office_hours.start, 23,
+            "out of range: brought back"
+        );
+        assert_eq!(s.triage.office_hours.end, 18);
+        assert!(s.triage.office_hours.weekend);
+        assert!(s.triage.vip.is_empty());
+        assert!(s.triage.is_idle());
+    }
+
+    #[test]
+    fn what_is_already_set_is_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        anciens_plugins(dir.path(), &[("vip", "people = \"old@example.com\"\n")]);
+        let mut s = Settings::default();
+        s.triage.vip = "new@example.com".into();
+        s.migrate_plugins(dir.path());
+        assert_eq!(s.triage.vip, "new@example.com");
+    }
+
+    #[test]
+    fn without_an_old_folder_nothing_happens() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        assert!(!s.migrate_plugins(dir.path()));
+        assert_eq!(s, Settings::default());
+    }
+
+    #[test]
+    fn the_sorters_survive_the_round_trip() {
+        let (_d, chemin) = fichier();
+        let mut s = Settings::default();
+        s.triage.vip = "a@example.com".into();
+        s.triage.office_hours.enabled = true;
+        s.triage.filer = "invoice -> Accounts".into();
+        s.save(&chemin).unwrap();
+        assert_eq!(Settings::load(&chemin).triage, s.triage);
     }
 
     #[test]

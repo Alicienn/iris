@@ -3,39 +3,89 @@
 //! Le compteur de la barre d'état annonçait cinq cents mégaoctets pour une boîte de
 //! huit mégaoctets sur le disque. L'écart ne s'explique pas par les données, et un
 //! compteur de tas ne le montre pas non plus : le tas vivant tient en quelques
-//! mégaoctets. Il faut donc mesurer ce que le processus **engage** — ce que les
-//! pilotes graphiques prennent pour notre compte — et le rattacher à un geste précis.
+//! mégaoctets. Il faut donc mesurer ce que le processus **garde en mémoire** — ce que
+//! les pilotes graphiques prennent pour notre compte compris — et le rattacher à un
+//! geste précis.
 //!
-//! Ces tests ne vérifient pas un budget : ils **impriment une facture**. Ils sont
-//! ignorés par défaut parce qu'ils exigent une carte graphique et parce que leur
+//! Deux de ces tests ne vérifient pas un budget : ils **impriment une facture**. Ils
+//! sont ignorés par défaut parce qu'ils exigent une carte graphique et parce que leur
 //! résultat est un tableau à lire, pas un booléen :
 //!
 //! ```text
 //! cargo test -p iris-app --test memoire -- --ignored --nocapture
 //! ```
+//!
+//! The third holds a budget on the heap's peak, counted by this test binary's own
+//! allocator: the application no longer carries one.
 
-use iris_app::memory;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Un relevé lisible de l'espace engagé.
-fn releve(quoi: &str) -> memory::Regions {
-    let r = memory::regions();
-    println!(
-        "{quoi:<34} privé {:>7.1} Mo   écr.comb. {:>7.1} Mo   image {:>7.1} Mo   résident {:>7.1} Mo",
-        r.private_rw as f64 / 1048576.0,
-        r.private_wc as f64 / 1048576.0,
-        r.image as f64 / 1048576.0,
-        iris_app::vitals::resident_bytes().unwrap_or(0) as f64 / 1048576.0,
-    );
-    r
+/// Counts what this test binary holds on the heap, and the most it held.
+struct Counting;
+
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+#[global_allocator]
+static ALLOCATOR: Counting = Counting;
+
+fn noted(size: usize) {
+    let live = LIVE.fetch_add(size, Ordering::Relaxed) + size;
+    PEAK.fetch_max(live, Ordering::Relaxed);
 }
 
-fn ecart(avant: &memory::Regions, apres: &memory::Regions, quoi: &str) {
-    let mo = |a: u64, b: u64| (b as i64 - a as i64) as f64 / 1048576.0;
-    println!(
-        "  → {quoi:<30} privé {:>+7.1} Mo   écr.comb. {:>+7.1} Mo",
-        mo(avant.private_rw, apres.private_rw),
-        mo(avant.private_wc, apres.private_wc),
-    );
+// Everything is handed to `System`; only the counts are ours.
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let ptr = System.alloc(layout);
+        if !ptr.is_null() {
+            noted(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let ptr = System.alloc_zeroed(layout);
+        if !ptr.is_null() {
+            noted(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
+        System.dealloc(ptr, layout);
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let nouveau = System.realloc(ptr, layout, new_size);
+        if !nouveau.is_null() {
+            LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
+            noted(new_size);
+        }
+        nouveau
+    }
+}
+
+/// Brings the peak down to what is held now, and returns it: the peak of one operation
+/// is then what it took.
+#[cfg(feature = "blitz")]
+fn reset_peak() -> usize {
+    let courant = LIVE.load(Ordering::Relaxed);
+    PEAK.store(courant, Ordering::Relaxed);
+    courant
+}
+
+/// Ce que le processus garde en mémoire, en mégaoctets.
+fn releve(quoi: &str) -> f64 {
+    let mo = iris_app::vitals::resident_bytes().unwrap_or(0) as f64 / 1048576.0;
+    println!("{quoi:<34} résident {mo:>7.1} Mo");
+    mo
+}
+
+fn ecart(avant: f64, apres: f64, quoi: &str) {
+    println!("  → {quoi:<30} résident {:>+7.1} Mo", apres - avant);
 }
 
 /// Un message d'infolettre, aussi long qu'on le demande.
@@ -91,7 +141,7 @@ fn ce_que_coute_le_moteur_html() {
             Err(e) => println!("\n{nom} : refusé ({e})"),
         }
         let apres = releve(&format!("après « {nom} »"));
-        ecart(&precedent, &apres, nom);
+        ecart(precedent, apres, nom);
         precedent = apres;
     }
 }
@@ -122,14 +172,14 @@ fn une_longue_infolettre_ne_coute_que_ce_qu_on_en_regarde() {
         "le message doit être assez long pour que la différence compte ({hauteur} px)"
     );
 
-    let socle = memory::reset_peak();
+    let socle = reset_peak();
     let mut pixels = Vec::new();
     for i in 0..2 {
         let mut tampon = iris_ui::bridge::ImageSink::default();
         d.paint_tile(i, &mut tampon).expect("tuile");
         pixels.push(tampon);
     }
-    let pic = memory::heap().peak.saturating_sub(socle);
+    let pic = PEAK.load(Ordering::Relaxed).saturating_sub(socle);
     let tuile = largeur as usize * d.tile_height() as usize * 4;
 
     println!(
@@ -144,6 +194,7 @@ fn une_longue_infolettre_ne_coute_que_ce_qu_on_en_regarde() {
         tuile * 4
     );
 }
+
 #[test]
 #[ignore = "exige une carte graphique ; imprime une facture au lieu de vérifier un budget"]
 fn ce_que_coute_la_fenetre() {
@@ -153,14 +204,14 @@ fn ce_que_coute_la_fenetre() {
 
     let fenetre = iris_ui::AppWindow::new().expect("la fenêtre doit se construire");
     let construite = releve("après construction de la fenêtre");
-    ecart(&depart, &construite, "construire la fenêtre");
+    ecart(depart, construite, "construire la fenêtre");
 
     // La fenêtre n'ouvre son périphérique graphique qu'à l'affichage. Ne pas la
     // montrer mesurerait une fenêtre qui n'a pas encore coûté ce qu'elle coûte.
     fenetre.show().expect("affichage");
     slint::platform::update_timers_and_animations();
     let affichee = releve("après affichage");
-    ecart(&construite, &affichee, "afficher (device + textures)");
+    ecart(construite, affichee, "afficher (device + textures)");
 
     fenetre.hide().expect("masquage");
 }

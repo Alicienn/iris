@@ -15,7 +15,7 @@ the first afternoon, and never forgive".
 | Reading | Each message framed, a full-screen mode, attachments as file cards; `>` quotes in plain text drawn as quotations, as Apple Mail and Thunderbird draw them (6.0.0) |
 | Folders | Created on every mailbox at once or on the ones you tick (and then shows theirs only), renamed and deleted on all that have it; subfolders folded away, as every client does (6.0.0) |
 | Search | `from:`, `is:unread`, free text, over a local index |
-| Automation | Rules, plus WebAssembly modules in a sandbox with no network |
+| Automation | Rules, and VIP, Office hours and Filer built in (7.0.0; WebAssembly plugins before, which never acted); no plugins |
 | Composing | To / Cc / Bcc as address chips, attachments, formatting, signatures, an undo whose delay you choose; replies in the full composer with the conversation shown under them, as Outlook and Apple Mail do (6.0.0) |
 | Offline | Every action journalled and replayed; nothing waits for the network |
 | Privacy | Remote images blocked by default, trackers named |
@@ -61,14 +61,14 @@ queue half does already.
 ### 4. No encryption, no server-side filters, no vacation reply
 
 PGP and S/MIME are projects. Sieve means speaking another protocol. A vacation reply
-means sending mail without being asked, which the module sandbox refuses on purpose: it
-belongs in the application or nowhere, and probably nowhere.
+means sending mail without being asked: it belongs in the application or nowhere, and
+probably nowhere.
 
-### 5. Windows only
+### 5. Windows and Android only
 
-The code builds and its tests pass on macOS in CI; what a Mac build still lacks is the
-tray, notifications, the title bar, a font of its own, a signed `.app`, and an
-updater for it. Android would be a second interface.
+Iris ships for Windows and, as a preview, Android. There is no Mac build, and since
+7.0 no macOS run in CI either: a Mac would still lack the tray, notifications, the
+title bar, a font of its own, a signed `.app` and an updater for it.
 
 ## Closed since the first version of this list
 

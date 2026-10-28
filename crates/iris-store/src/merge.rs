@@ -739,7 +739,6 @@ mod tests {
             "a merge writes no tombstone of its own"
         );
         // The seeded rows met instead of doubling.
-        assert_eq!(nombre(&b, "SELECT count(*) FROM areas"), 6);
         assert_eq!(nombre(&b, "SELECT count(*) FROM task_lists"), 2);
     }
 
@@ -791,29 +790,95 @@ mod tests {
         let (a, b) = (Store::in_memory().unwrap(), Store::in_memory().unwrap());
         sql(
             &a,
-            "INSERT INTO cycles (name, start_day, created_at) VALUES ('Autumn', '2026-09-07', 0);
-             INSERT INTO cycles (name, start_day, created_at) VALUES ('Winter', '2026-12-07', 0);",
+            "INSERT INTO goals (title, due_day, color, created_at) VALUES ('Autumn', '2026-09-07', '#000', 0);
+             INSERT INTO goals (title, due_day, color, created_at) VALUES ('Winter', '2026-12-07', '#000', 0);",
         );
         envoyer(&a, &b);
         // Autumn: edited on B, then deleted on A — gone.
-        sql(&b, "UPDATE cycles SET weeks = 10 WHERE name = 'Autumn';");
+        sql(
+            &b,
+            "UPDATE goals SET color = '#111' WHERE title = 'Autumn';",
+        );
         a.clock().observe(&b.changes_since("").unwrap().up_to);
-        sql(&a, "DELETE FROM cycles WHERE name = 'Autumn';");
+        sql(&a, "DELETE FROM goals WHERE title = 'Autumn';");
         // Winter: deleted on A, then edited on B — stays.
-        sql(&a, "DELETE FROM cycles WHERE name = 'Winter';");
+        sql(&a, "DELETE FROM goals WHERE title = 'Winter';");
         b.clock().observe(&a.changes_since("").unwrap().up_to);
-        sql(&b, "UPDATE cycles SET weeks = 8 WHERE name = 'Winter';");
+        sql(
+            &b,
+            "UPDATE goals SET color = '#222' WHERE title = 'Winter';",
+        );
 
         let r = envoyer(&a, &b);
         assert_eq!(r.deleted, 1, "{r:?}");
-        assert!(un(&b, "SELECT name FROM cycles WHERE name = 'Autumn'").is_none());
-        assert!(un(&b, "SELECT name FROM cycles WHERE name = 'Winter'").is_some());
+        assert!(un(&b, "SELECT title FROM goals WHERE title = 'Autumn'").is_none());
+        assert!(un(&b, "SELECT title FROM goals WHERE title = 'Winter'").is_some());
         envoyer(&b, &a);
         assert!(
-            un(&a, "SELECT name FROM cycles WHERE name = 'Winter'").is_some(),
+            un(&a, "SELECT title FROM goals WHERE title = 'Winter'").is_some(),
             "edited after its deletion, it comes back"
         );
-        assert!(un(&a, "SELECT name FROM cycles WHERE name = 'Autumn'").is_none());
+        assert!(un(&a, "SELECT title FROM goals WHERE title = 'Autumn'").is_none());
+    }
+
+    #[test]
+    fn what_a_device_on_6_x_sends_of_the_compass_is_ignored() {
+        // Its areas, cycles and vision, a goal in an area, and a cycle deleted there.
+        let b = Store::in_memory().unwrap();
+        let ligne = |table: &str, sync_id: &str, fields: Json| RowChange {
+            table: table.into(),
+            sync_id: sync_id.into(),
+            sync_at: "0001790000000000.0000000000.a".into(),
+            fields: fields.as_object().cloned().unwrap_or_default(),
+        };
+        let set = ChangeSet {
+            from_device: "a".into(),
+            up_to: "0001790000000000.0000000000.a".into(),
+            rows: vec![
+                ligne(
+                    "areas",
+                    "seed-area-1",
+                    serde_json::json!({"name": "Health", "color": "#34c759"}),
+                ),
+                ligne(
+                    "vision",
+                    "seed-vision",
+                    serde_json::json!({"id": 1, "text": "Mine"}),
+                ),
+                ligne(
+                    "goals",
+                    "g1",
+                    serde_json::json!({
+                        "title": "Run", "due_day": "2026-12-31", "color": "#000",
+                        "created_at": 0, "area_id": "seed-area-1"
+                    }),
+                ),
+            ],
+            tombstones: vec![SyncTombstone {
+                table: "cycles".into(),
+                sync_id: "c1".into(),
+                sync_at: "0001790000000000.0000000000.a".into(),
+            }],
+            settings: Vec::new(),
+        };
+
+        let r = b.apply_changes(&set, "").unwrap();
+        assert_eq!(r.inserted, 1, "the goal alone: {r:?}");
+        assert_eq!(
+            nombre(
+                &b,
+                "SELECT count(*) FROM goals WHERE title = 'Run' AND area_id IS NULL"
+            ),
+            1
+        );
+        assert_eq!(nombre(&b, "SELECT count(*) FROM sync_tombstones"), 0);
+
+        // And what it gets back carries no area.
+        let retour = b.changes_since("").unwrap();
+        assert!(retour
+            .rows
+            .iter()
+            .all(|r| !r.fields.contains_key("area_id")));
     }
 
     #[test]

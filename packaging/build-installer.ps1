@@ -1,5 +1,4 @@
-# Builds the installer, end to end: the release binary, the bundled modules, and
-# the setup program.
+# Builds the installer, end to end: the release binary and the setup program.
 #
 # Output: packaging\output\iris-setup-<version>.exe
 #
@@ -30,8 +29,6 @@ if ($UseBuiltBinary) {
     & cargo build --release -p iris-app
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
 }
-
-& (Join-Path $PSScriptRoot 'build-plugins.ps1')
 
 # Where Inno Setup lands depends on how it was installed.
 $iscc = @(

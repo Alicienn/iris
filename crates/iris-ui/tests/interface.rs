@@ -16,7 +16,7 @@
 //! suivants, ce qui est tout l'intérêt d'en avoir plusieurs.
 
 use i_slint_backend_testing as testing;
-use iris_ui::{AccountRowData, AppWindow, MessageData, PluginRowData, RuleRowData, ThreadRowData};
+use iris_ui::{AccountRowData, AppWindow, MessageData, RuleRowData, ThreadRowData};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -604,17 +604,6 @@ fn rule(id: &str, name: &str, enabled: bool, applied: i32) -> RuleRowData {
     }
 }
 
-fn plugin(name: &str, permissions: &str, disabled: &str) -> PluginRowData {
-    PluginRowData {
-        id: "sorter".into(),
-        name: name.into(),
-        version: "1.0.0".into(),
-        description: "Sorts newsletters".into(),
-        permissions: permissions.into(),
-        disabled_reason: disabled.into(),
-    }
-}
-
 /// Every visible text on screen, for the checks that look for a sentence.
 fn textes(f: &AppWindow) -> Vec<String> {
     testing::ElementQuery::from_root(f)
@@ -632,33 +621,6 @@ fn les_modules_n_existent_pas_avant_d_etre_ouverts() {
 
     f.set_modules_open(true);
     assert!(par_libelle(&f, "Add rule").is_some());
-}
-
-fn les_reglages_d_un_module_remplacent_la_liste_au_lieu_de_s_empiler() {
-    // Ils s'ouvraient dans une seconde fenêtre modale, déclarée avant celle des
-    // modules : le dernier frère passant devant, l'écran des modules recouvrait
-    // entièrement ce qu'il venait d'ouvrir, et cliquer « Settings » n'avait l'air de
-    // rien faire du tout.
-    let f = fenetre();
-    f.set_modules_open(true);
-    f.set_plugins(modele(vec![plugin("Sorter", "Can read mail", "")]));
-
-    assert!(par_libelle(&f, "Add rule").is_some(), "la liste est là");
-
-    f.set_plugin_settings_name("Sorter".into());
-    f.set_plugin_settings_open(true);
-
-    assert!(
-        par_libelle(&f, "Add rule").is_none(),
-        "la liste cède la place au lieu de rester dessous"
-    );
-    assert!(
-        par_libelle(&f, "‹ Modules").is_some(),
-        "et l'on peut remonter d'un cran sans tout fermer"
-    );
-
-    f.set_plugin_settings_open(false);
-    assert!(par_libelle(&f, "Add rule").is_some(), "la liste revient");
 }
 
 fn une_regle_dit_ce_qu_elle_fait() {
@@ -744,51 +706,6 @@ fn sans_regle_l_ecran_explique_au_lieu_de_rester_vide() {
     f.set_rules(modele(Vec::<RuleRowData>::new()));
 
     assert!(textes(&f).iter().any(|l| l.contains("No rules yet")));
-}
-
-fn les_permissions_d_un_plugin_sont_visibles_sans_clic() {
-    // A plugin's power is the thing worth knowing about it; burying it is how people
-    // end up running code they never agreed to.
-    let f = fenetre();
-    f.set_modules_open(true);
-    f.set_plugins(modele(vec![plugin(
-        "Sorter",
-        "Can read mail, change mail",
-        "",
-    )]));
-
-    let ligne = par_libelle(&f, "Sorter").expect("the plugin must be listed");
-    assert_eq!(
-        ligne.accessible_description().map(|d| d.to_string()),
-        Some("Can read mail, change mail".into())
-    );
-}
-
-fn un_plugin_hors_circuit_dit_pourquoi() {
-    let f = fenetre();
-    f.set_modules_open(true);
-    f.set_plugins(modele(vec![plugin(
-        "Sorter",
-        "Can read mail",
-        "ran out of fuel",
-    )]));
-
-    let ligne = par_libelle(&f, "Sorter").unwrap();
-    assert_eq!(
-        ligne.accessible_description().map(|d| d.to_string()),
-        Some("Out of circulation: ran out of fuel".into())
-    );
-}
-
-fn sans_plugin_l_ecran_dit_ou_en_installer_un() {
-    // A folder is a distribution channel that needs no store.
-    let f = fenetre();
-    f.set_modules_open(true);
-    f.set_plugin_folder("/home/me/iris/plugins".into());
-
-    assert!(textes(&f)
-        .iter()
-        .any(|l| l.contains("/home/me/iris/plugins")));
 }
 
 fn ajouter_une_regle_est_atteignable() {
@@ -1918,10 +1835,6 @@ fn main() {
             les_modules_n_existent_pas_avant_d_etre_ouverts as fn(),
         ),
         (
-            "les_reglages_d_un_module_remplacent_la_liste_au_lieu_de_s_empiler",
-            les_reglages_d_un_module_remplacent_la_liste_au_lieu_de_s_empiler as fn(),
-        ),
-        (
             "une_regle_dit_ce_qu_elle_fait",
             une_regle_dit_ce_qu_elle_fait as fn(),
         ),
@@ -1941,18 +1854,6 @@ fn main() {
         (
             "sans_regle_l_ecran_explique_au_lieu_de_rester_vide",
             sans_regle_l_ecran_explique_au_lieu_de_rester_vide as fn(),
-        ),
-        (
-            "les_permissions_d_un_plugin_sont_visibles_sans_clic",
-            les_permissions_d_un_plugin_sont_visibles_sans_clic as fn(),
-        ),
-        (
-            "un_plugin_hors_circuit_dit_pourquoi",
-            un_plugin_hors_circuit_dit_pourquoi as fn(),
-        ),
-        (
-            "sans_plugin_l_ecran_dit_ou_en_installer_un",
-            sans_plugin_l_ecran_dit_ou_en_installer_un as fn(),
         ),
         (
             "ajouter_une_regle_est_atteignable",

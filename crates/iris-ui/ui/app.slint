@@ -3,7 +3,7 @@ import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { Glass, Backdrop, Floating } from "@iris/base/glass.slint";
 import {
-    ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData, PluginRowData,
+    ThreadRowData, AccountRowData, MessageData, CommandData, RuleRowData,
     AccountTagData, HomeItemData, FolderNodeData,
     CalendarData, MonthCellData, WeekDayData, TimedEventData, EventDetailData, AgendaRowData, DeviceRowData,
     TaskPlaceData, TaskRowData, TaskDetailData, SubtaskData, ChangelogRowData,
@@ -38,7 +38,6 @@ import { PairPanel } from "@iris/screens/devices.slint";
 import { WelcomePage } from "@iris/screens/welcome.slint";
 import { AccountSetupPanel, AccountFoundPage } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
-import { PluginSettingData } from "@iris/screens/plugins.slint";
 import {
     ComposePanel, ScheduledPanel, ParkedDraft, ComposeRecipients, QuotedMessageData,
     RecipientChipData, RecipientEditData
@@ -621,9 +620,15 @@ export component AppWindow inherits Window {
 
     in-out property <bool> modules-open;
     in property <[RuleRowData]> rules;
-    in property <[PluginRowData]> plugins;
-    in property <string> plugin-folder;
     in property <string> simulation;
+    /// VIP, Office hours and Filer, as Settings shows them; `triage-changed` saves them.
+    in-out property <string> vip-people;
+    in-out property <bool> office-hours-enabled;
+    in-out property <int> office-hours-start: 8;
+    in-out property <int> office-hours-end: 18;
+    in-out property <bool> office-hours-weekend: true;
+    in-out property <string> filer-lines;
+    callback triage-changed();
     in-out property <string> new-rule-name;
     in-out property <string> new-rule-sender;
 
@@ -764,11 +769,6 @@ export component AppWindow inherits Window {
     // Y a-t-il une icône dans la zone de notification pour faire revenir la fenêtre ?
     // Elle décide de ce que veut dire « fermer ».
     in property <bool> tray-available;
-    in property <bool> plugin-settings-open;
-    in property <string> plugin-settings-name;
-    in-out property <string> plugin-settings-id;
-    in property <string> plugin-settings-error;
-    in property <[PluginSettingData]> plugin-settings;
     in property <bool> new-folder-open;
     in property <bool> folder-menu-open;
     in property <string> folder-menu-path;
@@ -796,9 +796,6 @@ export component AppWindow inherits Window {
     /// A folder's chevron: the folders under it folded away, or back.
     callback folder-fold-toggled(string);
     callback folder-cleared();
-    callback plugin-settings-requested(string);
-    callback plugin-setting-changed(string, string);
-    callback plugin-settings-dismissed();
     callback new-folder-requested();
     callback folder-dropped(string);
     callback folder-menu-requested(string);
@@ -1684,7 +1681,6 @@ export component AppWindow inherits Window {
     callback rule-simulated(string);
     callback rule-removed(string);
     callback rule-added();
-    callback plugins-reloaded();
     callback compose-send();
     /// When a message can be sent later, as the menu offers it; Rust fills them.
     in property <[string]> compose-later-options;
@@ -4513,8 +4509,6 @@ export component AppWindow inherits Window {
             width: 100%;
             height: 100%;
             rules: root.rules;
-            plugins: root.plugins;
-            plugin-folder: root.plugin-folder;
             simulation: root.simulation;
             new-rule-name <=> root.new-rule-name;
             new-rule-sender <=> root.new-rule-sender;
@@ -4522,21 +4516,7 @@ export component AppWindow inherits Window {
             rule-simulated(id) => { root.rule-simulated(id); }
             rule-removed(id) => { root.rule-removed(id); }
             rule-added => { root.rule-added(); }
-            plugins-reloaded => { root.plugins-reloaded(); }
-            configure-plugin(id) => { root.plugin-settings-requested(id); }
-
-            // Les réglages du module, dans cette fenêtre-ci et non dans une seconde
-            // par-dessus. Le nom vide veut dire « la liste ».
-            settings-plugin: root.plugin-settings-open ? root.plugin-settings-name : "";
-            plugin-settings: root.plugin-settings;
-            settings-error: root.plugin-settings-error;
-            settings-changed(k, v) => { root.plugin-setting-changed(k, v); }
-            settings-closed => { root.plugin-settings-dismissed(); }
-
-            dismissed => {
-                root.plugin-settings-dismissed();
-                root.modules-open = false;
-            }
+            dismissed => { root.modules-open = false; }
         }
 
         if root.add-account-open: AccountSetupPanel {
@@ -4618,7 +4598,7 @@ export component AppWindow inherits Window {
             }
             first-name <=> root.first-name;
             first-name-changed(t) => { root.first-name-changed(t); }
-            // One window for another: the modules replace the settings.
+            // One window for another: the rules replace the settings.
             open-modules => {
                 if (!Layout.compact) { root.settings-open = false; }
                 root.modules-open = true;
@@ -4630,12 +4610,14 @@ export component AppWindow inherits Window {
             changelog: root.settings-changelog;
             open-changelog => { root.changelog-open = true; }
             rules: root.rules;
-            plugins: root.plugins;
             rule-toggled(id, on) => { root.rule-toggled(id, on); }
-            plugin-opened(id) => {
-                root.modules-open = true;
-                root.plugin-settings-requested(id);
-            }
+            vip-people <=> root.vip-people;
+            office-hours-enabled <=> root.office-hours-enabled;
+            office-hours-start <=> root.office-hours-start;
+            office-hours-end <=> root.office-hours-end;
+            office-hours-weekend <=> root.office-hours-weekend;
+            filer-lines <=> root.filer-lines;
+            triage-changed => { root.triage-changed(); }
             // An account's page: its right-click menu asked for, as on a PC, and closed
             // at once; the page shows what the menu holds and does what it does.
             account <=> root.settings-account;

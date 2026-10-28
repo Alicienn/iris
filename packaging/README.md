@@ -70,8 +70,9 @@ pinned `ubuntu-24.04` rather than `ubuntu-latest`, which moves to Ubuntu 26 on i
 timetable, and the APK's job points `ANDROID_NDK_HOME` and `ANDROID_NDK_ROOT` at the
 same, newest NDK.
 
-Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
-(04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
+Release follows `ci.yml` (Windows) only. There is no macOS workflow since 7.0: Iris
+targets Windows and Android, and the `cfg(not(windows))` code Android uses is built by
+CI's `android` job.
 
 **A release whose commits change `release.yml`** could not be tagged by the workflow
 (6.3.0 and 6.3.1; 6.5.0, which changed `ci.yml` only, was tagged as usual): GitHub
@@ -91,21 +92,12 @@ Actions tab to measure it; Release ignores those runs.
 
 ```
 cargo build --release
-powershell -File packaging\build-plugins.ps1
 iscc /DAppVersion=x.y.z packaging\iris.iss
 ```
 
-The middle step compiles the three bundled modules to WebAssembly and lays them out
-under `packaging\plugins\<id>\` exactly as the registry reads them — one directory per
-module, manifest and binary side by side. The installer copies that tree verbatim, so
-the layout is written down in one place. It needs the wasm target:
-
-```
-rustup target add wasm32-unknown-unknown
-```
-
-Skipping the step does not break the compile; it produces an installer whose "install
-the bundled modules" box installs nothing.
+Until 7.0 a middle step compiled three bundled WebAssembly modules (VIP, Office hours,
+Filer) for the installer to copy into the profile. They are part of Iris now, so the
+installer carries the program alone, and the release needs no wasm target.
 
 [Inno Setup 6](https://jrsoftware.org/isdl.php) provides `iscc`, or
 `winget install JRSoftware.InnoSetup`. Where it lands depends on how it was installed —
@@ -139,24 +131,20 @@ machine is touched.
 ## What the uninstaller removes, and what it keeps
 
 Removed: the program, the shortcuts, the registry entries, the cache under
-`%LOCALAPPDATA%\Iris\Iris\cache`, which is entirely rebuildable, and the three module
-files it placed under `%APPDATA%\Iris\Iris\data\plugins`.
+`%LOCALAPPDATA%\Iris\Iris\cache`, which is entirely rebuildable.
 
 Kept: everything under `%APPDATA%\Iris\Iris` that the installer did not put there — the
-database, the settings, the vault, and each module's `settings.toml`, which the
-application writes and which survives a reinstall. That is the user's mail, not the
-installer's. An uninstall that takes ten years of correspondence with it is not
-forgiven.
+database, the settings and the vault, which the application writes and which survive a
+reinstall. That is the user's mail, not the installer's. An uninstall that takes ten
+years of correspondence with it is not forgiven.
 
-The modules go into the profile rather than next to the program on purpose: a module's
-settings are written beside its manifest, and a module under `Program Files` would be
-a module whose settings cannot be changed on a machine where the user cannot write
-there. The application reads exactly one modules directory, and that is it.
-
-The doubled name is not a typo. Iris locates its data through the `directories` crate,
+The name is doubled on purpose. Iris locates its data through the `directories` crate,
 which on Windows composes `%APPDATA%\<organisation>\<application>\data` — and both are
-"Iris". A copy dropped under `%APPDATA%\Iris\plugins`, which is what anyone would write,
-is never read: the Modules screen simply stays empty, and nothing says why.
+"Iris".
+
+Installers before 7.0 also put three modules under `%APPDATA%\Iris\Iris\data\plugins`.
+Iris 7.0 takes their settings over on its first start and removes that folder itself
+(`Settings::migrate_plugins`); the new installer neither writes nor removes it.
 
 ## What it does not solve
 

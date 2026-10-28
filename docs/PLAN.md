@@ -839,3 +839,16 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       page, Later and Find a slot as sheets, habits' day discs (6.8.0).
 - [ ] **S47.12** The rest of the mockups: the mail's sheets and conversation, calendar,
       tasks, notes, settings, sync pages.
+
+## E48 — Lighter (7.0.0)
+
+- [x] **S48.1** VIP, Office hours and Filer part of Iris: decided in `iris-rules::triage`,
+      run by the sync's rules pass on new mail, set in Settings › Sorting, their plugin
+      settings taken over on first start; the WebAssembly host, SDK, bundled plugin
+      crates, plugin settings window and the installer's modules task removed; the
+      Modules window keeps the rules (7.0.0).
+- [x] **S48.2** Dead code out: the kernel's module registry, capabilities and config
+      store; the compass's store code, its tables dropped by migration 29; the femtovg
+      renderer; the memory diagnostics (`memory.rs`, `IRIS_MEMREPORT`, `iris memory`);
+      the command-line `add-account`, `import`, `accounts` and `sync`; the macOS
+      workflow; three iris-app test binaries made one (7.0.0).

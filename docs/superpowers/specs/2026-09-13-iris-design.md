@@ -386,3 +386,13 @@ Details in [ARCHITECTURE.md](../../ARCHITECTURE.md).
   monthly scores, cycles, vision) was dropped, its tables left unused in the base.
   Since 6.1.0 there is no Growth place: the goals are back in the Tasks column, beside
   the habits, and the window has five places again.
+- **No plugins, no module registry** (7.0.0), against stance 3 and §8. The WebAssembly
+  host and its SDK carried three plugins (VIP, Office hours, Filer) and nothing else,
+  and those never received a message. The three are part of Iris, decided in
+  `iris-rules` and run by the sync's rules pass, with their settings in Settings; the
+  kernel keeps the event bus and its coalescing, not the registry, the capabilities or
+  the configuration store, which nothing used. The compass's tables are dropped
+  (migration 29).
+- **Windows and Android, not macOS** (7.0.0), against the v1 platform line: Android
+  came first, and the macOS test run is gone. The interface has one renderer, Slint's
+  software one; the GPU backend is no longer even built.

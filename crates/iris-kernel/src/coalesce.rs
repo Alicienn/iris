@@ -91,7 +91,7 @@ impl ViewDiff {
             Event::SyncPhaseChanged { account, .. } | Event::SyncFailed { account, .. } => {
                 self.accounts.insert(*account);
             }
-            Event::IndexUpdated { .. } | Event::Custom { .. } => {}
+            Event::IndexUpdated { .. } => {}
         }
 
         if self.threads.len() > MAX_THREADS {

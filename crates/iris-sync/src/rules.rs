@@ -20,6 +20,12 @@ use iris_rules::{Action, Facts, Rule};
 use iris_store::StoredMessage;
 use iris_types::{Flags, MessageId, Result, Timestamp};
 
+/// The names VIP, Office hours and Filer record their actions under, beside the rules'.
+/// A rule's identifier never has a colon (see `modules.rs`), so they cannot meet one.
+pub const TRIAGE_VIP: &str = "iris:vip";
+pub const TRIAGE_OFFICE_HOURS: &str = "iris:office-hours";
+pub const TRIAGE_FILER: &str = "iris:filer";
+
 /// What a rules pass produced.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RulesReport {
@@ -137,6 +143,104 @@ impl SyncEngine {
         }
 
         Ok(report)
+    }
+
+    /// Runs VIP, Office hours and Filer over new mail.
+    ///
+    /// Like a rule, each acts once per message (it is recorded under its own name with
+    /// the rules' applications) and through the workflow, so its moves can be undone.
+    /// In this order: VIP pins and puts back to do, Office hours snoozes what arrived
+    /// outside the working hours until they open, Filer moves the thread to the first
+    /// folder whose line matches. Filer never makes a folder: a mailbox without it keeps
+    /// the mail where it is.
+    pub fn apply_triage(&self, messages: &[MessageId], now: Timestamp) -> Result<RulesReport> {
+        let triage = self.triage();
+        let mut report = RulesReport::default();
+        if triage.is_idle() {
+            return Ok(report);
+        }
+        let Some(workflow) = self.workflow() else {
+            return Ok(report);
+        };
+        let filer = triage.filer_rules();
+
+        for id in messages {
+            let Some(message) = self.store().message_by_id(*id)? else {
+                continue;
+            };
+            report.examined += 1;
+            let thread = message.thread;
+            let mut touched = false;
+
+            if triage.is_vip(&message.from_addr) && self.first_time(TRIAGE_VIP, *id, now)? {
+                touched = true;
+                // Pinned first: a pinned thread left filed is found again; one back in
+                // the queue without a mark drowns.
+                match workflow.set_flagged(thread, true, now) {
+                    Ok(true) => report.actions += 1,
+                    Ok(false) => {}
+                    Err(e) => report.failures.push((TRIAGE_VIP.into(), e.to_string())),
+                }
+                match workflow.set_state(thread, iris_types::WorkflowState::Todo, now) {
+                    Ok(o) if o.changed() => report.actions += 1,
+                    Ok(_) => {}
+                    Err(e) => report.failures.push((TRIAGE_VIP.into(), e.to_string())),
+                }
+            }
+
+            // Mail that came in during the night but is only seen now, once the hours
+            // have opened, has nothing left to wait for.
+            if let Some(until) = triage.office_hours.reopens_at(message.received) {
+                if until > now && self.first_time(TRIAGE_OFFICE_HOURS, *id, now)? {
+                    touched = true;
+                    match workflow.snooze(thread, until, now) {
+                        Ok(true) => report.actions += 1,
+                        Ok(false) => {}
+                        Err(e) => report
+                            .failures
+                            .push((TRIAGE_OFFICE_HOURS.into(), e.to_string())),
+                    }
+                }
+            }
+
+            if !filer.is_empty() {
+                // The attachments' names, never their content.
+                let attachments: Vec<String> = self
+                    .store()
+                    .visible_attachments(*id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| a.meta.filename)
+                    .collect();
+                if let Some(folder) =
+                    iris_rules::triage::filer_destination(&message.subject, &attachments, &filer)
+                {
+                    if self.first_time(TRIAGE_FILER, *id, now)? {
+                        touched = true;
+                        match workflow.move_to_folder(thread, folder, now) {
+                            Ok(true) => report.actions += 1,
+                            Ok(false) => {}
+                            Err(e) => report.failures.push((TRIAGE_FILER.into(), e.to_string())),
+                        }
+                    }
+                }
+            }
+
+            if touched {
+                report.affected += 1;
+            }
+        }
+
+        Ok(report)
+    }
+
+    /// Records that a sorter acts on a message, if it never has: whether to act.
+    fn first_time(&self, sorter: &str, message: MessageId, now: Timestamp) -> Result<bool> {
+        if self.store().rule_was_applied(sorter, message)? {
+            return Ok(false);
+        }
+        self.store().record_rule_application(sorter, message, now)?;
+        Ok(true)
     }
 
     /// Carries out a single action. Returns whether anything changed.
@@ -405,7 +509,7 @@ mod tests {
     #[test]
     fn state_changes_go_through_the_workflow_and_are_undoable() {
         // A rule writing straight to the store would produce a change the user cannot
-        // take back and plugins never hear about.
+        // take back and the rest of Iris never hears about.
         let f = fixture();
         f.install(&newsletter_rule(), 0);
         let message = f.message("weekly@news.example", "This week", Flags::NONE);
@@ -514,6 +618,126 @@ mod tests {
 
         let simulation = f.engine.simulate_rules(None, 100, now()).unwrap();
         assert_eq!(simulation.affected, 1);
+    }
+
+    fn thread_of(f: &Fixture, message: MessageId) -> iris_types::ThreadId {
+        f.store.message_by_id(message).unwrap().unwrap().thread
+    }
+
+    #[test]
+    fn a_vip_s_mail_is_pinned_and_put_back_to_do() {
+        let f = fixture();
+        f.engine.set_triage(iris_rules::triage::Triage {
+            vip: "@client.example".into(),
+            ..Default::default()
+        });
+        let message = f.message("marie@client.example", "Quote", Flags::NONE);
+        f.workflow
+            .set_state(thread_of(&f, message), WorkflowState::Done, now())
+            .unwrap();
+
+        let report = f.engine.apply_triage(&[message], now()).unwrap();
+        assert_eq!(report.affected, 1);
+        assert_eq!(f.state_of(message), WorkflowState::Todo);
+        assert!(f
+            .store
+            .message_by_id(message)
+            .unwrap()
+            .unwrap()
+            .flags
+            .contains(Flags::FLAGGED));
+
+        // Once per message: unpinned by hand, it stays unpinned.
+        f.workflow
+            .set_flagged(thread_of(&f, message), false, now())
+            .unwrap();
+        assert_eq!(
+            f.engine.apply_triage(&[message], now()).unwrap().affected,
+            0
+        );
+    }
+
+    #[test]
+    fn someone_else_s_mail_is_left_alone() {
+        let f = fixture();
+        f.engine.set_triage(iris_rules::triage::Triage {
+            vip: "marie@client.example".into(),
+            ..Default::default()
+        });
+        let message = f.message("news@shop.example", "Sale", Flags::NONE);
+        assert_eq!(
+            f.engine.apply_triage(&[message], now()).unwrap().affected,
+            0
+        );
+    }
+
+    #[test]
+    fn mail_arriving_at_night_waits_for_the_morning() {
+        let f = fixture();
+        f.engine.set_triage(iris_rules::triage::Triage {
+            office_hours: iris_rules::triage::OfficeHours {
+                enabled: true,
+                weekend: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        // The fixture's messages arrive on 1 January 1970, a second or so after
+        // midnight: outside the hours, which open at 8.
+        let message = f.message("a@b.example", "Late", Flags::NONE);
+        let early = Timestamp::from_millis(60_000);
+        let report = f.engine.apply_triage(&[message], early).unwrap();
+        assert_eq!(report.affected, 1);
+        let until = f
+            .store
+            .thread_row(thread_of(&f, message))
+            .unwrap()
+            .unwrap()
+            .snoozed_until;
+        assert_eq!(until, Some(Timestamp::from_millis(8 * 3_600_000)));
+    }
+
+    #[test]
+    fn night_mail_seen_after_the_hours_opened_does_not_wait() {
+        let f = fixture();
+        f.engine.set_triage(iris_rules::triage::Triage {
+            office_hours: iris_rules::triage::OfficeHours {
+                enabled: true,
+                weekend: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let message = f.message("a@b.example", "Late", Flags::NONE);
+        let noon = Timestamp::from_millis(12 * 3_600_000);
+        assert_eq!(f.engine.apply_triage(&[message], noon).unwrap().affected, 0);
+    }
+
+    #[test]
+    fn with_nothing_set_the_sorters_examine_nothing() {
+        let f = fixture();
+        let message = f.message("a@b.example", "Hello", Flags::NONE);
+        let report = f.engine.apply_triage(&[message], now()).unwrap();
+        assert_eq!(report.examined, 0);
+    }
+
+    #[test]
+    fn filer_leaves_mail_where_it_is_without_the_folder() {
+        // The folder is never made: a typo must not build a tree during a first sync.
+        let f = fixture();
+        f.engine.set_triage(iris_rules::triage::Triage {
+            filer: "invoice -> Accounts".into(),
+            ..Default::default()
+        });
+        let message = f.message("a@b.example", "Your invoice", Flags::NONE);
+        f.engine.apply_triage(&[message], now()).unwrap();
+        assert_eq!(
+            f.store
+                .folders(f.store.accounts().unwrap()[0].id)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

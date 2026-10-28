@@ -48,18 +48,6 @@ pub enum Error {
     #[error("the server invalidated its state ({reason}): a full resync is required")]
     ResyncRequired { reason: String },
 
-    #[error("module \"{0}\" is missing or not started")]
-    ModuleMissing(String),
-
-    #[error("\"{requester}\" was denied the \"{capability}\" capability")]
-    CapabilityDenied {
-        capability: String,
-        requester: String,
-    },
-
-    #[error("plugin \"{plugin}\": {message}")]
-    Plugin { plugin: String, message: String },
-
     #[error("input/output: {0}")]
     Io(#[from] std::io::Error),
 
