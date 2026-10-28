@@ -56,6 +56,12 @@ would publish nothing from them, and a push takes the time of the tests. The lin
 still compile the whole workspace with its default features. `Run workflow` builds
 both whatever the version.
 
+The interface crate (`iris-ui`, every screen's generated code) is the heaviest thing
+CI compiles: since 6.8.0 it has no line tables in debug and sixteen codegen units in
+release (`Cargo.toml`), and the APK's library builds two crates at a time
+(`CARGO_BUILD_JOBS`). Without them, the test build ran out of memory and the Android
+runner was killed.
+
 Release follows `ci.yml` (Windows) only. The macOS tests run in `macos.yml` once a day
 (04:00 UTC) and by hand ("Run workflow"), and never hold a release back.
 

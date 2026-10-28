@@ -8093,6 +8093,30 @@ pub fn empty_model<T: Clone + 'static>() -> ModelRc<T> {
     ModelRc::from(Rc::new(VecModel::from(Vec::<T>::new())))
 }
 
+/// Where the servers were found, said to the person who added the account.
+fn trouve_ainsi(source: iris_discover::Source) -> &'static str {
+    use iris_discover::Source;
+    match source {
+        Source::Builtin => "Iris knows this provider.",
+        Source::DomainAutoconfig => "Found in the provider's own settings.",
+        Source::Ispdb => "Found in Mozilla's list of providers.",
+        Source::DnsSrv => "Found in the domain's records.",
+        Source::MxGuess => "Worked out from the domain's mail server.",
+        Source::Probe => "Found by trying the usual server names.",
+    }
+}
+
+/// "imap.example.com · 993 · TLS".
+fn serveur(hote: &str, port: u16, transport: iris_discover::Transport) -> String {
+    use iris_discover::Transport;
+    let chiffre = match transport {
+        Transport::Tls => "TLS",
+        Transport::StartTls => "STARTTLS",
+        Transport::Plain => "not encrypted",
+    };
+    format!("{hote} · {port} · {chiffre}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8558,28 +8582,4 @@ mod tests {
             assert_eq!(etat.as_i64(), index as i64);
         }
     }
-}
-
-/// Where the servers were found, said to the person who added the account.
-fn trouve_ainsi(source: iris_discover::Source) -> &'static str {
-    use iris_discover::Source;
-    match source {
-        Source::Builtin => "Iris knows this provider.",
-        Source::DomainAutoconfig => "Found in the provider's own settings.",
-        Source::Ispdb => "Found in Mozilla's list of providers.",
-        Source::DnsSrv => "Found in the domain's records.",
-        Source::MxGuess => "Worked out from the domain's mail server.",
-        Source::Probe => "Found by trying the usual server names.",
-    }
-}
-
-/// "imap.example.com · 993 · TLS".
-fn serveur(hote: &str, port: u16, transport: iris_discover::Transport) -> String {
-    use iris_discover::Transport;
-    let chiffre = match transport {
-        Transport::Tls => "TLS",
-        Transport::StartTls => "STARTTLS",
-        Transport::Plain => "not encrypted",
-    };
-    format!("{hote} · {port} · {chiffre}")
 }

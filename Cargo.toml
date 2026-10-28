@@ -89,3 +89,13 @@ opt-level = 2
 # dans « wasmtime » ; en garder les symboles complets revient à payer plusieurs
 # dizaines de gigaoctets pour un pas-à-pas que personne ne fera.
 debug = false
+
+# The interface's generated code (every screen, one crate) outgrew the CI machines'
+# memory in 6.8.0: the test build ran LLVM out of memory and the Android build was
+# killed. No line tables for it in debug (nobody steps through generated code), and
+# sixteen parts rather than one in release, which lowers the compiler's peak.
+[profile.dev.package.iris-ui]
+debug = false
+
+[profile.release.package.iris-ui]
+codegen-units = 16
