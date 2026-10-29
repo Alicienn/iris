@@ -673,9 +673,12 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   every duration becomes 0 ms at once. `Settings::motion_scale` is tested. Only the
   spinner (work under way) still loops.
 - A single sliding plate: the tab bar and the rail (fixed slots, an animated `x`/`y`
-  under the tabs, so taps still reach them). The side columns and the segmented
-  controls fade their selection (a row's plate cannot know its siblings' geometry);
-  `QueueTabs` already slides.
+  under the tabs, so taps still reach them). `QueueTabs` already slides. Since 7.4.1
+  the mail's folders (`FolderTree`: the chosen row writes its `y` in the list's content
+  from `init`/`changed selected`/`changed y`, the plate under the `ListView` adds
+  `viewport-y`) and `Segmented` (the chosen segment writes its `x`/`width`) slide one
+  plate too. The accounts and the task lists still fade their selection: their rows
+  sit in several containers.
 - One notice: `Toast` (`shell/toast.slint`) is always instantiated so it can leave
   softly; `toast` is the line, `toast-undo` ("mail" or "calendar") adds an Undo that
   calls `undo()` or `calendar-undo()`. The calendar pushes `Annulable::Ajoute` /

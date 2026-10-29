@@ -22,6 +22,26 @@ export component Segmented inherits Rectangle {
     border-radius: 7px;
     background: Tokens.well;
 
+    // The raised key, one for all the segments, sliding to the chosen one. The chosen
+    // segment says where it is; neutral segments only (a tinted one keeps its own).
+    property <length> touche-x;
+    property <length> touche-w;
+    Rectangle {
+        visible: root.touche-w > 0 && root.tints.length <= root.selected;
+        x: 2px + root.touche-x;
+        y: 2px;
+        width: root.touche-w;
+        height: parent.height - 4px;
+        border-radius: 5px;
+        background: Tokens.control;
+        drop-shadow-blur: 2px;
+        drop-shadow-color: #0000001f;
+        drop-shadow-offset-y: 1px;
+        border-width: 1px;
+        border-color: #0000000d;
+        animate x, width { duration: Motion.travel; easing: Motion.soft; }
+    }
+
     rang := HorizontalLayout {
         x: 2px;
         y: 2px;
@@ -33,15 +53,32 @@ export component Segmented inherits Rectangle {
             property <color> teinte: root.tints.length > i ? root.tints[i] : Tokens.text;
             width: mot.preferred-width + 24px;
             border-radius: 5px;
-            background: self.on
-                ? (root.tints.length > i ? self.teinte.transparentize(0.85) : Tokens.control)
-                : transparent;
-            drop-shadow-blur: self.on && root.tints.length <= i ? 2px : 0px;
-            drop-shadow-color: #0000001f;
-            drop-shadow-offset-y: 1px;
-            border-width: self.on && root.tints.length <= i ? 1px : 0px;
-            border-color: #0000000d;
+            // A neutral segment is raised by the sliding key above; a tinted one
+            // (a priority) takes its colour itself.
+            background: self.on && root.tints.length > i ? self.teinte.transparentize(0.85) : transparent;
             animate background { duration: Motion.state; }
+            init => {
+                if (self.on) {
+                    root.touche-x = self.x;
+                    root.touche-w = self.width;
+                }
+            }
+            changed on => {
+                if (self.on) {
+                    root.touche-x = self.x;
+                    root.touche-w = self.width;
+                }
+            }
+            changed x => {
+                if (self.on) {
+                    root.touche-x = self.x;
+                }
+            }
+            changed width => {
+                if (self.on) {
+                    root.touche-w = self.width;
+                }
+            }
 
             accessible-role: button;
             accessible-label: option;

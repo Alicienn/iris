@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.4.1 — 2026-10-29
+
+### Improved
+- In Mail, the highlight slides from folder to folder as you pick one.
+- Segmented choices (Month, Week, Day…) slide their raised key to the one you pick.
+
 ## 7.4.0 — 2026-10-29
 
 ### New

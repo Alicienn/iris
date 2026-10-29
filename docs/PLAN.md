@@ -915,6 +915,7 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S52.4** The Calendar in the web edition's style: accent for today and the
       selection, today a rounded square, calendars as coloured boxes, events and card
       with its borders and radii (7.4.0).
-- [ ] **S52.5** Left: a sliding plate in the side columns and the mail list, closing
+- [x] **S52.6** The mail's folders and the segmented choices slide one plate (7.4.1).
+- [ ] **S52.5** Left: a sliding plate in the accounts, task lists and mail list, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.
