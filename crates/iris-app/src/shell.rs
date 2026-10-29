@@ -2991,7 +2991,7 @@ pub fn wire_settings(
         fenetre.set_notifications(reglages.notifications);
         fenetre.set_keep_running(reglages.keep_running);
         fenetre.set_reduce_effects(reglages.reduce_effects);
-        appliquer_mouvement(&fenetre, &reglages);
+        appliquer_mouvement(fenetre, &reglages);
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
         fenetre.set_group_by_tags(reglages.accounts_by_tag);
         fenetre.set_home_at_startup(reglages.home_at_startup);

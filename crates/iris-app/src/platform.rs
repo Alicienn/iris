@@ -153,6 +153,7 @@ mod windows_impl {
 
     /// Whether Windows has animations off (Settings › Accessibility › Visual effects ›
     /// Animation effects). Unanswered: they are on.
+    #[allow(unsafe_code)]
     pub fn system_reduces_motion() -> bool {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
