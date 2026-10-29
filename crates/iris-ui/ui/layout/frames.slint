@@ -93,10 +93,7 @@ export component DetailPanel inherits Rectangle {
 
     // It arrives: a few pixels from the side and a fade, once, when it opens.
     property <float> entree: 0;
-    init => {
-        root.entree = 1;
-        root.leve = 1;
-    }
+    init => { root.entree = 1; }
     animate entree { duration: Tokens.moderate; easing: ease-out; }
 
     carte := Rectangle {
