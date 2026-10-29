@@ -2990,6 +2990,8 @@ pub fn wire_settings(
         fenetre.set_follow_up_days(reglages.automation.follow_up_days as i32);
         fenetre.set_notifications(reglages.notifications);
         fenetre.set_keep_running(reglages.keep_running);
+        fenetre.set_reduce_effects(reglages.reduce_effects);
+        appliquer_mouvement(&fenetre, &reglages);
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
         fenetre.set_group_by_tags(reglages.accounts_by_tag);
         fenetre.set_home_at_startup(reglages.home_at_startup);
@@ -3257,6 +3259,8 @@ pub fn wire_settings(
             // Rien à demander au système pour celui-ci : il ne décide que de ce que
             // fait la fermeture de la fenêtre, et de l'icône qui va avec.
             reglages.keep_running = fenetre.get_keep_running();
+            reglages.reduce_effects = fenetre.get_reduce_effects();
+            appliquer_mouvement(&fenetre, &reglages);
             reglages.home_at_startup = fenetre.get_home_at_startup();
             reglages.mac_window_buttons = fenetre.get_window_mac_buttons();
 
@@ -3602,6 +3606,14 @@ pub fn wire_updates(
 thread_local! {
     /// The timer that watches Windows' light or dark.
     static SYSTEME: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Les durées de l'interface : celles du thème, ou aucune quand l'utilisateur (ou le
+/// système) ne veut pas de mouvement.
+pub fn appliquer_mouvement(fenetre: &AppWindow, reglages: &crate::settings::Settings) {
+    fenetre
+        .global::<iris_ui::Motion>()
+        .set_scale(reglages.motion_scale(crate::platform::system_reduces_motion()));
 }
 
 /// Applique thème et densité aux jetons de l'interface.

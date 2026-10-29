@@ -1,5 +1,6 @@
 import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Motion } from "@iris/theme/motion.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Dot, Hairline, VHairline } from "@iris/base/atoms.slint";
 import { TextField, TextArea } from "@iris/controls/field.slint";
@@ -288,9 +289,9 @@ component TaskRow inherits Rectangle {
     // Just added: it slides in from the left and fades up, ringed in the accent for
     // a moment. Once: the next drawing has it in place.
     property <float> arrivee: root.item.fresh ? 0 : 1;
-    animate arrivee { duration: 300ms; easing: ease-out; }
+    animate arrivee { duration: Motion.travel; easing: Motion.soft; }
     property <float> halo: root.item.fresh ? 1 : 0;
-    animate halo { duration: 900ms; easing: ease-in; }
+    animate halo { duration: Motion.draw; easing: ease-in; }
     init => {
         if (root.item.fresh) {
             root.arrivee = 1;
@@ -435,7 +436,7 @@ component TaskRow inherits Rectangle {
                     text: root.item.title;
                     font-size: Tokens.size-body;
                     color: tick.shown-done ? Tokens.text-muted : Tokens.text;
-                    animate color { duration: 240ms; }
+                    animate color { duration: Motion.state; }
                     overflow: elide;
                 }
                 // Struck through from the left as the tick is drawn.
@@ -443,7 +444,7 @@ component TaskRow inherits Rectangle {
                     x: 0;
                     y: parent.height / 2;
                     width: tick.shown-done ? min(titre.preferred-width, parent.width) : 0px;
-                    animate width { duration: 260ms; easing: ease-out; }
+                    animate width { duration: Motion.state; easing: Motion.soft; }
                     height: 1px;
                     background: Tokens.text-muted;
                 }
@@ -644,7 +645,7 @@ component PhoneTaskRow inherits Rectangle {
 
     // Just added: a soft plate of the accent for a moment (T4).
     property <float> halo: root.item.fresh ? 1 : 0;
-    animate halo { duration: 900ms; easing: ease-in; }
+    animate halo { duration: Motion.draw; easing: ease-in; }
     init => {
         if (root.item.fresh) {
             eteindre.running = true;
@@ -749,7 +750,7 @@ component PhoneTaskRow inherits Rectangle {
                             text: root.item.title;
                             font-size: 16px;
                             color: tick.shown-done ? Tokens.text-muted : Tokens.text;
-                            animate color { duration: 240ms; }
+                            animate color { duration: Motion.state; }
                             vertical-alignment: center;
                             overflow: elide;
                         }
@@ -757,7 +758,7 @@ component PhoneTaskRow inherits Rectangle {
                             x: 0;
                             y: parent.height / 2;
                             width: tick.shown-done ? min(titre.preferred-width, parent.width) : 0px;
-                            animate width { duration: 260ms; easing: ease-out; }
+                            animate width { duration: Motion.state; easing: Motion.soft; }
                             height: 1px;
                             background: Tokens.text-muted;
                         }

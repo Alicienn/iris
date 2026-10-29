@@ -1,0 +1,29 @@
+// The vocabulary of movement, in one place.
+//
+// Four durations and two curves, as the mockups' motion.css has them. Every duration
+// multiplies `scale`, which is 1 or, with Settings › Appearance › Reduce effects (or
+// the system's own animation setting), 0: all that moves then arrives at once.
+//
+// Closing is always quicker than opening. Nothing here loops: the only endless
+// animation is the spinner, and it shows work under way.
+
+export global Motion {
+    /// 1: movement as designed. 0: reduced, every duration is nil. Set from the settings.
+    in-out property <float> scale: 1.0;
+
+    /// A finger's feedback: a press, a hover.
+    out property <duration> tap: 120ms * scale;
+    /// A colour or a state changing.
+    out property <duration> state: 200ms * scale;
+    /// Something moving to another place.
+    out property <duration> travel: 340ms * scale;
+    /// A line drawn (a tick, a bar filling).
+    out property <duration> draw: 900ms * scale;
+    /// A window, a menu or a sheet going away.
+    out property <duration> close: 140ms * scale;
+
+    /// Slows into its place.
+    out property <easing> soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+    /// Overshoots a little and settles: validating, switching on.
+    out property <easing> spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}

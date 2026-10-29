@@ -2,6 +2,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Chrome } from "@iris/shell/chrome.slint";
+import { Motion } from "@iris/theme/motion.slint";
 
 // The five places down the left of a window of medium width (an open foldable, a
 // tablet in portrait): too wide for a tab bar at the foot, too narrow for the side
@@ -16,8 +17,6 @@ component RailPlace inherits Rectangle {
 
     width: 64px;
     height: 56px;
-    border-radius: 12px;
-    background: root.on ? Tokens.accent-soft : transparent;
 
     accessible-role: tab;
     accessible-label: root.label;
@@ -66,6 +65,18 @@ export component NavRail inherits Rectangle {
         x: parent.width - 1px;
         width: 1px;
         background: Tokens.border;
+    }
+    // The one plate that slides to the chosen place, under the places (slots 0 to 4:
+    // Home, Mail, Calendar, Tasks, Notes; each 56 px high with 6 px between).
+    property <int> slot: Chrome.workspace == 3 ? 0 : Chrome.workspace == 4 ? 4 : Chrome.workspace + 1;
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 12px + Layout.inset-top + root.slot * 62px;
+        width: 64px;
+        height: 56px;
+        border-radius: 12px;
+        background: Tokens.accent-soft;
+        animate y { duration: Motion.travel; easing: Motion.soft; }
     }
     VerticalLayout {
         padding-top: 12px + Layout.inset-top;

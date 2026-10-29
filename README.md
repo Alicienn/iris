@@ -80,7 +80,8 @@ the Android Keystore holds.
 - `Ctrl`+`K` opens every command, narrowed as you type; `?` lists the keys; pointing at
   a button shows its key.
 - *Settings* (`Ctrl`+`,`): appearance (light, dark or as the system is), accent colour,
-  density, text size, window buttons.
+  density, text size, **Reduce effects** (nothing slides, fades or springs; Iris also
+  follows the system's own animation setting), window buttons.
 
 ### On a phone or a narrow window
 
@@ -151,7 +152,9 @@ mailbox on screen, at once when the server announces it, and with `F5`.
 - Views: **Month**, **Week**, **Day**, **3 days** and **Agenda** (`M` / `W` / `D`;
   `T` today, the arrows move).
 - Click a free slot and type a name to add an event; drag it to move it, drag its edge
-  to stretch it. `Ctrl`+`Z` undoes.
+  to stretch it. `Ctrl`+`Z` undoes; adding, editing and deleting an event also say so
+  in a message with an **Undo** button. Calendars are coloured boxes to tick; today and
+  your selection follow the accent colour.
 - Video calls: **Join on Meet** (or Teams, Zoom, Webex) on the event and on Home.
 - Your own calendars, calendars **subscribed by link** (`webcal://`, `.ics`), and
   **CalDAV accounts** (iCloud, Fastmail, Nextcloud, Google…) kept both ways.

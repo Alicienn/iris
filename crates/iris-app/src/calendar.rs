@@ -1058,6 +1058,8 @@ enum Annulable {
         evenement: NewEvent,
         note: String,
     },
+    /// Just added: undoing removes it.
+    Ajoute { id: i64 },
     /// Given a colour of its own: the one it wore before (`None`: its calendar's).
     Couleur {
         calendrier: i64,
@@ -1115,6 +1117,10 @@ fn annuler(services: &Services) -> String {
                 }
                 "Undone: the event is back."
             }),
+        Annulable::Ajoute { id } => services
+            .store
+            .delete_event(*id)
+            .map(|_| "Undone: the event is gone."),
         Annulable::Couleur {
             calendrier,
             uid,
@@ -1308,7 +1314,13 @@ fn evenement_rapide(
     services
         .store
         .insert_event(calendrier, &evenement, now())
-        .map(|_| ())
+        .map(|id| retenir(Annulable::Ajoute { id }))
+}
+
+/// The notice's line, with the Undo that takes the last calendar change back.
+fn avec_annulation(f: &AppWindow, message: &str) {
+    f.set_toast_undo("calendar".into());
+    f.set_toast(message.into());
 }
 
 // --- L'éditeur ---------------------------------------------------------------------
@@ -2385,7 +2397,10 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 return;
             };
             match evenement_rapide(&services, calendrier, jour, minute, &titre) {
-                Ok(()) => redessiner(),
+                Ok(()) => {
+                    avec_annulation(&f, "Event added");
+                    redessiner();
+                }
                 Err(e) => f.set_toast(format!("Could not add the event: {e}").into()),
             }
         });
@@ -2554,7 +2569,10 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                         .move_event_notes(ev.calendar_id, &ev.event.uid, None);
                 }
                 match services.store.delete_event(id) {
-                    Ok(()) => f.set_status("Event deleted.".into()),
+                    Ok(()) => {
+                        f.set_status("Event deleted.".into());
+                        avec_annulation(&f, "Event deleted");
+                    }
                     Err(e) => f.set_status(format!("Could not delete the event: {e}").into()),
                 }
             }
@@ -2593,10 +2611,17 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                 f.set_editor_error("There is no calendar to put it in.".into());
                 return;
             };
+            // What Undo will do, once the save has worked.
+            let mut defait: Option<Annulable> = None;
             let resultat = match edite {
                 Some(id) => {
                     // Moved to another calendar, its notes follow it.
                     if let Ok(Some(ancien)) = services.store.event(id) {
+                        defait = Some(Annulable::Modifie {
+                            id,
+                            calendrier: ancien.calendar_id,
+                            avant: ancien.event.clone(),
+                        });
                         if ancien.calendar_id != calendrier {
                             let _ = services.store.move_event_notes(
                                 ancien.calendar_id,
@@ -2612,11 +2637,22 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                     services
                         .store
                         .insert_event(calendrier, &nouveau, now())
-                        .map(|_| ())
+                        .map(|id| defait = Some(Annulable::Ajoute { id }))
                 }
             };
             match resultat {
                 Ok(()) => {
+                    avec_annulation(
+                        &f,
+                        if edite.is_some() {
+                            "Event updated"
+                        } else {
+                            "Event added"
+                        },
+                    );
+                    if let Some(a) = defait {
+                        retenir(a);
+                    }
                     f.set_event_editor_open(false);
                     // La période montrée suit l'événement, pour qu'on le voie.
                     if let Some(jour) = lire_date(&f.get_editor_start_date()) {

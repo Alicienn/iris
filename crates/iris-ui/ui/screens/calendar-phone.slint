@@ -305,13 +305,13 @@ export component WeekStrip inherits Rectangle {
                             width: 36px;
                             height: 36px;
                             border-radius: 18px;
-                            background: d.selected ? Tokens.red : transparent;
+                            background: d.selected ? Tokens.accent : transparent;
                             Text {
                                 text: d.day;
                                 font-size: 16px;
                                 font-weight: d.selected || d.today ? 700 : 500;
                                 color: d.selected ? Tokens.accent-text
-                                    : d.today ? Tokens.red : Tokens.text;
+                                    : d.today ? Tokens.accent : Tokens.text;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
@@ -351,7 +351,7 @@ component AgendaDay inherits HorizontalLayout {
         text: root.text;
         font-size: 14.5px;
         font-weight: 600;
-        color: root.today ? Tokens.red : Tokens.text;
+        color: root.today ? Tokens.accent : Tokens.text;
         vertical-alignment: bottom;
     }
     Text {
@@ -756,13 +756,13 @@ export component PhoneMonth inherits VerticalLayout {
                         width: 28px;
                         height: 28px;
                         border-radius: 14px;
-                        background: cell.selected ? Tokens.red : transparent;
+                        background: cell.selected ? Tokens.accent : transparent;
                         Text {
                             text: cell.day;
                             font-size: 13.5px;
                             font-weight: cell.selected || cell.today ? 700 : 400;
                             color: cell.selected ? Tokens.accent-text
-                                : cell.today ? Tokens.red
+                                : cell.today ? Tokens.accent
                                 : cell.in-month ? Tokens.text : Tokens.text-faint;
                             horizontal-alignment: center;
                             vertical-alignment: center;

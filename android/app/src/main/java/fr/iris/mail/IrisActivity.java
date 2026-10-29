@@ -225,6 +225,12 @@ public class IrisActivity extends NativeActivity {
 
     // --- Notifications and the battery ---
 
+    /** Whether the system's animations are off (Settings › Accessibility › Remove animations). */
+    public boolean reducesMotion() {
+        return Settings.Global.getFloat(getContentResolver(),
+                Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+    }
+
     /** Whether Iris may show notifications (asked for since Android 13). */
     public boolean notificationsAllowed() {
         NotificationManager nm = getSystemService(NotificationManager.class);

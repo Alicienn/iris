@@ -650,9 +650,9 @@ pub fn apply_theme(tokens: &crate::Tokens<'_>, theme: &Theme) {
     tokens.set_row_padding_x(theme.density.row_padding_x);
 
     // Slint exprime les durées en millisecondes entières, comme les tokens.
-    tokens.set_instant(theme.motion.instant.round() as i64);
-    tokens.set_quick(theme.motion.quick.round() as i64);
-    tokens.set_moderate(theme.motion.moderate.round() as i64);
+    tokens.set_instant_base(theme.motion.instant.round() as i64);
+    tokens.set_quick_base(theme.motion.quick.round() as i64);
+    tokens.set_moderate_base(theme.motion.moderate.round() as i64);
 }
 
 #[cfg(test)]

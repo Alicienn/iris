@@ -902,3 +902,19 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S51.4** Home's cards open what they show, the Habits card laid out by count,
       devices away in red, the habit's page full width, the titles aligned, the
       Today widget, the energy report (7.3.0).
+
+## E52 — Motion and the web edition's look (7.4.0)
+
+- [x] **S52.1** `Motion` global (durations, curves, `scale`); Settings › Appearance ›
+      Reduce effects, and the system's animation setting (Windows, Android), turn every
+      duration to 0 (7.4.0).
+- [x] **S52.2** The tab bar and the rail slide one plate; switches and task circles
+      spring; popovers and sheets ease in (7.4.0).
+- [x] **S52.3** One notice for everything (`Toast`), with Undo for mail swipes and for
+      adding, editing and deleting an event (7.4.0).
+- [x] **S52.4** The Calendar in the web edition's style: accent for today and the
+      selection, today a rounded square, calendars as coloured boxes, events and card
+      with its borders and radii (7.4.0).
+- [ ] **S52.5** Left: a sliding plate in the side columns and the mail list, closing
+      faster than opening, the empty/loading/offline illustrations, Mail and Tasks
+      matched to the web edition.

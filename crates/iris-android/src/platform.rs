@@ -261,6 +261,10 @@ impl Platform for Android {
         appeler("updateWidgets");
     }
 
+    fn system_reduces_motion(&self) -> bool {
+        booleen_de_l_activite("reducesMotion").unwrap_or(false)
+    }
+
     fn notifications_allowed(&self) -> Option<bool> {
         booleen_de_l_activite("notificationsAllowed").ok()
     }

@@ -165,6 +165,10 @@ pub struct Settings {
     /// The text size, in percent of the normal one: 85 to 130.
     #[serde(default = "cent")]
     pub text_size: u32,
+    /// Reduce effects: nothing slides, fades or springs; every change is at once.
+    /// The system's own "no animations" setting does the same without this one.
+    #[serde(default)]
+    pub reduce_effects: bool,
     /// VIP, Office hours and Filer. Each does nothing until told something.
     #[serde(default)]
     pub triage: iris_rules::triage::Triage,
@@ -178,6 +182,16 @@ impl Settings {
     /// The text size as the interface takes it: 0.85 to 1.30.
     pub fn text_scale(&self) -> f32 {
         self.text_size as f32 / 100.0
+    }
+
+    /// What every duration of the interface is multiplied by: 1, or 0 when the user
+    /// (or the system, `system_reduces`) wants no movement.
+    pub fn motion_scale(&self, system_reduces: bool) -> f32 {
+        if self.reduce_effects || system_reduces {
+            0.0
+        } else {
+            1.0
+        }
     }
 }
 
@@ -248,6 +262,7 @@ impl Default for Settings {
             notes_math_preview: true,
             notes_tabs: Vec::new(),
             text_size: 100,
+            reduce_effects: false,
             triage: Default::default(),
         }
     }
@@ -534,6 +549,7 @@ mod tests {
             notes_math_preview: false,
             notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
             text_size: 115,
+            reduce_effects: true,
             triage: iris_rules::triage::Triage {
                 vip: "marie@client.example\n@direction.example".into(),
                 office_hours: iris_rules::triage::OfficeHours {
@@ -565,6 +581,24 @@ mod tests {
         assert_eq!(s(110), 110);
         assert_eq!(Settings::default().text_size, 100);
         assert!((Settings::default().text_scale() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn reduce_effects_stops_the_movement_and_is_off_by_default() {
+        let s = Settings::default();
+        assert!(!s.reduce_effects);
+        assert_eq!(s.motion_scale(false), 1.0);
+        assert_eq!(s.motion_scale(true), 0.0, "the system asks for it");
+        let reduit = Settings {
+            reduce_effects: true,
+            ..Settings::default()
+        };
+        assert_eq!(reduit.motion_scale(false), 0.0);
+        // A file written before the setting existed still reads, with movement on.
+        let (_d, chemin) = fichier();
+        std::fs::create_dir_all(chemin.parent().unwrap()).unwrap();
+        std::fs::write(&chemin, "text_size = 100\n").unwrap();
+        assert!(!Settings::load(&chemin).reduce_effects);
     }
 
     #[test]

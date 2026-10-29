@@ -1,4 +1,5 @@
 import { Layout, WidthClass } from "@iris/theme/layout.slint";
+import { Motion } from "@iris/theme/motion.slint";
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import {
@@ -154,15 +155,15 @@ export component MiniMonth inherits VerticalLayout {
         for colonne in 7: Rectangle {
             property <MonthCellData> cell: root.cells[semaine * 7 + colonne];
             horizontal-stretch: 1;
-            // The week shown is a band across; today a red disc in it.
+            // The week shown is a band across; today a rounded square of the accent in it.
             background: self.cell.in-week ? Tokens.select-quiet : transparent;
             border-radius: 0px;
 
             Rectangle {
                 width: min(parent.width, 22px);
                 height: 22px;
-                border-radius: 11px;
-                background: cell.today ? Tokens.red
+                border-radius: 6px;
+                background: cell.today ? Tokens.accent
                     : cell.selected ? Tokens.surface-active
                     : toucher.has-hover ? Tokens.surface-hover : transparent;
             }
@@ -224,16 +225,17 @@ component CalendarRow inherits Rectangle {
         padding-right: 6px;
         spacing: 8px;
 
-        // Its colour as a dot, as Calendar lists them: filled when it shows, a ring
-        // when hidden. The row answers the click.
-        Rectangle {
+        // Its colour as a rounded square to tick, as the web edition lists them: filled
+        // with the calendar's colour when it shows, a ring when hidden. The row
+        // answers the click.
+        Check {
             y: (parent.height - self.height) / 2;
-            width: 9px;
-            height: 9px;
-            border-radius: 4.5px;
-            background: root.cal.visible ? root.cal.color : transparent;
-            border-width: root.cal.visible ? 0px : 1.5px;
-            border-color: root.cal.color;
+            shape: CheckShape.square;
+            size: 14px;
+            tint: root.cal.color;
+            done: root.cal.visible;
+            label: root.cal.name;
+            interactive: false;
         }
 
         Text {
@@ -339,8 +341,8 @@ component MonthGrid inherits VerticalLayout {
                         // "1 Oct" on the first of a month is wider than a number.
                         width: max(22px, numero.preferred-width + 10px);
                         height: 22px;
-                        border-radius: 11px;
-                        background: cell.today ? Tokens.red : transparent;
+                        border-radius: 6px;
+                        background: cell.today ? Tokens.accent : transparent;
                         numero := Text {
                             text: cell.day;
                             font-size: 12px;
@@ -564,14 +566,14 @@ component WeekGrid inherits VerticalLayout {
                         text: d.name;
                         font-size: 12.5px;
                         font-weight: d.today ? 600 : 400;
-                        color: d.today ? Tokens.red : Tokens.text-muted;
+                        color: d.today ? Tokens.accent : Tokens.text-muted;
                         horizontal-alignment: center;
                     }
                     Text {
                         text: d.day;
                         font-size: 20px;
                         font-weight: d.today ? 600 : 400;
-                        color: d.today ? Tokens.red : Tokens.text;
+                        color: d.today ? Tokens.accent : Tokens.text;
                         horizontal-alignment: center;
                     }
                 }
@@ -600,17 +602,17 @@ component WeekGrid inherits VerticalLayout {
                     text: d.name;
                     font-size: 12.5px;
                     font-weight: d.today ? 600 : 400;
-                    color: d.today ? Tokens.red : Tokens.text-muted;
+                    color: d.today ? Tokens.accent : Tokens.text-muted;
                     vertical-alignment: center;
                 }
-                // Today's number on a red disc, as Calendar has it: never narrower than
-                // it is tall, so "1" is a disc and not a squeezed bar.
+                // Today's number on a rounded square of the accent, as the web edition
+                // has it: never narrower than it is tall.
                 Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: d.today ? max(28px, numero.preferred-width + 14px) : numero.preferred-width;
                     height: 28px;
-                    border-radius: 14px;
-                    background: d.today ? Tokens.red : transparent;
+                    border-radius: 8px;
+                    background: d.today ? Tokens.accent : transparent;
                     numero := Text {
                         width: parent.width;
                         height: parent.height;
@@ -774,7 +776,7 @@ component WeekGrid inherits VerticalLayout {
                 property <bool> held: root.drag-mode == 1 && root.drag-key == e.key;
                 // Just dropped: it lands from a few pixels above, with a bounce.
                 property <float> chute: e.landed ? 1 : 0;
-                animate chute { duration: 420ms; easing: ease-out-bounce; }
+                animate chute { duration: 420ms * Motion.scale; easing: ease-out-bounce; }
                 init => { if (e.landed) { self.chute = 0; } }
 
                 x: root.gutter + e.day * grille.colonne + e.lane * grille.colonne / max(1, e.lanes) + 3px;
@@ -784,14 +786,20 @@ component WeekGrid inherits VerticalLayout {
                 // As Calendar draws them: a pale block of the calendar's colour, a bar
                 // of it down the left, the words in a deeper shade of it. A phone's
                 // blocks are rounder, their words the text's own (the mockups' `.ev`).
-                border-radius: Layout.compact ? 8px : Tokens.radius-small;
-                background: e.color.transparentize(bloc.has-hover ? 0.75 : 0.83);
+                // On a PC, the web edition's `.ev`: 5 px corners, a hairline of the colour,
+                // no bar.
+                border-radius: Layout.compact ? 8px : 5px;
+                border-width: Layout.compact ? 0px : 1px;
+                border-color: e.color.transparentize(0.55);
+                background: e.color.transparentize(bloc.has-hover ? 0.76 : 0.84);
+                animate background { duration: Motion.tap; }
                 opacity: self.held ? 0.35 : e.past ? 0.55 : 1.0;
                 clip: true;
                 // The bar of its colour, inset from the top and bottom with round
                 // ends: drawn full height, it squared the block's left corners (the
                 // software renderer's clip ignores the radius).
                 Rectangle {
+                    visible: Layout.compact;
                     x: 2px;
                     y: 3px;
                     width: 3px;
@@ -809,7 +817,7 @@ component WeekGrid inherits VerticalLayout {
                 accessible-action-default => { root.event-opened(e.key); }
 
                 VerticalLayout {
-                    padding-left: 9px;
+                    padding-left: Layout.compact ? 9px : 7px;
                     padding-top: Layout.compact ? 5px : 4px;
                     padding-right: 5px;
                     spacing: 1px;

@@ -3,6 +3,19 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.4.0 — 2026-10-29
+
+### New
+- Settings › Appearance › Reduce effects: nothing slides, fades or springs. Iris also follows the system's own animation setting.
+- Adding, editing or deleting an event says so with a message, and Undo takes it back.
+- One message for everything Iris tells you, with Undo when the action can be taken back.
+
+### Improved
+- The tab bar and the side rail have a plate that slides to the place you pick.
+- Switches spring, the task circles pop as they fill, and windows and sheets ease in.
+- The Calendar follows the accent colour you chose, and today is a rounded square.
+- Calendars are coloured boxes to tick, and events and their card look like the web edition.
+
 ## 7.3.0 — 2026-10-29
 
 ### New

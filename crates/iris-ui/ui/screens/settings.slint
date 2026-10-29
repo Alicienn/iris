@@ -605,6 +605,8 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
     in-out property <bool> keep-running;
+    /// Nothing slides, fades or springs.
+    in-out property <bool> reduce-effects;
     /// Iris opens on the Home screen.
     in-out property <bool> home-at-startup;
     /// The window's buttons as the Mac's three lights, or as Windows' three.
@@ -1466,6 +1468,18 @@ export component SettingsPanel inherits Rectangle {
                     note: true;
                     text: "This changes Iris alone.";
                 }
+                if root.ouvert("Appearance"): GroupTitle { text: "Motion"; }
+                if root.ouvert("Appearance"): Group {
+                    PhoneToggle {
+                        first: true;
+                        icon: Icons.sparkle;
+                        tint: Tokens.purple;
+                        label: "Reduce effects";
+                        hint: "Nothing slides, fades or springs. Iris also follows the system's own setting.";
+                        on <=> root.reduce-effects;
+                        toggled => { root.system-changed(); }
+                    }
+                }
                 // A PC's own, for a window made narrow: a phone has no window buttons.
                 if root.ouvert("Appearance") && !Layout.touch-input: GroupTitle { text: "Window buttons"; }
                 if root.ouvert("Appearance") && !Layout.touch-input: QueueSegments {
@@ -1928,6 +1942,14 @@ export component SettingsPanel inherits Rectangle {
                                 : root.text-size <= 122 ? 2 : 3;
                             chosen(i) => { root.text-size-chosen(i == 0 ? 85 : i == 1 ? 100 : i == 2 ? 115 : 130); }
                         }
+                    }
+                    ToggleRow {
+                        icon: Icons.sparkle;
+                        tint: Tokens.purple;
+                        label: "Reduce effects";
+                        hint: "Nothing slides, fades or springs. Iris also follows the system's own setting.";
+                        value <=> root.reduce-effects;
+                        toggled => { root.system-changed(); }
                     }
                     SettingRow {
                         icon: Icons.blocks;

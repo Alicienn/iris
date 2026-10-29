@@ -151,6 +151,25 @@ mod windows_impl {
         ) == Some(0)
     }
 
+    /// Whether Windows has animations off (Settings › Accessibility › Visual effects ›
+    /// Animation effects). Unanswered: they are on.
+    pub fn system_reduces_motion() -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
+        };
+        let mut on: i32 = 1;
+        // SAFETY: the system writes one BOOL, at the address of a BOOL.
+        let ok = unsafe {
+            SystemParametersInfoW(
+                SPI_GETCLIENTAREAANIMATION,
+                0,
+                (&mut on as *mut i32).cast(),
+                0,
+            )
+        };
+        ok != 0 && on == 0
+    }
+
     /// How the user writes numbers and dates (Settings › Time & language › Region):
     /// the decimal sign, the thousands sign, and whether the day comes first.
     pub fn number_style() -> (char, char, bool) {
@@ -435,6 +454,9 @@ mod windows_impl {
     pub fn number_style() -> (char, char, bool) {
         ('.', ',', false)
     }
+    pub fn system_reduces_motion() -> bool {
+        false
+    }
 }
 
 pub use windows_impl::{
@@ -449,6 +471,11 @@ pub fn system_dark() -> bool {
 /// The decimal separator, the thousands separator, and whether the day comes first.
 pub fn number_style() -> (char, char, bool) {
     current().number_style()
+}
+
+/// The system asks for less movement (animations off).
+pub fn system_reduces_motion() -> bool {
+    current().system_reduces_motion()
 }
 
 /// Ouvre un fichier avec l'application que le système lui associe.
@@ -540,6 +567,11 @@ pub trait Platform: Send + Sync {
     /// The decimal separator, the thousands separator, and whether the day comes first.
     fn number_style(&self) -> (char, char, bool) {
         windows_impl::number_style()
+    }
+    /// Whether the system's animations are off (accessibility). Android answers
+    /// through `iris-android` once it reads its animation scale.
+    fn system_reduces_motion(&self) -> bool {
+        windows_impl::system_reduces_motion()
     }
     /// Shows a notification; false when it could not be shown.
     fn notify(&self, notice: &Notice) -> bool {

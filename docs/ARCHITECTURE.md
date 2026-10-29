@@ -608,8 +608,8 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   actions too. `ThreadRow` under touch has no hover (no hover buttons, so a swipe is
   never cut by them), no `DragArea` (a press-and-move is the swipe), and a 500 ms
   `long-press` Timer that opens the row's menu; the chosen row is the accent at 9 %
-  (the PC too). `UndoSnack` (`shell/toast.slint`, `undo-snack`) follows a swipe and
-  calls the mail's Undo. `MailToolbar.hidden` on a phone's list: the search sits in
+  (the PC too). A swipe sets `toast` with `toast-undo: "mail"`, and the notice's Undo
+  calls the mail's Undo (see *Motion and the notice*, 7.4.0). `MailToolbar.hidden` on a phone's list: the search sits in
   `PhoneMailHeader`. `Nav` in compact selects with `surface-active` and no hover.
   Tasks in compact: the overview page has a 32 px title and 78 px tiles, the page's
   head and rows the narrow screen's margins; a task or a note is carried by the mouse
@@ -658,6 +658,30 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
 - A panic writes `cache/logs/last-panic.txt` (message, file and line, version) beside
   the journal; the next start shows it once as a toast (`logging::take_last_panic`),
   because Android's crash dialog gives no place.
+
+### Motion and the notice (7.4.0)
+
+- `Motion` (`ui/theme/motion.slint`) is the vocabulary: durations `tap` 120 ms,
+  `state` 200, `travel` 340, `draw` 900, `close` 140, and the curves `soft`
+  (`cubic-bezier(.2,.8,.2,1)`) and `spring` (`cubic-bezier(.34,1.56,.64,1)`). Every
+  duration multiplies `Motion.scale`. `Tokens.instant/quick/moderate` are the theme's
+  base durations (`*-base`, set by `bridge::apply_theme`) times that scale too.
+- Reduce effects: `Settings.reduce_effects` (default off, written by `system_changed`)
+  or the system's own setting (`platform::system_reduces_motion`: Windows'
+  `SPI_GETCLIENTAREAANIMATION`, Android's `animator_duration_scale` through
+  `IrisActivity.reducesMotion`) gives `Motion.scale` 0 (`shell::appliquer_mouvement`):
+  every duration becomes 0 ms at once. `Settings::motion_scale` is tested. Only the
+  spinner (work under way) still loops.
+- A single sliding plate: the tab bar and the rail (fixed slots, an animated `x`/`y`
+  under the tabs, so taps still reach them). The side columns and the segmented
+  controls fade their selection (a row's plate cannot know its siblings' geometry);
+  `QueueTabs` already slides.
+- One notice: `Toast` (`shell/toast.slint`) is always instantiated so it can leave
+  softly; `toast` is the line, `toast-undo` ("mail" or "calendar") adds an Undo that
+  calls `undo()` or `calendar-undo()`. The calendar pushes `Annulable::Ajoute` /
+  `Modifie` / `Supprime` and sets both through `avec_annulation`. `UndoSnack` is gone.
+- Not done: a sliding plate in the mail list (virtualised), windows/menus that stay
+  alive to close more quickly than they open, the empty/offline illustrations.
 
 ### Keyboard, focus and clicks
 

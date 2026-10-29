@@ -3,6 +3,8 @@
 // Nothing in the interface writes a colour, a radius or a duration of its own: it
 // comes from here, which is what lets one switch repaint the whole window.
 
+import { Motion } from "@iris/theme/motion.slint";
+
 export global Tokens {
     // --- Colours ---
     /// The window's ground.
@@ -85,9 +87,14 @@ export global Tokens {
     in-out property <length> row-padding-x: 14px;
 
     // --- Motion ---
-    in-out property <duration> instant: 90ms;
-    in-out property <duration> quick: 140ms;
-    in-out property <duration> moderate: 220ms;
+    // The theme sets the base durations; what the interface uses is those times
+    // `Motion.scale`, so that "Reduce effects" silences every one at once.
+    in-out property <duration> instant-base: 90ms;
+    in-out property <duration> quick-base: 140ms;
+    in-out property <duration> moderate-base: 220ms;
+    out property <duration> instant: instant-base * Motion.scale;
+    out property <duration> quick: quick-base * Motion.scale;
+    out property <duration> moderate: moderate-base * Motion.scale;
 
     /// Behind a window over the others: a light dimming, darker on the dark theme.
     out property <color> scrim: dark ? #00000059 : #00000026;

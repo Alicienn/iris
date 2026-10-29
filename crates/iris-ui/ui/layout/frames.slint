@@ -1,4 +1,5 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Motion } from "@iris/theme/motion.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 
@@ -196,7 +197,7 @@ export component Modal inherits Rectangle {
     // opening.
     property <float> entree: 0;
     init => { root.entree = 1; }
-    animate entree { duration: Tokens.moderate; easing: ease-out; }
+    animate entree { duration: Motion.state; easing: Motion.soft; }
     opacity: root.entree;
 
     FocusScope {
@@ -387,7 +388,7 @@ export component Popover inherits Rectangle {
 
     // Up from the bottom as it opens, down as it closes.
     property <float> leve: 0;
-    animate leve { duration: 260ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
+    animate leve { duration: Motion.travel; easing: Motion.soft; }
     property <float> haut: min(root.leve, root.shown);
 
     background: root.sheet ? Tokens.scrim.transparentize(1 - root.haut) : transparent;
@@ -423,10 +424,11 @@ export component Popover inherits Rectangle {
                 root.height - Layout.keyboard - 24px - Layout.inset-top)
             : root.hauteur;
         opacity: root.sheet ? 1 : root.entree;
-        border-top-left-radius: root.sheet ? 22px : Tokens.radius-large;
-        border-top-right-radius: root.sheet ? 22px : Tokens.radius-large;
-        border-bottom-left-radius: root.sheet ? 0px : Tokens.radius-large;
-        border-bottom-right-radius: root.sheet ? 0px : Tokens.radius-large;
+        // 9 px on a PC, as the web edition's `.pop`.
+        border-top-left-radius: root.sheet ? 22px : 9px;
+        border-top-right-radius: root.sheet ? 22px : 9px;
+        border-bottom-left-radius: root.sheet ? 0px : 9px;
+        border-bottom-right-radius: root.sheet ? 0px : 9px;
         background: Tokens.panel;
         border-width: root.sheet ? 0px : 1px;
         border-color: Tokens.border-strong;

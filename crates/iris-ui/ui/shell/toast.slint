@@ -1,79 +1,90 @@
 import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Motion } from "@iris/theme/motion.slint";
 import { Floating } from "@iris/base/glass.slint";
 
-// La confirmation qui passe.
+// The one notice of the application.
 //
-// The status bar already carries what the application is doing; it is ten pixels
-// tall, at the very bottom, and nobody looks at it after clicking "Add". An account
-// that has just been accepted by its server is not a running commentary — it is the
-// answer to the question the user asked a few seconds ago, and it has to arrive
-// where the eye already is.
+// Every confirmation, every "could not", every "Done" comes through here: a short
+// line that rises over the window, leaves on its own, and — when what it says can be
+// taken back — carries an Undo. The screens set `toast` (and, if it can be undone,
+// `toast-undo`); none draws a message of its own.
 //
-// Hence a panel, over the application, that leaves on its own. It says nothing the
-// status bar does not; what it changes is that it is read.
+// On a PC it is a card at the foot of the window; on a phone, the mockups' dark bar
+// across the screen above the tabs.
+//
+// It stays instantiated, so that it can leave softly: a component removed by an `if`
+// would vanish at once.
 export component Toast inherits Rectangle {
     in property <string> message;
+    /// The line can be taken back: an Undo is offered with it.
+    in property <bool> undoable;
+    /// What the window keeps at its foot (the tabs): the notice sits above it.
+    in property <length> foot;
 
+    callback undone();
     callback dismissed();
 
-    // La bulle s'efface seule, comme le message de la barre d'état. Quatre secondes :
-    // le temps de lire une phrase qu'on attendait. Le compteur repart à chaque
-    // nouveau message, sinon le second hériterait de ce qui restait au premier.
+    // What is drawn is the last line shown, so that it can fade out with its words.
+    property <string> texte;
+    property <bool> avec-annulation;
+    property <bool> montre: root.message != "";
+    // The notice goes in with a spring, and out quicker and softly.
+    property <float> vu: root.montre ? 1 : 0;
+    animate vu { duration: root.montre ? Motion.state : Motion.close; }
+    property <float> monte: root.montre ? 1 : 0;
+    animate monte { duration: root.montre ? Motion.travel : Motion.close; easing: root.montre ? Motion.spring : ease-in; }
+
+    // Four seconds, the time to read a line one expected; five when there is an Undo
+    // to reach. The count restarts with each new line, or the second would inherit
+    // what was left to the first.
     changed message => {
         if (root.message != "") {
+            root.texte = root.message;
+            root.avec-annulation = root.undoable;
             expiration.restart();
         }
     }
 
     expiration := Timer {
-        interval: 4s;
+        interval: root.avec-annulation ? 5s : 4s;
         running: root.message != "";
         triggered => { root.dismissed(); }
     }
 
-    // L'entrée est déclenchée par une minuterie et non par `init` : une propriété
-    // modifiée dans l'instanciation même n'a pas d'ancienne valeur à animer, et la
-    // bulle apparaîtrait d'un coup.
-    property <bool> entered;
-
-    apparition := Timer {
-        interval: 1ms;
-        running: !root.entered;
-        triggered => { root.entered = true; }
-    }
-
     bulle := Floating {
-        radius: Tokens.radius-medium;
-        x: (parent.width - self.width) / 2;
-        // Au-dessus de la barre d'état, jamais par-dessus : masquer l'état pour
-        // annoncer un succès échangerait une information contre une autre.
-        y: parent.height - self.height - Tokens.space-6 - (root.entered ? 0px : 12px);
-        // Sur mesure : une bulle de largeur fixe laisserait un blanc derrière les
-        // messages courts, et couperait les longs. La largeur suit le texte, bornée
-        // par la fenêtre.
-        width: min(libelle.preferred-width + Tokens.space-6 + Tokens.space-3, parent.width - Tokens.space-6);
-        height: 38px;
-        opacity: root.entered ? 1.0 : 0.0;
-
-        animate y, opacity {
-            duration: Tokens.moderate;
-            easing: cubic-bezier(0.2, 0, 0, 1);
-        }
+        visible: root.vu > 0.001;
+        radius: Layout.compact ? 14px : Tokens.radius-medium;
+        background: Layout.compact ? Tokens.text : Tokens.panel;
+        border-width: Layout.compact ? 0px : 1px;
+        x: Layout.compact ? 12px : (parent.width - self.width) / 2;
+        // Above the status bar, never over it: hiding the state to announce a success
+        // would trade one piece of information for another.
+        y: parent.height - self.height - (Layout.compact ? root.foot + 12px : Tokens.space-6)
+            + (1 - root.monte) * 14px;
+        width: Layout.compact ? parent.width - 24px
+            : min(rang.preferred-width + 2 * Tokens.space-3, parent.width - Tokens.space-6);
+        height: Layout.compact ? 52px : 38px;
+        opacity: min(1, max(0, root.vu));
 
         accessible-role: text;
-        accessible-label: root.message;
+        accessible-label: root.texte;
 
-        HorizontalLayout {
-            padding-left: Tokens.space-3;
-            padding-right: Tokens.space-3;
-            padding-top: Tokens.space-2;
-            padding-bottom: Tokens.space-2;
-            spacing: Tokens.space-2;
+        // A click on the line drives it away: a confirmation already read has no
+        // business in front of the content. Beneath the Undo, which is laid after it.
+        TouchArea {
+            clicked => { root.dismissed(); }
+        }
 
-            // La pastille. Elle ne dit qu'une chose, et c'est voulu : un échec
-            // s'affiche là où on peut le corriger, c'est-à-dire dans le panneau
-            // qu'il empêche de se fermer, et non dans une bulle qui s'en va.
-            VerticalLayout {
+        rang := HorizontalLayout {
+            x: Layout.compact ? 18px : Tokens.space-3;
+            width: parent.width - (Layout.compact ? 26px : 2 * Tokens.space-3);
+            spacing: Tokens.space-3;
+
+            // The dot says only one thing, and on purpose: a failure shows where it can
+            // be corrected, in the panel it stops from closing, not in a bubble that
+            // leaves.
+            if !Layout.compact: VerticalLayout {
                 alignment: center;
                 Rectangle {
                     width: 6px;
@@ -84,19 +95,35 @@ export component Toast inherits Rectangle {
             }
 
             libelle := Text {
-                text: root.message;
+                text: root.texte;
                 font-family: Tokens.font-family;
-                font-size: Tokens.size-body;
-                color: Tokens.text;
+                font-size: Layout.compact ? 15px : Tokens.size-body;
+                color: Layout.compact ? Tokens.background : Tokens.text;
                 vertical-alignment: center;
                 overflow: elide;
+                horizontal-stretch: 1;
             }
-        }
 
-        // Un clic la chasse : une confirmation qu'on a déjà lue n'a plus rien à faire
-        // devant le contenu.
-        TouchArea {
-            clicked => { root.dismissed(); }
+            if root.avec-annulation: Rectangle {
+                width: annuler.preferred-width + 2 * Tokens.space-3;
+                accessible-role: button;
+                accessible-label: "Undo";
+                accessible-action-default => { root.undone(); }
+                annuler := Text {
+                    text: "Undo";
+                    font-size: Layout.compact ? 15px : Tokens.size-body;
+                    font-weight: Tokens.weight-bold;
+                    color: Layout.compact
+                        ? (Tokens.dark ? Tokens.accent.darker(0.3) : Tokens.accent.brighter(0.35))
+                        : Tokens.accent;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.undone(); }
+                }
+            }
         }
     }
 }
@@ -168,75 +195,6 @@ export component SendNotice inherits Rectangle {
                 touche := TouchArea {
                     mouse-cursor: pointer;
                     clicked => { root.undone(); }
-                }
-            }
-        }
-    }
-}
-
-// What a finger just did to a conversation, with Undo, as the Android mockups draw it
-// (M2): a dark bar across the screen above the tabs, gone after five seconds. A swipe
-// is quick and easy to make by mistake; taking it back must be as quick.
-export component UndoSnack inherits Rectangle {
-    in property <string> message;
-    /// What the window keeps at its foot (the tabs): the bar sits above it.
-    in property <length> foot;
-
-    callback undo();
-    callback dismissed();
-
-    changed message => {
-        if (root.message != "") {
-            expiration.restart();
-        }
-    }
-    expiration := Timer {
-        interval: 5s;
-        running: root.message != "";
-        triggered => { root.dismissed(); }
-    }
-
-    Rectangle {
-        x: 12px;
-        y: parent.height - root.foot - self.height - 12px;
-        width: parent.width - 24px;
-        height: 52px;
-        border-radius: 14px;
-        background: Tokens.text;
-        drop-shadow-blur: Tokens.shadow-float-blur;
-        drop-shadow-offset-y: Tokens.shadow-float-y;
-        drop-shadow-color: Tokens.shadow-float;
-
-        // The bar keeps its taps: nothing behind it is hit through it.
-        TouchArea {}
-
-        HorizontalLayout {
-            padding-left: 18px;
-            padding-right: 8px;
-            spacing: 12px;
-            Text {
-                text: root.message;
-                font-size: 15px;
-                color: Tokens.background;
-                vertical-alignment: center;
-                overflow: elide;
-                horizontal-stretch: 1;
-            }
-            Rectangle {
-                width: annuler.preferred-width + 24px;
-                accessible-role: button;
-                accessible-label: "Undo";
-                accessible-action-default => { root.undo(); }
-                annuler := Text {
-                    text: "Undo";
-                    font-size: 15px;
-                    font-weight: 600;
-                    color: Tokens.dark ? Tokens.accent.darker(0.3) : Tokens.accent.brighter(0.35);
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-                TouchArea {
-                    clicked => { root.undo(); }
                 }
             }
         }

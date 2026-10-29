@@ -2,6 +2,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Chrome } from "@iris/shell/chrome.slint";
+import { Motion } from "@iris/theme/motion.slint";
 
 // The five places at the foot of a narrow window, as a phone has them: Home, Mail,
 // Calendar, Tasks, Notes. The same places, the same order and the same badges as the
@@ -77,6 +78,18 @@ export component TabBar inherits Rectangle {
         y: 0px;
         height: 1px;
         background: Tokens.border;
+    }
+    // The one plate that slides under the chosen place (Home, Mail, Calendar, Tasks,
+    // Notes are slots 0 to 4). Beneath the tabs, so every tap still reaches its tab.
+    property <int> slot: Chrome.workspace == 3 ? 0 : Chrome.workspace == 4 ? 4 : Chrome.workspace + 1;
+    Rectangle {
+        x: root.slot * (parent.width / 5) + (parent.width / 5 - self.width) / 2;
+        y: 10px;
+        width: 56px;
+        height: 30px;
+        border-radius: 15px;
+        background: Tokens.accent-soft;
+        animate x { duration: Motion.travel; easing: Motion.soft; }
     }
     HorizontalLayout {
         y: 1px;

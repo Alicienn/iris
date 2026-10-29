@@ -2,6 +2,7 @@ import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Dot } from "@iris/base/atoms.slint";
+import { Motion } from "@iris/theme/motion.slint";
 
 // What one chooses: one of several (segments, the queue's tabs), on or off (pills,
 // checks, toggles), and the small tags that say a priority.
@@ -40,7 +41,7 @@ export component Segmented inherits Rectangle {
             drop-shadow-offset-y: 1px;
             border-width: self.on && root.tints.length <= i ? 1px : 0px;
             border-color: #0000000d;
-            animate background { duration: Tokens.instant; }
+            animate background { duration: Motion.state; }
 
             accessible-role: button;
             accessible-label: option;
@@ -83,7 +84,7 @@ export component QueueTabs inherits Rectangle {
     // saying its place when it is the one.
     property <length> plaque-x;
     property <length> plaque-w;
-    animate plaque-x, plaque-w { duration: 180ms; easing: cubic-bezier(0.2, 0, 0, 1); }
+    animate plaque-x, plaque-w { duration: Motion.travel; easing: Motion.soft; }
 
     Rectangle {
         x: 2px + root.plaque-x;
@@ -338,10 +339,10 @@ export component Check inherits Rectangle {
     out property <bool> shown-done: root.done || root.en-cours;
     /// How much of the tick is drawn, left to right.
     property <float> trace: root.shown-done ? 1 : 0;
-    animate trace { duration: 240ms; easing: ease-out; }
-    /// The little bump of the box as it fills.
+    animate trace { duration: Motion.state; easing: Motion.soft; }
+    /// The little bump of the box as it fills: the disc springs past its size and settles.
     property <float> bond;
-    animate bond { duration: 110ms; easing: ease-out; }
+    animate bond { duration: Motion.tap; easing: Motion.spring; }
 
     width: root.size;
     height: root.size;
@@ -412,7 +413,8 @@ export component Check inherits Rectangle {
         enabled: root.interactive;
         mouse-cursor: pointer;
         clicked => {
-            if (!root.animated) {
+            // Reduced effects: nothing to draw, so nothing to wait for.
+            if (!root.animated || Motion.scale == 0) {
                 root.toggled();
                 return;
             }
@@ -447,7 +449,7 @@ export component Toggle inherits Rectangle {
     border-radius: 11px;
     background: !root.enabled ? Tokens.text.transparentize(0.93)
         : root.on ? Tokens.green : Tokens.text.transparentize(0.86);
-    animate background { duration: Tokens.quick; }
+    animate background { duration: Motion.state; }
 
     accessible-role: switch;
     accessible-label: root.label;
@@ -470,7 +472,7 @@ export component Toggle inherits Rectangle {
         drop-shadow-blur: 2px;
         drop-shadow-offset-y: 1px;
         drop-shadow-color: #00000033;
-        animate x { duration: Tokens.quick; easing: cubic-bezier(0.2, 0, 0, 1); }
+        animate x { duration: Motion.state; easing: Motion.spring; }
     }
 
     TouchArea {
