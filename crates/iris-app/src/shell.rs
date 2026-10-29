@@ -7760,7 +7760,7 @@ pub fn apply_markup(body: &str, what: &str, start: i32, end: i32) -> (String, us
     let (debut, fin) = if start < 0 {
         (body.len(), body.len())
     } else {
-        let (a, b) = (borne(start), borne(end.max(start)));
+        let (a, b) = (borne(start), borne(end.max(0)));
         (a.min(b), a.max(b))
     };
     let choisi = &body[debut..fin];
