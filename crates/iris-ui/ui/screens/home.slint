@@ -34,6 +34,13 @@ component Widget inherits Rectangle {
     drop-shadow-offset-y: Tokens.shadow-card-y;
     drop-shadow-color: Tokens.shadow-card;
 
+    // The whole card is a way in, under what it holds (a line, a disc, a tick keep
+    // their own taps).
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(); }
+    }
+
     VerticalLayout {
         padding-left: 16px;
         padding-right: 16px;
@@ -75,6 +82,59 @@ component Widget inherits Rectangle {
     }
 }
 
+/// A habit of the day in the Habits widget: its disc, in its colour once kept (a tap
+/// ticks it), and its name under it (a tap opens it).
+component HabitDisc inherits VerticalLayout {
+    in property <HabitData> habit;
+    in property <length> size: 40px;
+    in property <length> label-size: 11.5px;
+    callback toggled(int);
+    callback opened(int);
+    spacing: 5px;
+    alignment: center;
+    HorizontalLayout {
+        alignment: center;
+        Rectangle {
+            width: root.size;
+            height: root.size;
+            border-radius: root.size / 2;
+            background: root.habit.done-today ? root.habit.color
+                : disque.has-hover ? root.habit.color.transparentize(0.88) : transparent;
+            border-width: root.habit.done-today ? 0px : max(2px, root.size / 16);
+            border-color: root.habit.color;
+            accessible-role: checkbox;
+            accessible-label: root.habit.title;
+            accessible-checked: root.habit.done-today;
+            accessible-action-default => { root.toggled(root.habit.id); }
+            Icon {
+                data: HabitIcons.path(root.habit.icon);
+                size: root.size * 0.45;
+                weight: 1.8;
+                tint: root.habit.done-today ? Tokens.accent-text : root.habit.color;
+            }
+            disque := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.toggled(root.habit.id); }
+            }
+        }
+    }
+    Rectangle {
+        height: nom.preferred-height;
+        nom := Text {
+            width: parent.width;
+            text: root.habit.title;
+            font-size: root.label-size;
+            color: Tokens.text-muted;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.opened(root.habit.id); }
+        }
+    }
+}
+
 /// A line at the foot of a widget: "+ 1 more", "3 waiting for an answer".
 component Foot inherits Text {
     font-size: 12px;
@@ -110,6 +170,8 @@ export component HomeView inherits Rectangle {
     in property <string> habits-figure;
     in property <string> habits-foot;
     callback habit-toggled(int);
+    /// A habit's name tapped: its page.
+    callback habit-opened(int);
     /// Every mailbox; for one that stopped syncing, `problem` is the sentence to show.
     in property <[AccountRowData]> accounts;
     in property <string> last-sync;
@@ -277,7 +339,9 @@ export component HomeView inherits Rectangle {
                 content-width: self.visible-width;
                 // A readable width, centred; three columns of widgets in it, four in
                 // the second row.
-                property <length> largeur: min(980px, self.visible-width - (Layout.compact ? 32px : 96px));
+                // On a phone 18 pixels each side: the date and the title start where the
+                // other places' titles do.
+                property <length> largeur: min(980px, self.visible-width - (Layout.compact ? 36px : 96px));
                 property <length> colonne: (self.largeur - 32px) / 3;
                 property <length> quart: (self.largeur - 48px) / 4;
 
@@ -302,8 +366,9 @@ export component HomeView inherits Rectangle {
                     Text {
                         text: root.greeting;
                         font-family: Tokens.font-display;
-                        font-size: Layout.compact ? 28px : 34px;
-                        font-weight: 700;
+                        // On a phone the size and weight of every place's title (Mail, Tasks, Notes).
+                        font-size: Layout.compact ? 32px : 34px;
+                        font-weight: Layout.compact ? 600 : 700;
                         letter-spacing: -0.4px;
                         color: Tokens.text;
                         wrap: word-wrap;
@@ -677,45 +742,46 @@ export component HomeView inherits Rectangle {
                             tint: Tokens.green;
                             label: "Open Habits";
                             figure: root.habits-figure;
-                            opened => { root.opened("habits"); }
+                            opened => {
+                                if (root.habits.length == 1) { root.habit-opened(root.habits[0].id); } else { root.opened("habits"); }
+                            }
 
-                            HorizontalLayout {
-                                height: 66px;
-                                spacing: 4px;
-                                alignment: space-around;
-                                for h in root.habits: VerticalLayout {
-                                    spacing: 6px;
-                                    width: 46px;
-                                    Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        width: 40px;
-                                        height: 40px;
-                                        border-radius: 20px;
-                                        background: h.done-today ? h.color : disque.has-hover ? h.color.transparentize(0.88) : transparent;
-                                        border-width: h.done-today ? 0px : 2.5px;
-                                        border-color: h.color;
-                                        accessible-role: checkbox;
-                                        accessible-label: h.title;
-                                        accessible-checked: h.done-today;
-                                        accessible-action-default => { root.habit-toggled(h.id); }
-                                        Icon {
-                                            data: HabitIcons.path(h.icon);
-                                            size: 18px;
-                                            weight: 1.8;
-                                            tint: h.done-today ? Tokens.accent-text : h.color;
-                                        }
-                                        disque := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => { root.habit-toggled(h.id); }
-                                        }
-                                    }
-                                    Text {
-                                        text: h.title;
-                                        font-size: 11.5px;
-                                        color: Tokens.text-muted;
-                                        horizontal-alignment: center;
-                                        overflow: elide;
-                                    }
+                            // One habit fills the card, as the goal does: its disc large,
+                            // its name, its streak.
+                            if root.habits.length == 1: HabitDisc {
+                                vertical-stretch: 1;
+                                habit: root.habits[0];
+                                size: Layout.compact ? 70px : 84px;
+                                label-size: 13px;
+                                toggled(id) => { root.habit-toggled(id); }
+                                opened(id) => { root.habit-opened(id); }
+                            }
+                            if root.habits.length == 1 && root.habits[0].streak != "": Text {
+                                text: root.habits[0].streak;
+                                font-size: 11.5px;
+                                color: Tokens.text-muted;
+                                horizontal-alignment: center;
+                            }
+                            // Two or three in a row, large; four and more in two rows (eight
+                            // at most, the rest a tap away in Habits).
+                            if root.habits.length > 1: Rectangle {
+                                property <int> n: min(root.habits.length, 8);
+                                property <int> colonnes: self.n <= 3 ? self.n : ceil(self.n / 2);
+                                property <int> rangs: self.n <= 3 ? 1 : 2;
+                                property <length> case: self.rangs == 1 ? 84px : 60px;
+                                vertical-stretch: 1;
+                                min-height: self.rangs * self.case;
+                                for h[i] in root.habits: HabitDisc {
+                                    visible: i < 8;
+                                    x: mod(i, parent.colonnes) * parent.width / parent.colonnes;
+                                    y: (parent.height - parent.rangs * parent.case) / 2 + floor(i / parent.colonnes) * parent.case;
+                                    width: parent.width / parent.colonnes;
+                                    height: parent.case;
+                                    habit: h;
+                                    size: parent.rangs == 1 ? (parent.n == 2 ? 54px : 46px) : 34px;
+                                    label-size: parent.rangs == 1 ? 12px : 10.5px;
+                                    toggled(id) => { root.habit-toggled(id); }
+                                    opened(id) => { root.habit-opened(id); }
                                 }
                             }
                             if root.habits.length == 0: Text {

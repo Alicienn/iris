@@ -886,3 +886,19 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       against the row (no inset), one ground for every place, prefix search in the
       mail index and folded matching in tasks and events, the camera's help when the
       scanner fails (7.2.0).
+
+## E51 — The phone, completed (7.3.0)
+
+- [x] **S51.1** Android's Java reached again: JNI on the activity `AndroidApp` holds,
+      not ndk-context's Application (the scanner's "Method not found", attachments);
+      notifications posted on a channel; the setup's two questions (notifications,
+      battery) with their steps, and Settings' warnings (7.3.0).
+- [x] **S51.2** Sync between devices sends the rows made before 6.3.0 (migration 30:
+      their empty clock made oldest, every pairing merged again from the start);
+      what is set beside a server calendar's events stays home (7.3.0).
+- [x] **S51.3** The keyboard in a note on a phone (a field at the cursor whose changes
+      become keys), formatting on the selection in New message, notes dragged into
+      folders, the Mailboxes and event sheets sliding in and out (7.3.0).
+- [x] **S51.4** Home's cards open what they show, the Habits card laid out by count,
+      devices away in red, the habit's page full width, the titles aligned, the
+      Today widget, the energy report (7.3.0).

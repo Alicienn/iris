@@ -36,6 +36,13 @@ const fn t(name: &'static str) -> SyncedTable {
     }
 }
 
+/// The clock of the rows made before sync existed (migration 30): before every real
+/// one, after the empty string `changes_since("")` starts from.
+pub const BEFORE_SYNC: &str = "0000000000000000.0000000000.";
+
+/// The calendars that travel: Iris's own, not a server's.
+const OWN_CALENDAR: &str = "calendar_id IN (SELECT id FROM calendars WHERE account_id IS NULL)";
+
 /// The synced tables, parents before children.
 ///
 /// `area_id` stays on task lists, goals and habits (migration 29 dropped the areas it
@@ -93,23 +100,32 @@ pub const SYNCED: &[SyncedTable] = &[
     },
     SyncedTable {
         parents: &[("calendar_id", "calendars")],
-        where_local: Some("calendar_id IN (SELECT id FROM calendars WHERE account_id IS NULL)"),
+        where_local: Some(OWN_CALENDAR),
         local_columns: &["href", "etag", "remote_ics", "dirty"],
         ..t("calendar_events")
     },
     SyncedTable {
         parents: &[("calendar_id", "calendars")],
         natural_key: Some(&["calendar_id", "uid", "occurrence_start"]),
+        // A server calendar does not travel: what is set beside its events would
+        // come without its parent, and the merge refuses the whole batch for it.
+        where_local: Some(OWN_CALENDAR),
         ..t("event_notes")
     },
     SyncedTable {
         parents: &[("calendar_id", "calendars")],
         natural_key: Some(&["calendar_id", "uid"]),
+        // A server calendar does not travel: what is set beside its events would
+        // come without its parent, and the merge refuses the whole batch for it.
+        where_local: Some(OWN_CALENDAR),
         ..t("event_colors")
     },
     SyncedTable {
         parents: &[("calendar_id", "calendars")],
         natural_key: Some(&["calendar_id", "uid"]),
+        // A server calendar does not travel: what is set beside its events would
+        // come without its parent, and the merge refuses the whole batch for it.
+        where_local: Some(OWN_CALENDAR),
         ..t("event_links")
     },
     SyncedTable {

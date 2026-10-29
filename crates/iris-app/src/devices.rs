@@ -162,26 +162,25 @@ pub fn summary_line(peer: &str, s: &iris_peer::Summary) -> String {
     ligne
 }
 
-/// How a paired device reads in the list, after "On this Wi-Fi", which the window
-/// draws in green before it when the device is seen.
-fn status_line(here: bool, last_seen_secs: i64, now_secs: i64) -> String {
+/// How a paired device reads in the list, after "On this Wi-Fi" (green) or "Not on
+/// this Wi-Fi" (red), which the window draws before it.
+fn status_line(last_seen_secs: i64, now_secs: i64) -> String {
     let ecart = (now_secs - last_seen_secs).max(0);
-    let quand = match ecart {
+    match ecart {
         _ if last_seen_secs == 0 => "never synced".to_string(),
         0..=59 => "synced just now".to_string(),
         60..=3599 => format!("synced {} min ago", ecart / 60),
         3600..=86_399 => format!("synced {} h ago", ecart / 3600),
         _ => format!("synced {} days ago", ecart / 86_400),
-    };
-    if here {
-        quand
-    } else {
-        let mut q = quand;
-        if let Some(c) = q.get_mut(0..1) {
-            c.make_ascii_uppercase();
-        }
-        q
     }
+}
+
+/// What Sync says of a device that is not on this Wi-Fi.
+fn away_line(name: &str) -> String {
+    format!(
+        "{name} is not on this Wi-Fi. Connect both devices to the same network, \
+         with Iris open on both, then sync."
+    )
 }
 
 fn rows(services: &Base, vus: &Vus) -> Vec<DeviceRowData> {
@@ -198,7 +197,7 @@ fn rows(services: &Base, vus: &Vus) -> Vec<DeviceRowData> {
         .map(|(id, nom, vu)| {
             let here = vus.contains_key(&id);
             DeviceRowData {
-                status: status_line(here, vu, maintenant).into(),
+                status: status_line(vu, maintenant).into(),
                 name: if nom.is_empty() { id.clone() } else { nom }.into(),
                 id: id.into(),
                 here,
@@ -298,11 +297,19 @@ pub fn wire_devices(
                             // Kept alive as long as the window watches.
                             let _annonce = annonce;
                             while let Some(s) = vu.recv().await {
+                                let Some(addr) = s.addr else {
+                                    // It left the network: its dot turns red.
+                                    vus.lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .remove(&s.device_id);
+                                    refresh(&faible, &services, &vus);
+                                    continue;
+                                };
                                 vus.lock()
                                     .unwrap_or_else(|e| e.into_inner())
-                                    .insert(s.device_id.clone(), (s.addr, Instant::now()));
+                                    .insert(s.device_id.clone(), (addr, Instant::now()));
                                 refresh(&faible, &services, &vus);
-                                auto_sync(&pairs, &services, &s.device_id, s.addr).await;
+                                auto_sync(&pairs, &services, &s.device_id, addr).await;
                             }
                         });
                     }
@@ -613,21 +620,51 @@ pub fn wire_devices(
 
     // Sync now, with a device seen on the network.
     {
-        let (pairs, vus) = (Arc::clone(&pairs), Arc::clone(&vus));
+        let (pairs, vus, services) = (Arc::clone(&pairs), Arc::clone(&vus), Arc::clone(&services));
+        let faible = faible.clone();
         let rt = runtime.clone();
         fenetre.on_sync_device(move |id| {
             let id = id.to_string();
+            let nom = services
+                .store
+                .peers()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|(i, _, _)| *i == id)
+                .map(|(_, n, _)| n)
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| "The other device".to_string());
             let addr = vus
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&id)
                 .map(|(a, _)| *a);
-            let (Some(p), Some(addr)) = (pairs.get().cloned(), addr) else {
+            let dire_absent = {
+                let faible = faible.clone();
+                move |nom: String| {
+                    let _ = faible.upgrade_in_event_loop(move |f| {
+                        f.set_device_summary(away_line(&nom).into());
+                    });
+                }
+            };
+            let Some(addr) = addr else {
+                return dire_absent(nom);
+            };
+            let Some(p) = pairs.get().cloned() else {
                 return;
             };
+            let (vus, services, faible) = (Arc::clone(&vus), Arc::clone(&services), faible.clone());
             rt.spawn(async move {
-                if let Err(e) = p.sync_with(&id, addr).await {
-                    tracing::info!(error = %e, "sync with another device");
+                match p.sync_with(&id, addr).await {
+                    // It answered no more at its address: it left this Wi-Fi.
+                    Err(iris_peer::PeerError::Io(e)) => {
+                        tracing::info!(error = %e, "a device away");
+                        vus.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                        refresh(&faible, &services, &vus);
+                        dire_absent(nom);
+                    }
+                    Err(e) => tracing::info!(error = %e, "sync with another device"),
+                    Ok(_) => {}
                 }
             });
         });
@@ -720,12 +757,10 @@ mod tests {
 
     #[test]
     fn a_device_seen_is_on_this_wifi() {
-        assert_eq!(status_line(true, 1000, 1000 + 7200), "synced 2 h ago");
-        assert_eq!(
-            status_line(false, 1000, 1000 + 3 * 86_400),
-            "Synced 3 days ago"
-        );
-        assert_eq!(status_line(false, 0, 5), "Never synced");
+        assert_eq!(status_line(1000, 1000 + 7200), "synced 2 h ago");
+        assert_eq!(status_line(1000, 1000 + 3 * 86_400), "synced 3 days ago");
+        assert_eq!(status_line(0, 5), "never synced");
+        assert!(away_line("PC").starts_with("PC is not on this Wi-Fi."));
     }
 
     #[test]

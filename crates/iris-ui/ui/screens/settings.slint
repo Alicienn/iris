@@ -95,11 +95,13 @@ component SettingRow inherits Rectangle {
 /// A row with a switch for its control.
 component ToggleRow inherits SettingRow {
     in-out property <bool> value;
+    in property <bool> enabled: true;
     callback toggled(bool);
     Toggle {
         y: (parent.height - self.height) / 2;
         label: root.label;
         on <=> root.value;
+        enabled: root.enabled;
         toggled => { root.toggled(self.on); }
     }
 }
@@ -383,11 +385,13 @@ component PhoneLink inherits Rectangle {
 /// A row with a switch for its control.
 component PhoneToggle inherits PhoneRow {
     in-out property <bool> on;
+    in property <bool> enabled: true;
     callback toggled(bool);
     Toggle {
         y: (parent.height - self.height) / 2;
         label: root.label;
         on <=> root.on;
+        enabled: root.enabled;
         toggled => { root.toggled(self.on); }
     }
 }
@@ -591,6 +595,13 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> follow-up-enabled;
     in-out property <int> follow-up-days;
     in-out property <bool> notifications;
+    /// A phone that refuses Iris its notifications: the switch is off and greyed, and
+    /// a line says where to allow them.
+    in property <bool> notifications-blocked;
+    /// A phone that may stop Iris behind the screen (battery optimisation on it).
+    in property <bool> background-limited;
+    callback open-notification-settings();
+    callback open-background-settings();
     in-out property <bool> start-at-login;
     in-out property <bool> handle-mailto;
     in-out property <bool> keep-running;
@@ -671,6 +682,10 @@ export component SettingsPanel inherits Rectangle {
     in property <[RuleRowData]> rules;
     callback rule-toggled(string, bool);
     callback open-changelog();
+    /// What Iris spent, minute by minute (CPU by thread, memory), copied to share: for
+    /// a phone that warms up or drains. `energy-note` says it was copied.
+    callback copy-energy-report();
+    in property <string> energy-note;
     /// VIP: one address or @domain per line.
     in-out property <string> vip-people;
     /// Office hours, in UTC: on, from, to (excluded), and the weekend outside them.
@@ -1198,7 +1213,37 @@ export component SettingsPanel inherits Rectangle {
                         label: "New mail";
                         hint: "One notification per sync, not one per message.";
                         on <=> root.notifications;
+                        enabled: !root.notifications-blocked;
                         toggled => { root.system-changed(); }
+                    }
+                }
+                // What the phone itself holds back, in orange, with the way to its page.
+                if root.ouvert("Notifications & sync") && root.notifications-blocked: GroupTitle {
+                    note: true;
+                    text: "Android does not let Iris show notifications. In its settings, open Notifications and turn on All Iris notifications.";
+                    ink: Tokens.warning;
+                }
+                if root.ouvert("Notifications & sync") && root.notifications-blocked: Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.bell;
+                        tint: Tokens.orange;
+                        label: "Allow notifications";
+                        tapped => { root.open-notification-settings(); }
+                    }
+                }
+                if root.ouvert("Notifications & sync") && root.background-limited: GroupTitle {
+                    note: true;
+                    text: "Android may stop Iris behind the screen to save the battery: new mail and reminders can then wait until you open it. Let it run unrestricted.";
+                    ink: Tokens.warning;
+                }
+                if root.ouvert("Notifications & sync") && root.background-limited: Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.refresh;
+                        tint: Tokens.orange;
+                        label: "Let Iris run in the background";
+                        tapped => { root.open-background-settings(); }
                     }
                 }
                 if root.ouvert("Notifications & sync"): GroupTitle { text: "Syncing"; }
@@ -1247,9 +1292,12 @@ export component SettingsPanel inherits Rectangle {
                         icon: Icons.computer;
                         tint: Tokens.blue;
                         label: d.name;
-                        lead: d.here ? "● On this Wi-Fi" : "";
+                        // Green while it answers on this Wi-Fi, red once it left it.
+                        lead: d.here ? "● On this Wi-Fi" : "● Not on this Wi-Fi";
+                        lead-ink: d.here ? Tokens.green : Tokens.error;
                         hint: d.status;
-                        if d.here: Button {
+                        // Away, Sync says why it cannot.
+                        Button {
                             y: (parent.height - self.height) / 2;
                             text: "Sync now";
                             label: "Sync now with " + d.name;
@@ -1296,20 +1344,21 @@ export component SettingsPanel inherits Rectangle {
                         padding-top: 8px;
                         padding-bottom: 8px;
                         spacing: 10px;
-                        TextField {
+                        code-tel := TextField {
                             cross-axis-self-alignment: center;
                             height: 40px;
                             text <=> root.join-code;
                             placeholder-text: "iris-pair:1?…";
                             accessible-label: "Pairing code";
-                            accepted(t) => { root.join-device(t); }
+                            // The keyboard goes down once the code is in: the sync starts.
+                            accepted(t) => { code-tel.release(); root.join-device(t); }
                         }
                         Button {
                             cross-axis-self-alignment: center;
                             text: "Join";
                             kind: ButtonKind.primary;
                             enabled: root.join-code != "";
-                            clicked => { root.join-device(root.join-code); }
+                            clicked => { code-tel.release(); root.join-device(root.join-code); }
                         }
                     }
                 }
@@ -1760,6 +1809,19 @@ export component SettingsPanel inherits Rectangle {
                         }
                     }
                 }
+                if root.ouvert("Updates & changelog"): GroupTitle { text: "Battery"; }
+                if root.ouvert("Updates & changelog"): Group {
+                    PhoneLink {
+                        first: true;
+                        icon: Icons.copy;
+                        tint: Tokens.green;
+                        label: "Copy the energy report";
+                        hint: root.energy-note != "" ? root.energy-note
+                            : "What Iris used, minute by minute, to paste in a message.";
+                        chevron: false;
+                        tapped => { root.copy-energy-report(); }
+                    }
+                }
                 if root.ouvert("Updates & changelog"): GroupTitle { text: "Changelog"; }
                 if root.ouvert("Updates & changelog"): Group {
                     VerticalLayout {
@@ -1893,6 +1955,7 @@ export component SettingsPanel inherits Rectangle {
                         label: "Notifications";
                         hint: "One per sync, not one per message.";
                         value <=> root.notifications;
+                        enabled: !root.notifications-blocked;
                         toggled => { root.system-changed(); }
                     }
                     SettingRow {
@@ -2031,8 +2094,8 @@ export component SettingsPanel inherits Rectangle {
                         icon: Icons.computer;
                         tint: Tokens.blue;
                         label: d.name;
-                        hint: d.here ? "On this Wi-Fi · " + d.status : d.status;
-                        if d.here: Button {
+                        hint: (d.here ? "On this Wi-Fi · " : "Not on this Wi-Fi · ") + d.status;
+                        Button {
                             y: (parent.height - self.height) / 2;
                             text: "Sync now";
                             label: "Sync now with " + d.name;
@@ -2061,20 +2124,20 @@ export component SettingsPanel inherits Rectangle {
                         HorizontalLayout {
                             spacing: 6px;
                             width: 220px;
-                            TextField {
+                            code-pc := TextField {
                                 y: (parent.height - self.height) / 2;
                                 height: 26px;
                                 text <=> root.join-code;
                                 placeholder-text: "iris-pair:1?…";
                                 accessible-label: "Pairing code";
-                                accepted(t) => { root.join-device(t); }
+                                accepted(t) => { code-pc.release(); root.join-device(t); }
                             }
                             Button {
                                 y: (parent.height - self.height) / 2;
                                 text: "Join";
                                 size: ButtonSize.sm;
                                 enabled: root.join-code != "";
-                                clicked => { root.join-device(root.join-code); }
+                                clicked => { code-pc.release(); root.join-device(root.join-code); }
                             }
                         }
                     }

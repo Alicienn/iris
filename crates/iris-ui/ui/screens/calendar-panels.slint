@@ -678,6 +678,8 @@ export component EventDetailPanel inherits Rectangle {
     in property <length> anchor-left;
     in property <length> anchor-right;
     in property <length> anchor-top;
+    /// On a phone, how far its sheet is up (it slides down as it closes).
+    in property <float> shown: 1;
     callback notes-edited(string);
     callback task-added(string);
     callback task-toggled(int);
@@ -695,6 +697,7 @@ export component EventDetailPanel inherits Rectangle {
     if root.anchored || Layout.compact: Popover {
         width: 100%;
         height: 100%;
+        shown: root.shown;
         anchor-left: root.anchor-left;
         anchor-right: root.anchor-right;
         anchor-top: root.anchor-top;

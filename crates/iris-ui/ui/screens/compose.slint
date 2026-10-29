@@ -710,7 +710,18 @@ export component ComposePanel inherits Rectangle {
     callback attach();
     callback attach-image();
     callback remove-attachment(int);
-    callback format(string);
+    /// A formatting key: what, and the words chosen in the body (bytes). Gives where
+    /// the cursor goes after it.
+    callback format(string, int, int) -> int;
+    // The body's chosen words, kept by the field; where the cursor goes back after a key.
+    property <int> sel-start: -1;
+    property <int> sel-end: -1;
+    property <int> select-at;
+    property <int> select-tick;
+    function formater(what: string) {
+        root.select-at = root.format(what, root.sel-start, root.sel-end);
+        root.select-tick += 1;
+    }
     /// Les correspondants proposés pour le champ en cours de saisie.
     in property <[string]> suggestions;
     in property <[string]> suggestion-names;
@@ -1061,7 +1072,7 @@ export component ComposePanel inherits Rectangle {
 
             // On a phone the formatting keys are over the keyboard, below.
             if !root.minimised && !root.tel: FormatBar {
-                apply(what) => { root.format(what); }
+                apply(what) => { root.formater(what); }
             }
 
             // On a phone the page itself, no box: the words start under the subject.
@@ -1079,6 +1090,10 @@ export component ComposePanel inherits Rectangle {
                     placeholder-text: root.tel ? "Write…" : "Write your message…";
                     font-size: root.tel ? 16px : Tokens.size-body;
                     text <=> root.body;
+                    changed selection-start => { root.sel-start = self.selection-start; }
+                    changed selection-end => { root.sel-end = self.selection-end; }
+                    property <int> tick: root.select-tick;
+                    changed tick => { self.select(root.select-at, root.select-at); }
                 }
             }
 
@@ -1227,7 +1242,7 @@ export component ComposePanel inherits Rectangle {
                     if (k == "hide-keyboard") {
                         puits.focus();
                     } else {
-                        root.format(k);
+                        root.formater(k);
                     }
                 }
             }

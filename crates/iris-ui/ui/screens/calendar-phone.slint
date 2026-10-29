@@ -109,7 +109,7 @@ export component PhoneCalendarBar inherits HorizontalLayout {
     spacing: 2px;
 
     Rectangle {
-        width: rang.preferred-width + 12px;
+        width: rang.preferred-width + 18px;
         accessible-role: button;
         accessible-label: root.title;
         accessible-description: root.chevron ? "Show the month" : "";
@@ -119,13 +119,13 @@ export component PhoneCalendarBar inherits HorizontalLayout {
             }
         }
         rang := HorizontalLayout {
-            x: 6px;
+            x: 12px;
             width: self.preferred-width;
             spacing: 4px;
             Text {
                 text: root.title;
                 font-family: Tokens.font-display;
-                font-size: 22px;
+                font-size: 26px;
                 font-weight: 600;
                 color: Tokens.text;
                 vertical-alignment: center;

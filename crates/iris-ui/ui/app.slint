@@ -34,7 +34,7 @@ import { FolderTree, NewFolderPanel, FolderContextMenu, RenameFolderPanel, Empty
 import { ConversationView, ReaderMenu, LinkMenu, MessageText } from "@iris/screens/conversation.slint";
 import { SettingsPanel } from "@iris/screens/settings.slint";
 import { AccountPageData } from "@iris/types.slint";
-import { PairPanel, SyncPage, CameraHelpPanel } from "@iris/screens/devices.slint";
+import { PairPanel, SyncPage, CameraHelpPanel, SetupPermissionsPanel } from "@iris/screens/devices.slint";
 import { WelcomePage } from "@iris/screens/welcome.slint";
 import { AccountSetupPanel, AccountFoundPage } from "@iris/screens/account.slint";
 import { ModulesPanel } from "@iris/screens/modules.slint";
@@ -975,6 +975,7 @@ export component AppWindow inherits Window {
     callback home-open(string);
     callback home-thread-opened(int);
     callback home-goal-opened(int);
+    callback home-habit-opened(int);
     callback home-task-opened(int);
     callback home-task-toggled(int);
     callback home-event-opened(string);
@@ -1057,6 +1058,8 @@ export component AppWindow inherits Window {
     callback calendar-plan-day();
 
     in-out property <bool> event-detail-open;
+    property <float> event-detail-shown: root.event-detail-open ? 1 : 0;
+    animate event-detail-shown { duration: 240ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
     /// The event was clicked in the grid, there: its card opens beside it. Forgotten
     /// when the card closes, so an event opened from Home comes up in the middle.
     in-out property <bool> event-anchored;
@@ -1181,6 +1184,7 @@ export component AppWindow inherits Window {
     callback note-canvas-released(length, length);
     callback note-canvas-hovered(length, length);
     callback note-canvas-key(string) -> bool;
+    callback note-canvas-ime(string, string);
     in property <bool> note-bubble;
     in property <string> note-card;
     in property <string> note-card-title;
@@ -1625,6 +1629,10 @@ export component AppWindow inherits Window {
             root.camera-help-open = false;
             return true;
         }
+        if (root.setup-permissions-open) {
+            root.setup-permissions-next();
+            return true;
+        }
         // The sync's page goes; the sync itself carries on.
         if (root.sync-page-open) {
             root.sync-page-open = false;
@@ -1962,6 +1970,49 @@ export component AppWindow inherits Window {
     /// The camera could not read a code (its permission refused): what to do.
     in-out property <bool> camera-help-open;
     in property <string> camera-help-reason;
+    /// A phone just set up: Android's two questions for Iris, notifications then the
+    /// battery (`ask-permissions` while they were never put).
+    in property <bool> ask-permissions;
+    in-out property <bool> setup-permissions-open;
+    in-out property <int> setup-permissions-step;
+    in property <bool> notifications-refused;
+    in property <bool> background-allowed;
+    /// What the phone holds back, for Settings › Notifications.
+    in property <bool> notifications-blocked;
+    in property <bool> background-limited;
+    callback permissions-allow-notifications();
+    callback permissions-open-notification-settings();
+    callback permissions-open-background-settings();
+    /// Reads again what Android allows (back from its settings).
+    callback permissions-refresh();
+    callback permissions-finished();
+    /// Settings › Updates: the energy report copied, and the line that says so.
+    callback copy-energy-report();
+    in property <string> energy-note;
+    changed first-run => {
+        if (!root.first-run && root.ask-permissions) {
+            root.setup-permissions-step = 0;
+            root.setup-permissions-open = true;
+            root.permissions-refresh();
+        }
+    }
+    function setup-permissions-next() {
+        if (root.setup-permissions-step == 0) {
+            root.setup-permissions-step = 1;
+            root.permissions-refresh();
+        } else {
+            root.setup-permissions-open = false;
+            root.permissions-finished();
+            shortcuts.focus();
+        }
+    }
+    // Back from Android's settings, what changed shows: read again each second while
+    // a page that shows it is open.
+    Timer {
+        interval: 1s;
+        running: root.setup-permissions-open || (root.settings-open && Layout.touch-input);
+        triggered => { root.permissions-refresh(); }
+    }
     in property <string> sync-peer;
     in property <int> sync-state;
     in property <[SyncStepData]> sync-steps;
@@ -2005,7 +2056,7 @@ export component AppWindow inherits Window {
     callback compose-attach();
     callback compose-attach-image();
     callback compose-remove-attachment(int);
-    callback compose-format(string);
+    callback compose-format(string, int, int) -> int;
     callback compose-dismissed();
     callback compose-discard();
     callback compose-save-draft();
@@ -2060,6 +2111,7 @@ export component AppWindow inherits Window {
         || root.empty-folder-open || root.mailboxes-open || (root.tasks-column-open && !Layout.compact)
         || root.pair-open || root.first-run || root.everywhere-open || root.sync-page-open
         || root.camera-help-open
+        || root.setup-permissions-open
         || root.context-menu-open || root.folder-menu-open || root.account-menu-open
         || root.link-menu-open
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
@@ -2418,6 +2470,9 @@ export component AppWindow inherits Window {
     /// Below 840 pixels, the accounts and folders opened from the list's title, as a
     /// page the whole width. Choosing one closes it.
     in-out property <bool> mailboxes-open;
+    // How far the phone's sheet of mailboxes is up.
+    property <float> boites-montees: root.mailboxes-open && Layout.compact ? 1 : 0;
+    animate boites-montees { duration: 260ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
     /// Below 840 pixels, the tasks' column (the views, the habits, the goals, the
     /// lists) open as a page from the list's "Lists" button.
     in-out property <bool> tasks-column-open;
@@ -3340,6 +3395,7 @@ export component AppWindow inherits Window {
             canvas-dragged(x, y) => { root.note-canvas-dragged(x, y); }
             canvas-released(x, y) => { root.note-canvas-released(x, y); }
             canvas-hovered(x, y) => { root.note-canvas-hovered(x, y); }
+            canvas-ime(avant, apres) => { root.note-canvas-ime(avant, apres); }
             canvas-key(n) => {
                 if (n == "ctrl+o" || n == "ctrl+\\") {
                     root.notes-quick-beside = n == "ctrl+\\";
@@ -3436,6 +3492,7 @@ export component AppWindow inherits Window {
             habits-figure: root.home-habits-figure;
             habits-foot: root.home-habits-foot;
             habit-toggled(id) => { root.home-habit-toggled(id); }
+            habit-opened(id) => { root.home-habit-opened(id); shortcuts.focus(); }
         }
 
         // The habits, in Tasks: beside the tasks' column, drawn alone above.
@@ -3674,9 +3731,11 @@ export component AppWindow inherits Window {
             dismissed => { root.habit-delete-open = false; }
         }
 
-        if root.event-detail-open: EventDetailPanel {
+        // On a phone it stays while its sheet slides down.
+        if root.event-detail-open || (Layout.compact && root.event-detail-shown > 0): EventDetailPanel {
             width: 100%;
             height: 100%;
+            shown: root.event-detail-shown;
             anchored: root.event-anchored;
             anchor-left: root.event-anchor-left;
             anchor-right: root.event-anchor-right;
@@ -4266,9 +4325,10 @@ export component AppWindow inherits Window {
         // On a phone the accounts and folders rise as a tall sheet over the list, as the
         // mockups' M3 has them: the same column as the PC's, on a plate with a handle,
         // pulled down or tapped outside to close.
-        if root.mailboxes-open && Layout.compact: feuille-boites := Rectangle {
+        // It slides up as it opens and down as it closes, a tap outside included.
+        if Layout.compact && (root.mailboxes-open || root.boites-montees > 0): feuille-boites := Rectangle {
             property <length> tire;
-            background: Tokens.scrim;
+            background: Tokens.scrim.transparentize(1 - root.boites-montees);
             TouchArea {
                 clicked => {
                     root.mailboxes-open = false;
@@ -4276,7 +4336,8 @@ export component AppWindow inherits Window {
                 }
             }
             Rectangle {
-                y: 48px + Layout.inset-top + feuille-boites.tire;
+                y: 48px + Layout.inset-top + feuille-boites.tire
+                    + (1 - root.boites-montees) * self.height;
                 height: parent.height - 48px - Layout.inset-top;
                 border-top-left-radius: 22px;
                 border-top-right-radius: 22px;
@@ -4590,7 +4651,7 @@ export component AppWindow inherits Window {
             attach => { root.compose-attach(); }
             attach-image => { root.compose-attach-image(); }
             remove-attachment(i) => { root.compose-remove-attachment(i); }
-            format(f) => { root.compose-format(f); }
+            format(f, start, end) => { return root.compose-format(f, start, end); }
             suggestions: root.compose-suggestions;
             suggestion-names: root.compose-suggestion-names;
             suggestion-addresses: root.compose-suggestion-addresses;
@@ -4796,6 +4857,12 @@ export component AppWindow inherits Window {
             follow-up-enabled <=> root.follow-up-enabled;
             follow-up-days <=> root.follow-up-days;
             notifications <=> root.notifications;
+            notifications-blocked: root.notifications-blocked;
+            energy-note: root.energy-note;
+            copy-energy-report => { root.copy-energy-report(); }
+            background-limited: root.background-limited;
+            open-notification-settings => { root.permissions-open-notification-settings(); }
+            open-background-settings => { root.permissions-open-background-settings(); }
             start-at-login <=> root.start-at-login;
             handle-mailto <=> root.handle-mailto;
             keep-running <=> root.keep-running;
@@ -4895,6 +4962,19 @@ export component AppWindow inherits Window {
                 shortcuts.focus();
             }
             retry => { root.pair-scan(); }
+        }
+
+        // A phone just set up: may Iris notify, and run behind the screen.
+        if root.setup-permissions-open: SetupPermissionsPanel {
+            width: 100%;
+            height: 100%;
+            step: root.setup-permissions-step;
+            notifications-refused: root.notifications-refused;
+            background-allowed: root.background-allowed;
+            allow-notifications => { root.permissions-allow-notifications(); }
+            open-notification-settings => { root.permissions-open-notification-settings(); }
+            open-background-settings => { root.permissions-open-background-settings(); }
+            next => { root.setup-permissions-next(); }
         }
 
         // The camera refused to read a code: how to let it in, or type the code.

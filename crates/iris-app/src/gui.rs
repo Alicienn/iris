@@ -271,6 +271,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     crate::tasks::wire_tasks(&fenetre, &services, Arc::clone(&controller));
     crate::habits::wire_habits(&fenetre, &services);
     crate::devices::wire_devices(&fenetre, &services, runtime.handle().clone());
+    crate::permissions::wire_permissions(&fenetre, &services);
 
     // L'envoi : composition, délai d'annulation, dépôt dans les messages envoyés,
     // passage du fil en attente. Le suivi tourne en tâche de fond, pour que ce qui

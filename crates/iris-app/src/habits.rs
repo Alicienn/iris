@@ -554,6 +554,7 @@ const TASKS: i32 = 2;
 /// Opens Tasks on its habits, as one step back.
 pub fn open(f: &AppWindow) {
     crate::nav::note(f, "tasks", KEY);
+    f.set_tasks_column_open(false);
     f.invoke_task_place_chosen(KEY.into());
     if f.get_workspace() != TASKS {
         f.set_workspace(TASKS);

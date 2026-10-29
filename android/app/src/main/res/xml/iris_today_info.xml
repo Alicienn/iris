@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Iris's Today widget: the day's first lines, as Home says them. Iris updates it
+     itself whenever Home changes; Android's own update is only every few hours. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="10800000"
+    android:initialLayout="@layout/iris_today"
+    android:description="@string/widget_description" />

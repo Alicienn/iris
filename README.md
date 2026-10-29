@@ -93,7 +93,15 @@ the Android Keystore holds.
 - *Settings* is a list of groups, each opening as a page.
 - Swipe a conversation right for **Done**, left for **Snooze**, with **Undo** for a few
   seconds; a long press opens a row's menu.
-- A note being written has formatting keys under it.
+- A note being written has formatting keys under it. Hold a note or a folder a moment
+  to drag it into a folder; held over a closed folder, it opens.
+- New message's formatting keys format the words selected, or what is typed next.
+- At the end of the setup a phone asks for notifications and to run in the
+  background; *Settings › Notifications* warns while Android holds either back.
+- Android's home screen can show the **Iris · Today** widget: what is next, the tasks
+  due and the mail to answer. A tap opens Iris.
+- *Settings › Updates › Copy the energy report* copies what Iris used minute by minute
+  (CPU by thread, memory), to paste in a report when the phone warms up.
 - `Escape`, or Android's Back, closes what is open, then goes back.
 - On a phone, Home's magnifier searches mail, tasks, events and notes at once.
 - Tapping the tab you are in returns to its first screen (Mail's list, today in the
@@ -219,6 +227,7 @@ accounts with their passwords, tags, rules, shared settings and note spaces. Mai
 itself comes from your servers on each device.
 
 - Paired devices sync on their own when they meet on the Wi-Fi, or with **Sync now**.
+  A device that left the Wi-Fi shows a red dot, and **Sync now** says so.
 - A change made on both sides keeps the newer one, and Iris names it.
 - A note changed on both keeps the other version in its history; a deleted note goes to
   the Recycle Bin.
@@ -247,8 +256,8 @@ itself comes from your servers on each device.
 
 ## Current limits
 
-- **Android is a preview**: mail is fetched only while Iris is open, with no
-  notifications yet; opening files and Google or Microsoft sign-in are not wired
+- **Android is a preview**: mail is fetched only while Iris runs (behind the screen
+  too once allowed to); opening files and Google or Microsoft sign-in are not wired
   (attaching a file uses the phone's picker).
 - Iris speaks IMAP; POP accounts are not supported. Iris ships without an OAuth client
   of its own for Google and Microsoft.

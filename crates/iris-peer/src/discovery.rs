@@ -10,11 +10,11 @@ use std::net::{IpAddr, SocketAddr};
 
 const SERVICE: &str = "_iris-sync._tcp.local.";
 
-/// A device of the network that announced itself.
+/// A device of the network that announced itself, or left it (`addr` is `None`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Seen {
     pub device_id: String,
-    pub addr: SocketAddr,
+    pub addr: Option<SocketAddr>,
 }
 
 /// Announcing this device and watching for the others, until dropped.
@@ -61,6 +61,20 @@ impl Discovery {
             .name("iris-peer-discovery".into())
             .spawn(move || {
                 while let Ok(e) = evenements.recv() {
+                    // Gone from the network (it said goodbye, or its announce ran out):
+                    // reported with no address.
+                    if let ServiceEvent::ServiceRemoved(_, nom) = &e {
+                        if let Some(id) = device_of(nom).filter(|id| *id != moi) {
+                            let parti = Seen {
+                                device_id: id,
+                                addr: None,
+                            };
+                            if envoi.blocking_send(parti).is_err() {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
                     let ServiceEvent::ServiceResolved(info) = e else {
                         continue;
                     };
@@ -79,7 +93,7 @@ impl Discovery {
                     };
                     let vu = Seen {
                         device_id: id,
-                        addr: SocketAddr::new(*ip, info.get_port()),
+                        addr: Some(SocketAddr::new(*ip, info.get_port())),
                     };
                     if envoi.blocking_send(vu).is_err() {
                         break;

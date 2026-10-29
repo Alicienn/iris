@@ -436,22 +436,32 @@ export component Check inherits Rectangle {
 export component Toggle inherits Rectangle {
     in-out property <bool> on;
     in property <string> label;
+    /// Off and greyed when false: what it turns on cannot be had (notifications the
+    /// system refuses).
+    in property <bool> enabled: true;
     callback toggled();
 
     // The Mac's switch: green when on, a white knob with a small shadow.
     width: 38px;
     height: 22px;
     border-radius: 11px;
-    background: root.on ? Tokens.green : Tokens.text.transparentize(0.86);
+    background: !root.enabled ? Tokens.text.transparentize(0.93)
+        : root.on ? Tokens.green : Tokens.text.transparentize(0.86);
     animate background { duration: Tokens.quick; }
 
     accessible-role: switch;
     accessible-label: root.label;
-    accessible-checked: root.on;
-    accessible-action-default => { root.on = !root.on; root.toggled(); }
+    accessible-checked: root.on && root.enabled;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.on = !root.on;
+            root.toggled();
+        }
+    }
 
     Rectangle {
-        x: root.on ? 18px : 2px;
+        x: root.on && root.enabled ? 18px : 2px;
         y: 2px;
         width: 18px;
         height: 18px;
@@ -464,6 +474,7 @@ export component Toggle inherits Rectangle {
     }
 
     TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
             root.on = !root.on;

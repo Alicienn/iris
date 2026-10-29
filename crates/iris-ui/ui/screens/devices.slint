@@ -444,6 +444,77 @@ component HelpStep inherits HorizontalLayout {
     }
 }
 
+/// The end of a phone's setup, two questions Android asks for Iris (the mockups' Y9):
+/// the notifications (0), then running behind the screen (1). A refusal gets the way
+/// back in, in three steps; both can wait ("Not now").
+export component SetupPermissionsPanel inherits Rectangle {
+    in property <int> step;
+    /// Android said no to the notifications (or was set to): its settings, step by step.
+    in property <bool> notifications-refused;
+    /// Iris already runs unrestricted: the step only says so.
+    in property <bool> background-allowed;
+    callback allow-notifications();
+    callback open-notification-settings();
+    callback open-background-settings();
+    callback next();
+
+    Modal {
+        kind: ModalKind.question;
+        width: 100%;
+        height: 100%;
+        title: root.step == 0
+            ? (root.notifications-refused ? "Notifications are off" : "Know when mail comes")
+            : root.background-allowed ? "Iris can run in the background" : "Keep Iris running";
+        fit: true;
+        dismissed => { root.next(); }
+
+        Text {
+            text: root.step == 0
+                ? (root.notifications-refused
+                    ? "Android keeps Iris quiet. To hear of new mail and reminders, turn its notifications on:"
+                    : "Iris tells you of new mail and of your reminders, one notification per sync. Android asks you once.")
+                : root.background-allowed
+                    ? "Android leaves Iris running: mail and reminders arrive on time."
+                    : "To save the battery Android stops apps behind the screen, and new mail waits until you open Iris. Let it run:";
+            font-size: 15px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+        if root.step == 0 && root.notifications-refused: VerticalLayout {
+            spacing: 12px;
+            HelpStep { number: "1"; text: "Tap Open settings: Iris's page in Android."; }
+            HelpStep { number: "2"; text: "Turn on All Iris notifications."; }
+            HelpStep { number: "3"; text: "Come back to Iris with Back."; }
+        }
+        if root.step == 1 && !root.background-allowed: VerticalLayout {
+            spacing: 12px;
+            HelpStep { number: "1"; text: "Tap Allow in the background."; }
+            HelpStep { number: "2"; text: "Choose Allow (or, under Battery, Unrestricted)."; }
+            HelpStep { number: "3"; text: "Come back to Iris with Back."; }
+        }
+        VerticalLayout {
+            spacing: 6px;
+            if root.step == 0 && !root.notifications-refused: BlockButton {
+                text: "Allow notifications";
+                clicked => { root.allow-notifications(); }
+            }
+            if root.step == 0 && root.notifications-refused: BlockButton {
+                text: "Open settings";
+                clicked => { root.open-notification-settings(); }
+            }
+            if root.step == 1 && !root.background-allowed: BlockButton {
+                text: "Allow in the background";
+                clicked => { root.open-background-settings(); }
+            }
+            BlockButton {
+                text: (root.step == 1 && root.background-allowed) ? "Done" : "Not now";
+                kind: (root.step == 1 && root.background-allowed) ? ButtonKind.primary : ButtonKind.ghost;
+                clicked => { root.next(); }
+            }
+        }
+    }
+}
+
 /// The camera could not read a code: what to change, in three steps, and the other
 /// way in (the code typed).
 export component CameraHelpPanel inherits Rectangle {

@@ -368,6 +368,33 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     let suivant = j
         .upcoming
         .or_else(|| demain(services, maintenant.date_naive()));
+    // A phone's home-screen widget: the same day, in four lines.
+    let tache = |n: usize| match n {
+        0 => "No task due today".to_string(),
+        1 => "1 task due today".to_string(),
+        n => format!("{n} tasks due today"),
+    };
+    let courrier = |n: usize| match n {
+        0 => "No mail to answer".to_string(),
+        1 => "1 mail to answer".to_string(),
+        n => format!("{n} mails to answer"),
+    };
+    let prochain = suivant
+        .as_ref()
+        .map(|s| {
+            if s.meta.is_empty() {
+                s.title.to_string()
+            } else {
+                format!("{} · {}", s.meta, s.title)
+            }
+        })
+        .unwrap_or_else(|| "Nothing else today".to_string());
+    crate::platform::current().update_widget(&[
+        maintenant.format("%A %-d %B").to_string(),
+        prochain,
+        tache(j.due),
+        courrier(a_traiter),
+    ]);
     f.set_home_next(ModelRc::new(VecModel::from(
         suivant.into_iter().collect::<Vec<_>>(),
     )));
@@ -479,6 +506,7 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
             match cible.as_str() {
                 "tasks" => {
                     crate::nav::note(&f, "tasks", "today");
+                    f.set_tasks_column_open(false);
                     vers(&f, 2);
                     f.invoke_task_place_chosen("today".into());
                 }
@@ -504,6 +532,14 @@ pub fn wire_home(f: &AppWindow, services: &Services, controller: Arc<Controller>
         f.on_home_goal_opened(move |id| {
             let Some(f) = faible.upgrade() else { return };
             crate::tasks::open(&f, &format!("goal:{id}"));
+        });
+    }
+    {
+        let faible = f.as_weak();
+        f.on_home_habit_opened(move |id| {
+            let Some(f) = faible.upgrade() else { return };
+            crate::habits::open(&f);
+            f.invoke_habit_selected(id);
         });
     }
     {

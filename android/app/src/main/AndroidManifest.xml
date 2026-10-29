@@ -9,6 +9,10 @@
     <!-- Sync between devices: hearing the other devices' announces on the Wi-Fi. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- New mail and reminders: asked for at the end of the setup (Android 13 on). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The setup's "Keep Iris running" opens Android's question for it directly. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:label="Iris"
@@ -47,5 +51,18 @@
                 <data android:scheme="iris-pair" />
             </intent-filter>
         </activity>
+
+        <!-- The Today widget for the home screen (TodayWidget.java). -->
+        <receiver
+            android:name=".TodayWidget"
+            android:label="Iris · Today"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/iris_today_info" />
+        </receiver>
     </application>
 </manifest>

@@ -174,8 +174,25 @@ export component TextArea inherits FieldFrame {
     in property <bool> read-only;
     in property <TextWrap> wrap: TextWrap.word-wrap;
     out property <bool> has-focus: input.has-focus;
+    /// The words chosen, in bytes, as they were while the field had the keyboard: a
+    /// formatting key pressed beside it still finds them.
+    out property <int> selection-start: -1;
+    out property <int> selection-end: -1;
 
     callback edited(string);
+
+    /// Chooses these bytes of the text (the cursor alone when both are the same).
+    public function select(start: int, end: int) {
+        input.focus();
+        input.set-selection-offsets(start, end);
+    }
+
+    function keep() {
+        if (input.has-focus) {
+            root.selection-start = min(input.anchor-position-byte-offset, input.cursor-position-byte-offset);
+            root.selection-end = max(input.anchor-position-byte-offset, input.cursor-position-byte-offset);
+        }
+    }
 
     forward-focus: input;
     focused: input.has-focus;
@@ -233,6 +250,8 @@ export component TextArea inherits FieldFrame {
             accessible-role: none;
 
             edited => { root.edited(self.text); }
+            changed anchor-position-byte-offset => { root.keep(); }
+            changed cursor-position-byte-offset => { root.keep(); }
 
             // Follow the cursor, the way any editor does: typing below the bottom
             // edge must not happen out of sight.

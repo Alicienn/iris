@@ -13,6 +13,7 @@ pub struct Android {
 
 impl Android {
     pub fn new(app: AndroidApp) -> Self {
+        retenir_l_activite(&app);
         Self { app }
     }
 
@@ -203,6 +204,102 @@ impl Platform for Android {
         });
     }
 
+    /// A notification of Android's, through `IrisActivity` (its channel, a tap that
+    /// brings Iris forward). Its id is the notice's, hashed: a newer one replaces it.
+    fn notify(&self, notice: &iris_app::platform::Notice) -> bool {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        notice.id.hash(&mut h);
+        let id = (h.finish() & 0x7fff_ffff) as i32;
+        let r = avec_activite(|env, activite| {
+            let titre = env.new_string(&notice.title)?;
+            let corps = env.new_string(&notice.body)?;
+            env.call_method(
+                activite,
+                jni_str!("notify"),
+                jni_sig!("(ILjava/lang/String;Ljava/lang/String;)V"),
+                &[
+                    JValue::Int(id),
+                    JValue::Object(&titre),
+                    JValue::Object(&corps),
+                ],
+            )?;
+            Ok(())
+        });
+        match r {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(error = %e, "a notification");
+                false
+            }
+        }
+    }
+
+    /// The Today widget's four lines, in the file `TodayWidget` reads, then its update.
+    /// Written only when they change: Home is drawn again often.
+    fn update_widget(&self, lines: &[String; 4]) {
+        static DERNIER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+        let texte = lines
+            .iter()
+            .map(|l| l.replace('\n', " "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        {
+            let mut d = DERNIER.lock().unwrap_or_else(|e| e.into_inner());
+            if *d == texte {
+                return;
+            }
+            *d = texte.clone();
+        }
+        let Some(dossier) = self.app.internal_data_path() else {
+            return;
+        };
+        if let Err(e) = std::fs::write(dossier.join("widget-today.txt"), texte) {
+            tracing::warn!(error = %e, "the Today widget's lines");
+            return;
+        }
+        appeler("updateWidgets");
+    }
+
+    fn notifications_allowed(&self) -> Option<bool> {
+        booleen_de_l_activite("notificationsAllowed").ok()
+    }
+
+    /// Android's question, then its answer polled as the scanner's is.
+    fn ask_notifications(&self, done: Box<dyn FnOnce(bool) + Send>) {
+        let ouvert = avec_activite(|env, activite| {
+            env.call_method(activite, jni_str!("askNotifications"), jni_sig!("()V"), &[])?;
+            Ok(())
+        });
+        if let Err(e) = ouvert {
+            tracing::warn!(error = %e, "asking for the notifications");
+            return done(false);
+        }
+        std::thread::spawn(move || {
+            for _ in 0..1500 {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                match chaine_de_l_activite("takeAsked") {
+                    Ok(Some(r)) => return done(r == "1"),
+                    Ok(None) => {}
+                    Err(_) => return done(false),
+                }
+            }
+            done(false)
+        });
+    }
+
+    fn open_notification_settings(&self) {
+        appeler("openNotificationSettings");
+    }
+
+    fn background_allowed(&self) -> Option<bool> {
+        booleen_de_l_activite("backgroundAllowed").ok()
+    }
+
+    fn open_background_settings(&self) {
+        appeler("openBatterySettings");
+    }
+
     fn take_link(&self) -> Option<String> {
         chaine_de_l_activite("takeLink").ok().flatten()
     }
@@ -256,6 +353,18 @@ fn verrou_multicast(on: bool) -> std::result::Result<(), String> {
     })
 }
 
+/// `IrisActivity`, as `AndroidApp` holds it (a global reference it owns). ndk-context's
+/// context is the Application since android-activity 0.6, which has none of the
+/// activity's methods: `scanQr` came back "Method not found" (7.2.0).
+static ACTIVITE: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+/// Remembers the activity of an `android_main` that starts (it can run again with a
+/// new one over the process's life).
+fn retenir_l_activite(app: &AndroidApp) {
+    ACTIVITE.store(app.activity_as_ptr(), std::sync::atomic::Ordering::Release);
+}
+
 /// Runs `f` with the thread attached to Java and the activity Android gave the
 /// process. jni 0.22 attaches for the call, returns a Java exception thrown in it as
 /// an error, and drops the local references made there.
@@ -263,16 +372,43 @@ fn avec_activite<T>(
     f: impl FnOnce(&mut Env, &JObject) -> jni::errors::Result<T>,
 ) -> std::result::Result<T, String> {
     let contexte = ndk_context::android_context();
+    let pointeur = ACTIVITE.load(std::sync::atomic::Ordering::Acquire);
+    let pointeur = if pointeur.is_null() {
+        contexte.context()
+    } else {
+        pointeur
+    };
     // SAFETY: the VM Android gave the process; Slint's backend has made it the
     // singleton already, this only covers the case where it has not.
     let vm =
         JavaVM::singleton().unwrap_or_else(|_| unsafe { JavaVM::from_raw(contexte.vm().cast()) });
     vm.attach_current_thread(|env| {
-        // SAFETY: the activity Android gave the process, alive as long as it.
-        let activite = unsafe { JObject::from_raw(env, contexte.context().cast()) };
+        // SAFETY: a global reference AndroidApp keeps alive as long as the app runs;
+        // `JObject` does not delete it when dropped.
+        let activite = unsafe { JObject::from_raw(env, pointeur.cast()) };
         f(env, &activite)
     })
     .map_err(|e: jni::errors::Error| e.to_string())
+}
+
+/// A method of `IrisActivity` that takes nothing and gives a boolean.
+fn booleen_de_l_activite(methode: &str) -> std::result::Result<bool, String> {
+    avec_activite(|env, activite| {
+        let nom = jni::strings::JNIString::from(methode);
+        env.call_method(activite, &nom, jni_sig!("()Z"), &[])?.z()
+    })
+}
+
+/// A method of `IrisActivity` that takes and gives nothing.
+fn appeler(methode: &str) {
+    let r = avec_activite(|env, activite| {
+        let nom = jni::strings::JNIString::from(methode);
+        env.call_method(activite, &nom, jni_sig!("()V"), &[])?;
+        Ok(())
+    });
+    if let Err(e) = r {
+        tracing::warn!(error = %e, methode, "calling the activity");
+    }
 }
 
 /// A method of `IrisActivity` that takes nothing and gives a string or null.

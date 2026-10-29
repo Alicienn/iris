@@ -1,10 +1,19 @@
 package fr.iris.mail;
 
+import android.Manifest;
 import android.app.NativeActivity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
+import android.os.PowerManager;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 
 import com.google.android.gms.common.moduleinstall.ModuleInstall;
 import com.google.android.gms.common.moduleinstall.ModuleInstallClient;
@@ -28,6 +37,10 @@ import java.io.OutputStream;
  */
 public class IrisActivity extends NativeActivity {
     private static final int PICK_FILES = 7101;
+    private static final int ASK_NOTIFICATIONS = 7102;
+    private static final String CHANNEL = "iris";
+    /** The answer to the notifications' question: null while Android asks. */
+    private volatile String asked;
 
     /**
      * The scanner's answer: null while it is open or was never opened, "" when closed
@@ -203,5 +216,122 @@ public class IrisActivity extends NativeActivity {
             picked = null;
         }
         return text;
+    }
+
+    /** The Today widgets drawn again from the file Iris just wrote. */
+    public void updateWidgets() {
+        runOnUiThread(() -> TodayWidget.refresh(this));
+    }
+
+    // --- Notifications and the battery ---
+
+    /** Whether Iris may show notifications (asked for since Android 13). */
+    public boolean notificationsAllowed() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        return nm != null && nm.areNotificationsEnabled();
+    }
+
+    /**
+     * Asks for the notifications. Android shows its question once or twice; after that,
+     * or before Android 13, the answer is what it already was. "1" or "0" in `asked`.
+     */
+    public void askNotifications() {
+        asked = null;
+        runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS},
+                        ASK_NOTIFICATIONS);
+            } else {
+                asked = notificationsAllowed() ? "1" : "0";
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == ASK_NOTIFICATIONS) {
+            asked = notificationsAllowed() ? "1" : "0";
+        }
+    }
+
+    /** The answer to `askNotifications`, once; null while Android is asking. */
+    public String takeAsked() {
+        String text = asked;
+        if (text != null) {
+            asked = null;
+        }
+        return text;
+    }
+
+    /** Iris's page of notifications in the system's settings. */
+    public void openNotificationSettings() {
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            open(intent, new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+        });
+    }
+
+    /** Android leaves Iris running behind the screen: no battery optimisation on it. */
+    public boolean backgroundAllowed() {
+        PowerManager pm = getSystemService(PowerManager.class);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    /** Android's question to stop optimising Iris's battery, or its list where it is. */
+    public void openBatterySettings() {
+        runOnUiThread(() -> open(
+                new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:" + getPackageName())),
+                new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)));
+    }
+
+    private void open(Intent first, Intent otherwise) {
+        try {
+            startActivity(first);
+        } catch (RuntimeException e) {
+            try {
+                startActivity(otherwise);
+            } catch (RuntimeException ignored) {
+                // Neither page exists on this phone: nothing to open.
+            }
+        }
+    }
+
+    /**
+     * A notification of Iris's: new mail, a reminder. Its id replaces an older one with
+     * the same; a tap brings Iris forward.
+     */
+    public void notify(int id, String title, String text) {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm == null) {
+            return;
+        }
+        if (nm.getNotificationChannel(CHANNEL) == null) {
+            nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Mail and reminders",
+                    NotificationManager.IMPORTANCE_DEFAULT));
+        }
+        Intent back = new Intent(this, IrisActivity.class)
+                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent tap = PendingIntent.getActivity(this, 0, back,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Notification n = new Notification.Builder(this, CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(new Notification.BigTextStyle().bigText(text))
+                .setContentIntent(tap)
+                .setAutoCancel(true)
+                .build();
+        try {
+            nm.notify(id, n);
+        } catch (SecurityException e) {
+            // Notifications refused since: nothing shows, nothing breaks.
+        }
     }
 }

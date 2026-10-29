@@ -758,6 +758,71 @@ mod tests {
     }
 
     #[test]
+    fn rows_made_before_sync_travel_once_migration_30_ran_even_to_a_device_already_paired() {
+        let (a, b) = (Store::in_memory().unwrap(), Store::in_memory().unwrap());
+        // A base of 6.2: its rows got no clock from migration 28.
+        sql(
+            &a,
+            "INSERT INTO task_lists (name, color, created_at) VALUES ('Courses', '#000', 0);
+             INSERT INTO tasks (list_id, title, created_at, updated_at)
+                 SELECT id, 'Buy bread', 0, 0 FROM task_lists WHERE name = 'Courses';
+             UPDATE task_lists SET sync_at = '';
+             UPDATE tasks SET sync_at = '';",
+        );
+        sql(&a, &compte("old@example.com"));
+        sql(&a, "UPDATE accounts SET sync_at = '';");
+        envoyer(&a, &b);
+        assert_eq!(
+            nombre(&b, "SELECT count(*) FROM tasks WHERE title = 'Buy bread'"),
+            0,
+            "what 7.2 did: the old rows stayed behind"
+        );
+
+        let v30 = crate::migrations::schema_v30();
+        sql(&a, &v30);
+        sql(&b, &v30);
+        let r = envoyer(&a, &b);
+        assert!(r.conflicts.is_empty(), "{r:?}");
+        assert_eq!(
+            un(
+                &b,
+                "SELECT l.name FROM tasks t JOIN task_lists l ON l.id = t.list_id
+                 WHERE t.title = 'Buy bread'"
+            )
+            .as_deref(),
+            Some("Courses")
+        );
+        assert_eq!(
+            nombre(
+                &b,
+                "SELECT count(*) FROM accounts WHERE email = 'old@example.com'"
+            ),
+            1
+        );
+        // The seeds, met on both sides with the same clock, stayed one each.
+        assert_eq!(nombre(&b, "SELECT count(*) FROM task_lists"), 2);
+    }
+
+    #[test]
+    fn notes_beside_a_server_calendars_events_stay_home() {
+        let a = Store::in_memory().unwrap();
+        sql(
+            &a,
+            "INSERT INTO calendar_accounts (name, server, created_at)
+                 VALUES ('Work', 'https://dav.example.com', 0);
+             INSERT INTO calendars (account_id, name, color, created_at)
+                 SELECT id, 'Work', '#000', 0 FROM calendar_accounts;
+             INSERT INTO event_colors (calendar_id, uid, color)
+                 SELECT id, 'e1@example.com', '#f00' FROM calendars WHERE name = 'Work';",
+        );
+        let set = a.changes_since("").unwrap();
+        assert!(
+            set.rows.iter().all(|r| r.table != "event_colors"),
+            "its calendar does not travel, so neither does its colour"
+        );
+    }
+
+    #[test]
     fn merging_twice_changes_nothing() {
         let (a, b) = (Store::in_memory().unwrap(), Store::in_memory().unwrap());
         sql(

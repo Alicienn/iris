@@ -93,7 +93,10 @@ export component DetailPanel inherits Rectangle {
 
     // It arrives: a few pixels from the side and a fade, once, when it opens.
     property <float> entree: 0;
-    init => { root.entree = 1; }
+    init => {
+        root.entree = 1;
+        root.leve = 1;
+    }
     animate entree { duration: Tokens.moderate; easing: ease-out; }
 
     carte := Rectangle {
@@ -364,6 +367,9 @@ export component Popover inherits Rectangle {
     in property <length> card-width: 320px;
     /// In a narrow window it stays beside its anchor instead of rising as a sheet.
     in property <bool> anchored-in-compact;
+    /// On a phone, how far the sheet is up: its owner animates it from 0 to 1 as it
+    /// opens and back as it closes, keeping it there until 0 (it slides down).
+    in property <float> shown: 1;
     callback dismissed();
 
     /// In a narrow window: a sheet from the bottom, half the window at first, the
@@ -376,10 +382,18 @@ export component Popover inherits Rectangle {
 
     // A fade, and a few pixels toward its anchor, once.
     property <float> entree: 0;
-    init => { root.entree = 1; }
+    init => {
+        root.entree = 1;
+        root.leve = 1;
+    }
     animate entree { duration: Tokens.quick; easing: ease-out; }
 
-    background: root.sheet ? Tokens.scrim : transparent;
+    // Up from the bottom as it opens, down as it closes.
+    property <float> leve: 0;
+    animate leve { duration: 260ms; easing: cubic-bezier(0.2, 0.8, 0.2, 1); }
+    property <float> haut: min(root.leve, root.shown);
+
+    background: root.sheet ? Tokens.scrim.transparentize(1 - root.haut) : transparent;
 
     FocusScope {
         enabled: false;
@@ -404,13 +418,14 @@ export component Popover inherits Rectangle {
         // A sheet stands on the keyboard while it is up: the name being typed (a new
         // folder) shows above it rather than under it.
         y: root.sheet ? root.height - self.height + max(0px, root.tire) - Layout.keyboard
+                + (1 - root.haut) * self.height
             : max(8px, min(root.anchor-top - 24px, root.height - root.hauteur - 8px));
         width: root.sheet ? root.width : root.card-width;
         height: root.sheet
             ? min(root.haute ? root.height - 48px - Layout.inset-top : root.height / 2,
                 root.height - Layout.keyboard - 24px - Layout.inset-top)
             : root.hauteur;
-        opacity: root.entree;
+        opacity: root.sheet ? 1 : root.entree;
         border-top-left-radius: root.sheet ? 22px : Tokens.radius-large;
         border-top-right-radius: root.sheet ? 22px : Tokens.radius-large;
         border-bottom-left-radius: root.sheet ? 0px : Tokens.radius-large;

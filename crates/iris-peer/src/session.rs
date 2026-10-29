@@ -45,7 +45,12 @@ impl Session {
         device_id: &str,
         secret: &[u8; 32],
     ) -> Result<Session, PeerError> {
-        let mut stream = TcpStream::connect(addr).await?;
+        // A device that left the Wi-Fi does not refuse, it is silent: five seconds, not
+        // the system's minute.
+        let mut stream =
+            tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(addr))
+                .await
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))??;
         let na = aleatoire()?;
         ecrire_bloc(&mut stream, device_id.as_bytes()).await?;
         stream.write_all(&na).await?;

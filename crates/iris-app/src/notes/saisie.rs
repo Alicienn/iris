@@ -1346,6 +1346,45 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
             touche_editeur(&f, &mut e, &nom)
         });
     }
+    {
+        let (etat, faible) = (Rc::clone(etat), f.as_weak());
+        f.on_note_canvas_ime(move |avant, apres| {
+            let Some(f) = faible.upgrade() else {
+                return;
+            };
+            let Ok(mut e) = etat.try_borrow_mut() else {
+                return;
+            };
+            for nom in touches_du_clavier(&avant, &apres) {
+                touche_editeur(&f, &mut e, &nom);
+            }
+        });
+    }
+}
+
+/// The keys a phone's keyboard stands for when its field went from `avant` to `apres`:
+/// a Backspace for each character gone after what both share, then what came, a line
+/// break as Enter.
+fn touches_du_clavier(avant: &str, apres: &str) -> Vec<String> {
+    let commun = avant
+        .char_indices()
+        .zip(apres.chars())
+        .take_while(|((_, a), b)| a == b)
+        .last()
+        .map_or(0, |((i, a), _)| i + a.len_utf8());
+    let mut touches: Vec<String> = avant[commun..]
+        .chars()
+        .map(|_| "backspace".to_string())
+        .collect();
+    for (i, morceau) in apres[commun..].split('\n').enumerate() {
+        if i > 0 {
+            touches.push("enter".to_string());
+        }
+        if !morceau.is_empty() {
+            touches.push(format!("type:{morceau}"));
+        }
+    }
+    touches
 }
 
 #[cfg(test)]
@@ -1360,6 +1399,20 @@ mod tests {
         assert_eq!(mot_voisin(t, 3, false), 6);
         assert_eq!(voisin("é", 0, false), 2);
         assert_eq!(voisin("aé", 3, true), 1);
+    }
+
+    #[test]
+    fn a_phone_keyboard_s_changes_become_keys() {
+        assert_eq!(touches_du_clavier("", "Bonjour"), ["type:Bonjour"]);
+        assert_eq!(touches_du_clavier("Bonjour", "Bonjour é"), ["type: é"]);
+        // A word corrected: what differs goes, the correction comes.
+        assert_eq!(
+            touches_du_clavier("le chta", "le chat"),
+            ["backspace", "backspace", "type:at"]
+        );
+        assert_eq!(touches_du_clavier("ab", "a"), ["backspace"]);
+        assert_eq!(touches_du_clavier("a", "a\nb"), ["enter", "type:b"]);
+        assert!(touches_du_clavier("é", "é").is_empty());
     }
 
     #[test]

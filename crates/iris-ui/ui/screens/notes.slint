@@ -1369,15 +1369,69 @@ component PhoneTreeRow inherits Rectangle {
     callback menu(string, length, length);
     callback renamed(string, string);
     callback rename-cancelled();
+    /// Carrying, as the desktop's tree does (`TreeRow`): held a moment, the row lifts
+    /// and the list stops scrolling; moved then, it is carried to a folder.
+    in property <bool> carrying;
+    in property <length> carry-x;
+    in property <length> carry-y;
+    in property <int> drop;
+    in property <length> drop-x;
+    in property <length> drop-y;
+    callback lifted(bool);
+    callback carry-started(string, string, int);
+    callback target-changed(string, bool);
+    callback carry-moved(length, length);
+    callback carry-ended(length, length);
+    callback dropped(string);
 
     property <bool> folder: root.item.kind == 0;
     /// Held long enough: the menu came, and the finger lifting is no tap.
     property <bool> held;
     property <bool> drifted;
+    /// Held a third of a second without moving: the row can be carried. Still held
+    /// without moving, the menu comes later.
+    property <bool> lift;
+    property <bool> pulled;
+    changed lift => { root.lifted(root.lift); }
+
+    pure function inside(x: length, y: length) -> bool {
+        return x >= self.absolute-position.x && x < self.absolute-position.x + self.width
+            && y >= self.absolute-position.y && y < self.absolute-position.y + self.height;
+    }
+    property <bool> targeted: root.carrying && root.folder && !root.pulled
+        && root.inside(root.carry-x, root.carry-y);
+    changed targeted => {
+        root.target-changed(root.item.name, root.targeted);
+        root.flash = false;
+    }
+    changed drop => {
+        if (root.inside(root.drop-x, root.drop-y)) {
+            root.dropped(root.item.key);
+        }
+    }
+    // Held over a closed folder: it blinks, then opens to show what it holds.
+    property <bool> flash;
+    property <bool> spring: root.targeted && !root.item.expanded && root.item.has-children;
+    Timer {
+        interval: 150ms;
+        running: root.spring;
+        triggered => { root.flash = !root.flash; }
+    }
+    Timer {
+        interval: 700ms;
+        running: root.spring;
+        triggered => {
+            root.flash = false;
+            root.toggled(root.item.key);
+        }
+    }
 
     height: 46px;
-    background: root.item.selected ? Tokens.surface-active
+    background: root.targeted
+        ? (root.flash ? Tokens.accent.transparentize(0.6) : Tokens.accent.transparentize(0.82))
+        : root.lift || root.item.selected ? Tokens.surface-active
         : touch.pressed && !root.drifted ? Tokens.surface-hover : transparent;
+    opacity: root.pulled && root.carrying ? 0.45 : 1.0;
 
     accessible-role: list-item;
     accessible-label: root.item.name;
@@ -1390,20 +1444,38 @@ component PhoneTreeRow inherits Rectangle {
             if (event.kind == PointerEventKind.down) {
                 root.held = false;
                 root.drifted = false;
+                root.lift = false;
+                root.pulled = false;
             }
             if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
                 root.menu(root.item.key, self.absolute-position.x + self.mouse-x,
                     self.absolute-position.y + self.mouse-y);
             }
+            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                if (root.pulled) {
+                    root.carry-ended(self.absolute-position.x + self.mouse-x,
+                        self.absolute-position.y + self.mouse-y);
+                }
+                root.lift = false;
+            }
         }
         moved => {
-            if (self.pressed && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+            let loin = abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px;
+            if (self.pressed && loin && root.lift && !root.pulled && !root.held) {
+                root.pulled = true;
+                root.carry-started(root.item.key, root.item.name, root.item.kind);
+            } else if (self.pressed && loin && !root.lift) {
                 root.drifted = true;
+            }
+            if (root.pulled) {
+                root.carry-moved(self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
             }
         }
         clicked => {
-            if (root.held || root.drifted) {
+            if (root.held || root.drifted || root.pulled) {
                 root.held = false;
+                root.pulled = false;
                 return;
             }
             if (root.folder) {
@@ -1414,9 +1486,15 @@ component PhoneTreeRow inherits Rectangle {
         }
     }
     Timer {
-        interval: 500ms;
-        running: touch.pressed && !root.held && !root.drifted && !root.renaming;
+        interval: 300ms;
+        running: touch.pressed && !root.lift && !root.held && !root.drifted && !root.renaming;
+        triggered => { root.lift = true; }
+    }
+    Timer {
+        interval: 650ms;
+        running: touch.pressed && !root.held && !root.drifted && !root.pulled && !root.renaming;
         triggered => {
+            root.lift = false;
             root.held = true;
             root.menu(root.item.key, touch.absolute-position.x + touch.mouse-x,
                 touch.absolute-position.y + touch.mouse-y);
@@ -1702,6 +1780,9 @@ export component NotesView inherits Rectangle {
     callback canvas-released(length, length);
     callback canvas-hovered(length, length);
     callback canvas-key(string) -> bool;
+    /// What a phone's keyboard changed in its field, before and after: Rust sends the
+    /// keys it stands for.
+    callback canvas-ime(string, string);
     in property <bool> bubble;
     /// "", "link", "colour", "footnote", "math".
     in property <string> card;
@@ -1774,6 +1855,35 @@ export component NotesView inherits Rectangle {
     property <int> drop;
     property <length> drop-x;
     property <length> drop-y;
+    /// A phone's row held: its list stops scrolling until the finger lifts.
+    property <bool> lifted-tel;
+
+    function carry-start(k: string, n: string, genre: int) {
+        root.carried = k;
+        root.carried-name = n;
+        root.carried-kind = genre;
+        root.carry-target = "";
+    }
+    function carry-over(nom: string, dessus: bool) {
+        if (dessus) {
+            root.carry-target = nom;
+        } else if (root.carry-target == nom) {
+            root.carry-target = "";
+        }
+    }
+    function carry-end(x: length, y: length) {
+        root.dropped-key = root.carried;
+        root.drop-x = x;
+        root.drop-y = y;
+        root.drop += 1;
+        root.carried = "";
+        root.lifted-tel = false;
+    }
+    function carry-dropped(cible: string) {
+        if (root.dropped-key != "" && root.dropped-key != cible) {
+            root.moved(root.dropped-key, cible);
+        }
+    }
 
     background: Tokens.surface;
 
@@ -2377,8 +2487,18 @@ export component NotesView inherits Rectangle {
 
                             clavier := FocusScope {
                                 focus-on-click: false;
+                                // Under a finger, the field the phone's keyboard rises for; at the mouse, here.
+                                function prendre() {
+                                    if (Layout.touch-input && !root.reading) {
+                                        proxy.text = "";
+                                        proxy.envoye = "";
+                                        proxy.focus();
+                                    } else {
+                                        self.focus();
+                                    }
+                                }
                                 property <int> serie: root.canvas-focus-serial;
-                                changed serie => { self.focus(); }
+                                changed serie => { self.prendre(); }
                                 key-pressed(event) => {
                                     if (event.text == Key.Control) {
                                         root.ctrl-changed(true);
@@ -2463,6 +2583,59 @@ export component NotesView inherits Rectangle {
                                     background: Tokens.text;
                                 }
 
+                                // A phone's keyboard rises only for a field: under a finger
+                                // the keys go through this one, at the cursor and unseen.
+                                // It keeps what was typed since the cursor was put there, so
+                                // the keyboard capitalises and corrects as in any field;
+                                // each change is sent as the keys it stands for. The word
+                                // being composed shows over the note at the cursor.
+                                proxy := TextInput {
+                                    x: root.caret-x;
+                                    y: root.caret-y;
+                                    width: 2px;
+                                    height: max(1px, root.caret-h);
+                                    single-line: false;
+                                    color: transparent;
+                                    text-cursor-width: 0px;
+                                    selection-background-color: transparent;
+                                    selection-foreground-color: transparent;
+                                    accessible-role: none;
+                                    property <string> envoye;
+                                    edited => {
+                                        root.canvas-ime(self.envoye, self.text);
+                                        self.envoye = self.text;
+                                    }
+                                    key-pressed(event) => {
+                                        let nom = NoteSelect.key-name(event);
+                                        // Characters go into the field, and come out by `edited`.
+                                        if (nom == "" || nom == "type:" + event.text) { return reject; }
+                                        if (nom == "escape") {
+                                            root.escaped();
+                                            return accept;
+                                        }
+                                        return root.canvas-key(nom) ? accept : reject;
+                                    }
+                                }
+                                if proxy.preedit-text != "": Rectangle {
+                                    x: root.caret-x;
+                                    y: root.caret-y;
+                                    width: compose.preferred-width + 2px;
+                                    height: root.caret-h;
+                                    background: Tokens.surface;
+                                    compose := Text {
+                                        x: 0px;
+                                        text: proxy.preedit-text;
+                                        font-size: root.caret-h * 0.72;
+                                        color: Tokens.text;
+                                        vertical-alignment: center;
+                                    }
+                                    Rectangle {
+                                        y: parent.height - 2px;
+                                        height: 1px;
+                                        background: Tokens.text-muted;
+                                    }
+                                }
+
                                 // Clicks, drags and the pointer's shape, all measured by Rust.
                                 TouchArea {
                                     mouse-cursor: root.canvas-cursor == 1 ? MouseCursor.pointer
@@ -2471,7 +2644,7 @@ export component NotesView inherits Rectangle {
                                     pointer-event(event) => {
                                         if (event.button != PointerEventButton.left) { return; }
                                         if (event.kind == PointerEventKind.down) {
-                                            clavier.focus();
+                                            clavier.prendre();
                                             root.canvas-pressed(self.mouse-x, self.mouse-y,
                                                 event.modifiers.shift, event.modifiers.control);
                                         } else if (event.kind == PointerEventKind.up) {
@@ -3204,6 +3377,8 @@ export component NotesView inherits Rectangle {
             arbre-tel := ScrollView {
                 vertical-stretch: 1;
                 mouse-drag-pan-enabled: false;
+                // Still while a row is held or carried: the finger is moving the row.
+                interactive: !root.lifted-tel && root.carried == "";
                 content-width: self.visible-width;
                 VerticalLayout {
                     width: arbre-tel.visible-width;
@@ -3235,6 +3410,21 @@ export component NotesView inherits Rectangle {
                                     menu(k, x, y) => { root.row-menu(k, x, y); }
                                     renamed(k, t) => { root.renamed(k, t); }
                                     rename-cancelled => { root.rename-cancelled(); }
+                                    carrying: root.carried != "";
+                                    carry-x: root.carry-x;
+                                    carry-y: root.carry-y;
+                                    drop: root.drop;
+                                    drop-x: root.drop-x;
+                                    drop-y: root.drop-y;
+                                    lifted(l) => { root.lifted-tel = l; }
+                                    carry-started(k, n, genre) => { root.carry-start(k, n, genre); }
+                                    target-changed(nom, dessus) => { root.carry-over(nom, dessus); }
+                                    carry-moved(x, y) => {
+                                        root.carry-x = x;
+                                        root.carry-y = y;
+                                    }
+                                    carry-ended(x, y) => { root.carry-end(x, y); }
+                                    dropped(cible) => { root.carry-dropped(cible); }
                                 }
                             }
                         }
@@ -3265,6 +3455,21 @@ export component NotesView inherits Rectangle {
                                     menu(k, x, y) => { root.row-menu(k, x, y); }
                                     renamed(k, t) => { root.renamed(k, t); }
                                     rename-cancelled => { root.rename-cancelled(); }
+                                    carrying: root.carried != "";
+                                    carry-x: root.carry-x;
+                                    carry-y: root.carry-y;
+                                    drop: root.drop;
+                                    drop-x: root.drop-x;
+                                    drop-y: root.drop-y;
+                                    lifted(l) => { root.lifted-tel = l; }
+                                    carry-started(k, n, genre) => { root.carry-start(k, n, genre); }
+                                    target-changed(nom, dessus) => { root.carry-over(nom, dessus); }
+                                    carry-moved(x, y) => {
+                                        root.carry-x = x;
+                                        root.carry-y = y;
+                                    }
+                                    carry-ended(x, y) => { root.carry-end(x, y); }
+                                    dropped(cible) => { root.carry-dropped(cible); }
                                 }
                             }
                         }

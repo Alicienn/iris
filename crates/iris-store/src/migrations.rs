@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 29;
+pub const CURRENT_VERSION: i64 = 30;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -164,6 +164,12 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "the compass goes",
         sql: SCHEMA_V29,
     },
+    Migration {
+        version: 30,
+        name: "rows made before sync travel",
+        // Built at run time from the synced tables: `schema_v30`.
+        sql: "",
+    },
 ];
 
 /// The compass goes: nothing showed its areas, scores, cycles or vision any more.
@@ -251,6 +257,26 @@ fn schema_v28(conn: &Connection) -> Result<String> {
         sql.push_str(&crate::sync::triggers_for(table, &colonnes));
     }
     Ok(sql)
+}
+
+/// The rows a base held before migration 28 (and its seeds) kept an empty `sync_at`,
+/// and `changes_since` sends what is *after* a clock: they never travelled, so a phone
+/// paired with a computer got only what was made since 6.3.0 (no older account, task,
+/// calendar, goal entry or habit day). They get the oldest clock there is, the same on
+/// every device, so a seed met on both sides stays as it is and anything edited since
+/// wins. Each device then merges every paired one again from the start, once: the
+/// clock it kept for them was already past these rows.
+pub(crate) fn schema_v30() -> String {
+    let mut sql = String::new();
+    for table in crate::sync::SYNCED {
+        sql.push_str(&format!(
+            "UPDATE {} SET sync_at = '{}' WHERE sync_at = '';\n",
+            table.name,
+            crate::sync::BEFORE_SYNC
+        ));
+    }
+    sql.push_str("UPDATE sync_peers SET last_clock = '';\n");
+    sql
 }
 
 /// Whether a folder keeps keywords of the client's own (`\*` in its PERMANENTFLAGS):
@@ -1123,6 +1149,9 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
         let sql = if m.version == 28 {
             built = schema_v28(conn)?;
             built.as_str()
+        } else if m.version == 30 {
+            built = schema_v30();
+            built.as_str()
         } else {
             m.sql
         };
@@ -1292,7 +1321,7 @@ mod tests {
              INSERT INTO cycles (name, start_day, created_at) VALUES ('Autumn', '2026-09-07', 0);",
         )
         .unwrap();
-        assert_eq!(migrate(&c).unwrap(), 29);
+        assert_eq!(migrate(&c).unwrap(), CURRENT_VERSION);
 
         let tables = |nom: &str| -> i64 {
             c.query_row(

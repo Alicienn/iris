@@ -7131,12 +7131,14 @@ pub fn wire_compose(
     // --- Formatting ---
     {
         let faible = fenetre.as_weak();
-        fenetre.on_compose_format(move |quoi| {
+        fenetre.on_compose_format(move |quoi, debut, fin| {
             let Some(fenetre) = faible.upgrade() else {
-                return;
+                return 0;
             };
             let corps = fenetre.get_compose_body().to_string();
-            fenetre.set_compose_body(apply_markup(&corps, quoi.as_str()).into());
+            let (corps, curseur) = apply_markup(&corps, quoi.as_str(), debut, fin);
+            fenetre.set_compose_body(corps.into());
+            i32::try_from(curseur).unwrap_or(i32::MAX)
         });
     }
 
@@ -7719,31 +7721,63 @@ fn mime_for(path: &std::path::Path) -> String {
     .to_string()
 }
 
-/// Applies a formatting mark to the draft.
+/// Applies a formatting mark to the draft, around the words chosen (`start..end`, in
+/// bytes) or at the cursor (`start == end`): the cursor then sits between the marks,
+/// and what is typed next is bold. Gives the new body and where the cursor goes.
 ///
-/// Markdown, not a rich-text buffer. Slint's text editor hands us a plain string with
-/// no selection, so anything else would be a lie about what the editor can do — and
-/// markdown is legible as-is if the recipient's client shows the plain part.
-pub fn apply_markup(body: &str, what: &str) -> String {
-    let addition = match what {
-        "bold" => "**bold text**",
-        "italic" => "*italic text*",
-        "underline" => "__underlined text__",
-        "link" => "[label](https://example.com)",
-        "list" => "\n- first\n- second",
-        "quote" => "\n> quoted text",
-        "code" => "`code`",
-        _ => return body.to_string(),
+/// Markdown, not a rich-text buffer: legible as-is if the recipient's client shows
+/// the plain part. A field that never had the keyboard (`start` < 0) gets the mark at
+/// the end.
+pub fn apply_markup(body: &str, what: &str, start: i32, end: i32) -> (String, usize) {
+    let (avant, apres) = match what {
+        "bold" => ("**", "**"),
+        "italic" => ("*", "*"),
+        "underline" => ("__", "__"),
+        "code" => ("`", "`"),
+        "link" => ("[", "](https://)"),
+        "list" | "quote" => ("", ""),
+        _ => return (body.to_string(), body.len()),
     };
-
-    // Appended with a space rather than inserted at a cursor: the editor does not
-    // expose one, and silently overwriting a selection nobody can see would be worse
-    // than adding at the end where it is visible and easy to move.
-    if body.is_empty() || body.ends_with(['\n', ' ']) {
-        format!("{body}{addition}")
+    let borne = |b: i32| {
+        let mut b = usize::try_from(b).unwrap_or(body.len()).min(body.len());
+        while !body.is_char_boundary(b) {
+            b -= 1;
+        }
+        b
+    };
+    let (debut, fin) = if start < 0 {
+        (body.len(), body.len())
     } else {
-        format!("{body} {addition}")
+        let (a, b) = (borne(start), borne(end.max(start)));
+        (a.min(b), a.max(b))
+    };
+    let choisi = &body[debut..fin];
+
+    if what == "list" || what == "quote" {
+        let marque = if what == "list" { "- " } else { "> " };
+        // Every line chosen, whole: from the start of the first to the end of the last.
+        let ligne = body[..debut].rfind('\n').map_or(0, |i| i + 1);
+        let fin = body[fin..].find('\n').map_or(body.len(), |i| fin + i);
+        let bloc = &body[ligne..fin];
+        let marque_bloc: String = bloc
+            .split('\n')
+            .map(|l| format!("{marque}{l}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let curseur = ligne + marque_bloc.len();
+        return (
+            format!("{}{marque_bloc}{}", &body[..ligne], &body[fin..]),
+            curseur,
+        );
     }
+
+    let nouveau = format!("{}{avant}{choisi}{apres}{}", &body[..debut], &body[fin..]);
+    let curseur = if choisi.is_empty() {
+        debut + avant.len()
+    } else {
+        debut + avant.len() + choisi.len() + apres.len()
+    };
+    (nouveau, curseur)
 }
 
 /// Empties the new-message window entirely: fields, copies and attachments.
@@ -8120,6 +8154,33 @@ mod tests {
         // The two periods exclude each other.
         let q = basculer_pastille("devis newer_than:7d", &PASTILLES[3]);
         assert_eq!(q, "devis newer_than:30d");
+    }
+
+    #[test]
+    fn bold_wraps_the_words_chosen_or_opens_at_the_cursor() {
+        assert_eq!(
+            apply_markup("Hello dear Ana", "bold", 6, 10),
+            ("Hello **dear** Ana".to_string(), 14)
+        );
+        // Chosen backwards, the same.
+        assert_eq!(
+            apply_markup("Hello dear Ana", "bold", 10, 6).0,
+            "Hello **dear** Ana"
+        );
+        assert_eq!(apply_markup("Hi", "italic", 2, 2), ("Hi**".to_string(), 3));
+        assert_eq!(apply_markup("ab", "bold", 1, 1), ("a****b".to_string(), 3));
+        // A field never touched: at the end.
+        assert_eq!(
+            apply_markup("Hi", "bold", -1, -1),
+            ("Hi****".to_string(), 4)
+        );
+        // Bytes inside an accent are taken back to its start.
+        assert_eq!(apply_markup("été", "bold", 1, 1).0, "****été");
+        assert_eq!(
+            apply_markup("one\ntwo", "list", 1, 6),
+            ("- one\n- two".to_string(), 11)
+        );
+        assert_eq!(apply_markup("x", "nothing", 0, 1), ("x".to_string(), 1));
     }
 
     #[test]

@@ -393,9 +393,6 @@ export component PhoneMailHeader inherits VerticalLayout {
     in property <int> sync-total;
     callback sync();
 
-    padding-left: 18px;
-    padding-top: 6px;
-    padding-right: 18px;
     padding-bottom: 10px;
     spacing: 2px;
     // Its own height and no more: stretched with the list, it took half the screen
@@ -403,7 +400,35 @@ export component PhoneMailHeader inherits VerticalLayout {
     vertical-stretch: 0;
     max-height: self.preferred-height;
 
+    // The bar every place has, 56 pixels: Sync all and the magnifier at its end. The
+    // title comes under it, where Tasks, Notes and Home have theirs.
     HorizontalLayout {
+        height: 56px;
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 2px;
+        Rectangle { horizontal-stretch: 1; }
+        SyncButton {
+            y: (parent.height - self.height) / 2;
+            syncing: root.syncing;
+            done: root.sync-done;
+            total: root.sync-total;
+            clicked => { root.sync(); }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.search;
+            label: "Search";
+            button-size: 44px;
+            icon-size: 21px;
+            clicked => { root.search(); }
+        }
+    }
+
+    HorizontalLayout {
+    padding-left: 18px;
+    padding-right: 18px;
+    padding-top: 2px;
     spacing: 4px;
     Rectangle {
         height: titre.preferred-height;
@@ -440,29 +465,21 @@ export component PhoneMailHeader inherits VerticalLayout {
             clicked => { root.title-clicked(); }
         }
     }
-    SyncButton {
-        y: (parent.height - self.height) / 2;
-        syncing: root.syncing;
-        done: root.sync-done;
-        total: root.sync-total;
-        clicked => { root.sync(); }
     }
-    IconButton {
-        y: (parent.height - self.height) / 2;
-        icon: Icons.search;
-        label: "Search";
-        button-size: 44px;
-        icon-size: 21px;
-        clicked => { root.search(); }
-    }
-    }
-    if root.subtitle != "": Text {
-        text: root.subtitle;
-        font-size: 14px;
-        color: Tokens.text-muted;
+    if root.subtitle != "": HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        Text {
+            text: root.subtitle;
+            font-size: 14px;
+            color: Tokens.text-muted;
+        }
     }
     if root.queues: Rectangle { height: 10px; }
-    if root.queues: QueueSegments {
+    if root.queues: HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        QueueSegments {
         names: ["To do", "Waiting", "Done"];
         counts: root.count-labels;
         descriptions: [
@@ -472,5 +489,6 @@ export component PhoneMailHeader inherits VerticalLayout {
         ];
         selected: root.active-tab;
         chosen(i) => { root.tab-selected(i); }
+        }
     }
 }

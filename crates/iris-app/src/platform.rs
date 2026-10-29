@@ -546,6 +546,29 @@ pub trait Platform: Send + Sync {
         let _ = notice;
         false
     }
+    /// Whether the system lets Iris show notifications; `None` where nothing is asked
+    /// (a computer).
+    fn notifications_allowed(&self) -> Option<bool> {
+        None
+    }
+    /// Asks the system for the notifications; `done` gets the answer.
+    fn ask_notifications(&self, done: Box<dyn FnOnce(bool) + Send>) {
+        done(true)
+    }
+    /// The system's settings of Iris's notifications.
+    fn open_notification_settings(&self) {}
+    /// Whether the system lets Iris run behind the screen (no battery optimisation on
+    /// it); `None` where the question does not arise.
+    fn background_allowed(&self) -> Option<bool> {
+        None
+    }
+    /// The system's page (or question) to let Iris run behind the screen.
+    fn open_background_settings(&self) {}
+    /// What a home-screen widget shows (a phone's Today: the date, what is next, the
+    /// tasks, the mail), written whenever Home is drawn.
+    fn update_widget(&self, lines: &[String; 4]) {
+        let _ = lines;
+    }
     /// The main input is a finger.
     fn touch(&self) -> bool {
         false

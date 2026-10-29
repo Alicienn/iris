@@ -41,11 +41,20 @@ keytool -genkeypair -v -keystore iris-release.jks -alias iris -keyalg RSA -keysi
 Play services and no camera permission of Iris's own; its screen is fetched with
 `ModuleInstall` from `play-services-base` when missing), the `iris-pair:` link a pairing
 code read by the phone's camera opens Iris with, and the system's document picker for
-attachments (the files chosen copied into the app's cache). Rust calls it through JNI
-and polls its answers.
+attachments (the files chosen copied into the app's cache). It also asks for the
+notifications (`POST_NOTIFICATIONS`, Android 13 on), posts them on its channel, says
+whether Iris is left out of battery optimisation and opens Android's question for it
+(`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`). Rust calls it through JNI and polls its
+answers, on the activity `AndroidApp` holds: ndk-context's context is the Application
+since android-activity 0.6, which has none of these methods.
+
+`TodayWidget.java` is the home screen's **Iris · Today** widget
+(`res/xml/iris_today_info.xml`, `res/layout/iris_today.xml`): it reads four lines Iris
+writes to `widget-today.txt` in its files whenever Home is drawn, and Iris asks for a
+redraw (`updateWidgets`) when they change.
 
 ## What is not there yet
 
-The platform's other services that need Android's Java API (notifications and their
-actions, background mail, widgets) follow the plan
-`docs/superpowers/plans/2026-10-26-iris-android-platform.md`, beside `IrisActivity`.
+Mail fetched while Iris is not running (WorkManager) and notifications' actions follow
+the plan `docs/superpowers/plans/2026-10-26-iris-android-platform.md`, beside
+`IrisActivity`.

@@ -1515,6 +1515,7 @@ which keeps that term off any index, and a test pins the plan
 | 27 | `folders.accepts_keywords`: the folder's PERMANENTFLAGS hold `\*`, so the queue state travels there as `$IrisWaiting` / `$IrisDone` (6.2.0) |
 | 28 | Sync between devices: `sync_id` and `sync_at` on every table of `sync::SYNCED`, with three triggers each (stamp on insert and update, a tombstone on delete, none while a merge writes); `sync_device`, `sync_tombstones`, `sync_peers`, `sync_settings`; seeded rows get fixed ids (6.3.0). Built from `sync::synced_v28`, which keeps the compass's tables as they travelled then |
 | 29 | The compass goes: `area_id` emptied on goals, habits and task lists (the columns stay), `area_scores`, `cycles`, `cycle_goals` and `vision` dropped, `areas` made again as a bare table of ids (the `area_id` columns still reference it, and SQLite refuses inserts under a missing parent), their tombstones dropped (7.0.0) |
+| 30 | Rows made before sync travel: the rows (and seeds) migration 28 left with an empty `sync_at`, which `changes_since` never sent, get `sync::BEFORE_SYNC`, the oldest clock, the same on every device; every `sync_peers.last_clock` emptied, so each pairing merges once again from the start (7.3.0). Built from `sync::SYNCED` (`schema_v30`) |
 
 A new table or column always arrives as a new migration.
 
@@ -1558,6 +1559,38 @@ Android's document picker for attachments (`pickFiles`, `ACTION_OPEN_DOCUMENT`):
 what is chosen is copied into the cache on a thread of its own and the paths are
 polled with `takePicked`, then read by the same `lire_les_fichiers` as the desktop's dialog
 (`Platform::picks_files`, `pick_files`).
+
+Every JNI call goes to the activity `AndroidApp::activity_as_ptr` gives, remembered when
+`Android::new` runs: ndk-context's context is the Application since android-activity 0.6,
+and on it `scanQr` and `pickFiles` came back "Method not found" (7.2.0). A paired device
+leaves the list's "On this Wi-Fi" when mDNS reports it removed (`Seen::addr` is `None`)
+or when *Sync now* finds no answer at its address in five seconds; Sync then says it is
+away. What is set beside a server calendar's events (notes, colours, links) does not
+travel, as the calendar does not: the merge refused a whole batch for a missing parent.
+
+**Notifications, the battery and the widget on Android** (7.3.0,
+`iris-app/src/permissions.rs`). `IrisActivity` posts notifications on its channel
+(`notify`), asks `POST_NOTIFICATIONS` (`askNotifications`, polled with `takeAsked`), and
+says whether Iris is left out of battery optimisation (`backgroundAllowed`), with the
+pages to change either. Once the first setup ends (`first-run` goes false) and the
+questions were never put (no `permissions-asked` file in the data folder), the window
+shows `SetupPermissionsPanel`: the notifications, then the battery, each with three
+steps when refused; Settings › Notifications greys the switch and shows the way while
+Android holds them back (read again each second while either page is open). The home
+screen's Today widget (`TodayWidget.java`) reads four lines `home::refresh` hands to
+`Platform::update_widget`, written to `widget-today.txt` only when they change.
+
+**The energy report** (7.3.0, `iris-app/src/energy.rs`). On Linux and Android a thread
+reads `/proc/self/task/*/stat` once a minute and logs the CPU each thread name used,
+the memory and the thread count (`target: "energy"`); the last two hours are kept for
+*Settings › Updates › Copy the energy report*.
+
+**Typing in a note on a phone** (7.3.0). The note's canvas takes keys in a `FocusScope`,
+for which Android raises no keyboard. Under a finger the canvas focuses a transparent
+`TextInput` at the cursor instead: it keeps what was typed since the cursor was put
+there (so the keyboard capitalises and corrects as in a field), sends each change as
+the keys it stands for (`note-canvas-ime`, `touches_du_clavier`), and the word being
+composed (`preedit-text`) shows over the note at the cursor.
 
 **The phone's lists and swipes** (7.2.0). The mail list is Iris's own `ListView`
 (`controls/scroll.slint`): a `ScrollView` named so, which Slint builds row by row as

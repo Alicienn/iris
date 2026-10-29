@@ -3,6 +3,32 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.3.0 — 2026-10-29
+
+### New
+- An Iris Today widget for Android's home screen: what is next, your tasks and your mail.
+- Iris shows notifications on Android.
+- At the end of the setup, a phone asks for notifications and to let Iris run in the background, with steps if you said no.
+- Settings › Notifications warns when Android blocks Iris's notifications or its background running, with a button to fix it.
+- On a phone, notes and folders can be dragged into a folder; holding over a closed folder opens it.
+- Settings › Updates can copy an energy report, to share when the phone warms up or drains.
+
+### Improved
+- Bold, italic and the other keys in New message format the words you selected, or what you type next.
+- Mailboxes and an event's details slide up when they open and down when they close.
+- Every card on Home opens what it shows: the Goal card opens that goal, a habit's name opens that habit.
+- The Habits card on Home fills its space with one habit, or shares it neatly between several.
+- Paired devices show a red dot once they leave your Wi-Fi, and Sync says why it cannot.
+- The titles of Home, Mail, Calendar, Tasks and Notes sit at the same place and size on a phone.
+- The pairing code's field lets go of the keyboard once you join.
+
+### Fixed
+- Scanning a pairing code works again on Android.
+- Attach a file opens the phone's file picker again.
+- Pairing a phone brings over all your accounts, tasks, calendars, goals' progress and habits' history, not only what was made recently.
+- Typing in a note on a phone opens the keyboard.
+- A habit's page fills the whole phone screen.
+
 ## 7.2.0 — 2026-10-28
 
 ### New

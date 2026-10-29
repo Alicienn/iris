@@ -116,6 +116,8 @@ pub const WORKSPACE: i32 = 2;
 /// Opens Tasks on `place` ("goals", "goal:3", "today"…), as one step back.
 pub fn open(f: &AppWindow, place: &str) {
     crate::nav::note(f, "tasks", place);
+    // A place asked for by name: the phone's page of every place, over it, steps aside.
+    f.set_tasks_column_open(false);
     f.invoke_task_place_chosen(place.into());
     if f.get_workspace() != WORKSPACE {
         f.set_workspace(WORKSPACE);
@@ -128,6 +130,7 @@ pub fn show_task(f: &AppWindow, id: i64) {
     // One step back for the whole move: the view first, so the change of workspace
     // that follows lands on the same place.
     crate::nav::note(f, "tasks", "anytime");
+    f.set_tasks_column_open(false);
     f.set_workspace(2);
     f.invoke_workspace_changed(2);
     f.invoke_task_place_chosen("anytime".into());
