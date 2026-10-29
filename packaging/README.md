@@ -44,7 +44,10 @@ CI stays green, Windows ships, and the release goes out without an APK (the log 
 so). The APK is signed with the project's key when the `ANDROID_KEYSTORE_B64`,
 `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` secrets exist (see
 `android/README.md`); without them, with the runner's throwaway debug key, so each
-APK must replace the previous one by uninstalling it first. When the APK is there,
+APK must replace the previous one by uninstalling it first. The secrets exist since
+2026-10-29 (the keystore and its password are beside the update key, in
+`..\iris-cles\`): the first APK signed with it is installed once after uninstalling,
+every later one updates in place. When the APK is there,
 `latest.json` names it with its size and SHA-256 (`apk`, `apk_size`, `apk_sha256`),
 signed with the rest; Iris on Android checks the same manifest and, to update, opens
 the APK's download, which Android installs.
