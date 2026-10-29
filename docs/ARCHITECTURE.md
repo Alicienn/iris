@@ -677,8 +677,16 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   the mail's folders (`FolderTree`: the chosen row writes its `y` in the list's content
   from `init`/`changed selected`/`changed y`, the plate under the `ListView` adds
   `viewport-y`) and `Segmented` (the chosen segment writes its `x`/`width`) slide one
-  plate too. The accounts and the task lists still fade their selection: their rows
-  sit in several containers.
+  plate too. Since 7.4.4 the mail list as well (`ThreadListView`: the chosen
+  `ThreadEntry` reports `y + row-top` and `row-height`, the plate under the list adds
+  `content-y`; on a phone the rows keep their own tint, standing on white). The
+  accounts and the task lists still fade their selection: their rows sit in several
+  containers.
+- Fades on arrival (7.4.4): the reader (`message.id` changed: opacity and 8 px of rise
+  back to rest, out at once and in over `Motion.travel`, through a 1 ms Timer so the
+  drop to 0 is not animated) and Home, Calendar, Tasks and Notes as their `if` creates
+  them (`init` sets `entree` to 1). An opacity under 1 makes the software renderer draw
+  that subtree into a layer for the fade's duration only.
 - One notice: `Toast` (`shell/toast.slint`) is always instantiated so it can leave
   softly; `toast` is the line, `toast-undo` ("mail" or "calendar") adds an Undo that
   calls `undo()` or `calendar-undo()`. The calendar pushes `Annulable::Ajoute` /

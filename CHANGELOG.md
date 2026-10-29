@@ -3,6 +3,13 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.4.4 — 2026-10-29
+
+### Improved
+- In the mail list, the highlight slides to the conversation you pick.
+- The conversation you open fades in.
+- Home, Calendar, Tasks and Notes fade in as you switch to them.
+
 ## 7.4.3 — 2026-10-29
 
 ### Fixed

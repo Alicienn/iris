@@ -1,5 +1,6 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
+import { Motion } from "@iris/theme/motion.slint";
 import { SwipeRow, Swiping } from "@iris/lists/swipe.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ThreadRowData } from "@iris/types.slint";
@@ -95,9 +96,12 @@ component ThreadRow inherits Rectangle {
         width: parent.width - (root.tel ? 0px : 16px);
         height: parent.height - (root.tel ? 0px : 2px);
         border-radius: root.tel ? 0px : 8px;
-        background: root.plein || (root.tel && root.targeted)
+        // On a PC the chosen row's plate is the list's, which slides from row to row
+        // (7.4.4): the row draws only a ticked row's tint and the hover. A phone's
+        // rows stand on white of their own, over any plate: they keep theirs.
+        background: root.data.marked || (root.tel && (root.targeted || root.selected))
             ? Tokens.accent.transparentize(0.91)
-            : (root.survol ? Tokens.surface-hover : transparent);
+            : (root.survol && !root.selected ? Tokens.surface-hover : transparent);
         animate background { duration: Tokens.instant; }
     }
 
@@ -565,6 +569,10 @@ component ThreadEntry inherits Rectangle {
 
     property <length> head: root.data.day != "" ? DayTitle.height : 0px;
     height: root.head + row.height;
+    /// Where the conversation's own row starts (under its day's title), and its
+    /// height: what the list's sliding plate covers when it is the chosen one.
+    out property <length> row-top: root.head;
+    out property <length> row-height: row.height;
 
     // On a phone the day's title sits on the window's grey, the rows are white under
     // it (the mockups' `.daysep` and `.rows`).
@@ -1339,6 +1347,11 @@ component InboxZero inherits Rectangle {
 export component ThreadListView inherits VerticalLayout {
     in property <[ThreadRowData]> rows;
     in property <int> selected-id;
+    /// The sliding plate: where it is in the list's content, its height, and the
+    /// conversation it is under.
+    property <length> plaque-y;
+    property <length> plaque-h;
+    property <int> plaque-id: -1;
     in property <int> active-tab;
     in property <[int]> counts;
     in property <bool> loading;
@@ -1751,12 +1764,53 @@ export component ThreadListView inherits VerticalLayout {
             }
         }
 
+    // One plate under the conversations, sliding to the chosen one. The chosen row
+    // tells where it sits in the list's content; the plate follows the scroll. Under
+    // the list, so every click still reaches its row.
+    Rectangle {
+        clip: true;
+        Rectangle {
+            visible: !Layout.compact && root.plaque-id == root.selected-id && root.plaque-h > 0;
+            x: 8px;
+            y: list.content-y + root.plaque-y + 1px;
+            width: parent.width - 16px;
+            height: root.plaque-h - 2px;
+            border-radius: 8px;
+            background: Tokens.accent.transparentize(0.91);
+            animate y, height { duration: Motion.travel; easing: Motion.soft; }
+        }
+    }
+
     list := ListView {
         // Still while a row is swiped: the finger may drift down as it pushes.
         interactive: !Swiping.active;
         for entry in root.rows: ThreadEntry {
             data: entry;
             selected: entry.id == root.selected-id;
+            init => {
+                if (self.selected) {
+                    root.plaque-y = self.y + self.row-top;
+                    root.plaque-h = self.row-height;
+                    root.plaque-id = entry.id;
+                }
+            }
+            changed selected => {
+                if (self.selected) {
+                    root.plaque-y = self.y + self.row-top;
+                    root.plaque-h = self.row-height;
+                    root.plaque-id = entry.id;
+                }
+            }
+            changed y => {
+                if (self.selected) {
+                    root.plaque-y = self.y + self.row-top;
+                }
+            }
+            changed row-height => {
+                if (self.selected) {
+                    root.plaque-h = self.row-height;
+                }
+            }
             selection-mode: root.marked-count > 0;
             targeted: entry.id == root.menu-target;
             payload: root.drag-payload;

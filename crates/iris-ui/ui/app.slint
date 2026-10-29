@@ -2916,6 +2916,35 @@ export component AppWindow inherits Window {
                     max-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 100000px;
                     horizontal-stretch: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0 : 1;
                     background: Tokens.surface;
+                    // Another conversation opened: it fades up in place, a few pixels
+                    // under where it rests. Out at once, in softly: the old one has
+                    // nothing more to say.
+                    property <int> fil: root.message.id;
+                    property <bool> arrive: true;
+                    property <float> apparition: 1;
+                    animate apparition {
+                        duration: self.arrive ? Motion.travel : 0ms;
+                        easing: Motion.soft;
+                    }
+                    changed fil => {
+                        self.arrive = false;
+                        self.apparition = 0;
+                        fondu-lecture.running = true;
+                    }
+                    fondu-lecture := Timer {
+                        interval: 1ms;
+                        running: false;
+                        triggered => {
+                            self.running = false;
+                            parent.arrive = true;
+                            parent.apparition = 1;
+                        }
+                    }
+                    Rectangle {
+                    y: (1 - parent.apparition) * 8px;
+                    opacity: parent.apparition;
+                    width: 100%;
+                    height: 100%;
                     ConversationView {
                         width: 100%;
                         height: 100%;
@@ -3016,6 +3045,7 @@ export component AppWindow inherits Window {
                     }
                     }
                     }
+                    }
                 }
 
                 if Layout.compact && root.clavier == 0: TabBar {}
@@ -3045,7 +3075,12 @@ export component AppWindow inherits Window {
         // it was left - same list, same scroll, same open thread.
         // Flush with the window, as the mail is: a pixel's inset, kept from the old
         // frame, showed as a pale line all round.
+        // Each place fades in as it opens (Home, Calendar, Tasks, Notes; Mail stays).
         if root.workspace == 1: CalendarView {
+            property <float> entree: 0;
+            init => { self.entree = 1; }
+            animate entree { duration: Motion.state; easing: Motion.soft; }
+            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: parent.width - root.rail;
@@ -3141,6 +3176,10 @@ export component AppWindow inherits Window {
         // The tasks, the goals among them. While the habits show, only the tasks'
         // column, the habits beside it.
         if root.workspace == 2: TasksView {
+            property <float> entree: 0;
+            init => { self.entree = 1; }
+            animate entree { duration: Motion.state; easing: Motion.soft; }
+            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: root.tasks-habits
@@ -3284,6 +3323,10 @@ export component AppWindow inherits Window {
 
         // Home, over everything like the other workspaces.
         if root.workspace == 4: NotesView {
+            property <float> entree: 0;
+            init => { self.entree = 1; }
+            animate entree { duration: Motion.state; easing: Motion.soft; }
+            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: parent.width - root.rail;
@@ -3456,6 +3499,10 @@ export component AppWindow inherits Window {
         }
 
         if root.workspace == 3: HomeView {
+            property <float> entree: 0;
+            init => { self.entree = 1; }
+            animate entree { duration: Motion.state; easing: Motion.soft; }
+            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: parent.width - root.rail;
