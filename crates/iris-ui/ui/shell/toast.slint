@@ -29,6 +29,7 @@ export component Toast inherits Rectangle {
     property <string> texte;
     property <bool> avec-annulation;
     property <bool> montre: root.message != "";
+    property <string> dit: root.montre ? root.message : root.texte;
     // The notice goes in with a spring, and out quicker and softly.
     property <float> vu: root.montre ? 1 : 0;
     animate vu { duration: root.montre ? Motion.state : Motion.close; }
@@ -53,7 +54,7 @@ export component Toast inherits Rectangle {
     }
 
     bulle := Floating {
-        visible: root.vu > 0.001;
+        visible: root.montre || root.vu > 0.001;
         radius: Layout.compact ? 14px : Tokens.radius-medium;
         background: Layout.compact ? Tokens.text : Tokens.panel;
         border-width: Layout.compact ? 0px : 1px;
@@ -68,7 +69,7 @@ export component Toast inherits Rectangle {
         opacity: min(1, max(0, root.vu));
 
         accessible-role: text;
-        accessible-label: root.texte;
+        accessible-label: root.dit;
 
         // A click on the line drives it away: a confirmation already read has no
         // business in front of the content. Beneath the Undo, which is laid after it.
@@ -95,7 +96,7 @@ export component Toast inherits Rectangle {
             }
 
             libelle := Text {
-                text: root.texte;
+                text: root.dit;
                 font-family: Tokens.font-family;
                 font-size: Layout.compact ? 15px : Tokens.size-body;
                 color: Layout.compact ? Tokens.background : Tokens.text;
