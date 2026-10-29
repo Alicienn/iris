@@ -917,7 +917,7 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       with its borders and radii (7.4.0).
 - [x] **S52.6** The mail's folders and the segmented choices slide one plate (7.4.1).
 - [x] **S52.7** The APK signed with the project's own key, the same for every
-      version (7.4.2).
+      version (7.4.3; 7.4.2 shipped without its APK: a missing `ANDROID_KEY_PASSWORD` secret reaches Gradle as an empty string).
 - [ ] **S52.5** Left: a sliding plate in the accounts, task lists and mail list, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

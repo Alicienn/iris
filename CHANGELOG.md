@@ -3,10 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
-## 7.4.2 — 2026-10-29
+## 7.4.3 — 2026-10-29
 
 ### Fixed
 - The Android app now keeps the same signature: after one last uninstall, later versions install over it.
+
+## 7.4.2 — 2026-10-29
+
+### Fixed
+- Released without the Android app, whose signing failed.
 
 ## 7.4.1 — 2026-10-29
 
