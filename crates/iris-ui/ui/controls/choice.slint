@@ -277,6 +277,9 @@ export component Pill inherits Rectangle {
     /// A colour for the words and the plate (a priority).
     in property <color> tint;
     in property <bool> tinted;
+    /// The phone's round-ended pill with its fine rim at a pointer's size: the mail's
+    /// quick filters on a PC, drawn as the phone draws them.
+    in property <bool> rounded;
     callback toggled();
 
     property <bool> jeton: root.kind == PillKind.token;
@@ -288,20 +291,25 @@ export component Pill inherits Rectangle {
     // ground when on. On a phone the mockups' pill: round ends, a fine rim, the touch
     // sizes.
     property <bool> grand: Layout.compact && !root.jeton;
-    height: root.grand ? 34px : 24px;
+    /// Round ends and a rim: the phone's pill, or one asked for round.
+    property <bool> rond: root.grand || (root.rounded && !root.jeton);
+    height: root.grand ? 34px : root.rond ? 26px : 24px;
+    // A round pill on a PC keeps the chip's width: the list's column has no room for
+    // more beside the order button.
     width: rang.preferred-width + (root.grand ? 26px : 18px);
-    property <bool> releve: !root.jeton && !root.on && !root.tinted && !root.grand;
+    property <bool> releve: !root.jeton && !root.on && !root.tinted && !root.rond;
 
     // The plate as a child: an animated background or a shadow on the root made Slint
     // copy the whole pill into every place it is used (7.0.0, the CI's memory).
     Rectangle {
-        border-radius: root.grand ? self.height / 2 : Tokens.radius-small;
-        border-width: root.grand && !root.on && !root.tinted ? 1px : 0px;
+        border-radius: root.rond ? self.height / 2 : Tokens.radius-small;
+        border-width: root.rond && !root.on && !root.tinted ? 1px : 0px;
         border-color: Tokens.border-strong;
         background: root.tinted ? root.tint.transparentize(0.88)
             : root.on ? Tokens.accent-soft
             : root.jeton ? Tokens.surface-active
             : root.grand ? Tokens.surface
+            : root.rond && !touch.has-hover ? Tokens.surface
             : touch.has-hover ? Tokens.surface-hover : Tokens.control;
         drop-shadow-blur: root.releve ? Tokens.shadow-card-blur / 2 : 0px;
         drop-shadow-offset-y: root.releve ? 1px : 0px;
