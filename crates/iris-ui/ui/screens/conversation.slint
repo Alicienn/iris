@@ -1492,11 +1492,14 @@ export component ConversationView inherits VerticalLayout {
                         // (when there is more than one), a right-click opens the
                         // sender's menu. A recipient takes their own right-click above.
                         Rectangle {
-                            accessible-role: root.messages.length > 1 ? AccessibleRole.button : AccessibleRole.none;
-                            accessible-label: (message.expanded ? "Collapse " : "Expand ")
-                                + message.from + ", " + message.date;
-                            accessible-expanded: message.expanded;
-                            accessible-action-default => { root.toggle-message(message.id); }
+                            // A button to assistive tools only when it folds something.
+                            if root.messages.length > 1: Rectangle {
+                                accessible-role: button;
+                                accessible-label: (message.expanded ? "Collapse " : "Expand ")
+                                    + message.from + ", " + message.date;
+                                accessible-expanded: message.expanded;
+                                accessible-action-default => { root.toggle-message(message.id); }
+                            }
 
                             TouchArea {
                                 mouse-cursor: root.messages.length > 1 ? MouseCursor.pointer : MouseCursor.default;
