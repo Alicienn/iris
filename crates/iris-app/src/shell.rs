@@ -1216,6 +1216,9 @@ pub fn remplir_conversation(
             // Le corps n'est pas encore descendu du serveur. L'écran doit le dire :
             // un panneau vide ne distingue pas « ça arrive » de « il n'y a rien ».
             vue.body_loading = message.body_blob.is_none();
+            // The banner about its remote content, once answered: Allow (the content
+            // shown) or Ignore (kept blocked) — it does not ask again this session.
+            vue.remote_dismissed = montrer || remote_ignored().contains(&message.id.get());
             // An invitation, over this message only: the one that carries it.
             if let Some(inv) = invitation_du_message(services, message) {
                 vue.invite_state = inv.state;
@@ -1830,7 +1833,19 @@ fn images_shown() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<i
         .unwrap_or_else(|e| e.into_inner())
 }
 
-/// Wires the "Show" button on the blocked-content banner.
+/// The messages whose remote-content banner was answered Ignore: their content stays
+/// blocked and the banner does not come back, for this session. Per message, as the
+/// content allowed is (`images_shown`).
+fn remote_ignored() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<i64>> {
+    static IGNORES: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<i64>>> =
+        std::sync::OnceLock::new();
+    IGNORES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Wires the "Allow" and "Ignore" buttons on the blocked-content banner.
 ///
 /// The banner has been telling people images were blocked, and offering a button that
 /// was declared in the interface and connected to nothing in Rust. Saying "N images
@@ -1928,6 +1943,27 @@ pub fn wire_remote_images(
                 &messages,
                 now(),
             );
+        });
+    }
+
+    // Ignore: nothing is fetched and nothing is rendered again — the banner of that
+    // message goes, in place, and the next rendering of the thread remembers it.
+    {
+        let faible = fenetre.as_weak();
+        fenetre.on_remote_ignored(move |id| {
+            remote_ignored().insert(i64::from(id));
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let messages = fenetre.get_messages();
+            for i in 0..messages.row_count() {
+                if let Some(mut vue) = messages.row_data(i) {
+                    if vue.id == id && !vue.remote_dismissed {
+                        vue.remote_dismissed = true;
+                        messages.set_row_data(i, vue);
+                    }
+                }
+            }
         });
     }
 

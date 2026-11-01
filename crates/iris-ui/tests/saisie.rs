@@ -2942,10 +2942,192 @@ fn le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre() {
     assert_eq!(plies.borrow().len(), 1);
 }
 
+// --- The reader's remote content, its Reply, and the phone's list ---
+
+/// A message read, whose sender put a tracker in it.
+fn un_message_qui_piste(f: &AppWindow) {
+    let message = iris_ui::MessageData {
+        id: 9,
+        from: "Newsletter".into(),
+        subject: "This week".into(),
+        expanded: true,
+        has_tracker: true,
+        blocked_images: 2,
+        ..Default::default()
+    };
+    f.set_conversation_empty(false);
+    f.set_message(message.clone());
+    f.set_messages(ModelRc::new(VecModel::from(vec![message])));
+    slint::platform::update_timers_and_animations();
+}
+
+fn le_pistage_s_ignore_ou_s_autorise() {
+    // "Show" was the only answer the banner had: Ignore keeps the content blocked and
+    // says so for that message, Allow loads it.
+    let f = fenetre();
+    let ignores = Rc::new(RefCell::new(Vec::<i32>::new()));
+    let autorises = Rc::new(RefCell::new(0));
+    {
+        let i = Rc::clone(&ignores);
+        f.on_remote_ignored(move |id| i.borrow_mut().push(id));
+        let a = Rc::clone(&autorises);
+        f.on_load_images(move || *a.borrow_mut() += 1);
+    }
+    un_message_qui_piste(&f);
+
+    clic(&bouton(&f, "Allow the remote content of this message"));
+    assert_eq!(*autorises.borrow(), 1);
+    clic(&bouton(
+        &f,
+        "Ignore: keep the remote content of this message blocked",
+    ));
+    assert_eq!(*ignores.borrow(), [9]);
+    assert_eq!(*autorises.borrow(), 1, "Ignore loads nothing");
+
+    // Answered, the banner is gone for that message.
+    let mut vue = f.get_messages().row_data(0).unwrap();
+    vue.remote_dismissed = true;
+    f.set_messages(ModelRc::new(VecModel::from(vec![vue])));
+    slint::platform::update_timers_and_animations();
+    assert!(
+        !testing::ElementQuery::from_root(&f)
+            .match_descendants()
+            .match_accessible_role(testing::AccessibleRole::Button)
+            .find_all()
+            .iter()
+            .any(|b| b.accessible_label().as_deref()
+                == Some("Allow the remote content of this message")),
+        "the banner stays away once answered"
+    );
+}
+
+fn un_telephone() -> AppWindow {
+    let f = AppWindow::new().expect("la fenêtre doit se construire");
+    f.window().set_size(slint::LogicalSize::new(390.0, 844.0));
+    f.show().expect("la fenêtre doit s'afficher");
+    f.global::<iris_ui::Layout>().set_touch_input(true);
+    f.set_workspace(0);
+    slint::platform::update_timers_and_animations();
+    f
+}
+
+/// The button of that name laid out (wider than nothing).
+fn bouton_vu(f: &AppWindow, libelle: &str) -> testing::ElementHandle {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Button)
+        .find_all()
+        .into_iter()
+        .find(|b| b.accessible_label().as_deref() == Some(libelle) && b.size().width > 0.0)
+        .unwrap_or_else(|| panic!("aucun bouton nommé « {libelle} » à l'écran"))
+}
+
+fn sur_un_telephone_reply_ouvre_ses_variantes_puis_repond() {
+    // The bar under the thread: one touch on Reply offers Reply all and Forward over
+    // it, a second touch on Reply answers the sender — it does not just close the menu.
+    let f = un_telephone();
+    let reponses = Rc::new(RefCell::new(Vec::<bool>::new()));
+    {
+        let r = Rc::clone(&reponses);
+        f.on_reply_requested(move |tous| r.borrow_mut().push(tous));
+    }
+    f.set_conversation_empty(false);
+    f.set_page("thread".into());
+    slint::platform::update_timers_and_animations();
+
+    for action in ["Delete", "Archive", "Snooze…", "Mark as done"] {
+        bouton_vu(&f, action);
+    }
+    let repondre = centre(&bouton_vu(&f, "Reply"));
+    cliquer_a(&f, repondre);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(f.get_reader_menu(), "reply");
+    assert!(
+        reponses.borrow().is_empty(),
+        "the first touch only offers the ways"
+    );
+
+    cliquer_a(&f, repondre);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(*reponses.borrow(), [false]);
+    assert_eq!(f.get_reader_menu(), "");
+}
+
+fn tirer_la_liste_du_haut_releve_le_courrier() {
+    // Pulled down from its top and let go past the mark: Sync all. Pulled and brought
+    // back up before letting go: nothing.
+    let f = un_telephone();
+    let releves = Rc::new(RefCell::new(0));
+    {
+        let r = Rc::clone(&releves);
+        f.on_sync_all(move || *r.borrow_mut() += 1);
+    }
+    let filtre = testing::ElementQuery::from_root(&f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::Checkbox)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some("Unread") && e.size().width > 0.0)
+        .expect("the phone's Unread pill");
+    // In the list, under the row of pills.
+    let haut = slint::LogicalPosition::new(
+        195.0,
+        filtre.absolute_position().y + filtre.size().height + 60.0,
+    );
+    let bas = slint::LogicalPosition::new(haut.x, haut.y + 240.0);
+
+    // Down, then back up before letting go.
+    f.window()
+        .dispatch_event(WindowEvent::PointerMoved { position: haut });
+    f.window().dispatch_event(WindowEvent::PointerPressed {
+        position: haut,
+        button: PointerEventButton::Left,
+    });
+    for k in 1..=6 {
+        f.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(haut.x, haut.y + 40.0 * k as f32),
+        });
+    }
+    for k in (0..6).rev() {
+        f.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(haut.x, haut.y + 40.0 * k as f32),
+        });
+    }
+    f.window().dispatch_event(WindowEvent::PointerReleased {
+        position: haut,
+        button: PointerEventButton::Left,
+    });
+    slint::platform::update_timers_and_animations();
+    assert_eq!(
+        *releves.borrow(),
+        0,
+        "brought back up, the pull is called off"
+    );
+
+    glisser(&f, haut, bas);
+    assert_eq!(
+        *releves.borrow(),
+        1,
+        "let go past the mark, the mail is fetched"
+    );
+}
+
 fn main() {
     testing::init_no_event_loop();
 
     let scenarios: Vec<(&str, fn())> = vec![
+        (
+            "le_pistage_s_ignore_ou_s_autorise",
+            le_pistage_s_ignore_ou_s_autorise,
+        ),
+        (
+            "sur_un_telephone_reply_ouvre_ses_variantes_puis_repond",
+            sur_un_telephone_reply_ouvre_ses_variantes_puis_repond,
+        ),
+        (
+            "tirer_la_liste_du_haut_releve_le_courrier",
+            tirer_la_liste_du_haut_releve_le_courrier,
+        ),
         (
             "replier_les_comptes_garde_la_fenetre_entiere",
             replier_les_comptes_garde_la_fenetre_entiere,

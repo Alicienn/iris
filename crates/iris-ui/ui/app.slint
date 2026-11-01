@@ -530,6 +530,11 @@ export component AppWindow inherits Window {
     in-out property <string> reader-menu;
     in-out property <length> reader-menu-x;
     in-out property <length> reader-menu-y;
+    /// The ways to answer ("reply"): the Reply button they opened from, which answers
+    /// the sender when pressed again while they are open.
+    property <length> reader-anchor-x;
+    property <length> reader-anchor-width;
+    property <length> reader-anchor-height;
     in property <bool> loading;
     in property <bool> syncing;
     in property <int> pending-ops;
@@ -889,6 +894,8 @@ export component AppWindow inherits Window {
     callback command-invoked(string);
     callback key-pressed(string);
     callback load-images();
+    /// A message's remote content left blocked, its banner answered Ignore (message id).
+    callback remote-ignored(int);
     callback toggle-message(int);
     /// Annuler et rétablir, aux touches que tout le monde connaît.
     callback undo();
@@ -2558,7 +2565,11 @@ export component AppWindow inherits Window {
             // Removing the system frame removes the outline it drew. Without one, a dark
             // window on a dark desktop has no boundary at all — it looks like a hole
             // rather than a window.
+            // Not on a phone, where the screen is the window: there the outline showed
+            // through wherever a place has no ground of its own, as grey lines down
+            // the sides of the mail's head and across the top (dark theme).
             Rectangle {
+                visible: !Layout.touch-input;
                 width: 100%;
                 height: 100%;
                 border-width: 1px;
@@ -2923,6 +2934,15 @@ export component AppWindow inherits Window {
                                 shortcuts.focus();
                             }
                             scrolled-near-end => { root.scrolled-near-end(); }
+                            // On a phone's list, pulled down from its top: Sync all, as
+                            // its button beside the magnifier (whose ring shows it).
+                            pull-to-refresh: Layout.compact && Layout.touch-input
+                                && !root.searching && root.marked-count == 0;
+                            refresh => {
+                                if (!root.syncing-all) {
+                                    root.sync-all();
+                                }
+                            }
                         }
                         // On a phone, New message floats over the list's bottom right.
                         if Layout.compact && !root.searching && root.marked-count == 0: Fab {
@@ -2988,12 +3008,16 @@ export component AppWindow inherits Window {
                         mark-done => { root.thread-done(); }
                         to-task => { root.thread-to-task(root.selected-thread); }
                         reply(tous) => { root.reply-requested(tous); }
-                        reply-menu(mx, my) => {
-                            root.reader-menu-x = mx;
-                            root.reader-menu-y = my;
+                        reply-menu(droite, bx, by, bw, bh) => {
+                            root.reader-menu-x = droite;
+                            root.reader-menu-y = by;
+                            root.reader-anchor-x = bx;
+                            root.reader-anchor-width = bw;
+                            root.reader-anchor-height = bh;
                             root.reader-menu = "reply";
                         }
                         load-images => { root.load-images(); }
+                        ignore-remote(id) => { root.remote-ignored(id); }
                         save-attachment(i) => { root.save-attachment(i); }
                         open-attachment(i) => { root.open-attachment(i); }
                         invite-accept(id) => { root.invite-accept(id); }
@@ -4653,6 +4677,9 @@ export component AppWindow inherits Window {
             unread: root.selected-unread;
             menu-x: root.reader-menu-x;
             menu-y: root.reader-menu-y;
+            anchor-x: root.reader-anchor-x;
+            anchor-width: root.reader-anchor-width;
+            anchor-height: root.reader-anchor-height;
             snooze(quand) => { root.menu-snooze(root.selected-thread, quand); }
             forward-thread => { root.forward-thread(); }
             reply(tous) => { root.reply-requested(tous); }

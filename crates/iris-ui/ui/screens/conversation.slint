@@ -358,64 +358,74 @@ component RemoteContentBanner inherits Rectangle {
     in property <int> blocked-images;
     in property <bool> has-tracker;
 
+    /// Allow: the remote content loads (what was blocked, the tracker with it).
     callback load-images();
+    /// Ignore: it stays blocked, and the banner goes for this message.
+    callback ignore();
 
-    height: 32px;
+    // « 1 remote image(s) blocked » est une phrase qu'un programme écrit et
+    // qu'aucune personne ne prononce — et elle apparaît à l'endroit précis où
+    // l'on demande à quelqu'un de décider s'il fait confiance à un inconnu.
+    // Avoir l'air d'un formulaire à ce moment-là n'est pas gratuit.
+    property <string> phrase: root.has-tracker
+        ? "This sender is trying to learn when you read this message."
+        : (root.blocked-images == 1
+            ? "1 remote image blocked."
+            : root.blocked-images + " remote images blocked.");
+    property <color> encre: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
+    // On a phone the sentence has a line of its own over the two buttons: beside them
+    // it was cut to a few words.
+    property <bool> empile: Layout.compact;
+
+    height: corps.preferred-height;
     border-radius: Tokens.radius-small;
     background: Tokens.surface;
     border-width: 1px;
     border-color: Tokens.border;
 
-    HorizontalLayout {
+    corps := VerticalLayout {
         padding-left: Tokens.space-3;
         padding-right: Tokens.space-2;
-        spacing: Tokens.space-2;
+        padding-top: root.empile ? Tokens.space-2 : 4px;
+        padding-bottom: root.empile ? Tokens.space-2 : 4px;
+        spacing: Tokens.space-1;
 
-        Text {
-            // « 1 remote image(s) blocked » est une phrase qu'un programme écrit et
-            // qu'aucune personne ne prononce — et elle apparaît à l'endroit précis où
-            // l'on demande à quelqu'un de décider s'il fait confiance à un inconnu.
-            // Avoir l'air d'un formulaire à ce moment-là n'est pas gratuit.
-            text: root.has-tracker
-                ? "This sender is trying to learn when you read this message."
-                : (root.blocked-images == 1
-                    ? "1 remote image blocked."
-                    : root.blocked-images + " remote images blocked.");
+        if root.empile: Text {
+            text: root.phrase;
             font-size: Tokens.size-small;
-            color: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
-            vertical-alignment: center;
-            overflow: elide;
+            color: root.encre;
+            wrap: word-wrap;
         }
 
-        Rectangle {}
+        // Two answers, as for any question asked of the reader: Ignore keeps it
+        // blocked and stops asking; Allow loads it.
+        HorizontalLayout {
+            spacing: Tokens.space-2;
 
-        // The theme's accent, not the platform's button. A stock Button here brought
-        // the operating system's own blue into a window that has exactly one colour,
-        // and it is the only control in the reading pane that did.
-        Rectangle {
-            width: 62px;
-            height: 22px;
-            y: (parent.height - self.height) / 2;
-            border-radius: Tokens.radius-small;
-            background: montrer.has-hover
-                ? Tokens.accent
-                : Tokens.accent.transparentize(0.12);
-            animate background { duration: Tokens.instant; }
-
-            accessible-role: button;
-            accessible-label: "Show the remote images in this message";
-            accessible-action-default => { root.load-images(); }
-
-            Text {
-                text: "Show";
+            if !root.empile: Text {
+                text: root.phrase;
                 font-size: Tokens.size-small;
-                font-weight: Tokens.weight-bold;
-                color: Tokens.accent-text;
-                horizontal-alignment: center;
+                color: root.encre;
                 vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
             }
+            if root.empile: Rectangle { horizontal-stretch: 1; }
 
-            montrer := TouchArea {
+            Button {
+                cross-axis-self-alignment: center;
+                text: "Ignore";
+                label: "Ignore: keep the remote content of this message blocked";
+                kind: ButtonKind.ghost;
+                size: ButtonSize.sm;
+                clicked => { root.ignore(); }
+            }
+            Button {
+                cross-axis-self-alignment: center;
+                text: "Allow";
+                label: "Allow the remote content of this message";
+                kind: ButtonKind.primary;
+                size: ButtonSize.sm;
                 clicked => { root.load-images(); }
             }
         }
@@ -892,11 +902,27 @@ export component ReaderMenu inherits Rectangle {
     callback archive();
     callback toggle-star();
     callback delete-thread();
+    /// The ways to answer: the Reply button they opened from, in the window (its top
+    /// is `menu-y`). A press on it while they are open answers the sender.
+    in property <length> anchor-x;
+    in property <length> anchor-width;
+    in property <length> anchor-height;
 
     TouchArea {
         width: 100%;
         height: 100%;
-        clicked => { root.dismissed(); }
+        clicked => {
+            // The veil covers the Reply button too: the press meant for it answers,
+            // rather than only closing the menu (one click reaches its target).
+            if (root.kind == "reply" && root.anchor-width > 0
+                && self.mouse-x >= root.anchor-x
+                && self.mouse-x <= root.anchor-x + root.anchor-width
+                && self.mouse-y >= root.menu-y
+                && self.mouse-y <= root.menu-y + root.anchor-height) {
+                root.reply(false);
+            }
+            root.dismissed();
+        }
     }
 
     if root.kind == "snooze": MenuSurface {
@@ -935,14 +961,16 @@ export component ReaderMenu inherits Rectangle {
         }
     }
 
-    // The ways to answer, from the chevron beside Reply under the thread: it rises
-    // above the button, its left edge on the button's.
+    // The ways to answer, from the chevron beside Reply under the thread (on a phone
+    // from Reply itself): it rises above the button, its right edge at `menu-x`. A
+    // small menu on a phone too, not a sheet: it is over the button pressed again.
     if root.kind == "reply": MenuSurface {
         dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
-        menu-x: root.menu-x;
-        menu-y: root.menu-y - self.menu-height;
+        anchored-in-compact: true;
+        menu-x: root.menu-x - self.menu-width;
+        menu-y: root.menu-y - 6px - self.menu-height;
         menu-width: 220px;
         menu-height: reponses.preferred-height + 8px;
 
@@ -1158,10 +1186,14 @@ export component ConversationView inherits VerticalLayout {
 
     /// Answer the conversation in the composer: the sender, or everyone (true).
     callback reply(bool);
-    /// The other ways to answer (Reply all, Forward), and where the menu's bottom left
-    /// goes (in the window).
-    callback reply-menu(length, length);
+    /// The other ways to answer (Reply all, Forward): where the menu's right edge goes,
+    /// then the Reply button's place and size (x, y, width, height, in the window). The
+    /// menu rises over the button; a second press on Reply answers the sender.
+    callback reply-menu(length, length, length, length, length);
     callback load-images();
+    /// The banner about a message's remote content answered Ignore (message id): it
+    /// stays blocked and the banner goes.
+    callback ignore-remote(int);
     callback save-attachment(int);
     callback open-attachment(int);
     /// The invitation a message carries: into the calendar (message id), or opened
@@ -1248,6 +1280,10 @@ export component ConversationView inherits VerticalLayout {
     /// dit exactement ce qui manque.
     in-out property <bool> attachments-expanded;
 
+    /// The phone's bar of actions under the thread: a thumb's button, and its icon.
+    property <length> pouce: Layout.touch-input ? 48px : 36px;
+    property <length> dessin: Layout.touch-input ? 21px : 18px;
+
     if root.empty: Rectangle {
         VerticalLayout {
             alignment: center;
@@ -1263,8 +1299,9 @@ export component ConversationView inherits VerticalLayout {
 
     if !root.empty: VerticalLayout {
         padding-top: 0px;
-        padding-bottom: 18px;
-        spacing: 14px;
+        // On a phone the bar of actions sits on the tabs.
+        padding-bottom: Layout.compact ? 0px : 18px;
+        spacing: Layout.compact ? 0px : 14px;
 
         // Le fil, du plus ancien au plus récent, sous son sujet.
         //
@@ -1529,11 +1566,12 @@ export component ConversationView inherits VerticalLayout {
                         answer(a) => { root.invite-answer(message.id, a); }
                     }
 
-                    if message.expanded && (message.blocked-images > 0
+                    if message.expanded && !message.remote-dismissed && (message.blocked-images > 0
                         || message.has-tracker): RemoteContentBanner {
                         blocked-images: message.blocked-images;
                         has-tracker: message.has-tracker;
                         load-images => { root.load-images(); }
+                        ignore => { root.ignore-remote(message.id); }
                     }
 
                     // Le corps arrive encore. Sans cette ligne, l'écran était
@@ -1642,8 +1680,9 @@ export component ConversationView inherits VerticalLayout {
         // Answering, under the thread and lined up with it: Reply opens the composer
         // filled in (the sender, the subject, the conversation under the body), where
         // there is room to write and to see whom it goes to. The chevron offers the
-        // other ways: Reply all, Forward.
-        Rectangle {
+        // other ways: Reply all, Forward. At the right end of the column, where the
+        // eye ends reading a message.
+        if !Layout.compact: Rectangle {
             vertical-stretch: 0;
             height: 52px;
 
@@ -1653,7 +1692,7 @@ export component ConversationView inherits VerticalLayout {
                 padding-top: 8px;
                 padding-bottom: 16px;
                 spacing: 2px;
-                alignment: start;
+                alignment: end;
 
                 repondre := Button {
                     text: "Reply";
@@ -1666,9 +1705,81 @@ export component ConversationView inherits VerticalLayout {
                     label: "More ways to reply";
                     button-size: 28px;
                     icon-size: 14px;
+                    // The menu hangs from the chevron's right end, over the pair.
                     clicked => {
-                        root.reply-menu(repondre.absolute-position.x,
-                            repondre.absolute-position.y - 6px);
+                        root.reply-menu(self.absolute-position.x + self.width,
+                            repondre.absolute-position.x, repondre.absolute-position.y,
+                            repondre.width, repondre.height);
+                    }
+                }
+            }
+        }
+
+        // On a phone, a bar of what one does with a conversation once read, in the
+        // thumb's reach: delete, archive, snooze, done, and Reply at the far end. A
+        // touch on Reply opens the other ways to answer over it; a second touch on it
+        // answers the sender.
+        if Layout.compact: Rectangle {
+            vertical-stretch: 0;
+            height: Layout.touch-input ? 64px : 52px;
+            background: Tokens.surface;
+
+            Rectangle {
+                y: 0px;
+                height: 1px;
+                background: Tokens.border;
+            }
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 12px;
+                spacing: 4px;
+
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.trash;
+                    label: "Delete";
+                    danger: true;
+                    button-size: root.pouce;
+                    icon-size: root.dessin;
+                    clicked => { root.delete-thread(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.archive;
+                    label: "Archive";
+                    button-size: root.pouce;
+                    icon-size: root.dessin;
+                    clicked => { root.archive(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.clock;
+                    label: "Snooze…";
+                    button-size: root.pouce;
+                    icon-size: root.dessin;
+                    clicked => {
+                        root.snooze-menu(self.absolute-position.x, self.absolute-position.y);
+                    }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.check;
+                    label: "Mark as done";
+                    button-size: root.pouce;
+                    icon-size: root.dessin;
+                    clicked => { root.mark-done(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                repondre-tel := Button {
+                    y: (parent.height - self.height) / 2;
+                    text: "Reply";
+                    icon: Icons.reply;
+                    kind: ButtonKind.primary;
+                    clicked => {
+                        root.reply-menu(self.absolute-position.x + self.width,
+                            self.absolute-position.x, self.absolute-position.y,
+                            self.width, self.height);
                     }
                 }
             }
