@@ -1,6 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout, WidthClass } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
+import { Motion } from "@iris/theme/motion.slint";
 
 // The window's frame, in the manner of Apple's own apps: no title bar of its own.
 // Each place of Iris has a sidebar and a toolbar; the sidebar's head holds the window's
@@ -254,13 +255,8 @@ component PlaceTab inherits Rectangle {
 
     height: 26px;
     border-radius: 6px;
-    background: root.on ? Tokens.control : touch.has-hover ? Tokens.surface-hover : transparent;
-    drop-shadow-blur: root.on ? 2px : 0px;
-    drop-shadow-offset-y: 1px;
-    drop-shadow-color: root.on ? #0000001f : transparent;
-    // The half-pixel ring the Mac draws round a chosen segment.
-    border-width: root.on ? 1px : 0px;
-    border-color: #0000000d;
+    // The chosen one's plate is the well's, which slides from place to place.
+    background: !root.on && touch.has-hover ? Tokens.surface-hover : transparent;
     animate background { duration: Tokens.quick; }
 
     accessible-role: tab;
@@ -419,15 +415,35 @@ export component SidebarHead inherits VerticalLayout {
     // Not where the window has a tab bar (narrow) or a rail (medium) for them.
     // Hidden rather than left out: under an `if`, the segments were laid out zero
     // pixels wide.
-    Rectangle {
+    puits := Rectangle {
         visible: Layout.width-class == WidthClass.expanded;
         height: !self.visible ? 0px : root.compact ? root.places.length * 26px + 4px : 30px;
         border-radius: 8px;
         background: Tokens.well;
+        // The chosen place's plate: one, sliding to the place picked, as the phone's
+        // tab bar does (slots 0 to 4: Home, Mail, Calendar, Tasks, Notes).
+        property <int> slot: Chrome.workspace == 3 ? 0 : Chrome.workspace == 4 ? 4 : Chrome.workspace + 1;
+        property <length> pas: root.compact ? self.width - 4px : (self.width - 4px) / root.places.length;
+        Rectangle {
+            x: root.compact ? 2px : 2px + puits.slot * puits.pas;
+            y: root.compact ? 2px + puits.slot * 26px : 2px;
+            width: puits.pas;
+            height: 26px;
+            border-radius: 6px;
+            background: Tokens.control;
+            drop-shadow-blur: 2px;
+            drop-shadow-offset-y: 1px;
+            drop-shadow-color: #0000001f;
+            // The half-pixel ring the Mac draws round a chosen segment.
+            border-width: 1px;
+            border-color: #0000000d;
+            animate x, y { duration: Motion.travel; easing: Motion.soft; }
+        }
         if !root.compact: HorizontalLayout {
             padding: 2px;
             spacing: 0px;
             for p in root.places: PlaceTab {
+                width: puits.pas;
                 icon: p.icon;
                 label: p.label;
                 shortcut: p.shortcut;

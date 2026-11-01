@@ -23,7 +23,7 @@
 
 - <img src="docs/assets/icons/inbox.svg" width="16" alt=""> **A work queue** — every conversation is *to do*, *waiting* or *done*; one key moves it along.
 - <img src="docs/assets/icons/users.svg" width="16" alt=""> **All your accounts** — one unified inbox, or one mailbox at a time, grouped by tag.
-- <img src="docs/assets/icons/sun.svg" width="16" alt=""> **Home** — your day in one sentence and the next things to do.
+- <img src="docs/assets/icons/sun.svg" width="16" alt=""> **Home** — every part of Iris at a glance: mail by mailbox, today's agenda, tasks, habits, goals, notes and the week.
 - <img src="docs/assets/icons/calendar.svg" width="16" alt=""> **Calendar** — month, week, day, 3 days and agenda; CalDAV both ways; invitations from mail.
 - <img src="docs/assets/icons/check-circle.svg" width="16" alt=""> **Tasks** — typed in one line (`tomorrow 9am Call Marie #Work !!`), planned into your free time.
 - <img src="docs/assets/icons/target.svg" width="16" alt=""> **Goals and habits** — the pace a goal needs, habits ticked day by day with their streaks.

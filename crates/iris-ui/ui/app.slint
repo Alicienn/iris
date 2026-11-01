@@ -1240,6 +1240,25 @@ export component AppWindow inherits Window {
     in property <[HomeItemData]> home-notes;
     in property <int> home-cards-due;
     callback home-note-opened(string);
+    // Home's cockpit (7.6.0): the toolbar's date, the mail by mailbox, the day's
+    // agenda, the tasks beyond today, the habits' last eight days, the goals.
+    in property <string> home-date-line;
+    in property <[AccountRowData]> home-mail-boxes;
+    in property <int> home-mail-max;
+    in property <string> home-mail-label;
+    in property <[HomeItemData]> home-agenda;
+    in property <int> home-agenda-now: -1;
+    in property <string> home-now-label;
+    in property <[HomeItemData]> home-agenda-after;
+    in property <string> home-agenda-label;
+    in property <[HomeItemData]> home-tasks-tomorrow;
+    in property <string> home-tasks-label;
+    in property <string> home-tasks-foot-left;
+    in property <string> home-tasks-foot-right;
+    in property <[HabitData]> home-habit-grid;
+    in property <[string]> home-habit-days;
+    in property <string> home-habits-streak;
+    in property <[GoalData]> home-goals;
     // A note's past versions.
     in-out property <bool> notes-history-open;
     in property <[NoteFoundData]> notes-history;
@@ -2930,33 +2949,9 @@ export component AppWindow inherits Window {
                     max-width: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0px : 100000px;
                     horizontal-stretch: (Layout.compact && !root.fil-en-page) || root.mailboxes-open ? 0 : 1;
                     background: Tokens.surface;
-                    // Another conversation opened: it fades up in place, a few pixels
-                    // under where it rests. Out at once, in softly: the old one has
-                    // nothing more to say.
-                    property <int> fil: root.message.id;
-                    property <bool> arrive: true;
-                    property <float> apparition: 1;
-                    animate apparition {
-                        duration: self.arrive ? Motion.travel : 0ms;
-                        easing: Motion.soft;
-                    }
-                    changed fil => {
-                        self.arrive = false;
-                        self.apparition = 0;
-                        fondu-lecture.running = true;
-                    }
-                    fondu-lecture := Timer {
-                        interval: 1ms;
-                        running: false;
-                        triggered => {
-                            self.running = false;
-                            parent.arrive = true;
-                            parent.apparition = 1;
-                        }
-                    }
+                    // Another conversation shows at once, in place (7.6.0): its fade
+                    // blanked the reader, a dark flash under the software renderer.
                     Rectangle {
-                    y: (1 - parent.apparition) * 8px;
-                    opacity: parent.apparition;
                     width: 100%;
                     height: 100%;
                     ConversationView {
@@ -3089,12 +3084,9 @@ export component AppWindow inherits Window {
         // it was left - same list, same scroll, same open thread.
         // Flush with the window, as the mail is: a pixel's inset, kept from the old
         // frame, showed as a pale line all round.
-        // Each place fades in as it opens (Home, Calendar, Tasks, Notes; Mail stays).
+        // Each place shows at once (7.6.0): a fade from nothing over the whole window
+        // was the dark flash at each change of place.
         if root.workspace == 1: CalendarView {
-            property <float> entree: 0;
-            init => { self.entree = 1; }
-            animate entree { duration: Motion.state; easing: Motion.soft; }
-            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: parent.width - root.rail;
@@ -3190,10 +3182,6 @@ export component AppWindow inherits Window {
         // The tasks, the goals among them. While the habits show, only the tasks'
         // column, the habits beside it.
         if root.workspace == 2: TasksView {
-            property <float> entree: 0;
-            init => { self.entree = 1; }
-            animate entree { duration: Motion.state; easing: Motion.soft; }
-            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: root.tasks-habits
@@ -3337,10 +3325,6 @@ export component AppWindow inherits Window {
 
         // Home, over everything like the other workspaces.
         if root.workspace == 4: NotesView {
-            property <float> entree: 0;
-            init => { self.entree = 1; }
-            animate entree { duration: Motion.state; easing: Motion.soft; }
-            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: parent.width - root.rail;
@@ -3513,10 +3497,6 @@ export component AppWindow inherits Window {
         }
 
         if root.workspace == 3: HomeView {
-            property <float> entree: 0;
-            init => { self.entree = 1; }
-            animate entree { duration: Motion.state; easing: Motion.soft; }
-            opacity: self.entree;
             x: root.rail;
             y: Layout.inset-top;
             width: parent.width - root.rail;
@@ -3560,6 +3540,30 @@ export component AppWindow inherits Window {
             habits-foot: root.home-habits-foot;
             habit-toggled(id) => { root.home-habit-toggled(id); }
             habit-opened(id) => { root.home-habit-opened(id); shortcuts.focus(); }
+            date-line: root.home-date-line;
+            mail-boxes: root.home-mail-boxes;
+            mail-max: root.home-mail-max;
+            mail-label: root.home-mail-label;
+            agenda: root.home-agenda;
+            agenda-now: root.home-agenda-now;
+            now-label: root.home-now-label;
+            agenda-after: root.home-agenda-after;
+            agenda-label: root.home-agenda-label;
+            tasks-tomorrow: root.home-tasks-tomorrow;
+            tasks-label: root.home-tasks-label;
+            tasks-foot-left: root.home-tasks-foot-left;
+            tasks-foot-right: root.home-tasks-foot-right;
+            habit-grid: root.home-habit-grid;
+            habit-days: root.home-habit-days;
+            habits-streak: root.home-habits-streak;
+            goals: root.home-goals;
+            // A mailbox's line opens Mail on it.
+            account-opened(id) => {
+                root.home-open("mail");
+                root.account-selected(id);
+                root.navigated("account", "\{id}");
+                shortcuts.focus();
+            }
         }
 
         // The habits, in Tasks: beside the tasks' column, drawn alone above.

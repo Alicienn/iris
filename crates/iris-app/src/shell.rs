@@ -234,6 +234,7 @@ pub fn refresh_accounts(
             })
             .collect::<Vec<_>>(),
     )));
+    crate::home::fill_mail_boxes(fenetre);
     let total: u32 = a_traiter.values().sum();
     fenetre.set_unified_count(total as i32);
     fenetre.set_unified_label(iris_ui::format::short_count(total as u64).into());

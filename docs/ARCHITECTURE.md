@@ -408,8 +408,23 @@ first three conversations of To do (`list_threads`, initials on the sender's tin
 many there are in all, read or not (unlike the mail's badges, which count the unread),
 and how many are in Waiting; with nothing more today, Up next takes tomorrow's first
 event; **This week**, the tasks done a bar a day (`tasks::week`) and
-the inbox zero streak. Its side column lists the places with their counts and the
-mailboxes. It opens first unless `home_at_startup` is off.
+the inbox zero streak. It opens first unless `home_at_startup` is off.
+
+Since 7.5.0 Home is a cockpit (the web edition's proposal B), without a side column:
+plates placed by `x`/`y` in one tree, two bands on a PC (Mail 360 px | Today | Tasks,
+then a band of 214 px: Habits 360 px | Goals | Notes | Done this week 236 px) and one
+under the other on a phone, so no plate is written twice under two `if`s. **Mail** lists
+the mailboxes with To do or a problem, most first, with a meter against the largest
+(`home::fill_mail_boxes`, from `home-accounts`, called again by `refresh_accounts`),
+then the first four conversations of To do with when they last moved; a line opens Mail
+on that mailbox. **Today** is every event of the day with an hour (`Journee::agenda`),
+over ones dimmed, the present hour as a line before the first still to come
+(`agenda_now`), the next one within the hour or under way in a pill, tomorrow's first
+under a hairline. **Tasks** adds tomorrow's (three), how many have no date and how many
+fall due within the week. **Habits** shows four over the last eight days
+(`habits::cellules` mode 3), today's square ticks. **Goals** lists three under way
+(`goals::under_way`). The earlier properties stay, for the phone's widget and the
+previews.
 
 **Goals** (3.3.0, `iris-store::goals`, `iris-tasks::goals`, `iris-app::goals`). A goal is
 counted (`goal_entries`, logged by hand with *Log one*) or made of milestones
@@ -692,12 +707,12 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
   `ThreadEntry` reports `y + row-top` and `row-height`, the plate under the list adds
   `content-y`; on a phone the rows keep their own tint, standing on white). The
   accounts and the task lists still fade their selection: their rows sit in several
-  containers.
-- Fades on arrival (7.4.4): the reader (`message.id` changed: opacity and 8 px of rise
-  back to rest, out at once and in over `Motion.travel`, through a 1 ms Timer so the
-  drop to 0 is not animated) and Home, Calendar, Tasks and Notes as their `if` creates
-  them (`init` sets `entree` to 1). An opacity under 1 makes the software renderer draw
-  that subtree into a layer for the fade's duration only.
+  containers. Since 7.5.0 the side column's place switcher (`SidebarHead`'s well) slides
+  one plate under its `PlaceTab`s, which keep only their hover.
+- No fade on arrival (7.5.0). The reader and the places faded in from opacity 0 in
+  7.4.4; under the software renderer the whole window drew as a layer from nothing at
+  every change of place or of message, a dark flash that Reduce effects (0 ms) hid. A
+  place or a message now shows at once.
 - One notice: `Toast` (`shell/toast.slint`) is always instantiated so it can leave
   softly; `toast` is the line, `toast-undo` ("mail" or "calendar") adds an Undo that
   calls `undo()` or `calendar-undo()`. The calendar pushes `Annulable::Ajoute` /

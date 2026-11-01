@@ -8,12 +8,15 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 ### New
 - Right-click a mailbox or a tag: Mark all as read.
 - Right-click a mailbox or a tag: Send all to To do, Waiting or Done.
+- A new Home: your mail by mailbox, today's agenda, tasks, habits, goals, notes and week on one screen.
 
 ### Improved
 - Marking a folder read no longer freezes the window, even with thousands of messages.
+- The highlight in the place switcher slides to the place you pick.
 
 ### Fixed
 - Clicking a date in a note, or opening an event's note, no longer closes Iris.
+- No more dark flash when changing place or opening another message.
 
 ## 7.4.4 — 2026-10-29
 

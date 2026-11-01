@@ -925,6 +925,9 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S52.10** A mailbox's or a tag's mail at once: Mark all as read, Send all to
       To do / Waiting / Done, on the view-model's thread, thousands of messages in a
       few commands; a folder's Mark all as read moved there too (7.5.0).
+- [x] **S52.11** Home as a cockpit: every place's plate on one screen, two bands on a
+      PC, one column on a phone; the place switcher's plate slides; no fade on arrival,
+      which flashed dark at every change of place (7.5.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.
