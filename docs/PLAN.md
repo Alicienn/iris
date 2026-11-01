@@ -941,6 +941,11 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       the taskbar's mode, in Segoe UI (7.6.0).
 - [x] **S52.17** A row's menu: Mark as › To do / Waiting / Done, in place of Mark as
       done (7.6.0).
+- [x] **S52.18** Small things of every day: a right-click on someone in a message's
+      header (copy, write, their mail); Send asks when "attached" has nothing attached,
+      quotes aside; Ctrl+Z takes a send back from any place; selected words made a
+      task; Mail opens on All accounts, All folders; Home back to its earlier layout
+      (7.7.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

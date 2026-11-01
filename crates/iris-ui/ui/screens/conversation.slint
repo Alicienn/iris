@@ -24,6 +24,11 @@ export global MessageText {
     in-out property <int> copy-serial;
     /// The message every block of which "Select all" selected, -1 for none.
     in-out property <int> all-selected: -1;
+    /// The block holding the selection: its words whole, and where the selection runs
+    /// in them (byte offsets), for "Make it a task" (Rust cuts them).
+    in-out property <string> held-text;
+    in-out property <int> held-from;
+    in-out property <int> held-to;
 }
 
 // Un bloc du corps du message.
@@ -68,6 +73,9 @@ component SelectableText inherits TextInput {
         if (root.live) {
             root.kept-anchor = root.anchor-position-byte-offset;
             root.kept-cursor = root.cursor-position-byte-offset;
+            MessageText.held-text = root.text;
+            MessageText.held-from = min(root.kept-anchor, root.kept-cursor);
+            MessageText.held-to = max(root.kept-anchor, root.kept-cursor);
         }
         // Words chosen by hand end a "Select all".
         if (root.has-focus) {
@@ -1136,7 +1144,28 @@ export component LinkMenu inherits Rectangle {
                 label: "Copy email address";
                 activated => { root.chosen("copy-link"); root.dismissed(); }
             }
-            if root.kind != "" && root.link-text != "": MenuEntry {
+            // Someone a message names, right-clicked in its header (7.7.0).
+            if root.kind == "person": MenuEntry {
+                icon: Icons.envelope-closed;
+                label: "Copy email address";
+                activated => { root.chosen("copy-link"); root.dismissed(); }
+            }
+            if root.kind == "person" && root.link-text != "": MenuEntry {
+                icon: Icons.copy;
+                label: "Copy name";
+                activated => { root.chosen("copy-text"); root.dismissed(); }
+            }
+            if root.kind == "person": MenuEntry {
+                icon: Icons.pencil;
+                label: "Write to them";
+                activated => { root.chosen("open"); root.dismissed(); }
+            }
+            if root.kind == "person": MenuEntry {
+                icon: Icons.search;
+                label: "Mail from them";
+                activated => { root.chosen("their-mail"); root.dismissed(); }
+            }
+            if root.kind != "" && root.kind != "person" && root.link-text != "": MenuEntry {
                 icon: Icons.copy;
                 label: "Copy link text";
                 activated => { root.chosen("copy-text"); root.dismissed(); }
@@ -1154,6 +1183,12 @@ export component LinkMenu inherits Rectangle {
                 icon: Icons.align-left;
                 label: "Select all";
                 activated => { root.chosen("select-all"); root.dismissed(); }
+            }
+            // The words selected, made a task with the conversation linked (7.7.0).
+            if root.has-selection && root.kind == "": MenuEntry {
+                icon: Icons.check;
+                label: "Make it a task";
+                activated => { root.chosen("to-task"); root.dismissed(); }
             }
         }
     }
@@ -1245,6 +1280,9 @@ export component ConversationView inherits VerticalLayout {
     /// A right-click in a body shown as text, away from a link: (message id, the point
     /// in the window). What is selected is in `MessageText`.
     callback text-menu(int, length, length);
+    /// A right-click on someone in a message's header: (name, address, the point in
+    /// the window).
+    callback person-menu(string, string, length, length);
     /// No tile asks for pixels while this is set: the window is hidden, and what was
     /// painted has been given back.
     in property <bool> bodies-suspended;
@@ -1450,6 +1488,34 @@ export component ConversationView inherits VerticalLayout {
                     Rectangle {
                         height: 56px;
 
+                        // Beneath the header: a click folds or unfolds the message
+                        // (when there is more than one), a right-click opens the
+                        // sender's menu. A recipient takes their own right-click above.
+                        Rectangle {
+                            accessible-role: root.messages.length > 1 ? AccessibleRole.button : AccessibleRole.none;
+                            accessible-label: (message.expanded ? "Collapse " : "Expand ")
+                                + message.from + ", " + message.date;
+                            accessible-expanded: message.expanded;
+                            accessible-action-default => { root.toggle-message(message.id); }
+
+                            TouchArea {
+                                mouse-cursor: root.messages.length > 1 ? MouseCursor.pointer : MouseCursor.default;
+                                clicked => {
+                                    if (root.messages.length > 1) {
+                                        root.toggle-message(message.id);
+                                    }
+                                }
+                                pointer-event(event) => {
+                                    if (event.button == PointerEventButton.right
+                                        && event.kind == PointerEventKind.down) {
+                                        root.person-menu(message.from, message.from-address,
+                                            self.absolute-position.x + self.mouse-x,
+                                            self.absolute-position.y + self.mouse-y);
+                                    }
+                                }
+                            }
+                        }
+
                         HorizontalLayout {
                             spacing: 10px;
 
@@ -1490,11 +1556,36 @@ export component ConversationView inherits VerticalLayout {
                                         confirmed => { root.unsubscribe(message.id); }
                                     }
                                 }
-                                if message.to != "": Text {
-                                    text: "To: " + message.to;
-                                    font-size: 12px;
-                                    color: Tokens.text-muted;
-                                    overflow: elide;
+                                // Each recipient takes a right-click of their own.
+                                if message.to != "": Rectangle {
+                                    clip: true;
+                                    height: a-qui.preferred-height;
+                                    a-qui := HorizontalLayout {
+                                        alignment: start;
+                                        Text {
+                                            text: "To: ";
+                                            font-size: 12px;
+                                            color: Tokens.text-muted;
+                                        }
+                                        for p[i] in message.to-people: Rectangle {
+                                            width: nom.preferred-width;
+                                            nom := Text {
+                                                text: p.name + (i < message.to-people.length - 1 ? ", " : "");
+                                                font-size: 12px;
+                                                color: Tokens.text-muted;
+                                            }
+                                            TouchArea {
+                                                pointer-event(event) => {
+                                                    if (event.button == PointerEventButton.right
+                                                        && event.kind == PointerEventKind.down) {
+                                                        root.person-menu(p.name, p.address,
+                                                            self.absolute-position.x + self.mouse-x,
+                                                            self.absolute-position.y + self.mouse-y);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
@@ -1524,19 +1615,6 @@ export component ConversationView inherits VerticalLayout {
                                 font-size: 12px;
                                 color: Tokens.text-muted;
                                 vertical-alignment: center;
-                            }
-                        }
-
-                        if root.messages.length > 1: Rectangle {
-                            accessible-role: button;
-                            accessible-label: (message.expanded ? "Collapse " : "Expand ")
-                                + message.from + ", " + message.date;
-                            accessible-expanded: message.expanded;
-                            accessible-action-default => { root.toggle-message(message.id); }
-
-                            TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.toggle-message(message.id); }
                             }
                         }
 

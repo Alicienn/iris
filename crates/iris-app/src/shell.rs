@@ -234,7 +234,6 @@ pub fn refresh_accounts(
             })
             .collect::<Vec<_>>(),
     )));
-    crate::home::fill_mail_boxes(fenetre);
     let total: u32 = a_traiter.values().sum();
     fenetre.set_unified_count(total as i32);
     fenetre.set_unified_label(iris_ui::format::short_count(total as u64).into());
@@ -1461,6 +1460,12 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
                 }
             }
             "select-all" => select_all_of_body(i64::from(f.get_link_menu_message())),
+            // Someone in a header: the mail they sent, found by the search.
+            "their-mail" => {
+                let requete = format!("from:{}", copied_link(&lien));
+                f.set_search_query(requete.as_str().into());
+                f.invoke_search_submitted(requete.into());
+            }
             _ => {}
         }
     });
@@ -1603,7 +1608,7 @@ fn select_all_of_body(message: i64) {
 
 /// The words of a message shown as text, block after block, as they read: what
 /// Copy puts on the clipboard after Select all.
-fn message_text(fenetre: &AppWindow, message: i32) -> Option<String> {
+pub(crate) fn message_text(fenetre: &AppWindow, message: i32) -> Option<String> {
     let vue = fenetre.get_messages().iter().find(|m| m.id == message)?;
     let texte = vue
         .blocks
@@ -7397,6 +7402,19 @@ pub fn wire_compose(
                 body: fenetre.get_compose_body().to_string(),
                 attachments: pieces.lock().expect("poisoned attachments").clone(),
             };
+
+            // "Attached", with nothing attached: asked first, once. The body is only
+            // what was written; a reply's quoted conversation is not in it.
+            let force = fenetre.get_compose_attach_ok();
+            fenetre.set_compose_attach_ok(false);
+            if !force
+                && brouillon.attachments.is_empty()
+                && crate::mentions::mentions_attachment(&brouillon.body)
+            {
+                fenetre.set_compose_minimised(false);
+                fenetre.set_compose_confirm_attach(true);
+                return;
+            }
 
             // A reply, under the conversation it answers.
             let reponse = EN_REPONSE.with(|r| r.borrow().clone());

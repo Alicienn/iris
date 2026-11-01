@@ -751,6 +751,10 @@ export component ComposePanel inherits Rectangle {
     in property <[string]> attachments;
     /// The question asked on closing a message with something in it.
     in-out property <bool> confirm-close;
+    /// The question asked on sending words that speak of an attachment, with none
+    /// attached; "Send anyway" sets `attach-ok` and sends again.
+    in-out property <bool> confirm-attach;
+    in-out property <bool> attach-ok;
     in-out property <bool> minimised;
     /// Where the bar it opens from sits, across; below zero, the right-hand corner.
     in property <length> parked-x: -1px;
@@ -890,6 +894,8 @@ export component ComposePanel inherits Rectangle {
             // A recipient's card closes first, the message stays as it was.
             if (root.card-open) {
                 root.card-open = false;
+            } else if (root.confirm-attach) {
+                root.confirm-attach = false;
             } else if (root.confirm-close) {
                 root.confirm-close = false;
             } else if (root.has-content) {
@@ -1668,6 +1674,63 @@ export component ComposePanel inherits Rectangle {
                 clicked => {
                     root.confirm-close = false;
                     root.save-draft();
+                }
+            }
+        }
+    }
+
+    // Sending words that speak of an attachment ("attached", "ci-joint"…) with none
+    // attached asks first. Only what is written counts, never the quoted messages.
+    if root.confirm-attach: Modal {
+        kind: ModalKind.question;
+        width: 100%;
+        height: 100%;
+        title: "Send without an attachment?";
+        wrap-title: true;
+        close-label: "Keep writing";
+        fit: true;
+        dismissed => { root.confirm-attach = false; }
+
+        Text {
+            text: "Your message mentions an attachment, but nothing is attached.";
+            font-size: Layout.compact ? 15px : 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+        if Layout.compact: VerticalLayout {
+            spacing: 6px;
+            BlockButton {
+                text: "Attach a file";
+                clicked => {
+                    root.confirm-attach = false;
+                    root.attach();
+                }
+            }
+            BlockButton {
+                text: "Send anyway";
+                kind: ButtonKind.ghost;
+                clicked => {
+                    root.confirm-attach = false;
+                    root.attach-ok = true;
+                    root.send();
+                }
+            }
+        }
+        if !Layout.compact: ModalFooter {
+            Button {
+                text: "Send anyway";
+                clicked => {
+                    root.confirm-attach = false;
+                    root.attach-ok = true;
+                    root.send();
+                }
+            }
+            Button {
+                text: "Attach a file";
+                kind: ButtonKind.primary;
+                clicked => {
+                    root.confirm-attach = false;
+                    root.attach();
                 }
             }
         }

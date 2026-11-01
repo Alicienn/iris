@@ -23,6 +23,7 @@ pub mod home;
 pub mod invite;
 pub mod later;
 pub mod logging;
+pub mod mentions;
 pub mod modules;
 pub mod nav;
 pub mod notes;

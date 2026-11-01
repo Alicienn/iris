@@ -8,7 +8,7 @@
 use crate::format::{account_tint, display_subject, grouped_count, relative_date, short_count};
 use crate::{
     AccountRowData, AttachmentData, BodyTileData, CommandData, MessageBlockData, MessageData,
-    ThreadRowData,
+    PersonData, ThreadRowData,
 };
 use iris_htmlview::Rendered;
 use iris_htmlview::{Block, RichText};
@@ -518,6 +518,21 @@ pub fn recipients(message: &StoredMessage) -> String {
         .join(", ")
 }
 
+/// The same recipients one by one, name and address, for a right-click on one.
+pub fn recipient_people(message: &StoredMessage) -> Vec<PersonData> {
+    serde_json::from_str::<Vec<iris_types::Address>>(&message.recipients_json)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| PersonData {
+            name: match a.name.as_deref().map(str::trim) {
+                Some(nom) if !nom.is_empty() => nom.into(),
+                _ => a.addr.as_str().into(),
+            },
+            address: a.addr.into(),
+        })
+        .collect()
+}
+
 /// The sender's face, the same one their row in the list shows.
 fn face(message: &StoredMessage) -> (SharedString, Color) {
     let nom = sender(message);
@@ -546,6 +561,7 @@ pub fn message_view(
         initials,
         tint,
         to: recipients(message).into(),
+        to_people: ModelRc::new(VecModel::from(recipient_people(message))),
         date: relative_date(message.received, now).into(),
         subject: display_subject(&message.subject).into(),
         blocks: ModelRc::new(VecModel::from(message_blocks(body))),

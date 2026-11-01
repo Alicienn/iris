@@ -127,20 +127,6 @@ pub fn for_home(services: &Services) -> Option<GoalData> {
         .find(|g| g.status != 2)
 }
 
-/// The goals under way, `max` at most: the cockpit's plate.
-pub fn under_way(services: &Services, max: usize) -> Vec<GoalData> {
-    let today = Local::now().date_naive();
-    services
-        .store
-        .goals()
-        .unwrap_or_default()
-        .iter()
-        .map(|g| donnees(services, g, today, false))
-        .filter(|g| g.status != 2)
-        .take(max)
-        .collect()
-}
-
 /// Goal `id` as the interface shows it, for a habit that supports it.
 pub fn for_id(services: &Services, id: i64) -> Option<GoalData> {
     let today = Local::now().date_naive();

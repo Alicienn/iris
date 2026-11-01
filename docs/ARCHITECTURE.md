@@ -408,23 +408,11 @@ first three conversations of To do (`list_threads`, initials on the sender's tin
 many there are in all, read or not (unlike the mail's badges, which count the unread),
 and how many are in Waiting; with nothing more today, Up next takes tomorrow's first
 event; **This week**, the tasks done a bar a day (`tasks::week`) and
-the inbox zero streak. It opens first unless `home_at_startup` is off.
+the inbox zero streak. Its side column lists the places with their counts and the
+mailboxes. It opens first unless `home_at_startup` is off.
 
-Since 7.5.0 Home is a cockpit (the web edition's proposal B), without a side column:
-plates placed by `x`/`y` in one tree, two bands on a PC (Mail 360 px | Today | Tasks,
-then a band of 214 px: Habits 360 px | Goals | Notes | Done this week 236 px) and one
-under the other on a phone, so no plate is written twice under two `if`s. **Mail** lists
-the mailboxes with To do or a problem, most first, with a meter against the largest
-(`home::fill_mail_boxes`, from `home-accounts`, called again by `refresh_accounts`),
-then the first four conversations of To do with when they last moved; a line opens Mail
-on that mailbox. **Today** is every event of the day with an hour (`Journee::agenda`),
-over ones dimmed, the present hour as a line before the first still to come
-(`agenda_now`), the next one within the hour or under way in a pill, tomorrow's first
-under a hairline. **Tasks** adds tomorrow's (three), how many have no date and how many
-fall due within the week. **Habits** shows four over the last eight days
-(`habits::cellules` mode 3), today's square ticks. **Goals** lists three under way
-(`goals::under_way`). The earlier properties stay, for the phone's widget and the
-previews.
+The cockpit of 7.5.0 (every place's plate on one screen, without the side column) was
+taken back in 7.7.0: users preferred this layout.
 
 **Goals** (3.3.0, `iris-store::goals`, `iris-tasks::goals`, `iris-app::goals`). A goal is
 counted (`goal_entries`, logged by hand with *Log one*) or made of milestones
@@ -798,6 +786,18 @@ These rules come from bugs users hit, and each has a scenario in
   `FocusScope` passes modifier keys on, so `Ctrl`+`C` reaches the selection. Select
   all there copies the whole message from Rust (`message_text`, blocks joined by blank
   lines).
+- **Make it a task (7.7.0).** With words selected, `LinkMenu` offers *Make it a task*.
+  A text body's `SelectableText` keeps in `MessageText` its whole words and where the
+  selection runs (`held-text`, `held-from`, `held-to`, bytes), and `selection-to-task`
+  hands them to Rust, which cuts them; empty, Rust takes the Blitz document's
+  selection, then the message "Select all" chose. `tasks::task_from_words` names the
+  task after the first line (120 characters at most), puts the words whole in its
+  notes when longer, and links the open conversation (`thread_id`, `source`).
+- **Someone in a header (7.7.0).** A right-click on the sender (the whole header, under
+  the fold `TouchArea` that now sits beneath it) or on one recipient
+  (`MessageData.to-people`, `PersonData` name and address from `recipients_json`) opens
+  `LinkMenu` with `kind` "person": *Copy email address*, *Copy name*, *Write to them*
+  (a `mailto:` draft) and *Mail from them* (the search `from:<address>`).
 - **Plain-text quotes (6.0.0).** mail-parser makes an HTML body of a text-only message;
   `iris_mime::Parsed::html_is_text` says so, and the reader then builds the body from
   the text with `iris_htmlview::plain_text_to_html`: nested `<blockquote type="cite">`
@@ -1224,6 +1224,17 @@ The outbox (`crates/iris-smtp/src/outbox.rs`) holds each message for a delay **b
 sending it, never after: recalling a sent message is impossible, and pretending otherwise
 would lie. The delay is a setting (`undo_send_seconds` in `iris.toml`, 5 s by default,
 0 to 30), and each message keeps the delay in force when it was queued.
+
+The notice (`SendNotice`) sits over every place; since 7.7.0 `Ctrl`+`Z` takes the
+message back from any of them while it counts, ahead of the place's own undo (the
+shortcuts' `FocusScope`, unless a window is open), and the notice says so on a PC.
+
+Before that, Send asks when the words speak of an attachment and none is attached
+(7.7.0, `mentions::mentions_attachment`, English and French words, whole words only).
+Only the writing field counts, which never holds a reply's quoted conversation (drawn
+beneath it, added when sending); a pasted quote is skipped too: `>` lines, and
+everything from an "On … wrote:", "Le … a écrit :" or forwarded header on. *Send
+anyway* sets `compose-attach-ok` and sends again.
 
 The outbox's sender is `sending::AccountMailer` (`crates/iris-app/src/sending.rs`,
 since 4.5.0). For each message it finds the mailbox that sends as its `From` — its

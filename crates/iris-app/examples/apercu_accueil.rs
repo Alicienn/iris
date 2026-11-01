@@ -90,32 +90,6 @@ fn main() {
         services.store.log_goal(objectif, "", now()).unwrap();
     }
 
-    // Three habits made ten days ago, kept most days, for the habits' grid.
-    let avant = iris_types::Timestamp::from_millis(now().millis() - 10 * 86_400_000);
-    for (titre, couleur, saute) in [
-        ("Read 20 pages", "#34c759", [2, 5]),
-        ("Run", "#ff9500", [1, 4]),
-        ("No phone after 22:00", "#5856d6", [3, 6]),
-    ] {
-        let h = services
-            .store
-            .create_habit(
-                &iris_store::NewHabit {
-                    title: titre.into(),
-                    icon: "book".into(),
-                    color: couleur.into(),
-                    schedule: "daily".into(),
-                    ..Default::default()
-                },
-                avant,
-            )
-            .unwrap();
-        for k in (1..8).filter(|k| !saute.contains(k)) {
-            let j = (today - Duration::days(k)).format("%Y-%m-%d").to_string();
-            services.store.set_habit_check(h, &j, 1).unwrap();
-        }
-    }
-
     let cal = services.store.calendars().unwrap()[0].id;
     let a = |j: i64, h: u32, m: u32| {
         iris_calendar::time::zoned_millis(
@@ -198,53 +172,7 @@ fn main() {
             tour += 1;
             match tour {
                 // The sample base has no mail: the count a real one would show.
-                1 => {
-                    f.set_home_mail_count("12".into());
-                    let boite = |id: i32, label: &str, count: i32, (r, g, b): (u8, u8, u8)| {
-                        iris_ui::AccountRowData {
-                            id,
-                            label: label.into(),
-                            count,
-                            tint: slint::Color::from_rgb_u8(r, g, b),
-                            ..Default::default()
-                        }
-                    };
-                    f.set_home_mail_boxes(slint::ModelRc::new(slint::VecModel::from(vec![
-                        boite(1, "Atelier", 7, (0, 122, 255)),
-                        boite(2, "Marie", 3, (175, 82, 222)),
-                        boite(3, "Studio", 2, (52, 199, 89)),
-                    ])));
-                    f.set_home_mail_max(7);
-                    f.set_home_mail_label("3 mailboxes".into());
-                    let fil = |id: i32, nom: &str, sujet: &str, quand: &str, (r, g, b)| {
-                        iris_ui::HomeItemData {
-                            id,
-                            title: nom.into(),
-                            hint: sujet.into(),
-                            meta: quand.into(),
-                            key: iris_ui::format::initials(nom).into(),
-                            color: slint::Color::from_rgb_u8(r, g, b),
-                            ..Default::default()
-                        }
-                    };
-                    f.set_home_threads(slint::ModelRc::new(slint::VecModel::from(vec![
-                        fil(
-                            1,
-                            "Paul Martin",
-                            "Thursday's review",
-                            "10:12",
-                            (255, 149, 0),
-                        ),
-                        fil(
-                            2,
-                            "Marie Durand",
-                            "The quote, revised",
-                            "09:40",
-                            (175, 82, 222),
-                        ),
-                        fil(3, "Studio Nord", "Your booking", "Yesterday", (52, 199, 89)),
-                    ])));
-                }
+                1 => f.set_home_mail_count("12".into()),
                 2 => {
                     capture(&f, sortie.join("accueil.png"));
                     f.set_syncing_all(true);

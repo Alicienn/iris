@@ -72,13 +72,11 @@ impl ViewUpdate {
 
 /// Ce que la colonne du milieu montre à l'ouverture.
 ///
-/// La boîte de réception, pas « tous les dossiers ». C'est ce qu'un client de courrier
-/// montre en s'ouvrant, et c'est la conséquence directe d'avoir des dossiers : ranger
-/// un message dans « Devis » doit le faire **quitter** la boîte de réception, sinon
-/// ranger ne range rien. « Tous les dossiers » reste à une ligne de là, pour les
-/// moments où l'on cherche sans savoir où.
+/// All folders, of all accounts (7.7.0): the whole of one's mail to do, as the queues
+/// count it. It was the inbox, which hid what rules had filed away; the inbox stays a
+/// line away in the folders.
 pub fn depart() -> iris_store::Scope {
-    iris_store::Scope::Role(iris_store::FolderRole::Inbox)
+    iris_store::Scope::Queue
 }
 
 impl ViewModel {

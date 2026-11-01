@@ -13,7 +13,7 @@ use iris_store::ListQuery;
 use iris_tasks::is_overdue;
 use iris_types::WorkflowState;
 use iris_ui::{AppWindow, HomeItemData};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -125,19 +125,6 @@ pub struct Journee {
     pub later: Vec<HomeItemData>,
     /// The tasks due today or late, late first, then by the hour.
     pub tasks: Vec<HomeItemData>,
-    /// Every event of the day with an hour, in order, and where the present hour falls
-    /// among them (their count when after the last one; -1 when there is none).
-    pub agenda: Vec<HomeItemData>,
-    pub agenda_now: i32,
-}
-
-/// How long an event lasts: "30 min", "1 h", "1 h 30".
-pub fn duration_words(minutes: i64) -> String {
-    match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m:02}"),
-    }
 }
 
 /// An empty row but for the video call it is held on, if any: its link, its service,
@@ -214,36 +201,6 @@ pub fn day(services: &Services, max: usize) -> Journee {
         tout.push(Prochain { rang: debut, ligne });
     }
 
-    // The cockpit's agenda: the whole day, what is over dimmed, the present hour as a
-    // line before the first event still to come.
-    let mut agenda = Vec::new();
-    let mut agenda_now = -1;
-    for u in evenements.iter().filter(|u| !u.all_day) {
-        if agenda_now < 0 && u.start > instant {
-            agenda_now = agenda.len() as i32;
-        }
-        let (hint, proche) = if u.start <= instant && u.end > instant {
-            ("now".to_string(), true)
-        } else if u.start > instant && u.start - instant <= 3_600_000 {
-            (in_how_long(u.start - instant), true)
-        } else {
-            (duration_words((u.end - u.start).max(0) / 60_000), false)
-        };
-        agenda.push(HomeItemData {
-            key: u.key.as_str().into(),
-            title: u.title.as_str().into(),
-            meta: u.time.as_str().into(),
-            hint: hint.into(),
-            now: proche,
-            past: u.end <= instant,
-            color: crate::calendar::couleur(&u.color),
-            ..avec_visio(u.video.as_deref())
-        });
-    }
-    if agenda_now < 0 && !agenda.is_empty() {
-        agenda_now = agenda.len() as i32;
-    }
-
     // The tasks due today or late.
     let jour = |t: &iris_store::NewTask| {
         t.due_day
@@ -272,11 +229,10 @@ pub fn day(services: &Services, max: usize) -> Journee {
             id: t.id as i32,
             title: t.task.title.as_str().into(),
             meta: heure.clone().into(),
-            // How late: "2 d" for a day gone by, "late" for an hour of today.
-            hint: match (en_retard, (today - j).num_days()) {
-                (false, _) => Default::default(),
-                (true, 0) => "late".into(),
-                (true, n) => format!("{n} d").into(),
+            hint: if en_retard {
+                "late".into()
+            } else {
+                Default::default()
             },
             overdue: en_retard,
             priority: t.task.priority,
@@ -329,81 +285,7 @@ pub fn day(services: &Services, max: usize) -> Journee {
         events_left: restants,
         later,
         tasks,
-        agenda,
-        agenda_now,
     }
-}
-
-/// The cockpit's tasks plate beyond today: tomorrow's (three at most), how many have
-/// no date, and how many fall due this week from today.
-fn taches_a_venir(services: &Services, today: NaiveDate) -> (Vec<HomeItemData>, usize, usize) {
-    let ouvertes: Vec<iris_store::StoredTask> = services
-        .store
-        .open_tasks()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|t| t.task.parent_id.is_none())
-        .collect();
-    let jour = |t: &iris_store::StoredTask| {
-        t.task
-            .due_day
-            .as_deref()
-            .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
-    };
-    let lendemain = today + chrono::Duration::days(1);
-    let mut demain: Vec<(u32, HomeItemData)> = ouvertes
-        .iter()
-        .filter(|t| jour(t) == Some(lendemain))
-        .map(|t| {
-            let minute = t.task.due_minute.map(|m| m.clamp(0, 1439) as u32);
-            (
-                minute.unwrap_or(24 * 60),
-                HomeItemData {
-                    id: t.id as i32,
-                    title: t.task.title.as_str().into(),
-                    meta: minute
-                        .map(|m| format!("{:02}:{:02}", m / 60, m % 60))
-                        .unwrap_or_default()
-                        .into(),
-                    priority: t.task.priority,
-                    ..Default::default()
-                },
-            )
-        })
-        .collect();
-    demain.sort_by_key(|(m, _)| *m);
-    let sans_date = ouvertes.iter().filter(|t| jour(t).is_none()).count();
-    let fin = today + chrono::Duration::days(6);
-    let semaine = ouvertes
-        .iter()
-        .filter(|t| jour(t).is_some_and(|j| j <= fin))
-        .count();
-    (
-        demain.into_iter().take(3).map(|(_, l)| l).collect(),
-        sans_date,
-        semaine,
-    )
-}
-
-/// The cockpit's Mail plate: the mailboxes with something to do or a problem, most
-/// first (four at most), the largest count, and how many mailboxes there are.
-pub fn fill_mail_boxes(f: &AppWindow) {
-    use slint::Model;
-    let comptes: Vec<iris_ui::AccountRowData> =
-        f.get_home_accounts().iter().filter(|a| !a.header).collect();
-    let total = comptes.len();
-    let mut boites: Vec<iris_ui::AccountRowData> = comptes
-        .into_iter()
-        .filter(|a| a.count > 0 || a.needs_attention)
-        .collect();
-    boites.sort_by_key(|a| std::cmp::Reverse(a.count));
-    boites.truncate(4);
-    f.set_home_mail_max(boites.iter().map(|a| a.count).max().unwrap_or(0));
-    f.set_home_mail_boxes(ModelRc::new(VecModel::from(boites)));
-    f.set_home_mail_label(match total {
-        0 | 1 => SharedString::default(),
-        n => format!("{n} mailboxes").into(),
-    });
 }
 
 /// Tomorrow's first event with an hour, said as such: "Tomorrow, 09:30".
@@ -421,12 +303,11 @@ fn demain(services: &Services, today: NaiveDate) -> Option<HomeItemData> {
         })
 }
 
-/// The conversations at the top of To do, as Home lists them: who, about what, when,
-/// their initials (`key`) on their sender's colour.
+/// The conversations at the top of To do, as Home lists them: who, about what, their
+/// initials on their mailbox's colour.
 fn a_repondre(services: &Services, combien: u32) -> Vec<HomeItemData> {
-    let instant = now();
     let mut q = ListQuery::new(WorkflowState::Todo, combien);
-    q.hide_snoozed_until = Some(instant);
+    q.hide_snoozed_until = Some(now());
     services
         .store
         .list_threads(&q)
@@ -445,8 +326,7 @@ fn a_repondre(services: &Services, combien: u32) -> Vec<HomeItemData> {
                     nom.trim_matches('"').into()
                 },
                 hint: t.subject.as_str().into(),
-                key: iris_ui::format::initials(&t.from_display).into(),
-                meta: iris_ui::format::relative_date(t.last_activity, instant).into(),
+                meta: iris_ui::format::initials(&t.from_display).into(),
                 color: slint::Color::from_rgb_u8(r, g, b),
                 ..Default::default()
             }
@@ -527,45 +407,12 @@ pub fn refresh(f: &AppWindow, services: &Services) {
     // The widgets: the events after the next, today's tasks, the mail to answer, a
     // goal, the week.
     f.set_home_later(ModelRc::new(VecModel::from(j.later)));
-    let today = maintenant.date_naive();
-    f.set_home_date_line(maintenant.format("%A %-d %B · %H:%M").to_string().into());
-    f.set_home_agenda_label(match j.events {
-        0 => SharedString::default(),
-        n => pluriel(n, "event", "events").into(),
-    });
-    f.set_home_agenda(ModelRc::new(VecModel::from(j.agenda)));
-    f.set_home_agenda_now(j.agenda_now);
-    f.set_home_now_label(maintenant.format("%H:%M").to_string().into());
-    // Tomorrow's first, for the foot of the agenda; "Tomorrow" when it is.
-    let apres = demain(services, today).map(|d| HomeItemData {
-        meta: d.meta.trim_start_matches("Tomorrow, ").into(),
-        title: format!("Tomorrow · {}", d.title).into(),
-        ..d
-    });
-    f.set_home_agenda_after(ModelRc::new(VecModel::from(
-        apres.into_iter().collect::<Vec<_>>(),
-    )));
-    let (lendemain, sans_date, semaine) = taches_a_venir(services, today);
-    f.set_home_tasks_label(match j.late {
-        0 => SharedString::default(),
-        n => format!("{n} late").into(),
-    });
-    f.set_home_tasks_tomorrow(ModelRc::new(VecModel::from(lendemain)));
-    f.set_home_tasks_foot_left(match sans_date {
-        0 => SharedString::default(),
-        n => format!("{} without a date", nombre(n)).into(),
-    });
-    f.set_home_tasks_foot_right(format!("This week {}", nombre(semaine)).into());
-    let plus = j.tasks.len().saturating_sub(6);
+    let plus = j.tasks.len().saturating_sub(4);
     f.set_home_tasks(ModelRc::new(VecModel::from(
-        j.tasks.into_iter().take(6).collect::<Vec<_>>(),
+        j.tasks.into_iter().take(4).collect::<Vec<_>>(),
     )));
     f.set_home_tasks_more(plus as i32);
-    f.set_home_threads(ModelRc::new(VecModel::from(a_repondre(services, 4))));
-    fill_mail_boxes(f);
-    f.set_home_goals(ModelRc::new(VecModel::from(crate::goals::under_way(
-        services, 3,
-    ))));
+    f.set_home_threads(ModelRc::new(VecModel::from(a_repondre(services, 3))));
     crate::notes::refresh_home(f);
     f.set_home_answer_total(a_traiter as i32);
     f.set_home_waiting(en_attente(services) as i32);

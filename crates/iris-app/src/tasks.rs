@@ -1683,6 +1683,64 @@ pub fn task_from_thread(services: &Services, thread: i64) -> Result<String, Stri
     Ok(format!("Added to your tasks: {sujet} (Ctrl+3)."))
 }
 
+/// Words selected in a message, made a task with the conversation linked (7.7.0): the
+/// first line names it (cut when long), the whole of the words goes in its notes when
+/// the title does not hold them.
+pub fn task_from_words(services: &Services, thread: i64, words: &str) -> Result<String, String> {
+    let (titre, notes) = title_and_notes(words).ok_or("Nothing is selected.")?;
+    let fil = services
+        .store
+        .thread_row(ThreadId(thread))
+        .map_err(|e| e.to_string())?
+        .ok_or("This conversation no longer exists.")?;
+    let liste = services
+        .store
+        .task_lists()
+        .map_err(|e| e.to_string())?
+        .first()
+        .map(|l| l.id)
+        .ok_or("There is no list to add it to.")?;
+    let sujet = if fil.subject.trim().is_empty() {
+        "(No subject)".to_string()
+    } else {
+        fil.subject.trim().to_string()
+    };
+    let t = NewTask {
+        list_id: liste,
+        title: titre.clone(),
+        notes,
+        thread_id: Some(thread),
+        source: format!("{}: {}", fil.from_display, sujet),
+        ..Default::default()
+    };
+    services
+        .store
+        .insert_task(&t, now())
+        .map_err(|e| e.to_string())?;
+    Ok(format!("Added to your tasks: {titre} (Ctrl+3)."))
+}
+
+/// A task's title from words selected: their first line, spaces folded, cut at 120
+/// characters; the words whole as notes when the title says less than they do.
+fn title_and_notes(words: &str) -> Option<(String, String)> {
+    const LONG: usize = 120;
+    let entier = words.trim();
+    let ligne = entier.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let ligne = ligne.split_whitespace().collect::<Vec<_>>().join(" ");
+    let titre = if ligne.chars().count() > LONG {
+        let coupe: String = ligne.chars().take(LONG).collect();
+        format!("{}…", coupe.trim_end())
+    } else {
+        ligne.clone()
+    };
+    let notes = if titre == entier {
+        String::new()
+    } else {
+        entier.to_string()
+    };
+    Some((titre, notes))
+}
+
 /// Les rappels arrivés à l'heure, en notifications.
 fn rappels(services: &Services) -> bool {
     let echus = services.store.due_task_reminders(now()).unwrap_or_default();
@@ -2827,6 +2885,28 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
             }
         }
     );
+    // Words selected in a message, made a task: a text body's block cut where the
+    // selection runs, else what the engine's body holds selected, else the whole
+    // message "Select all" chose.
+    geste!(
+        on_selection_to_task,
+        [services, etat, redessiner, f, controller],
+        |bloc, de, a| {
+            let (de, a) = (de.max(0) as usize, a.max(0) as usize);
+            let mots = bloc
+                .as_str()
+                .get(de.min(a)..a.max(de))
+                .filter(|m| !m.trim().is_empty())
+                .map(str::to_string)
+                .or_else(crate::shell::selected_body_text)
+                .or_else(|| crate::shell::message_text(f, f.get_link_menu_message()))
+                .unwrap_or_default();
+            match task_from_words(services, i64::from(f.get_selected_thread()), &mots) {
+                Ok(message) => f.set_status(message.into()),
+                Err(e) => f.set_status(format!("Could not add it: {e}").into()),
+            }
+        }
+    );
 
     // Les rappels, toutes les trente secondes ; l'onglet ouvert se tient à jour à la
     // minute (« en retard » change avec l'heure).
@@ -2870,6 +2950,22 @@ pub fn open_thread(f: &AppWindow, services: &Services, controller: &Controller, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn words_selected_name_the_task_and_fill_its_notes_when_longer() {
+        assert_eq!(
+            title_and_notes("  Send the   quote by Friday \n"),
+            Some(("Send the quote by Friday".into(), String::new()))
+        );
+        let (titre, notes) = title_and_notes("Call Marie\nabout the second option").unwrap();
+        assert_eq!(titre, "Call Marie");
+        assert_eq!(notes, "Call Marie\nabout the second option");
+        let long = "word ".repeat(40);
+        let (titre, notes) = title_and_notes(&long).unwrap();
+        assert!(titre.ends_with('…') && titre.chars().count() <= 121);
+        assert_eq!(notes, long.trim());
+        assert_eq!(title_and_notes(" \n "), None);
+    }
 
     #[test]
     fn views_have_keys_that_come_back() {

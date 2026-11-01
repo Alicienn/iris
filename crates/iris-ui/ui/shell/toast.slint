@@ -173,6 +173,14 @@ export component SendNotice inherits Rectangle {
                 vertical-alignment: center;
             }
 
+            // Ctrl+Z takes it back from any place too, while it counts.
+            Text {
+                text: Layout.touch-input ? "" : "Ctrl+Z";
+                font-size: Tokens.size-small;
+                color: Tokens.text-muted;
+                vertical-alignment: center;
+            }
+
             Rectangle {
                 y: (parent.height - self.height) / 2;
                 width: annuler.preferred-width + 2 * Tokens.space-3;

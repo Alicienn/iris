@@ -166,6 +166,13 @@ export struct BodyTileData {
     aspect: float,
 }
 
+// Someone a message names, as its header shows them: the name it gives (or the
+// address), and the address.
+export struct PersonData {
+    name: string,
+    address: string,
+}
+
 export struct MessageData {
     // Corps rendu par le moteur HTML complet, quand la mise en page l'exige : une
     // colonne de tuiles, peintes seulement près de l'écran.
@@ -177,6 +184,8 @@ export struct MessageData {
     initials: string,
     tint: color,
     to: string,
+    // The same recipients one by one, for a right-click on one of them.
+    to-people: [PersonData],
     date: string,
     subject: string,
     blocks: [MessageBlockData],

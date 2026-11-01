@@ -958,6 +958,10 @@ export component AppWindow inherits Window {
     callback link-menu-chosen(string);
     /// Every word of a message shown as text, to the clipboard: (message id).
     callback copy-message-text(int);
+    // "Make it a task" on words selected in a message: a text body's block, whole, with
+    // where the selection runs in it (bytes); empty for a body painted by the engine,
+    // whose selection Rust holds.
+    callback selection-to-task(string, int, int);
     /// A key to send again, once the shortcuts have the keyboard.
     callback key-redispatch(string);
     /// The width message bodies are shown at, as the reader reports it.
@@ -1257,25 +1261,6 @@ export component AppWindow inherits Window {
     in property <[HomeItemData]> home-notes;
     in property <int> home-cards-due;
     callback home-note-opened(string);
-    // Home's cockpit (7.6.0): the toolbar's date, the mail by mailbox, the day's
-    // agenda, the tasks beyond today, the habits' last eight days, the goals.
-    in property <string> home-date-line;
-    in property <[AccountRowData]> home-mail-boxes;
-    in property <int> home-mail-max;
-    in property <string> home-mail-label;
-    in property <[HomeItemData]> home-agenda;
-    in property <int> home-agenda-now: -1;
-    in property <string> home-now-label;
-    in property <[HomeItemData]> home-agenda-after;
-    in property <string> home-agenda-label;
-    in property <[HomeItemData]> home-tasks-tomorrow;
-    in property <string> home-tasks-label;
-    in property <string> home-tasks-foot-left;
-    in property <string> home-tasks-foot-right;
-    in property <[HabitData]> home-habit-grid;
-    in property <[string]> home-habit-days;
-    in property <string> home-habits-streak;
-    in property <[GoalData]> home-goals;
     // A note's past versions.
     in-out property <bool> notes-history-open;
     in property <[NoteFoundData]> notes-history;
@@ -1745,6 +1730,10 @@ export component AppWindow inherits Window {
         }
         // Escape asks, like the close button, when something is written; an open
         // question is answered "no" by Escape.
+        if (root.compose-open && root.compose-confirm-attach) {
+            root.compose-confirm-attach = false;
+            return true;
+        }
         if (root.compose-open && root.compose-confirm-close) {
             root.compose-confirm-close = false;
             return true;
@@ -2117,6 +2106,9 @@ export component AppWindow inherits Window {
     callback compose-discard();
     callback compose-save-draft();
     in-out property <bool> compose-confirm-close;
+    // Send asks first when the words speak of an attachment and none is attached.
+    in-out property <bool> compose-confirm-attach;
+    in-out property <bool> compose-attach-ok;
     /// Something is written in the new-message window: closing it asks first.
     property <bool> compose-has-content: root.compose-to != "" || root.compose-cc != ""
         || root.compose-bcc != "" || root.compose-subject != "" || root.compose-body != ""
@@ -2227,6 +2219,13 @@ export component AppWindow inherits Window {
             if (event.text == Key.Control) {
                 root.notes-ctrl-held = true;
                 return reject;
+            }
+            // While a message waits to leave, Ctrl+Z takes it back, from any place
+            // (7.7.0): the place's own undo comes after.
+            if (root.send-notice-open && !root.modal-open && event.modifiers.control
+                && !event.modifiers.shift && event.text == "z") {
+                root.send-undone();
+                return accept;
             }
             // Home, mail, calendar, tasks and notes, from anywhere but an open window.
             if (event.modifiers.control && !root.modal-open
@@ -3077,6 +3076,19 @@ export component AppWindow inherits Window {
                         // A right-click in a body shown as text: Copy what its words have
                         // selected, Select all of them. The words keep the keyboard, and
                         // their selection with it, until the menu closes.
+                        // Someone in a message's header: their address copied or
+                        // written to, their mail searched.
+                        person-menu(nom, adresse, x, y) => {
+                            root.link-menu-kind = "person";
+                            root.link-menu-target = "mailto:" + adresse;
+                            root.link-menu-text = nom != adresse ? nom : "";
+                            root.link-menu-selection = false;
+                            root.link-menu-message = -1;
+                            root.link-menu-text-body = false;
+                            root.link-menu-x = x;
+                            root.link-menu-y = y;
+                            root.link-menu-open = true;
+                        }
                         text-menu(id, x, y) => {
                             root.link-menu-kind = "";
                             root.link-menu-target = "";
@@ -3580,30 +3592,6 @@ export component AppWindow inherits Window {
             habits-foot: root.home-habits-foot;
             habit-toggled(id) => { root.home-habit-toggled(id); }
             habit-opened(id) => { root.home-habit-opened(id); shortcuts.focus(); }
-            date-line: root.home-date-line;
-            mail-boxes: root.home-mail-boxes;
-            mail-max: root.home-mail-max;
-            mail-label: root.home-mail-label;
-            agenda: root.home-agenda;
-            agenda-now: root.home-agenda-now;
-            now-label: root.home-now-label;
-            agenda-after: root.home-agenda-after;
-            agenda-label: root.home-agenda-label;
-            tasks-tomorrow: root.home-tasks-tomorrow;
-            tasks-label: root.home-tasks-label;
-            tasks-foot-left: root.home-tasks-foot-left;
-            tasks-foot-right: root.home-tasks-foot-right;
-            habit-grid: root.home-habit-grid;
-            habit-days: root.home-habit-days;
-            habits-streak: root.home-habits-streak;
-            goals: root.home-goals;
-            // A mailbox's line opens Mail on it.
-            account-opened(id) => {
-                root.home-open("mail");
-                root.account-selected(id);
-                root.navigated("account", "\{id}");
-                shortcuts.focus();
-            }
         }
 
         // The habits, in Tasks: beside the tasks' column, drawn alone above.
@@ -4661,7 +4649,14 @@ export component AppWindow inherits Window {
             menu-x: root.link-menu-x;
             menu-y: root.link-menu-y;
             chosen(c) => {
-                if (root.link-menu-text-body && c == "copy-selection") {
+                if (c == "to-task") {
+                    if (root.link-menu-text-body && MessageText.all-selected < 0) {
+                        root.selection-to-task(MessageText.held-text, MessageText.held-from,
+                            MessageText.held-to);
+                    } else {
+                        root.selection-to-task("", 0, 0);
+                    }
+                } else if (root.link-menu-text-body && c == "copy-selection") {
                     if (MessageText.all-selected >= 0) {
                         root.copy-message-text(MessageText.all-selected);
                     } else {
@@ -4789,6 +4784,8 @@ export component AppWindow inherits Window {
             recipient-picked(champ, choix) => { root.compose-recipient-picked(champ, choix); }
             dismissed => { root.compose-dismissed(); root.compose-open = false; }
             confirm-close <=> root.compose-confirm-close;
+            confirm-attach <=> root.compose-confirm-attach;
+            attach-ok <=> root.compose-attach-ok;
             discard => { root.compose-discard(); }
             save-draft => { root.compose-save-draft(); }
         }

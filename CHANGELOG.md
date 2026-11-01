@@ -3,6 +3,18 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.7.0 — 2026-11-01
+
+### New
+- Right-click a sender or a recipient in a message: copy their address, write to them, or see their mail.
+- Send asks first when your message mentions an attachment but none is attached.
+- Select words in a message, right-click, and make them a task linked to the message.
+
+### Improved
+- Ctrl+Z takes back a message you just sent, wherever you are in Iris.
+- Mail opens on All accounts and All folders.
+- Home is back to its earlier layout.
+
 ## 7.6.0 — 2026-11-01
 
 ### Improved

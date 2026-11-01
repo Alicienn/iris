@@ -23,7 +23,7 @@
 
 - <img src="docs/assets/icons/inbox.svg" width="16" alt=""> **A work queue** — every conversation is *to do*, *waiting* or *done*; one key moves it along.
 - <img src="docs/assets/icons/users.svg" width="16" alt=""> **All your accounts** — one unified inbox, or one mailbox at a time, grouped by tag.
-- <img src="docs/assets/icons/sun.svg" width="16" alt=""> **Home** — every part of Iris at a glance: mail by mailbox, today's agenda, tasks, habits, goals, notes and the week.
+- <img src="docs/assets/icons/sun.svg" width="16" alt=""> **Home** — your day in one sentence and the next things to do.
 - <img src="docs/assets/icons/calendar.svg" width="16" alt=""> **Calendar** — month, week, day, 3 days and agenda; CalDAV both ways; invitations from mail.
 - <img src="docs/assets/icons/check-circle.svg" width="16" alt=""> **Tasks** — typed in one line (`tomorrow 9am Call Marie #Work !!`), planned into your free time.
 - <img src="docs/assets/icons/target.svg" width="16" alt=""> **Goals and habits** — the pace a goal needs, habits ticked day by day with their streaks.
@@ -127,7 +127,14 @@ the Android Keystore holds.
   your other computers finds them.
 - **Writing**: address chips, attachments, formatting, signatures, aliases (*Send
   as…*), **Send later**, and an **Undo** of a few seconds after sending (*Settings ›
-  Undo send*).
+  Undo send*), from the notice or with `Ctrl`+`Z` wherever you are. Send asks first
+  when your words mention an attachment ("attached", "ci-joint"…) and none is attached;
+  in a reply only what you wrote counts, never the earlier messages.
+- **People in a message**: right-click the sender or a recipient to copy their address
+  or name, write to them, or see their mail.
+- **Words to a task**: select words in a message, right-click, **Make it a task**; the
+  task links back to the message.
+- **Opening Mail** shows *All accounts* and *All folders*; the Inbox is a click away.
 - **Replying**: `Ctrl`+`R`, or `Ctrl`+`Shift`+`R` for everyone; the earlier messages sit
   in the writing field under what you write, each folding on its own. Click a recipient
   for their card, with buttons to copy the name and the address.

@@ -237,11 +237,6 @@ fn cellules(u: &Une, mode: i32, today: NaiveDate) -> Vec<HabitCellData> {
                 }
             })
             .collect(),
-        // Home's: the last eight days, today last.
-        3 => (0..8)
-            .rev()
-            .map(|k| cellule(u, today - Duration::days(k), today))
-            .collect(),
         _ => {
             let lundi = monday(today);
             (0..7)
@@ -527,29 +522,6 @@ pub fn fill_home(f: &AppWindow, services: &Services) {
         .max_by_key(|(n, _)| *n);
     f.set_home_habits_foot(match meilleure {
         Some((n, u)) => format!("{} {n} days in a row", u.h.habit.title).into(),
-        None => SharedString::default(),
-    });
-    // The cockpit's grid: four habits over the last eight days, today's first.
-    let mut grille: Vec<&Une> = dues.clone();
-    grille.extend(habitudes.iter().filter(|u| !u.regles.due_today(today)));
-    f.set_home_habit_grid(ModelRc::new(VecModel::from(
-        grille
-            .iter()
-            .take(4)
-            .map(|u| ligne(u, 3, today, &objectifs, None))
-            .collect::<Vec<_>>(),
-    )));
-    f.set_home_habit_days(ModelRc::new(VecModel::from(
-        (0..8)
-            .rev()
-            .map(|k| {
-                let j = (today - Duration::days(k)).weekday();
-                SharedString::from(DAY_LETTERS[j.num_days_from_monday() as usize])
-            })
-            .collect::<Vec<_>>(),
-    )));
-    f.set_home_habits_streak(match meilleure {
-        Some((n, _)) => format!("{n} days").into(),
         None => SharedString::default(),
     });
 }
