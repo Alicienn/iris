@@ -178,6 +178,12 @@ export component TextArea inherits FieldFrame {
     /// formatting key pressed beside it still finds them.
     out property <int> selection-start: -1;
     out property <int> selection-end: -1;
+    /// How tall what the field holds after its text is (its children: a reply's
+    /// earlier messages), in the same box and the same scroll. With something there,
+    /// the text no longer fills the box: it grows from a few lines as it is written.
+    in property <length> after-height: 0px;
+    /// The width the text is laid out in, for what follows it.
+    out property <length> inner-width: input.width;
 
     callback edited(string);
 
@@ -216,12 +222,22 @@ export component TextArea inherits FieldFrame {
         content-width: root.wrap == TextWrap.no-wrap
             ? max(self.visible-width, input.preferred-width + 2 * Tokens.space-2)
             : self.visible-width;
-        content-height: max(self.visible-height, input.preferred-height + 2 * Tokens.space-2);
+        content-height: max(self.visible-height,
+            input.y + input.height + Tokens.space-2
+                + (root.after-height > 0px ? Tokens.space-2 + root.after-height : 0px));
 
-        // Below the text: a click in the empty part of the box still lands in it.
+        // Below the text: a click in the empty part of the box still lands in it. With
+        // something after the text, a click beside or under it goes to the end of
+        // what is written, the only place left to write.
         TouchArea {
             mouse-cursor: MouseCursor.text;
-            clicked => { input.focus(); }
+            clicked => {
+                input.focus();
+                if (root.after-height > 0px) {
+                    // Past the end: the field puts it back on the last character.
+                    input.set-selection-offsets(1000000000, 1000000000);
+                }
+            }
         }
 
         if root.text == "": Text {
@@ -238,7 +254,10 @@ export component TextArea inherits FieldFrame {
             x: Tokens.space-2;
             y: Tokens.space-2;
             width: parent.width - 2 * Tokens.space-2;
-            height: max(defilement.visible-height - 2 * Tokens.space-2, self.preferred-height);
+            height: max(root.after-height > 0px
+                    ? root.font-size * 7
+                    : defilement.visible-height - 2 * Tokens.space-2,
+                self.preferred-height);
             text <=> root.text;
             font-size: root.font-size;
             read-only: root.read-only;
@@ -270,6 +289,17 @@ export component TextArea inherits FieldFrame {
                     defilement.content-x = defilement.visible-width - gauche - 2px;
                 }
             }
+        }
+
+        // What follows the text, under it in the same scroll: one field to read. Only
+        // as much of it shows as the field is told it is tall: none, nothing at all.
+        Rectangle {
+            x: input.x;
+            y: input.y + input.height + Tokens.space-2;
+            width: input.width;
+            height: root.after-height;
+            clip: true;
+            @children
         }
     }
 }

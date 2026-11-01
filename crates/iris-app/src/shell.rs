@@ -2718,6 +2718,52 @@ fn date_citee(t: iris_types::Timestamp) -> String {
         .unwrap_or_default()
 }
 
+/// A recipient's card in the composer: the chip's words (`libelle`, the address when
+/// it has no name), its address, and what their mail has told Iris, if they wrote.
+fn carte_destinataire(
+    libelle: &str,
+    adresse: &str,
+    contact: Option<&iris_store::Contact>,
+) -> iris_ui::RecipientCardData {
+    let nom = if libelle.trim() != adresse.trim() && !libelle.trim().is_empty() {
+        libelle.trim()
+    } else {
+        contact.map(|c| c.display.trim()).unwrap_or_default()
+    };
+    // As the suggestions draw them: the first letters of the name, else of the address.
+    let initiales: String = (if nom.is_empty() { adresse } else { nom })
+        .split(|c: char| c.is_whitespace() || c == '@' || c == '.')
+        .filter_map(|mot| mot.chars().next())
+        .take(2)
+        .flat_map(char::to_uppercase)
+        .collect();
+    let (recus, dernier) = match contact {
+        Some(c) if c.seen > 0 => (
+            if c.seen == 1 {
+                "1 message received".to_string()
+            } else {
+                format!("{} messages received", c.seen)
+            },
+            if c.last_seen.millis() > 0 {
+                format!("Last message {}", date_citee(c.last_seen))
+            } else {
+                String::new()
+            },
+        ),
+        _ => (String::new(), String::new()),
+    };
+    iris_ui::RecipientCardData {
+        address: adresse.into(),
+        name: contact
+            .map(|c| c.display.trim().to_string())
+            .unwrap_or_default()
+            .into(),
+        initials: initiales.into(),
+        received: recus.into(),
+        last: dernier.into(),
+    }
+}
+
 /// Opens the composer on a reply to a conversation: from the mailbox it came to, to
 /// its sender (their reply address when they gave one) or to everyone, its subject
 /// once prefixed, and the conversation under the body. The cursor goes to the body:
@@ -7194,6 +7240,23 @@ pub fn wire_compose(
             fenetre.set_compose_suggestions(ModelRc::new(VecModel::from(
                 Vec::<slint::SharedString>::new(),
             )));
+        });
+    }
+    // A recipient's chip clicked: their card, from what their mail has told Iris (the
+    // name it carries, how many messages, the last one). Nothing is asked of anyone:
+    // Iris has no address book, only the mail it has received.
+    {
+        let store = Arc::clone(&services.store);
+        let faible = fenetre.as_weak();
+        fenetre.on_compose_card_asked(move |libelle, adresse| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let contact = store.contact(&adresse).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "reading a recipient's card");
+                None
+            });
+            fenetre.set_compose_card(carte_destinataire(&libelle, &adresse, contact.as_ref()));
         });
     }
 

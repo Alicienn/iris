@@ -496,6 +496,8 @@ pub struct Contact {
     pub display: String,
     /// Combien de messages reçus. Sert à classer, pas à juger.
     pub seen: u32,
+    /// When the last of them arrived (0 when never).
+    pub last_seen: Timestamp,
 }
 
 impl Contact {

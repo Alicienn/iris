@@ -7,13 +7,11 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { ListView } from "std-widgets.slint";
 import { ComboBox } from "@iris/controls/pickers.slint";
 import { MenuEntry, MenuHeader, MenuSurface } from "@iris/layout/menu.slint";
-import { Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
+import { Modal, ModalKind, ModalFooter, Popover } from "@iris/layout/frames.slint";
 import { FormatBar as KeyboardBar } from "@iris/controls/formatbar.slint";
 import { Button, ButtonKind, BlockButton } from "@iris/controls/button.slint";
 import { ScheduledMailData } from "@iris/types.slint";
 import { Pill } from "@iris/controls/choice.slint";
-import { ScrollView } from "@iris/controls/scroll.slint";
-import { SectionHeader } from "@iris/lists/rows.slint";
 
 /// One recipient of an address field, drawn as a chip.
 export struct RecipientChipData {
@@ -29,6 +27,19 @@ export struct RecipientChipData {
 export struct RecipientEditData {
     head: string,
     pending: string,
+}
+
+/// What Iris knows of a recipient whose chip was clicked: what its mail says of them.
+export struct RecipientCardData {
+    /// The address asked about, as the chip has it: the card shows it only for that one.
+    address: string,
+    /// The name their mail carries, when the chip has none.
+    name: string,
+    initials: string,
+    /// "12 messages received", empty for someone who never wrote.
+    received: string,
+    /// "Last message Tue 3 Oct 2026, 09:12", empty for someone who never wrote.
+    last: string,
 }
 
 /// An earlier message of the conversation a reply answers, under what is written.
@@ -129,12 +140,14 @@ export component ScheduledPanel inherits Rectangle {
 }
 
 // One recipient of an address field: its name (or address) on a rounded chip, and a
-// small cross that takes it out. One that is not an address is drawn in red.
+// small cross that takes it out. One that is not an address is drawn in red. A click
+// on the name opens the person's card at once.
 component RecipientChip inherits Rectangle {
     in property <string> text;
     in property <string> address;
     in property <bool> valid: true;
     callback removed();
+    callback opened();
     /// The widest the words may be: on a phone, the whole line beside the label.
     in property <length> cap: 220px;
 
@@ -152,10 +165,19 @@ component RecipientChip inherits Rectangle {
         font-size: Layout.compact ? 15px : Tokens.size-small;
     }
 
-    // The address, pointed at, when the chip shows a name.
-    if root.address != root.text: Rectangle {
+    // The name takes the click that opens the card, the cross aside. The address,
+    // pointed at, when the chip shows a name.
+    Rectangle {
+        x: 0px;
         width: root.width - 22px;
-        Tooltip { text: @markdown("\{root.address}"); }
+        accessible-role: button;
+        accessible-label: "Show " + (root.address == "" ? root.text : root.address);
+        accessible-action-default => { root.opened(); }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.opened(); }
+        }
+        if root.address != root.text: Tooltip { text: @markdown("\{root.address}"); }
     }
 
     Text {
@@ -219,6 +241,9 @@ component Field inherits VerticalLayout {
     callback accepted();
     callback edited(string);
     callback picked(string);
+    /// A chip clicked: its words and address, and where it is in the window (its left
+    /// and right edges, its top), for the card to open beside it.
+    callback chip-opened(string, string, length, length, length);
     out property <bool> has-focus: champ.has-focus;
 
     // On a phone, the mockups' rows (M10): fifty pixels, no box, a hairline across the
@@ -269,6 +294,14 @@ component Field inherits VerticalLayout {
         root.head = ComposeRecipients.remove(root.head, i);
         root.value = ComposeRecipients.joined(root.head, root.pending);
     }
+    // A chip clicked is its field clicked: the cursor goes there (on a PC; a phone's
+    // keyboard would rise over the card), and the card opens beside the chip.
+    function open-chip(label: string, address: string, left: length, right: length, top: length) {
+        if (!root.tel) {
+            champ.focus();
+        }
+        root.chip-opened(label, address, left, right, top);
+    }
 
     init => { root.sync(); }
     changed value => { root.sync(); }
@@ -318,6 +351,10 @@ component Field inherits VerticalLayout {
                         address: puce.address;
                         valid: puce.valid;
                         removed => { root.remove(i); }
+                        opened => {
+                            root.open-chip(puce.label, puce.address, self.absolute-position.x,
+                                self.absolute-position.x + self.width, self.absolute-position.y);
+                        }
                     }
                 }
             }
@@ -355,6 +392,10 @@ component Field inherits VerticalLayout {
                         address: puce.address;
                         valid: puce.valid;
                         removed => { root.remove(i); }
+                        opened => {
+                            root.open-chip(puce.label, puce.address, self.absolute-position.x,
+                                self.absolute-position.x + self.width, self.absolute-position.y);
+                        }
                     }
                 }
 
@@ -580,6 +621,63 @@ component FormatBar inherits HorizontalLayout {
     Rectangle {}
 }
 
+// An earlier message's words, under what is written: selected with the mouse and
+// copied like any text, never written into.
+component QuoteText inherits TextInput {
+    read-only: true;
+    single-line: false;
+    wrap: word-wrap;
+    color: Tokens.text-secondary;
+    selection-background-color: Tokens.accent.transparentize(0.55);
+    selection-foreground-color: Tokens.text;
+    text-cursor-width: 0px;
+}
+
+// One thing known of a recipient on their card: what it is, its value, and a button
+// that puts the value on the clipboard (a tick says it went).
+component CardLine inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    /// The copy button's name: "Copy the address".
+    in property <string> copy-label;
+    callback copy(string);
+    property <bool> copied;
+
+    height: Layout.compact ? 52px : 40px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 1px;
+            Text {
+                text: root.label;
+                font-size: Layout.compact ? 13px : Tokens.size-small;
+                color: Tokens.text-muted;
+                overflow: elide;
+            }
+            Text {
+                text: root.value;
+                font-size: Layout.compact ? 15px : Tokens.size-body;
+                color: Tokens.text;
+                overflow: elide;
+            }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: root.copied ? Icons.check : Icons.copy;
+            label: root.copy-label;
+            button-size: Layout.compact ? 40px : 28px;
+            icon-size: Layout.compact ? 18px : 14px;
+            clicked => {
+                root.copy(root.value);
+                root.copied = true;
+            }
+        }
+    }
+}
+
 // Writing a message.
 //
 // A modal by default, because writing deserves the whole window, with one gesture to
@@ -674,9 +772,43 @@ export component ComposePanel inherits Rectangle {
     in property <bool> can-reply-all;
     /// Reply all switched on or off: the others put in copy, or taken out.
     callback reply-all-toggled(bool);
-    /// The conversation's earlier messages, newest first.
+    /// The conversation's earlier messages, newest first, inside the writing field
+    /// under what is written; each folds on its own (only on screen: what is sent
+    /// quotes the conversation the same, folded or not).
     in property <[QuotedMessageData]> history;
-    property <bool> history-open: true;
+    property <bool> quoting: root.replying && root.history.length > 0;
+
+    /// A recipient's card, open beside the chip clicked: whom it is about (the chip's
+    /// words and address) and where the chip is, in this panel's coordinates.
+    in-out property <bool> card-open;
+    property <string> card-label;
+    property <string> card-address;
+    property <length> card-left;
+    property <length> card-right;
+    property <length> card-top;
+    /// What Iris knows of them, given by Rust once asked (`card-asked`: the chip's
+    /// words, its address). It is about the chip clicked only when its address is.
+    in property <RecipientCardData> card;
+    callback card-asked(string, string);
+    /// A value of the card, to the clipboard.
+    callback copy(string);
+    property <bool> card-known: root.card.address == root.card-address;
+    /// The name, the chip's or else the one their mail carries; empty when neither.
+    property <string> card-name: root.card-label != root.card-address ? root.card-label
+        : (root.card-known ? root.card.name : "");
+    function open-card(label: string, address: string, left: length, right: length, top: length) {
+        root.card-label = label;
+        root.card-address = address;
+        root.card-left = left - root.absolute-position.x;
+        root.card-right = right - root.absolute-position.x;
+        root.card-top = top - root.absolute-position.y;
+        root.card-open = true;
+        root.card-asked(label, address);
+    }
+    // A card left open when the window last closed does not come back with it.
+    init => { root.card-open = false; }
+    // Tucked away or brought back, the chip it was beside has gone.
+    changed minimised => { root.card-open = false; }
     /// Larger than the usual window: nine tenths of the application's, centred.
     in-out property <bool> expanded;
 
@@ -755,7 +887,10 @@ export component ComposePanel inherits Rectangle {
             if (event.text != Key.Escape) {
                 return reject;
             }
-            if (root.confirm-close) {
+            // A recipient's card closes first, the message stays as it was.
+            if (root.card-open) {
+                root.card-open = false;
+            } else if (root.confirm-close) {
                 root.confirm-close = false;
             } else if (root.has-content) {
                 root.minimised = false;
@@ -994,6 +1129,7 @@ export component ComposePanel inherits Rectangle {
                     suggestion-initials: root.suggestion-initials;
                     edited(t) => { root.recipient-typed("to", t); }
                     picked(c) => { root.recipient-picked("to", c); }
+                    chip-opened(l, a, g, d, h) => { root.open-card(l, a, g, d, h); }
 
                 // A reply goes to the sender; this puts the others of the
                 // conversation in copy, and takes them out again.
@@ -1048,6 +1184,7 @@ export component ComposePanel inherits Rectangle {
                 suggestion-initials: root.suggestion-initials;
                 edited(t) => { root.recipient-typed("cc", t); }
                 picked(c) => { root.recipient-picked("cc", c); }
+                chip-opened(l, a, g, d, h) => { root.open-card(l, a, g, d, h); }
             }
             if !root.minimised && (root.show-cc || root.bcc != ""): Field {
                 label: "Bcc";
@@ -1060,6 +1197,7 @@ export component ComposePanel inherits Rectangle {
                 suggestion-initials: root.suggestion-initials;
                 edited(t) => { root.recipient-typed("bcc", t); }
                 picked(c) => { root.recipient-picked("bcc", c); }
+                chip-opened(l, a, g, d, h) => { root.open-card(l, a, g, d, h); }
             }
 
             if !root.minimised: Field {
@@ -1081,9 +1219,9 @@ export component ComposePanel inherits Rectangle {
                 padding-left: root.tel ? 10px : 0px;
                 padding-right: root.tel ? 10px : 0px;
                 padding-top: root.tel ? 6px : 0px;
-                TextArea {
+                corps := TextArea {
                     // A reply or a mailto: link arrives with its recipient: the writing is
-                    // what is left to do.
+                    // what is left to do, from the very top of the field.
                     init => { if (root.to != "") { self.focus(); } }
                     bare: root.tel;
                     accessible-label: "Message";
@@ -1094,76 +1232,93 @@ export component ComposePanel inherits Rectangle {
                     changed selection-end => { root.sel-end = self.selection-end; }
                     property <int> tick: root.select-tick;
                     changed tick => { self.select(root.select-at, root.select-at); }
-                }
-            }
+                    after-height: root.quoting ? fil.preferred-height : 0px;
 
-            // --- The conversation being answered ---
-            //
-            // Read only, newest first, each message one level of quoting deeper than
-            // the one after it, a bar per level. What is sent still quotes the message
-            // answered under what is written, as before.
-            if !root.minimised && root.replying && root.history.length > 0: HorizontalLayout {
-                padding-left: root.tel ? 18px : 0px;
-                padding-right: root.tel ? 18px : 0px;
-                SectionHeader {
-                    title: "Conversation";
-                    count: root.history.length == 1 ? "1 message" : "\{root.history.length} messages";
-                    link: root.history-open ? "Hide" : "Show";
-                    link-label: root.history-open ? "Hide the conversation" : "Show the conversation";
-                    open => { root.history-open = !root.history-open; }
-                }
-            }
-            if !root.minimised && root.replying && root.history.length > 0 && root.history-open: ScrollView {
-                vertical-stretch: 1;
-                min-height: 80px;
-                content-width: self.visible-width;
-                content-height: fil.preferred-height;
-
-                fil := VerticalLayout {
-                    width: parent.width;
-                    padding-left: root.tel ? 18px : Tokens.space-2;
-                    padding-right: root.tel ? 18px : Tokens.space-3;
-                    spacing: Tokens.space-3;
-
-                    for m[i] in root.history: HorizontalLayout {
+                    // --- The conversation being answered ---
+                    //
+                    // In the same field as what is written, under it, in the same
+                    // scroll: newest first, each message one level of quoting deeper
+                    // than the one before it, a bar per level, as the reader draws them.
+                    // Its words are selected and copied like any text, never written
+                    // into; each message folds by its header. Only the screen: the body
+                    // is what was written, and sending quotes the message answered
+                    // under it as it always has (`EnReponse`).
+                    // Given their width from the field: wrapped text asked for its
+                    // height before it had a width came out a line tall.
+                    // Nothing shows unless the field gives it room (`after-height`).
+                    fil := VerticalLayout {
+                        width: corps.inner-width;
+                        height: self.preferred-height;
                         spacing: Tokens.space-2;
+                        padding-bottom: Tokens.space-2;
 
-                        // The reader's quote bars: one per level.
-                        HorizontalLayout {
-                            spacing: Tokens.space-2;
-                            for niveau in min(i + 1, 4): Rectangle {
-                                width: 3px;
-                                border-radius: 1.5px;
-                                background: Tokens.accent.transparentize(0.6);
-                            }
+                        // Where what is written ends and what it answers begins.
+                        Rectangle {
+                            height: 1px;
+                            background: Tokens.border;
                         }
 
-                        VerticalLayout {
-                            horizontal-stretch: 1;
+                        for m[i] in root.history: citation := VerticalLayout {
+                            /// Folded to its header line.
+                            property <bool> folded;
+                            property <int> levels: min(i + 1, 4);
                             spacing: 2px;
 
-                            HorizontalLayout {
-                                spacing: Tokens.space-2;
-                                Text {
-                                    text: m.from;
-                                    font-size: Tokens.size-small;
-                                    font-weight: Tokens.weight-bold;
-                                    color: Tokens.text-secondary;
-                                    overflow: elide;
+                            Rectangle {
+                                height: root.tel ? 36px : 24px;
+                                accessible-role: button;
+                                accessible-label: (citation.folded ? "Show the message from " : "Fold the message from ") + m.from;
+                                accessible-action-default => { citation.folded = !citation.folded; }
+
+                                plier := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { citation.folded = !citation.folded; }
                                 }
-                                Text {
-                                    text: m.date;
-                                    font-size: Tokens.size-small;
-                                    color: Tokens.text-muted;
-                                    overflow: elide;
-                                    horizontal-stretch: 1;
+                                HorizontalLayout {
+                                    spacing: Tokens.space-1;
+                                    Icon {
+                                        y: (parent.height - self.height) / 2;
+                                        data: citation.folded ? Icons.chevron-right : Icons.chevron-down;
+                                        size: 12px;
+                                        tint: plier.has-hover ? Tokens.text : Tokens.text-muted;
+                                    }
+                                    Text {
+                                        text: m.from;
+                                        font-size: root.tel ? 14px : Tokens.size-small;
+                                        font-weight: Tokens.weight-bold;
+                                        color: Tokens.text-secondary;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    Text {
+                                        text: m.date;
+                                        font-size: root.tel ? 14px : Tokens.size-small;
+                                        color: Tokens.text-muted;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
                                 }
                             }
-                            Text {
-                                text: m.text == "" ? "(Nothing to show)" : m.text;
-                                font-size: Tokens.size-small;
-                                color: Tokens.text-secondary;
-                                wrap: word-wrap;
+
+                            if !citation.folded: HorizontalLayout {
+                                spacing: Tokens.space-2;
+
+                                // The reader's quote bars: one per level.
+                                HorizontalLayout {
+                                    spacing: Tokens.space-2;
+                                    for niveau in citation.levels: Rectangle {
+                                        width: 3px;
+                                        border-radius: 1.5px;
+                                        background: Tokens.accent.transparentize(0.6);
+                                    }
+                                }
+                                QuoteText {
+                                    accessible-label: "Message from " + m.from;
+                                    width: max(40px, corps.inner-width - (3px + Tokens.space-2) * citation.levels);
+                                    text: m.text == "" ? "(Nothing to show)" : m.text;
+                                    font-size: root.tel ? 15px : Tokens.size-small;
+                                }
                             }
                         }
                     }
@@ -1389,6 +1544,65 @@ export component ComposePanel inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    // A recipient's card, open at once on a click on the chip, beside it (a sheet on a
+    // phone): who it is, as far as their mail tells, each value with a button that
+    // copies it. A click outside or Escape closes it; the field keeps the cursor.
+    if root.card-open && !root.minimised: Popover {
+        width: 100%;
+        height: 100%;
+        anchor-left: root.card-left;
+        anchor-right: root.card-right;
+        anchor-top: root.card-top;
+        card-width: 300px;
+        dismissed => { root.card-open = false; }
+
+        HorizontalLayout {
+            spacing: 12px;
+            Avatar {
+                y: (parent.height - self.height) / 2;
+                size: 40px;
+                initials: root.card-known ? root.card.initials : "";
+                tint: Tokens.accent;
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 1px;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.card-name != "" ? root.card-name : root.card-address;
+                    font-size: Layout.compact ? 17px : 15px;
+                    font-weight: Tokens.weight-bold;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
+                if root.card-known && root.card.received != "": Text {
+                    text: root.card.received;
+                    font-size: Layout.compact ? 13px : Tokens.size-small;
+                    color: Tokens.text-muted;
+                    overflow: elide;
+                }
+            }
+        }
+        if root.card-name != "": CardLine {
+            label: "Name";
+            value: root.card-name;
+            copy-label: "Copy the name";
+            copy(v) => { root.copy(v); }
+        }
+        CardLine {
+            label: "Email";
+            value: root.card-address;
+            copy-label: "Copy the address";
+            copy(v) => { root.copy(v); }
+        }
+        if root.card-known && root.card.last != "": Text {
+            text: root.card.last;
+            font-size: Layout.compact ? 13px : Tokens.size-small;
+            color: Tokens.text-muted;
+            overflow: elide;
         }
     }
 

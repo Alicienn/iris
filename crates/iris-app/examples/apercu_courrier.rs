@@ -6,7 +6,8 @@
 //! ```
 //!
 //! Écrit `courrier-compact.png`, `courrier-normal.png`, `courrier-confort.png` et
-//! `courrier-plein-ecran.png` (la conversation lue en plein écran).
+//! `courrier-plein-ecran.png` (la conversation lue en plein écran), then
+//! `courrier-reponse.png` (a reply, the conversation inside the writing field).
 
 use iris_app::services::{now, Services};
 use iris_app::settings::Density;
@@ -235,6 +236,34 @@ fn main() {
                 }
                 5 => {
                     capture(&f, sortie.join("courrier-plein-ecran.png"));
+                    f.set_reading_focus(false);
+                    // A reply: the conversation inside the writing field, under what
+                    // is written, the older message folded by hand in the app.
+                    iris_ui::recipients::install(&f);
+                    f.set_compose_to("Marie Martin <marie@example.com>".into());
+                    f.set_compose_subject("Re: Devis refonte".into());
+                    f.set_compose_body("Thanks Marie, the second option suits us.".into());
+                    f.set_compose_replying(true);
+                    f.set_compose_history(ModelRc::new(VecModel::from(vec![
+                        iris_ui::QuotedMessageData {
+                            from: "Marie Martin".into(),
+                            date: "Tue 3 Oct 2026, 09:12".into(),
+                            text: "Hello,\n\nHere are the two options we discussed, with \
+                                   their prices. Tell me which one suits you and I will \
+                                   start next week.\n\nMarie"
+                                .into(),
+                        },
+                        iris_ui::QuotedMessageData {
+                            from: "Paul Durand".into(),
+                            date: "Mon 2 Oct 2026, 17:40".into(),
+                            text: "Could you send us a quote for the new site?".into(),
+                        },
+                    ])));
+                    f.set_compose_minimised(false);
+                    f.set_compose_open(true);
+                }
+                6 => {
+                    capture(&f, sortie.join("courrier-reponse.png"));
                     let _ = slint::quit_event_loop();
                 }
                 _ => {}
