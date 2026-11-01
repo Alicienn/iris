@@ -2195,20 +2195,16 @@ fn un_clic_dans_les_taches_n_atteint_pas_le_courrier_dessous() {
     let point = centre(&nouveau);
     for ecran in [2, 1, 3] {
         f.set_workspace(ecran);
-        // Home has a New message and a search field of its own in its toolbar: a click
-        // on one is meant to write or to search.
+        // Home has a New message of its own in its toolbar: a click on it is meant
+        // to write.
         if ecran == 3 {
-            let dessus = ["New message", "Search or run a command"]
-                .iter()
-                .any(|nom| {
-                    let propre = bouton(&f, nom);
-                    let (p, t) = (propre.absolute_position(), propre.size());
-                    point.x >= p.x
-                        && point.x < p.x + t.width
-                        && point.y >= p.y
-                        && point.y < p.y + t.height
-                });
-            if dessus {
+            let propre = bouton(&f, "New message");
+            let (p, t) = (propre.absolute_position(), propre.size());
+            if point.x >= p.x
+                && point.x < p.x + t.width
+                && point.y >= p.y
+                && point.y < p.y + t.height
+            {
                 continue;
             }
         }
