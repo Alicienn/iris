@@ -788,6 +788,8 @@ fn ecoute_les_boutons_de_la_souris(fenetre: &iris_ui::AppWindow) {
     let faible = fenetre.as_weak();
     // Where the pointer is, in the window's logical pixels.
     let pointeur = std::cell::Cell::new((0.0f32, 0.0f32));
+    // The accent a dead key and Space typed, until Space is let go.
+    let accent: std::cell::RefCell<Option<slint::SharedString>> = std::cell::RefCell::new(None);
     fenetre
         .window()
         .on_winit_window_event(move |fenetre_slint, evenement| {
@@ -800,12 +802,57 @@ fn ecoute_les_boutons_de_la_souris(fenetre: &iris_ui::AppWindow) {
                     f.set_hovered_link("".into());
                 }
             }
+            // A dead key then Space types the accent alone (`` ` ``, `^`, `¨` on AZERTY),
+            // but Slint reads the Space key as a space and the accent is lost: the text
+            // the keyboard made is sent instead.
+            if let WindowEvent::KeyboardInput { event, .. } = evenement {
+                use slint::winit_030::winit::keyboard::{Key, NamedKey};
+                if event.logical_key == Key::Named(NamedKey::Space) {
+                    let compose = event
+                        .text
+                        .as_ref()
+                        .map(|t| t.to_string())
+                        .filter(|t| !t.is_empty() && t != " ");
+                    match (event.state, compose) {
+                        (ElementState::Pressed, Some(t)) => {
+                            let t: slint::SharedString = t.into();
+                            accent.replace(Some(t.clone()));
+                            fenetre_slint.dispatch_event(
+                                slint::platform::WindowEvent::KeyPressed { text: t },
+                            );
+                            return EventResult::PreventDefault;
+                        }
+                        (ElementState::Released, _) => {
+                            if let Some(t) = accent.take() {
+                                fenetre_slint.dispatch_event(
+                                    slint::platform::WindowEvent::KeyReleased { text: t },
+                                );
+                                return EventResult::PreventDefault;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             if let WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Right,
                 ..
             } = evenement
             {
+                // A menu of the notes open: it goes before the press is handled, so the
+                // press reaches what is under it — another row of the tree opens its
+                // own menu at once, with no click in the void first.
+                if let Some(f) = faible.upgrade() {
+                    if f.get_notes_row_menu_open()
+                        || f.get_notes_area_menu_open()
+                        || f.get_note_edit_menu_open()
+                    {
+                        f.set_notes_row_menu_open(false);
+                        f.set_notes_area_menu_open(false);
+                        f.set_note_edit_menu_open(false);
+                    }
+                }
                 let (x, y) = pointeur.get();
                 // Looked at once the press has gone by: the words have had their turn to
                 // say they are under the pointer, a menu the press opened elsewhere is up,

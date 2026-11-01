@@ -283,6 +283,10 @@ Stated here so they are decided rather than discovered:
 - **The mouse's back and forward buttons are read from winit**, through Slint's
   `unstable-winit-030` accessor: inside the interface, whatever row or button is under
   the pointer takes the press first. The accessor is tied to Slint's minor version.
+  The same hook closes a notes menu on a right press before Slint sees it (so the
+  press reaches the row beneath and opens its own menu), and types the accent a dead
+  key and Space make (`` ` ``, `^`): Slint reads the Space key as a space, the
+  composed text unread (7.8.0).
 - `iris-ui` and `iris-workflow` depend on `iris-store` directly.
 - **Office hours are in UTC**, as they were as a plugin: the settings say so. Following
   the machine's zone (as the calendar does) would shift the hours migrated from 6.x.
@@ -868,7 +872,8 @@ The user's `appearance` is System (the default), Light or Dark. System reads Win
 `AppsUseLightTheme` at start and every three seconds after, and switches when it
 changes; applying a theme also sets the style's `Palette.color-scheme`, so its own
 controls (check boxes, scroll bars) follow. The font is Segoe UI Variable, Text for
-reading and Display for titles.
+reading and Display for titles; a note's words, headings and title are Inter (7.8.0,
+`Tokens.font-note`), carried in the app (`theme/fonts`, four static cuts, OFL).
 
 Since 3.14.0 the radii are 6, 9 and 12 px (5, 7, 9 before), and what opens eases in once:
 modals, popovers and menus fade and move a few pixels, the task details slide in. Each
@@ -1045,7 +1050,7 @@ Undo keeps whole-text snapshots, keys closer than 700 ms being one step.
 
 **The editor** (4.21.0). There is no `TextInput` in a note. Every block is laid out in
 Rust by parley — the library Slint lays its own text out with, the same version and
-the same system fonts (`notes/editeur`) — and Slint draws what comes out: runs of words
+the same fonts (`notes/editeur`) — and Slint draws what comes out: runs of words
 placed where they were measured (`NoteRunData`, a `Text` each, so the letters are
 Slint's own), rectangles (highlights, plates, bars, cells, boxes to tick), pictures
 (formulas, images) and icons, in a `NoteViewBlock` per block. Rust therefore knows
@@ -1074,6 +1079,32 @@ text's, the lines under one that hangs low moved down. A map of each shown run t
 source (`Troncon`) turns a click on a read line into a place in the source. What a key
 means for the note (Enter continuing a list, a mark around words, Tab nesting) is still
 `touche`, block by block; the editor types, deletes, moves and selects.
+
+**Tables, headings, menus** (7.8.0). A table being written is drawn as it reads, a
+grid, each cell showing its source (`riche::source`): `edit::table_cells` gives every
+cell's place in the source (an empty one, one space in), and the cursor goes from cell
+to cell over the `|` — Left and Right at a cell's edge, Tab and Shift+Tab (a row added
+after the last cell), Home and End within it, Backspace and Delete stopping at its
+edges. Enter adds a row of empty cells (`edit::table_new_row`); on an empty last row
+it leaves the table for a line under it. A `+` on the bottom and right borders adds a
+row or a column (`edit::table_grow`, `Action::AjouterLigne`, `AjouterColonne`). A
+heading's `#` are the one start mark the cursor may go into: they show dimmed while it
+is at the words' start or among them, and Backspace there takes one away.
+Ctrl+Left and Ctrl+Right go to the line's start and end (a list item's, past its
+sign), then the line beside's. Right just after typing (`Editeur::apres_frappe`) steps
+over the signs that close the mark typed in (`saisie::fermantes`); any other move
+clears it, so the signs can still be gone into. A mark put on a selection running
+over several lines goes on each line's words (`blocs::marquer`): the break selected
+after a line is no part. A numbered item nested starts at 1 (`edit::indent`).
+A right-click in the note opens `NotesEditMenu`: a picture's (copy it, its link, its
+size back, open, show, remove), the selection's (cut, copy, paste, the marks, colour,
+link, a task) or the place's (paste, select all). A picture keeps its proportions
+whatever is asked (a width, or a box `|300x200` it fits in) and resizes from anywhere
+along its left and right edges. Each tab keeps how far its note was scrolled
+(`Etat::defilements`, from the page's `content-y`), forgotten when the tab closes or
+shows another note. The words are laid out in Inter: the four files the window
+registers through `theme/tokens.slint` are registered with the editor's own fontique
+collection too, unless the system already has an Inter.
 
 **Files.** `Space::write` writes beside the file and renames over it; if the file
 changed on the disk since it was read, the other version is kept beside it as a
@@ -1879,4 +1910,5 @@ authentication failure.
 
 ## Licence
 
-MIT or Apache-2.0, at your option.
+MIT or Apache-2.0, at your option. The Inter font carried for the notes
+(`crates/iris-ui/ui/theme/fonts`) is under the SIL Open Font License 1.1, its text beside it.

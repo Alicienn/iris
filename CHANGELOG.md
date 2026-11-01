@@ -3,6 +3,28 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.8.0 — 2026-11-01
+
+### New
+- Right-click selected words in a note to format them, copy them or make them a task.
+- Right-click a picture in a note to copy it, open it or put it back to its size.
+- Tables in notes are written as a grid: Tab goes to the next cell, Enter adds a row.
+- A + on a table's edges adds a row or a column.
+
+### Improved
+- Notes are written in Inter, a cleaner font.
+- Pictures in notes keep their proportions, and resize from anywhere along their sides.
+- Each note tab comes back where you left it.
+- Ctrl+Left and Ctrl+Right go to the start or end of the line.
+- Right, just after typing in bold or another style, steps out of it.
+- A numbered list nested with Tab starts again at 1.
+- A heading's # show when the cursor is at its start, so they can be changed.
+
+### Fixed
+- Right-clicking another file or folder opens its menu straight away.
+- A backtick typed with Space appears.
+- Bold, italic and the rest work on a line selected with its line break.
+
 ## 7.7.0 — 2026-11-01
 
 ### New

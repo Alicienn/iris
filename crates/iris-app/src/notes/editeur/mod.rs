@@ -23,14 +23,35 @@ use std::collections::HashMap;
 /// A laid-out text, in physical pixels (the screen's scale).
 pub type Mise = parley::Layout<Pinceau>;
 
+/// The notes' own type (Inter), the files Slint is given too (`theme/tokens.slint`).
+const INTER: [&[u8]; 4] = [
+    include_bytes!("../../../../iris-ui/ui/theme/fonts/Inter-Regular.ttf"),
+    include_bytes!("../../../../iris-ui/ui/theme/fonts/Inter-Italic.ttf"),
+    include_bytes!("../../../../iris-ui/ui/theme/fonts/Inter-Bold.ttf"),
+    include_bytes!("../../../../iris-ui/ui/theme/fonts/Inter-BoldItalic.ttf"),
+];
+
 thread_local! {
-    /// The fonts, found as Slint finds them (the system's, shared).
-    static POLICES: RefCell<FontContext> = RefCell::new(FontContext {
-        collection: parley::fontique::Collection::new(parley::fontique::CollectionOptions {
-            shared: true,
-            system_fonts: true,
-        }),
-        source_cache: parley::fontique::SourceCache::new_shared(),
+    /// The fonts, found as Slint finds them (the system's, shared), and the notes' own.
+    static POLICES: RefCell<FontContext> = RefCell::new({
+        let mut collection =
+            parley::fontique::Collection::new(parley::fontique::CollectionOptions {
+                shared: true,
+                system_fonts: true,
+            });
+        // Once: a shared collection keeps what it was given for every one made after.
+        if collection.family_id("Inter").is_none() {
+            for octets in INTER {
+                collection.register_fonts(
+                    parley::fontique::Blob::new(std::sync::Arc::new(octets)),
+                    None,
+                );
+            }
+        }
+        FontContext {
+            collection,
+            source_cache: parley::fontique::SourceCache::new_shared(),
+        }
     });
     static MISES: RefCell<LayoutContext<Pinceau>> = RefCell::new(LayoutContext::new());
     /// Each font's line height as a multiple of its size, as Slint computes it.
@@ -570,6 +591,9 @@ pub enum Action {
     /// A selected picture's corner (0 top left, 1 top right, 2 bottom left, 3 bottom
     /// right), carried to resize it.
     Poignee(u8),
+    /// A table written: a row of empty cells added at its end, or a column.
+    AjouterLigne,
+    AjouterColonne,
 }
 
 /// A place of a block that does something when clicked.

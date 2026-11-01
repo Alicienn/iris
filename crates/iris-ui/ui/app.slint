@@ -63,7 +63,7 @@ import {
 import { ChangelogPanel, UpdatePanel } from "@iris/screens/changelog.slint";
 import {
     NotesView, NotesRowMenu, NotesSpaceMenu, NotesNamePanel, NotesQuickOpen, NotesReviewPanel,
-    NotesHistoryPanel, NotesGraphPanel, BlockPreview, NotesAreaMenu, NoteSelect, NotesPhoneSheet
+    NotesHistoryPanel, NotesGraphPanel, BlockPreview, NotesAreaMenu, NotesEditMenu, NoteSelect, NotesPhoneSheet
 } from "@iris/screens/notes.slint";
 import { SheetGrid, SheetMenu } from "@iris/screens/sheet.slint";
 import { ShortcutsHelp } from "@iris/screens/help.slint";
@@ -1221,6 +1221,19 @@ export component AppWindow inherits Window {
     callback note-canvas-hovered(length, length);
     callback note-canvas-key(string) -> bool;
     callback note-canvas-ime(string, string);
+    /// A right-click in a note: where in the note and in the window.
+    callback note-canvas-menu(length, length, length, length);
+    /// The menu it opens (see `NotesEditMenu`): what it is about, where it is, what is chosen.
+    in-out property <bool> note-edit-menu-open;
+    in property <string> note-edit-menu-kind;
+    in property <bool> note-edit-menu-resized;
+    in property <length> note-edit-menu-x;
+    in property <length> note-edit-menu-y;
+    callback note-edit-menu-chosen(string);
+    /// How far the note is scrolled, and where a tab shown again goes back to.
+    in-out property <length> note-scroll-now;
+    in property <length> note-scroll-to;
+    in property <int> note-scroll-serial;
     in property <bool> note-bubble;
     in property <string> note-card;
     in property <string> note-card-title;
@@ -1841,6 +1854,11 @@ export component AppWindow inherits Window {
             root.notes-name-asked = "";
             return true;
         }
+        if (root.note-edit-menu-open) {
+            root.note-edit-menu-open = false;
+            root.note-edit-menu-chosen("dismiss");
+            return true;
+        }
         if (root.notes-area-menu-open) {
             root.notes-area-menu-open = false;
             return true;
@@ -2166,6 +2184,7 @@ export component AppWindow inherits Window {
         || root.event-detail-open || root.event-editor-open || root.subscribe-open
         || root.connect-open
         || root.notes-row-menu-open || root.notes-area-menu-open || root.notes-space-menu-open
+        || root.note-edit-menu-open
         || root.notes-name-asked != ""
         || root.notes-quick-open || root.notes-review-open || SheetGrid.menu != ""
         || root.notes-history-open || root.notes-graph-open || (root.notes-sheet != "" && Layout.compact)
@@ -3495,6 +3514,10 @@ export component AppWindow inherits Window {
             canvas-released(x, y) => { root.note-canvas-released(x, y); }
             canvas-hovered(x, y) => { root.note-canvas-hovered(x, y); }
             canvas-ime(avant, apres) => { root.note-canvas-ime(avant, apres); }
+            canvas-menu(x, y, wx, wy) => { root.note-canvas-menu(x, y, wx, wy); }
+            scroll-now <=> root.note-scroll-now;
+            scroll-to: root.note-scroll-to;
+            scroll-serial: root.note-scroll-serial;
             canvas-key(n) => {
                 if (n == "ctrl+o" || n == "ctrl+\\") {
                     root.notes-quick-beside = n == "ctrl+\\";
@@ -4042,6 +4065,23 @@ export component AppWindow inherits Window {
             error: root.subscribe-error;
             subscribe => { root.subscribe-confirmed(); }
             dismissed => { root.subscribe-open = false; }
+        }
+
+        if root.note-edit-menu-open: NotesEditMenu {
+            width: 100%;
+            height: 100%;
+            menu-x: root.note-edit-menu-x;
+            menu-y: root.note-edit-menu-y;
+            kind: root.note-edit-menu-kind;
+            resized: root.note-edit-menu-resized;
+            chosen(action) => {
+                root.note-edit-menu-open = false;
+                root.note-edit-menu-chosen(action);
+            }
+            dismissed => {
+                root.note-edit-menu-open = false;
+                root.note-edit-menu-chosen("dismiss");
+            }
         }
 
         if root.notes-area-menu-open: NotesAreaMenu {

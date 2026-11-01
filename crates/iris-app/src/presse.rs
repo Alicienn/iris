@@ -6,10 +6,10 @@
 //! Text fields keep their own copy and paste either way: Slint does that itself.
 
 #[cfg(not(target_os = "android"))]
-pub use arboard::{Clipboard, Error};
+pub use arboard::{Clipboard, Error, ImageData};
 
 #[cfg(target_os = "android")]
-pub use autre::{Clipboard, Error};
+pub use autre::{Clipboard, Error, ImageData};
 
 #[cfg(target_os = "android")]
 mod autre {
@@ -51,6 +51,9 @@ mod autre {
             }
         }
         pub fn get_image(&mut self) -> Result<ImageData<'static>, Error> {
+            Err(Error)
+        }
+        pub fn set_image(&mut self, _image: ImageData<'_>) -> Result<(), Error> {
             Err(Error)
         }
         pub fn get(&mut self) -> Get {

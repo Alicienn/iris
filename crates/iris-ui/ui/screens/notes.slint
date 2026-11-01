@@ -114,6 +114,7 @@ export global NoteSelect {
             : name == "settings" ? Icons.settings
             : name == "open-external" ? Icons.open-external
             : name == "link" ? Icons.link
+            : name == "plus" ? Icons.plus
             : "";
     }
     callback cell-pressed(int, int, int, bool);
@@ -1780,9 +1781,16 @@ export component NotesView inherits Rectangle {
     callback canvas-released(length, length);
     callback canvas-hovered(length, length);
     callback canvas-key(string) -> bool;
+    /// A right-click on the note: where in the note, and where in the window (its menu).
+    callback canvas-menu(length, length, length, length);
     /// What a phone's keyboard changed in its field, before and after: Rust sends the
     /// keys it stands for.
     callback canvas-ime(string, string);
+    /// How far the note is scrolled now; raising `scroll-serial` scrolls it to
+    /// `scroll-to` (a tab shown again, where it was left).
+    in-out property <length> scroll-now;
+    in property <length> scroll-to;
+    in property <int> scroll-serial;
     in property <bool> bubble;
     /// "", "link", "colour", "footnote", "math".
     in property <string> card;
@@ -2361,6 +2369,11 @@ export component NotesView inherits Rectangle {
                 horizontal-stretch: 1;
                 mouse-drag-pan-enabled: false;
                 content-width: self.visible-width;
+                // Each tab keeps where its note was scrolled (Rust remembers it).
+                changed content-y => { root.scroll-now = self.content-y; }
+                property <int> defile: root.scroll-serial;
+                changed defile => { self.content-y = root.scroll-to; }
+                init => { self.content-y = root.scroll-to; }
                 HorizontalLayout {
                     width: page.visible-width;
                     Rectangle { horizontal-stretch: 1; }
@@ -2395,7 +2408,7 @@ export component NotesView inherits Rectangle {
                             }
                             edited => { root.title-edited(self.text); }
                             text: root.title;
-                            font-family: Tokens.font-display;
+                            font-family: Tokens.font-note;
                             // A phone's title (`.md h1`): 27 pixels, on as many lines
                             // as it takes; Enter still goes to the note.
                             font-size: Layout.compact ? 27px : 30px;
@@ -2539,6 +2552,8 @@ export component NotesView inherits Rectangle {
                                         width: p.w;
                                         height: p.h;
                                         source: p.image;
+                                        // Never stretched, whatever size it is given.
+                                        image-fit: contain;
                                     }
                                     for t in b.runs: Text {
                                         x: t.x;
@@ -2548,8 +2563,7 @@ export component NotesView inherits Rectangle {
                                         font-size: t.size;
                                         font-weight: t.weight;
                                         font-italic: t.italic;
-                                        font-family: t.family == 1 ? Tokens.font-mono
-                                            : t.family == 2 ? Tokens.font-display : Tokens.font-family;
+                                        font-family: t.family == 1 ? Tokens.font-mono : Tokens.font-note;
                                         color: t.color;
                                         wrap: no-wrap;
                                         vertical-alignment: top;
@@ -2642,6 +2656,14 @@ export component NotesView inherits Rectangle {
                                         : root.canvas-cursor == 2 ? MouseCursor.col-resize
                                         : root.canvas-cursor == 3 ? MouseCursor.default : MouseCursor.text;
                                     pointer-event(event) => {
+                                        // A right-click: the menu of what is under it.
+                                        if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                                            clavier.prendre();
+                                            root.canvas-menu(self.mouse-x, self.mouse-y,
+                                                self.absolute-position.x + self.mouse-x,
+                                                self.absolute-position.y + self.mouse-y);
+                                            return;
+                                        }
                                         if (event.button != PointerEventButton.left) { return; }
                                         if (event.kind == PointerEventKind.down) {
                                             clavier.prendre();
@@ -4595,6 +4617,156 @@ export component NotesAreaMenu inherits Rectangle {
                 icon: Icons.open-external;
                 label: "Open the space's folder";
                 activated => { root.chosen("reveal-space"); }
+            }
+        }
+    }
+}
+
+// The menu of a right-click in a note: on a picture, what can be done with it; on
+// selected words, copying them and their formatting; elsewhere, pasting.
+export component NotesEditMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    /// "image", "selection" or "text".
+    in property <string> kind;
+    /// The picture is drawn at a width of its own (`|320`): it can be put back.
+    in property <bool> resized;
+    callback chosen(string);
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.dismissed();
+            }
+        }
+    }
+    MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 250px;
+        menu-height: entries.preferred-height + 8px;
+        entries := VerticalLayout {
+            padding: 4px;
+            if root.kind == "image": MenuEntry {
+                icon: Icons.copy;
+                label: "Copy image";
+                activated => { root.chosen("image-copy"); }
+            }
+            if root.kind == "image": MenuEntry {
+                icon: Icons.link;
+                label: "Copy link";
+                activated => { root.chosen("image-link"); }
+            }
+            if root.kind == "image" && root.resized: MenuEntry {
+                icon: Icons.expand;
+                label: "Original size";
+                activated => { root.chosen("image-size"); }
+            }
+            if root.kind == "image": MenuSeparator {}
+            if root.kind == "image": MenuEntry {
+                icon: Icons.open-external;
+                label: "Open with the default app";
+                activated => { root.chosen("image-open"); }
+            }
+            if root.kind == "image": MenuEntry {
+                icon: Icons.folder;
+                label: "Show in Explorer";
+                activated => { root.chosen("image-reveal"); }
+            }
+            if root.kind == "image": MenuSeparator {}
+            if root.kind == "image": MenuEntry {
+                icon: Icons.trash;
+                label: "Remove from the note";
+                danger: true;
+                activated => { root.chosen("image-delete"); }
+            }
+
+            if root.kind != "image": MenuEntry {
+                label: "Cut";
+                shortcut: "Ctrl+X";
+                enabled: root.kind == "selection";
+                activated => { root.chosen("cut"); }
+            }
+            if root.kind != "image": MenuEntry {
+                icon: Icons.copy;
+                label: "Copy";
+                shortcut: "Ctrl+C";
+                enabled: root.kind == "selection";
+                activated => { root.chosen("copy"); }
+            }
+            if root.kind != "image": MenuEntry {
+                label: "Paste";
+                shortcut: "Ctrl+V";
+                activated => { root.chosen("paste"); }
+            }
+            if root.kind == "selection": MenuSeparator {}
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.bold;
+                label: "Bold";
+                shortcut: "Ctrl+B";
+                activated => { root.chosen("bold"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.italic;
+                label: "Italic";
+                shortcut: "Ctrl+I";
+                activated => { root.chosen("italic"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.underline;
+                label: "Underline";
+                shortcut: "Ctrl+U";
+                activated => { root.chosen("underline"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.strikethrough;
+                label: "Strikethrough";
+                shortcut: "Ctrl+Shift+X";
+                activated => { root.chosen("strike"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.fill;
+                label: "Highlight";
+                shortcut: "Ctrl+Shift+H";
+                activated => { root.chosen("highlight"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.code;
+                label: "Code";
+                shortcut: "Ctrl+E";
+                activated => { root.chosen("code"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.text-colour;
+                label: "Colour…";
+                shortcut: "Ctrl+Shift+C";
+                activated => { root.chosen("colour"); }
+            }
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.link;
+                label: "Link…";
+                shortcut: "Ctrl+K";
+                activated => { root.chosen("weblink"); }
+            }
+            if root.kind == "selection": MenuSeparator {}
+            if root.kind == "selection": MenuEntry {
+                icon: Icons.task;
+                label: "Make a task";
+                shortcut: "Ctrl+Shift+T";
+                activated => { root.chosen("task"); }
+            }
+            if root.kind != "image": MenuSeparator {}
+            if root.kind != "image": MenuEntry {
+                label: "Select all";
+                shortcut: "Ctrl+A";
+                activated => { root.chosen("select-all"); }
             }
         }
     }

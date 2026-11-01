@@ -110,6 +110,15 @@ pub fn largeur_demandee(target: &str) -> Option<f32> {
         .filter(|w| *w >= 16.0)
 }
 
+/// The box an embed asks its picture to fit in (`![[a.png|300x200]]`).
+pub fn boite_demandee(target: &str) -> Option<(f32, f32)> {
+    target.split('|').skip(1).find_map(|o| {
+        let (w, h) = o.trim().split_once(['x', 'X'])?;
+        let (w, h) = (w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?);
+        (w >= 16.0 && h >= 16.0).then_some((w, h))
+    })
+}
+
 /// A block laid out. `numero`: what the note's numbering gave it (a callout's
 /// "Theorem 2", a list item's "3."); `actif`: the cursor's offset in it when it is the
 /// block being written.
@@ -127,7 +136,9 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
         couleur: c.texte,
         ..Default::default()
     };
-    let marque = if actif {
+    // A heading's `#` can be gone into (they show when the cursor is at its words'
+    // start): only the other marks keep the cursor out.
+    let marque = if actif && !matches!(b.kind, BlockKind::Heading(_)) {
         render::prefixe(&b.kind, content)
     } else {
         0
@@ -198,20 +209,9 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
                 }
             }
         }
-        BlockKind::Table => {
-            if actif {
-                let mono = Pinceau { famille: 1, ..base };
-                plaque(
-                    source_entiere(content, mono, true, cx),
-                    1,
-                    &mut zones,
-                    &mut d,
-                    cx,
-                )
-            } else {
-                table(content, &mut zones, &mut d, cx)
-            }
-        }
+        // Written as it reads, a grid: the cursor goes from cell to cell, its words
+        // with their marks; no `|` to type around.
+        BlockKind::Table => table(content, actif, &mut zones, &mut d, &mut cibles, cx),
         BlockKind::Callout {
             kind,
             folded,
@@ -292,11 +292,17 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
                 Some(img) => {
                     let taille = img.size();
                     let naturelle = taille.width as f32;
-                    let iw = largeur_demandee(target)
-                        .unwrap_or(naturelle)
-                        .min(w)
-                        .max(16.0);
-                    let ih = taille.height as f32 * iw / naturelle.max(1.0);
+                    let rapport = taille.height as f32 / naturelle.max(1.0);
+                    // Never stretched: the width asked for (or a box, `|300x200`, the
+                    // picture fitted inside it), narrowed to the column, the height
+                    // following.
+                    let iw = match boite_demandee(target) {
+                        Some((bw, bh)) => bw.min(bh / rapport.max(0.001)),
+                        None => largeur_demandee(target).unwrap_or(naturelle),
+                    }
+                    .min(w)
+                    .max(16.0);
+                    let ih = iw * rapport;
                     d.images.push(iris_ui::NoteImageData {
                         x: 0.0,
                         y: 4.0,
@@ -312,6 +318,19 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
                         action: Action::Image,
                         curseur: 3,
                     });
+                    // Its left and right edges resize it, selected or not: the pointer
+                    // says so anywhere along them, not only at a corner.
+                    let bord = 10.0f32.min(iw / 4.0);
+                    for (k, x) in [(2u8, -6.0), (3u8, iw - bord)] {
+                        cibles.push(Cible {
+                            x,
+                            y: 4.0,
+                            w: bord + 6.0,
+                            h: ih,
+                            action: Action::Poignee(k),
+                            curseur: 2,
+                        });
+                    }
                     if actif {
                         d.cadre(-2.0, 2.0, iw + 4.0, ih + 4.0, 0, c.accent, 2.0, 2.0);
                         for (k, (px, py)) in
@@ -330,13 +349,17 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
                                 2.0,
                             );
                             cibles.push(Cible {
-                                x: px - 7.0,
-                                y: py - 7.0,
-                                w: 14.0,
-                                h: 14.0,
+                                x: px - 10.0,
+                                y: py - 10.0,
+                                w: 20.0,
+                                h: 20.0,
                                 action: Action::Poignee(k as u8),
                                 curseur: 2,
                             });
+                        }
+                        // A bar on each side's middle: the edge can be taken there too.
+                        for x in [-2.5, iw - 1.5] {
+                            d.rect(x, 4.0 + ih / 2.0 - 14.0, 4.0, 28.0, c.accent, 2.0);
                         }
                     }
                     objet = Some((0.0, 4.0, iw, ih));
@@ -469,6 +492,22 @@ fn ligne_simple(
         r
     };
     decaler(&mut r, p);
+    // A heading's `#` shown, dimmed, while the cursor is at its words' start or in
+    // them: they can be changed there (they are not printed).
+    if let (BlockKind::Heading(_), Some(curseur)) = (&b.kind, actif) {
+        if p > 0 && curseur <= p {
+            let mut tete = brut(
+                &content[..p],
+                0,
+                Pinceau {
+                    couleur: c.muet,
+                    ..base
+                },
+            );
+            tete.joindre(r);
+            r = tete;
+        }
+    }
     let x = retrait + largeur_marque;
     let z = poser(r, taille, 0, x, haut, cx.largeur - x, false, cx, d);
     let h_ligne = taille * super::rapport(&cx.polices.corps);
@@ -521,8 +560,16 @@ fn ligne_simple(
     h
 }
 
-/// A table read: its cells in a grid, the first row as headers.
-fn table(content: &str, zones: &mut Vec<Zone>, d: &mut Dessin, cx: &Contexte) -> f32 {
+/// A table: its cells in a grid, the first row as headers. Written (`ecrit`), each
+/// cell shows its source (its marks dimmed) and two buttons add a row and a column.
+fn table(
+    content: &str,
+    ecrit: bool,
+    zones: &mut Vec<Zone>,
+    d: &mut Dessin,
+    cibles: &mut Vec<Cible>,
+    cx: &Contexte,
+) -> f32 {
     let c = cx.couleurs;
     // The cells and where each starts in the block.
     let mut rangees: Vec<Vec<(usize, &str)>> = Vec::new();
@@ -545,7 +592,12 @@ fn table(content: &str, zones: &mut Vec<Zone>, d: &mut Dessin, cx: &Contexte) ->
             if (j == 0 || j + 1 == n) && m.trim().is_empty() {
                 continue;
             }
-            let espaces = m.len() - m.trim_start().len();
+            // An empty cell is written one space in (`edit::table_cells`).
+            let espaces = if m.trim().is_empty() {
+                m.len().min(1)
+            } else {
+                m.len() - m.trim_start().len()
+            };
             cases.push((debut + ici + espaces, m.trim()));
         }
         rangees.push(cases);
@@ -564,7 +616,18 @@ fn table(content: &str, zones: &mut Vec<Zone>, d: &mut Dessin, cx: &Contexte) ->
                 gras: r == 0,
                 ..Default::default()
             };
-            let mut rr = riche::rendu(texte, p, 13.5, cx.echelle, c, cx.formule);
+            let mut rr = if ecrit {
+                riche::source(texte, p, c)
+            } else {
+                riche::rendu(texte, p, 13.5, cx.echelle, c, cx.formule)
+            };
+            // An empty cell still has a place, for the cursor.
+            if rr.carte.is_empty() {
+                rr.carte.push(Troncon {
+                    affiche: 0..0,
+                    source: 0..0,
+                });
+            }
             decaler(&mut rr, debut);
             let z = poser(
                 rr,
@@ -597,6 +660,31 @@ fn table(content: &str, zones: &mut Vec<Zone>, d: &mut Dessin, cx: &Contexte) ->
         d.images.extend(dessin.images);
         zones.extend(zs);
         y += haut;
+    }
+    if ecrit {
+        // A row under the last, a column after the last: a small `+` on the edge,
+        // over the border rather than beside it, so the table does not move.
+        let plaque = (c.plaque & 0x00ff_ffff) | 0xff00_0000;
+        let boutons = [
+            (cx.largeur / 2.0 - 9.0, y - 9.0, Action::AjouterLigne),
+            (
+                cx.largeur - 9.0,
+                2.0 + (y - 2.0) / 2.0 - 9.0,
+                Action::AjouterColonne,
+            ),
+        ];
+        for (bx, by, action) in boutons {
+            d.cadre(bx, by, 18.0, 18.0, plaque, c.bordure_forte, 1.0, 9.0);
+            d.icone(bx + 3.0, by + 3.0, 12.0, "plus", c.secondaire);
+            cibles.push(Cible {
+                x: bx - 2.0,
+                y: by - 2.0,
+                w: 22.0,
+                h: 22.0,
+                action,
+                curseur: 1,
+            });
+        }
     }
     y + 4.0
 }

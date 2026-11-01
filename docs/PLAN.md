@@ -946,6 +946,12 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       quotes aside; Ctrl+Z takes a send back from any place; selected words made a
       task; Mail opens on All accounts, All folders; Home back to its earlier layout
       (7.7.0).
+- [x] **S52.19** The notes' editor, by use: a right-click on words or a picture; pictures
+      never stretched, resized from their edges; Inter; the tree's menus one right-click
+      apart; each tab back where it was scrolled; a dead key and Space typed; marks over
+      a line and its break; tables written as a grid (Tab, Enter, `+`); Ctrl and an
+      arrow to the line's ends, Right out of a mark just typed; a nested numbered list
+      at 1; a heading's `#` reachable (7.8.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

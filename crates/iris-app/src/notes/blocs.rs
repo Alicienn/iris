@@ -3,7 +3,7 @@
 //! deleted, typed over — is the editor's (`saisie`), a span of the note's text.
 
 use super::{appliquer, retenir, Etat};
-use iris_notes::block::{self, Block};
+use iris_notes::block::{self, Block, BlockKind};
 use iris_notes::edit::{self, NoteEdit};
 use iris_ui::AppWindow;
 
@@ -33,6 +33,75 @@ fn changer(f: &AppWindow, e: &mut Etat, texte: String, premier: usize, dernier: 
     let a = block::start_of(&note.blocks, premier);
     let b = block::start_of(&note.blocks, dernier) + fin_contenu;
     super::saisie::placer(f, e, a, b);
+}
+
+/// A mark (`bold`…) or a colour (`colour:2`, `colour:none`) on the words a selection
+/// runs over, block by block: a mark never crosses a line break, so each line's part
+/// gets its own. The line breaks, a list's sign, a heading's `#` are left out, and a
+/// part empty there (the line under a line selected to its end) is no part.
+pub(super) fn marquer(f: &AppWindow, e: &mut Etat, action: &str) -> bool {
+    let (a, b) = (e.ed.ancre.min(e.ed.tete), e.ed.ancre.max(e.ed.tete));
+    let Some(note) = &e.note else { return false };
+    if a >= b {
+        return false;
+    }
+    let mut texte = String::with_capacity(note.text.len() + 16);
+    let mut choix: Option<(usize, usize)> = None;
+    let mut dernier = 0;
+    let mut fin_locale = 0;
+    for (k, bl) in note.blocks.iter().enumerate() {
+        let debut = texte.len();
+        let s = block::start_of(&note.blocks, k);
+        let contenu = bl.content();
+        let n = contenu.len();
+        let ecrit = !matches!(
+            bl.kind,
+            BlockKind::Code { .. }
+                | BlockKind::Math
+                | BlockKind::Table
+                | BlockKind::Properties
+                | BlockKind::Embed { .. }
+                | BlockKind::Rule
+        );
+        let m = super::render::prefixe(&bl.kind, contenu);
+        let de = a.saturating_sub(s).max(m).min(n);
+        let jusqu = b.saturating_sub(s).min(n);
+        if !ecrit || s + n < a || s > b || de >= jusqu {
+            texte.push_str(&bl.text);
+            continue;
+        }
+        let r = match action.strip_prefix("colour:") {
+            Some(reste) => {
+                let teinte = reste
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| iris_notes::inline::Colour::ALL.get(i).copied());
+                edit::set_colour(contenu, de, jusqu, teinte)
+            }
+            None => edit::toggle_mark(contenu, de, jusqu, action),
+        };
+        let (ra, rb) = (r.anchor.min(r.cursor), r.anchor.max(r.cursor));
+        choix = Some((choix.map_or(debut + ra, |(x, _)| x), debut + rb));
+        dernier = k;
+        fin_locale = rb;
+        texte.push_str(&r.text);
+        texte.push_str(bl.line_ending());
+    }
+    let Some((na, nb)) = choix else { return false };
+    retenir(e, true);
+    appliquer(
+        f,
+        e,
+        NoteEdit {
+            text: texte,
+            block: dernier,
+            cursor: fin_locale,
+        },
+        true,
+        None,
+    );
+    super::saisie::placer(f, e, na, nb);
+    true
 }
 
 /// A key while a selection runs over blocks `premier` to `dernier`. True when used.

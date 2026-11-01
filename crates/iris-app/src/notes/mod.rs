@@ -116,6 +116,9 @@ struct Etat {
     source: bool,
     /// The cells of an embedded spreadsheet selected, and what they copied.
     cellules: cellules::Cellules,
+    /// How far each note open in a tab was scrolled when another was shown: coming
+    /// back to its tab shows it there again. A tab closed forgets it.
+    defilements: std::collections::HashMap<String, f32>,
     /// The editor: the blocks laid out, the cursor and the selection.
     ed: saisie::Editeur,
 }
@@ -625,6 +628,12 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
     cellules::quitter(f, e);
     ecrire(f, e);
     mode_texte(f, e, false, false);
+    // Where the note left was scrolled, for when its tab is shown again.
+    let avant = e.note.as_ref().map(|n| n.rel.clone());
+    let meme = avant.as_deref() == Some(rel);
+    if let Some(avant) = avant.filter(|_| !meme) {
+        e.defilements.insert(avant, f.get_note_scroll_now());
+    }
     if EntryKind::of(rel) == EntryKind::Sheet {
         ouvrir_tableur(f, e, rel);
         return;
@@ -662,6 +671,13 @@ fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
             fermer_popups(f, e);
             maj_cote(f, e);
             retenir_onglet(f, e, rel);
+            // Back where it was when its tab was left; a note opened anew, at the top.
+            let onglets = &e.onglets;
+            e.defilements.retain(|r, _| onglets.contains(r));
+            if !meme {
+                f.set_note_scroll_to(e.defilements.get(rel).copied().unwrap_or(0.0));
+                f.set_note_scroll_serial(f.get_note_scroll_serial() + 1);
+            }
         }
         Err(err) => f.set_status(format!("Could not open the note: {err}").into()),
     }
@@ -1016,29 +1032,33 @@ fn couleur_de_touche(t: &str) -> Option<Colour> {
     Colour::ALL.get(i).copied()
 }
 
+/// The inline mark a shortcut puts on the words: `ctrl+b` bold.
+fn marque_de_touche(nom: &str) -> Option<&'static str> {
+    Some(match nom.to_ascii_lowercase().as_str() {
+        "ctrl+b" => "bold",
+        "ctrl+i" => "italic",
+        "ctrl+u" => "underline",
+        "ctrl+e" => "code",
+        "ctrl+m" => "math",
+        "ctrl+shift+x" => "strike",
+        "ctrl+shift+h" => "highlight",
+        "ctrl+." => "sup",
+        "ctrl+," => "sub",
+        "ctrl+l" => "link",
+        _ => return None,
+    })
+}
+
 /// A key in block `i`. True when it was used here.
 fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, anchor: usize) -> bool {
     let Some((kind, texte)) = contenu(e, i) else {
         return false;
     };
     let n = e.note.as_ref().map_or(0, |n| n.blocks.len());
-    let marque = |m: &str| Some(m.to_string());
-    let a_marquer = match nom.to_ascii_lowercase().as_str() {
-        "ctrl+b" => marque("bold"),
-        "ctrl+i" => marque("italic"),
-        "ctrl+u" => marque("underline"),
-        "ctrl+e" => marque("code"),
-        "ctrl+m" => marque("math"),
-        "ctrl+shift+x" => marque("strike"),
-        "ctrl+shift+h" => marque("highlight"),
-        "ctrl+." => marque("sup"),
-        "ctrl+," => marque("sub"),
-        "ctrl+l" => marque("link"),
-        _ => None,
-    };
-    if let Some(m) = a_marquer {
-        let r = edit::toggle_mark(&texte, anchor, cursor, &m);
+    if let Some(m) = marque_de_touche(nom) {
+        let r = edit::toggle_mark(&texte, anchor, cursor, m);
         remplacer(f, e, i, &r.text, r.anchor, r.cursor);
+        saisie::vient_d_ecrire(e);
         return true;
     }
     if let Some(reste) = nom.strip_prefix("ctrl+shift+") {
@@ -1067,6 +1087,23 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
                     remplacer(f, e, i, &r.text, r.cursor, r.cursor);
                     return true;
                 }
+            }
+            // In a table: a row of empty cells under this one; on an empty last row,
+            // the table is left for a line of words under it.
+            if nom == "enter" && kind == BlockKind::Table {
+                match edit::table_new_row(&texte, cursor) {
+                    Some(r) => remplacer(f, e, i, &r.text, r.cursor, r.cursor),
+                    None => {
+                        let c = cursor.min(texte.len());
+                        let debut = texte[..c].rfind('\n').unwrap_or(0);
+                        let reste = texte[..debut].trim_end_matches('\r').to_string();
+                        let Some(note) = &e.note else { return false };
+                        let ed = edit::split_block(&note.blocks, i, &reste, "", 0);
+                        retenir(e, true);
+                        appliquer(f, e, ed, true, None);
+                    }
+                }
+                return true;
             }
             let Some(note) = &e.note else { return false };
             let resultat = if nom == "shift+enter" && !kind.is_multiline() {
@@ -1203,6 +1240,39 @@ fn touche(f: &AppWindow, e: &mut Etat, i: usize, nom: &str, cursor: usize, ancho
                     focaliser(f, e, i, suivant, suivant);
                     return true;
                 }
+            }
+            // In a table: the next cell (a new row after the last), or the one before.
+            if kind == BlockKind::Table {
+                let cases: Vec<(usize, usize)> =
+                    edit::table_cells(&texte).into_iter().flatten().collect();
+                let c = cursor.min(texte.len());
+                let ici = cases
+                    .iter()
+                    .position(|(s, e)| c >= *s && c <= *e)
+                    .or_else(|| {
+                        if dehors {
+                            cases.iter().rposition(|(s, _)| *s < c)
+                        } else {
+                            cases
+                                .iter()
+                                .position(|(s, _)| *s > c)
+                                .map(|k| k.saturating_sub(1))
+                        }
+                    });
+                let cible = match ici {
+                    Some(k) if dehors => k.checked_sub(1).and_then(|k| cases.get(k)),
+                    Some(k) => cases.get(k + 1),
+                    None => None,
+                };
+                match cible {
+                    Some(&(s, fin)) => focaliser(f, e, i, s, fin),
+                    None if !dehors => {
+                        let r = edit::table_grow(&texte, false);
+                        remplacer(f, e, i, &r.text, r.cursor, r.cursor);
+                    }
+                    None => {}
+                }
+                return true;
             }
             if matches!(kind, BlockKind::Code { .. }) && !dehors {
                 let c = cursor.min(texte.len());
@@ -2074,14 +2144,29 @@ fn lien_sur_mots(e: &Etat, colle: &str, mots: &str) -> Option<String> {
 /// Picture block `i` drawn `largeur` pixels wide: the width written in its embed
 /// (`![[a.png|320]]`), its other options kept.
 fn largeur_image(f: &AppWindow, e: &mut Etat, i: usize, largeur: f32) {
+    taille_image(f, e, i, Some(largeur));
+}
+
+/// Picture block `i` drawn at its own size again: the width or box in its embed gone.
+fn largeur_image_d_origine(f: &AppWindow, e: &mut Etat, i: usize) {
+    taille_image(f, e, i, None);
+}
+
+/// The size written in picture block `i`'s embed: a width, or none.
+fn taille_image(f: &AppWindow, e: &mut Etat, i: usize, largeur: Option<f32>) {
     let Some((BlockKind::Embed { target }, texte)) = contenu(e, i) else {
         return;
     };
     let mut parties: Vec<String> = target.split('|').map(|p| p.trim().to_string()).collect();
     let nom = parties.remove(0);
-    parties.retain(|p| p.parse::<f32>().is_err());
+    // A width (`320`) or a box (`300x200`) given before: the new width replaces it.
+    parties.retain(|p| {
+        p.parse::<f32>().is_err() && editeur::dessin::boite_demandee(&format!("x|{p}")).is_none()
+    });
     parties.insert(0, nom);
-    parties.push(format!("{}", largeur.round() as i64));
+    if let Some(l) = largeur {
+        parties.push(format!("{}", l.round() as i64));
+    }
     let nouveau = parties.join("|");
     let ligne = texte.replacen(&format!("[[{target}]]"), &format!("[[{nouveau}]]"), 1);
     if ligne == texte {
@@ -2114,6 +2199,16 @@ fn formater(f: &AppWindow, e: &mut Etat, action: &str) {
     }
     if action == "weblink" {
         return touche_web(f, e, block, &texte, cursor, anchor);
+    }
+    // A selection over several lines: each line's words get the mark.
+    if let Some(note) = &e.note {
+        let ba = block::locate(&note.blocks, e.ed.ancre.min(note.text.len())).0;
+        let bt = block::locate(&note.blocks, e.ed.tete.min(note.text.len())).0;
+        if ba != bt && action != "link" {
+            f.set_note_card(SharedString::default());
+            blocs::marquer(f, e, action);
+            return;
+        }
     }
     let r = match action.strip_prefix("colour:") {
         Some(reste) => {
@@ -3142,6 +3237,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         nouvel_onglet: false,
         source: false,
         cellules: cellules::Cellules::default(),
+        defilements: std::collections::HashMap::new(),
         ed: saisie::Editeur::nouveau(),
     }));
     sheet::wire(f, &etat);

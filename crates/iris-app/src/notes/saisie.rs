@@ -64,6 +64,9 @@ pub(super) struct Editeur {
     /// While a picture is carried: where it would go (the note's coordinates), or the
     /// rectangle it would take once resized.
     repere: Option<(f32, f32, f32, f32)>,
+    /// The last thing done was typing (or a mark put): the next Right may step over
+    /// the signs that close it.
+    apres_frappe: bool,
     pub modele: Rc<VecModel<NoteViewBlock>>,
 }
 
@@ -81,6 +84,7 @@ impl Editeur {
             glisse: None,
             clic: None,
             repere: None,
+            apres_frappe: false,
             modele: Rc::new(VecModel::default()),
         }
     }
@@ -115,9 +119,9 @@ fn theme(f: &AppWindow, e: &Etat) -> (Couleurs, Polices) {
         palette: e.palette.clone(),
     };
     let p = Polices {
-        corps: t.get_font_family().to_string(),
+        corps: t.get_font_note().to_string(),
         mono: t.get_font_mono().to_string(),
-        titre: t.get_font_display().to_string(),
+        titre: t.get_font_note().to_string(),
     };
     (c, p)
 }
@@ -283,11 +287,12 @@ fn marque(e: &Etat, i: usize) -> usize {
     contenu(e, i).map_or(0, |(k, t)| render::prefixe(&k, &t))
 }
 
-/// An offset kept out of the hidden mark of its block.
+/// An offset kept out of the hidden mark of its block (a heading's `#` excepted: they
+/// show when the cursor comes to them).
 fn hors_marque(e: &Etat, global: usize) -> usize {
     let (i, local) = situer(e, global);
     let m = marque(e, i);
-    if local < m {
+    if local < m && !titre(e, i) {
         debut(e, i) + m
     } else {
         global
@@ -534,6 +539,7 @@ fn taper(f: &AppWindow, e: &mut Etat, texte: &str) {
     let (i, c) = situer(e, e.ed.tete);
     // What a key means here first: a line start converted, a pair closed.
     if texte.chars().count() == 1 && touche(f, e, i, texte, c, c) {
+        vient_d_ecrire(e);
         return;
     }
     let Some((_, content)) = contenu(e, i) else {
@@ -542,6 +548,7 @@ fn taper(f: &AppWindow, e: &mut Etat, texte: &str) {
     let c = c.min(content.len());
     let nouveau = format!("{}{texte}{}", &content[..c], &content[c..]);
     editer_bloc(f, e, i, &nouveau, c + texte.len());
+    vient_d_ecrire(e);
 }
 
 /// The character boundary before or after `k` in `t`.
@@ -628,40 +635,142 @@ fn mot_autour(t: &str, k: usize) -> (usize, usize) {
     (a, b)
 }
 
-/// Left or Right: a character (or a word, Ctrl), past a block's hidden mark to the
-/// block beside; the selection collapsed to its side, or grown (Shift).
+/// The closing signs right after `k` in a line (`**` after `**mot`, `**_` after
+/// `**_mot`): how many bytes they take; 0 when none close a mark opened before.
+fn fermantes(t: &str, k: usize) -> usize {
+    const SIGNES: [&str; 12] = [
+        "{/}", "**", "__", "~~", "==", "--", "*", "_", "`", "^", "~", "$",
+    ];
+    let mut p = k.min(t.len());
+    'suivant: loop {
+        for s in SIGNES {
+            if !t[p..].starts_with(s) {
+                continue;
+            }
+            // A colour always closes; the others close what an odd count opened.
+            let avant = &t[..p];
+            if s == "{/}" || avant.matches(s).count() % 2 == 1 {
+                p += s.len();
+                continue 'suivant;
+            }
+        }
+        break;
+    }
+    p - k.min(t.len())
+}
+
+/// The line of a block's source around `local` (a block of several lines: each
+/// line's own), from `premiere` on the first line (past a hidden mark).
+fn ligne_autour(t: &str, local: usize, premiere: usize) -> (usize, usize) {
+    let local = local.min(t.len());
+    let debut = t[..local]
+        .rfind('\n')
+        .map_or(premiere.min(t.len()), |k| k + 1);
+    let fin = t[local..].find('\n').map_or(t.len(), |k| local + k);
+    (debut, fin)
+}
+
+/// Left or Right: a character, past a block's hidden mark to the block beside; with
+/// Ctrl, the line's start or end (a list item's, a heading's words'), then the line
+/// beside's. Right just after typing steps over the signs that close the mark typed
+/// in (`**mot|**`): once, so they can still be gone into after. In a table, from cell
+/// to cell. The selection collapsed to its side, or grown (Shift).
 fn horizontal(f: &AppWindow, e: &mut Etat, gauche: bool, etendre: bool, par_mot: bool) {
     let Some(note) = &e.note else { return };
     let t = note.text.clone();
+    let n_blocs = note.blocks.len();
     let (a, b) = e.ed.bornes();
     e.ed.x_voulu = None;
+    let frappe = std::mem::take(&mut e.ed.apres_frappe);
     if !etendre && a != b {
         let p = if gauche { a } else { b };
         placer(f, e, p, p);
         return;
     }
-    let mut p = e.ed.tete;
-    let (i, local) = situer(e, p);
-    if gauche && local <= marque(e, i) && i > 0 {
-        // Into the line above, at its end.
-        let n = contenu(e, i - 1).map_or(0, |(_, t)| t.len());
-        p = debut(e, i - 1) + n;
-    } else if !gauche
-        && contenu(e, i).is_some_and(|(_, c)| local >= c.len())
-        && i + 1 < note.blocks.len()
-    {
-        p = debut(e, i + 1) + marque(e, i + 1);
-    } else if par_mot {
-        p = mot_voisin(&t, p, gauche);
-    } else {
-        p = voisin(&t, p, gauche);
+    let (i, local) = situer(e, e.ed.tete);
+    let Some((kind, content)) = contenu(e, i) else {
+        return;
+    };
+    let base = debut(e, i);
+    let m = marque(e, i);
+    // A heading's `#` can be gone into: only the other marks stop the cursor.
+    let dur = if titre(e, i) { 0 } else { m };
+    let fin_du_bloc = |e: &Etat, j: usize| debut(e, j) + contenu(e, j).map_or(0, |(_, t)| t.len());
+    let mut cible = None;
+    if par_mot {
+        let (ls, le) = ligne_autour(&content, local, m);
+        cible = Some(if gauche {
+            if local > ls {
+                base + ls
+            } else if ls > m {
+                // The line above in the same block.
+                base + ligne_autour(&content, ls - 1, m).0
+            } else if i > 0 {
+                let avant = contenu(e, i - 1).map_or(String::new(), |(_, t)| t);
+                let fin = avant.len();
+                debut(e, i - 1) + ligne_autour(&avant, fin, marque(e, i - 1)).0
+            } else {
+                base + ls
+            }
+        } else if local < le {
+            base + le
+        } else if le < content.len() {
+            base + ligne_autour(&content, le + 1, m).1
+        } else if i + 1 < n_blocs {
+            let apres = contenu(e, i + 1).map_or(String::new(), |(_, t)| t);
+            let m2 = marque(e, i + 1);
+            debut(e, i + 1) + ligne_autour(&apres, m2, m2).1
+        } else {
+            base + le
+        });
+    } else if kind == BlockKind::Table {
+        let cases: Vec<(usize, usize)> =
+            edit::table_cells(&content).into_iter().flatten().collect();
+        if gauche {
+            if let Some(k) = cases.iter().position(|(s, _)| *s == local) {
+                cible = Some(match k.checked_sub(1).and_then(|k| cases.get(k)) {
+                    Some(&(_, fin)) => base + fin,
+                    None if i > 0 => fin_du_bloc(e, i - 1),
+                    None => base + local,
+                });
+            }
+        } else if let Some(k) = cases.iter().position(|(_, fin)| *fin == local) {
+            cible = Some(match cases.get(k + 1) {
+                Some(&(s, _)) => base + s,
+                None if i + 1 < n_blocs => debut(e, i + 1) + marque(e, i + 1),
+                None => base + local,
+            });
+        }
     }
+    let p = match cible {
+        Some(p) => p,
+        None if gauche && local <= dur && i > 0 => fin_du_bloc(e, i - 1),
+        None if !gauche && local >= content.len() && i + 1 < n_blocs => {
+            debut(e, i + 1) + marque(e, i + 1)
+        }
+        None if !gauche && frappe && fermantes(&content, local) > 0 => {
+            base + local + fermantes(&content, local)
+        }
+        None => voisin(&t, e.ed.tete, gauche),
+    };
     let ancre = if etendre { e.ed.ancre } else { p };
     placer(f, e, ancre, p);
 }
 
+/// Whether block `i` is a heading: its `#` hidden but reachable, shown dimmed when
+/// the cursor is at its words' start.
+fn titre(e: &Etat, i: usize) -> bool {
+    contenu(e, i).is_some_and(|(k, _)| matches!(k, BlockKind::Heading(_)))
+}
+
+/// After something typed: the next Right may step over the signs closing it.
+pub(super) fn vient_d_ecrire(e: &mut Etat) {
+    e.ed.apres_frappe = true;
+}
+
 /// Up or Down a line, aiming at the same left, across blocks.
 fn vertical(f: &AppWindow, e: &mut Etat, haut: bool, etendre: bool, lignes: usize) {
+    e.ed.apres_frappe = false;
     let (bi, local) = situer(e, e.ed.tete);
     let Some((x, y, h)) = e.ed.vue.get(bi).and_then(|bv| bv.curseur(local)) else {
         return;
@@ -729,6 +838,7 @@ fn vertical(f: &AppWindow, e: &mut Etat, haut: bool, etendre: bool, lignes: usiz
 
 /// Home and End: the line's start or end (Ctrl: the note's).
 fn bout(f: &AppWindow, e: &mut Etat, fin: bool, etendre: bool, note_entiere: bool) {
+    e.ed.apres_frappe = false;
     let len = e.note.as_ref().map_or(0, |n| n.text.len());
     let p = if note_entiere {
         if fin {
@@ -738,12 +848,25 @@ fn bout(f: &AppWindow, e: &mut Etat, fin: bool, etendre: bool, note_entiere: boo
         }
     } else {
         let (bi, local) = situer(e, e.ed.tete);
-        let Some(bv) = e.ed.vue.get(bi) else { return };
-        let Some((_, y, h)) = bv.curseur(local) else {
-            return;
-        };
-        let x = if fin { 1.0e6 } else { -1.0e6 };
-        debut(e, bi) + bv.point(x, y + h / 2.0).unwrap_or(local)
+        // In a table: the cell's start or end.
+        let cellule = contenu(e, bi)
+            .filter(|(k, _)| *k == BlockKind::Table)
+            .and_then(|(_, t)| {
+                edit::table_cells(&t)
+                    .into_iter()
+                    .flatten()
+                    .find(|(s, f)| local >= *s && local <= *f)
+            });
+        if let Some((s, f_)) = cellule {
+            debut(e, bi) + if fin { f_ } else { s }
+        } else {
+            let Some(bv) = e.ed.vue.get(bi) else { return };
+            let Some((_, y, h)) = bv.curseur(local) else {
+                return;
+            };
+            let x = if fin { 1.0e6 } else { -1.0e6 };
+            debut(e, bi) + bv.point(x, y + h / 2.0).unwrap_or(local)
+        }
     };
     e.ed.x_voulu = None;
     let ancre = if etendre { e.ed.ancre } else { p };
@@ -816,6 +939,13 @@ fn presse_papiers() -> String {
 
 /// A key while the editor has the keyboard. True when it was used.
 pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
+    // Its right-click menu open owns the keyboard: only Escape, which closes it.
+    if f.get_note_edit_menu_open() {
+        if nom == "escape" {
+            f.set_note_edit_menu_open(false);
+        }
+        return true;
+    }
     // An embedded spreadsheet's cells take the keys while they are selected.
     if e.cellules.choix.is_some() {
         let pris = cellules::touche(f, e, nom);
@@ -968,18 +1098,46 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
                 return true;
             }
             let m = marque(e, i);
-            if c <= m {
+            // In a heading's `#` (shown there): one goes, or at the line's very start
+            // the line joins the one above.
+            let dans_les_signes = titre(e, i) && c < m;
+            if dans_les_signes && c == 0 {
+                if let Some(ed) = e
+                    .note
+                    .as_ref()
+                    .and_then(|n| edit::join_with_previous(&n.blocks, i))
+                {
+                    retenir(e, true);
+                    appliquer(f, e, ed, true, None);
+                }
+                return true;
+            }
+            if c <= m && !dans_les_signes {
                 // At the line's start: its mark goes, then it joins the line above.
                 touche(f, e, i, "backspace-start", c, c);
                 return true;
             }
-            let Some((_, content)) = contenu(e, i) else {
+            let Some((kind, content)) = contenu(e, i) else {
                 return true;
             };
+            let plancher = if dans_les_signes { 0 } else { m };
+            // In a table, the cell's words only: its `|` stay.
+            let cellule = (kind == BlockKind::Table)
+                .then(|| {
+                    edit::table_cells(&content)
+                        .into_iter()
+                        .flatten()
+                        .find(|(s, f_)| c >= *s && c <= *f_)
+                })
+                .flatten();
+            if cellule.is_some_and(|(s, _)| c <= s) {
+                return true;
+            }
+            let plancher = cellule.map_or(plancher, |(s, _)| s);
             let k = if ctrl {
-                mot_voisin(&content, c, true).max(m)
+                mot_voisin(&content, c, true).max(plancher)
             } else {
-                voisin(&content, c, true).max(m)
+                voisin(&content, c, true).max(plancher)
             };
             let nouveau = format!("{}{}", &content[..k], &content[c.min(content.len())..]);
             editer_bloc(f, e, i, &nouveau, k);
@@ -989,9 +1147,20 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
             if effacer_selection(f, e) {
                 return true;
             }
-            let Some((_, content)) = contenu(e, i) else {
+            let Some((kind, content)) = contenu(e, i) else {
                 return true;
             };
+            let cellule = (kind == BlockKind::Table)
+                .then(|| {
+                    edit::table_cells(&content)
+                        .into_iter()
+                        .flatten()
+                        .find(|(s, f_)| c >= *s && c <= *f_)
+                })
+                .flatten();
+            if cellule.is_some_and(|(_, f_)| c >= f_) {
+                return true;
+            }
             if c >= content.len() {
                 touche(f, e, i, "delete", c, c);
                 return true;
@@ -1001,14 +1170,20 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
             } else {
                 voisin(&content, c, false)
             };
+            let k = cellule.map_or(k, |(_, f_)| k.min(f_));
             let nouveau = format!("{}{}", &content[..c], &content[k..]);
             editer_bloc(f, e, i, &nouveau, c);
             return true;
         }
         _ => {}
     }
-    // Across blocks: what acts on whole blocks.
+    // Across blocks: a mark goes on each line's words (a line and the break after it
+    // selected, too); the rest acts on whole blocks.
     if !dans_le_bloc {
+        if let Some(m) = super::marque_de_touche(&bas).filter(|m| *m != "link") {
+            super::blocs::marquer(f, e, m);
+            return true;
+        }
         let premier = ia;
         let dernier = if b == debut(e, ib) && ib > ia {
             ib - 1
@@ -1027,6 +1202,7 @@ pub(super) fn touche_editeur(f: &AppWindow, e: &mut Etat, nom: &str) -> bool {
 
 /// The pointer pressed at `(x, y)` (the editor's coordinates).
 pub(super) fn presse(f: &AppWindow, e: &mut Etat, x: f32, y: f32, shift: bool, ctrl: bool) {
+    e.ed.apres_frappe = false;
     if e.note.is_none() || e.ed.vue.is_empty() {
         return;
     }
@@ -1070,6 +1246,14 @@ pub(super) fn presse(f: &AppWindow, e: &mut Etat, x: f32, y: f32, shift: bool, c
                     let p = debut(e, bi);
                     placer(f, e, p, p);
                     e.ed.glisse = Some(Glisse::Image { bloc: bi, y0: y });
+                    clavier(f);
+                }
+                return;
+            }
+            Action::AjouterLigne | Action::AjouterColonne => {
+                if let Some((_, t)) = contenu(e, bi) {
+                    let r = edit::table_grow(&t, cible.action == Action::AjouterColonne);
+                    super::remplacer(f, e, bi, &r.text, r.cursor, r.cursor);
                     clavier(f);
                 }
                 return;
@@ -1301,6 +1485,130 @@ pub(super) fn survol(f: &AppWindow, e: &Etat, x: f32, y: f32) {
     }
 }
 
+/// A right-click at `(x, y)` in the note (`(wx, wy)` in the window): on a picture, its
+/// menu, the picture selected; on the words selected, theirs; elsewhere the cursor
+/// goes there and the menu offers to paste.
+pub(super) fn menu(f: &AppWindow, e: &mut Etat, x: f32, y: f32, wx: f32, wy: f32) {
+    if e.note.is_none() || e.ed.vue.is_empty() || e.reading {
+        return;
+    }
+    e.ed.apres_frappe = false;
+    let bi = e.ed.bloc_a(y.max(0.0));
+    let yb = y - e.ed.ys[bi];
+    let image = match contenu(e, bi) {
+        Some((BlockKind::Embed { target }, _)) if render::is_picture(&target) => e.ed.vue[bi]
+            .objet
+            .filter(|(ox, oy, ow, oh)| x >= *ox && x <= ox + ow && yb >= *oy && yb <= oy + oh)
+            .map(|_| target),
+        _ => None,
+    };
+    let genre = if let Some(target) = image {
+        cellules::quitter(f, e);
+        let p = debut(e, bi);
+        placer(f, e, p, p);
+        f.set_note_edit_menu_resized(
+            dessin::largeur_demandee(&target).is_some()
+                || dessin::boite_demandee(&target).is_some(),
+        );
+        "image"
+    } else {
+        let (a, b) = e.ed.bornes();
+        let p = sous(e, x, y).unwrap_or(e.ed.tete);
+        if a < b && p >= a && p <= b {
+            "selection"
+        } else {
+            cellules::quitter(f, e);
+            placer(f, e, p, p);
+            "text"
+        }
+    };
+    super::fermer_popups(f, e);
+    f.set_note_edit_menu_kind(genre.into());
+    f.set_note_edit_menu_x(wx);
+    f.set_note_edit_menu_y(wy);
+    f.set_note_edit_menu_open(true);
+}
+
+/// What the menu of a right-click does.
+pub(super) fn menu_choisi(f: &AppWindow, e: &mut Etat, action: &str) {
+    let (i, _) = situer(e, e.ed.tete);
+    let image = match contenu(e, i) {
+        Some((BlockKind::Embed { target }, ligne)) => Some((target, ligne)),
+        _ => None,
+    };
+    let fichier = || {
+        let (target, _) = image.as_ref()?;
+        let dir = e.espace()?.dir().to_path_buf();
+        render::embedded_file(target, &dir)
+    };
+    match action {
+        "cut" | "copy" | "paste" | "select-all" => {
+            let touche = match action {
+                "cut" => "ctrl+x",
+                "copy" => "ctrl+c",
+                "paste" => "ctrl+v",
+                _ => "ctrl+a",
+            };
+            touche_editeur(f, e, touche);
+        }
+        "task" => {
+            let (i, c) = situer(e, e.ed.tete);
+            touche(f, e, i, "ctrl+shift+t", c, c);
+        }
+        "image-copy" => {
+            let pris = fichier()
+                .and_then(|p| image::open(p).ok())
+                .map(|img| img.to_rgba8())
+                .is_some_and(|rgba| {
+                    let (w, h) = rgba.dimensions();
+                    crate::presse::Clipboard::new()
+                        .and_then(|mut p| {
+                            p.set_image(crate::presse::ImageData {
+                                width: w as usize,
+                                height: h as usize,
+                                bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+                            })
+                        })
+                        .is_ok()
+                });
+            if !pris {
+                f.set_status("Could not copy the image.".into());
+            }
+        }
+        "image-link" => {
+            if let (Some((target, _)), Ok(mut p)) = (&image, crate::presse::Clipboard::new()) {
+                let nom = target.split('|').next().unwrap_or(target).trim();
+                let _ = p.set_text(format!("![[{nom}]]"));
+            }
+        }
+        "image-size" => super::largeur_image_d_origine(f, e, i),
+        "image-open" => {
+            if let Some(p) = fichier() {
+                if let Err(err) = crate::platform::open_path(&p) {
+                    f.set_status(format!("Could not open it: {err}").into());
+                }
+            }
+        }
+        "image-reveal" => {
+            if let Some(p) = fichier() {
+                if let Err(err) = super::bin::reveal(&p) {
+                    f.set_status(format!("{err}").into());
+                }
+            }
+        }
+        "image-delete" => {
+            if image.is_some() {
+                sur_objet(f, e, i, "delete", "");
+            }
+        }
+        // A mark, a colour, a link: as the bubble over the words puts them.
+        "bold" | "italic" | "underline" | "strike" | "highlight" | "code" | "colour"
+        | "weblink" => super::formater(f, e, action),
+        _ => {}
+    }
+    clavier(f);
+}
+
 /// The window's calls for the editor.
 pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
     f.set_note_view(ModelRc::from(Rc::clone(&etat.borrow().ed.modele)));
@@ -1334,6 +1642,19 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
     geste!(on_note_canvas_hovered, |f, e, x, y| {
         survol(&f, e, x, y);
     });
+    geste!(on_note_canvas_menu, |f, e, x, y, wx, wy| {
+        menu(&f, e, x, y, wx, wy);
+    });
+    {
+        let (etat, faible) = (Rc::clone(etat), f.as_weak());
+        f.on_note_edit_menu_chosen(move |action| {
+            let Some(f) = faible.upgrade() else { return };
+            let Ok(mut e) = etat.try_borrow_mut() else {
+                return;
+            };
+            menu_choisi(&f, &mut e, &action);
+        });
+    }
     {
         let (etat, faible) = (Rc::clone(etat), f.as_weak());
         f.on_note_canvas_key(move |nom| {
@@ -1399,6 +1720,23 @@ mod tests {
         assert_eq!(mot_voisin(t, 3, false), 6);
         assert_eq!(voisin("é", 0, false), 2);
         assert_eq!(voisin("aé", 3, true), 1);
+    }
+
+    #[test]
+    fn right_after_typing_steps_over_the_signs_that_close() {
+        assert_eq!(fermantes("**mot**", 5), 2);
+        assert_eq!(fermantes("***mot***", 6), 3);
+        assert_eq!(fermantes("{r}mot{/}", 6), 3);
+        // An opening sign is not stepped over.
+        assert_eq!(fermantes("a **mot**", 2), 0);
+        assert_eq!(fermantes("mot", 3), 0);
+    }
+
+    #[test]
+    fn ctrl_and_an_arrow_go_to_the_line_s_ends() {
+        assert_eq!(ligne_autour("- un item", 5, 2), (2, 9));
+        assert_eq!(ligne_autour("a\nbc\nd", 3, 0), (2, 4));
+        assert_eq!(ligne_autour("a\nbc\nd", 0, 0), (0, 1));
     }
 
     #[test]

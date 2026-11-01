@@ -4,6 +4,13 @@
 // comes from here, which is what lets one switch repaint the whole window.
 
 import { Motion } from "@iris/theme/motion.slint";
+// Inter (OFL, `fonts/Inter-LICENSE.txt`), the notes' type: carried in the app, so a
+// note reads the same on every machine. The editor registers the same files with its
+// own layout (`notes/editeur`).
+import "fonts/Inter-Regular.ttf";
+import "fonts/Inter-Italic.ttf";
+import "fonts/Inter-Bold.ttf";
+import "fonts/Inter-BoldItalic.ttf";
 
 export global Tokens {
     // --- Colours ---
@@ -75,6 +82,8 @@ export global Tokens {
     /// Titles: the same family, cut for display sizes.
     in-out property <string> font-display: "Segoe UI Variable Display";
     in-out property <string> font-mono: "Cascadia Mono";
+    /// A note's words and headings (the editor's, its title): Inter, as in Obsidian.
+    in-out property <string> font-note: "Inter";
     in-out property <length> size-small: 12px;
     in-out property <length> size-body: 13.5px;
     in-out property <length> size-title: 15px;

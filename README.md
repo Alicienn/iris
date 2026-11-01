@@ -206,8 +206,15 @@ Keys: `N` new, `J` / `K` move, `Space` done, `D` due date, `L` later, `Delete`.
 Notes are Markdown files in folders on your disk (a **space**), so any app can read
 them; an Obsidian vault opens as it is.
 
-- **Written as they look**: headings, lists, checkboxes and quotes are converted as
-  you type; only the mark under the cursor shows its signs.
+- **Written as they look**, in Inter: headings, lists, checkboxes and quotes are
+  converted as you type; only the mark under the cursor shows its signs, and a
+  heading's `#` show, dimmed, when the cursor is at its start.
+- **Tables** are written as a grid: `Tab` goes to the next cell, `Enter` adds a row
+  (on an empty last row, it leaves the table), the `+` on its edges add a row or a
+  column.
+- **Pictures** keep their proportions; drag their left or right edge to resize them.
+- **Right-click** selected words to format, copy or make them a task, or a picture to
+  copy it, open it or put it back to its size.
 - **Maths** in LaTeX, drawn as in a book, with `Tab` shortcuts (`//` a fraction, `sq` a
   root, `mat2`…).
 - **Links** between notes (`[[Note]]`, `@Note`), renamed everywhere when a note moves;
@@ -215,8 +222,10 @@ them; an Obsidian vault opens as it is.
 - **Spreadsheets** (`.sheet`) with formulas, formats and Excel/CSV export, shown in a
   note with `![[Budget.sheet]]`.
 - **Flashcards** (`Question :: Answer`), revised with spaced repetition.
-- **Tabs**, a note **beside** another (`Ctrl`+`\`), reading mode (`Ctrl`+`R`), focus
-  mode (`F11`), version history.
+- **Tabs**, each back where you left it, a note **beside** another (`Ctrl`+`\`),
+  reading mode (`Ctrl`+`R`), focus mode (`F11`), version history.
+- `Ctrl`+`←` / `Ctrl`+`→` go to the line's start or end; `→` right after typing a mark
+  steps out of it (`**word**|`).
 - **With the rest of Iris**: links to a conversation, an event or a task; a checkbox
   made a task stays ticked with it.
 
@@ -231,7 +240,8 @@ them; an Obsidian vault opens as it is.
 | `[[Note]]`, `@Note` | A link to a note | `Ctrl`+`L` |
 | `[text](https://…)` | A web link | `Ctrl`+`K` |
 | `# ` … `###### ` | Headings | `Ctrl`+`H` |
-| `- `, `1. `, `[] ` | Bullets, numbers, a checkbox | `Ctrl`+`Enter` ticks |
+| `- `, `1. `, `[] ` | Bullets, numbers, a checkbox | `Ctrl`+`Enter` ticks, `Tab` nests (numbers start at 1) |
+| `\| a \| b \|` | A table | `Tab` next cell, `Enter` new row |
 | `>def `, `>thm `, `>tip `… | A callout, numbered | |
 | `Question :: Answer` | A flashcard | |
 | `/` | Every block, with a preview | |
@@ -277,6 +287,7 @@ itself comes from your servers on each device.
 | `Escape` | Close, leave full screen, a search or a selection |
 | `Ctrl`+`N` / `Ctrl`+`O` / `Ctrl`+`Shift`+`F` | Notes: new / open / search |
 | `Ctrl`+`T` / `Ctrl`+`W` / `Ctrl`+`Tab` | Notes: new tab / close / next tab |
+| `Ctrl`+`←` / `Ctrl`+`→` | Notes: the line's start / end |
 | `?` | Every key |
 
 ## Current limits
@@ -321,4 +332,4 @@ what happened. Never include a password or the content of a private message.
 ---
 
 <sub>To contribute or see how Iris is built, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-Licensed under MIT or Apache-2.0, at your option.</sub>
+Licensed under MIT or Apache-2.0, at your option; the Inter font, under the SIL Open Font License.</sub>

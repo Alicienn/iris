@@ -516,8 +516,142 @@ pub fn indent(content: &str, out: bool) -> String {
         }
         content.to_string()
     } else {
+        // A numbered item nested starts a list of its own, at 1; taken out again, it is
+        // counted on with the items around it (`render::numbering`).
+        let retrait = content.len() - content.trim_start_matches([' ', '\t']).len();
+        let t = &content[retrait..];
+        let chiffres = t.bytes().take_while(u8::is_ascii_digit).count();
+        if chiffres > 0 && (t[chiffres..].starts_with(". ") || t[chiffres..].starts_with(") ")) {
+            return format!("  {}1{}", &content[..retrait], &t[chiffres..]);
+        }
         format!("  {content}")
     }
+}
+
+/// The cells of a table's rows, as places to write: for each cell, where its words
+/// start and end in the table's source (an empty cell: a place one space in).
+pub fn table_cells(content: &str) -> Vec<Vec<(usize, usize)>> {
+    let mut rangees = Vec::new();
+    let mut debut = 0;
+    for (i, l) in content.split('\n').enumerate() {
+        let ligne = l.trim_end_matches('\r');
+        let ici = debut;
+        debut += l.len() + 1;
+        let t = ligne.trim();
+        if t.is_empty() || (i == 1 && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' '))) {
+            rangees.push(Vec::new());
+            continue;
+        }
+        let morceaux: Vec<&str> = ligne.split('|').collect();
+        let n = morceaux.len();
+        let mut k = 0;
+        let mut cases = Vec::new();
+        for (j, m) in morceaux.iter().enumerate() {
+            let a = k;
+            k += m.len() + 1;
+            if (j == 0 || j + 1 == n) && m.trim().is_empty() {
+                continue;
+            }
+            let mots = m.trim();
+            let (s, e) = if mots.is_empty() {
+                let p = ici + a + m.len().min(1);
+                (p, p)
+            } else {
+                let s = ici + a + (m.len() - m.trim_start().len());
+                (s, s + mots.len())
+            };
+            cases.push((s, e));
+        }
+        rangees.push(cases);
+    }
+    rangees
+}
+
+/// Enter in a table, the cursor at `cursor`: a row of empty cells under the cursor's,
+/// the cursor in its first. On an empty last row, that row goes and `None` says the
+/// table is left (a line of words under it).
+pub fn table_new_row(content: &str, cursor: usize) -> Option<Edit> {
+    let rangees = table_cells(content);
+    let cursor = limite(content, cursor);
+    // The row holding the cursor: its line.
+    let debut_ligne = content[..cursor].rfind('\n').map_or(0, |k| k + 1);
+    let fin_ligne = content[cursor..]
+        .find('\n')
+        .map_or(content.len(), |k| cursor + k);
+    let ligne_no = content[..debut_ligne].matches('\n').count();
+    let colonnes = rangees.iter().map(Vec::len).max().unwrap_or(1).max(1);
+    let derniere = content[fin_ligne..].trim().is_empty();
+    let vide = rangees
+        .get(ligne_no)
+        .is_some_and(|c| !c.is_empty() && c.iter().all(|(s, e)| s == e));
+    if vide && derniere && ligne_no >= 2 {
+        return None;
+    }
+    // Under the separator when the cursor is in the header.
+    let apres = if ligne_no == 0 {
+        content[fin_ligne..]
+            .get(1..)
+            .and_then(|r| r.find('\n').map(|k| fin_ligne + 1 + k))
+            .unwrap_or(content.len())
+    } else {
+        fin_ligne
+    };
+    let ligne = format!("\n|{}", "  |".repeat(colonnes));
+    let t = format!("{}{ligne}{}", &content[..apres], &content[apres..]);
+    Some(Edit::at(t, apres + 3))
+}
+
+/// The table's source with a row of empty cells at its end, or a column of them at
+/// the end of every row (`colonne`); the cursor in the first new cell.
+pub fn table_grow(content: &str, colonne: bool) -> Edit {
+    let le = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let lignes: Vec<&str> = content
+        .split('\n')
+        .map(|l| l.trim_end_matches('\r'))
+        .collect();
+    if !colonne {
+        let colonnes = table_cells(content)
+            .iter()
+            .map(Vec::len)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let corps = content.trim_end_matches(['\n', '\r']);
+        let t = format!("{corps}{le}|{}", "  |".repeat(colonnes));
+        let c = corps.len() + le.len() + 2;
+        return Edit::at(t, c);
+    }
+    let mut sortie = Vec::with_capacity(lignes.len());
+    let mut curseur = 0;
+    let mut k = 0;
+    for (i, l) in lignes.iter().enumerate() {
+        let l = l.trim_end();
+        let ajout = if l.is_empty() {
+            String::new()
+        } else if i == 1 && l.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ')) {
+            if l.ends_with('|') {
+                " --- |"
+            } else {
+                " | --- |"
+            }
+            .to_string()
+        } else if l.ends_with('|') {
+            "  |".to_string()
+        } else {
+            " |  |".to_string()
+        };
+        let ligne = format!("{l}{ajout}");
+        if i == 0 {
+            curseur = k + ligne.len() - 2;
+        }
+        k += ligne.len() + le.len();
+        sortie.push(ligne);
+    }
+    Edit::at(sortie.join(le), curseur)
 }
 
 /// Ticks a checkbox or unticks it; a line that is not one becomes one.
@@ -561,6 +695,9 @@ pub fn auto_pair(content: &str, anchor: usize, cursor: usize, typed: char) -> Op
             '$'
         }
         '$' => '$',
+        // Alone, typed as it is: three make a code fence, and a pair would stand in the
+        // way of each.
+        '`' if s == e => return None,
         '`' => '`',
         ')' | ']' | '}' => {
             return (s == e && content[e..].starts_with(typed))
@@ -1167,6 +1304,10 @@ mod tests {
         assert_eq!(indent("- a", false), "  - a");
         assert_eq!(indent("  - a", true), "- a");
         assert_eq!(indent("texte", false), "texte");
+        // A numbered item nested starts its own list at 1.
+        assert_eq!(indent("4. a", false), "  1. a");
+        assert_eq!(indent("  2) b", false), "    1) b");
+        assert_eq!(indent("  1. a", true), "1. a");
         assert_eq!(toggle_task("- [ ] a"), "- [x] a");
         assert_eq!(toggle_task("  - [x] a"), "  - [ ] a");
         assert_eq!(toggle_task("- a"), "- [ ] a");
@@ -1212,5 +1353,43 @@ mod tests {
         let e = replace_block(&block::parse("a\nb\n"), 1, "# B", 3);
         assert_eq!(e.text, "a\n# B\n");
         assert_eq!((e.block, e.cursor), (1, 3));
+    }
+
+    #[test]
+    fn a_table_is_written_cell_by_cell() {
+        let t = "| a | b |\n|---|---|\n| c | d |";
+        let cases = table_cells(t);
+        assert_eq!(cases[0], vec![(2, 3), (6, 7)]);
+        assert!(cases[1].is_empty(), "the separator holds no cell");
+        assert_eq!(cases[2], vec![(22, 23), (26, 27)]);
+        // Enter in a row: an empty row under it, the cursor in its first cell.
+        let r = table_new_row(t, 23).unwrap();
+        assert_eq!(r.text, "| a | b |\n|---|---|\n| c | d |\n|  |  |");
+        assert_eq!(r.cursor, 32);
+        assert_eq!(table_cells(&r.text)[3], vec![(32, 32), (35, 35)]);
+        // Enter on that empty last row: the table is left.
+        assert!(table_new_row(&r.text, 32).is_none());
+        // In the header: the row goes under the separator.
+        let r = table_new_row(t, 2).unwrap();
+        assert_eq!(r.text, "| a | b |\n|---|---|\n|  |  |\n| c | d |");
+        assert_eq!(r.cursor, 22);
+    }
+
+    #[test]
+    fn a_table_grows_by_a_row_or_a_column() {
+        let t = "| a | b |\n|---|---|\n| c | d |";
+        let r = table_grow(t, false);
+        assert_eq!(r.text, "| a | b |\n|---|---|\n| c | d |\n|  |  |");
+        assert_eq!(r.cursor, 32);
+        let r = table_grow(t, true);
+        assert_eq!(r.text, "| a | b |  |\n|---|---| --- |\n| c | d |  |");
+        assert_eq!(r.cursor, 10);
+        assert_eq!(table_cells(&r.text)[0][2], (10, 10));
+    }
+
+    #[test]
+    fn a_backtick_is_typed_alone_and_wraps_a_selection() {
+        assert!(auto_pair("x ", 2, 2, '`').is_none());
+        assert_eq!(auto_pair("ab", 0, 2, '`').unwrap().text, "`ab`");
     }
 }

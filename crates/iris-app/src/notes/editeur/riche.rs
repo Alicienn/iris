@@ -157,6 +157,33 @@ impl Riche {
         );
     }
 
+    /// `autre` shown right after, on the same line (its source offsets kept).
+    pub fn joindre(&mut self, autre: Riche) {
+        let base = self.texte.len();
+        self.texte.push_str(&autre.texte);
+        self.styles.extend(
+            autre
+                .styles
+                .into_iter()
+                .map(|(r, p)| (r.start + base..r.end + base, p)),
+        );
+        self.formules
+            .extend(autre.formules.into_iter().map(|mut f| {
+                f.index += base;
+                f
+            }));
+        self.carte.extend(autre.carte.into_iter().map(|t| Troncon {
+            affiche: t.affiche.start + base..t.affiche.end + base,
+            source: t.source,
+        }));
+        self.liens.extend(
+            autre
+                .liens
+                .into_iter()
+                .map(|(r, l)| (r.start + base..r.end + base, l)),
+        );
+    }
+
     /// The source offset a shown offset comes from.
     pub fn vers_source(&self, affiche: usize) -> usize {
         let mut meilleur: Option<&Troncon> = None;
