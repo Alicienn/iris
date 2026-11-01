@@ -791,7 +791,7 @@ impl Store {
             let motif = format!("%{}%", fragment.replace('%', "\\%").replace('_', "\\_"));
             let mut stmt = c
                 .prepare_cached(
-                    "SELECT addr_key, display, received_count
+                    "SELECT addr_key, display, received_count, last_seen_at
                      FROM contacts_seen
                      WHERE addr_key LIKE ?1 ESCAPE '\\'
                         OR lower(display) LIKE ?1 ESCAPE '\\'
@@ -801,17 +801,30 @@ impl Store {
                 .map_err(|e| sql_err("préparation", e))?;
 
             let rows = stmt
-                .query_map(params![motif, limit as i64], |r| {
-                    Ok(Contact {
-                        address: r.get(0)?,
-                        display: r.get(1)?,
-                        seen: r.get::<_, i64>(2)? as u32,
-                    })
-                })
+                .query_map(params![motif, limit as i64], contact_from_row)
                 .map_err(|e| sql_err("correspondants", e))?;
 
             rows.collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| sql_err("correspondants", e))
+        })
+    }
+
+    /// What Iris knows of one correspondent, by address (any case): the card a
+    /// recipient opens in the composer. `None` for someone who never wrote.
+    pub fn contact(&self, address: &str) -> Result<Option<Contact>> {
+        let cle = address.trim().to_lowercase();
+        if cle.is_empty() {
+            return Ok(None);
+        }
+        self.with_conn(|c| {
+            c.query_row(
+                "SELECT addr_key, display, received_count, last_seen_at
+                 FROM contacts_seen WHERE addr_key = ?1",
+                params![cle],
+                contact_from_row,
+            )
+            .optional()
+            .map_err(|e| sql_err("correspondant", e))
         })
     }
 
@@ -823,6 +836,16 @@ impl Store {
                 .map_err(|e| sql_err("comptage", e))
         })
     }
+}
+
+/// A row of `contacts_seen`: address, name, messages received, when the last came.
+fn contact_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Contact> {
+    Ok(Contact {
+        address: r.get(0)?,
+        display: r.get(1)?,
+        seen: r.get::<_, i64>(2)? as u32,
+        last_seen: Timestamp(r.get(3)?),
+    })
 }
 
 /// Lit une ligne de message. Les colonnes sont attendues dans l'ordre du `SELECT`
@@ -1570,6 +1593,25 @@ mod tests {
         assert_eq!(trouves[0].display, "Marie");
         assert_eq!(trouves[0].seen, 2);
         assert_eq!(trouves[0].to_header(), "Marie <marie@example.com>");
+    }
+
+    #[test]
+    fn a_correspondent_is_found_by_address_with_the_last_message() {
+        // The composer's recipient card: the name, how many messages, the last one.
+        let f = fixture();
+        f.store.insert_message(&f.msg("un@x", 1000)).unwrap();
+        f.store.insert_message(&f.msg("deux@x", 7000)).unwrap();
+
+        let c = f
+            .store
+            .contact("Marie@Example.com")
+            .unwrap()
+            .expect("she wrote");
+        assert_eq!(c.display, "Marie");
+        assert_eq!(c.seen, 2);
+        assert_eq!(c.last_seen, Timestamp::from_millis(7000));
+        assert!(f.store.contact("nobody@example.com").unwrap().is_none());
+        assert!(f.store.contact("  ").unwrap().is_none());
     }
 
     #[test]

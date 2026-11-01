@@ -41,7 +41,7 @@ import { AccountSetupPanel, AccountFoundPage } from "@iris/screens/account.slint
 import { ModulesPanel } from "@iris/screens/modules.slint";
 import {
     ComposePanel, ScheduledPanel, ParkedDraft, ComposeRecipients, QuotedMessageData,
-    RecipientChipData, RecipientEditData
+    RecipientChipData, RecipientEditData, RecipientCardData
 } from "@iris/screens/compose.slint";
 import { SignaturePanel, AliasPanel } from "@iris/screens/signature.slint";
 import { SourcePanel } from "@iris/screens/source.slint";
@@ -75,7 +75,7 @@ export { SheetGrid }
 export { Layout, WidthClass }
 export { BlockPreview }
 export { NoteSelect }
-export { ComposeRecipients, QuotedMessageData, RecipientChipData, RecipientEditData }
+export { ComposeRecipients, QuotedMessageData, RecipientChipData, RecipientEditData, RecipientCardData }
 
 // La palette de commandes.
 //
@@ -629,11 +629,17 @@ export component AppWindow inherits Window {
     in-out property <string> compose-subject;
     in-out property <string> compose-body;
     /// The composer answers a conversation: Reply all beside To, and the earlier
-    /// messages under the body, newest first.
+    /// messages inside the writing field, under what is written, newest first.
     in property <bool> compose-replying;
     in property <bool> compose-reply-all;
     in property <bool> compose-can-reply-all;
     in property <[QuotedMessageData]> compose-history;
+    /// A recipient's card open in the composer, beside the chip clicked.
+    in-out property <bool> compose-card-open;
+    /// What Iris knows of that recipient, set by Rust when asked.
+    in property <RecipientCardData> compose-card;
+    /// A chip clicked: what the card needs to know (the chip's words, its address).
+    callback compose-card-asked(string, string);
     /// Reply all switched on or off in the composer.
     callback compose-reply-all-toggled(bool);
     /// Answer the conversation being read, in the composer: the sender, or everyone.
@@ -1728,6 +1734,11 @@ export component AppWindow inherits Window {
             root.tasks-menu = "";
             return true;
         }
+        // A recipient's card first: the message under it stays as it was.
+        if (root.compose-open && root.compose-card-open) {
+            root.compose-card-open = false;
+            return true;
+        }
         // Escape asks, like the close button, when something is written; an open
         // question is answered "no" by Escape.
         if (root.compose-open && root.compose-confirm-close) {
@@ -2145,6 +2156,7 @@ export component AppWindow inherits Window {
     /// The shortcuts used to go straight through. With the new-message window open
     /// and no field clicked yet, "e" marked as done the thread displayed behind it.
     out property <bool> modal-open: (root.compose-open && !root.compose-minimised)
+        || (root.compose-open && root.compose-card-open)
         || root.settings-open || root.modules-open || root.add-account-open
         || root.problem-open || root.source-open || root.signature-open || root.alias-open
         || root.changelog-open || root.update-open || root.tags-open || root.shortcuts-help-open
@@ -4751,6 +4763,10 @@ export component AppWindow inherits Window {
             reply-all: root.compose-reply-all;
             can-reply-all: root.compose-can-reply-all;
             history: root.compose-history;
+            card-open <=> root.compose-card-open;
+            card: root.compose-card;
+            card-asked(nom, adresse) => { root.compose-card-asked(nom, adresse); }
+            copy(texte) => { root.copy-text(texte); }
             reply-all-toggled(tous) => { root.compose-reply-all-toggled(tous); }
             send => { root.compose-send(); }
             later-options: root.compose-later-options;

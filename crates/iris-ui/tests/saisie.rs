@@ -225,6 +225,145 @@ fn un_clic_entre_dans_le_champ_a_ses_pastilles_du_premier_coup() {
     );
 }
 
+fn un_clic_sur_une_pastille_ouvre_sa_fiche_qui_copie() {
+    // A recipient's chip opens their card on the first click, no pointing and waiting;
+    // a button copies the address, Escape closes the card and the field it was in
+    // still takes the keys.
+    let f = fenetre();
+    iris_ui::recipients::install(&f);
+    let demandes = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let d = Rc::clone(&demandes);
+        let fw = f.as_weak();
+        f.on_compose_card_asked(move |nom, adresse| {
+            d.borrow_mut().push(format!("{nom}|{adresse}"));
+            fw.upgrade()
+                .unwrap()
+                .set_compose_card(iris_ui::RecipientCardData {
+                    address: adresse,
+                    name: "Marie Martin".into(),
+                    initials: "MM".into(),
+                    received: "3 messages received".into(),
+                    last: "Last message Tue 3 Oct 2026, 09:12".into(),
+                });
+        });
+    }
+    f.set_compose_to("marie@example.com".into());
+    composer(&f);
+
+    clic(&bouton(&f, "Show marie@example.com"));
+    assert!(f.get_compose_card_open(), "one click opens the card");
+    assert_eq!(*demandes.borrow(), ["marie@example.com|marie@example.com"]);
+    assert!(
+        testing::ElementHandle::find_by_accessible_label(&f, "Copy the name")
+            .next()
+            .is_some(),
+        "the name their mail carries is on the card"
+    );
+    clic(&bouton(&f, "Copy the address"));
+
+    echap(&f);
+    assert!(!f.get_compose_card_open(), "Escape closes the card");
+    assert!(f.get_compose_open(), "and only the card");
+    taper(&f, "paul@example.com,");
+    assert_eq!(
+        f.get_compose_to().as_str(),
+        "marie@example.com, paul@example.com",
+        "the cursor went to the chip's field"
+    );
+
+    // What was copied is on the clipboard.
+    clic(&champ(&f, "Subject"));
+    ctrl(&f, "v");
+    assert_eq!(f.get_compose_subject().as_str(), "marie@example.com");
+
+    // A click outside closes it too.
+    clic(&bouton(&f, "Show marie@example.com"));
+    assert!(f.get_compose_card_open());
+    clic(&champ(&f, "Subject"));
+    assert!(
+        !f.get_compose_card_open(),
+        "a click outside closes the card"
+    );
+}
+
+fn la_conversation_citee_est_dans_le_champ_et_se_replie() {
+    // Replying, the earlier messages are inside the writing field, under what is
+    // written: the cursor starts at its top, each message folds by its header, its
+    // words take a click but no key, and a click under them goes back to the end of
+    // what is written. What is written stays only what was typed.
+    let f = fenetre();
+    f.set_compose_to("marie@example.com".into());
+    f.set_compose_replying(true);
+    f.set_compose_history(ModelRc::new(VecModel::from(vec![
+        iris_ui::QuotedMessageData {
+            from: "Marie".into(),
+            date: "Tue 3 Oct 2026, 09:12".into(),
+            text: "The two options.".into(),
+        },
+        iris_ui::QuotedMessageData {
+            from: "Paul".into(),
+            date: "Mon 2 Oct 2026, 17:40".into(),
+            text: "A quote, please?".into(),
+        },
+    ])));
+    composer(&f);
+    let cite = |f: &AppWindow, texte: &str| {
+        testing::ElementQuery::from_root(f)
+            .match_descendants()
+            .match_accessible_role(testing::AccessibleRole::TextInput)
+            .find_all()
+            .into_iter()
+            .find(|e| e.accessible_value().as_deref() == Some(texte))
+    };
+
+    taper(&f, "Thanks");
+    assert_eq!(
+        f.get_compose_body().as_str(),
+        "Thanks",
+        "the cursor starts at the top of the field"
+    );
+    assert!(
+        cite(&f, "The two options.").is_some(),
+        "quoted in the field"
+    );
+
+    clic(&bouton(&f, "Fold the message from Marie"));
+    assert!(
+        cite(&f, "The two options.").is_none(),
+        "folded to its header"
+    );
+    assert!(
+        cite(&f, "A quote, please?").is_some(),
+        "the other stays open"
+    );
+    taper(&f, " a lot");
+    assert_eq!(
+        f.get_compose_body().as_str(),
+        "Thanks a lot",
+        "folding leaves the cursor where it was"
+    );
+    clic(&bouton(&f, "Show the message from Marie"));
+    assert!(cite(&f, "The two options.").is_some());
+
+    clic(&cite(&f, "A quote, please?").unwrap());
+    taper(&f, "x");
+    assert_eq!(
+        f.get_compose_body().as_str(),
+        "Thanks a lot",
+        "a quote is never written into"
+    );
+
+    let corps = champ(&f, "Message");
+    let (pos, taille) = (corps.absolute_position(), corps.size());
+    cliquer_a(
+        &f,
+        slint::LogicalPosition::new(pos.x + 40.0, pos.y + taille.height - 6.0),
+    );
+    taper(&f, "!");
+    assert_eq!(f.get_compose_body().as_str(), "Thanks a lot!");
+}
+
 fn new_message_rouvre_en_grand_une_fenetre_reduite() {
     // Minimising takes the message down to a bar of its own (Rust keeps it), so the
     // window is free for another; New message then opens it full size.
@@ -3367,6 +3506,14 @@ fn main() {
         (
             "un_second_clic_droit_ouvre_le_menu_de_l_autre_compte",
             un_second_clic_droit_ouvre_le_menu_de_l_autre_compte,
+        ),
+        (
+            "un_clic_sur_une_pastille_ouvre_sa_fiche_qui_copie",
+            un_clic_sur_une_pastille_ouvre_sa_fiche_qui_copie,
+        ),
+        (
+            "la_conversation_citee_est_dans_le_champ_et_se_replie",
+            la_conversation_citee_est_dans_le_champ_et_se_replie,
         ),
         (
             "new_message_rouvre_en_grand_une_fenetre_reduite",
