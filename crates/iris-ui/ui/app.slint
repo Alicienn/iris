@@ -530,6 +530,11 @@ export component AppWindow inherits Window {
     in-out property <string> reader-menu;
     in-out property <length> reader-menu-x;
     in-out property <length> reader-menu-y;
+    /// The ways to answer ("reply"): the Reply button they opened from, which answers
+    /// the sender when pressed again while they are open.
+    property <length> reader-anchor-x;
+    property <length> reader-anchor-width;
+    property <length> reader-anchor-height;
     in property <bool> loading;
     in property <bool> syncing;
     in property <int> pending-ops;
@@ -2910,6 +2915,15 @@ export component AppWindow inherits Window {
                                 shortcuts.focus();
                             }
                             scrolled-near-end => { root.scrolled-near-end(); }
+                            // On a phone's list, pulled down from its top: Sync all, as
+                            // its button beside the magnifier (whose ring shows it).
+                            pull-to-refresh: Layout.compact && Layout.touch-input
+                                && !root.searching && root.marked-count == 0;
+                            refresh => {
+                                if (!root.syncing-all) {
+                                    root.sync-all();
+                                }
+                            }
                         }
                         // On a phone, New message floats over the list's bottom right.
                         if Layout.compact && !root.searching && root.marked-count == 0: Fab {
@@ -2999,9 +3013,12 @@ export component AppWindow inherits Window {
                         mark-done => { root.thread-done(); }
                         to-task => { root.thread-to-task(root.selected-thread); }
                         reply(tous) => { root.reply-requested(tous); }
-                        reply-menu(mx, my) => {
-                            root.reader-menu-x = mx;
-                            root.reader-menu-y = my;
+                        reply-menu(droite, bx, by, bw, bh) => {
+                            root.reader-menu-x = droite;
+                            root.reader-menu-y = by;
+                            root.reader-anchor-x = bx;
+                            root.reader-anchor-width = bw;
+                            root.reader-anchor-height = bh;
                             root.reader-menu = "reply";
                         }
                         load-images => { root.load-images(); }
@@ -4656,6 +4673,9 @@ export component AppWindow inherits Window {
             unread: root.selected-unread;
             menu-x: root.reader-menu-x;
             menu-y: root.reader-menu-y;
+            anchor-x: root.reader-anchor-x;
+            anchor-width: root.reader-anchor-width;
+            anchor-height: root.reader-anchor-height;
             snooze(quand) => { root.menu-snooze(root.selected-thread, quand); }
             forward-thread => { root.forward-thread(); }
             reply(tous) => { root.reply-requested(tous); }

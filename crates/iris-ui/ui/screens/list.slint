@@ -1417,6 +1417,18 @@ export component ThreadListView inherits VerticalLayout {
     callback bulk-select-all();
     callback bulk-clear();
 
+    /// Pulling the list down from its top fetches the mail (a phone's list).
+    in property <bool> pull-to-refresh;
+    /// The pull let go past its mark: fetch the mail, as Sync all does.
+    callback refresh();
+    /// How far the list is pulled down, at most, and where letting go fetches.
+    property <length> tire;
+    property <length> tire-max: 110px;
+    property <length> tire-seuil: 64px;
+    property <float> tire-part: min(1, root.tire / root.tire-seuil);
+    property <bool> tire-arme: root.tire >= root.tire-seuil;
+    property <angle> tire-angle: -90deg + min(0.999, root.tire-part) * 360deg;
+
     /// The list's own search field, when it shows one (not in the window, where the
     /// toolbar has it).
     in property <bool> search-field;
@@ -1774,6 +1786,39 @@ export component ThreadListView inherits VerticalLayout {
         }
     }
 
+    // Pulled down from the top, on a phone: the list follows the finger at half its
+    // pace and a round mark comes down over it; let go past the mark's full turn and
+    // the mail is fetched, as the button beside the magnifier does (its ring says how
+    // far it has got). Back up before letting go, nothing happens.
+    //
+    // Slint's flickable does not run past its top, so the pull is a gesture handler of
+    // its own round the list, which takes a drag only once it is clearly downward and
+    // only while the list is at its top: a tap, a scroll up the list, a row swiped
+    // sideways all go through to the list as before.
+    tirer := SwipeGestureHandler {
+        width: 100%;
+        height: 100%;
+        handle-swipe-down: root.pull-to-refresh && !Swiping.active && list.content-y > -1px;
+        moved => {
+            root.tire = max(0px, min(root.tire-max,
+                (self.current-position.y - self.pressed-position.y) * 0.5));
+        }
+        swiped => {
+            if (root.tire >= root.tire-seuil) {
+                root.refresh();
+            }
+            root.tire = 0px;
+        }
+        cancelled => { root.tire = 0px; }
+
+    // The list itself moves, in a plate of its own: an animation on the list's own `y`
+    // would make Slint copy the whole list component here.
+    Rectangle {
+        y: root.tire;
+        width: 100%;
+        height: 100%;
+        animate y { duration: tirer.swiping ? 0ms : Tokens.quick; easing: ease-out; }
+
     list := ListView {
         // Still while a row is swiped: the finger may drift down as it pushes.
         interactive: !Swiping.active;
@@ -1826,6 +1871,61 @@ export component ThreadListView inherits VerticalLayout {
             }
         }
     }
+    } // the list's plate
+    } // tirer
 
+    // The mark the pull brings down: a round plate whose ring closes as the finger
+    // goes, the arrows in the accent once letting go would fetch. Shown by `visible`:
+    // a small thing placed by `y`. Cut at the list's top, under the filters.
+    Rectangle {
+        visible: root.tire > 1px;
+        clip: true;
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: root.tire - self.height - 8px;
+        width: 36px;
+        height: 36px;
+        border-radius: self.width / 2;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: 6px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: Tokens.shadow-card.with-alpha(0.2);
+        Path {
+            visible: !root.tire-arme;
+            x: 6px;
+            y: 6px;
+            width: 24px;
+            height: 24px;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            stroke: Tokens.text-muted;
+            stroke-width: 2px;
+            stroke-line-cap: round;
+            fill: transparent;
+            MoveTo {
+                x: 12 + 10 * Math.cos(-90deg);
+                y: 12 + 10 * Math.sin(-90deg);
+            }
+            ArcTo {
+                x: 12 + 10 * Math.cos(root.tire-angle);
+                y: 12 + 10 * Math.sin(root.tire-angle);
+                radius-x: 10;
+                radius-y: 10;
+                large-arc: root.tire-part > 0.5;
+                sweep: true;
+            }
+        }
+        Icon {
+            visible: root.tire-arme;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            data: Icons.refresh;
+            size: 18px;
+            tint: Tokens.accent;
+        }
+    }
+    }
     }
 }
