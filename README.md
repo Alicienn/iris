@@ -93,7 +93,13 @@ the Android Keystore holds.
 - Questions rise from the bottom as sheets; forms fill the screen.
 - *Settings* is a list of groups, each opening as a page.
 - Swipe a conversation right for **Done**, left for **Snooze**, with **Undo** for a few
-  seconds; a long press opens a row's menu.
+  seconds; a long press opens a row's menu. Pull the list down from its top to check
+  for new mail.
+- Under a conversation: **Delete**, **Archive**, **Snooze**, **Done** and **Reply**; a
+  tap on Reply offers Reply all and Forward, a second tap replies.
+- Ticking a task or a habit, a swipe, a choice or a delete gives a light vibration,
+  finishing the day's habits or reaching inbox zero a firmer one (the phone's own
+  touch-feedback setting turns them off).
 - A note being written has formatting keys under it. Hold a note or a folder a moment
   to drag it into a folder; held over a closed folder, it opens.
 - New message's formatting keys format the words selected, or what is typed next.
@@ -122,8 +128,11 @@ the Android Keystore holds.
 - **Writing**: address chips, attachments, formatting, signatures, aliases (*Send
   as…*), **Send later**, and an **Undo** of a few seconds after sending (*Settings ›
   Undo send*).
-- **Replying**: `Ctrl`+`R`, or `Ctrl`+`Shift`+`R` for everyone; the conversation shows
-  under what you write.
+- **Replying**: `Ctrl`+`R`, or `Ctrl`+`Shift`+`R` for everyone; the earlier messages sit
+  in the writing field under what you write, each folding on its own. Click a recipient
+  for their card, with buttons to copy the name and the address.
+- **Trackers**: a message that tries to learn when you read it says so; **Ignore** keeps
+  its remote content blocked, **Allow** loads it, and the warning goes either way.
 - **Searching** (`/`): free text, each word found as you type it (`réu` finds
   *réunion*), and `from:`, `is:unread`, `has:attachment`, `newer_than:7d`, or the pills
   under the field.
@@ -149,7 +158,9 @@ the Android Keystore holds.
   so Windows warns before running them.
 
 New mail is checked at least every quarter of an hour, every two minutes for the
-mailbox on screen, at once when the server announces it, and with `F5`.
+mailbox on screen, at once when the server announces it, and with `F5`. On Windows the
+taskbar button shows how many messages are unread, and clicking a notification opens
+the message, event, task or habit it is about, even when Iris was closed.
 
 ## Calendar
 
@@ -292,6 +303,8 @@ itself comes from your servers on each device.
   only they hold, and never leaves the Wi-Fi.
 - Backups and notes stay on your devices. Removing an account removes its mail, its
   passwords and its search index from the device.
+- On Windows Iris registers the `iris-mail:` link type for your user (so a notification
+  can open what it is about); uninstalling removes it.
 
 ## Reporting a problem
 

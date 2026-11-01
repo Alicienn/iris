@@ -720,6 +720,19 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
 - Not done: a sliding plate in the mail list (virtualised), windows/menus that stay
   alive to close more quickly than they open, the empty/offline illustrations.
 
+- Haptics (7.5.0): `Platform::haptic(Haptic)` — `Tick`, `Confirm`, `Success`, `Warning` —
+  does nothing on a PC; Android calls `IrisActivity.haptic(int)`, which uses
+  `performHapticFeedback` on the window (the phone's touch-feedback setting governs it,
+  no permission). Gestures fire them from Slint through the `Haptics` global
+  (`theme/haptics.slint`, connected in `gui.rs`): a segment, a pill or a switch chosen,
+  a swipe or a pull crossing its threshold tick; a thing ticked done, a swipe or a pull
+  let go confirm; a `danger` button warns. Outcomes fire from Rust: Success when the
+  day's last habit is ticked or the queue reaches zero after holding mail.
+- Pull to refresh (7.5.0): Slint's flickable does not run past its top, so the phone's
+  mail list sits in a `SwipeGestureHandler` taking only downward drags while the list is
+  at its top; the list follows at half the finger's pace, past 64 px a release calls
+  `sync-all`.
+
 ### Keyboard, focus and clicks
 
 These rules come from bugs users hit, and each has a scenario in
@@ -790,6 +803,17 @@ These rules come from bugs users hit, and each has a scenario in
   the text with `iris_htmlview::plain_text_to_html`: nested `<blockquote type="cite">`
   per `>` level (`quote_level`), markers removed, remote content off, drawn by the
   rich-text renderer with one rounded bar per level. The stored text is untouched.
+- **The tracker banner (7.5.0).** Two session sets in `shell.rs`: `images_shown`
+  (**Allow**, which loads the remote content as before) and `remote_ignored`
+  (**Ignore**); either sets `MessageData.remote-dismissed`, and Ignore rewrites the
+  model row in place, without rendering the body again. Nothing is remembered past the
+  session, by design.
+- **Compose (7.5.0).** The quoted messages are read-only `QuoteText`s placed under the
+  text inside the same `TextArea` (`controls/field.slint`: `after-height`,
+  `inner-width`, `@children` in its `ScrollView`); folding one is visual only, so what is
+  sent is unchanged. A recipient chip's click opens a `Popover` answered by
+  `compose-card-asked` from `contacts_seen` (`Store::contact`, `Contact.last_seen`, no
+  migration); it is in `modal-open` and `close-top()`.
 - **Attachments written to disk** get a `Zone.Identifier` stream (`ZoneId=3`), the
   mark of a download, so SmartScreen and Office's protected view treat them as from
   the internet. A part is *inline*, hidden from the attachment cards, only when the
@@ -1720,6 +1744,21 @@ with their list as `CATEGORIES`).
   way out is Quit. The icon is polled on the main thread every 200 ms rather than through
   callbacks, because a callback from another thread may not touch the window. The unread
   count in its tooltip is rewritten only when it changes.
+- **The taskbar badge** (7.5.0, `taskbar.rs`): the same unread count, fed by that 200 ms
+  poll, drawn as a disc in the accent with the figures across it (99+ beyond) and set
+  through `ITaskbarList3::SetOverlayIcon` on the UI thread, only when the count or the
+  accent changes. A window subclass catches `TaskbarButtonCreated` (Explorer restarted)
+  to set it again; the bitmaps and the icon are freed at once.
+- **A notification's click** (7.5.0, `notify.rs`): toasts are built as XML through the
+  `windows` crate (it replaced `tauri-winrt-notification`, which could not set a launch
+  argument) with protocol activation, `iris-mail:thread/12`, `event/<key>`, `task/<id>`,
+  `habit/<id>`, `mail`: the only activation an app without a COM server gets whether it
+  runs or not. The scheme is written under `HKCU\Software\Classes\iris-mail` at each GUI
+  start (not under `IRIS_ROOT`), removed by `iris unregister`, and a toast carries the
+  link only once it is registered. A second `iris.exe iris-mail:…` hands the link to the
+  running one through the single-instance pending file (which carries `mailto:` or
+  `iris-mail:` links, `take_pending`); a cold start gets it as `GuiOptions.open`. Ids are
+  parsed strictly, since any web page can open such a link.
 - **Start at login** writes one value under `Run`, passing `--tray`, and is switched in
   Settings.
 

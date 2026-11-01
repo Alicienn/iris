@@ -9,14 +9,27 @@ What changed in each version of Iris, newest first. Iris shows this same list fr
 - Right-click a mailbox or a tag: Mark all as read.
 - Right-click a mailbox or a tag: Send all to To do, Waiting or Done.
 - A new Home: your mail by mailbox, today's agenda, tasks, habits, goals, notes and week on one screen.
+- Iris's taskbar button shows how many messages are unread.
+- Clicking a notification opens the message, event, task or habit it is about.
+- Clicking a recipient shows their card, with buttons to copy the name and address.
+- Pull the mail list down on a phone to check for new mail.
+- On a phone, a bar under a conversation to delete, archive, snooze, mark as done or reply.
+- Light vibrations on Android when you tick a task or habit, swipe a message, choose an option or confirm a delete.
+- A firmer vibration when you finish the day's habits or reach inbox zero.
 
 ### Improved
 - Marking a folder read no longer freezes the window, even with thousands of messages.
 - The highlight in the place switcher slides to the place you pick.
+- When replying, the earlier messages sit in the writing field, each one folding on its own.
+- The tracker warning asks you to Ignore or Allow, and goes away either way.
+- Reply sits on the right under a conversation.
+- The mail filters on a PC are rounded chips, as on the phone.
 
 ### Fixed
 - Clicking a date in a note, or opening an event's note, no longer closes Iris.
 - No more dark flash when changing place or opening another message.
+- Grey lines no longer show around the top of the mail on a phone in dark mode.
+- The highlight behind the current tab at the foot of the phone screen is centred on every tab.
 
 ## 7.4.4 — 2026-10-29
 

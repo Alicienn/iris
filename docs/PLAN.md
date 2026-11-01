@@ -928,6 +928,15 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S52.11** Home as a cockpit: every place's plate on one screen, two bands on a
       PC, one column on a phone; the place switcher's plate slides; no fade on arrival,
       which flashed dark at every change of place (7.5.0).
+- [x] **S52.12** The mail screen: Reply on the right; the tracker banner's Ignore /
+      Allow; the PC's filters as rounded chips; on a phone the reader's action bar
+      (Reply's second tap replies), pull to refresh, no window outline (7.5.0).
+- [x] **S52.13** Compose: a recipient's card on a click, with copy buttons; the earlier
+      messages inside the writing field, each folding on its own (7.5.0).
+- [x] **S52.14** Windows: the unread count on the taskbar button; a notification's
+      click opens what it is about, running or not, through `iris-mail:` links (7.5.0).
+- [x] **S52.15** Android: haptics (tick, confirm, success, warning) on the gestures that
+      commit something; the tab bar's plate centred on five equal columns (7.5.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

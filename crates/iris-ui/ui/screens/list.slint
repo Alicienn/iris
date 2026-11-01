@@ -1,6 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Motion } from "@iris/theme/motion.slint";
+import { Haptics } from "@iris/theme/haptics.slint";
 import { SwipeRow, Swiping } from "@iris/lists/swipe.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { ThreadRowData } from "@iris/types.slint";
@@ -1799,12 +1800,20 @@ export component ThreadListView inherits VerticalLayout {
         width: 100%;
         height: 100%;
         handle-swipe-down: root.pull-to-refresh && !Swiping.active && list.content-y > -1px;
+        // A tick under the finger where letting go fetches the mail, a click when it does.
+        property <bool> arme: root.tire >= root.tire-seuil;
+        changed arme => {
+            if (self.arme) {
+                Haptics.tick();
+            }
+        }
         moved => {
             root.tire = max(0px, min(root.tire-max,
                 (self.current-position.y - self.pressed-position.y) * 0.5));
         }
         swiped => {
             if (root.tire >= root.tire-seuil) {
+                Haptics.confirm();
                 root.refresh();
             }
             root.tire = 0px;
