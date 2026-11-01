@@ -889,6 +889,8 @@ export component AppWindow inherits Window {
     callback command-invoked(string);
     callback key-pressed(string);
     callback load-images();
+    /// A message's remote content left blocked, its banner answered Ignore (message id).
+    callback remote-ignored(int);
     callback toggle-message(int);
     /// Annuler et rétablir, aux touches que tout le monde connaît.
     callback undo();
@@ -3003,6 +3005,7 @@ export component AppWindow inherits Window {
                             root.reader-menu = "reply";
                         }
                         load-images => { root.load-images(); }
+                        ignore-remote(id) => { root.remote-ignored(id); }
                         save-attachment(i) => { root.save-attachment(i); }
                         open-attachment(i) => { root.open-attachment(i); }
                         invite-accept(id) => { root.invite-accept(id); }

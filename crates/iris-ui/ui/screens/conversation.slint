@@ -358,64 +358,74 @@ component RemoteContentBanner inherits Rectangle {
     in property <int> blocked-images;
     in property <bool> has-tracker;
 
+    /// Allow: the remote content loads (what was blocked, the tracker with it).
     callback load-images();
+    /// Ignore: it stays blocked, and the banner goes for this message.
+    callback ignore();
 
-    height: 32px;
+    // « 1 remote image(s) blocked » est une phrase qu'un programme écrit et
+    // qu'aucune personne ne prononce — et elle apparaît à l'endroit précis où
+    // l'on demande à quelqu'un de décider s'il fait confiance à un inconnu.
+    // Avoir l'air d'un formulaire à ce moment-là n'est pas gratuit.
+    property <string> phrase: root.has-tracker
+        ? "This sender is trying to learn when you read this message."
+        : (root.blocked-images == 1
+            ? "1 remote image blocked."
+            : root.blocked-images + " remote images blocked.");
+    property <color> encre: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
+    // On a phone the sentence has a line of its own over the two buttons: beside them
+    // it was cut to a few words.
+    property <bool> empile: Layout.compact;
+
+    height: corps.preferred-height;
     border-radius: Tokens.radius-small;
     background: Tokens.surface;
     border-width: 1px;
     border-color: Tokens.border;
 
-    HorizontalLayout {
+    corps := VerticalLayout {
         padding-left: Tokens.space-3;
         padding-right: Tokens.space-2;
-        spacing: Tokens.space-2;
+        padding-top: root.empile ? Tokens.space-2 : 4px;
+        padding-bottom: root.empile ? Tokens.space-2 : 4px;
+        spacing: Tokens.space-1;
 
-        Text {
-            // « 1 remote image(s) blocked » est une phrase qu'un programme écrit et
-            // qu'aucune personne ne prononce — et elle apparaît à l'endroit précis où
-            // l'on demande à quelqu'un de décider s'il fait confiance à un inconnu.
-            // Avoir l'air d'un formulaire à ce moment-là n'est pas gratuit.
-            text: root.has-tracker
-                ? "This sender is trying to learn when you read this message."
-                : (root.blocked-images == 1
-                    ? "1 remote image blocked."
-                    : root.blocked-images + " remote images blocked.");
+        if root.empile: Text {
+            text: root.phrase;
             font-size: Tokens.size-small;
-            color: root.has-tracker ? Tokens.warning : Tokens.text-secondary;
-            vertical-alignment: center;
-            overflow: elide;
+            color: root.encre;
+            wrap: word-wrap;
         }
 
-        Rectangle {}
+        // Two answers, as for any question asked of the reader: Ignore keeps it
+        // blocked and stops asking; Allow loads it.
+        HorizontalLayout {
+            spacing: Tokens.space-2;
 
-        // The theme's accent, not the platform's button. A stock Button here brought
-        // the operating system's own blue into a window that has exactly one colour,
-        // and it is the only control in the reading pane that did.
-        Rectangle {
-            width: 62px;
-            height: 22px;
-            y: (parent.height - self.height) / 2;
-            border-radius: Tokens.radius-small;
-            background: montrer.has-hover
-                ? Tokens.accent
-                : Tokens.accent.transparentize(0.12);
-            animate background { duration: Tokens.instant; }
-
-            accessible-role: button;
-            accessible-label: "Show the remote images in this message";
-            accessible-action-default => { root.load-images(); }
-
-            Text {
-                text: "Show";
+            if !root.empile: Text {
+                text: root.phrase;
                 font-size: Tokens.size-small;
-                font-weight: Tokens.weight-bold;
-                color: Tokens.accent-text;
-                horizontal-alignment: center;
+                color: root.encre;
                 vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
             }
+            if root.empile: Rectangle { horizontal-stretch: 1; }
 
-            montrer := TouchArea {
+            Button {
+                cross-axis-self-alignment: center;
+                text: "Ignore";
+                label: "Ignore: keep the remote content of this message blocked";
+                kind: ButtonKind.ghost;
+                size: ButtonSize.sm;
+                clicked => { root.ignore(); }
+            }
+            Button {
+                cross-axis-self-alignment: center;
+                text: "Allow";
+                label: "Allow the remote content of this message";
+                kind: ButtonKind.primary;
+                size: ButtonSize.sm;
                 clicked => { root.load-images(); }
             }
         }
@@ -1162,6 +1172,9 @@ export component ConversationView inherits VerticalLayout {
     /// goes (in the window).
     callback reply-menu(length, length);
     callback load-images();
+    /// The banner about a message's remote content answered Ignore (message id): it
+    /// stays blocked and the banner goes.
+    callback ignore-remote(int);
     callback save-attachment(int);
     callback open-attachment(int);
     /// The invitation a message carries: into the calendar (message id), or opened
@@ -1529,11 +1542,12 @@ export component ConversationView inherits VerticalLayout {
                         answer(a) => { root.invite-answer(message.id, a); }
                     }
 
-                    if message.expanded && (message.blocked-images > 0
+                    if message.expanded && !message.remote-dismissed && (message.blocked-images > 0
                         || message.has-tracker): RemoteContentBanner {
                         blocked-images: message.blocked-images;
                         has-tracker: message.has-tracker;
                         load-images => { root.load-images(); }
+                        ignore => { root.ignore-remote(message.id); }
                     }
 
                     // Le corps arrive encore. Sans cette ligne, l'écran était

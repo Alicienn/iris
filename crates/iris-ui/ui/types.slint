@@ -182,6 +182,9 @@ export struct MessageData {
     blocks: [MessageBlockData],
     blocked-images: int,
     has-tracker: bool,
+    // The banner about its remote content answered, Ignore or Allow: it stays away for
+    // this message, for the session.
+    remote-dismissed: bool,
     attachments: [AttachmentData],
     // L'identifiant du message, pour le déplier ou le replier.
     id: int,
