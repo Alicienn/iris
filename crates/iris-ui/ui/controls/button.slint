@@ -1,6 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
+import { Haptics } from "@iris/theme/haptics.slint";
 
 export { IconButton }
 
@@ -99,7 +100,13 @@ export component Button inherits Rectangle {
     touch := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
-        clicked => { root.clicked(); }
+        clicked => {
+            // A delete confirmed is felt as heavier than any other press.
+            if (root.kind == ButtonKind.danger) {
+                Haptics.warning();
+            }
+            root.clicked();
+        }
     }
 }
 
@@ -161,7 +168,12 @@ export component BlockButton inherits Rectangle {
     }
     touch := TouchArea {
         enabled: root.enabled;
-        clicked => { root.clicked(); }
+        clicked => {
+            if (root.kind == ButtonKind.danger) {
+                Haptics.warning();
+            }
+            root.clicked();
+        }
     }
 }
 

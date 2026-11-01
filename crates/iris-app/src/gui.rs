@@ -192,6 +192,15 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     fenetre
         .global::<iris_ui::Layout>()
         .set_text_scale(reglages.text_scale());
+    // A finger's feedback: the interface says when, the platform how (a phone's own
+    // effects; nothing on a computer).
+    {
+        use crate::platform::{haptic, Haptic};
+        let h = fenetre.global::<iris_ui::Haptics>();
+        h.on_tick(|| haptic(Haptic::Tick));
+        h.on_confirm(|| haptic(Haptic::Confirm));
+        h.on_warning(|| haptic(Haptic::Warning));
+    }
     shell::appliquer_apparence(&fenetre, &theme, reglages.density);
     shell::appliquer_accent(&fenetre, reglages.accent, theme.dark);
     services.engine.set_automation(reglages.automation);

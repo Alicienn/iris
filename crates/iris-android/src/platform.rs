@@ -1,6 +1,6 @@
 //! What Android answers when Iris asks about the system.
 
-use iris_app::platform::{Platform, Scan, UpdateChannel};
+use iris_app::platform::{Haptic, Platform, Scan, UpdateChannel};
 use iris_secrets::Secret;
 use iris_types::{Error, Result};
 use jni::objects::{JObject, JString};
@@ -119,6 +119,29 @@ impl Platform for Android {
 
     fn clipboard_get(&self) -> Option<String> {
         presse_papiers(None).ok().flatten()
+    }
+
+    /// `IrisActivity.haptic`: the window's view plays Android's own effect, which the
+    /// phone's touch-feedback setting silences.
+    fn haptic(&self, kind: Haptic) {
+        let code = match kind {
+            Haptic::Tick => 0,
+            Haptic::Confirm => 1,
+            Haptic::Success => 2,
+            Haptic::Warning => 3,
+        };
+        let r = avec_activite(|env, activite| {
+            env.call_method(
+                activite,
+                jni_str!("haptic"),
+                jni_sig!("(I)V"),
+                &[JValue::Int(code)],
+            )?;
+            Ok(())
+        });
+        if let Err(e) = r {
+            tracing::debug!(error = %e, "touch feedback");
+        }
     }
 
     /// Google's code scanner, through `IrisActivity` (Play services' camera).

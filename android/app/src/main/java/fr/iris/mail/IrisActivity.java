@@ -14,6 +14,8 @@ import android.os.Build;
 import android.os.PowerManager;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
 
 import com.google.android.gms.common.moduleinstall.ModuleInstall;
 import com.google.android.gms.common.moduleinstall.ModuleInstallClient;
@@ -221,6 +223,48 @@ public class IrisActivity extends NativeActivity {
     /** The Today widgets drawn again from the file Iris just wrote. */
     public void updateWidgets() {
         runOnUiThread(() -> TodayWidget.refresh(this));
+    }
+
+    // --- Touch feedback ---
+
+    /**
+     * A small vibration under the finger, through the window's view: Android plays its
+     * own tuned effect for each constant, and plays nothing when the phone's touch
+     * feedback is off. No VIBRATE permission is needed this way.
+     *
+     * 0 a tick (a choice, a swipe reaching its threshold), 1 a confirmation (one thing
+     * done), 2 a success (a click, then a firmer one), 3 a warning (a delete).
+     */
+    public void haptic(int kind) {
+        runOnUiThread(() -> {
+            View view = getWindow() == null ? null : getWindow().getDecorView();
+            if (view == null) {
+                return;
+            }
+            // CONFIRM is Android 11's; before it, a key's click is the same click.
+            int click = Build.VERSION.SDK_INT >= 30
+                    ? HapticFeedbackConstants.CONFIRM
+                    : HapticFeedbackConstants.VIRTUAL_KEY;
+            switch (kind) {
+                case 0:
+                    // The lightest tick there is; SEGMENT_TICK is Android 14's name for it.
+                    view.performHapticFeedback(Build.VERSION.SDK_INT >= 34
+                            ? HapticFeedbackConstants.SEGMENT_TICK
+                            : HapticFeedbackConstants.CONTEXT_CLICK);
+                    break;
+                case 1:
+                    view.performHapticFeedback(click);
+                    break;
+                case 2:
+                    view.performHapticFeedback(click);
+                    view.postDelayed(() -> view.performHapticFeedback(
+                            HapticFeedbackConstants.LONG_PRESS), 110);
+                    break;
+                default:
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    break;
+            }
+        });
     }
 
     // --- Notifications and the battery ---

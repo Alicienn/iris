@@ -3,6 +3,7 @@ import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons } from "@iris/base/icons.slint";
 import { Dot } from "@iris/base/atoms.slint";
 import { Motion } from "@iris/theme/motion.slint";
+import { Haptics } from "@iris/theme/haptics.slint";
 
 // What one chooses: one of several (segments, the queue's tabs), on or off (pills,
 // checks, toggles), and the small tags that say a priority.
@@ -96,7 +97,13 @@ export component Segmented inherits Rectangle {
             }
             touch := TouchArea {
                 mouse-cursor: pointer;
-                clicked => { root.chosen(i); }
+                clicked => {
+                    // A tick when the key moves; the chosen one again moves nothing.
+                    if (i != root.selected) {
+                        Haptics.tick();
+                    }
+                    root.chosen(i);
+                }
             }
         }
     }
@@ -194,7 +201,12 @@ export component QueueTabs inherits Rectangle {
         }
         touch := TouchArea {
             mouse-cursor: pointer;
-            clicked => { root.chosen(i); }
+            clicked => {
+                if (i != root.selected) {
+                    Haptics.tick();
+                }
+                root.chosen(i);
+            }
         }
     }
     }
@@ -253,7 +265,12 @@ export component QueueSegments inherits Rectangle {
             }
         }
         TouchArea {
-            clicked => { root.chosen(i); }
+            clicked => {
+                if (i != root.selected) {
+                    Haptics.tick();
+                }
+                root.chosen(i);
+            }
         }
     }
 }
@@ -349,7 +366,10 @@ export component Pill inherits Rectangle {
     touch := TouchArea {
         enabled: !root.jeton;
         mouse-cursor: pointer;
-        clicked => { root.toggled(); }
+        clicked => {
+            Haptics.tick();
+            root.toggled();
+        }
     }
 }
 
@@ -458,6 +478,14 @@ export component Check inherits Rectangle {
         enabled: root.interactive;
         mouse-cursor: pointer;
         clicked => {
+            // Felt at the click, with the bump: a thing done is a firm click; a setting
+            // ticked, or a thing undone, a light tick. A second click while the tick
+            // is drawn is the same click, felt once.
+            if (root.animated && !root.done && !root.en-cours) {
+                Haptics.confirm();
+            } else if (!root.en-cours) {
+                Haptics.tick();
+            }
             // Reduced effects: nothing to draw, so nothing to wait for.
             if (!root.animated || Motion.scale == 0) {
                 root.toggled();
@@ -524,6 +552,7 @@ export component Toggle inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
+            Haptics.tick();
             root.on = !root.on;
             root.toggled();
         }

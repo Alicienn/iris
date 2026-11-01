@@ -79,11 +79,15 @@ export component TabBar inherits Rectangle {
         height: 1px;
         background: Tokens.border;
     }
+    // Five equal columns, as the mockups' grid has them. Left to the layout, each tab
+    // took its label's width plus a share of the rest: "Calendar" widened its column,
+    // and the plate, placed by fifths, sat off the icons of Mail, Calendar and Tasks.
+    property <length> colonne: root.width / 5;
     // The one plate that slides under the chosen place (Home, Mail, Calendar, Tasks,
     // Notes are slots 0 to 4). Beneath the tabs, so every tap still reaches its tab.
     property <int> slot: Chrome.workspace == 3 ? 0 : Chrome.workspace == 4 ? 4 : Chrome.workspace + 1;
     Rectangle {
-        x: root.slot * (parent.width / 5) + (parent.width / 5 - self.width) / 2;
+        x: root.slot * root.colonne + (root.colonne - self.width) / 2;
         y: 10px;
         width: 56px;
         height: 30px;
@@ -94,10 +98,10 @@ export component TabBar inherits Rectangle {
     HorizontalLayout {
         y: 1px;
         height: 65px;
-        Tab { icon: Icons.home; label: "Home"; place: 3; }
-        Tab { icon: Icons.envelope-closed; label: "Mail"; place: 0; badge: Chrome.mail-badge; }
-        Tab { icon: Icons.calendar; label: "Calendar"; place: 1; }
-        Tab { icon: Icons.task; label: "Tasks"; place: 2; dot: Chrome.tasks-badge > 0; }
-        Tab { icon: Icons.notes; label: "Notes"; place: 4; }
+        Tab { width: root.colonne; icon: Icons.home; label: "Home"; place: 3; }
+        Tab { width: root.colonne; icon: Icons.envelope-closed; label: "Mail"; place: 0; badge: Chrome.mail-badge; }
+        Tab { width: root.colonne; icon: Icons.calendar; label: "Calendar"; place: 1; }
+        Tab { width: root.colonne; icon: Icons.task; label: "Tasks"; place: 2; dot: Chrome.tasks-badge > 0; }
+        Tab { width: root.colonne; icon: Icons.notes; label: "Notes"; place: 4; }
     }
 }
