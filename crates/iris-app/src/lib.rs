@@ -40,6 +40,7 @@ pub mod settings;
 pub mod shell;
 pub mod single;
 pub mod tags;
+pub mod taskbar;
 pub mod tasks;
 pub mod tray;
 pub mod unsubscribe;

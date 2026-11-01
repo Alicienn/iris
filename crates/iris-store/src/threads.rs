@@ -354,7 +354,8 @@ impl Store {
         })
     }
 
-    /// Qui a écrit en dernier, et à quel sujet.
+    /// Qui a écrit en dernier, et à quel sujet — and in which conversation, the one a
+    /// click on the notification opens.
     ///
     /// Ce que dit une notification d'arrivée. Le plus récent des non-lus, hors
     /// indésirables et hors corbeille — prévenir de l'arrivée de ce qu'on a filtré
@@ -363,13 +364,13 @@ impl Store {
     ///
     /// `now` borne la recherche à la dernière heure : au premier démarrage sur une
     /// boîte de dix ans, le plus ancien non-lu n'est pas une nouvelle.
-    pub fn latest_unread(&self, now: Timestamp) -> Result<Option<(String, String)>> {
+    pub fn latest_unread(&self, now: Timestamp) -> Result<Option<(String, String, ThreadId)>> {
         const UNE_HEURE: i64 = 3_600_000;
         let depuis = now.millis() - UNE_HEURE;
 
         self.with_conn(|c| {
             let resultat = c.query_row(
-                "SELECT m.from_name, m.from_addr, m.subject
+                "SELECT m.from_name, m.from_addr, m.subject, m.thread_id
                  FROM messages m
                  JOIN folders f ON f.id = m.folder_id
                  WHERE (m.flags & ?1) = 0
@@ -387,9 +388,14 @@ impl Store {
                     let nom: String = r.get(0)?;
                     let adresse: String = r.get(1)?;
                     let sujet: String = r.get(2)?;
+                    let fil: Option<i64> = r.get(3)?;
                     // Le nom quand il y en a un, l'adresse sinon : une bulle qui
                     // annonce « (sans nom) » n'apprend rien.
-                    Ok((if nom.trim().is_empty() { adresse } else { nom }, sujet))
+                    Ok((
+                        if nom.trim().is_empty() { adresse } else { nom },
+                        sujet,
+                        ThreadId(fil.unwrap_or(0)),
+                    ))
                 },
             );
 

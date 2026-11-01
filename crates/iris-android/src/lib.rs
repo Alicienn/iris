@@ -41,6 +41,7 @@ fn android_main(app: AndroidApp) {
 
     let options = iris_app::gui::GuiOptions {
         mailto: None,
+        open: None,
         start_in_tray: false,
         instance: None,
     };

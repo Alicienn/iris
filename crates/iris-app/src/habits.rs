@@ -738,7 +738,11 @@ fn rappels(services: &Services) -> bool {
         {
             continue;
         }
-        crate::notify::show_text(&u.h.habit.title, "Not done yet today.");
+        crate::notify::show_text(
+            &u.h.habit.title,
+            "Not done yet today.",
+            Some(&crate::notify::Target::Habit(u.h.id)),
+        );
         let _ = services.store.set_habit_reminded(u.h.id, &jour);
         fait = true;
     }

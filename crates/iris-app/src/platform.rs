@@ -141,6 +141,49 @@ mod windows_impl {
         Ok(())
     }
 
+    /// The key of the scheme a notification's click opens Iris with.
+    fn classe_du_schema() -> String {
+        format!(r"Software\Classes\{}", crate::notify::SCHEME)
+    }
+
+    /// Declares the `iris-mail:` scheme, so that a click on a notification starts this
+    /// executable with its link (`notify::Target`).
+    ///
+    /// Written at every start rather than by the installer: copies installed before
+    /// it get it too, and an update that moves the executable moves the command with
+    /// it. Nothing is written when the command is already this one. A portable copy
+    /// (`IRIS_ROOT`) leaves it alone: it would take the clicks of the installed Iris's
+    /// notifications away from it.
+    pub fn register_scheme() -> Result<()> {
+        if std::env::var_os("IRIS_ROOT").is_some() {
+            return Ok(());
+        }
+        let classe = classe_du_schema();
+        let commande_cle = format!(r"{classe}\shell\open\command");
+        let ouvrir = commande("\"%1\"")?;
+        if reg::read_string(reg::HKCU, &commande_cle, "").as_deref() == Some(ouvrir.as_str()) {
+            return Ok(());
+        }
+        let icone = format!("{},0", commande("")?.trim_matches('"'));
+        reg::write(reg::HKCU, &classe, "", "URL:Iris")?;
+        reg::write(reg::HKCU, &classe, "URL Protocol", "")?;
+        reg::write(reg::HKCU, &format!(r"{classe}\DefaultIcon"), "", &icone)?;
+        reg::write(reg::HKCU, &commande_cle, "", &ouvrir)
+    }
+
+    /// Whether a click on a notification can reach Iris.
+    pub fn scheme_registered() -> bool {
+        reg::exists(
+            reg::HKCU,
+            &format!(r"{}\shell\open\command", classe_du_schema()),
+        )
+    }
+
+    /// Withdraws the scheme (uninstalling).
+    pub fn unregister_scheme() {
+        reg::delete_tree(reg::HKCU, &classe_du_schema());
+    }
+
     /// Whether Windows asks applications to be dark (Settings › Personalisation ›
     /// Colours › "Choose your app mode"). Absent, as on older systems: light.
     pub fn system_dark() -> bool {
@@ -393,7 +436,9 @@ mod windows_impl {
             {
                 return None;
             }
-            let mut tampon = [0u16; 64];
+            // Room for a command with an executable's path in it: a value larger than
+            // the buffer is not read at all (`ERROR_MORE_DATA`).
+            let mut tampon = vec![0u16; 2048];
             let mut taille: u32 = (tampon.len() * 2) as u32;
             let mut genre: u32 = 0;
             let lu = unsafe {
@@ -446,6 +491,13 @@ mod windows_impl {
     pub fn unregister_mailto() -> Result<()> {
         Ok(())
     }
+    pub fn register_scheme() -> Result<()> {
+        Ok(())
+    }
+    pub fn scheme_registered() -> bool {
+        false
+    }
+    pub fn unregister_scheme() {}
     pub fn set_start_at_login(_enabled: bool) -> Result<()> {
         Ok(())
     }
@@ -461,7 +513,8 @@ mod windows_impl {
 }
 
 pub use windows_impl::{
-    register_mailto, set_start_at_login, status, unregister_mailto, Registration,
+    register_mailto, register_scheme, scheme_registered, set_start_at_login, status,
+    unregister_mailto, unregister_scheme, Registration,
 };
 
 /// The system shows its dark appearance.
