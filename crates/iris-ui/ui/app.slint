@@ -466,6 +466,14 @@ export component AppWindow inherits Window {
     in property <[AccountTagData]> account-menu-tags;
     in-out property <bool> account-tags-open;
     in-out property <string> account-tag-search;
+    // The menu was opened on a tag's title: the tag (0 for "No tag"), -1 on a mailbox.
+    in property <int> account-menu-tag: -1;
+    in-out property <bool> account-send-open;
+    callback tag-menu-requested(int);
+    callback account-menu-mark-read();
+    // Every conversation of the mailbox (or of the tag's) sent to a queue: 0 To do,
+    // 1 Waiting, 2 Done.
+    callback account-menu-send-to(int);
     callback account-tag-toggled(int);
     callback account-tag-search-changed(string);
     callback account-tag-created(string);
@@ -2636,6 +2644,12 @@ export component AppWindow inherits Window {
                             root.account-menu-y = my;
                             root.account-menu-requested(id);
                         }
+                        tag-menu(t, mx, my) => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
+                            root.account-menu-x = mx;
+                            root.account-menu-y = my;
+                            root.tag-menu-requested(t);
+                        }
                         // Brought back full size, even if it was tucked into the corner:
                         // New message is a request to write.
                         compose => {
@@ -4345,6 +4359,10 @@ export component AppWindow inherits Window {
             toggle-enabled => { root.account-menu-enable(); }
             remove-account => { root.account-menu-remove(); }
             dismissed => { root.account-menu-dismissed(); }
+            group: root.account-menu-tag >= 0;
+            send-open <=> root.account-send-open;
+            mark-all-read => { root.account-menu-mark-read(); }
+            send-all-to(q) => { root.account-menu-send-to(q); }
             tags: root.account-menu-tags;
             tags-open <=> root.account-tags-open;
             tag-search <=> root.account-tag-search;
@@ -4479,6 +4497,12 @@ export component AppWindow inherits Window {
                             root.account-menu-x = mx;
                             root.account-menu-y = my;
                             root.account-menu-requested(id);
+                        }
+                        tag-menu(t, mx, my) => {
+                            if (Layout.compact) { root.mailboxes-open = false; }
+                            root.account-menu-x = mx;
+                            root.account-menu-y = my;
+                            root.tag-menu-requested(t);
                         }
                         // Brought back full size, even if it was tucked into the corner:
                         // New message is a request to write.

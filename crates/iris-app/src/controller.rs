@@ -51,6 +51,12 @@ pub enum Request {
     /// Le glisser-déposer et l'entrée « Déplacer vers » du menu passent tous deux par
     /// ici : deux gestes, une seule règle sur ce qu'ils atteignent.
     MoveMarkedToFolder(String),
+    /// Everything in these mailboxes marked read: the menu of a mailbox or of a tag.
+    MarkAccountsRead(Vec<iris_types::AccountId>),
+    /// A folder marked read on every mailbox that has it, or on the one looked at.
+    MarkFolderRead(iris_store::Scope, Option<iris_types::AccountId>),
+    /// Every conversation these mailboxes have in the other queues sent to this one.
+    SendAccountsTo(Vec<iris_types::AccountId>, WorkflowState),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
@@ -123,6 +129,9 @@ pub struct Snapshot {
     /// from "we forgot to implement this", and both look like the application is
     /// broken.
     pub error: Option<String>,
+    /// What a bulk action did ("1,240 messages marked as read"), once. The counts
+    /// beside the folders and the mailboxes are read again with it.
+    pub notice: Option<String>,
 }
 
 /// Ce que l'interface doit dire de la recherche en cours.
@@ -218,11 +227,12 @@ fn run(
     while let Ok(premiere) = requests.recv() {
         let mut a_montrer = false;
         let mut erreur = None;
+        let mut avis = None;
         for request in fold_diffs(std::iter::once(premiere).chain(requests.try_iter())) {
             if request == Request::Shutdown {
                 return;
             }
-            match handle(&mut vm, &mut actions, request) {
+            match handle(&mut vm, &mut actions, request, &mut avis) {
                 Ok(montrer) => a_montrer |= montrer,
                 // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
                 // resterait figée sans explication. It is also carried out to the
@@ -234,9 +244,10 @@ fn run(
                 }
             }
         }
-        if a_montrer || erreur.is_some() {
+        if a_montrer || erreur.is_some() || avis.is_some() {
             let mut instantane = snapshot(&vm, &store);
             instantane.error = erreur;
+            instantane.notice = avis;
             on_snapshot(instantane);
         }
     }
@@ -262,8 +273,62 @@ fn fold_diffs(requests: impl Iterator<Item = Request>) -> Vec<Request> {
 }
 
 /// Traite une requête. Retourne `true` si un nouvel instantané doit être émis.
-fn handle(vm: &mut ViewModel, actions: &mut Actions, request: Request) -> Result<bool> {
+/// `avis`: what a bulk action did, for the status bar.
+fn handle(
+    vm: &mut ViewModel,
+    actions: &mut Actions,
+    request: Request,
+    avis: &mut Option<String>,
+) -> Result<bool> {
     match request {
+        Request::MarkAccountsRead(comptes) => {
+            let store = Arc::clone(actions.workflow().store());
+            let n = crate::folders::mark_read_accounts(
+                &store,
+                &comptes,
+                Timestamp::from_millis(now_millis()),
+            )?;
+            *avis = Some(marked_read(n));
+            tout_relire(vm, n)
+        }
+        Request::MarkFolderRead(portee, seul) => {
+            let store = Arc::clone(actions.workflow().store());
+            let n = crate::folders::mark_read_everywhere(
+                &store,
+                &portee,
+                seul,
+                Timestamp::from_millis(now_millis()),
+            )?;
+            *avis = Some(marked_read(n));
+            tout_relire(vm, n)
+        }
+        Request::SendAccountsTo(comptes, cible) => {
+            let maintenant = Timestamp::from_millis(now_millis());
+            // From the other queues, never out of Done: "Send all to To do" on a
+            // mailbox brought back years of finished mail.
+            let depuis: &[WorkflowState] = match cible {
+                WorkflowState::Done => &[WorkflowState::Todo, WorkflowState::Waiting],
+                WorkflowState::Waiting => &[WorkflowState::Todo],
+                WorkflowState::Todo => &[WorkflowState::Waiting],
+            };
+            let fils = actions
+                .workflow()
+                .store()
+                .queue_threads(&comptes, depuis, maintenant)?;
+            let n = actions
+                .workflow()
+                .set_state_many(&fils, cible, maintenant)?;
+            *avis = Some(if n == 0 {
+                "Nothing to move there.".into()
+            } else {
+                format!(
+                    "{} sent to {}.",
+                    iris_ui::format::plural(n as u64, "conversation"),
+                    queue_name(cible)
+                )
+            });
+            tout_relire(vm, n)
+        }
         Request::Bootstrap => {
             vm.bootstrap()?;
             Ok(true)
@@ -429,6 +494,41 @@ fn appliquer(
     Ok(true)
 }
 
+/// After a bulk action: the lists and their counts read again, when anything changed.
+fn tout_relire(vm: &mut ViewModel, n: usize) -> Result<bool> {
+    if n == 0 {
+        return Ok(false);
+    }
+    vm.apply_diff(&ViewDiff {
+        full_refresh: true,
+        ..Default::default()
+    })?;
+    // What left the list leaves the checked lot.
+    let restants: std::collections::BTreeSet<ThreadId> = vm.visible_threads().into_iter().collect();
+    vm.selection_mut().retain_marks(|t| restants.contains(&t));
+    Ok(true)
+}
+
+fn marked_read(n: usize) -> String {
+    if n == 0 {
+        "Nothing unread there.".into()
+    } else {
+        format!(
+            "{} marked as read.",
+            iris_ui::format::plural(n as u64, "message")
+        )
+    }
+}
+
+/// A queue as its tab names it.
+fn queue_name(state: WorkflowState) -> &'static str {
+    match state {
+        WorkflowState::Todo => "To do",
+        WorkflowState::Waiting => "Waiting",
+        WorkflowState::Done => "Done",
+    }
+}
+
 fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
     let messages = vm
         .selection()
@@ -452,6 +552,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
 
     Snapshot {
         error: None,
+        notice: None,
         marked: vm.selection().marked().clone(),
         scope: vm.scope().clone(),
         filters: vm.filters(),

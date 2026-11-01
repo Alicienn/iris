@@ -3,6 +3,18 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.5.0 — 2026-11-01
+
+### New
+- Right-click a mailbox or a tag: Mark all as read.
+- Right-click a mailbox or a tag: Send all to To do, Waiting or Done.
+
+### Improved
+- Marking a folder read no longer freezes the window, even with thousands of messages.
+
+### Fixed
+- Clicking a date in a note, or opening an event's note, no longer closes Iris.
+
 ## 7.4.4 — 2026-10-29
 
 ### Improved

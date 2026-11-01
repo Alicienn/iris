@@ -530,6 +530,17 @@ folded tags are a setting) and a click on it filters the queue to its mailboxes,
 the same `FilterAccounts` request as one mailbox. Tags keep the order they are dragged
 into.
 
+Bulk actions run on the view-model's thread (7.5.0): *Mark all as read* on a mailbox
+or a tag's title (`Request::MarkAccountsRead`, every folder through
+`folders::mark_read_accounts`) or a folder (`MarkFolderRead`, before on the window's
+thread), and *Send all to* (`SendAccountsTo`): `Store::queue_threads` takes the
+mailboxes' threads in the other queues — never out of Done — and
+`Workflow::set_state_many` moves them as one undo, the state keywords journalled per
+folder rather than per thread. Flags go to the server 200 UIDs per command. The
+snapshot's `notice` says what was done, and the folder and mailbox counts are read
+again with it. A tag's title opens the account menu with `account-menu-tag` set, its
+per-mailbox entries hidden.
+
 The conversation runs up to 900 px wide, centred beyond: the subject, the mailbox it
 came to, then each message on a framed card (face, name, address, date; the body under
 the name; the attachments of the message read as file cards, as many to a row as fit).

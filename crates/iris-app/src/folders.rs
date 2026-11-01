@@ -498,7 +498,7 @@ pub fn rename_everywhere(store: &Store, path: &str, name: &str, now: Timestamp) 
 /// sait le faire depuis toujours.
 ///
 /// Comme le reste, par le journal : le drapeau est posé localement et l'ordre part vers
-/// le serveur, en un lot par cinquante plutôt qu'un par message.
+/// le serveur, en un lot par deux cents plutôt qu'un par message.
 ///
 /// `only`: the mailbox the view is filtered to, when it is. Every mailbox was touched
 /// even while one was being looked at.
@@ -526,50 +526,85 @@ pub fn mark_read_everywhere(
                 continue;
             }
 
-            let non_lus = store.folder_unread_uids(dossier.id)?;
-            if non_lus.is_empty() {
-                continue;
-            }
-
-            // Their copies in other folders are marked read here too. Outside Gmail,
-            // where reading one copy reads them all, the server is told of those as
-            // well: told of this folder's only, they came back unread.
-            let ailleurs = if labels_not_folders(store, compte.id, &store.folders(compte.id)?)? {
-                Vec::new()
-            } else {
-                store.unread_copies_elsewhere(dossier.id)?
-            };
-
-            // Localement d'abord : la pastille doit s'éteindre au clic, pas à la
-            // synchronisation suivante.
-            store.mark_folder_read(dossier.id)?;
-
-            for (chemin, uids) in ailleurs {
-                for lot in uids.chunks(50) {
-                    let charge = iris_store::OpPayload::SetFlags {
-                        folder: chemin.clone(),
-                        uids: lot.to_vec(),
-                        flags: iris_types::Flags::SEEN.0,
-                        add: true,
-                    };
-                    iris_sync::enqueue(store, compte.id, &charge, now)?;
-                }
-            }
-
-            for lot in non_lus.chunks(50) {
-                let charge = iris_store::OpPayload::SetFlags {
-                    folder: dossier.path.clone(),
-                    uids: lot.to_vec(),
-                    flags: iris_types::Flags::SEEN.0,
-                    add: true,
-                };
-                iris_sync::enqueue(store, compte.id, &charge, now)?;
-            }
-            touches += non_lus.len();
+            let libelles = labels_not_folders(store, compte.id, &store.folders(compte.id)?)?;
+            touches += mark_folder_read(store, compte.id, &dossier, libelles, now)?;
         }
     }
 
     Ok(touches)
+}
+
+/// Marks read everything these mailboxes hold, every folder of theirs: the menu of a
+/// mailbox, or of a tag for its mailboxes. Thousands of messages at once, so it runs
+/// on the view-model's thread, never the window's.
+pub fn mark_read_accounts(
+    store: &Store,
+    accounts: &[iris_types::AccountId],
+    now: Timestamp,
+) -> Result<usize> {
+    let mut touches = 0usize;
+    for &compte in accounts {
+        let dossiers = store.folders(compte)?;
+        let libelles = labels_not_folders(store, compte, &dossiers)?;
+        for dossier in &dossiers {
+            touches += mark_folder_read(store, compte, dossier, libelles, now)?;
+        }
+    }
+    Ok(touches)
+}
+
+/// One folder marked read, here and on the server. `labels`: the mailbox keeps labels
+/// (Gmail), where reading one copy reads them all.
+fn mark_folder_read(
+    store: &Store,
+    compte: iris_types::AccountId,
+    dossier: &iris_store::Folder,
+    labels: bool,
+    now: Timestamp,
+) -> Result<usize> {
+    /// UIDs per command: scattered ones make long command lines.
+    const PAR_COMMANDE: usize = 200;
+
+    let non_lus = store.folder_unread_uids(dossier.id)?;
+    if non_lus.is_empty() {
+        return Ok(0);
+    }
+
+    // Their copies in other folders are marked read here too. Outside Gmail,
+    // where reading one copy reads them all, the server is told of those as
+    // well: told of this folder's only, they came back unread.
+    let ailleurs = if labels {
+        Vec::new()
+    } else {
+        store.unread_copies_elsewhere(dossier.id)?
+    };
+
+    // Localement d'abord : la pastille doit s'éteindre au clic, pas à la
+    // synchronisation suivante.
+    store.mark_folder_read(dossier.id)?;
+
+    for (chemin, uids) in ailleurs {
+        for lot in uids.chunks(PAR_COMMANDE) {
+            let charge = iris_store::OpPayload::SetFlags {
+                folder: chemin.clone(),
+                uids: lot.to_vec(),
+                flags: iris_types::Flags::SEEN.0,
+                add: true,
+            };
+            iris_sync::enqueue(store, compte, &charge, now)?;
+        }
+    }
+
+    for lot in non_lus.chunks(PAR_COMMANDE) {
+        let charge = iris_store::OpPayload::SetFlags {
+            folder: dossier.path.clone(),
+            uids: lot.to_vec(),
+            flags: iris_types::Flags::SEEN.0,
+            add: true,
+        };
+        iris_sync::enqueue(store, compte, &charge, now)?;
+    }
+    Ok(non_lus.len())
 }
 
 /// Jette tout ce que contient un dossier, sur toutes les boîtes qui l'ont.
@@ -1276,5 +1311,79 @@ mod tests {
             .map(|f| f.path)
             .collect();
         assert_eq!(chemins, ["Clients/Offres"]);
+    }
+
+    #[test]
+    fn a_mailbox_marked_read_is_read_in_every_folder_and_told_in_few_commands() {
+        // The menu of a mailbox, or of a tag: thousands of messages at once. Each
+        // command carries two hundred of them, not one or fifty.
+        let store = Store::in_memory().unwrap();
+        let compte = store
+            .create_account(
+                &iris_store::NewAccount::new("a@example.com", "i", "s"),
+                Timestamp::EPOCH,
+            )
+            .unwrap();
+        let autre = store
+            .create_account(
+                &iris_store::NewAccount::new("b@example.com", "i", "s"),
+                Timestamp::EPOCH,
+            )
+            .unwrap();
+        let inbox = store
+            .upsert_folder(compte, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        let devis = store
+            .upsert_folder(compte, "Devis", FolderRole::Other)
+            .unwrap();
+        let ailleurs = store
+            .upsert_folder(autre, "INBOX", FolderRole::Inbox)
+            .unwrap();
+        let mut uid = 0u32;
+        let mut ajouter = |c, dossier| {
+            uid += 1;
+            store
+                .insert_message(&iris_store::NewMessage {
+                    account: c,
+                    folder: dossier,
+                    uid,
+                    rfc_message_id: Some(format!("m{uid}@example.com")),
+                    in_reply_to: None,
+                    references: vec![],
+                    subject: format!("Subject {uid}"),
+                    from_name: "Marie".into(),
+                    from_addr: "marie@example.com".into(),
+                    recipients_json: "[]".into(),
+                    date: Timestamp::from_millis(1000 * uid as i64),
+                    received: Timestamp::from_millis(1000 * uid as i64),
+                    size: 10,
+                    flags: iris_types::Flags::NONE,
+                    preview: String::new(),
+                })
+                .unwrap();
+        };
+        for _ in 0..250 {
+            ajouter(compte, inbox);
+        }
+        for _ in 0..3 {
+            ajouter(compte, devis);
+        }
+        ajouter(autre, ailleurs);
+
+        let avant = store.pending_op_count().unwrap();
+        let n = mark_read_accounts(&store, &[compte], Timestamp::from_millis(1)).unwrap();
+        assert_eq!(n, 253);
+        assert!(store.folder_unread_uids(inbox).unwrap().is_empty());
+        assert!(store.folder_unread_uids(devis).unwrap().is_empty());
+        assert_eq!(
+            store.folder_unread_uids(ailleurs).unwrap().len(),
+            1,
+            "another mailbox is left alone"
+        );
+        assert_eq!(
+            store.pending_op_count().unwrap(),
+            avant + 3,
+            "two commands for the inbox, one for Devis"
+        );
     }
 }

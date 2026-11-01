@@ -131,6 +131,10 @@ the Android Keystore holds.
   tick.
 - **Tags** group your mailboxes (*Clients*, *Personal*…); click one to see its mail
   only.
+- **All at once**: right-click a mailbox, a tag's title or a folder for **Mark all as
+  read**; a mailbox or a tag also has **Send all to** *To do*, *Waiting* or *Done*.
+  It takes thousands of messages in one go, and never brings back what is already
+  *Done*.
 - **Invitations** show as a banner: **Accept**, **Maybe** or **Decline**, and the
   calendar follows.
 - **Unsubscribe** beside a mailing list's sender, in one click.

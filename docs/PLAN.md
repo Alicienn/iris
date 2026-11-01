@@ -920,6 +920,11 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       version (7.4.3; 7.4.2 shipped without its APK: a missing `ANDROID_KEY_PASSWORD` secret reaches Gradle as an empty string).
 - [x] **S52.8** The mail list's plate slides; the reader and the places fade in
       (7.4.4).
+- [x] **S52.9** Notes changing the place itself (a date link, an event's note) no
+      longer re-borrows its state and stops Iris (7.5.0).
+- [x] **S52.10** A mailbox's or a tag's mail at once: Mark all as read, Send all to
+      To do / Waiting / Done, on the view-model's thread, thousands of messages in a
+      few commands; a folder's Mark all as read moved there too (7.5.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

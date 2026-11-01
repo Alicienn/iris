@@ -334,6 +334,8 @@ export component Sidebar inherits Rectangle {
     callback sync-account(int);
     callback sync-all();
     callback account-menu(int, length, length);
+    /// A right click on a tag's title: the menu for its mailboxes' mail.
+    callback tag-menu(int, length, length);
     /// New message, from the top of the column.
     callback compose();
     /// On a phone, the page of mailboxes closed by its back arrow.
@@ -519,7 +521,13 @@ export component Sidebar inherits Rectangle {
                 }
                 resume => { root.resume-account(account.id); }
                 sync => { root.sync-account(account.id); }
-                context-menu(mx, my) => { root.account-menu(account.id, mx, my); }
+                context-menu(mx, my) => {
+                    if (account.header) {
+                        root.tag-menu(account.tag-id, mx, my);
+                    } else {
+                        root.account-menu(account.id, mx, my);
+                    }
+                }
             }
         }
 
@@ -665,7 +673,15 @@ export component AccountContextMenu inherits Rectangle {
     in property <[AccountTagData]> tags;
     in-out property <bool> tags-open;
     in-out property <string> tag-search;
+    /// Opened on a tag's title: what it holds is several mailboxes, and only the
+    /// entries that act on their mail are shown.
+    in property <bool> group;
+    /// The queues "Send all to" offers, beside the menu.
+    in-out property <bool> send-open;
 
+    callback mark-all-read();
+    /// 0 To do, 1 Waiting, 2 Done.
+    callback send-all-to(int);
     callback sync-now();
     callback edit-account();
     callback change-password();
@@ -690,6 +706,8 @@ export component AccountContextMenu inherits Rectangle {
             if (event.text == Key.Escape) {
                 if (root.tags-open) {
                     root.tags-open = false;
+                } else if (root.send-open) {
+                    root.send-open = false;
                 } else {
                     root.dismissed();
                 }
@@ -712,12 +730,42 @@ export component AccountContextMenu inherits Rectangle {
         }
     }
 
+    // The queues, beside the entry that opened them.
+    if root.send-open: MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x + 232px;
+        menu-y: root.menu-y + envoi.y;
+        menu-width: 160px;
+        menu-height: files.preferred-height + 8px;
+
+        files := VerticalLayout {
+            padding: 4px;
+            MenuEntry {
+                icon: Icons.inbox;
+                label: "To do";
+                activated => { root.send-all-to(0); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Waiting";
+                activated => { root.send-all-to(1); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.check;
+                label: "Done";
+                activated => { root.send-all-to(2); root.dismissed(); }
+            }
+        }
+    }
+
     if root.tags-open: MenuSurface {
         dismissed => { root.dismissed(); }
         available-width: root.width;
         available-height: root.height;
         menu-x: root.menu-x + 232px;
-        menu-y: root.menu-y + 96px;
+        menu-y: root.menu-y + 165px;
         menu-width: 220px;
         menu-height: choix.preferred-height + 8px;
 
@@ -846,66 +894,92 @@ export component AccountContextMenu inherits Rectangle {
 
             MenuSeparator {}
 
+            // The mailbox's mail at once — or, on a tag's title, every mailbox's under
+            // it: thousands of messages, done away from the window.
             MenuEntry {
-                icon: Icons.refresh;
-                label: "Sync now";
-                activated => { root.sync-now(); root.dismissed(); }
+                icon: Icons.envelope-open;
+                label: "Mark all as read";
+                activated => { root.mark-all-read(); root.dismissed(); }
             }
-            MenuEntry {
-                icon: Icons.key;
-                label: "Change password…";
-                activated => { root.change-password(); root.dismissed(); }
-            }
-            MenuEntry {
-                icon: Icons.pencil;
-                label: "Edit account…";
-                activated => { root.edit-account(); root.dismissed(); }
-            }
-            // Par compte, et donc ici plutôt que dans les réglages généraux : c'est la
-            // raison d'avoir plusieurs comptes qu'on ne signe pas une facture comme on
-            // écrit à sa sœur.
-            MenuEntry {
-                icon: Icons.quote;
-                label: "Signature…";
-                activated => { root.edit-signature(); root.dismissed(); }
-            }
-            // The other addresses this mailbox sends as: offered as senders when
-            // writing.
-            MenuEntry {
-                icon: Icons.envelope-closed;
-                label: "Send as…";
-                activated => { root.edit-aliases(); root.dismissed(); }
+            envoi := MenuEntry {
+                icon: Icons.arrow-right;
+                label: "Send all to";
+                chevron: true;
+                open: root.send-open;
+                activated => {
+                    root.tags-open = false;
+                    root.send-open = !root.send-open;
+                }
             }
 
-            // Opens beside the menu rather than replacing it: the account stays named
-            // at the top while its tags are chosen.
-            MenuEntry {
-                icon: Icons.tag;
-                label: "Tags";
-                shortcut: root.tags-open ? "‹" : "›";
-                activated => { root.tags-open = !root.tags-open; }
-            }
+            // What only one mailbox has: one `if` for the lot, not one per entry.
+            if !root.group: VerticalLayout {
+                MenuSeparator {}
 
-            MenuSeparator {}
+                MenuEntry {
+                    icon: Icons.refresh;
+                    label: "Sync now";
+                    activated => { root.sync-now(); root.dismissed(); }
+                }
+                MenuEntry {
+                    icon: Icons.key;
+                    label: "Change password…";
+                    activated => { root.change-password(); root.dismissed(); }
+                }
+                MenuEntry {
+                    icon: Icons.pencil;
+                    label: "Edit account…";
+                    activated => { root.edit-account(); root.dismissed(); }
+                }
+                // Par compte, et donc ici plutôt que dans les réglages généraux : c'est la
+                // raison d'avoir plusieurs comptes qu'on ne signe pas une facture comme on
+                // écrit à sa sœur.
+                MenuEntry {
+                    icon: Icons.quote;
+                    label: "Signature…";
+                    activated => { root.edit-signature(); root.dismissed(); }
+                }
+                // The other addresses this mailbox sends as: offered as senders when
+                // writing.
+                MenuEntry {
+                    icon: Icons.envelope-closed;
+                    label: "Send as…";
+                    activated => { root.edit-aliases(); root.dismissed(); }
+                }
 
-            MenuEntry {
-                icon: Icons.star;
-                label: root.pinned ? "Unpin" : "Pin to the top";
-                activated => { root.toggle-pinned(); root.dismissed(); }
-            }
-            MenuEntry {
-                icon: root.enabled ? Icons.window-close : Icons.check;
-                label: root.enabled ? "Disable" : "Enable";
-                activated => { root.toggle-enabled(); root.dismissed(); }
-            }
+                // Opens beside the menu rather than replacing it: the account stays
+                // named at the top while its tags are chosen.
+                MenuEntry {
+                    icon: Icons.tag;
+                    label: "Tags";
+                    shortcut: root.tags-open ? "‹" : "›";
+                    activated => {
+                        root.send-open = false;
+                        root.tags-open = !root.tags-open;
+                    }
+                }
 
-            MenuSeparator {}
+                MenuSeparator {}
 
-            MenuEntry {
-                icon: Icons.trash;
-                label: "Remove from Iris…";
-                danger: true;
-                activated => { root.remove-account(); root.dismissed(); }
+                MenuEntry {
+                    icon: Icons.star;
+                    label: root.pinned ? "Unpin" : "Pin to the top";
+                    activated => { root.toggle-pinned(); root.dismissed(); }
+                }
+                MenuEntry {
+                    icon: root.enabled ? Icons.window-close : Icons.check;
+                    label: root.enabled ? "Disable" : "Enable";
+                    activated => { root.toggle-enabled(); root.dismissed(); }
+                }
+
+                MenuSeparator {}
+
+                MenuEntry {
+                    icon: Icons.trash;
+                    label: "Remove from Iris…";
+                    danger: true;
+                    activated => { root.remove-account(); root.dismissed(); }
+                }
             }
         }
     }

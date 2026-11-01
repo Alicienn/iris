@@ -632,6 +632,54 @@ impl Store {
         })
     }
 
+    /// The conversations the queues show for these mailboxes, in one of `states`: what
+    /// "Send all to…" on a mailbox or a tag moves. The same exclusions as the queues
+    /// (bin, junk, put aside), and what is snoozed is left where it was put.
+    pub fn queue_threads(
+        &self,
+        accounts: &[AccountId],
+        states: &[WorkflowState],
+        now: Timestamp,
+    ) -> Result<Vec<ThreadId>> {
+        if accounts.is_empty() || states.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(|c| {
+            let comptes = std::iter::repeat_n("?", accounts.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            // From a closed enumeration, never typed: interpolated like the roles.
+            let etats = states
+                .iter()
+                .map(|s| s.as_i64().to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT t.id FROM threads t
+                 WHERE t.state IN ({etats})
+                   AND (t.snooze_until IS NULL OR t.snooze_until <= ?)
+                   AND (t.flags_union & {SPAM_BIT}) = 0
+                   AND t.put_aside_at IS NULL
+                   AND EXISTS (SELECT 1 FROM messages m
+                               JOIN folders f ON f.id = m.folder_id
+                               WHERE m.thread_id = t.id
+                                 AND f.role NOT IN ('trash', 'junk'))
+                   AND EXISTS (SELECT 1 FROM thread_accounts ta
+                               WHERE ta.thread_id = t.id
+                                 AND ta.account_id IN ({comptes}))
+                 ORDER BY t.id"
+            );
+            let mut args = vec![SqlValue::Integer(now.millis())];
+            args.extend(accounts.iter().map(|a| SqlValue::Integer(a.get())));
+            let mut stmt = c.prepare(&sql).map_err(|e| sql_err("préparation", e))?;
+            let rows = stmt
+                .query_map(params_from_iter(args), |r| r.get::<_, i64>(0).map(ThreadId))
+                .map_err(|e| sql_err("fils des comptes", e))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| sql_err("fils des comptes", e))
+        })
+    }
+
     /// Reporte un fil. L'état est conservé et restauré à l'échéance.
     /// Marque un fil comme mis à la corbeille, ou lève la marque. Vrai si quelque
     /// chose a changé : marquer un fil déjà marqué ne change rien.

@@ -870,6 +870,12 @@ pub fn apply_snapshot(
     // the next thing happens. Silence is the one answer a button must never give.
     if let Some(probleme) = &snapshot.error {
         fenetre.set_status(probleme.as_str().into());
+    } else if let Some(avis) = &snapshot.notice {
+        // A bulk action done on the view-model's thread: what it did, and the counts
+        // beside the folders and the mailboxes, which no list diff reaches.
+        fenetre.set_status(avis.as_str().into());
+        refresh_folders(fenetre, services);
+        refresh_accounts(fenetre, services, &[]);
     }
 
     fenetre.set_rows(ModelRc::new(VecModel::from(lignes)));
@@ -5379,6 +5385,24 @@ pub fn scope_depuis(choix: &str) -> iris_store::Scope {
 }
 
 /// The mailbox the view is filtered to, if it is filtered to one.
+/// The mailboxes the account menu acts on: its account, or on a tag's title the
+/// tag's mailboxes.
+fn comptes_du_menu(
+    fenetre: &AppWindow,
+    services: &Services,
+    sujet: &std::sync::Mutex<Option<iris_types::AccountId>>,
+) -> Vec<iris_types::AccountId> {
+    match fenetre.get_account_menu_tag() {
+        tag if tag >= 0 => crate::tags::accounts_of_tag(services, tag as i64),
+        _ => sujet
+            .lock()
+            .expect("poisoned account menu")
+            .iter()
+            .copied()
+            .collect(),
+    }
+}
+
 fn compte_regarde(fenetre: &AppWindow) -> Option<iris_types::AccountId> {
     match fenetre.get_selected_account() {
         0 => None,
@@ -5675,7 +5699,8 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
     // Les deux gestes en gros que tout client de courrier a et qu'Iris n'avait pas. La
     // corbeille de cette boîte affichait huit cent soixante-cinq.
     {
-        let services = services.clone();
+        // On the view-model's thread: thousands of messages marked on the window's
+        // thread would freeze it while they are. The snapshot says what it did.
         let controller = Arc::clone(&controller);
         let faible = fenetre.as_weak();
         fenetre.on_folder_mark_read_requested(move || {
@@ -5684,30 +5709,8 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
             };
             fenetre.set_folder_menu_open(false);
             let portee = scope_depuis(fenetre.get_folder_menu_key().as_str());
-
-            match crate::folders::mark_read_everywhere(
-                &services.store,
-                &portee,
-                compte_regarde(&fenetre),
-                now(),
-            ) {
-                Ok(0) => fenetre.set_status("Nothing unread there.".into()),
-                Ok(n) => {
-                    controller.send(Request::Diff(Box::new(iris_kernel::ViewDiff {
-                        full_refresh: true,
-                        ..Default::default()
-                    })));
-                    fenetre.set_status(
-                        format!(
-                            "{} marked as read.",
-                            iris_ui::format::plural(n as u64, "message")
-                        )
-                        .into(),
-                    );
-                    refresh_folders(&fenetre, &services);
-                }
-                Err(e) => fenetre.set_status(format!("Could not do it: {e}").into()),
-            }
+            fenetre.set_status("Marking as read…".into());
+            controller.send(Request::MarkFolderRead(portee, compte_regarde(&fenetre)));
         });
     }
     {
@@ -6064,6 +6067,8 @@ pub fn wire_account_menu(
             };
 
             fenetre.set_account_menu_label(details.email.as_str().into());
+            fenetre.set_account_menu_tag(-1);
+            fenetre.set_account_send_open(false);
             fenetre.set_account_menu_pinned(details.pinned);
             fenetre.set_account_menu_enabled(details.enabled);
             fenetre.set_account_page(account_page(&services, &details));
@@ -6075,6 +6080,94 @@ pub fn wire_account_menu(
                 &services, compte, "",
             ))));
             fenetre.set_account_menu_open(true);
+        });
+    }
+
+    // A tag's title right-clicked: the same menu, for the mail of its mailboxes.
+    {
+        let services = services.clone();
+        let sujet = Arc::clone(&sujet);
+        let faible = fenetre.as_weak();
+        fenetre.on_tag_menu_requested(move |tag| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            let comptes = crate::tags::accounts_of_tag(&services, tag as i64);
+            if comptes.is_empty() {
+                return;
+            }
+            *sujet.lock().expect("poisoned account menu") = None;
+            let nom = if tag == 0 {
+                "No tag".to_string()
+            } else {
+                services
+                    .store
+                    .account_tags()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|t| t.id == tag as i64)
+                    .map(|t| t.name)
+                    .unwrap_or_default()
+            };
+            let libelle = format!(
+                "{nom} · {}",
+                iris_ui::format::plural_of(comptes.len() as u64, "mailbox", "mailboxes")
+            );
+            fenetre.set_account_menu_label(libelle.as_str().into());
+            fenetre.set_account_menu_tag(tag);
+            fenetre.set_account_send_open(false);
+            fenetre.set_account_tags_open(false);
+            fenetre.set_account_menu_open(true);
+        });
+    }
+
+    // --- Its mail at once: marked read, or sent to a queue ---
+    //
+    // Thousands of messages on a mailbox, more on a tag: the view-model's thread does
+    // it, and its snapshot says what was done.
+    {
+        let (services, sujet, controller) = (
+            services.clone(),
+            Arc::clone(&sujet),
+            Arc::clone(&controller),
+        );
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_mark_read(move || {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let comptes = comptes_du_menu(&fenetre, &services, &sujet);
+            if comptes.is_empty() {
+                return;
+            }
+            fenetre.set_status("Marking as read…".into());
+            controller.send(Request::MarkAccountsRead(comptes));
+        });
+    }
+    {
+        let (services, sujet, controller) = (
+            services.clone(),
+            Arc::clone(&sujet),
+            Arc::clone(&controller),
+        );
+        let faible = fenetre.as_weak();
+        fenetre.on_account_menu_send_to(move |file| {
+            let Some(fenetre) = faible.upgrade() else {
+                return;
+            };
+            fenetre.set_account_menu_open(false);
+            let cible = match file {
+                0 => iris_types::WorkflowState::Todo,
+                1 => iris_types::WorkflowState::Waiting,
+                _ => iris_types::WorkflowState::Done,
+            };
+            let comptes = comptes_du_menu(&fenetre, &services, &sujet);
+            if comptes.is_empty() {
+                return;
+            }
+            fenetre.set_status("Moving…".into());
+            controller.send(Request::SendAccountsTo(comptes, cible));
         });
     }
 

@@ -2897,6 +2897,27 @@ fn suivre_deplacement(e: &mut Etat, avant: &str, apres: &str) {
     }
 }
 
+/// The place shown has changed: Notes shown again looks at its space, left it writes
+/// the open note. Notes itself changes the place with its state held (a date link, an
+/// event's note), and the follower is called at once: borrowing then stopped Iris
+/// (7.4.4), so it waits for the gesture to return and reads the place shown by then.
+fn lieu_change(f: &AppWindow, etat: &Rc<RefCell<Etat>>, w: i32) {
+    let Ok(mut e) = etat.try_borrow_mut() else {
+        let (etat, faible) = (Rc::clone(etat), f.as_weak());
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            let Some(f) = faible.upgrade() else { return };
+            lieu_change(&f, &etat, f.get_workspace());
+        });
+        return;
+    };
+    if w == 4 {
+        e.fingerprint = 0;
+        veiller(f, &mut e);
+    } else {
+        ecrire(f, &mut e);
+    }
+}
+
 /// Looks at the space for changes made elsewhere: the tree follows, and the open note
 /// is read again when it was not being changed here.
 fn veiller(f: &AppWindow, e: &mut Etat) {
@@ -3158,13 +3179,7 @@ pub fn wire_notes(f: &AppWindow, services: &Services) {
         let (etat, faible) = (Rc::clone(&etat), f.as_weak());
         crate::workspace::follow(f, move |w| {
             let Some(f) = faible.upgrade() else { return };
-            let mut e = etat.borrow_mut();
-            if w == 4 {
-                e.fingerprint = 0;
-                veiller(&f, &mut e);
-            } else {
-                ecrire(&f, &mut e);
-            }
+            lieu_change(&f, &etat, w);
         });
     }
     {

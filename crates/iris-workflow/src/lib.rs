@@ -45,6 +45,15 @@ fn actions_in(stack: &[UndoEntry]) -> usize {
         .count()
 }
 
+/// The state keywords a thread's newest message gained and lost, for the server.
+struct Keywords {
+    account: AccountId,
+    folder: FolderId,
+    uid: u32,
+    added: Flags,
+    removed: Flags,
+}
+
 /// The shape a thread had before an action, so the action can be reversed.
 ///
 /// It records more than the state: undoing a snooze that only restored the state
@@ -1287,27 +1296,123 @@ impl Workflow {
         state: WorkflowState,
         now: Timestamp,
     ) -> Result<()> {
-        let messages = self.store.thread_messages(thread)?;
-        let Some(last) = messages.last() else {
+        let Some(k) = self.state_keywords(thread, state)? else {
             return Ok(());
         };
+        if !k.added.is_empty() {
+            self.journal_flags(k.account, k.folder, &[k.uid], k.added, true, now)?;
+        }
+        if !k.removed.is_empty() {
+            self.journal_flags(k.account, k.folder, &[k.uid], k.removed, false, now)?;
+        }
+        Ok(())
+    }
+
+    /// Writes a thread's state keywords locally, and says what the server must be told
+    /// of them: nothing where the folder keeps no keywords or they are already right.
+    fn state_keywords(&self, thread: ThreadId, state: WorkflowState) -> Result<Option<Keywords>> {
+        let messages = self.store.thread_messages(thread)?;
+        let Some(last) = messages.last() else {
+            return Ok(None);
+        };
         if !self.store.folder_accepts_keywords(last.folder)? {
-            return Ok(());
+            return Ok(None);
         }
         let wanted = with_state(last.flags, state);
         if wanted == last.flags {
-            return Ok(());
+            return Ok(None);
         }
         self.store.set_message_flags(last.id, wanted)?;
-        let ajout = Flags(wanted.0 & !last.flags.0);
-        let retrait = Flags(last.flags.0 & !wanted.0);
-        if !ajout.is_empty() {
-            self.journal_flags(last.account, last.folder, &[last.uid], ajout, true, now)?;
+        Ok(Some(Keywords {
+            account: last.account,
+            folder: last.folder,
+            uid: last.uid,
+            added: Flags(wanted.0 & !last.flags.0),
+            removed: Flags(last.flags.0 & !wanted.0),
+        }))
+    }
+
+    /// The manual state change on many threads at once: "Send all to…" on a mailbox or
+    /// a tag, thousands of them. One undo for the lot, and the keywords told to the
+    /// server per folder: thread by thread, five thousand threads queued five thousand
+    /// commands. Returns how many threads moved.
+    pub fn set_state_many(
+        &self,
+        threads: &[ThreadId],
+        state: WorkflowState,
+        now: Timestamp,
+    ) -> Result<usize> {
+        self.begin_batch();
+        let resultat = self.set_state_many_in_batch(threads, state, now);
+        self.end_batch();
+        resultat
+    }
+
+    fn set_state_many_in_batch(
+        &self,
+        threads: &[ThreadId],
+        state: WorkflowState,
+        now: Timestamp,
+    ) -> Result<usize> {
+        /// How many UIDs one command carries: scattered ones make a long command line,
+        /// and some servers refuse those past a few kilobytes.
+        const PAR_COMMANDE: usize = 200;
+
+        let reglages = self.settings();
+        let mut changes = 0;
+        let mut a_dire: BTreeMap<(AccountId, FolderId, u32, bool), Vec<u32>> = BTreeMap::new();
+        for &thread in threads {
+            // A thread gone since the list was read is skipped, not an error.
+            let Some(row) = self.store.thread_row(thread)? else {
+                continue;
+            };
+            let TransitionOutcome::Moved { from, to } =
+                transition(row.state, TransitionCause::Manual, Some(state), &reglages)
+            else {
+                continue;
+            };
+            let before = UndoEntry {
+                thread,
+                state: row.state,
+                snoozed_until: row.snoozed_until,
+                flags: Vec::new(),
+                moves: Vec::new(),
+                at: now,
+                group: 0,
+            };
+            self.store.set_thread_state(thread, to)?;
+            if to == WorkflowState::Done && row.snoozed_until.is_some() {
+                self.store.clear_snooze(thread)?;
+            }
+            if let Some(k) = self.state_keywords(thread, to)? {
+                if !k.added.is_empty() {
+                    a_dire
+                        .entry((k.account, k.folder, k.added.0, true))
+                        .or_default()
+                        .push(k.uid);
+                }
+                if !k.removed.is_empty() {
+                    a_dire
+                        .entry((k.account, k.folder, k.removed.0, false))
+                        .or_default()
+                        .push(k.uid);
+                }
+            }
+            self.record_undo(before);
+            self.bus.publish(Event::ThreadStateChanged {
+                thread,
+                from,
+                to,
+                cause: TransitionCause::Manual,
+            });
+            changes += 1;
         }
-        if !retrait.is_empty() {
-            self.journal_flags(last.account, last.folder, &[last.uid], retrait, false, now)?;
+        for ((account, folder, flags, add), uids) in a_dire {
+            for lot in uids.chunks(PAR_COMMANDE) {
+                self.journal_flags(account, folder, lot, Flags(flags), add, now)?;
+            }
         }
-        Ok(())
+        Ok(changes)
     }
 
     /// Records what the server will have to be told.
@@ -2218,5 +2323,45 @@ mod tests {
             .unwrap();
         assert_eq!(f.state(thread), WorkflowState::Waiting);
         assert!(set_flag_ops(&f).is_empty(), "the server already says it");
+    }
+
+    #[test]
+    fn many_threads_sent_to_done_tell_the_server_in_one_command_and_undo_in_one() {
+        // "Send all to Done" on a mailbox: thousands of threads. One by one, each
+        // queued its own command for the server.
+        let f = fixture();
+        f.store.set_folder_accepts_keywords(f.folder, true).unwrap();
+        let fils: Vec<ThreadId> = (0..30).map(|_| f.thread()).collect();
+
+        let n = f
+            .workflow
+            .set_state_many(&fils, WorkflowState::Done, t(1))
+            .unwrap();
+        assert_eq!(n, 30);
+        assert!(fils.iter().all(|&t| f.state(t) == WorkflowState::Done));
+        assert_eq!(set_flag_ops(&f), vec![(Flags::IRIS_DONE.0, true)]);
+
+        f.workflow.undo(t(2)).unwrap();
+        assert!(
+            fils.iter().all(|&t| f.state(t) == WorkflowState::Todo),
+            "one undo brings the lot back"
+        );
+    }
+
+    #[test]
+    fn sending_many_threads_skips_those_already_there() {
+        let f = fixture();
+        let deja = f.thread();
+        let autre = f.thread();
+        f.workflow
+            .set_state(deja, WorkflowState::Waiting, t(1))
+            .unwrap();
+
+        let n = f
+            .workflow
+            .set_state_many(&[deja, autre, ThreadId(9999)], WorkflowState::Waiting, t(2))
+            .unwrap();
+        assert_eq!(n, 1, "the one already waiting, and one gone, are skipped");
+        assert_eq!(f.state(autre), WorkflowState::Waiting);
     }
 }
