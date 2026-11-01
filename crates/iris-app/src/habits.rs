@@ -543,9 +543,31 @@ fn basculer(services: &Services, id: i64, jour: NaiveDate) {
     } else {
         u.h.habit.amount.max(1)
     };
-    let _ = services
+    if services
         .store
-        .set_habit_check(id, &texte_du_jour(jour), fait);
+        .set_habit_check(id, &texte_du_jour(jour), fait)
+        .is_ok()
+    {
+        ressenti(services, fait > 0, jour == aujourdhui());
+    }
+}
+
+/// What the finger feels once a habit's day changes: a light tick when it is
+/// unticked, a click when it is done, and the stronger success when it was the last
+/// of today's habits still to do (a past day filled in is only a click).
+fn ressenti(services: &Services, fait: bool, today: bool) {
+    use crate::platform::{haptic, Haptic};
+    let tout = fait && today && {
+        let (faites, dues) = du_jour(&charger(services), aujourdhui());
+        dues > 0 && faites == dues
+    };
+    haptic(if !fait {
+        Haptic::Tick
+    } else if tout {
+        Haptic::Success
+    } else {
+        Haptic::Confirm
+    });
 }
 
 /// The workspace of Tasks, where the habits show.
@@ -994,10 +1016,23 @@ pub fn wire_habits(f: &AppWindow, services: &Services) {
         let voulu = u.h.habit.amount.max(1);
         let pas = if voulu >= 8 { voulu / 4 } else { 1 };
         let today = aujourdhui();
-        let nouveau = (u.regles.amount_on(today) + n * pas).clamp(0, voulu * 10);
-        let _ = services
+        let avant = u.regles.amount_on(today);
+        let nouveau = (avant + n * pas).clamp(0, voulu * 10);
+        if services
             .store
-            .set_habit_check(id, &texte_du_jour(today), nouveau);
+            .set_habit_check(id, &texte_du_jour(today), nouveau)
+            .is_ok()
+            && nouveau != avant
+        {
+            // Each step a tick; the one that reaches the amount wanted, a click (or
+            // the day's success).
+            let atteint = avant < voulu && nouveau >= voulu;
+            if atteint {
+                ressenti(services, true, true);
+            } else {
+                crate::platform::haptic(crate::platform::Haptic::Tick);
+            }
+        }
         redessiner();
     });
 

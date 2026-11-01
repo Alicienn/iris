@@ -1,0 +1,18 @@
+// A small vibration under the finger, for the moments a gesture lands.
+//
+// Strengths, lightest first, each kept for one sort of moment so that a stronger one
+// still means something. The application answers each with the system's own effect
+// (a phone), or with nothing (a computer); the phone's touch-feedback setting silences
+// them all. Not every tap vibrates: only a choice, a thing done and a delete here. The
+// strongest, a whole finished (every habit of the day, the inbox emptied), is the
+// application's to say: only it knows.
+
+export global Haptics {
+    /// A choice that changes nothing yet: a segment, a chip, a switch, a swipe
+    /// reaching the point where letting go acts.
+    callback tick();
+    /// One thing done: a task ticked, a swipe carried out.
+    callback confirm();
+    /// Something destroyed: a delete confirmed.
+    callback warning();
+}

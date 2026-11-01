@@ -1,6 +1,7 @@
 import { Tokens } from "@iris/theme/tokens.slint";
 import { Layout } from "@iris/theme/layout.slint";
 import { Icon } from "@iris/base/icons.slint";
+import { Haptics } from "@iris/theme/haptics.slint";
 
 // A row a finger can push aside: right for one action, left for another, as phones
 // have taught everyone. The ground is the action's colour from the first pixel, as
@@ -38,6 +39,13 @@ export component SwipeRow inherits Rectangle {
     changed glisse => { Swiping.active = self.glisse; }
     /// Past the threshold: letting go does it.
     property <bool> arme: root.decalage >= root.seuil || -root.decalage >= root.seuil;
+    // The finger feels the threshold as the icon grows: a tick each time it is
+    // crossed outwards, none on the way back.
+    changed arme => {
+        if (self.arme) {
+            Haptics.tick();
+        }
+    }
 
     clip: true;
 
@@ -107,9 +115,12 @@ export component SwipeRow inherits Rectangle {
             root.decalage = self.current-position.x - self.pressed-position.x;
         }
         swiped => {
+            // Let go past the threshold: the action is done, and felt as done.
             if (root.decalage >= root.seuil) {
+                Haptics.confirm();
                 root.swiped-start();
             } else if (-root.decalage >= root.seuil) {
+                Haptics.confirm();
                 root.swiped-end();
             }
             root.decalage = 0px;

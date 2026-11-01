@@ -1043,12 +1043,15 @@ fn basculer_pastille(requete: &str, (mots, groupe): &(&[&str], &str)) -> String 
 /// filtered, and a mailbox to empty. The days in a row it has been so, counted and
 /// kept in the settings; 0 when it is not.
 fn inbox_zero(services: &Services, snapshot: &Snapshot) -> u32 {
-    let vide = matches!(snapshot.scope, iris_store::Scope::Queue)
+    let file = matches!(snapshot.scope, iris_store::Scope::Queue)
         && snapshot.active_tab == iris_types::WorkflowState::Todo
-        && snapshot.rows.is_empty()
-        && snapshot.counts[0] == 0
         && snapshot.search.is_none()
         && snapshot.filters.is_empty();
+    // The work queue shown with mail in it: emptying it from there is felt (below).
+    if file && !snapshot.rows.is_empty() {
+        FILE_VUE_PLEINE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    let vide = file && snapshot.rows.is_empty() && snapshot.counts[0] == 0;
     if !vide
         || services
             .store
@@ -1068,8 +1071,16 @@ fn inbox_zero(services: &Services, snapshot: &Snapshot) -> u32 {
             s.inbox_zero_streak = serie;
         });
     }
+    // Reached, not merely opened: the success under the finger only when the queue
+    // was seen with mail in it since, never on starting Iris on an empty inbox.
+    if FILE_VUE_PLEINE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        crate::platform::haptic(crate::platform::Haptic::Success);
+    }
     serie
 }
+
+/// The work queue has been shown with mail in it since the inbox was last empty.
+static FILE_VUE_PLEINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Where a conversation is: the folder of its latest message ("Inbox", "Spam", "Trash",
 /// or a folder's own name), and "+1" when other messages of it are elsewhere. Empty

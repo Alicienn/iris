@@ -479,6 +479,11 @@ pub fn system_reduces_motion() -> bool {
     current().system_reduces_motion()
 }
 
+/// A vibration under the finger (see [`Haptic`]); nothing on a computer.
+pub fn haptic(kind: Haptic) {
+    current().haptic(kind);
+}
+
 /// Ouvre un fichier avec l'application que le système lui associe.
 ///
 /// Enregistrer une pièce jointe puis aller la chercher dans l'explorateur fait trois
@@ -679,6 +684,26 @@ pub trait Platform: Send + Sync {
     fn clipboard_get(&self) -> Option<String> {
         None
     }
+    /// A small vibration under the finger. Nothing where there is no finger (a
+    /// computer); on a phone the system's own touch-feedback setting decides.
+    fn haptic(&self, kind: Haptic) {
+        let _ = kind;
+    }
+}
+
+/// How firmly a gesture is answered under the finger, lightest first. Each kind is
+/// kept for one sort of moment, so that a stronger one still means something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Haptic {
+    /// A choice that changes nothing yet: a segment, a chip, a switch, a swipe
+    /// reaching the point where letting go acts.
+    Tick,
+    /// One thing done: a task or a habit ticked, a swipe carried out.
+    Confirm,
+    /// Something finished as a whole: every habit of the day, the inbox emptied.
+    Success,
+    /// Something destroyed: a delete confirmed.
+    Warning,
 }
 
 /// What a scan of a QR code came to.
