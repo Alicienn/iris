@@ -776,6 +776,8 @@ export component AppWindow inherits Window {
     // visé. Confondre les deux obligeait le clic droit à sélectionner d'abord, donc à
     // ouvrir le message pour pouvoir proposer de le jeter.
     callback menu-done(int);
+    /// A row's menu, Mark as: the conversation into To do (0), Waiting (1) or Done (2).
+    callback menu-mark-as(int, int);
     callback menu-archive(int);
     callback menu-snooze(int, string);
     callback menu-toggle-unread(int);
@@ -4636,6 +4638,7 @@ export component AppWindow inherits Window {
             }
             add-task => { root.thread-to-task(root.context-menu-thread); }
             mark-done => { root.menu-done(root.context-menu-thread); }
+            mark-as(file) => { root.menu-mark-as(root.context-menu-thread, file); }
             archive => { root.menu-archive(root.context-menu-thread); }
             snooze(quand) => { root.menu-snooze(root.context-menu-thread, quand); }
             toggle-unread => { root.menu-toggle-unread(root.context-menu-thread); }

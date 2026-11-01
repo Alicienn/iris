@@ -121,8 +121,8 @@ the Android Keystore holds.
   **inbox zero**, and Iris counts your streak.
 - **Acting on a conversation**: **Done** `E`, **Snooze** `S` (later today, tomorrow,
   this weekend, next week), **Waiting** `W`, **To task** `T`, **Archive** `A`, star `F`,
-  delete. Point at a row to do it without opening it; `Ctrl`+`Z` undoes, on the server
-  too.
+  delete. Point at a row to do it without opening it, or right-click it (**Mark as** ›
+  *To do*, *Waiting*, *Done*); `Ctrl`+`Z` undoes, on the server too.
 - **States follow you**: *Waiting* and *Done* are written on the server, so Iris on
   your other computers finds them.
 - **Writing**: address chips, attachments, formatting, signatures, aliases (*Send

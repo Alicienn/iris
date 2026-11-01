@@ -937,6 +937,10 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       click opens what it is about, running or not, through `iris-mail:` links (7.5.0).
 - [x] **S52.15** Android: haptics (tick, confirm, success, warning) on the gestures that
       commit something; the tab bar's plate centred on five equal columns (7.5.0).
+- [x] **S52.16** The taskbar's count drawn as Windows' own badges: neutral, following
+      the taskbar's mode, in Segoe UI (7.6.0).
+- [x] **S52.17** A row's menu: Mark as › To do / Waiting / Done, in place of Mark as
+      done (7.6.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

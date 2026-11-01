@@ -1745,9 +1745,12 @@ with their list as `CATEGORIES`).
   callbacks, because a callback from another thread may not touch the window. The unread
   count in its tooltip is rewritten only when it changes.
 - **The taskbar badge** (7.5.0, `taskbar.rs`): the same unread count, fed by that 200 ms
-  poll, drawn as a disc in the accent with the figures across it (99+ beyond) and set
-  through `ITaskbarList3::SetOverlayIcon` on the UI thread, only when the count or the
-  accent changes. A window subclass catches `TaskbarButtonCreated` (Explorer restarted)
+  poll, set through `ITaskbarList3::SetOverlayIcon` on the UI thread, only when the
+  count or the taskbar's mode changes. Since 7.6.0 it copies the badge Windows draws for
+  packaged apps (which an app without a package identity cannot ask for): a neutral
+  disc, light on a dark taskbar (`SystemUsesLightTheme`), the figures (99+ beyond) in
+  Segoe UI Variable semibold, laid out by GDI at four times the size and smoothed from
+  those samples; `apercu_badge` draws it on both taskbars. A window subclass catches `TaskbarButtonCreated` (Explorer restarted)
   to set it again; the bitmaps and the icon are freed at once.
 - **A notification's click** (7.5.0, `notify.rs`): toasts are built as XML through the
   `windows` crate (it replaced `tauri-winrt-notification`, which could not set a launch

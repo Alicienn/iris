@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.6.0 — 2026-11-01
+
+### Improved
+- Right-click a message: Mark as To do, Waiting or Done, in place of Mark as done.
+- The unread count on the taskbar button looks like Windows' own badges.
+
 ## 7.5.0 — 2026-11-01
 
 ### New

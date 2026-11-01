@@ -194,6 +194,16 @@ mod windows_impl {
         ) == Some(0)
     }
 
+    /// Whether the taskbar is dark: it follows Windows' own mode ("Choose your
+    /// default Windows mode"), not the apps'. Absent: dark, as Windows 11 starts.
+    pub fn taskbar_dark() -> bool {
+        reg::read_dword(
+            reg::HKCU,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "SystemUsesLightTheme",
+        ) != Some(1)
+    }
+
     /// Whether Windows has animations off (Settings › Accessibility › Visual effects ›
     /// Animation effects). Unanswered: they are on.
     #[allow(unsafe_code)]
@@ -520,6 +530,12 @@ pub use windows_impl::{
 /// The system shows its dark appearance.
 pub fn system_dark() -> bool {
     current().system_dark()
+}
+
+/// The taskbar is dark (Windows' own mode, apart from the apps').
+#[cfg(windows)]
+pub fn taskbar_dark() -> bool {
+    windows_impl::taskbar_dark()
 }
 
 /// The decimal separator, the thousands separator, and whether the day comes first.

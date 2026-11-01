@@ -1,16 +1,19 @@
 //! The unread count on Iris's taskbar button.
 //!
 //! The same figure as the notification area's tooltip — unread mail, junk and the bin
-//! left out — drawn as a small disc in the accent colour over the button's corner
-//! (`ITaskbarList3::SetOverlayIcon`), with nothing when there is nothing to read.
-//! Tasks have their own count on the rail and stay off it: a button that also counts
-//! what is due tomorrow stops saying whether mail came.
+//! left out — drawn over the button's corner (`ITaskbarList3::SetOverlayIcon`), with
+//! nothing when there is nothing to read. Tasks have their own count on the rail and
+//! stay off it: a button that also counts what is due tomorrow stops saying whether
+//! mail came.
 //!
-//! The disc is drawn here, pixel by pixel: the taskbar takes an icon, and a font
-//! through GDI for three characters would be more code than the characters. It is
-//! drawn again only when the count or the accent changes, and when Explorer makes the
-//! button again (it restarted, the window came back from the notification area):
-//! Windows then sends `TaskbarButtonCreated`, and an overlay set before is gone.
+//! It looks like the badge Windows draws for the apps of its Store (7.6.0): a neutral
+//! disc, light grey with dark figures on a dark taskbar and the reverse on a light one,
+//! the figures in Segoe UI. Those badges need an app with a package identity; Iris
+//! installs without one, so it draws its own. The figures are laid out by GDI at four
+//! times the size and the disc is smoothed from those samples. It is drawn again only
+//! when the count or the taskbar's mode changes, and when Explorer makes the button
+//! again (it restarted, the window came back from the notification area): Windows then
+//! sends `TaskbarButtonCreated`, and an overlay set before is gone.
 //!
 //! Elsewhere than Windows there is no such button and nothing is done.
 
@@ -32,8 +35,23 @@ pub fn description(unread: u32) -> String {
     format!("{unread} unread")
 }
 
+/// The disc and its figures, as Windows colours its own badges: light grey and nearly
+/// black on a dark taskbar, dark grey and white on a light one.
+pub fn colours(taskbar_dark: bool) -> (Rgb, Rgb) {
+    if taskbar_dark {
+        ((0xa6, 0xa6, 0xa6), (0x0b, 0x0b, 0x0b))
+    } else {
+        ((0x5c, 0x5c, 0x5c), (0xff, 0xff, 0xff))
+    }
+}
+
+/// How many samples a pixel has on a side: the figures are laid out at four times
+/// the badge's size, and each pixel is the mean of its sixteen samples.
+pub const SAMPLES: usize = 4;
+
 /// The figures and the plus, three units wide and five high, a row per byte (the
-/// high bit on the left).
+/// high bit on the left): where GDI is not there to draw them (the tests, another
+/// system), or refused.
 fn glyphe(c: char) -> [u8; 5] {
     match c {
         '0' => [0b111, 0b101, 0b101, 0b101, 0b111],
@@ -51,14 +69,9 @@ fn glyphe(c: char) -> [u8; 5] {
     }
 }
 
-/// The badge: a disc in `fond`, `texte` in `encre` across its middle, `taille`
-/// pixels a side. Top row first, each pixel blue, green, red, alpha with the alpha
-/// straight, as an icon holds them.
-///
-/// Each pixel is sampled sixteen times, so the disc's edge and the figures stay
-/// smooth at any size the taskbar asks for.
-pub fn pixels(texte: &str, taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]> {
-    const S: u32 = 4;
+/// The figures of `texte` as blocks, sample by sample: `SAMPLES` × `taille` a side,
+/// a row after another, true where the figures are.
+pub fn block_figures(texte: &str, taille: usize) -> Vec<bool> {
     let glyphes: Vec<[u8; 5]> = texte.chars().map(glyphe).collect();
     let d = taille as f32;
     // In units of the glyphs: three wide, one between them.
@@ -68,33 +81,59 @@ pub fn pixels(texte: &str, taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]>
     let echelle = (d * 0.105).min(d * 0.78 / largeur);
     let x0 = (d - largeur * echelle) / 2.0;
     let y0 = (d - 5.0 * echelle) / 2.0;
-    let r = d / 2.0;
-
-    let encrage = |fx: f32, fy: f32| -> bool {
-        let u = (fx - x0) / echelle;
-        let v = (fy - y0) / echelle;
-        if u < 0.0 || !(0.0..5.0).contains(&v) {
-            return false;
+    let n = taille * SAMPLES;
+    let mut cases = vec![false; n * n];
+    for sy in 0..n {
+        for sx in 0..n {
+            let fx = (sx as f32 + 0.5) / SAMPLES as f32;
+            let fy = (sy as f32 + 0.5) / SAMPLES as f32;
+            let u = (fx - x0) / echelle;
+            let v = (fy - y0) / echelle;
+            if u < 0.0 || !(0.0..5.0).contains(&v) {
+                continue;
+            }
+            let (colonne, rangee) = (u as usize, v as usize);
+            let (i, c) = (colonne / 4, colonne % 4);
+            cases[sy * n + sx] =
+                c < 3 && i < glyphes.len() && ((glyphes[i][rangee] >> (2 - c)) & 1) == 1;
         }
-        let (colonne, rangee) = (u as usize, v as usize);
-        let (i, c) = (colonne / 4, colonne % 4);
-        c < 3 && i < glyphes.len() && ((glyphes[i][rangee] >> (2 - c)) & 1) == 1
-    };
+    }
+    cases
+}
 
+/// The badge with block figures: what `badge` draws where GDI does not.
+pub fn pixels(texte: &str, taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]> {
+    badge(&block_figures(texte, taille), taille, fond, encre)
+}
+
+/// The badge: a disc in `fond`, `taille` pixels a side, with `figures` (samples, as
+/// `block_figures` gives them) in `encre` across it. Top row first, each pixel blue,
+/// green, red, alpha with the alpha straight, as an icon holds them.
+///
+/// Each pixel is the mean of its samples, so the disc's edge and the figures stay
+/// smooth at any size the taskbar asks for.
+pub fn badge(figures: &[bool], taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]> {
+    let s = SAMPLES;
+    let n = taille * s;
+    let r = taille as f32 / 2.0;
     let mut sortie = Vec::with_capacity(taille * taille);
     for y in 0..taille {
         for x in 0..taille {
             let (mut disque, mut encre_n) = (0u32, 0u32);
-            for sy in 0..S {
-                for sx in 0..S {
-                    let fx = x as f32 + (sx as f32 + 0.5) / S as f32;
-                    let fy = y as f32 + (sy as f32 + 0.5) / S as f32;
+            for sy in 0..s {
+                for sx in 0..s {
+                    let fx = x as f32 + (sx as f32 + 0.5) / s as f32;
+                    let fy = y as f32 + (sy as f32 + 0.5) / s as f32;
                     let (dx, dy) = (fx - r, fy - r);
                     if dx * dx + dy * dy > r * r {
                         continue;
                     }
                     disque += 1;
-                    if encrage(fx, fy) {
+                    if figures
+                        .get((y * s + sy) * n + x * s + sx)
+                        .copied()
+                        .unwrap_or(false)
+                    {
                         encre_n += 1;
                     }
                 }
@@ -110,20 +149,22 @@ pub fn pixels(texte: &str, taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]>
                 melange(fond.2, encre.2),
                 melange(fond.1, encre.1),
                 melange(fond.0, encre.0),
-                (disque * 255 / (S * S)) as u8,
+                (disque * 255 / (s * s) as u32) as u8,
             ]);
         }
     }
     sortie
 }
 
+#[cfg(windows)]
+pub use plateforme::draw;
 pub use plateforme::{refresh, show_unread};
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod plateforme {
     use super::Rgb;
-    use iris_ui::{AppWindow, Tokens};
+    use iris_ui::AppWindow;
     use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use slint::winit_030::WinitWindowAccessor;
     use slint::ComponentHandle;
@@ -187,13 +228,8 @@ mod plateforme {
         let Some(hwnd) = poignee(f) else {
             return;
         };
-        let tokens = f.global::<Tokens>();
-        let (a, t) = (tokens.get_accent(), tokens.get_accent_text());
-        let voulu = (
-            unread,
-            (a.red(), a.green(), a.blue()),
-            (t.red(), t.green(), t.blue()),
-        );
+        let (fond, encre) = super::colours(crate::platform::taskbar_dark());
+        let voulu = (unread, fond, encre);
         ETAT.with(|etat| {
             let Ok(mut etat) = etat.try_borrow_mut() else {
                 return;
@@ -284,7 +320,7 @@ mod plateforme {
         // The small icon's size, at the window's scale: the overlay is drawn at it.
         // SAFETY: no arguments to get wrong.
         let taille = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as usize;
-        let Some(icone) = icone(&super::pixels(&texte, taille, fond, encre), taille) else {
+        let Some(icone) = icone(&draw(&texte, taille, fond, encre), taille) else {
             return;
         };
         let description = HSTRING::from(super::description(n));
@@ -302,6 +338,154 @@ mod plateforme {
         unsafe { DestroyIcon(icone) };
         if let Err(e) = r {
             tracing::debug!(error = %e, "the taskbar's overlay");
+        }
+    }
+
+    /// The badge as the button shows it, `taille` pixels a side (BGRA, straight
+    /// alpha): the figures in Segoe UI, in blocks if GDI cannot draw them.
+    pub fn draw(texte: &str, taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]> {
+        let figures =
+            chiffres(texte, taille).unwrap_or_else(|| super::block_figures(texte, taille));
+        super::badge(&figures, taille, fond, encre)
+    }
+
+    /// The figures of `texte` in Segoe UI, as `block_figures` gives its blocks: laid
+    /// out by GDI white on black in a bitmap `SAMPLES` times the badge's size, without
+    /// smoothing (the samples do it), then read back. Semibold, as Windows' badges;
+    /// narrowed when three characters would touch the disc's edge.
+    fn chiffres(texte: &str, taille: usize) -> Option<Vec<bool>> {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::Graphics::Gdi::{
+            CreateCompatibleDC, CreateFontW, DeleteDC, DrawTextW, GdiFlush, SelectObject,
+            SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
+            DT_CALCRECT, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_SEMIBOLD,
+            NONANTIALIASED_QUALITY, OUT_TT_PRECIS, TRANSPARENT,
+        };
+
+        let n = taille * super::SAMPLES;
+        let mots: Vec<u16> = texte.encode_utf16().collect();
+        let police: Vec<u16> = "Segoe UI Variable Display"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let entete = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: n as i32,
+            biHeight: -(n as i32),
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..Default::default()
+        };
+        let info = BITMAPINFO {
+            bmiHeader: entete,
+            ..Default::default()
+        };
+        // SAFETY: GDI calls on a memory DC and a bitmap made here, every object
+        // selected out and deleted before returning; `bits` holds n² four-byte pixels
+        // (CreateDIBSection zeroes them: black) and is read only after GdiFlush.
+        unsafe {
+            let dc = CreateCompatibleDC(std::ptr::null_mut());
+            if dc.is_null() {
+                return None;
+            }
+            let mut bits: *mut c_void = std::ptr::null_mut();
+            let image = CreateDIBSection(
+                dc,
+                &info,
+                DIB_RGB_COLORS,
+                &mut bits,
+                std::ptr::null_mut(),
+                0,
+            );
+            if image.is_null() || bits.is_null() {
+                DeleteDC(dc);
+                return None;
+            }
+            let ancienne_image = SelectObject(dc, image);
+            // The em: figures about six tenths of the disc high, as Windows' own.
+            let mut em = (n as f32 * 0.84) as i32;
+            let mut police_choisie: *mut c_void = std::ptr::null_mut();
+            let mut ancienne_police: *mut c_void = std::ptr::null_mut();
+            for _ in 0..2 {
+                let p = CreateFontW(
+                    -em,
+                    0,
+                    0,
+                    0,
+                    FW_SEMIBOLD as i32,
+                    0,
+                    0,
+                    0,
+                    DEFAULT_CHARSET as u32,
+                    OUT_TT_PRECIS as u32,
+                    CLIP_DEFAULT_PRECIS as u32,
+                    NONANTIALIASED_QUALITY as u32,
+                    DEFAULT_PITCH as u32,
+                    police.as_ptr(),
+                );
+                if p.is_null() {
+                    break;
+                }
+                let avant = SelectObject(dc, p);
+                if ancienne_police.is_null() {
+                    ancienne_police = avant;
+                }
+                if !police_choisie.is_null() {
+                    DeleteObject(police_choisie);
+                }
+                police_choisie = p;
+                let mut mesure = RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                };
+                DrawTextW(
+                    dc,
+                    mots.as_ptr(),
+                    mots.len() as i32,
+                    &mut mesure,
+                    DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+                );
+                // Wider than eight tenths of the disc: smaller, once.
+                let large = (n as f32 * 0.8) as i32;
+                if mesure.right <= large || mesure.right == 0 {
+                    break;
+                }
+                em = em * large / mesure.right;
+            }
+            if police_choisie.is_null() {
+                SelectObject(dc, ancienne_image);
+                DeleteObject(image);
+                DeleteDC(dc);
+                return None;
+            }
+            SetTextColor(dc, 0x00ff_ffff);
+            SetBkMode(dc, TRANSPARENT as i32);
+            let mut cadre = RECT {
+                left: 0,
+                top: 0,
+                right: n as i32,
+                bottom: n as i32,
+            };
+            DrawTextW(
+                dc,
+                mots.as_ptr(),
+                mots.len() as i32,
+                &mut cadre,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+            );
+            GdiFlush();
+            let octets = std::slice::from_raw_parts(bits.cast::<u8>(), n * n * 4);
+            let cases: Vec<bool> = octets.chunks_exact(4).map(|p| p[1] > 0x7f).collect();
+            SelectObject(dc, ancienne_police);
+            DeleteObject(police_choisie);
+            SelectObject(dc, ancienne_image);
+            DeleteObject(image);
+            DeleteDC(dc);
+            // Nothing drawn (no such font, nothing to show): the blocks instead.
+            cases.iter().any(|&c| c).then_some(cases)
         }
     }
 
@@ -463,6 +647,14 @@ mod tests {
             assert!(blancs.count() > 4, "{texte}: the figures are drawn");
             assert!(bleus.count() > taille, "{texte}: the disc is drawn");
         }
+    }
+
+    #[test]
+    fn the_badge_takes_the_taskbar_s_contrast_as_windows_own_do() {
+        let (fond, encre) = colours(true);
+        assert!(fond.0 > 0x80 && encre.0 < 0x20, "light on a dark taskbar");
+        let (fond, encre) = colours(false);
+        assert!(fond.0 < 0x80 && encre.0 == 0xff, "dark on a light one");
     }
 
     #[test]

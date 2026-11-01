@@ -614,6 +614,17 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
     }
     {
         let c = Arc::clone(&controller);
+        fenetre.on_menu_mark_as(move |id, file| {
+            let action = match file {
+                0 => iris_viewmodel::Action::Todo,
+                1 => iris_viewmodel::Action::Waiting,
+                _ => iris_viewmodel::Action::Done,
+            };
+            c.send(Request::ApplyTo(fil(id), action))
+        });
+    }
+    {
+        let c = Arc::clone(&controller);
         fenetre.on_menu_snooze(move |id, quand| {
             c.send(Request::ApplyTo(
                 fil(id),

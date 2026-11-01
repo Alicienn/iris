@@ -637,10 +637,14 @@ export component ThreadContextMenu inherits Rectangle {
     in property <int> message-count;
     in property <length> menu-x;
     in property <length> menu-y;
+    /// Mark as's queues shown beside.
+    property <bool> mark-open;
 
     callback open-thread();
     callback add-task();
     callback mark-done();
+    /// The conversation put in a queue: 0 To do, 1 Waiting, 2 Done.
+    callback mark-as(int);
     callback archive();
     callback snooze(string);
     callback toggle-unread();
@@ -776,11 +780,15 @@ export component ThreadContextMenu inherits Rectangle {
                 label: "Open";
                 activated => { root.open-thread(); root.dismissed(); }
             }
-            if !Layout.compact: MenuEntry {
+            // The three queues beside, as a mailbox's Send all to (7.6.0).
+            marquer := MenuEntry {
+                visible: !Layout.compact;
+                height: Layout.compact ? 0px : self.preferred-height;
                 icon: Icons.check;
-                label: "Mark as done";
-                shortcut: "E";
-                activated => { root.mark-done(); root.dismissed(); }
+                label: "Mark as";
+                chevron: true;
+                open: root.mark-open;
+                activated => { root.mark-open = !root.mark-open; }
             }
             if !Layout.compact: MenuEntry {
                 icon: Icons.task;
@@ -859,6 +867,38 @@ export component ThreadContextMenu inherits Rectangle {
                 shortcut: "Shift+3";
                 danger: true;
                 activated => { root.delete-thread(); root.dismissed(); }
+            }
+        }
+    }
+
+    // Mark as › To do, Waiting, Done: beside the entry, at its height.
+    if root.mark-open: MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x + 206px;
+        menu-y: root.menu-y + marquer.y;
+        menu-width: 160px;
+        menu-height: files.preferred-height + 8px;
+
+        files := VerticalLayout {
+            padding: 4px;
+            MenuEntry {
+                icon: Icons.inbox;
+                label: "To do";
+                activated => { root.mark-as(0); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.clock;
+                label: "Waiting";
+                shortcut: "W";
+                activated => { root.mark-as(1); root.dismissed(); }
+            }
+            MenuEntry {
+                icon: Icons.check;
+                label: "Done";
+                shortcut: "E";
+                activated => { root.mark-as(2); root.dismissed(); }
             }
         }
     }
