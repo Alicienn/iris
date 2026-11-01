@@ -1726,11 +1726,13 @@ fn le_nom_d_iris_mene_a_l_accueil_qui_garde_le_courrier_a_l_abri() {
 fn l_accueil_mene_a_ce_qu_il_montre() {
     let f = fenetre();
     f.set_workspace(3);
-    // The one thing next: an event first.
-    f.set_home_next(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
+    // The day's agenda: an event first.
+    f.set_home_agenda(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
         key: "4:1000".into(),
         title: "Design review".into(),
-        meta: "14:00, in 40 min".into(),
+        meta: "14:00".into(),
+        hint: "in 40 min".into(),
+        now: true,
         ..Default::default()
     }])));
     let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
@@ -1751,14 +1753,14 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
     clic(&bouton(&f, "Open Tasks"));
     clic(&bouton(&f, "Open Calendar"));
     assert_eq!(*ouverts.borrow(), ["mail", "tasks", "calendar"]);
-    clic(&bouton(&f, "Next: Design review"));
+    clic(&bouton(&f, "14:00 Design review"));
     assert_eq!(*evenements.borrow(), ["4:1000"], "an event opens from Home");
 
     // Then a task: its box ticks it, the rest of the line opens it.
-    f.set_home_next(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
+    f.set_home_tasks(ModelRc::new(VecModel::from(vec![iris_ui::HomeItemData {
         id: 9,
         title: "Call the plumber".into(),
-        meta: "15:00, in 1 h".into(),
+        meta: "15:00".into(),
         ..Default::default()
     }])));
     clic(&par_role(
@@ -1769,7 +1771,7 @@ fn l_accueil_mene_a_ce_qu_il_montre() {
     cocher_le_temps();
     assert_eq!(*cochees.borrow(), [9], "the box ticks the task");
     assert!(taches.borrow().is_empty(), "ticking does not open it");
-    clic(&bouton(&f, "Next: Call the plumber"));
+    clic(&bouton(&f, "Call the plumber"));
     assert_eq!(*taches.borrow(), [9]);
 }
 
@@ -2195,16 +2197,20 @@ fn un_clic_dans_les_taches_n_atteint_pas_le_courrier_dessous() {
     let point = centre(&nouveau);
     for ecran in [2, 1, 3] {
         f.set_workspace(ecran);
-        // Home has a New message of its own in its toolbar: a click on it is meant
-        // to write.
+        // Home has a New message and a search field of its own in its toolbar: a click
+        // on one is meant to write or to search.
         if ecran == 3 {
-            let propre = bouton(&f, "New message");
-            let (p, t) = (propre.absolute_position(), propre.size());
-            if point.x >= p.x
-                && point.x < p.x + t.width
-                && point.y >= p.y
-                && point.y < p.y + t.height
-            {
+            let dessus = ["New message", "Search or run a command"]
+                .iter()
+                .any(|nom| {
+                    let propre = bouton(&f, nom);
+                    let (p, t) = (propre.absolute_position(), propre.size());
+                    point.x >= p.x
+                        && point.x < p.x + t.width
+                        && point.y >= p.y
+                        && point.y < p.y + t.height
+                });
+            if dessus {
                 continue;
             }
         }

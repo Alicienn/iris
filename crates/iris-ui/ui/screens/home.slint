@@ -40,6 +40,8 @@ component Panel inherits Rectangle {
     in property <string> title;
     in property <string> count;
     in property <string> link;
+    /// What a screen reader says of the link: "Open Calendar".
+    in property <string> link-label: root.link;
     in property <string> pill;
     in property <color> pill-tint: Tokens.text-secondary;
     /// The pill on the soft ground of its colour rather than the quiet grey.
@@ -79,7 +81,7 @@ component Panel inherits Rectangle {
             if root.link != "": Rectangle {
                 width: lien.preferred-width;
                 accessible-role: button;
-                accessible-label: root.link;
+                accessible-label: root.link-label;
                 accessible-action-default => { root.link-clicked(); }
                 lien := Text {
                     text: root.link;
@@ -454,6 +456,7 @@ export component HomeView inherits Rectangle {
                         title: "Mail";
                         count: root.mail-label;
                         link: "Open";
+                        link-label: "Open Mail";
                         link-clicked => { root.opened("mail"); }
 
                         for a in root.mail-boxes: Row {
@@ -563,6 +566,7 @@ export component HomeView inherits Rectangle {
                         title: "Today";
                         count: root.agenda-label;
                         link: "Calendar";
+                        link-label: "Open Calendar";
                         link-clicked => { root.opened("calendar"); }
 
                         for e[i] in root.agenda: VerticalLayout {
@@ -663,6 +667,7 @@ export component HomeView inherits Rectangle {
                         title: "Tasks";
                         count: root.tasks-label;
                         link: "Tasks";
+                        link-label: "Open Tasks";
                         link-clicked => { root.opened("tasks"); }
 
                         for t in root.tasks: TaskRow {
