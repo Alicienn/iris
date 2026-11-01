@@ -1733,7 +1733,9 @@ fn title_and_notes(words: &str) -> Option<(String, String)> {
     } else {
         ligne.clone()
     };
-    let notes = if titre == entier {
+    // Only spaces more than the title: nothing to add.
+    let replie = entier.split_whitespace().collect::<Vec<_>>().join(" ");
+    let notes = if titre == replie {
         String::new()
     } else {
         entier.to_string()
