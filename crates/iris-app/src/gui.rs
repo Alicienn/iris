@@ -16,6 +16,8 @@ use std::sync::Arc;
 pub struct GuiOptions {
     /// A `mailto:` the launch came with: a draft is opened with it.
     pub mailto: Option<crate::platform::MailtoRequest>,
+    /// What a notification clicked while Iris was closed is about: it is opened.
+    pub open: Option<crate::notify::Target>,
     /// Started by the session: the window waits in the notification area.
     pub start_in_tray: bool,
     /// This copy is the first one running (desktop): a later launch hands over to it.
@@ -144,9 +146,16 @@ impl iris_sync::SendContext for SendTracker {
 pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> Result<()> {
     let GuiOptions {
         mailto,
+        open: a_ouvrir,
         start_in_tray: demarre_reduit,
         instance,
     } = options;
+
+    // The scheme a click on a notification comes back through (Windows; nothing
+    // elsewhere).
+    if let Err(e) = crate::platform::register_scheme() {
+        tracing::warn!(error = %e, "registering the notifications' links");
+    }
 
     // The renderer is chosen before the first window, and the services opened (see
     // `prepare` in main.rs: why the software renderer, measured).
@@ -453,6 +462,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
                             count: rapport.inbox_arrivals,
                             sender: dernier.0,
                             subject: dernier.1,
+                            thread: dernier.2.get(),
                         };
                         if !crate::notify::show(&arrivee) {
                             // Une bulle qui n'apparaît pas est presque toujours la
@@ -562,6 +572,14 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(200),
             move || {
+                // The taskbar's badge (Windows) and the tray's tooltip show the same
+                // figure, read once a turn; not read at all where neither is drawn.
+                let non_lus = (cfg!(windows) || zone.is_some())
+                    .then(|| store_zone.unread_count().unwrap_or(0));
+                if let (Some(n), Some(fenetre)) = (non_lus, faible.upgrade()) {
+                    crate::taskbar::show_unread(&fenetre, n);
+                }
+
                 let Some(zone) = zone.as_mut() else {
                     return;
                 };
@@ -598,7 +616,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
                 // Le décompte est relu à chaque tour, mais l'infobulle n'est réécrite
                 // que s'il a changé : la réécrire à l'identique fait clignoter la
                 // fenêtre contextuelle de Windows quand la souris est dessus.
-                let unread = store_zone.unread_count().unwrap_or(0);
+                let unread = non_lus.unwrap_or(0);
                 if unread != precedent {
                     precedent = unread;
                     zone.set_unread(unread);
@@ -630,8 +648,14 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
     if let Some(demande) = mailto {
         shell::open_mailto_draft(&fenetre, &demande);
     }
+    // A notification clicked while Iris was closed started it: what it is about.
+    if let Some(cible) = a_ouvrir {
+        crate::notify::open(&fenetre, &cible);
+    }
 
-    // A later launch of Iris shows this window, with the address it came with.
+    // A later launch of Iris shows this window, with the address or the notification's
+    // link it came with. A click on a notification while Iris runs arrives this way
+    // too: Windows starts a second Iris with the link, which hands it over and exits.
     if let Some(instance) = &instance {
         let faible = fenetre.as_weak();
         let cache = services.paths.cache.clone();
@@ -639,10 +663,13 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
             let cache = cache.clone();
             let _ = faible.upgrade_in_event_loop(move |fenetre| {
                 montre_la_fenetre(&fenetre);
-                if let Some(demande) = crate::single::take_pending_mailto(&cache)
-                    .and_then(|a| crate::platform::MailtoRequest::parse(&a))
-                {
+                let Some(lien) = crate::single::take_pending(&cache) else {
+                    return;
+                };
+                if let Some(demande) = crate::platform::MailtoRequest::parse(&lien) {
                     shell::open_mailto_draft(&fenetre, &demande);
+                } else if let Some(cible) = crate::notify::Target::parse(&lien) {
+                    crate::notify::open(&fenetre, &cible);
                 }
             });
         });
@@ -822,6 +849,8 @@ fn montre_la_fenetre(fenetre: &iris_ui::AppWindow) {
     let _ = fenetre.show();
     // Started in the notification area, the window is created only now.
     arrondir_les_coins(fenetre);
+    // Its taskbar button is new: the unread count goes back on it.
+    crate::taskbar::refresh();
     shell::came_back(fenetre);
     fenetre.window().set_fullscreen(false);
     crate::single::bring_to_front();

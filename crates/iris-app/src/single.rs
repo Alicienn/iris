@@ -6,8 +6,8 @@
 //! users saw — a shortcut that did nothing.
 //!
 //! The first process owns a named mutex and waits on a named event. A later launch
-//! finds the mutex taken, leaves what it was asked to do (a `mailto:` address) in a
-//! file, sets the event and exits. The first process wakes, shows its window and reads
+//! finds the mutex taken, leaves what it was asked to do (a `mailto:` address, or the
+//! `iris-mail:` link of a notification clicked) in a file, sets the event and exits. The first process wakes, shows its window and reads
 //! the file.
 //!
 //! Elsewhere than Windows every launch is the first one.
@@ -28,25 +28,26 @@ pub struct Primary {
     inner: plateforme::Handles,
 }
 
-/// Where a later launch leaves the address it was started with.
+/// Where a later launch leaves the link it was started with.
 fn pending_path(cache: &Path) -> PathBuf {
     cache.join("mailto-pending.txt")
 }
 
 /// Becomes the running Iris, or hands over to the one already running.
 ///
-/// `mailto` is what this launch was asked to compose; `wake` is false for a launch that
-/// should stay out of sight (the one Windows makes at sign-in), which then just exits.
-pub fn claim(cache: &Path, mailto: Option<&str>, wake: bool) -> Claim {
+/// `link` is what this launch was asked to do (a `mailto:` to compose, a
+/// notification's link to open); `wake` is false for a launch that should stay out of
+/// sight (the one Windows makes at sign-in), which then just exits.
+pub fn claim(cache: &Path, link: Option<&str>, wake: bool) -> Claim {
     #[cfg(windows)]
     {
         match plateforme::Handles::acquire() {
             Some(inner) => Claim::First(Primary { inner }),
             None => {
                 if wake {
-                    if let Some(adresse) = mailto {
+                    if let Some(lien) = link {
                         let _ = std::fs::create_dir_all(cache);
-                        let _ = std::fs::write(pending_path(cache), adresse);
+                        let _ = std::fs::write(pending_path(cache), lien);
                     }
                     plateforme::wake_running();
                 }
@@ -56,7 +57,7 @@ pub fn claim(cache: &Path, mailto: Option<&str>, wake: bool) -> Claim {
     }
     #[cfg(not(windows))]
     {
-        let _ = (cache, mailto, wake);
+        let _ = (cache, link, wake);
         Claim::First(Primary {})
     }
 }
@@ -72,8 +73,9 @@ impl Primary {
     }
 }
 
-/// The address a later launch left behind, if any. Reading it removes it.
-pub fn take_pending_mailto(cache: &Path) -> Option<String> {
+/// The link a later launch left behind (an address or a notification's), if any.
+/// Reading it removes it.
+pub fn take_pending(cache: &Path) -> Option<String> {
     let chemin = pending_path(cache);
     let texte = std::fs::read_to_string(&chemin).ok()?;
     let _ = std::fs::remove_file(&chemin);
@@ -242,12 +244,12 @@ mod tests {
     #[test]
     fn a_pending_address_is_read_once() {
         let dossier = tempfile::tempdir().unwrap();
-        assert_eq!(take_pending_mailto(dossier.path()), None);
+        assert_eq!(take_pending(dossier.path()), None);
         std::fs::write(pending_path(dossier.path()), "mailto:ann@example.com\n").unwrap();
         assert_eq!(
-            take_pending_mailto(dossier.path()).as_deref(),
+            take_pending(dossier.path()).as_deref(),
             Some("mailto:ann@example.com")
         );
-        assert_eq!(take_pending_mailto(dossier.path()), None);
+        assert_eq!(take_pending(dossier.path()), None);
     }
 }

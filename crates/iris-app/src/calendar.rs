@@ -2978,7 +2978,10 @@ fn rappels(services: &Services, etat: &mut Etat) {
             } else {
                 format!("{corps} · {}", e.location)
             };
-            crate::notify::show_text(&titre(e), &corps);
+            // A click opens this occurrence, by the key Home and the search use.
+            let cible =
+                crate::notify::Target::Event(format!("{}:{}", stockes[o.event].id, o.start));
+            crate::notify::show_text(&titre(e), &corps, Some(&cible));
         }
     }
 }

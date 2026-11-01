@@ -1692,7 +1692,11 @@ fn rappels(services: &Services) -> bool {
             Some(j) => format!("Due {}", due_label(j, minute(&t.task), today)),
             None => "Task reminder".into(),
         };
-        crate::notify::show_text(&t.task.title, &corps);
+        crate::notify::show_text(
+            &t.task.title,
+            &corps,
+            Some(&crate::notify::Target::Task(t.id)),
+        );
         let _ = services.store.mark_task_reminded(t.id);
     }
     !echus.is_empty()

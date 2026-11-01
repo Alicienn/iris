@@ -88,10 +88,19 @@ slint = { version = "1.17", default-features = false, features = ["compat-1-2", 
 # dans ce binaire.
 [target.'cfg(windows)'.dependencies]
 tray-icon = { version = "0.25", default-features = false }
-# Les bulles de notification. Une caisse plutôt qu'un appel direct : une bulle
-# moderne passe par WinRT, dont la surface est bien plus large que les quelques
-# fonctions du registre que nous appelons nous-mêmes.
-tauri-winrt-notification = "0.8"
+# The notification bubbles (WinRT, written as XML so that a click opens what they are
+# about) and the taskbar's overlay (a COM interface windows-sys does not carry). The
+# `windows` crate Slint already builds: its own features cover Win32_UI_Shell,
+# WindowsAndMessaging and Gdi, and the notifications' are those the crate we used for
+# them asked for, so nothing more is compiled.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Foundation_Collections",
+    "Data_Xml_Dom",
+    "UI_Notifications",
+] }
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_System_Registry",
@@ -101,6 +110,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_Security",
     "Win32_System_Threading",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
 ] }
 
 [target.'cfg(windows)'.build-dependencies]

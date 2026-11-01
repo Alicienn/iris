@@ -37,8 +37,15 @@ fn run() -> Result<()> {
         .first()
         .and_then(|a| iris_app::platform::MailtoRequest::parse(a));
 
+    // A click on one of Iris's notifications starts it with that notification's link
+    // (`iris-mail:thread/12`): open what it is about.
+    let cible = args
+        .first()
+        .and_then(|a| iris_app::notify::Target::parse(a));
+
     let commande = match (&mailto, args.first().map(String::as_str)) {
         (Some(_), _) => "run",
+        (None, _) if cible.is_some() => "run",
         // Démarré par la session : la fenêtre attend dans la zone de notification.
         // Ouvrir par-dessus ce que l'utilisateur fait dans les premières secondes de
         // sa session serait exactement ce qu'on lui reprocherait.
@@ -77,8 +84,13 @@ fn run() -> Result<()> {
     // second copy that would find the database taken.
     let instance = match (commande, &chemins) {
         ("run", Ok(chemins)) => {
-            let adresse = mailto.as_ref().and(args.first().map(String::as_str));
-            match iris_app::single::claim(&chemins.cache, adresse, !demarre_reduit) {
+            // What the running Iris is to do with this launch: the address, or the
+            // notification's link, as it came.
+            let lien = args
+                .first()
+                .map(String::as_str)
+                .filter(|_| mailto.is_some() || cible.is_some());
+            match iris_app::single::claim(&chemins.cache, lien, !demarre_reduit) {
                 iris_app::single::Claim::First(garde) => Some(garde),
                 iris_app::single::Claim::AlreadyRunning => {
                     tracing::info!("Iris is already running: its window was asked for");
@@ -93,6 +105,7 @@ fn run() -> Result<()> {
         "run" => iris_app::gui::run(
             iris_app::gui::GuiOptions {
                 mailto,
+                open: cible,
                 start_in_tray: demarre_reduit,
                 instance,
             },
@@ -153,6 +166,8 @@ fn cmd_register(inscrire: bool) -> Result<()> {
         println!("Iris is now offered as a mail client. Windows still decides the default.");
     } else {
         iris_app::platform::unregister_mailto()?;
+        // Uninstalling: the scheme the notifications open Iris with goes as well.
+        iris_app::platform::unregister_scheme();
         println!("Iris is no longer registered.");
     }
     Ok(())
