@@ -2539,7 +2539,11 @@ export component AppWindow inherits Window {
             // Removing the system frame removes the outline it drew. Without one, a dark
             // window on a dark desktop has no boundary at all — it looks like a hole
             // rather than a window.
+            // Not on a phone, where the screen is the window: there the outline showed
+            // through wherever a place has no ground of its own, as grey lines down
+            // the sides of the mail's head and across the top (dark theme).
             Rectangle {
+                visible: !Layout.touch-input;
                 width: 100%;
                 height: 100%;
                 border-width: 1px;
