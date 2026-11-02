@@ -101,6 +101,34 @@ pub fn block_figures(texte: &str, taille: usize) -> Vec<bool> {
     cases
 }
 
+/// `cases` (`n` samples a side) moved so that what is drawn sits in the middle: a
+/// font's line box puts the figures low, and a "1" leans left of its advance, where
+/// Windows' badges centre the ink itself.
+pub fn centre_ink(cases: &[bool], n: usize) -> Vec<bool> {
+    let (mut x0, mut x1, mut y0, mut y1) = (n, 0, n, 0);
+    for (i, _) in cases.iter().enumerate().filter(|(_, &c)| c) {
+        let (x, y) = (i % n, i / n);
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+        y1 = y1.max(y);
+    }
+    if x0 > x1 {
+        return cases.to_vec();
+    }
+    let dx = ((n - (x1 - x0 + 1)) / 2) as isize - x0 as isize;
+    let dy = ((n - (y1 - y0 + 1)) / 2) as isize - y0 as isize;
+    let mut sortie = vec![false; n * n];
+    for (i, _) in cases.iter().enumerate().filter(|(_, &c)| c) {
+        let x = (i % n) as isize + dx;
+        let y = (i / n) as isize + dy;
+        if (0..n as isize).contains(&x) && (0..n as isize).contains(&y) {
+            sortie[y as usize * n + x as usize] = true;
+        }
+    }
+    sortie
+}
+
 /// The badge with block figures: what `badge` draws where GDI does not.
 pub fn pixels(texte: &str, taille: usize, fond: Rgb, encre: Rgb) -> Vec<[u8; 4]> {
     badge(&block_figures(texte, taille), taille, fond, encre)
@@ -351,20 +379,22 @@ mod plateforme {
 
     /// The figures of `texte` in Segoe UI, as `block_figures` gives its blocks: laid
     /// out by GDI white on black in a bitmap `SAMPLES` times the badge's size, without
-    /// smoothing (the samples do it), then read back. Semibold, as Windows' badges;
-    /// narrowed when three characters would touch the disc's edge.
+    /// smoothing (the samples do it), then read back and centred on their ink. Regular
+    /// weight in Segoe UI Variable Text, the figures half the disc high, as Windows'
+    /// badges (measured beside WhatsApp's, 7.8.1); narrowed when three characters
+    /// would touch the disc's edge.
     fn chiffres(texte: &str, taille: usize) -> Option<Vec<bool>> {
         use windows_sys::Win32::Foundation::RECT;
         use windows_sys::Win32::Graphics::Gdi::{
             CreateCompatibleDC, CreateFontW, DeleteDC, DrawTextW, GdiFlush, SelectObject,
             SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
-            DT_CALCRECT, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_SEMIBOLD,
+            DT_CALCRECT, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_NORMAL,
             NONANTIALIASED_QUALITY, OUT_TT_PRECIS, TRANSPARENT,
         };
 
         let n = taille * super::SAMPLES;
         let mots: Vec<u16> = texte.encode_utf16().collect();
-        let police: Vec<u16> = "Segoe UI Variable Display"
+        let police: Vec<u16> = "Segoe UI Variable Text"
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
@@ -403,8 +433,9 @@ mod plateforme {
                 return None;
             }
             let ancienne_image = SelectObject(dc, image);
-            // The em: figures about six tenths of the disc high, as Windows' own.
-            let mut em = (n as f32 * 0.84) as i32;
+            // The em: figures about half the disc high, as Windows' own (a figure is
+            // seven tenths of the em).
+            let mut em = (n as f32 * 0.74) as i32;
             let mut police_choisie: *mut c_void = std::ptr::null_mut();
             let mut ancienne_police: *mut c_void = std::ptr::null_mut();
             for _ in 0..2 {
@@ -413,7 +444,7 @@ mod plateforme {
                     0,
                     0,
                     0,
-                    FW_SEMIBOLD as i32,
+                    FW_NORMAL as i32,
                     0,
                     0,
                     0,
@@ -485,7 +516,10 @@ mod plateforme {
             DeleteObject(image);
             DeleteDC(dc);
             // Nothing drawn (no such font, nothing to show): the blocks instead.
-            cases.iter().any(|&c| c).then_some(cases)
+            cases
+                .iter()
+                .any(|&c| c)
+                .then(|| super::centre_ink(&cases, n))
         }
     }
 
@@ -655,6 +689,27 @@ mod tests {
         assert!(fond.0 > 0x80 && encre.0 < 0x20, "light on a dark taskbar");
         let (fond, encre) = colours(false);
         assert!(fond.0 < 0x80 && encre.0 == 0xff, "dark on a light one");
+    }
+
+    #[test]
+    fn the_figures_are_centred_on_their_ink() {
+        let n = 8;
+        // A bar two wide, three high, in the bottom-left corner.
+        let mut cases = vec![false; n * n];
+        for y in 5..8 {
+            for x in 0..2 {
+                cases[y * n + x] = true;
+            }
+        }
+        let c = centre_ink(&cases, n);
+        let encre: Vec<(usize, usize)> = (0..n * n)
+            .filter(|&i| c[i])
+            .map(|i| (i % n, i / n))
+            .collect();
+        assert_eq!(encre.len(), 6);
+        assert_eq!(encre.iter().map(|p| p.0).min(), Some(3));
+        assert_eq!(encre.iter().map(|p| p.1).min(), Some(2));
+        assert_eq!(centre_ink(&[false; 4], 2), vec![false; 4]);
     }
 
     #[test]

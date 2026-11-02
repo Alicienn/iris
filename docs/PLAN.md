@@ -952,6 +952,8 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       a line and its break; tables written as a grid (Tab, Enter, `+`); Ctrl and an
       arrow to the line's ends, Right out of a mark just typed; a nested numbered list
       at 1; a heading's `#` reachable (7.8.0).
+- [x] **S52.20** The taskbar badge's figures matched to Windows' own beside them: regular
+      weight, half the disc high, centred on their ink (7.8.1).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

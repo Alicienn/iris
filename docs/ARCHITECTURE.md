@@ -1791,8 +1791,9 @@ with their list as `CATEGORIES`).
   count or the taskbar's mode changes. Since 7.6.0 it copies the badge Windows draws for
   packaged apps (which an app without a package identity cannot ask for): a neutral
   disc, light on a dark taskbar (`SystemUsesLightTheme`), the figures (99+ beyond) in
-  Segoe UI Variable semibold, laid out by GDI at four times the size and smoothed from
-  those samples; `apercu_badge` draws it on both taskbars. A window subclass catches `TaskbarButtonCreated` (Explorer restarted)
+  Segoe UI Variable Text, regular, half the disc high and centred on their ink (7.8.1,
+  measured beside a packaged app's), laid out by GDI at four times the size and smoothed
+  from those samples; `apercu_badge` draws it on both taskbars. A window subclass catches `TaskbarButtonCreated` (Explorer restarted)
   to set it again; the bitmaps and the icon are freed at once.
 - **A notification's click** (7.5.0, `notify.rs`): toasts are built as XML through the
   `windows` crate (it replaced `tauri-winrt-notification`, which could not set a launch

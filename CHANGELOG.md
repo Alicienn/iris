@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.8.1 — 2026-11-02
+
+### Fixed
+- The unread count on the taskbar button matches other apps' badges in size and weight.
+
 ## 7.8.0 — 2026-11-01
 
 ### New
