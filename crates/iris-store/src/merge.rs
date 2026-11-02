@@ -54,6 +54,8 @@ pub struct MergeReport {
     pub accounts_removed_there: Vec<String>,
     /// Shared settings newer there: key and JSON value, for the app to apply.
     pub settings: Vec<(String, String)>,
+    /// Conversations moved to another queue (or snoozed, woken) there, moved here.
+    pub queues: Vec<crate::AdoptedQueue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -456,7 +458,21 @@ fn merge(tx: &Connection, set: &ChangeSet, peer_last_clock: &str) -> Result<Merg
             for row in en_attente {
                 match resolve(tx, table, &cols, row)? {
                     Some(valeurs) => {
-                        merge_row(tx, table, row, valeurs, peer_last_clock, &mut rapport)?
+                        let ecrit =
+                            merge_row(tx, table, row, valeurs, peer_last_clock, &mut rapport)?;
+                        // A conversation's queue: the thread here that holds its
+                        // message follows (threads are not synced, the triggers that
+                        // would note the change are silent while merging).
+                        if ecrit && table.name == "thread_states" {
+                            if let Some(a) = queue_row(&row.fields)
+                                .map(|q| crate::queues::adopt(tx, &q))
+                                .transpose()?
+                                .flatten()
+                            {
+                                rapport.queues.retain(|q| q.thread != a.thread);
+                                rapport.queues.push(a);
+                            }
+                        }
                     }
                     None => reste.push(row),
                 }
@@ -546,7 +562,21 @@ fn merge(tx: &Connection, set: &ChangeSet, peer_last_clock: &str) -> Result<Merg
         params![set.from_device, set.up_to],
     )
     .map_err(|e| sql_err("the peer's clock", e))?;
+    // A conversation sorted on both devices has no name to give, and the newer
+    // queue simply stands: nothing to tell.
+    rapport.conflicts.retain(|c| c.table != "thread_states");
     Ok(rapport)
+}
+
+/// A `thread_states` row as it travelled.
+fn queue_row(fields: &Map<String, Json>) -> Option<crate::queues::QueueRow> {
+    Some(crate::queues::QueueRow {
+        account: fields.get("account")?.as_str()?.to_lowercase(),
+        message_id: fields.get("message_id")?.as_str()?.to_string(),
+        state: fields.get("state")?.as_i64()?,
+        snooze_until: fields.get("snooze_until").and_then(Json::as_i64),
+        snooze_restore: fields.get("snooze_restore").and_then(Json::as_i64),
+    })
 }
 
 /// The row's values as this base writes them, parents turned back into local ids.
@@ -584,7 +614,7 @@ fn merge_row(
     valeurs: Vec<(String, Sql)>,
     peer_last_clock: &str,
     rapport: &mut MergeReport,
-) -> Result<()> {
+) -> Result<bool> {
     let tombe: Option<String> = tx
         .query_row(
             "SELECT sync_at FROM sync_tombstones WHERE tbl = ?1 AND sync_id = ?2",
@@ -595,7 +625,7 @@ fn merge_row(
         .map_err(|e| sql_err("a tombstone", e))?;
     if tombe.as_deref().is_some_and(|t| t >= row.sync_at.as_str()) {
         // Deleted here after it was last changed there.
-        return Ok(());
+        return Ok(false);
     }
 
     let Some((local_sid, local_at)) = local_row(tx, table, row, &valeurs)? else {
@@ -614,7 +644,7 @@ fn merge_row(
         tx.execute(&sql, rusqlite::params_from_iter(args.iter()))
             .map_err(|e| sql_err(&format!("adding a row of {}", table.name), e))?;
         rapport.inserted += 1;
-        return Ok(());
+        return Ok(true);
     };
 
     // Met by its natural key under another id: both devices keep the smaller one.
@@ -667,6 +697,7 @@ fn merge_row(
         if change_ici {
             rapport.conflicts.push(conflit());
         }
+        Ok(true)
     } else {
         if sid != local_sid {
             tx.execute(
@@ -678,8 +709,8 @@ fn merge_row(
         if row.sync_at != local_at && change_ici {
             rapport.conflicts.push(conflit());
         }
+        Ok(false)
     }
-    Ok(())
 }
 
 #[cfg(test)]

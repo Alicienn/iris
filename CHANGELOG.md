@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.9.0 — 2026-11-02
+
+### New
+- Mail you move to To do, Waiting or Done, or snooze, does the same on your paired devices.
+- VIP, office hours and filing rules follow you to your paired devices.
+
+### Fixed
+- Settings from a paired device take effect at once, without a restart.
+
 ## 7.8.1 — 2026-11-02
 
 ### Fixed

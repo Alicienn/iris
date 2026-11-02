@@ -362,6 +362,7 @@ pub const SHARED: &[&str] = &[
     "accent",
     "notes_math_preview",
     "oauth",
+    "triage",
 ];
 
 impl Settings {

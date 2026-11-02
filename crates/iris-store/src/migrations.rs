@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 30;
+pub const CURRENT_VERSION: i64 = 31;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -170,7 +170,68 @@ pub const MIGRATIONS: &[Migration] = &[
         // Built at run time from the synced tables: `schema_v30`.
         sql: "",
     },
+    Migration {
+        version: 31,
+        name: "a conversation's queue travels between devices",
+        // Built at run time: `schema_v31`.
+        sql: "",
+    },
 ];
+
+/// A conversation's queue between devices. A thread is local (its id differs on each
+/// device), so the state travels keyed by the mailbox's address and the `Message-ID`
+/// of the thread's newest message when it was decided: the other device applies it to
+/// the thread holding that message, unless it holds newer mail there.
+///
+/// What a base already decided goes in once, with clocks older than any real one
+/// (Done above Waiting, so that of two devices that disagree before they ever met, the
+/// one that finished the conversation wins), and every pairing merges again from the
+/// start so that those rows reach a device already paired.
+const SCHEMA_V31: &str = "
+CREATE TABLE thread_states (
+    id             INTEGER PRIMARY KEY,
+    account        TEXT    NOT NULL,
+    message_id     TEXT    NOT NULL,
+    state          INTEGER NOT NULL DEFAULT 0,
+    snooze_until   INTEGER,
+    snooze_restore INTEGER,
+    UNIQUE (account, message_id)
+);
+";
+
+pub(crate) const BACKFILL_V31: &str = "
+INSERT OR IGNORE INTO thread_states
+    (account, message_id, state, snooze_until, snooze_restore, sync_id, sync_at)
+SELECT lower(a.email), m.rfc_message_id, t.state, t.snooze_until, t.snooze_restore,
+       lower(hex(randomblob(16))), '0000000000000000.000000000' || t.state || '.'
+FROM threads t
+JOIN messages m ON m.id = (SELECT n.id FROM messages n WHERE n.thread_id = t.id
+                           ORDER BY n.received DESC, n.id DESC LIMIT 1)
+JOIN accounts a ON a.id = m.account_id
+WHERE (t.state <> 0 OR t.snooze_until IS NOT NULL) AND m.rfc_message_id IS NOT NULL;
+UPDATE sync_peers SET last_clock = '';
+";
+
+pub(crate) fn schema_v31() -> String {
+    let table = crate::sync::synced("thread_states").expect("thread_states travels");
+    let colonnes: Vec<String> = [
+        "id",
+        "account",
+        "message_id",
+        "state",
+        "snooze_until",
+        "snooze_restore",
+        "sync_id",
+        "sync_at",
+    ]
+    .map(String::from)
+    .to_vec();
+    let mut sql = String::from(SCHEMA_V31);
+    sql.push_str(&crate::sync::columns_for(table));
+    sql.push_str(BACKFILL_V31);
+    sql.push_str(&crate::sync::triggers_for(table, &colonnes));
+    sql
+}
 
 /// The compass goes: nothing showed its areas, scores, cycles or vision any more.
 ///
@@ -268,7 +329,7 @@ fn schema_v28(conn: &Connection) -> Result<String> {
 /// clock it kept for them was already past these rows.
 pub(crate) fn schema_v30() -> String {
     let mut sql = String::new();
-    for table in crate::sync::SYNCED {
+    for table in crate::sync::synced_until_v30() {
         sql.push_str(&format!(
             "UPDATE {} SET sync_at = '{}' WHERE sync_at = '';\n",
             table.name,
@@ -1151,6 +1212,9 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
             built.as_str()
         } else if m.version == 30 {
             built = schema_v30();
+            built.as_str()
+        } else if m.version == 31 {
+            built = schema_v31();
             built.as_str()
         } else {
             m.sql

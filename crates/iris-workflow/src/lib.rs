@@ -309,6 +309,13 @@ impl Workflow {
             if to == WorkflowState::Done && row.snoozed_until.is_some() {
                 self.store.clear_snooze(thread)?;
             }
+            // What the person decided goes to their other devices. What each device
+            // works out on its own (a new message, a rule, a follow-up, a snooze
+            // running out) is not sent: done on both, the later one undid there what
+            // was decided here in between.
+            if matches!(cause, TransitionCause::Manual | TransitionCause::ReplySent) {
+                self.store.remember_thread_queue(thread)?;
+            }
             // A new message says To do by having no keyword; another device's state is
             // already on the server. Everything else is written there.
             if !matches!(
@@ -368,6 +375,7 @@ impl Workflow {
         )?;
 
         if changed {
+            self.store.remember_thread_queue(thread)?;
             self.record_undo(before);
             self.bus.publish(Event::ThreadSnoozed { thread, until });
         }
@@ -378,6 +386,7 @@ impl Workflow {
         let before = self.snapshot(thread, now, false)?;
         let changed = self.store.clear_snooze(thread)?;
         if changed {
+            self.store.remember_thread_queue(thread)?;
             self.record_undo(before);
             self.bus.publish(Event::ThreadUnsnoozed { thread });
         }
@@ -749,6 +758,7 @@ impl Workflow {
         // the journal replays. That is invariant 3: nothing waits for the network.
         let previous = before.state;
         self.store.set_thread_state(thread, etat)?;
+        self.store.remember_thread_queue(thread)?;
         self.journal_state_keywords(thread, etat, now)?;
         self.record_undo(before);
         self.bus.publish(Event::ThreadStateChanged {
@@ -1053,6 +1063,7 @@ impl Workflow {
                 self.store.clear_snooze(entry.thread)?;
             }
         }
+        self.store.remember_thread_queue(entry.thread)?;
 
         self.restore_flags(&entry, now)?;
         Ok(Some(entry))
@@ -1143,6 +1154,39 @@ impl Workflow {
             }
         }
         Ok(followed)
+    }
+
+    /// Mail just fetched that another device had already sorted (moved to Waiting or
+    /// Done, snoozed) before it reached this one: its thread takes that queue. Not for
+    /// undo, nor written to the server, which the other device told already.
+    pub fn adopt_other_devices(&self, messages: &[iris_types::MessageId]) -> Result<usize> {
+        let faits = self.store.adopt_queues_of(messages)?;
+        for a in &faits {
+            self.publish_adopted(a);
+        }
+        Ok(faits.len())
+    }
+
+    /// Tells the views of a queue another device decided, once it is in the base.
+    pub fn publish_adopted(&self, a: &iris_store::AdoptedQueue) {
+        if a.from != a.to {
+            self.bus.publish(Event::ThreadStateChanged {
+                thread: a.thread,
+                from: a.from,
+                to: a.to,
+                cause: TransitionCause::OtherDevice,
+            });
+        }
+        match a.snooze {
+            Some(Some(until)) => self.bus.publish(Event::ThreadSnoozed {
+                thread: a.thread,
+                until,
+            }),
+            Some(None) => self
+                .bus
+                .publish(Event::ThreadUnsnoozed { thread: a.thread }),
+            None => {}
+        }
     }
 
     /// Called when a reply has just been sent in a thread.
@@ -1384,6 +1428,7 @@ impl Workflow {
             if to == WorkflowState::Done && row.snoozed_until.is_some() {
                 self.store.clear_snooze(thread)?;
             }
+            self.store.remember_thread_queue(thread)?;
             if let Some(k) = self.state_keywords(thread, to)? {
                 if !k.added.is_empty() {
                     a_dire

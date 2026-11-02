@@ -163,7 +163,24 @@ pub const SYNCED: &[SyncedTable] = &[
         parents: &[("account_id", "accounts")],
         ..t("scheduled_mail")
     },
+    // A conversation's queue (To do, Waiting, Done) and its snooze, as decided by hand
+    // on its newest message. The mailbox travels as its address, not as a parent: a
+    // row of an account removed on one side alone must not fail the whole merge.
+    SyncedTable {
+        natural_key: Some(&["account", "message_id"]),
+        ..t("thread_states")
+    },
 ];
+
+/// The synced tables made by a migration after 30, which give them their columns and
+/// triggers themselves: migrations 28 and 30 must not touch them (they do not exist
+/// yet when those run on an older base).
+const ADDED_AFTER_V30: &[&str] = &["thread_states"];
+
+/// The synced tables migrations 28 and 30 knew.
+pub(crate) fn synced_until_v30() -> impl Iterator<Item = &'static SyncedTable> {
+    SYNCED.iter().filter(|t| !ADDED_AFTER_V30.contains(&t.name))
+}
 
 /// The table of that name, if it travels. A table this version no longer has (the
 /// compass's, sent by a device on 6.x) does not: its rows and tombstones are ignored.
@@ -197,7 +214,7 @@ const COMPASS_V28: &[SyncedTable] = &[
 
 /// The tables migration 28 makes travel: today's, and the compass's.
 pub(crate) fn synced_v28() -> impl Iterator<Item = &'static SyncedTable> {
-    SYNCED.iter().chain(COMPASS_V28)
+    synced_until_v30().chain(COMPASS_V28)
 }
 
 /// The columns, backfill and index that make one table travel. Part of migration 28:

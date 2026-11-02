@@ -697,6 +697,8 @@ impl SendService {
 
         if let iris_types::TransitionOutcome::Moved { from, to } = resultat {
             self.engine.store().set_thread_state(thread, to)?;
+            // Sent from here: the other devices hear of it with the next exchange.
+            self.engine.store().remember_thread_queue(thread)?;
             self.bus.publish(Event::ThreadStateChanged {
                 thread,
                 from,

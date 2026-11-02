@@ -1643,6 +1643,7 @@ which keeps that term off any index, and a test pins the plan
 | 28 | Sync between devices: `sync_id` and `sync_at` on every table of `sync::SYNCED`, with three triggers each (stamp on insert and update, a tombstone on delete, none while a merge writes); `sync_device`, `sync_tombstones`, `sync_peers`, `sync_settings`; seeded rows get fixed ids (6.3.0). Built from `sync::synced_v28`, which keeps the compass's tables as they travelled then |
 | 29 | The compass goes: `area_id` emptied on goals, habits and task lists (the columns stay), `area_scores`, `cycles`, `cycle_goals` and `vision` dropped, `areas` made again as a bare table of ids (the `area_id` columns still reference it, and SQLite refuses inserts under a missing parent), their tombstones dropped (7.0.0) |
 | 30 | Rows made before sync travel: the rows (and seeds) migration 28 left with an empty `sync_at`, which `changes_since` never sent, get `sync::BEFORE_SYNC`, the oldest clock, the same on every device; every `sync_peers.last_clock` emptied, so each pairing merges once again from the start (7.3.0). Built from `sync::SYNCED` (`schema_v30`) |
+| 31 | `thread_states`, synced: a conversation's queue and snooze by mailbox address and the newest message's `Message-ID`; filled once from the threads not in To do or snoozed (clocks before every real one, Done above Waiting), every `sync_peers.last_clock` emptied again (7.9.0). Migrations 28 and 30 skip it (`sync::synced_until_v30`) |
 
 A new table or column always arrives as a new migration.
 
@@ -1739,7 +1740,7 @@ aside), as the notes already did.
 `iris-store/src/sync.rs` (`SYNCED`, parents first: task lists, tasks, goals, habits and
 their days, the local calendars and their events, event notes, colours and
 links, invitation answers, account tags, accounts, aliases, rules, lists left, mail sent
-later; the compass's tables until 7.0) carries a `sync_id`, the same on every device, and a `sync_at`, a hybrid logical
+later, conversations' queues; the compass's tables until 7.0) carries a `sync_id`, the same on every device, and a `sync_at`, a hybrid logical
 clock (`clock.rs`: milliseconds, a counter, the device; fixed widths, so that string
 order is clock order). SQLite's triggers keep both through two functions the store
 registers on its connection, `iris_clock()` and `iris_merging()`; a delete writes a
@@ -1753,7 +1754,21 @@ and **an account is never removed by a merge**: its address is returned for the 
 ask. Rows and tombstones of a table this version does not sync (the compass's, from a
 device still on 6.x) are ignored, and `area_id` neither travels nor is written: a 6.x
 device sends it as an area's `sync_id`. Settings shared between devices (`settings::SHARED`: first name, density, accent…)
-go through `sync_settings`. `iris-peer` carries the sets between devices: the pairing
+go through `sync_settings`; after a merge the window applies them to the engine and the
+workflow too (automations, triage, OAuth), not only to the settings panel (7.9.0).
+
+A conversation's queue travels in `thread_states` (7.9.0, `iris-store/src/queues.rs`):
+threads are local, so a row names the mailbox by address and the thread by the
+`Message-ID` of its newest message when the state was decided. Only decisions are
+written (`remember_thread_queue`: by hand, a move, undo, a snooze, a reply sent); what
+each device works out on its own (a new message reopening, a rule, a follow-up, a
+snooze running out) is not, or the later fetch on one device undid there what was
+decided on the other in between. The merge applies a row it takes to the thread that
+holds the message (threads have no sync trigger, so nothing is sent back), unless that
+thread holds newer mail from someone else; mail fetched later takes the row through
+`Workflow::adopt_other_devices`, after the arrivals' reopening. The IMAP keywords
+`$IrisWaiting` / `$IrisDone` still carry the queue to other clients where a folder keeps
+them. `iris-peer` carries the sets between devices: the pairing
 invite of a QR code, a session sealed with XChaCha20-Poly1305 under a key derived from
 the invite's (BLAKE3), and the symmetric exchange of records, secrets and notes.
 

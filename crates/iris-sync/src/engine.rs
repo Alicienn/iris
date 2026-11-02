@@ -977,6 +977,10 @@ impl SyncEngine {
                                 tracing::warn!(error = %e, "a state from another device");
                             }
                         }
+                        // And what a paired device sorted before this mail got here.
+                        if let Err(e) = workflow.adopt_other_devices(&r.new_messages) {
+                            tracing::warn!(error = %e, "a queue from a paired device");
+                        }
                     }
                     if let Err(e) = self.unindex(&r.removed_messages) {
                         tracing::warn!(error = %e, "taking deleted mail out of the index");

@@ -3083,7 +3083,16 @@ pub fn wire_settings(
             let Some(f) = faible.upgrade() else {
                 return;
             };
-            montrer_reglages_partages(&f, &crate::settings::current());
+            let reglages = crate::settings::current();
+            montrer_reglages_partages(&f, &reglages);
+            // And they take effect: shown only, the automations and triage of the
+            // other device waited for a restart to do anything here.
+            services.engine.set_automation(reglages.automation);
+            services.engine.set_triage(reglages.triage.clone());
+            services.workflow.set_settings(reglages.automation);
+            if let Ok(mut o) = services.oauth.write() {
+                *o = reglages.oauth.clone();
+            }
             refresh_accounts(&f, &services, &[]);
             charger_expediteurs(&f, &services);
             recharger_les_comptes(&services, &runtime);
@@ -6601,6 +6610,13 @@ fn montrer_reglages_partages(fenetre: &AppWindow, reglages: &Settings) {
     fenetre.set_home_at_startup(reglages.home_at_startup);
     fenetre.set_accent_index(reglages.accent as i32);
     fenetre.set_notes_math_preview(reglages.notes_math_preview);
+    let tri = &reglages.triage;
+    fenetre.set_vip_people(tri.vip.as_str().into());
+    fenetre.set_office_hours_enabled(tri.office_hours.enabled);
+    fenetre.set_office_hours_start(tri.office_hours.start as i32);
+    fenetre.set_office_hours_end(tri.office_hours.end as i32);
+    fenetre.set_office_hours_weekend(tri.office_hours.weekend);
+    fenetre.set_filer_lines(tri.filer.as_str().into());
 }
 
 /// Tells the engine which accounts are on: one switched off or removed leaves the

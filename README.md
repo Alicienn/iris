@@ -258,8 +258,11 @@ them; an Obsidian vault opens as it is.
    where to allow it, or the code can be typed (*Join with a code*).
 
 What travels: task lists and tasks, goals, habits, your own calendars and events, your
-accounts with their passwords, tags, rules, shared settings and note spaces. Mail
-itself comes from your servers on each device.
+accounts with their passwords, tags, rules, shared settings (VIP, office hours and
+Filer among them) and note spaces. Mail itself comes from your servers on each device;
+what you sort it into — To do, Waiting, Done, a snooze — travels, even to mail the other
+device has not fetched yet. Newer mail in the conversation on the other device wins
+over a choice made before it arrived.
 
 - Paired devices sync on their own when they meet on the Wi-Fi, or with **Sync now**.
   A device that left the Wi-Fi shows a red dot, and **Sync now** says so.
@@ -300,8 +303,8 @@ itself comes from your servers on each device.
 - Attachments are limited to 25 MB per message, as on most servers.
 - Replies and forwards are introduced in English ("On …, … wrote:").
 - Outlook and Microsoft 365 calendars can only be subscribed to by link, read-only.
-- Sync between devices needs both on the same Wi-Fi; snoozed conversations do not
-  travel yet; a note space added from elsewhere does not travel.
+- Sync between devices needs both on the same Wi-Fi; a note space added from elsewhere
+  does not travel, nor does a task's link to its conversation.
 - Notes: input methods (Chinese, Japanese, Korean) do not type yet; spreadsheets have no
   charts, merged cells or conditional formats.
 - Office hours are set in UTC. Filer reads an attachment's name only once the message's

@@ -954,6 +954,10 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       at 1; a heading's `#` reachable (7.8.0).
 - [x] **S52.20** The taskbar badge's figures matched to Windows' own beside them: regular
       weight, half the disc high, centred on their ink (7.8.1).
+- [x] **S52.21** Between paired devices: a conversation's queue (To do, Waiting, Done)
+      and its snooze travel, keyed by the mailbox and the newest message's Message-ID,
+      also to mail that arrives later; VIP, office hours and Filer travel; settings from
+      the other device take effect without a restart (7.9.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

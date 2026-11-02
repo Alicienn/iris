@@ -27,6 +27,7 @@ mod messages;
 mod migrations;
 mod model;
 mod ops;
+mod queues;
 mod rules;
 mod scheduled;
 pub mod sync;
@@ -49,6 +50,7 @@ pub use model::{
     NewMessage, OpKind, PendingOp, Scope, Sort, StoredMessage, ThreadRow,
 };
 pub use ops::OpPayload;
+pub use queues::AdoptedQueue;
 pub use rules::StoredRule;
 pub use scheduled::{Alias, ScheduledMail};
 pub use tasks::{NewTask, StoredTask, TaskList};
