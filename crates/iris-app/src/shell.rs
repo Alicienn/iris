@@ -2231,12 +2231,14 @@ enum CorpsPret {
     Html(Arc<str>, bool),
 }
 
+/// Prepared bodies by message and by whether remote content is allowed.
+type CorpsPrets = Vec<((i64, bool), Arc<CorpsPret>)>;
+
 /// Bodies prepared, newest last: those of the conversation shown and of its
 /// neighbours, prepared on the view-model's side so the window only lays them out.
 /// Bounded in count and in bytes (an HTML part carries its own images).
-fn corps_prets() -> std::sync::MutexGuard<'static, Vec<((i64, bool), Arc<CorpsPret>)>> {
-    static PRETS: std::sync::OnceLock<std::sync::Mutex<Vec<((i64, bool), Arc<CorpsPret>)>>> =
-        std::sync::OnceLock::new();
+fn corps_prets() -> std::sync::MutexGuard<'static, CorpsPrets> {
+    static PRETS: std::sync::OnceLock<std::sync::Mutex<CorpsPrets>> = std::sync::OnceLock::new();
     PRETS
         .get_or_init(Default::default)
         .lock()
