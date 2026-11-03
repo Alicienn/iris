@@ -69,12 +69,11 @@ struct Retouche {
     reminder_minutes: Option<i32>,
 }
 
-/// The event `id`, if its calendar is a subscription: its calendar, UID, occurrence
-/// (0 for none) and times as they are now.
-fn d_un_abonnement(
-    c: &rusqlite::Connection,
-    id: i64,
-) -> Result<Option<(i64, String, i64, i64, i64)>> {
+/// An event of a subscription: its calendar, UID, occurrence (0 for none), start, end.
+type DAbonnement = (i64, String, i64, i64, i64);
+
+/// The event `id`, if its calendar is a subscription, with its times as they are now.
+fn d_un_abonnement(c: &rusqlite::Connection, id: i64) -> Result<Option<DAbonnement>> {
     c.query_row(
         "SELECT e.calendar_id, e.uid, coalesce(e.recurrence_id, 0), e.start_ms, e.end_ms
          FROM calendar_events e JOIN calendars k ON k.id = e.calendar_id

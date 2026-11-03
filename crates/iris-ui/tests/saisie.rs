@@ -1376,7 +1376,7 @@ fn les_taches_terminees_se_suppriment_d_un_clic() {
         let v = Rc::clone(&vidages);
         f.on_task_clear_completed(move || *v.borrow_mut() += 1);
     }
-    clic(&bouton(&f, "Delete completed tasks"));
+    clic(&bouton(&f, "Clear completed tasks"));
     assert_eq!(*vidages.borrow(), 1);
 }
 
