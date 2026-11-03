@@ -663,6 +663,8 @@ export component SettingsPanel inherits Rectangle {
     in property <string> device-question;
     callback pair-device();
     callback sync-device(string);
+    /// Unpairs a device: it is no longer synced with, and its key is forgotten.
+    callback forget-device(string);
     callback join-device(string);
     /// The camera, to read the code another device shows.
     callback scan-requested();
@@ -1299,13 +1301,23 @@ export component SettingsPanel inherits Rectangle {
                         lead-ink: d.here ? Tokens.green : Tokens.error;
                         hint: d.status;
                         // Away, Sync says why it cannot.
-                        Button {
+                        HorizontalLayout {
                             y: (parent.height - self.height) / 2;
-                            text: "Sync now";
-                            label: "Sync now with " + d.name;
-                            kind: ButtonKind.primary;
-                            size: ButtonSize.sm;
-                            clicked => { root.sync-device(d.id); }
+                            spacing: 8px;
+                            Button {
+                                text: "Remove";
+                                label: "Remove " + d.name + " from the paired devices";
+                                kind: ButtonKind.ghost;
+                                size: ButtonSize.sm;
+                                clicked => { root.forget-device(d.id); }
+                            }
+                            Button {
+                                text: "Sync now";
+                                label: "Sync now with " + d.name;
+                                kind: ButtonKind.primary;
+                                size: ButtonSize.sm;
+                                clicked => { root.sync-device(d.id); }
+                            }
                         }
                     }
                 }
@@ -2117,12 +2129,22 @@ export component SettingsPanel inherits Rectangle {
                         tint: Tokens.blue;
                         label: d.name;
                         hint: (d.here ? "On this Wi-Fi · " : "Not on this Wi-Fi · ") + d.status;
-                        Button {
+                        HorizontalLayout {
                             y: (parent.height - self.height) / 2;
-                            text: "Sync now";
-                            label: "Sync now with " + d.name;
-                            size: ButtonSize.sm;
-                            clicked => { root.sync-device(d.id); }
+                            spacing: 8px;
+                            Button {
+                                text: "Remove";
+                                label: "Remove " + d.name + " from the paired devices";
+                                kind: ButtonKind.ghost;
+                                size: ButtonSize.sm;
+                                clicked => { root.forget-device(d.id); }
+                            }
+                            Button {
+                                text: "Sync now";
+                                label: "Sync now with " + d.name;
+                                size: ButtonSize.sm;
+                                clicked => { root.sync-device(d.id); }
+                            }
                         }
                     }
                     SettingRow {

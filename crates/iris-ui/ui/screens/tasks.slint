@@ -229,6 +229,8 @@ component TaskRow inherits Rectangle {
     callback selected(TaskRowData);
     callback toggled(int);
     callback clear-completed();
+    /// A right-click on the task, and where (window coordinates).
+    callback menu(TaskRowData, length, length);
     /// Carrying: picked up past a few pixels of movement, moved, let go.
     callback carry-started(TaskRowData, length, length);
     callback carry-moved(length, length);
@@ -356,6 +358,11 @@ component TaskRow inherits Rectangle {
                 }
                 root.pressed = false;
             }
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.menu(root.item,
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y);
+            }
         }
         moved => {
             // Under a finger a drag scrolls the list: carrying is the mouse's.
@@ -402,7 +409,7 @@ component TaskRow inherits Rectangle {
         if root.item.kind == 4: Link {
             cross-axis-self-alignment: center;
             text: "Clear";
-            label: "Delete completed tasks";
+            label: "Clear completed tasks";
             clicked => { root.clear-completed(); }
         }
     }
@@ -683,7 +690,7 @@ component PhoneTaskRow inherits Rectangle {
         }
         if root.item.kind == 4: AccentLink {
             text: "Clear";
-            label: "Delete completed tasks";
+            label: "Clear completed tasks";
             clicked => { root.clear-completed(); }
         }
     }
@@ -1994,12 +2001,11 @@ component AddBar inherits Rectangle {
     height: root.phone ? 64px + (root.jetons-au-dessus ? 40px : 0px)
         : Layout.touch-input ? 52px : 46px;
     border-radius: root.phone ? 0px : Layout.touch-input ? Tokens.radius-large : Tokens.radius-medium;
-    // A tablet's a card of its own from the start, a shade lighter than the list, so
-    // that the line to add a task is seen before it is touched; a phone's the page's
-    // ground, the panel's once open.
+    // A card of its own from the start, a shade lighter than the list, so that the
+    // line to add a task is seen before it is clicked; a phone's the page's ground,
+    // the panel's once open.
     background: root.phone ? (root.open ? Tokens.panel : Tokens.surface)
-        : champ.has-focus ? Tokens.surface-active
-        : Layout.touch-input ? Tokens.surface-hover : transparent;
+        : champ.has-focus ? Tokens.surface-active : Tokens.surface-hover;
     drop-shadow-blur: root.phone && root.open ? Tokens.shadow-float-blur : 0px;
     drop-shadow-color: Tokens.shadow-float;
 
@@ -2031,12 +2037,14 @@ component AddBar inherits Rectangle {
         Rectangle {
             border-radius: root.phone ? 22px : 0px;
             background: root.phone && !root.open ? Tokens.well : transparent;
+            // Centred by the layout: a `y` of their own was overwritten by it, and the
+            // plus and the words sat at the top of the bar.
             HorizontalLayout {
                 padding-left: root.phone ? (root.open ? 0px : 16px) : 14px;
                 padding-right: root.phone ? 0px : 8px;
                 spacing: root.phone ? 10px : 12px;
                 if !(root.phone && root.open): Icon {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     width: root.phone ? 18px : 20px;
                     data: Icons.plus;
                     size: 18px;
@@ -2044,7 +2052,7 @@ component AddBar inherits Rectangle {
                     tint: root.phone ? Tokens.text-muted : Tokens.accent;
                 }
                 champ := TextField {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     height: 36px;
                     bare: true;
                     font-size: root.phone ? (root.open ? 16px : 15px) : 14px;
@@ -2061,9 +2069,10 @@ component AddBar inherits Rectangle {
                     }
                 }
                 if !root.phone && root.tokens.length > 0: HorizontalLayout {
+                    cross-axis-self-alignment: center;
                     spacing: 12px;
                     for jeton in root.tokens: Pill {
-                        y: (parent.height - self.height) / 2;
+                        cross-axis-self-alignment: center;
                         kind: PillKind.token;
                         text: jeton.text;
                         icon: jeton.kind == 0 ? Icons.calendar : "";
@@ -2074,7 +2083,7 @@ component AddBar inherits Rectangle {
                     }
                 }
                 if root.text != "": Button {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     text: "Add";
                     shortcut: "Enter";
                     label: "Add the task";
@@ -2450,6 +2459,8 @@ export component TasksView inherits Rectangle {
     callback add-edited(string);
     callback add(string);
     callback row-selected(TaskRowData);
+    /// A right-click on a task: its menu, at that place.
+    callback row-menu(TaskRowData, length, length);
     callback toggled(int);
     callback clear-completed();
     callback open-calendar();
@@ -2780,6 +2791,7 @@ export component TasksView inherits Rectangle {
                             toggled(id) => { root.toggled(id); }
                             clear-completed => { root.clear-completed(); }
                             later(r, x, y) => { root.task-later(r.id, x, y); }
+                            menu(r, x, y) => { root.row-menu(r, x, y); }
                         }
                         // A step on a phone: the list's own row, on its card.
                         if Layout.compact: PhoneTaskRow {
@@ -3082,6 +3094,7 @@ export component TasksView inherits Rectangle {
                             toggled(id) => { root.toggled(id); }
                             clear-completed => { root.clear-completed(); }
                             later(r, x, y) => { root.task-later(r.id, x, y); }
+                            menu(r, x, y) => { root.row-menu(r, x, y); }
                             carried-id: root.carried;
                             carry-x: root.carry-x;
                             carry-y: root.carry-y;
@@ -3768,6 +3781,49 @@ export component SlotPicker inherits Rectangle {
 }
 
 // Right click on a list.
+// A task's right-click menu: tick it, or delete it.
+export component TaskRowMenu inherits Rectangle {
+    in property <TaskRowData> item;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    callback toggle();
+    callback remove();
+    callback dismissed();
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.dismissed(); }
+    }
+
+    MenuSurface {
+        dismissed => { root.dismissed(); }
+        available-width: root.width;
+        available-height: root.height;
+        menu-x: root.menu-x;
+        menu-y: root.menu-y;
+        menu-width: 220px;
+        menu-height: entries.preferred-height + 8px;
+
+        entries := VerticalLayout {
+            padding: 4px;
+            MenuHeader { text: root.item.title; }
+            MenuEntry {
+                icon: Icons.check;
+                label: root.item.done ? "Mark as not done" : "Mark as done";
+                activated => { root.toggle(); }
+            }
+            MenuSeparator {}
+            MenuEntry {
+                icon: Icons.trash;
+                label: "Delete";
+                danger: true;
+                activated => { root.remove(); }
+            }
+        }
+    }
+}
+
 export component TaskListMenu inherits Rectangle {
     in property <TaskPlaceData> place;
     in property <bool> can-delete;

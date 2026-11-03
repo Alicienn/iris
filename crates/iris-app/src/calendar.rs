@@ -68,6 +68,8 @@ struct Etat {
     edite: Option<i64>,
     /// Les calendriers locaux proposés dans l'éditeur, dans l'ordre de la liste.
     locaux: Vec<i64>,
+    /// The calendars whose events can be dragged: one's own and the subscriptions.
+    mobiles: Vec<i64>,
     /// Les rappels déjà donnés, pour ne pas les répéter.
     rappeles: HashSet<String>,
     /// The small month open under a date of the editor: which date (0 start, 1 end)
@@ -648,6 +650,7 @@ pub(crate) fn mini_cells(choisi: NaiveDate, mois: NaiveDate) -> Vec<MonthCellDat
         evenements: Vec::new(),
         edite: None,
         locaux: Vec::new(),
+        mobiles: Vec::new(),
         rappeles: HashSet::new(),
         selecteur: None,
         note: None,
@@ -680,7 +683,7 @@ fn blocs_de_semaine(
             let p = puce(etat, o, couleurs);
             let (stocke, domaine) = &etat.evenements[o.event];
             TimedEventData {
-                movable: etat.locaux.contains(&stocke.calendar_id)
+                movable: etat.mobiles.contains(&stocke.calendar_id)
                     && domaine.rrule.is_none()
                     && domaine.recurrence_id.is_none(),
                 key: p.key,
@@ -916,6 +919,11 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
         .filter(|c| c.is_writable())
         .map(|c| c.id)
         .collect();
+    etat.mobiles = calendriers
+        .iter()
+        .filter(|c| c.events_editable())
+        .map(|c| c.id)
+        .collect();
 
     etat.teintes = services.store.event_colors().unwrap_or_default();
     let occ = charger(services, etat);
@@ -1025,6 +1033,7 @@ fn rafraichir(fenetre: &AppWindow, services: &Services, etat: &mut Etat) {
             evenements: Vec::new(),
             edite: None,
             locaux: Vec::new(),
+            mobiles: Vec::new(),
             rappeles: HashSet::new(),
             selecteur: None,
             note: None,
@@ -1204,7 +1213,7 @@ fn choisir(f: &AppWindow, services: &Services, etat: &Rc<RefCell<Etat>>, k: Shar
         description: s.event.description.as_str().into(),
         reminder: rappel(s.event.reminder_minutes).into(),
         repeats: repetition(s.event.rrule.as_deref()).into(),
-        editable: cal.is_some_and(|c| c.is_writable()),
+        editable: cal.is_some_and(|c| c.events_editable()),
         video_url: video.clone().unwrap_or_default().into(),
         video_kind: video
             .as_deref()
@@ -1238,8 +1247,9 @@ pub fn lien_de_visio(
 /// An event of one's own dragged in the grid: `jours` days and `minutes` later, its
 /// length kept; or, with `etirer`, only its end `minutes` later. The shift is made on
 /// the local clock, so an event moved across a change of summer time keeps its hour.
-/// A repeating event, or one in a subscribed calendar, is left alone: the grid does
-/// not offer to drag them.
+/// One of a subscribed calendar moves too, kept so over the link's next readings while
+/// the link does not move it itself. A repeating event, or one in a read-only
+/// calendar, is left alone: the grid does not offer to drag them.
 fn deplacer(services: &Services, cle: &str, jours: i64, minutes: i64, etirer: bool) -> Result<()> {
     let (id, _) = ms_depuis_cle(cle).ok_or_else(|| Error::Config("unknown event".into()))?;
     let stocke = services
@@ -1251,7 +1261,7 @@ fn deplacer(services: &Services, cle: &str, jours: i64, minutes: i64, etirer: bo
         .calendar(stocke.calendar_id)?
         .ok_or_else(|| Error::Config("its calendar no longer exists".into()))?;
     let e = &stocke.event;
-    if !calendrier.is_writable() || e.rrule.is_some() || e.recurrence_id.is_some() {
+    if !calendrier.events_editable() || e.rrule.is_some() || e.recurrence_id.is_some() {
         return Ok(());
     }
     let local = |ms: i64| {
@@ -1469,7 +1479,15 @@ fn ouvrir_editeur(
     minute: i32,
 ) {
     let calendriers = services.store.calendars().unwrap_or_default();
-    let locaux: Vec<&StoredCalendar> = calendriers.iter().filter(|c| c.is_writable()).collect();
+    let mut locaux: Vec<&StoredCalendar> = calendriers.iter().filter(|c| c.is_writable()).collect();
+    // An event of a subscription is changed there: its calendar is offered for it alone.
+    if let Some(c) = existant.and_then(|s| {
+        calendriers
+            .iter()
+            .find(|c| c.id == s.calendar_id && c.is_subscription() && c.events_editable())
+    }) {
+        locaux.push(c);
+    }
     etat.locaux = locaux.iter().map(|c| c.id).collect();
     f.set_editor_calendars(ModelRc::new(VecModel::from(
         locaux
@@ -2043,6 +2061,7 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
         evenements: Vec::new(),
         edite: None,
         locaux: Vec::new(),
+        mobiles: Vec::new(),
         rappeles: HashSet::new(),
         selecteur: None,
         note: None,
@@ -2663,6 +2682,45 @@ pub fn wire_calendar(fenetre: &AppWindow, services: &Services, runtime: tokio::r
                     redessiner();
                 }
                 Err(e) => f.set_editor_error(format!("Could not save: {e}").into()),
+            }
+        });
+    }
+
+    // --- An .ics file, imported once into one's own calendar ---
+    {
+        let (services, faible) = (services.clone(), fenetre.as_weak());
+        fenetre.on_calendar_import(move || {
+            let Some(f) = faible.upgrade() else { return };
+            let Some(chemin) = crate::dialogue::FileDialog::new()
+                .set_title("Import a calendar")
+                .add_filter("Calendar", &["ics", "ical", "ifb", "icalendar"])
+                .pick_file()
+            else {
+                return;
+            };
+            let texte = match std::fs::read(&chemin) {
+                Ok(o) => String::from_utf8_lossy(&o).into_owned(),
+                Err(e) => {
+                    f.set_toast(format!("Could not read the file: {e}").into());
+                    return;
+                }
+            };
+            match import_ics(&services, &texte) {
+                Ok(b) if b.added + b.updated == 0 => {
+                    f.set_toast("That file holds no event to import.".into());
+                }
+                Ok(b) => {
+                    f.set_toast(
+                        match (b.added, b.updated) {
+                            (1, 0) => "1 event imported.".to_string(),
+                            (n, 0) => format!("{n} events imported."),
+                            (n, m) => format!("{n} events imported, {m} updated."),
+                        }
+                        .into(),
+                    );
+                    f.invoke_workspace_changed(1);
+                }
+                Err(e) => f.set_toast(format!("Could not import that file: {e}").into()),
             }
         });
     }

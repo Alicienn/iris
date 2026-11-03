@@ -670,6 +670,28 @@ pub fn wire_devices(
         });
     }
 
+    // Unpairing: the device is forgotten with its key, so it can no longer come in
+    // without a new code; it leaves the list at once.
+    {
+        let (vus, services, faible) = (Arc::clone(&vus), Arc::clone(&services), faible.clone());
+        fenetre.on_forget_device(move |id| {
+            let id = id.to_string();
+            if let Err(e) = services.store.forget_peer(&id) {
+                tracing::warn!(error = %e, "unpairing a device");
+                return;
+            }
+            if let Err(e) = services.secrets.delete(
+                &crate::peers::secret_key(&id),
+                iris_secrets::SecretKind::Password,
+            ) {
+                tracing::warn!(error = %e, "forgetting a device's key");
+            }
+            vus.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            refresh(&faible, &services, &vus);
+            let _ = faible.upgrade_in_event_loop(|f| f.set_device_summary("".into()));
+        });
+    }
+
     // An account removed on the other device: removed here only if the person says so.
     {
         let (services, a_retirer, faible) = (

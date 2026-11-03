@@ -198,6 +198,7 @@ mod plateforme {
     use slint::ComponentHandle;
     use std::cell::RefCell;
     use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use windows::core::{Interface, HSTRING};
     use windows::Win32::UI::Shell::ITaskbarList3;
@@ -266,6 +267,7 @@ mod plateforme {
                 etat.hwnd = hwnd;
                 etat.pose = None;
                 sous_classer(hwnd);
+                donner_l_icone(hwnd);
             }
             if A_REFAIRE.swap(false, Ordering::Relaxed) {
                 etat.pose = None;
@@ -285,6 +287,51 @@ mod plateforme {
             // when Explorer says the button exists, not five times a second.
             etat.pose = Some(voulu);
         });
+    }
+
+    /// Gives the window the executable's icon. winit's window class has none, and
+    /// Alt+Tab draws a window's own icon, not its program's: Iris showed a blank page
+    /// there while the taskbar, which reads the executable, showed the right one.
+    fn donner_l_icone(hwnd: isize) {
+        use windows_sys::Win32::UI::Shell::ExtractIconExW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SendMessageW, ICON_BIG, ICON_SMALL, WM_SETICON,
+        };
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let chemin: Vec<u16> = exe
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let (mut grande, mut petite): (HICON, HICON) = (std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: a null-terminated path and two out-pointers to locals. The icons are
+        // kept for the window's life: WM_SETICON does not take a copy.
+        let n = unsafe { ExtractIconExW(chemin.as_ptr(), 0, &mut grande, &mut petite, 1) };
+        if n == 0 || n == u32::MAX {
+            tracing::debug!("the executable gave no icon");
+            return;
+        }
+        // SAFETY: a live window and icons we own.
+        unsafe {
+            if !grande.is_null() {
+                SendMessageW(
+                    hwnd as HWND,
+                    WM_SETICON,
+                    ICON_BIG as WPARAM,
+                    grande as LPARAM,
+                );
+            }
+            if !petite.is_null() {
+                SendMessageW(
+                    hwnd as HWND,
+                    WM_SETICON,
+                    ICON_SMALL as WPARAM,
+                    petite as LPARAM,
+                );
+            }
+        }
     }
 
     /// The window's handle, once the system window exists.

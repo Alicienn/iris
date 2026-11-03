@@ -958,6 +958,11 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       and its snooze travel, keyed by the mailbox and the newest message's Message-ID,
       also to mail that arrives later; VIP, office hours and Filer travel; settings from
       the other device take effect without a restart (7.9.0).
+- [x] **S52.22** A subscribed calendar's events deleted, moved and changed, kept over
+      the link's readings while it does not change them itself; an `.ics` file
+      imported from the toolbar; a task's right-click menu; *Clear* archives, the
+      statistics still count; the add field grey and centred; a paired device
+      removed; the icon in Alt+Tab; the pending-changes count kept current (7.10.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

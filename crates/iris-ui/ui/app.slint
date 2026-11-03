@@ -51,7 +51,7 @@ import { CalendarView } from "@iris/screens/calendar.slint";
 import { CalendarsSheet } from "@iris/screens/calendar-phone.slint";
 import { CalendarPhoneData } from "@iris/types.slint";
 import {
-    TasksView, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker,
+    TasksView, TaskRowMenu, TaskListMenu, TaskListNamePanel, TaskListDeletePanel, LaterMenu, SlotPicker,
     TasksMenu
 } from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
@@ -344,7 +344,8 @@ component StatusBar inherits Rectangle {
         // l'utilisateur doit savoir que quelque chose reste à transmettre, mais ce
         // n'est pas une erreur.
         if root.pending-ops > 0: Text {
-            text: root.pending-ops + " waiting to be sent";
+            // Not mail: marks, moves and deletions the server has not taken yet.
+            text: root.pending-ops == 1 ? "1 change not on the server yet" : root.pending-ops + " changes not on the server yet";
             font-size: 11px;
             color: Tokens.text-muted;
             vertical-alignment: center;
@@ -1552,6 +1553,11 @@ export component AppWindow inherits Window {
     callback task-toggle-selected();
     /// Ctrl+Z in Tasks: the last task deleted comes back.
     callback task-undo();
+    // A task: right click, tick or delete.
+    in-out property <bool> task-row-menu-open;
+    in-out property <TaskRowData> task-row-menu-item;
+    in-out property <length> task-row-menu-x;
+    in-out property <length> task-row-menu-y;
     // A list: right click, new, rename, delete.
     in-out property <bool> task-list-menu-open;
     in-out property <TaskPlaceData> task-list-menu-place;
@@ -1573,6 +1579,8 @@ export component AppWindow inherits Window {
     in property <bool> subscribe-busy;
     in property <string> subscribe-error;
     callback subscribe-confirmed();
+    /// Import an .ics file chosen in the system's dialog.
+    callback calendar-import();
 
     /// Calendars kept with a server (CalDAV): what was typed, and how it went.
     in-out property <bool> connect-open;
@@ -1772,6 +1780,10 @@ export component AppWindow inherits Window {
         }
         if (root.task-list-menu-open) {
             root.task-list-menu-open = false;
+            return true;
+        }
+        if (root.task-row-menu-open) {
+            root.task-row-menu-open = false;
             return true;
         }
         if (root.task-list-name-open) {
@@ -1986,6 +1998,7 @@ export component AppWindow inherits Window {
     in property <string> device-summary;
     in property <string> device-question;
     callback sync-device(string);
+    callback forget-device(string);
     callback device-answered(bool);
     in-out property <bool> pair-open;
     in property <image> pair-code;
@@ -2192,6 +2205,7 @@ export component AppWindow inherits Window {
         || root.calendar-sheet-open
         || root.event-menu-open || root.scheduled-open || root.sort-menu-open
         || root.task-list-menu-open || root.task-list-name-open || root.task-list-delete-open
+        || root.task-row-menu-open
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
         || root.task-later-open || root.task-slot-open || root.tasks-menu != ""
@@ -3242,6 +3256,7 @@ export component AppWindow inherits Window {
                 root.subscribe-name = "";
                 root.subscribe-open = true;
             }
+            import-requested => { root.calendar-import(); }
             connect-requested => {
                 root.connect-server = "";
                 root.connect-user = "";
@@ -3348,6 +3363,12 @@ export component AppWindow inherits Window {
                 root.task-place-chosen(k);
                 root.navigated("tasks", k);
                 shortcuts.focus();
+            }
+            row-menu(r, x, y) => {
+                root.task-row-menu-item = r;
+                root.task-row-menu-x = x;
+                root.task-row-menu-y = y;
+                root.task-row-menu-open = true;
             }
             place-menu(p, x, y) => {
                 root.task-list-menu-place = p;
@@ -3659,6 +3680,30 @@ export component AppWindow inherits Window {
                 shortcuts.focus();
             }
             amount-step(n) => { root.habit-amount-step(n); }
+        }
+
+        if root.task-row-menu-open: TaskRowMenu {
+            width: 100%;
+            height: 100%;
+            item: root.task-row-menu-item;
+            menu-x: root.task-row-menu-x;
+            menu-y: root.task-row-menu-y;
+            toggle => {
+                root.task-row-menu-open = false;
+                root.task-toggled(root.task-row-menu-item.id);
+                shortcuts.focus();
+            }
+            // Through the task's own Delete: chosen first, so Ctrl+Z brings it back.
+            remove => {
+                root.task-row-menu-open = false;
+                root.task-row-selected(root.task-row-menu-item);
+                root.task-delete();
+                shortcuts.focus();
+            }
+            dismissed => {
+                root.task-row-menu-open = false;
+                shortcuts.focus();
+            }
         }
 
         if root.task-list-menu-open: TaskListMenu {
@@ -5075,6 +5120,7 @@ export component AppWindow inherits Window {
                 root.pair-requested();
             }
             sync-device(id) => { root.sync-device(id); }
+            forget-device(id) => { root.forget-device(id); }
             join-device(code) => { root.pair-join(code); }
             scan-requested => { root.pair-scan(); }
             device-answered(yes) => { root.device-answered(yes); }

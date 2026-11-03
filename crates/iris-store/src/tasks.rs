@@ -195,12 +195,48 @@ impl Store {
         })
     }
 
+    /// The tasks done, archived ones included: what counts what was done.
     pub fn done_tasks(&self, list: Option<i64>, limit: u32) -> Result<Vec<StoredTask>> {
+        self.done_tasks_where(list, limit, "")
+    }
+
+    /// The tasks done that the lists still show: not cleared away.
+    pub fn shown_done_tasks(&self, list: Option<i64>, limit: u32) -> Result<Vec<StoredTask>> {
+        self.done_tasks_where(list, limit, " AND archived_at IS NULL")
+    }
+
+    /// Clears completed tasks from the lists: archived, not deleted, so that they
+    /// still count in what was done.
+    pub fn archive_tasks(&self, ids: &[i64], now: Timestamp) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        self.with_conn(|c| {
+            let liste = vec!["?"; ids.len()].join(", ");
+            let mut args: Vec<i64> = vec![now.millis()];
+            args.extend_from_slice(ids);
+            c.execute(
+                &format!(
+                    "UPDATE tasks SET archived_at = ?1 WHERE archived_at IS NULL \
+                     AND id IN ({liste})"
+                ),
+                rusqlite::params_from_iter(args),
+            )
+            .map_err(err("archivage des tâches"))
+        })
+    }
+
+    fn done_tasks_where(
+        &self,
+        list: Option<i64>,
+        limit: u32,
+        filtre: &str,
+    ) -> Result<Vec<StoredTask>> {
         self.with_conn(|c| {
             let mut stmt = c
                 .prepare(&format!(
                     "SELECT {COLONNES} FROM tasks WHERE done_at IS NOT NULL AND parent_id IS NULL \
-                     AND (?1 IS NULL OR list_id = ?1) ORDER BY done_at DESC LIMIT ?2"
+                     AND (?1 IS NULL OR list_id = ?1){filtre} ORDER BY done_at DESC LIMIT ?2"
                 ))
                 .map_err(err("lecture des tâches faites"))?;
             let lignes = stmt

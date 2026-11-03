@@ -103,7 +103,7 @@ impl std::fmt::Debug for Peers {
     }
 }
 
-fn secret_key(device_id: &str) -> String {
+pub(crate) fn secret_key(device_id: &str) -> String {
     format!("device/{device_id}")
 }
 

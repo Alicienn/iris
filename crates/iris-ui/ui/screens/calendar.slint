@@ -1302,6 +1302,8 @@ export component CalendarView inherits Rectangle {
     }
     callback calendar-new();
     callback subscribe-requested();
+    /// An .ics file's events, into one's own calendar.
+    callback import-requested();
     /// Calendars kept with a server (iCloud, Fastmail, Nextcloud…), both ways.
     callback connect-requested();
     /// An event was clicked here: where it is in the window, just before `event-opened`.
@@ -1335,6 +1337,14 @@ export component CalendarView inherits Rectangle {
                     button-size: 20px;
                     icon-size: 13px;
                     clicked => { root.connect-requested(); }
+                }
+                IconButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.download;
+                    label: "Import an .ics file…";
+                    button-size: 20px;
+                    icon-size: 13px;
+                    clicked => { root.import-requested(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;

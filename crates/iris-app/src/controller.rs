@@ -465,7 +465,10 @@ fn handle(
         }
         Request::Tick(now) => {
             vm.set_now(now);
-            Ok(false)
+            // The journal empties as the servers take the changes, and nothing else
+            // says so: the status bar kept "5 waiting to be sent" long after.
+            let attente = actions.workflow().store().pending_op_count().unwrap_or(0);
+            Ok(attente != EN_ATTENTE.load(std::sync::atomic::Ordering::Relaxed))
         }
         Request::Shutdown => Ok(false),
     }
@@ -529,6 +532,9 @@ fn queue_name(state: WorkflowState) -> &'static str {
     }
 }
 
+/// The changes not on the server yet, as the last snapshot said.
+static EN_ATTENTE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
     let messages = vm
         .selection()
@@ -565,7 +571,11 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
         loaded: charge,
         total,
         messages,
-        pending_ops: store.pending_op_count().unwrap_or(0),
+        pending_ops: {
+            let n = store.pending_op_count().unwrap_or(0);
+            EN_ATTENTE.store(n, std::sync::atomic::Ordering::Relaxed);
+            n
+        },
         spam_count: vm.spam_count(),
         search: recherche,
     }

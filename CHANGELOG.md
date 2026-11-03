@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.10.0 — 2026-11-03
+
+### New
+- Delete or move events of a subscribed calendar; they stay so until the calendar itself changes them.
+- Import an .ics file into your calendar from the Calendar's toolbar.
+- Right-click a task to delete it or mark it done.
+- Remove a paired device from Settings › Devices.
+
+### Improved
+- Clear keeps completed tasks in an archive, and they still count in your statistics.
+- The add-a-task field is grey before you click it, its + and text centred.
+
+### Fixed
+- Iris's icon shows in Alt+Tab.
+- The status bar no longer says changes are waiting to be sent once they have gone.
+
 ## 7.9.0 — 2026-11-02
 
 ### New

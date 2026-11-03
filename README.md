@@ -180,6 +180,9 @@ the message, event, task or habit it is about, even when Iris was closed.
 - Video calls: **Join on Meet** (or Teams, Zoom, Webex) on the event and on Home.
 - Your own calendars, calendars **subscribed by link** (`webcal://`, `.ics`), and
   **CalDAV accounts** (iCloud, Fastmail, Nextcloud, Google…) kept both ways.
+- **Import an `.ics` file** from the Calendar's toolbar into your own calendar.
+- A subscribed calendar's events can be deleted, moved or renamed; that holds until the
+  calendar itself changes them, on the device where you did it.
 - Drag today's tasks onto the week to book time for them; open an event to add notes
   and tasks to it.
 
@@ -200,6 +203,8 @@ the message, event, task or habit it is about, even when Iris was closed.
   days kept); *Settings › Your calendars and tasks* restores one or exports `.ics`.
 
 Keys: `N` new, `J` / `K` move, `Space` done, `D` due date, `L` later, `Delete`.
+Right-click a task to delete it or mark it done. **Clear** puts the completed tasks in
+an archive: they leave the list but still count in the statistics.
 
 ## Notes
 
@@ -266,6 +271,7 @@ over a choice made before it arrived.
 
 - Paired devices sync on their own when they meet on the Wi-Fi, or with **Sync now**.
   A device that left the Wi-Fi shows a red dot, and **Sync now** says so.
+- **Remove** beside a device forgets it and its key; pair it again to sync with it.
 - A change made on both sides keeps the newer one, and Iris names it.
 - A note changed on both keeps the other version in its history; a deleted note goes to
   the Recycle Bin.

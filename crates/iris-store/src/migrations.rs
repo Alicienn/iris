@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 31;
+pub const CURRENT_VERSION: i64 = 33;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -176,7 +176,67 @@ pub const MIGRATIONS: &[Migration] = &[
         // Built at run time: `schema_v31`.
         sql: "",
     },
+    Migration {
+        version: 32,
+        name: "completed tasks are archived, not deleted",
+        // Built at run time: `schema_v32`.
+        sql: "",
+    },
+    Migration {
+        version: 33,
+        name: "events of a subscribed calendar deleted or moved here",
+        sql: SCHEMA_V33,
+    },
 ];
+
+/// A subscribed calendar is read again from its link and replaced whole: what one
+/// deleted or moved there is kept here and laid over each reading. `source_start` and
+/// `source_end` are the times the link gave when it was changed here: a move holds
+/// while the link still says them (it moved the event itself: the link wins), a
+/// deletion holds while the event is there. Keyed by UID and occurrence (0: the
+/// event, or its series). Local to the device, like the calendar's events.
+const SCHEMA_V33: &str = "
+CREATE TABLE subscription_edits (
+    calendar_id      INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    uid              TEXT    NOT NULL,
+    occurrence       INTEGER NOT NULL DEFAULT 0,
+    source_start     INTEGER NOT NULL,
+    source_end       INTEGER NOT NULL,
+    deleted          INTEGER NOT NULL DEFAULT 0,
+    summary          TEXT    NOT NULL DEFAULT '',
+    description      TEXT    NOT NULL DEFAULT '',
+    location         TEXT    NOT NULL DEFAULT '',
+    start_ms         INTEGER NOT NULL DEFAULT 0,
+    end_ms           INTEGER NOT NULL DEFAULT 0,
+    all_day          INTEGER NOT NULL DEFAULT 0,
+    reminder_minutes INTEGER,
+    PRIMARY KEY (calendar_id, uid, occurrence)
+) WITHOUT ROWID;
+";
+
+/// Clearing the completed tasks archives them: out of the lists, still counted in
+/// what was done. The column travels, so the sync triggers of `tasks` are made again
+/// to watch it (an update trigger watches the columns there were when it was made).
+fn schema_v32(conn: &Connection) -> Result<String> {
+    let table = crate::sync::synced("tasks").expect("tasks travel");
+    let mut s = conn
+        .prepare("PRAGMA table_info(tasks)")
+        .map_err(|e| Error::store(format!("migration 32: {e}")))?;
+    let mut colonnes = s
+        .query_map([], |r| r.get::<_, String>(1))
+        .and_then(|v| v.collect::<rusqlite::Result<Vec<_>>>())
+        .map_err(|e| Error::store(format!("migration 32: {e}")))?;
+    colonnes.push("archived_at".into());
+    let mut sql = String::from(
+        "ALTER TABLE tasks ADD COLUMN archived_at INTEGER;
+DROP TRIGGER tasks_sync_insert;
+DROP TRIGGER tasks_sync_update;
+DROP TRIGGER tasks_sync_delete;
+",
+    );
+    sql.push_str(&crate::sync::triggers_for(table, &colonnes));
+    Ok(sql)
+}
 
 /// A conversation's queue between devices. A thread is local (its id differs on each
 /// device), so the state travels keyed by the mailbox's address and the `Message-ID`
@@ -1215,6 +1275,9 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
             built.as_str()
         } else if m.version == 31 {
             built = schema_v31();
+            built.as_str()
+        } else if m.version == 32 {
+            built = schema_v32(conn)?;
             built.as_str()
         } else {
             m.sql

@@ -44,6 +44,119 @@ impl StoredCalendar {
     pub fn is_writable(&self) -> bool {
         !self.is_subscription() && !self.read_only
     }
+
+    /// Its events can be moved and deleted here: one's own, and a subscribed one's
+    /// (kept over each reading of its link, `subscription_edits`), though nothing new
+    /// goes into a subscription.
+    pub fn events_editable(&self) -> bool {
+        !self.read_only
+    }
+}
+
+/// What was changed here of an event of a subscribed calendar, laid over each
+/// reading of its link (migration 33).
+#[derive(Debug, Clone)]
+struct Retouche {
+    source_start: i64,
+    source_end: i64,
+    deleted: bool,
+    summary: String,
+    description: String,
+    location: String,
+    start_ms: i64,
+    end_ms: i64,
+    all_day: bool,
+    reminder_minutes: Option<i32>,
+}
+
+/// The event `id`, if its calendar is a subscription: its calendar, UID, occurrence
+/// (0 for none) and times as they are now.
+fn d_un_abonnement(
+    c: &rusqlite::Connection,
+    id: i64,
+) -> Result<Option<(i64, String, i64, i64, i64)>> {
+    c.query_row(
+        "SELECT e.calendar_id, e.uid, coalesce(e.recurrence_id, 0), e.start_ms, e.end_ms
+         FROM calendar_events e JOIN calendars k ON k.id = e.calendar_id
+         WHERE e.id = ?1 AND k.source_url IS NOT NULL",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+    )
+    .optional()
+    .map_err(err("un événement d'un abonnement"))
+}
+
+/// Notes a change made here to an event of a subscription: deleted (or taken out of
+/// it to another calendar), or changed in place. The times the link gave are kept from
+/// the first change.
+fn retoucher(c: &rusqlite::Connection, id: i64, nouveau: Option<&NewEvent>) -> Result<()> {
+    let Some((calendrier, uid, occurrence, debut, fin)) = d_un_abonnement(c, id)? else {
+        return Ok(());
+    };
+    let e = nouveau.cloned().unwrap_or_default();
+    c.execute(
+        "INSERT INTO subscription_edits (calendar_id, uid, occurrence, source_start, source_end,
+             deleted, summary, description, location, start_ms, end_ms, all_day, reminder_minutes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+         ON CONFLICT (calendar_id, uid, occurrence) DO UPDATE SET
+             deleted = excluded.deleted, summary = excluded.summary,
+             description = excluded.description, location = excluded.location,
+             start_ms = excluded.start_ms, end_ms = excluded.end_ms,
+             all_day = excluded.all_day, reminder_minutes = excluded.reminder_minutes",
+        params![
+            calendrier,
+            uid,
+            occurrence,
+            debut,
+            fin,
+            nouveau.is_none() as i64,
+            e.summary,
+            e.description,
+            e.location,
+            e.start_ms,
+            e.end_ms,
+            e.all_day as i64,
+            e.reminder_minutes
+        ],
+    )
+    .map(|_| ())
+    .map_err(err("une retouche d'abonnement"))
+}
+
+/// The changes made here to a subscription's events, by UID and occurrence.
+fn retouches(
+    c: &rusqlite::Connection,
+    calendar: i64,
+) -> Result<std::collections::HashMap<(String, i64), Retouche>> {
+    let mut s = c
+        .prepare(
+            "SELECT uid, occurrence, source_start, source_end, deleted, summary, description,
+                    location, start_ms, end_ms, all_day, reminder_minutes
+             FROM subscription_edits WHERE calendar_id = ?1",
+        )
+        .map_err(err("les retouches d'un abonnement"))?;
+    let v = s
+        .query_map([calendar], |r| {
+            Ok((
+                (r.get::<_, String>(0)?, r.get::<_, i64>(1)?),
+                Retouche {
+                    source_start: r.get(2)?,
+                    source_end: r.get(3)?,
+                    deleted: r.get::<_, i64>(4)? != 0,
+                    summary: r.get(5)?,
+                    description: r.get(6)?,
+                    location: r.get(7)?,
+                    start_ms: r.get(8)?,
+                    end_ms: r.get(9)?,
+                    all_day: r.get::<_, i64>(10)? != 0,
+                    reminder_minutes: r.get(11)?,
+                },
+            ))
+        })
+        .map_err(err("les retouches d'un abonnement"))?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err("les retouches d'un abonnement"))?;
+    Ok(v)
 }
 
 /// Un événement, tel qu'il s'écrit.
@@ -311,15 +424,70 @@ impl Store {
                 [calendar],
             )
             .map_err(err("vidage d'un calendrier"))?;
+            // What was deleted or moved here stays so: a deletion while the link still
+            // has the event, a move while the link has not moved it itself.
+            let mut retouches = retouches(tx, calendar)?;
+            let mut vues = std::collections::HashSet::new();
+            let mut n = 0;
             for e in events {
-                inserer(tx, calendar, e, now)?;
+                let cle = (e.uid.clone(), e.recurrence_id.unwrap_or(0));
+                vues.insert(cle.clone());
+                let Some(r) = retouches.get(&cle) else {
+                    inserer(tx, calendar, e, now)?;
+                    n += 1;
+                    continue;
+                };
+                if r.deleted {
+                    continue;
+                }
+                if r.source_start != e.start_ms || r.source_end != e.end_ms {
+                    // The link moved it since: its own time wins.
+                    retouches.remove(&cle);
+                    tx.execute(
+                        "DELETE FROM subscription_edits WHERE calendar_id = ?1 AND uid = ?2
+                             AND occurrence = ?3",
+                        params![calendar, cle.0, cle.1],
+                    )
+                    .map_err(err("une retouche dépassée"))?;
+                    inserer(tx, calendar, e, now)?;
+                    n += 1;
+                    continue;
+                }
+                let mut retouche = e.clone();
+                retouche.summary = r.summary.clone();
+                retouche.description = r.description.clone();
+                retouche.location = r.location.clone();
+                retouche.start_ms = r.start_ms;
+                retouche.end_ms = r.end_ms;
+                retouche.all_day = r.all_day;
+                retouche.reminder_minutes = r.reminder_minutes;
+                inserer(tx, calendar, &retouche, now)?;
+                n += 1;
             }
-            Ok(events.len())
+            // Gone from the link: nothing left to lay over.
+            for cle in retouches.keys().filter(|k| !vues.contains(*k)) {
+                tx.execute(
+                    "DELETE FROM subscription_edits WHERE calendar_id = ?1 AND uid = ?2
+                         AND occurrence = ?3",
+                    params![calendar, cle.0, cle.1],
+                )
+                .map_err(err("une retouche orpheline"))?;
+            }
+            Ok(n)
         })
     }
 
     pub fn insert_event(&self, calendar: i64, event: &NewEvent, now: Timestamp) -> Result<i64> {
-        self.with_conn(|c| inserer(c, calendar, event, now))
+        self.with_conn(|c| {
+            // Put back in a subscription (a deletion undone): no longer kept out of it.
+            c.execute(
+                "DELETE FROM subscription_edits WHERE calendar_id = ?1 AND uid = ?2
+                     AND occurrence = ?3 AND deleted = 1",
+                params![calendar, event.uid, event.recurrence_id.unwrap_or(0)],
+            )
+            .map_err(err("une retouche défaite"))?;
+            inserer(c, calendar, event, now)
+        })
     }
 
     pub fn update_event(&self, id: i64, calendar: i64, e: &NewEvent, now: Timestamp) -> Result<()> {
@@ -333,6 +501,10 @@ impl Store {
             // Moved to another calendar, it leaves its server object behind: deleted
             // there (or its series sent again, for a changed occurrence), and made anew.
             quitter_son_objet(c, id, Some(calendar))?;
+            // Of a subscription: changed there, or taken out of it.
+            if let Some((de, ..)) = d_un_abonnement(c, id)? {
+                retoucher(c, id, (de == calendar).then_some(e))?;
+            }
             c.execute(
                 "UPDATE calendar_events SET calendar_id = ?2, summary = ?3, description = ?4, \
                  location = ?5, start_ms = ?6, end_ms = ?7, all_day = ?8, tzid = ?9, rrule = ?10, \
@@ -366,6 +538,7 @@ impl Store {
     pub fn delete_event(&self, id: i64) -> Result<()> {
         self.with_conn(|c| {
             quitter_son_objet(c, id, None)?;
+            retoucher(c, id, None)?;
             c.execute("DELETE FROM calendar_events WHERE id = ?1", [id])
                 .map(|_| ())
                 .map_err(err("suppression d'un événement"))

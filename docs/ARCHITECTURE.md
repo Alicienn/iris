@@ -288,6 +288,10 @@ Stated here so they are decided rather than discovered:
   key and Space make (`` ` ``, `^`): Slint reads the Space key as a space, the
   composed text unread (7.8.0).
 - `iris-ui` and `iris-workflow` depend on `iris-store` directly.
+- **A subscription's edits stay on their device** (`subscription_edits` does not
+  travel), while its events do: a paired device shows the link's version again after
+  its own refresh, and a deletion made here can come back from it until the next one
+  here (7.10.0).
 - **Office hours are in UTC**, as they were as a plugin: the settings say so. Following
   the machine's zone (as the calendar does) would shift the hours migrated from 6.x.
 - **Filer sees an attachment's name only once the body is fetched**: the attachments are
@@ -915,7 +919,17 @@ The application side (`crates/iris-app/src/calendar.rs`):
 
 - **Subscriptions** are read at once, then every 30 minutes, with `ETag` /
   `If-Modified-Since` and a 20 MB cap. A refresh replaces the calendar's events as a
-  whole; subscribed calendars are read-only.
+  whole. Since 7.10.0 their events can be deleted, moved and changed (nothing new goes
+  into a subscription): `subscription_edits` (migration 33) keeps, by calendar, UID and
+  occurrence, a deletion, or the changed fields with the times the link gave
+  (`source_start`, `source_end`). `replace_calendar_events` lays them over each
+  reading: a deletion holds while the link has the event; a change holds while the link
+  still gives the source times, and is dropped once the link moves the event itself;
+  an edit whose event left the link is purged. An event taken out to another calendar
+  counts as deleted; putting a deleted one back (Undo) drops its edit. The editor
+  offers a subscription's calendar only for that subscription's own event.
+- **Importing an `.ics` file** (7.10.0): the toolbar's import picks a file and runs it
+  through the same import as an invitation, into the first local calendar.
 - **Invitations**: opening an `.ics` attachment imports it into the first local calendar,
   matched on `UID` + `RECURRENCE-ID`. Opening the organiser's update or cancellation
   modifies the existing event — that is what "kept up to date" means. There is no import
@@ -995,7 +1009,10 @@ Removing a remote calendar disconnects its account; the server keeps everything.
 The application side (`crates/iris-app/src/tasks.rs`) builds the views — **Today**,
 **Upcoming**, **All tasks**, **From mail**, and the user's lists. One predicate says
 whether a task belongs to a view, for the open tasks and the completed ones alike, so a
-task checked from Today stays there struck through until the completed are cleared. A
+task checked from Today stays there struck through until the completed are cleared.
+Clearing archives them (`tasks.archived_at`, migration 32, travelling like the rest of
+the row): `shown_done_tasks` leaves them out, while `done_tasks`, which the statistics
+read, keeps them (7.10.0). A
 task made from a conversation keeps the thread's identifier *and* a "Sender: Subject"
 line, so it outlives the thread; there is at most one task per thread. Reminders use the
 same 30-second timer pattern as the calendar, with the due-reminder state stored in the
@@ -1644,6 +1661,8 @@ which keeps that term off any index, and a test pins the plan
 | 29 | The compass goes: `area_id` emptied on goals, habits and task lists (the columns stay), `area_scores`, `cycles`, `cycle_goals` and `vision` dropped, `areas` made again as a bare table of ids (the `area_id` columns still reference it, and SQLite refuses inserts under a missing parent), their tombstones dropped (7.0.0) |
 | 30 | Rows made before sync travel: the rows (and seeds) migration 28 left with an empty `sync_at`, which `changes_since` never sent, get `sync::BEFORE_SYNC`, the oldest clock, the same on every device; every `sync_peers.last_clock` emptied, so each pairing merges once again from the start (7.3.0). Built from `sync::SYNCED` (`schema_v30`) |
 | 31 | `thread_states`, synced: a conversation's queue and snooze by mailbox address and the newest message's `Message-ID`; filled once from the threads not in To do or snoozed (clocks before every real one, Done above Waiting), every `sync_peers.last_clock` emptied again (7.9.0). Migrations 28 and 30 skip it (`sync::synced_until_v30`) |
+| 32 | `tasks.archived_at`: *Clear* archives the completed tasks instead of deleting them; the synced table's triggers made again so the column travels (7.10.0). Built at runtime (`schema_v32`) |
+| 33 | `subscription_edits`, local: what was deleted or changed here of a subscribed calendar's events, laid over each reading of its link (7.10.0) |
 
 A new table or column always arrives as a new migration.
 
@@ -1655,7 +1674,9 @@ the platform takes the Wi-Fi's multicast lock first. A pairing code (`Invite`) i
 good for one connection within five minutes; the device that comes in with it gets
 a long-term secret, kept on both sides in the vault as `device/<id>`, and every later
 exchange opens with that. A paired device seen on the network is synced with when
-its last sync is older than ten minutes, or at *Sync now*. Each exchange runs on the
+its last sync is older than ten minutes, or at *Sync now*. *Remove* forgets a device:
+its `sync_peers` row and its `device/<id>` secret go, so it must be paired again
+(7.10.0). Each exchange runs on the
 tokio runtime; the store's merge and the notes' files are blocking work done in it.
 Notes travel by space (the folders Iris made in the notes' root, matched by name):
 each side sends its manifest (path, size, time, BLAKE3), plans with

@@ -250,11 +250,12 @@ fn dans_la_vue(vue: Vue, t: &StoredTask, today: NaiveDate) -> bool {
     }
 }
 
-/// The completed tasks of a view, the most recently done first.
+/// The completed tasks of a view, the most recently done first; not those cleared
+/// away (archived: still counted in the week's figures).
 fn terminees(services: &Services, vue: Vue, today: NaiveDate) -> Vec<StoredTask> {
     services
         .store
-        .done_tasks(None, 500)
+        .shown_done_tasks(None, 500)
         .unwrap_or_default()
         .into_iter()
         .filter(|t| dans_la_vue(vue, t, today))
@@ -2442,23 +2443,21 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
         || {
             let vue = etat.borrow().vue;
             let faites = terminees(services, vue, maintenant_local().date());
-            let mut parties = Vec::new();
-            for t in &faites {
-                parties.extend(avec_ses_etapes(services, t.id));
-                let _ = services.store.delete_task(t.id);
+            // Archived, not deleted: they leave the lists and still count in what
+            // was done this week.
+            let ids: Vec<i64> = faites.iter().map(|t| t.id).collect();
+            if let Err(e) = services.store.archive_tasks(&ids, now()) {
+                tracing::warn!(error = %e, "clearing the completed tasks");
             }
             let mut e = etat.borrow_mut();
             if e.choisie.is_some_and(|c| faites.iter().any(|t| t.id == c)) {
                 e.choisie = None;
             }
-            if !parties.is_empty() {
-                e.supprimees.push(parties);
-            }
             drop(e);
             f.set_status(
                 match faites.len() {
-                    1 => "1 completed task deleted. Ctrl+Z brings it back.".to_string(),
-                    n => format!("{n} completed tasks deleted. Ctrl+Z brings them back."),
+                    1 => "1 completed task cleared.".to_string(),
+                    n => format!("{n} completed tasks cleared."),
                 }
                 .into(),
             );
