@@ -132,6 +132,10 @@ pub struct Snapshot {
     /// What a bulk action did ("1,240 messages marked as read"), once. The counts
     /// beside the folders and the mailboxes are read again with it.
     pub notice: Option<String>,
+    /// How many requests the view-model had taken when this was made, counted as
+    /// [`Controller::send_counted`] numbers them: the window knows from it whether a
+    /// snapshot answers a request of its own or was made before it.
+    pub served: u64,
 }
 
 /// Ce que l'interface doit dire de la recherche en cours.
@@ -154,6 +158,8 @@ impl Snapshot {
 #[derive(Debug, Clone)]
 pub struct Controller {
     requests: Sender<Request>,
+    /// Requests sent so far, every sender included.
+    sent: Arc<std::sync::Mutex<u64>>,
 }
 
 impl Controller {
@@ -190,14 +196,31 @@ impl Controller {
             })
             .expect("création du fil du vue-modèle");
 
-        (Self { requests: tx }, fil)
+        (
+            Self {
+                requests: tx,
+                sent: Arc::new(std::sync::Mutex::new(0)),
+            },
+            fil,
+        )
     }
 
     /// Envoie une requête. Ne bloque jamais l'appelant.
     pub fn send(&self, request: Request) {
+        self.send_counted(request);
+    }
+
+    /// The same, giving the request's number: the first snapshot whose
+    /// [`Snapshot::served`] reaches it has seen the request.
+    pub fn send_counted(&self, request: Request) -> u64 {
+        // Counted and sent under one step for every sender, so the numbers keep the
+        // order the channel gives the requests.
+        let mut garde = self.sent.lock().unwrap_or_else(|e| e.into_inner());
+        *garde += 1;
         // Une erreur signifie que le fil s'est arrêté : pendant la fermeture, c'est
         // normal, et il n'y a rien à en faire.
         let _ = self.requests.send(request);
+        *garde
     }
 
     pub fn shutdown(&self) {
@@ -218,6 +241,7 @@ fn run(
         vm = vm.with_index(index);
     }
     let mut actions = Actions::new(workflow);
+    let mut servies: u64 = 0;
 
     // Everything waiting is taken at once, its diffs folded together, and one snapshot
     // answers the lot. One at a time, a Gmail mailbox's first sync (twenty thousand
@@ -228,7 +252,11 @@ fn run(
         let mut a_montrer = false;
         let mut erreur = None;
         let mut avis = None;
-        for request in fold_diffs(std::iter::once(premiere).chain(requests.try_iter())) {
+        let lot: Vec<Request> = std::iter::once(premiere)
+            .chain(requests.try_iter())
+            .collect();
+        servies += lot.len() as u64;
+        for request in fold_diffs(lot.into_iter()) {
             if request == Request::Shutdown {
                 return;
             }
@@ -248,6 +276,7 @@ fn run(
             let mut instantane = snapshot(&vm, &store);
             instantane.error = erreur;
             instantane.notice = avis;
+            instantane.served = servies;
             on_snapshot(instantane);
         }
     }
@@ -399,7 +428,7 @@ fn handle(
         Request::ApplyToMarked(action) => {
             let cibles = vm.selection().targets();
             if cibles.is_empty() {
-                return Ok(false);
+                return Ok(repondre_meme_sans_rien(action));
             }
 
             // Un lot passe par `apply_many`, qui pose **une** entrée d'annulation pour
@@ -408,7 +437,7 @@ fn handle(
             let touches =
                 actions.apply_many(&cibles, action, Timestamp::from_millis(now_millis()))?;
             if touches == 0 {
-                return Ok(false);
+                return Ok(repondre_meme_sans_rien(action));
             }
 
             let mut diff = ViewDiff::default();
@@ -426,7 +455,7 @@ fn handle(
         Request::EnsureLoaded(index) => Ok(vm.ensure_loaded(index)? > 0),
         Request::Apply(action) => {
             let Some(thread) = vm.selection().thread() else {
-                return Ok(false);
+                return Ok(repondre_meme_sans_rien(action));
             };
             appliquer(vm, actions, thread, action)
         }
@@ -487,7 +516,7 @@ fn appliquer(
 ) -> Result<bool> {
     let resultat = actions.apply(thread, action, Timestamp::from_millis(now_millis()))?;
     if !resultat.changed {
-        return Ok(false);
+        return Ok(repondre_meme_sans_rien(action));
     }
 
     let mut diff = ViewDiff::default();
@@ -495,6 +524,13 @@ fn appliquer(
     diff.lists.insert(vm.active_tab());
     vm.apply_diff(&diff)?;
     Ok(true)
+}
+
+/// Whether an action that changed nothing still gets a snapshot. A delete does: the
+/// window took its rows off the list before asking, and only a snapshot puts back
+/// what was not deleted after all.
+fn repondre_meme_sans_rien(action: Action) -> bool {
+    action == Action::Delete
 }
 
 /// After a bulk action: the lists and their counts read again, when anything changed.
@@ -559,6 +595,7 @@ fn snapshot(vm: &ViewModel, store: &Store) -> Snapshot {
     Snapshot {
         error: None,
         notice: None,
+        served: 0,
         marked: vm.selection().marked().clone(),
         scope: vm.scope().clone(),
         filters: vm.filters(),
@@ -816,6 +853,25 @@ mod tests {
         assert!(rx
             .recv_timeout(std::time::Duration::from_millis(200))
             .is_err());
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn a_delete_that_changes_nothing_still_answers_and_says_it_was_served() {
+        // The window takes the rows off before asking: without an answer, a row that
+        // was not deleted after all would stay off the list.
+        let f = fixture();
+        f.thread();
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        let n = c.send_counted(Request::ApplyTo(ThreadId(9999), Action::Delete));
+        assert_eq!(n, 2);
+        assert!(attendre(&rx).served >= n);
 
         c.shutdown();
         fil.join().unwrap();

@@ -862,6 +862,19 @@ These rules come from bugs users hit, and each has a scenario in
   `iris memory`); they had done their work and are gone.
 - Past 4 MB of HTML, 20,000 tags or 400,000 pixels of height, the body falls back to rich
   text, which cannot fail.
+- **Only the layout is on the display thread** (7.10.1). A body is read, decompressed,
+  parsed and sanitised on the view-model's side, as its snapshot leaves
+  (`prepare_bodies_ahead`), and the newest message of the rows above and below the one
+  read is prepared on a short-lived `iris-corps` thread. The prepared HTML is kept for six
+  messages and 4 MB at most (`corps_prets`), so Suppr's next conversation only needs
+  laying out. Blitz's document holds an `Arc` of a provider that is not `Send`, so the
+  layout itself cannot leave the thread that paints it.
+- **Delete and a click do not wait for the view-model** (7.10.1). A delete takes its
+  rows off the list and lights the row the view-model will pick (the same index, or the
+  last); a click lights its row. Requests are numbered (`Controller::send_counted`) and
+  every snapshot says how many it has seen (`Snapshot::served`): one made before the
+  request keeps the window's rows and highlight, the first one after has the last word.
+  A delete that changed nothing still answers, so a row not deleted after all comes back.
 - **Memory is given back in the tray.** When the window closes to the notification area,
   body tiles and painter caches are dropped (the layout is kept), then the working set
   is returned to Windows. Tiles repaint on demand when the window comes back.

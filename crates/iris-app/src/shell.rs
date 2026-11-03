@@ -524,8 +524,15 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
 
     {
         let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
         fenetre.on_thread_selected(move |id| {
-            c.send(Request::SelectThread(ThreadId(id as i64)));
+            // The row lights up under the click at once; the conversation follows when
+            // the view-model has read it. Waiting for it, the click looked unheard.
+            if let Some(f) = faible.upgrade() {
+                f.set_selected_thread(id);
+            }
+            let n = c.send_counted(Request::SelectThread(ThreadId(id as i64)));
+            CLIC.with(|clic| clic.set(n));
         });
     }
 
@@ -546,7 +553,13 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
     }
     {
         let c = Arc::clone(&controller);
-        fenetre.on_thread_delete(move || c.send(Request::Apply(iris_viewmodel::Action::Delete)));
+        let faible = fenetre.as_weak();
+        fenetre.on_thread_delete(move || {
+            let n = c.send_counted(Request::Apply(iris_viewmodel::Action::Delete));
+            if let Some(f) = faible.upgrade() {
+                retirer_sans_attendre(&f, Jetes::Choisi, n);
+            }
+        });
     }
     {
         let c = Arc::clone(&controller);
@@ -601,8 +614,12 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
     }
     {
         let c = Arc::clone(&controller);
+        let faible = fenetre.as_weak();
         fenetre.on_menu_delete(move |id| {
-            c.send(Request::ApplyTo(fil(id), iris_viewmodel::Action::Delete))
+            let n = c.send_counted(Request::ApplyTo(fil(id), iris_viewmodel::Action::Delete));
+            if let Some(f) = faible.upgrade() {
+                retirer_sans_attendre(&f, Jetes::Ligne(id), n);
+            }
         });
     }
     {
@@ -776,6 +793,12 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
                 heures_de_report("tomorrow", now()),
             )))
         }
+        CommandKind::Thread(iris_viewmodel::Action::Delete) => {
+            let n = controller.send_counted(Request::Apply(iris_viewmodel::Action::Delete));
+            if let Some(f) = fenetre.upgrade() {
+                retirer_sans_attendre(&f, Jetes::Choisi, n);
+            }
+        }
         CommandKind::Thread(action) => controller.send(Request::Apply(*action)),
         CommandKind::SwitchTab(state) => controller.send(Request::SwitchTab(*state)),
         CommandKind::SelectAccount(id) => {
@@ -832,6 +855,115 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
 ///
 /// Appelée depuis la boucle d'interface, jamais depuis le fil du vue-modèle : c'est
 /// le seul endroit où les deux mondes se touchent.
+/// Which rows a delete reaches, as the view-model will choose them.
+#[derive(Debug, Clone, Copy)]
+enum Jetes {
+    /// The checked ones, else the one being read (`ApplyToMarked`).
+    Lot,
+    /// The one being read (`Apply`).
+    Choisi,
+    /// The one a row's menu points at (`ApplyTo`).
+    Ligne(i32),
+}
+
+thread_local! {
+    /// Rows a delete took off the list before the view-model answered, each with the
+    /// number of the request deleting it. A snapshot made before that request is
+    /// shown without them, so a row once gone does not flash back.
+    static RETIREES: std::cell::RefCell<Vec<(i32, u64)>> = const { std::cell::RefCell::new(Vec::new()) };
+
+    /// The number of the last click on a row. A snapshot made before it keeps the
+    /// row the click lit, rather than lighting the one it left for a moment.
+    static CLIC: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Takes the rows a delete reaches off the list at once, and lights the row the
+/// view-model will show next.
+///
+/// Suppr waited for the whole round: the delete written, the list and its counts read
+/// again, the next conversation read and laid out, and only then did the row go. The
+/// snapshot that answers still comes and has the last word: what was not deleted after
+/// all comes back with it.
+fn retirer_sans_attendre(fenetre: &AppWindow, jetes: Jetes, demande: u64) {
+    // A search shows what it found, deleted or not: nothing leaves it.
+    if fenetre.get_searching() {
+        return;
+    }
+    let lignes: Vec<iris_ui::ThreadRowData> = fenetre.get_rows().iter().collect();
+    let choisi = fenetre.get_selected_thread();
+    let coches = matches!(jetes, Jetes::Lot) && lignes.iter().any(|l| l.marked);
+    let ids: Vec<i32> = lignes
+        .iter()
+        .filter(|l| match jetes {
+            Jetes::Lot if coches => l.marked,
+            Jetes::Lot | Jetes::Choisi => l.id == choisi,
+            Jetes::Ligne(id) => l.id == id,
+        })
+        .map(|l| l.id)
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let position = lignes.iter().position(|l| l.id == choisi);
+    let restantes = sans_les_lignes(lignes, &ids);
+
+    // The one read gone, the view-model takes the row now where it was, or the last.
+    if let Some(p) = position.filter(|_| ids.contains(&choisi)) {
+        let suivant = restantes
+            .get(p.min(restantes.len().saturating_sub(1)))
+            .map_or(-1, |l| l.id);
+        fenetre.set_selected_thread(suivant);
+    }
+    if coches {
+        fenetre.set_marked_count(0);
+        fenetre.set_marked_label(iris_ui::format::short_count(0).into());
+    }
+    RETIREES.with(|r| {
+        r.borrow_mut().extend(ids.iter().map(|id| (*id, demande)));
+    });
+    fenetre.set_rows(ModelRc::new(VecModel::from(restantes)));
+}
+
+/// The rows without these, each day's title handed to the first row left under it.
+fn sans_les_lignes(
+    lignes: Vec<iris_ui::ThreadRowData>,
+    ids: &[i32],
+) -> Vec<iris_ui::ThreadRowData> {
+    let mut titre = slint::SharedString::default();
+    let mut titres = 0;
+    let mut restantes = Vec::with_capacity(lignes.len());
+    for mut ligne in lignes {
+        if ids.contains(&ligne.id) {
+            if !ligne.day.is_empty() {
+                titre = ligne.day.clone();
+            }
+            continue;
+        }
+        // A row without a title is in the same day as the one above it.
+        if ligne.day.is_empty() {
+            ligne.day = std::mem::take(&mut titre);
+        } else {
+            titre = Default::default();
+        }
+        if !ligne.day.is_empty() {
+            titres += 1;
+        }
+        ligne.titles = titres;
+        restantes.push(ligne);
+    }
+    restantes
+}
+
+/// The rows still taken off for a snapshot that has seen `servies` requests: those
+/// whose delete it has seen are its own business again.
+fn encore_retirees(servies: u64) -> Vec<i32> {
+    RETIREES.with(|r| {
+        let mut r = r.borrow_mut();
+        r.retain(|(_, demande)| *demande > servies);
+        r.iter().map(|(id, _)| *id).collect()
+    })
+}
+
 pub fn apply_snapshot(
     fenetre: &AppWindow,
     services: &Services,
@@ -840,6 +972,19 @@ pub fn apply_snapshot(
 ) {
     let maintenant = now();
     fenetre.set_loading(false);
+
+    // Made before a delete the window has already shown: without the rows it took off.
+    let retirees = encore_retirees(snapshot.served);
+    let lignes_vues: Vec<&iris_store::ThreadRow> = snapshot
+        .rows
+        .iter()
+        .filter(|r| !retirees.contains(&(r.id.get() as i32)))
+        .collect();
+    let selection_vue = match snapshot.selected {
+        _ if snapshot.served < CLIC.with(|c| c.get()) => fenetre.get_selected_thread(),
+        Some(t) if retirees.contains(&(t.get() as i32)) => fenetre.get_selected_thread(),
+        autre => autre.map(|t| t.get() as i32).unwrap_or(-1),
+    };
 
     // Les adresses des comptes servent à colorer les lignes. Résolues une fois par
     // instantané et non une fois par ligne — mais **par compte**, ce qui manquait :
@@ -852,16 +997,14 @@ pub fn apply_snapshot(
     let adresse_par_defaut = comptes.first().map(|c| c.email.clone()).unwrap_or_default();
 
     let jours = iris_ui::format::day_headers(
-        &snapshot
-            .rows
+        &lignes_vues
             .iter()
             .map(|r| r.last_activity)
             .collect::<Vec<_>>(),
         maintenant,
     );
     let mut titres = 0;
-    let lignes: Vec<_> = snapshot
-        .rows
+    let lignes: Vec<_> = lignes_vues
         .iter()
         .zip(jours)
         .map(|(r, jour)| {
@@ -890,7 +1033,7 @@ pub fn apply_snapshot(
     }
 
     fenetre.set_rows(ModelRc::new(VecModel::from(lignes)));
-    fenetre.set_selected_thread(snapshot.selected.map(|t| t.get() as i32).unwrap_or(-1));
+    fenetre.set_selected_thread(selection_vue);
     fenetre.set_active_tab(snapshot.active_tab.as_i64() as i32);
     fenetre.set_counts(ModelRc::new(VecModel::from(
         snapshot
@@ -2067,13 +2210,146 @@ fn corps_du_message(
         })
     };
 
+    let (html, distant) = match corps_prepare(&services.blobs, message, allow_remote).as_ref() {
+        CorpsPret::Apercu => return apercu(),
+        CorpsPret::Html(html, distant) => (Arc::clone(html), *distant),
+    };
+    renderer
+        .render_for(&html, distant, largeur, echelle)
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "rendering the body failed");
+            apercu()
+        })
+}
+
+/// A body read and parsed, ready for the engine: everything before the layout.
+#[derive(Debug)]
+enum CorpsPret {
+    /// Nothing to lay out: the preview stands in.
+    Apercu,
+    /// The HTML to lay out, and whether the engine may fetch what it names.
+    Html(Arc<str>, bool),
+}
+
+/// Bodies prepared, newest last: those of the conversation shown and of its
+/// neighbours, prepared on the view-model's side so the window only lays them out.
+/// Bounded in count and in bytes (an HTML part carries its own images).
+fn corps_prets() -> std::sync::MutexGuard<'static, Vec<((i64, bool), Arc<CorpsPret>)>> {
+    static PRETS: std::sync::OnceLock<std::sync::Mutex<Vec<((i64, bool), Arc<CorpsPret>)>>> =
+        std::sync::OnceLock::new();
+    PRETS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+const CORPS_PRETS_MAX: usize = 6;
+const CORPS_PRETS_OCTETS: usize = 4 * 1024 * 1024;
+
+/// A message's body, prepared once: taken from those prepared ahead, or prepared now.
+/// Only a body that is here is kept; the preview of one still on its way is not.
+fn corps_prepare(
+    blobs: &iris_blobs::BlobStore,
+    message: &iris_store::StoredMessage,
+    allow_remote: bool,
+) -> Arc<CorpsPret> {
+    let cle = (message.id.get(), allow_remote);
+    if let Some((_, pret)) = corps_prets().iter().find(|(c, _)| *c == cle) {
+        return Arc::clone(pret);
+    }
+    let pret = Arc::new(preparer_corps(blobs, message, allow_remote));
+    if message.body_blob.is_some() {
+        let mut prets = corps_prets();
+        if !prets.iter().any(|(c, _)| *c == cle) {
+            prets.push((cle, Arc::clone(&pret)));
+        }
+        let taille = |p: &CorpsPret| match p {
+            CorpsPret::Html(html, _) => html.len(),
+            CorpsPret::Apercu => 0,
+        };
+        while prets.len() > CORPS_PRETS_MAX
+            || (prets.len() > 1
+                && prets.iter().map(|(_, p)| taille(p)).sum::<usize>() > CORPS_PRETS_OCTETS)
+        {
+            prets.remove(0);
+        }
+    }
+    pret
+}
+
+/// Prepares, off the window's thread, the bodies a snapshot is about to show: those
+/// of the conversation read now, then, on a thread of their own, the newest message
+/// of the rows above and below it (Suppr shows the one below next).
+///
+/// The window read, decompressed and parsed each body when it was shown, then laid it
+/// out, all between the click and the next frame.
+pub fn prepare_bodies_ahead(services: &Services, snapshot: &Snapshot) {
+    let Some(choisi) = snapshot.selected else {
+        return;
+    };
+    let ouverts = expanded_messages().clone();
+    let montres = images_shown().clone();
+    if let Some(dernier) = snapshot.messages.last() {
+        for message in &snapshot.messages {
+            if message.id == dernier.id || ouverts.contains(&message.id.get()) {
+                corps_prepare(
+                    &services.blobs,
+                    message,
+                    montres.contains(&message.id.get()),
+                );
+            }
+        }
+    }
+
+    let Some(i) = snapshot.rows.iter().position(|r| r.id == choisi) else {
+        return;
+    };
+    let voisins: Vec<ThreadId> = [i + 1, i.wrapping_sub(1)]
+        .iter()
+        .filter_map(|j| snapshot.rows.get(*j))
+        .map(|r| r.id)
+        .collect();
+    {
+        // Asked once per row read: every snapshot of the same one asks nothing more.
+        static DEMANDES: std::sync::Mutex<Option<ThreadId>> = std::sync::Mutex::new(None);
+        let mut d = DEMANDES.lock().unwrap_or_else(|e| e.into_inner());
+        if *d == Some(choisi) {
+            return;
+        }
+        *d = Some(choisi);
+    }
+    let store = Arc::clone(&services.store);
+    let blobs = Arc::clone(&services.blobs);
+    let _ = std::thread::Builder::new()
+        .name("iris-corps".into())
+        .spawn(move || {
+            for fil in voisins {
+                let Some(dernier) = store
+                    .conversation(fil)
+                    .ok()
+                    .and_then(|m| m.into_iter().last())
+                else {
+                    continue;
+                };
+                let montrer = images_shown().contains(&dernier.id.get());
+                corps_prepare(&blobs, &dernier, montrer);
+            }
+        });
+}
+
+/// Reads and parses a message's body into what the engine lays out.
+fn preparer_corps(
+    blobs: &iris_blobs::BlobStore,
+    message: &iris_store::StoredMessage,
+    allow_remote: bool,
+) -> CorpsPret {
     let Some(hex) = &message.body_blob else {
         // Pas encore téléchargé : on affiche l'aperçu, qui est toujours là.
-        return apercu();
+        return CorpsPret::Apercu;
     };
 
     let brut = iris_types::BlobId::from_hex(hex)
-        .and_then(|id| services.blobs.get(id).ok().flatten())
+        .and_then(|id| blobs.get(id).ok().flatten())
         .unwrap_or_default();
 
     // What is stored is the whole RFC 5322 message: headers, boundaries, every part.
@@ -2085,7 +2361,7 @@ fn corps_du_message(
         Ok(analyse) => analyse,
         Err(e) => {
             tracing::warn!(error = %e, "could not parse the message");
-            return apercu();
+            return CorpsPret::Apercu;
         }
     };
 
@@ -2095,17 +2371,7 @@ fn corps_du_message(
     // such (`>` lines), not from the HTML the parser made of it, every line a `<br/>`.
     // It has nothing remote to show, so it stays with the rich-text renderer.
     if let (true, Some(texte)) = (analyse.html_is_text, &analyse.text_body) {
-        return renderer
-            .render_for(
-                &iris_htmlview::plain_text_to_html(texte),
-                false,
-                largeur,
-                echelle,
-            )
-            .unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "rendering the body failed");
-                apercu()
-            });
+        return CorpsPret::Html(iris_htmlview::plain_text_to_html(texte).into(), false);
     }
 
     let html = match (&analyse.html_body, &analyse.text_body) {
@@ -2117,15 +2383,9 @@ fn corps_du_message(
         (None, Some(texte)) => iris_htmlview::plain_text_to_html(texte),
         // A message with neither part is not broken — a bare attachment carrier looks
         // exactly like this — so the preview stands in rather than an error.
-        (None, None) => return apercu(),
+        (None, None) => return CorpsPret::Apercu,
     };
-
-    renderer
-        .render_for(&html, allow_remote, largeur, echelle)
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "rendering the body failed");
-            apercu()
-        })
+    CorpsPret::Html(html.into(), allow_remote)
 }
 
 /// Enveloppe permettant de renvoyer un instantané vers la boucle d'interface.
@@ -2140,6 +2400,7 @@ pub fn snapshot_sink(
         // Le corps manquant est demandé avant même de dessiner : l'aperçu s'affiche
         // tout de suite, le texte complet le remplace dès qu'il arrive.
         bodies.request_if_needed(&snapshot);
+        prepare_bodies_ahead(&services, &snapshot);
 
         let services = services.clone();
         let renderer = Arc::clone(&renderer);
@@ -6130,7 +6391,13 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
     }
     {
         let controller = Arc::clone(&controller);
-        fenetre.on_bulk_delete(move || controller.send(Request::ApplyToMarked(Action::Delete)));
+        let faible = fenetre.as_weak();
+        fenetre.on_bulk_delete(move || {
+            let n = controller.send_counted(Request::ApplyToMarked(Action::Delete));
+            if let Some(f) = faible.upgrade() {
+                retirer_sans_attendre(&f, Jetes::Lot, n);
+            }
+        });
     }
     {
         let controller = Arc::clone(&controller);
@@ -8399,6 +8666,39 @@ fn serveur(hote: &str, port: u16, transport: iris_discover::Transport) -> String
 mod tests {
     use super::*;
     use iris_ui::commands::builtin_commands;
+
+    #[test]
+    fn a_row_deleted_at_once_hands_its_day_title_to_the_row_under_it() {
+        let ligne = |id, day: &str| iris_ui::ThreadRowData {
+            id,
+            day: day.into(),
+            ..Default::default()
+        };
+        let vue = |lignes: Vec<iris_ui::ThreadRowData>| {
+            lignes
+                .iter()
+                .map(|l| (l.id, l.day.to_string(), l.titles))
+                .collect::<Vec<_>>()
+        };
+
+        let restantes = sans_les_lignes(
+            vec![
+                ligne(1, "Today"),
+                ligne(2, ""),
+                ligne(3, "Yesterday"),
+                ligne(4, ""),
+            ],
+            &[1, 3],
+        );
+        assert_eq!(
+            vue(restantes),
+            [(2, "Today".to_string(), 1), (4, "Yesterday".to_string(), 2)]
+        );
+
+        // The row under it starts a day of its own: the title goes with the row.
+        let restantes = sans_les_lignes(vec![ligne(1, "Today"), ligne(2, "Yesterday")], &[1]);
+        assert_eq!(vue(restantes), [(2, "Yesterday".to_string(), 1)]);
+    }
 
     #[test]
     fn a_search_pill_puts_its_words_in_the_query_and_takes_them_out() {

@@ -963,6 +963,11 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       imported from the toolbar; a task's right-click menu; *Clear* archives, the
       statistics still count; the add field grey and centred; a paired device
       removed; the icon in Alt+Tab; the pending-changes count kept current (7.10.0).
+- [x] **S52.23** Delete and a click answered at once: the rows a delete reaches leave
+      the list and the next one lights before the view-model answers, a clicked row
+      lights under the click, numbered requests keep an earlier snapshot from undoing
+      either; bodies read and parsed off the window's thread, the rows above and below
+      prepared ahead (7.10.1).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

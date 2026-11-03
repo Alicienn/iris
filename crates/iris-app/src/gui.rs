@@ -236,6 +236,7 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
             if let Some(chargeur) = chargeur.get() {
                 chargeur.request_if_needed(&snapshot);
             }
+            shell::prepare_bodies_ahead(&services_puits, &snapshot);
             let services = services_puits.clone();
             let renderer = Arc::clone(&renderer);
             let _ = faible.upgrade_in_event_loop(move |fenetre| {

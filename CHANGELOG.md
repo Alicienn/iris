@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.10.1 — 2026-11-03
+
+### Improved
+- Delete takes a mail off the list at once.
+- A clicked mail is highlighted at once, and opens sooner.
+
 ## 7.10.0 — 2026-11-03
 
 ### New
