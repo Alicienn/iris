@@ -213,6 +213,9 @@ fn hex(s: &str) -> Option<u32> {
     u32::from_str_radix(h, 16).ok().filter(|_| h.len() == 6)
 }
 
+/// A row's way through a flow: each step's name and colour, and what it carries.
+type Chemin = (Vec<(String, Option<u32>)>, f64);
+
 /// The rows a chart reads: each one's categories (shown as the table shows them, with
 /// their text's colour) and its numbers.
 struct Ligne {
@@ -383,7 +386,7 @@ fn flux(
             .any(|li| !li.groups[1].0.is_empty() && premiers.contains(li.groups[1].0.as_str()))
     };
     // Each row as the steps it goes through, with its colours.
-    let chemins: Vec<(Vec<(String, Option<u32>)>, f64)> = if chaine {
+    let chemins: Vec<Chemin> = if chaine {
         lignes
             .iter()
             .filter(|li| !li.groups[1].0.is_empty() && li.groups[0].0 != li.groups[1].0)
@@ -497,7 +500,7 @@ fn mene(links: &[Link], a: usize, b: usize) -> bool {
 
 /// Bands from one category to another: `Income → Net`, `Net → Rent`. Each name is one
 /// step, placed after every step that flows into it; a band going back is left out.
-fn chaine_de(chemins: &[(Vec<(String, Option<u32>)>, f64)], format: Format) -> Series {
+fn chaine_de(chemins: &[Chemin], format: Format) -> Series {
     let mut nodes: Vec<Node> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     // The bands in the order of the rows; one that would lead back to where it starts
@@ -743,7 +746,8 @@ mod tests {
             .iter()
             .map(|c| (c.label.as_str(), c.values[0]))
             .collect();
-        assert_eq!(vus, vec![("Paris", 13.0), ("Lyon", 5.0)]);
+        // Grouped by city: the row without a status counts too.
+        assert_eq!(vus, vec![("Paris", 13.0), ("Lyon", 5.0), ("Nantes", 7.0)]);
     }
 
     #[test]
