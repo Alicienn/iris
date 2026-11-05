@@ -973,7 +973,12 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       `/chart`; the notes' tabs in one strip, the open one joined to its page (7.11.0).
 - [x] **S52.25** Delete shows the next conversation at once, read from the store on the
       window's side; a second Delete within 200 ms is a bounce and ignored; the list's
-      rows changed in place, so a click or a delete keeps where it is scrolled (7.11.1).
+      rows changed in place, so a click or a delete keeps where it is scrolled; a
+      conversation opened is marked read (no undo entry of its own) and `R` turns it
+      over; a whole mailbox sent to a queue or marked read on a thread of its own;
+      double- and triple-click select a word and a paragraph of a painted body, and a
+      drag from off the words starts at the nearest ones; the add-task bar centred
+      (7.12.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

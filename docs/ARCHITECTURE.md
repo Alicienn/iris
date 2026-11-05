@@ -875,11 +875,20 @@ These rules come from bugs users hit, and each has a scenario in
   every snapshot says how many it has seen (`Snapshot::served`): one made before the
   request keeps the window's rows and highlight, the first one after has the last word.
   A delete that changed nothing still answers, so a row not deleted after all comes back.
-  Since 7.11.1 the next conversation is shown at once too (`montrer_sans_attendre`): read
+  Since 7.12.0 the next conversation is shown at once too (`montrer_sans_attendre`): read
   from the store on the window's thread, its body already prepared; a snapshot whose
   selection is not the window's leaves the reading column alone. A delete from a key or
   a button within 200 ms of the last one is a bounce (`suppr_en_double`) and dropped.
-- **The list's model is changed in place** (7.11.1, `poser_lignes`). Slint's virtual
+- **Bulk changes of whole mailboxes run on an `iris-bulk` thread** (7.12.0). *Mark as
+  read* on a mailbox or a folder and *Send all to* are thousands of writes; on the
+  view-model's thread every click waited behind them. The thread answers with
+  `Request::BulkDone`, which is not counted in `Snapshot::served` (the window never
+  sent it), and the lists are read again then.
+- **Opening a conversation marks it read** (7.12.0): `SelectThread` and `Move` call
+  `Workflow::mark_opened_read`, journalled like any flag change but without an undo
+  entry, so `Ctrl`+`Z` still undoes the last real action. Only the row is read again,
+  so a mail opened under the *Unread* filter stays in place.
+- **The list's model is changed in place** (7.12.0, `poser_lignes`). Slint's virtual
   list forgets its rows and measures them again from the top when it is given a new
   model; with day titles making rows unequal, the place it was scrolled to landed
   elsewhere after every snapshot. Rows of the same list (same scope, tab, filters,

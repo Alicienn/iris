@@ -15,6 +15,8 @@ use iris_viewmodel::Action;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandKind {
     Thread(Action),
+    /// R: the conversation read becomes unread, an unread one read.
+    ToggleRead,
     SwitchTab(WorkflowState),
     SelectAccount(i64),
     UnifiedView,

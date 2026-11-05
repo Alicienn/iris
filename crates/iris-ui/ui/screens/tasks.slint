@@ -2035,6 +2035,9 @@ component AddBar inherits Rectangle {
             }
         }
         Rectangle {
+            // The bar's whole height, given: left to its layout, the plate took the
+            // field's 36 px and sat at the top, the plus and the words 5 px high.
+            height: root.phone ? 44px : Layout.touch-input ? 52px : 46px;
             border-radius: root.phone ? 22px : 0px;
             background: root.phone && !root.open ? Tokens.well : transparent;
             // Centred by the layout: a `y` of their own was overwritten by it, and the

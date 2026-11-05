@@ -32,6 +32,67 @@ pub use richtext::{Block, Inline, RichText, RichTextRenderer};
 
 use iris_types::Result;
 
+/// The word around a byte offset of a text, as byte offsets: letters, digits and the
+/// marks inside a word (`l'été`, `e-mail`, `3.5`). Just after a word, that word; on a
+/// space, nothing.
+pub fn word_around(text: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(text.len());
+    let dans_mot = |c: char| c.is_alphanumeric() || c == '_';
+    let liant = |c: char| matches!(c, '\'' | '’' | '-' | '.' | '@');
+    let car: Vec<(usize, char)> = text.char_indices().collect();
+    // The character at the offset, or the one before at the end of the text.
+    let Some(mut i) = car
+        .iter()
+        .position(|(o, _)| *o >= offset)
+        .or_else(|| car.len().checked_sub(1))
+    else {
+        return (offset, offset);
+    };
+    if !dans_mot(car[i].1) {
+        if i > 0 && dans_mot(car[i - 1].1) {
+            i -= 1;
+        } else if car[i].1.is_whitespace() {
+            return (car[i].0, car[i].0);
+        } else {
+            // A mark on its own (`€`, `!`): it alone.
+            return (car[i].0, car[i].0 + car[i].1.len_utf8());
+        }
+    }
+    let mut debut = i;
+    while debut > 0
+        && (dans_mot(car[debut - 1].1)
+            || (liant(car[debut - 1].1) && debut >= 2 && dans_mot(car[debut - 2].1)))
+    {
+        debut -= 1;
+    }
+    let mut fin = i;
+    while fin + 1 < car.len()
+        && (dans_mot(car[fin + 1].1)
+            || (liant(car[fin + 1].1) && fin + 2 < car.len() && dans_mot(car[fin + 2].1)))
+    {
+        fin += 1;
+    }
+    (car[debut].0, car[fin].0 + car[fin].1.len_utf8())
+}
+
+/// The paragraph around a byte offset: between the line breaks either side of it,
+/// spaces at its ends left out.
+pub fn paragraph_around(text: &str, offset: usize) -> (usize, usize) {
+    let mut offset = offset.min(text.len());
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    let debut = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let fin = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    let ligne = &text[debut..fin];
+    if ligne.trim().is_empty() {
+        return (debut, debut);
+    }
+    let avant = ligne.len() - ligne.trim_start().len();
+    let apres = ligne.len() - ligne.trim_end().len();
+    (debut + avant, fin - apres)
+}
+
 /// Ce qu'un moteur de rendu produit.
 #[derive(Debug)]
 pub enum Rendered {
@@ -95,6 +156,12 @@ pub trait TiledDocument: std::fmt::Debug {
 
     /// Stretches the selection to a point; whether what is selected changed.
     fn select_to(&mut self, _x: f32, _y: f32) -> bool {
+        false
+    }
+
+    /// Selects the word under a point (a double-click), or its whole paragraph with
+    /// `block` (a triple-click); whether anything was selected.
+    fn select_word(&mut self, _x: f32, _y: f32, _block: bool) -> bool {
         false
     }
 
@@ -375,6 +442,39 @@ pub fn measure_complexity(html: &str) -> Complexity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_double_click_takes_the_whole_word() {
+        let t = "Rendez-vous à l'école à 15h30, voir devis@example.com !";
+        let mot = |o: usize| {
+            let (a, b) = word_around(t, o);
+            &t[a..b]
+        };
+        assert_eq!(mot(2), "Rendez-vous");
+        assert_eq!(mot(t.find("école").unwrap() + 2), "l'école");
+        assert_eq!(mot(t.find("15h30").unwrap()), "15h30");
+        // Just after a word: that word, not the comma.
+        assert_eq!(mot(t.find(',').unwrap()), "15h30");
+        assert_eq!(mot(t.find("devis").unwrap() + 3), "devis@example.com");
+        // On a space between two words: nothing.
+        assert_eq!(
+            word_around(t, t.find("voir").unwrap() - 1).0,
+            word_around(t, t.find("voir").unwrap() - 1).1
+        );
+        assert_eq!(mot(t.len()), "!");
+        assert_eq!(word_around("", 0), (0, 0));
+    }
+
+    #[test]
+    fn a_triple_click_takes_the_paragraph() {
+        let t = "First line\n  Second one here  \nThird";
+        let (a, b) = paragraph_around(t, t.find("one").unwrap());
+        assert_eq!(&t[a..b], "Second one here");
+        let (a, b) = paragraph_around(t, 0);
+        assert_eq!(&t[a..b], "First line");
+        let (a, b) = paragraph_around(t, t.len());
+        assert_eq!(&t[a..b], "Third");
+    }
 
     #[derive(Debug)]
     struct MoteurComplet {

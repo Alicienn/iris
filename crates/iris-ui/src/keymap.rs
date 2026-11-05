@@ -77,10 +77,8 @@ impl Keymap {
             "#",
             KeyOutcome::Command(CommandKind::Thread(Action::Delete)),
         );
-        lier(
-            "r",
-            KeyOutcome::Command(CommandKind::Thread(Action::MarkRead)),
-        );
+        // R turns it over: an opened mail is already read, so "read" alone did nothing.
+        lier("r", KeyOutcome::Command(CommandKind::ToggleRead));
         lier(
             "R",
             KeyOutcome::Command(CommandKind::Thread(Action::MarkUnread)),
@@ -191,10 +189,7 @@ mod tests {
         // Les confondre marquerait comme non lu ce que l'utilisateur voulait marquer
         // comme lu.
         let k = Keymap::standard();
-        assert_eq!(
-            k.resolve("r"),
-            KeyOutcome::Command(CommandKind::Thread(Action::MarkRead))
-        );
+        assert_eq!(k.resolve("r"), KeyOutcome::Command(CommandKind::ToggleRead));
         assert_eq!(
             k.resolve("R"),
             KeyOutcome::Command(CommandKind::Thread(Action::MarkUnread))

@@ -228,6 +228,7 @@ impl BlitzRenderer {
             height: hauteur_px,
             tile: tuile_px,
             painter: None,
+            appui: None,
         })))
     }
 }
@@ -324,6 +325,9 @@ struct BlitzDocument {
     tile: u32,
     /// Le peintre, et la taille de tuile pour laquelle il est construit.
     painter: Option<(VelloCpuImageRenderer, u32)>,
+    /// Where the mouse was pressed off the words (a margin, between paragraphs), in
+    /// CSS pixels: a drag from there selects from the words nearest it.
+    appui: Option<(f32, f32)>,
 }
 
 impl std::fmt::Debug for BlitzDocument {
@@ -399,11 +403,15 @@ impl TiledDocument for BlitzDocument {
     fn select_from(&mut self, x: f32, y: f32) -> bool {
         let avait = self.document.has_text_selection();
         let (x, y) = (x / self.scale, y / self.scale);
+        self.appui = None;
         match self.document.find_text_position(x, y) {
             Some((noeud, decalage)) => self
                 .document
                 .set_text_selection(noeud, decalage, noeud, decalage),
-            None => self.document.clear_text_selection(),
+            None => {
+                self.document.clear_text_selection();
+                self.appui = Some((x, y));
+            }
         }
         avait
     }
@@ -411,10 +419,50 @@ impl TiledDocument for BlitzDocument {
     fn select_to(&mut self, x: f32, y: f32) -> bool {
         let avant = self.document.get_text_selection_ranges();
         let (x, y) = (x / self.scale, y / self.scale);
+        // Pressed off the words: the selection starts at the words nearest the press,
+        // once the drag reaches words. It needed a press right on a word.
+        if let Some((ax, ay)) = self.appui {
+            if self.document.find_text_position(x, y).is_none() {
+                return false;
+            }
+            let Some((noeud, decalage)) = self.mots_proches(ax, ay, y >= ay) else {
+                return false;
+            };
+            self.appui = None;
+            self.document
+                .set_text_selection(noeud, decalage, noeud, decalage);
+        }
         if !self.document.extend_text_selection_to_point(x, y) {
             return false;
         }
         self.document.get_text_selection_ranges() != avant
+    }
+
+    fn select_word(&mut self, x: f32, y: f32, block: bool) -> bool {
+        let (x, y) = (x / self.scale, y / self.scale);
+        self.appui = None;
+        let Some((noeud, decalage)) = self.document.find_text_position(x, y) else {
+            return false;
+        };
+        let Some(texte) = self
+            .document
+            .get_node(noeud)
+            .and_then(|n| n.element_data())
+            .and_then(|e| e.inline_layout_data.as_ref())
+            .map(|t| t.text.clone())
+        else {
+            return false;
+        };
+        let (debut, fin) = if block {
+            crate::paragraph_around(&texte, decalage)
+        } else {
+            crate::word_around(&texte, decalage)
+        };
+        if debut == fin {
+            return false;
+        }
+        self.document.set_text_selection(noeud, debut, noeud, fin);
+        true
     }
 
     fn clear_selection(&mut self) -> bool {
@@ -449,6 +497,38 @@ impl TiledDocument for BlitzDocument {
 }
 
 impl BlitzDocument {
+    /// The words nearest a point off them, in CSS pixels: looked for along its line
+    /// (right of a left margin, left of a line's end), then a little further down when
+    /// the drag goes down (between paragraphs), up when it goes up.
+    fn mots_proches(
+        &self,
+        x: f32,
+        y: f32,
+        vers_le_bas: bool,
+    ) -> Option<(blitz_dom::NodeId, usize)> {
+        const PAS: f32 = 8.0;
+        let largeur = self.width as f32 / self.scale;
+        let sens = if vers_le_bas { 1.0 } else { -1.0 };
+        for k in 0..8 {
+            let ly = y + sens * PAS * k as f32;
+            let mut lx = x;
+            while lx < largeur {
+                lx += PAS;
+                if let Some(p) = self.document.find_text_position(lx, ly) {
+                    return Some(p);
+                }
+            }
+            let mut lx = x;
+            while lx > 0.0 {
+                lx -= PAS;
+                if let Some(p) = self.document.find_text_position(lx, ly) {
+                    return Some(p);
+                }
+            }
+        }
+        None
+    }
+
     /// The link under a point and the words it shows, its spaces run together.
     fn lien_sous(&self, x: f32, y: f32) -> Option<(String, String)> {
         use blitz_dom::local_name;

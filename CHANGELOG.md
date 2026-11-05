@@ -3,14 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
-## 7.11.1 — 2026-11-06
+## 7.12.0 — 2026-11-06
+
+### New
+- A mail you open is marked read, on the server too.
+- R marks the open mail unread, or read again.
+- Double-click a word in a mail to select it; triple-click selects its paragraph.
 
 ### Improved
 - Delete shows the next mail at once.
+- Moving or marking a whole mailbox no longer freezes Iris while it works.
+- You can start selecting text in a mail from the margin or between paragraphs.
 
 ### Fixed
 - A key that bounces no longer deletes two mails.
 - The mail list stays where you scrolled when you open or delete a mail.
+- The plus and the words of the add-task bar are centred.
 
 ## 7.11.0 — 2026-11-05
 

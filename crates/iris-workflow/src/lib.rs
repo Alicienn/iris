@@ -397,6 +397,22 @@ impl Workflow {
 
     /// Marks every message in a thread read or unread.
     pub fn set_read(&self, thread: ThreadId, read: bool, now: Timestamp) -> Result<bool> {
+        self.set_read_with(thread, read, now, true)
+    }
+
+    /// Marks a thread read because it was opened. Not an action of its own: it leaves
+    /// no undo entry, or Ctrl+Z after a delete would only make the next mail unread.
+    pub fn mark_opened_read(&self, thread: ThreadId, now: Timestamp) -> Result<bool> {
+        self.set_read_with(thread, true, now, false)
+    }
+
+    fn set_read_with(
+        &self,
+        thread: ThreadId,
+        read: bool,
+        now: Timestamp,
+        undoable: bool,
+    ) -> Result<bool> {
         let before = self.snapshot(thread, now, true)?;
         let messages = self.store.thread_messages(thread)?;
 
@@ -423,7 +439,9 @@ impl Workflow {
         }
 
         if changed {
-            self.record_undo(before);
+            if undoable {
+                self.record_undo(before);
+            }
             if let Some(m) = messages.last() {
                 self.bus.publish(Event::FlagsChanged {
                     message: m.id,

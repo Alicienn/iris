@@ -57,6 +57,9 @@ pub enum Request {
     MarkFolderRead(iris_store::Scope, Option<iris_types::AccountId>),
     /// Every conversation these mailboxes have in the other queues sent to this one.
     SendAccountsTo(Vec<iris_types::AccountId>, WorkflowState),
+    /// One of the three above finished on its own thread: how many conversations it
+    /// changed, and what to say of it.
+    BulkDone(usize, String),
     /// L'utilisateur a fait défiler jusqu'à cet indice.
     EnsureLoaded(usize),
     Apply(Action),
@@ -188,11 +191,12 @@ impl Controller {
         on_snapshot: impl Fn(Snapshot) + Send + 'static,
     ) -> (Self, std::thread::JoinHandle<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
+        let retour = tx.clone();
 
         let fil = std::thread::Builder::new()
             .name("iris-viewmodel".into())
             .spawn(move || {
-                run(store, index, workflow, now, rx, on_snapshot);
+                run(store, index, workflow, now, rx, retour, on_snapshot);
             })
             .expect("création du fil du vue-modèle");
 
@@ -234,6 +238,7 @@ fn run(
     workflow: Arc<Workflow>,
     now: Timestamp,
     requests: Receiver<Request>,
+    retour: Sender<Request>,
     on_snapshot: impl Fn(Snapshot),
 ) {
     let mut vm = ViewModel::new(Arc::clone(&store), now);
@@ -255,12 +260,18 @@ fn run(
         let lot: Vec<Request> = std::iter::once(premiere)
             .chain(requests.try_iter())
             .collect();
-        servies += lot.len() as u64;
+        // Counted as `send_counted` numbers them: a bulk change's answer comes from
+        // this side, not through it, and counting it would say a request was seen
+        // before it was.
+        servies += lot
+            .iter()
+            .filter(|r| !matches!(r, Request::BulkDone(..)))
+            .count() as u64;
         for request in fold_diffs(lot.into_iter()) {
             if request == Request::Shutdown {
                 return;
             }
-            match handle(&mut vm, &mut actions, request, &mut avis) {
+            match handle(&mut vm, &mut actions, request, &mut avis, &retour) {
                 Ok(montrer) => a_montrer |= montrer,
                 // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
                 // resterait figée sans explication. It is also carried out to the
@@ -308,67 +319,87 @@ fn handle(
     actions: &mut Actions,
     request: Request,
     avis: &mut Option<String>,
+    retour: &Sender<Request>,
 ) -> Result<bool> {
     match request {
+        // A whole mailbox marked read or sent to a queue is thousands of writes. Done
+        // here, every click, key and selection waited behind them and the window
+        // seemed frozen under "Moving…": they go to a thread of their own, and the
+        // lists are read again when it says it is done.
         Request::MarkAccountsRead(comptes) => {
             let store = Arc::clone(actions.workflow().store());
-            let n = crate::folders::mark_read_accounts(
-                &store,
-                &comptes,
-                Timestamp::from_millis(now_millis()),
-            )?;
-            *avis = Some(marked_read(n));
-            tout_relire(vm, n)
+            en_arriere_plan(retour, move || {
+                let n = crate::folders::mark_read_accounts(
+                    &store,
+                    &comptes,
+                    Timestamp::from_millis(now_millis()),
+                )?;
+                Ok((n, marked_read(n)))
+            });
+            Ok(false)
         }
         Request::MarkFolderRead(portee, seul) => {
             let store = Arc::clone(actions.workflow().store());
-            let n = crate::folders::mark_read_everywhere(
-                &store,
-                &portee,
-                seul,
-                Timestamp::from_millis(now_millis()),
-            )?;
-            *avis = Some(marked_read(n));
-            tout_relire(vm, n)
+            en_arriere_plan(retour, move || {
+                let n = crate::folders::mark_read_everywhere(
+                    &store,
+                    &portee,
+                    seul,
+                    Timestamp::from_millis(now_millis()),
+                )?;
+                Ok((n, marked_read(n)))
+            });
+            Ok(false)
         }
         Request::SendAccountsTo(comptes, cible) => {
-            let maintenant = Timestamp::from_millis(now_millis());
-            // From the other queues, never out of Done: "Send all to To do" on a
-            // mailbox brought back years of finished mail.
-            let depuis: &[WorkflowState] = match cible {
-                WorkflowState::Done => &[WorkflowState::Todo, WorkflowState::Waiting],
-                WorkflowState::Waiting => &[WorkflowState::Todo],
-                WorkflowState::Todo => &[WorkflowState::Waiting],
-            };
-            let fils = actions
-                .workflow()
-                .store()
-                .queue_threads(&comptes, depuis, maintenant)?;
-            let n = actions
-                .workflow()
-                .set_state_many(&fils, cible, maintenant)?;
-            *avis = Some(if n == 0 {
-                "Nothing to move there.".into()
-            } else {
-                format!(
-                    "{} sent to {}.",
-                    iris_ui::format::plural(n as u64, "conversation"),
-                    queue_name(cible)
-                )
+            let workflow = Arc::clone(actions.workflow());
+            en_arriere_plan(retour, move || {
+                let maintenant = Timestamp::from_millis(now_millis());
+                // From the other queues, never out of Done: "Send all to To do" on a
+                // mailbox brought back years of finished mail.
+                let depuis: &[WorkflowState] = match cible {
+                    WorkflowState::Done => &[WorkflowState::Todo, WorkflowState::Waiting],
+                    WorkflowState::Waiting => &[WorkflowState::Todo],
+                    WorkflowState::Todo => &[WorkflowState::Waiting],
+                };
+                let fils = workflow
+                    .store()
+                    .queue_threads(&comptes, depuis, maintenant)?;
+                let n = workflow.set_state_many(&fils, cible, maintenant)?;
+                let texte = if n == 0 {
+                    "Nothing to move there.".into()
+                } else {
+                    format!(
+                        "{} sent to {}.",
+                        iris_ui::format::plural(n as u64, "conversation"),
+                        queue_name(cible)
+                    )
+                };
+                Ok((n, texte))
             });
+            Ok(false)
+        }
+        Request::BulkDone(n, texte) => {
+            *avis = Some(texte);
             tout_relire(vm, n)
         }
         Request::Bootstrap => {
             vm.bootstrap()?;
             Ok(true)
         }
-        Request::SelectThread(t) => Ok(vm.select(t)),
+        Request::SelectThread(t) => {
+            let change = vm.select(t);
+            Ok(lu_a_l_ouverture(vm, actions)? || change)
+        }
         Request::GrabThread(t) => {
             // Dragging a row that is not checked moved the checked ones.
             let lache = !vm.selection().is_marked(t) && vm.clear_marks();
             Ok(vm.select(t) || lache)
         }
-        Request::Move(m) => vm.move_selection(m),
+        Request::Move(m) => {
+            let change = vm.move_selection(m)?;
+            Ok(lu_a_l_ouverture(vm, actions)? || change)
+        }
         Request::SwitchTab(state) => Ok(!vm.set_tab(state)?.is_empty()),
         Request::ShowScope(scope) => Ok(!vm.set_scope(scope)?.is_empty()),
         Request::FilterAccounts(accounts) => Ok(!vm.set_accounts_filter(accounts)?.is_empty()),
@@ -522,6 +553,50 @@ fn appliquer(
     let mut diff = ViewDiff::default();
     diff.threads.insert(thread);
     diff.lists.insert(vm.active_tab());
+    vm.apply_diff(&diff)?;
+    Ok(true)
+}
+
+/// Runs a bulk change on a thread of its own, then hands the view-model what it did
+/// (`Request::BulkDone`); a failure is said in the status bar the same way.
+fn en_arriere_plan(
+    retour: &Sender<Request>,
+    travail: impl FnOnce() -> Result<(usize, String)> + Send + 'static,
+) {
+    let retour = retour.clone();
+    let lance = std::thread::Builder::new()
+        .name("iris-bulk".into())
+        .spawn(move || {
+            let reponse = match travail() {
+                Ok((n, texte)) => Request::BulkDone(n, texte),
+                Err(e) => {
+                    tracing::error!(error = %e, "bulk change");
+                    Request::BulkDone(1, format!("Could not finish: {e}"))
+                }
+            };
+            let _ = retour.send(reponse);
+        });
+    if let Err(e) = lance {
+        tracing::error!(error = %e, "bulk thread");
+    }
+}
+
+/// A conversation opened is read: its messages are marked so, here and on the server,
+/// without an undo entry of its own. Whether anything changed.
+fn lu_a_l_ouverture(vm: &mut ViewModel, actions: &mut Actions) -> Result<bool> {
+    let Some(thread) = vm.selection().thread() else {
+        return Ok(false);
+    };
+    if !actions
+        .workflow()
+        .mark_opened_read(thread, Timestamp::from_millis(now_millis()))?
+    {
+        return Ok(false);
+    }
+    // The row only: the list is not read again, so with "Unread" filtered the mail
+    // opened stays where it is rather than leaving under the pointer.
+    let mut diff = ViewDiff::default();
+    diff.threads.insert(thread);
     vm.apply_diff(&diff)?;
     Ok(true)
 }
@@ -1058,6 +1133,61 @@ mod tests {
         assert!(rx
             .recv_timeout(std::time::Duration::from_millis(200))
             .is_err());
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn a_mailbox_sent_to_done_answers_from_its_own_thread_and_counts_no_extra_request() {
+        let f = fixture();
+        f.thread();
+        f.thread();
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        let n = c.send_counted(Request::SendAccountsTo(
+            vec![f.account],
+            WorkflowState::Done,
+        ));
+        let s = attendre_que(&rx, |s| s.notice.is_some());
+        assert_eq!(s.notice.as_deref(), Some("2 conversations sent to Done."));
+        assert_eq!(s.counts[0], 0);
+        // The answer is not a request the window sent: it does not count as one.
+        assert_eq!(s.served, n);
+
+        c.shutdown();
+        fil.join().unwrap();
+    }
+
+    #[test]
+    fn opening_a_conversation_marks_it_read_without_an_undo_entry() {
+        let f = fixture();
+        let t = f.thread();
+        let (c, rx, fil) = demarrer(Arc::clone(&f.store));
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+
+        c.send(Request::SelectThread(t));
+        attendre_que(&rx, |s| s.selected == Some(t));
+        assert!(f
+            .store
+            .thread_messages(t)
+            .unwrap()
+            .iter()
+            .all(|m| m.flags.contains(iris_types::Flags::SEEN)));
+
+        // Ctrl+Z has nothing of it to undo: the thread stays read.
+        c.send(Request::Undo);
+        c.send(Request::Bootstrap);
+        attendre(&rx);
+        assert!(f
+            .store
+            .thread_messages(t)
+            .unwrap()
+            .iter()
+            .all(|m| m.flags.contains(iris_types::Flags::SEEN)));
 
         c.shutdown();
         fil.join().unwrap();

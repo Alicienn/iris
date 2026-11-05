@@ -123,6 +123,9 @@ the Android Keystore holds.
   this weekend, next week), **Waiting** `W`, **To task** `T`, **Archive** `A`, star `F`,
   delete. Point at a row to do it without opening it, or right-click it (**Mark as** ›
   *To do*, *Waiting*, *Done*); `Ctrl`+`Z` undoes, on the server too.
+- **Reading**: a conversation you open is marked read, on the server too; `R` marks
+  it unread, or read again. Double-click a word to select it, triple-click for its
+  paragraph; a selection can start in the margin.
 - **States follow you**: *Waiting* and *Done* are written on the server, so Iris on
   your other computers finds them.
 - **Writing**: address chips, attachments, formatting, signatures, aliases (*Send

@@ -497,8 +497,8 @@ component BodyTile inherits Rectangle {
     callback wanted();
     callback released();
     callback resized(length);
-    /// Pressed (0) or dragged to (1), as fractions of the tile across and down; a
-    /// drag past the tile gives fractions beyond 0 and 1.
+    /// Pressed (0), dragged to (1) or double-clicked (2), as fractions of the tile
+    /// across and down; a drag past the tile gives fractions beyond 0 and 1.
     callback select(float, float, int);
     /// A click that dragged nothing, at fractions of the tile: a link there opens.
     callback link(float, float);
@@ -591,6 +591,13 @@ component BodyTile inherits Rectangle {
         clicked => {
             if (root.width > 0 && root.height > 0) {
                 root.link(self.mouse-x / root.width, self.mouse-y / root.height);
+            }
+        }
+        // A double-click takes the word under it (a third click, its paragraph: Rust
+        // counts it).
+        double-clicked => {
+            if (root.width > 0 && root.height > 0) {
+                root.select(self.mouse-x / root.width, self.mouse-y / root.height, 2);
             }
         }
         changed has-hover => {

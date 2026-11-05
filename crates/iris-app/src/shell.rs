@@ -806,6 +806,14 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
             }
         }
         CommandKind::Thread(action) => controller.send(Request::Apply(*action)),
+        CommandKind::ToggleRead => {
+            let non_lu = fenetre.upgrade().is_some_and(|f| f.get_selected_unread());
+            controller.send(Request::Apply(if non_lu {
+                iris_viewmodel::Action::MarkRead
+            } else {
+                iris_viewmodel::Action::MarkUnread
+            }));
+        }
         CommandKind::SwitchTab(state) => controller.send(Request::SwitchTab(*state)),
         CommandKind::SelectAccount(id) => {
             controller.send(Request::FilterAccounts(vec![iris_types::AccountId(*id)]))
@@ -936,6 +944,13 @@ fn retirer_sans_attendre(fenetre: &AppWindow, jetes: Jetes, demande: u64) {
 }
 
 thread_local! {
+    /// When a body was last double-clicked, for the third click.
+    static DOUBLE_CLIC: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+    /// When a body was last triple-clicked.
+    static TRIPLE_CLIC: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+
     /// What the reading column needs to show a conversation without waiting for a
     /// snapshot: given by the first snapshot shown.
     static LECTEUR: std::cell::RefCell<Option<(Services, Arc<dyn iris_htmlview::HtmlRenderer>)>> =
@@ -1668,10 +1683,32 @@ pub fn wire_body_tiles(fenetre: &AppWindow) {
                 return;
             };
             let (x, y) = point_du_document(ouvert.document.as_ref(), index, fx, fy);
-            let change = if phase == 0 {
-                ouvert.document.select_from(x, y)
-            } else {
-                ouvert.document.select_to(x, y)
+            // A press soon after a double-click is the third click: the paragraph.
+            let triple = phase == 0
+                && DOUBLE_CLIC.with(|d| {
+                    d.get()
+                        .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500))
+                });
+            let change = match phase {
+                0 if triple => {
+                    DOUBLE_CLIC.with(|d| d.set(None));
+                    TRIPLE_CLIC.with(|d| d.set(Some(std::time::Instant::now())));
+                    ouvert.document.select_word(x, y, true)
+                }
+                0 => ouvert.document.select_from(x, y),
+                // The third click may count as a second double-click: the paragraph stays.
+                2 if TRIPLE_CLIC.with(|d| {
+                    d.get()
+                        .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500))
+                }) =>
+                {
+                    false
+                }
+                2 => {
+                    DOUBLE_CLIC.with(|d| d.set(Some(std::time::Instant::now())));
+                    ouvert.document.select_word(x, y, false)
+                }
+                _ => ouvert.document.select_to(x, y),
             };
             if change {
                 repeindre(ouvert);
@@ -9227,6 +9264,7 @@ mod tests {
         for commande in builtin_commands() {
             match commande.kind {
                 CommandKind::Thread(_)
+                | CommandKind::ToggleRead
                 | CommandKind::SwitchTab(_)
                 | CommandKind::SelectAccount(_)
                 | CommandKind::UnifiedView
