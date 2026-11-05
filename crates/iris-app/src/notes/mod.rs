@@ -1624,6 +1624,24 @@ fn candidats(
         Trigger::Note { query, .. } => {
             let notes = espace.notes();
             match query.split_once('#') {
+                // `![[Budget.sheet#…`: its charts.
+                Some((fichier, nom)) if render::est_tableur(fichier) => {
+                    render::graphiques_proposes(espace.dir(), Some(fichier), nom, 10)
+                        .into_iter()
+                        .filter(|(_, n, _)| {
+                            iris_notes::fuzzy::folded(n).contains(&iris_notes::fuzzy::folded(nom))
+                        })
+                        .map(|(_, n, feuille)| {
+                            let insert = format!("[[{fichier}#{n}]]");
+                            c::Candidate {
+                                label: n,
+                                detail: format!("Chart · {feuille}"),
+                                cursor: insert.len(),
+                                insert,
+                            }
+                        })
+                        .collect()
+                }
                 // `[[Note#…`: its headings.
                 Some((note, titre)) => {
                     let cible = if note.is_empty() {
@@ -1702,6 +1720,20 @@ fn candidats(
                     insert: texte.trim_end_matches('\n').to_string(),
                     cursor: curseur,
                 });
+            }
+            // The space's charts, shown where the note is written.
+            if !q.is_empty() {
+                for (cible, nom, feuille) in
+                    render::graphiques_proposes(espace.dir(), None, query, 6)
+                {
+                    let insert = format!("![[{cible}]]");
+                    liste.push(c::Candidate {
+                        label: format!("Chart: {nom}"),
+                        detail: feuille,
+                        cursor: insert.len(),
+                        insert,
+                    });
+                }
             }
             liste
         }

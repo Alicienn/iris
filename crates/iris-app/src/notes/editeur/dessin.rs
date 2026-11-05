@@ -266,6 +266,33 @@ pub fn bloc(b: &Block, numero: &str, actif: Option<usize>, cx: &Contexte) -> Blo
             ));
             19.0
         }
+        // A spreadsheet's chart is drawn whether the cursor is on it or not; the cursor
+        // on it shows what makes it above it, to change or take away.
+        BlockKind::Embed { target } if render::graphique_nomme(target).is_some() => {
+            match cx.dir.and_then(|dir| render::graphique_insere(target, dir)) {
+                Some(plot) => {
+                    let haut = if actif {
+                        ligne_simple(b, numero, curseur, &mut zones, &mut d, &mut cibles, cx) + 4.0
+                    } else {
+                        // Somewhere to click, to write it.
+                        zones.push(poser(
+                            brut("", 0, base),
+                            4.0,
+                            0,
+                            0.0,
+                            0.0,
+                            w,
+                            false,
+                            cx,
+                            &mut Dessin::default(),
+                        ));
+                        0.0
+                    };
+                    haut + graphique(&plot, haut, &mut d, cx)
+                }
+                None => ligne_simple(b, numero, curseur, &mut zones, &mut d, &mut cibles, cx),
+            }
+        }
         // An embedded spreadsheet is drawn whether the cursor is on it or not: it is
         // one thing, selected as a whole (its frame says so), as a table in Word.
         BlockKind::Embed { target } if render::est_tableur(target) => {
@@ -827,6 +854,100 @@ fn callout(
     d.images.extend(dessin.images);
     d.icones.extend(dessin.icones);
     h
+}
+
+/// A chart laid out by `iris_sheets::plot`, drawn from `y` down at the column's width
+/// (a little wider than it was laid out for at most); the room it takes.
+fn graphique(p: &iris_sheets::plot::Plot, y: f32, d: &mut Dessin, cx: &Contexte) -> f32 {
+    use iris_sheets::plot::{Align, Paint};
+    let c = cx.couleurs;
+    let haut = y + 8.0;
+    if !p.message.is_empty() {
+        let pinceau = Pinceau {
+            couleur: c.muet,
+            ..Default::default()
+        };
+        d.mot(
+            0.0,
+            haut,
+            &format!("⧉ {}", p.message),
+            13.5,
+            pinceau,
+            cx.polices,
+        );
+        return 34.0;
+    }
+    let w = cx.largeur.min(p.width * 1.15).max(80.0);
+    let e = w / p.width.max(1.0);
+    let h = p.height * e;
+    let rien = slint::Color::default();
+    for s in &p.shapes {
+        let (fill, stroke, epais) = match s.paint {
+            Paint::Colour(rgb, a) => {
+                let teinte = slint::Color::from_argb_u8(
+                    (a.clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (rgb >> 16) as u8,
+                    (rgb >> 8) as u8,
+                    rgb as u8,
+                );
+                if s.stroke > 0.0 {
+                    (rien, teinte, s.stroke * e)
+                } else {
+                    (teinte, rien, 0.0)
+                }
+            }
+            Paint::Grid => (super::couleur(c.bordure), rien, 0.0),
+        };
+        d.traces.push(iris_ui::NotePathData {
+            x: 0.0,
+            y: haut,
+            w,
+            h,
+            vw: p.width,
+            vh: p.height,
+            commands: s.path.as_str().into(),
+            fill,
+            stroke,
+            stroke_width: epais,
+        });
+    }
+    let ligne = super::rapport(cx.polices.nom(0));
+    for l in &p.labels {
+        let taille = (l.size * e).max(9.5);
+        let place = l.width * e;
+        let mut texte = l.text.clone();
+        let mut tw = super::largeur_de(&texte, taille, 0, cx);
+        // Cut where it no longer fits.
+        if tw > place && place > 0.0 {
+            while !texte.is_empty()
+                && super::largeur_de(&format!("{texte}…"), taille, 0, cx) > place
+            {
+                texte.pop();
+            }
+            texte.push('…');
+            tw = super::largeur_de(&texte, taille, 0, cx);
+        }
+        let x = l.x * e
+            + match l.align {
+                Align::Left => 0.0,
+                Align::Center => (place - tw) / 2.0,
+                Align::Right => place - tw,
+            };
+        let pinceau = Pinceau {
+            couleur: if l.muted { c.muet } else { c.texte },
+            gras: l.strong,
+            ..Default::default()
+        };
+        d.mot(
+            x,
+            haut + l.y * e - taille * ligne / 2.0,
+            &texte,
+            taille,
+            pinceau,
+            cx.polices,
+        );
+    }
+    h + 16.0
 }
 
 /// An embedded spreadsheet: its values in a grid, its columns as wide as in the sheet

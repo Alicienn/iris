@@ -65,7 +65,7 @@ pub fn read(bytes: &[u8]) -> Result<Workbook, String> {
     if sheets.is_empty() {
         return Err("this file has no sheet".into());
     }
-    Ok(Workbook { sheets })
+    Ok(Workbook::of(sheets))
 }
 
 fn couleur(hex: &str) -> Option<rust_xlsxwriter::Color> {

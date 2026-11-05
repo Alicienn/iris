@@ -968,6 +968,9 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       lights under the click, numbered requests keep an earlier snapshot from undoing
       either; bodies read and parsed off the window's thread, the rows above and below
       prepared ahead (7.10.1).
+- [x] **S52.24** Charts of a spreadsheet's tables (flow, bars, columns, donut, line), in
+      tabs beside its sheets, shown in a note by `![[file.sheet#name]]` and offered by
+      `/chart`; the notes' tabs in one strip, the open one joined to its page (7.11.0).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

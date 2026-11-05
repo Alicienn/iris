@@ -1019,7 +1019,7 @@ mod tests {
         for (a, v) in cellules {
             s.set_input(Addr::parse(a).unwrap(), v);
         }
-        Workbook { sheets: vec![s] }
+        Workbook::of(vec![s])
     }
 
     fn maintenant() -> NaiveDateTime {
@@ -1171,7 +1171,7 @@ mod tests {
         for r in 1..20_000 {
             s.set_input(Addr::new(0, r), &format!("=A{r}+1"));
         }
-        let v = recalc(&Workbook { sheets: vec![s] }, maintenant());
+        let v = recalc(&Workbook::of(vec![s]), maintenant());
         assert_eq!(v[0][&Addr::new(0, 19_999)], n(20_000.0));
     }
 
@@ -1205,7 +1205,7 @@ mod tests {
         let mut b = Sheet::new("Summary");
         b.set_input(Addr::new(0, 0), "=SUM(Data!A1:A2)+data!A1");
         b.set_input(Addr::new(0, 1), "=Nowhere!A1");
-        let v = recalc(&Workbook { sheets: vec![a, b] }, maintenant());
+        let v = recalc(&Workbook::of(vec![a, b]), maintenant());
         assert_eq!(v[1][&Addr::new(0, 0)], n(16.0));
         assert_eq!(v[1][&Addr::new(0, 1)], Value::Error(CellError::Ref));
     }

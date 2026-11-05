@@ -287,6 +287,156 @@ pub fn est_tableur(target: &str) -> bool {
     nom.to_ascii_lowercase().ends_with(".sheet")
 }
 
+/// The chart an embed names, `![[Budget.sheet#Spending]]`: the spreadsheet's file and
+/// the chart's name. A range after `#` (`#A1:D10`) is a table, not a chart.
+pub fn graphique_nomme(target: &str) -> Option<(&str, &str)> {
+    let sans_options = target.split('|').next().unwrap_or(target);
+    let (fichier, nom) = sans_options.split_once('#')?;
+    let (fichier, nom) = (fichier.trim(), nom.trim());
+    (est_tableur(fichier) && !nom.is_empty() && iris_sheets::Range::parse(nom).is_none())
+        .then_some((fichier, nom))
+}
+
+/// A spreadsheet of the space by its path, or, given only its name, wherever it is.
+fn fichier_tableur(nom: &str, dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    if let Some(p) = embedded_file(nom, dir) {
+        return Some(p);
+    }
+    let cherche = nom.rsplit('/').next()?.to_lowercase();
+    let mut pile = vec![(dir.to_path_buf(), 0)];
+    while let Some((d, profondeur)) = pile.pop() {
+        let Ok(lecture) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in lecture.flatten() {
+            let p = e.path();
+            let n = e.file_name().to_string_lossy().to_lowercase();
+            if n.starts_with('.') {
+                continue;
+            }
+            if p.is_dir() {
+                if profondeur < 8 {
+                    pile.push((p, profondeur + 1));
+                }
+            } else if n == cherche {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// The spreadsheets of the space, by their path in it (`Work/Budget.sheet`).
+fn tableurs(dir: &std::path::Path) -> Vec<String> {
+    let mut sortie = Vec::new();
+    let mut pile = vec![(dir.to_path_buf(), String::new(), 0)];
+    while let Some((d, rel, profondeur)) = pile.pop() {
+        let Ok(lecture) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in lecture.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if n.starts_with('.') {
+                continue;
+            }
+            let chemin = if rel.is_empty() {
+                n.clone()
+            } else {
+                format!("{rel}/{n}")
+            };
+            let p = e.path();
+            if p.is_dir() {
+                if profondeur < 8 {
+                    pile.push((p, chemin, profondeur + 1));
+                }
+            } else if est_tableur(&n) {
+                sortie.push(chemin);
+            }
+        }
+    }
+    sortie.sort();
+    sortie
+}
+
+/// The charts of a spreadsheet: their names, in its order.
+fn graphiques_du(chemin: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(chemin)
+        .ok()
+        .and_then(|t| iris_sheets::Workbook::from_json(&t).ok())
+        .map(|b| b.charts.into_iter().map(|c| c.name).collect())
+        .unwrap_or_default()
+}
+
+/// The charts a note can show, for what was typed: each one's embed
+/// (`Work/Budget.sheet#Spending`), its name and its spreadsheet's. `fichier` limits them
+/// to one spreadsheet (typed before `#`).
+pub fn graphiques_proposes(
+    dir: &std::path::Path,
+    fichier: Option<&str>,
+    query: &str,
+    max: usize,
+) -> Vec<(String, String, String)> {
+    let q = iris_notes::fuzzy::folded(query);
+    let fichiers = match fichier {
+        Some(f) => fichier_tableur(f, dir)
+            .and_then(|p| {
+                let rel = p
+                    .strip_prefix(dir)
+                    .ok()?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                Some(vec![rel])
+            })
+            .unwrap_or_default(),
+        None => tableurs(dir),
+    };
+    let mut sortie = Vec::new();
+    for rel in fichiers {
+        let feuille = rel
+            .rsplit('/')
+            .next()
+            .unwrap_or(&rel)
+            .trim_end_matches(".sheet")
+            .to_string();
+        for nom in graphiques_du(&dir.join(&rel)) {
+            let plie = iris_notes::fuzzy::folded(&nom);
+            if fichier.is_some()
+                || q.is_empty()
+                || plie.contains(&q)
+                || "chart".starts_with(&q)
+                || q.starts_with("chart")
+                || iris_notes::fuzzy::folded(&feuille).contains(&q)
+            {
+                sortie.push((format!("{rel}#{nom}"), nom, feuille.clone()));
+            }
+            if sortie.len() >= max {
+                return sortie;
+            }
+        }
+    }
+    sortie
+}
+
+/// The chart an embed names, laid out from its spreadsheet as it is now; a chart
+/// gone is laid out as a sentence saying so.
+pub fn graphique_insere(target: &str, dir: &std::path::Path) -> Option<iris_sheets::plot::Plot> {
+    let (fichier, nom) = graphique_nomme(target)?;
+    let chemin = fichier_tableur(fichier, dir)?;
+    let book = iris_sheets::Workbook::from_json(&std::fs::read_to_string(chemin).ok()?).ok()?;
+    let l = super::sheet::locale();
+    let Some(chart) = book.chart_index(nom).map(|k| &book.charts[k]) else {
+        return Some(iris_sheets::plot::Plot {
+            width: iris_sheets::plot::WIDTH,
+            height: 60.0,
+            message: format!("No chart “{nom}” in {fichier}."),
+            ..Default::default()
+        });
+    };
+    let values = book.compute();
+    let series = iris_sheets::chart::series(&book, &values, chart, &l);
+    Some(iris_sheets::plot::plot(chart.kind, &series, &l))
+}
+
 /// The options after an embed's name: `![[Budget.sheet|clip]]` gives `["clip"]`.
 pub fn options_tableur(target: &str) -> Vec<&str> {
     target.split('|').skip(1).map(str::trim).collect()
@@ -602,6 +752,12 @@ pub fn render(
                     .map(SharedString::from)
                     .collect::<Vec<_>>(),
             ));
+        }
+        // A chart is drawn by the editor; here it is its name.
+        BlockKind::Embed { target } if graphique_nomme(target).is_some() => {
+            d.kind = "embed".into();
+            d.title = target.as_str().into();
+            d.rich = slint::StyledText::from_plain_text(&format!("⧉ {target}"));
         }
         BlockKind::Embed { target } if est_tableur(target) => {
             d.title = target.as_str().into();

@@ -2279,31 +2279,62 @@ export component NotesView inherits Rectangle {
                 }
             }
 
-            // The notes open in tabs, as in Obsidian: a click shows one, its cross closes
-            // it (a middle click too), + opens a new note in a new one. A phone lists
-            // them in a sheet instead, from the count in its top bar.
+            // The notes open in tabs, as a browser's: the strip on the window's grey, the
+            // tab shown on the page's own ground with its top corners round, open onto
+            // the note below; the others flat, a fine line between them, a plate under
+            // the pointer. A click shows one, its cross closes it (a middle click too),
+            // + opens a new note in a new one. A phone lists them in a sheet instead,
+            // from the count in its top bar.
             if root.tabs.length > 0 && !Layout.compact: Rectangle {
-                height: 34px;
+                height: 38px;
                 background: Tokens.surface-low;
                 Rectangle {
                     y: parent.height - 1px;
                     height: 1px;
                     background: Tokens.border;
                 }
+                // Placed by y and height, not a top padding: the layout would write the
+                // padding over the + button's own y.
                 HorizontalLayout {
+                    y: 6px;
+                    height: parent.height - 6px;
                     padding-left: 8px;
                     padding-right: 8px;
-                    padding-top: 5px;
-                    spacing: 2px;
+                    spacing: 0px;
                     alignment: start;
                     for t[i] in root.tabs: Rectangle {
                         property <bool> actif: i == root.tab-active;
-                        width: min(200px, max(90px, titre-onglet.preferred-width + 46px));
-                        border-radius: 7px;
-                        background: self.actif ? Tokens.surface
-                            : zone-onglet.has-hover ? Tokens.surface-hover : transparent;
-                        border-width: self.actif ? 1px : 0px;
-                        border-color: Tokens.border;
+                        property <bool> survol: zone-onglet.has-hover;
+                        width: min(220px, max(100px, titre-onglet.preferred-width + 48px));
+                        // The tab shown: the page's ground, over the strip's line.
+                        Rectangle {
+                            visible: parent.actif;
+                            y: 0px;
+                            height: parent.height + 1px;
+                            border-top-left-radius: 9px;
+                            border-top-right-radius: 9px;
+                            background: Tokens.surface;
+                        }
+                        // Under the pointer: a plate inside the tab.
+                        Rectangle {
+                            visible: !parent.actif && parent.survol;
+                            x: 3px;
+                            y: 2px;
+                            width: parent.width - 6px;
+                            height: parent.height - 6px;
+                            border-radius: 7px;
+                            background: Tokens.surface-hover;
+                        }
+                        // A fine line to the next tab, none beside the one shown or the
+                        // one under the pointer.
+                        Rectangle {
+                            visible: !parent.actif && !parent.survol && i + 1 != root.tab-active && i + 1 < root.tabs.length;
+                            x: parent.width - 1px;
+                            y: 8px;
+                            width: 1px;
+                            height: parent.height - 18px;
+                            background: Tokens.border;
+                        }
                         accessible-role: tab;
                         accessible-label: t.title;
                         accessible-item-selected: self.actif;
@@ -2317,8 +2348,10 @@ export component NotesView inherits Rectangle {
                             clicked => { root.tab-chosen(i); }
                         }
                         HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 4px;
+                            y: 0px;
+                            height: parent.height - 4px;
+                            padding-left: 12px;
+                            padding-right: 6px;
                             spacing: 4px;
                             titre-onglet := Text {
                                 text: t.title;
@@ -2340,8 +2373,9 @@ export component NotesView inherits Rectangle {
                             }
                         }
                     }
+                    Rectangle { width: 4px; }
                     IconButton {
-                        y: (parent.height - self.height) / 2 - 2px;
+                        y: (parent.height - 4px - self.height) / 2;
                         icon: Icons.plus;
                         label: "New tab";
                         shortcut: "Ctrl+T";
@@ -2545,6 +2579,23 @@ export component NotesView inherits Rectangle {
                                         border-radius: r.radius;
                                         border-color: r.border;
                                         border-width: r.border-width;
+                                    }
+                                    // A chart's shapes, under its words.
+                                    for s in b.paths: Path {
+                                        x: s.x;
+                                        y: s.y;
+                                        width: s.w;
+                                        height: s.h;
+                                        viewbox-x: 0;
+                                        viewbox-y: 0;
+                                        viewbox-width: s.vw;
+                                        viewbox-height: s.vh;
+                                        commands: s.commands;
+                                        fill: s.fill;
+                                        stroke: s.stroke;
+                                        stroke-width: s.stroke-width;
+                                        stroke-line-cap: round;
+                                        stroke-line-join: round;
                                     }
                                     for p in b.images: Image {
                                         x: p.x;

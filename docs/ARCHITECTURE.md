@@ -1066,7 +1066,7 @@ nothing is lost if Iris is. Four crates hold them, and the application wires the
 | `iris-notes` | pure | blocks, inline marks, edits, completion, links, tags, flashcards and SM-2, templates, HTML, the graph's layout |
 | `iris-math` | pure | LaTeX drawn as RGBA (`latex-rust`, STIX Two Math carried in the crate), with a cache of 256 formulas |
 | `iris-vault` | files | spaces, the tree, atomic writes, conflicts, moves rewriting links, the Recycle Bin behind a trait, search, past versions, flashcard state |
-| `iris-sheets` | pure (bytes in, bytes out) | cells, formulas, recalculation, formats, the `.sheet` file, CSV, Excel |
+| `iris-sheets` | pure (bytes in, bytes out) | cells, formulas, recalculation, formats, the `.sheet` file, CSV, Excel, charts read and laid out |
 
 **The text is the truth.** `iris_notes::block::parse` cuts a note into blocks without
 losing a byte (`join` gives the file back exactly, a test over every block kind holds
@@ -1167,6 +1167,24 @@ from a `SheetGrid` global: only the columns, rows and cells in view and a margin
 when the view moves past them. Excel files are read with `calamine` and written with
 `rust_xlsxwriter`, from and to bytes; the region's decimal and date order come from
 `HKCU\Control Panel\International`.
+
+**Charts** (7.11.0). A workbook keeps its charts beside its sheets, in the same `.sheet`
+file (`charts`: a name, a kind, the sheet by name, the header row, the columns of
+categories and of numbers by letter; a file without them reads as before). A chart reads
+the rows under its headers as far as the sheet goes, so rows added later show at once.
+`chart::series` groups them by their categories as the table shows them (counted, or a
+column added up; each category the colour of its cells' text); a flow goes from the
+whole through each column in turn, a `>` in a category making more steps, and two
+columns naming each other are chained bands instead (`chaine_de`, a band that would
+lead back left out). `chart::guess` makes one from the cells selected. `plot::plot`
+lays it out in a box 680 wide as SVG path commands and placed words, with no colour of
+the theme in it (the grid and the words are named, not given): the sheet's chart tab
+draws it with `controls/chart.slint` (one `Path` per shape, the box scaled to the
+room), and the note's editor with its own `NotePathData` and placed words. Inserting
+or deleting rows and columns, renaming or deleting a sheet carry the charts along
+(`Chart::follow`). A note shows one with `![[Work/Budget.sheet#Spending]]` (the part
+after `#` is a chart's name when it is not a range; the file found by its path, else by
+its name anywhere in the space), laid out from the file each time the block is.
 
 **Blocks and cells selected** (4.20.0, drawn by the editor since 4.21.0). A selection
 running over several blocks makes Alt and an arrow, Tab and Ctrl+D act on those blocks

@@ -45,6 +45,8 @@ pub(super) struct Feuille {
     /// What Ctrl+C copied: its text on the clipboard, its sheet, its cells.
     copie: Option<(String, usize, Range)>,
     locale: Locale,
+    /// The chart shown instead of the grid.
+    chart: Option<usize>,
 }
 
 /// The locale of the user's region.
@@ -472,6 +474,259 @@ fn montrer_feuilles(f: &AppWindow, fe: &Feuille) {
         .collect();
     g.set_sheets(ModelRc::new(VecModel::from(noms)));
     g.set_sheet(fe.sheet as i32);
+    let graphiques: Vec<SharedString> = fe
+        .book
+        .charts
+        .iter()
+        .map(|c| c.name.as_str().into())
+        .collect();
+    g.set_charts(ModelRc::new(VecModel::from(graphiques)));
+    montrer_graphique(f, fe);
+}
+
+// --- Charts ----------------------------------------------------------------------------
+
+/// A chart laid out, as the window draws it.
+pub(super) fn donnees_graphique(p: &iris_sheets::plot::Plot) -> iris_ui::ChartData {
+    use iris_sheets::plot::{Align as A, Paint};
+    let formes: Vec<iris_ui::ChartShapeData> = p
+        .shapes
+        .iter()
+        .map(|s| {
+            let (color, role) = match s.paint {
+                Paint::Colour(c, alpha) => (
+                    slint::Color::from_argb_u8(
+                        (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
+                        (c >> 16) as u8,
+                        (c >> 8) as u8,
+                        c as u8,
+                    ),
+                    if s.stroke > 0.0 { 2 } else { 0 },
+                ),
+                Paint::Grid => (slint::Color::default(), 1),
+            };
+            iris_ui::ChartShapeData {
+                commands: s.path.as_str().into(),
+                color,
+                role,
+                stroke: s.stroke,
+            }
+        })
+        .collect();
+    let mots: Vec<iris_ui::ChartLabelData> = p
+        .labels
+        .iter()
+        .map(|l| iris_ui::ChartLabelData {
+            x: l.x,
+            y: l.y,
+            width: l.width,
+            text: l.text.as_str().into(),
+            align: match l.align {
+                A::Left => 0,
+                A::Center => 1,
+                A::Right => 2,
+            },
+            size: l.size,
+            strong: l.strong,
+            muted: l.muted,
+        })
+        .collect();
+    iris_ui::ChartData {
+        width: p.width,
+        height: p.height,
+        shapes: ModelRc::new(VecModel::from(formes)),
+        labels: ModelRc::new(VecModel::from(mots)),
+        message: p.message.as_str().into(),
+    }
+}
+
+/// A column of a chart's table as offered: its letter and its header.
+fn nom_de_colonne(fe: &Feuille, chart: &iris_sheets::chart::Chart, col: u32) -> String {
+    let lettre = iris_sheets::col_name(col);
+    let entete = fe
+        .book
+        .sheet_index(&chart.sheet)
+        .map(|si| {
+            let a = Addr::new(col, chart.header);
+            display(
+                &fe.values.get(&fe.book, si, a),
+                &fe.book.sheets[si].format(a),
+                &fe.locale,
+            )
+        })
+        .unwrap_or_default();
+    if entete.trim().is_empty() {
+        lettre
+    } else {
+        format!("{lettre} · {}", entete.trim())
+    }
+}
+
+/// The chart shown, drawn, and its settings.
+fn montrer_graphique(f: &AppWindow, fe: &Feuille) {
+    let g = f.global::<SheetGrid>();
+    let Some(chart) = fe.chart.and_then(|k| fe.book.charts.get(k)) else {
+        g.set_chart(-1);
+        return;
+    };
+    g.set_chart(fe.chart.map_or(-1, |k| k as i32));
+    let series = iris_sheets::chart::series(&fe.book, &fe.values, chart, &fe.locale);
+    let plot = iris_sheets::plot::plot(chart.kind, &series, &fe.locale);
+    g.set_chart_data(donnees_graphique(&plot));
+    g.set_chart_kind(chart.kind.index() as i32);
+    g.set_chart_many_groups(chart.kind.many_groups());
+    g.set_chart_many_values(chart.kind.many_values());
+    let noms = |cols: &[u32]| -> ModelRc<SharedString> {
+        ModelRc::new(VecModel::from(
+            cols.iter()
+                .map(|c| SharedString::from(nom_de_colonne(fe, chart, *c)))
+                .collect::<Vec<_>>(),
+        ))
+    };
+    g.set_chart_groups(noms(&chart.groups));
+    g.set_chart_values(noms(&chart.values));
+    let colonnes = fe
+        .book
+        .sheet_index(&chart.sheet)
+        .map(|si| fe.book.sheets[si].extent().0.max(1))
+        .unwrap_or(1);
+    g.set_chart_columns(noms(&(0..colonnes).collect::<Vec<_>>()));
+    g.set_chart_source(
+        format!(
+            "Reads “{}”: the headers in row {}, and every row under them.",
+            chart.sheet,
+            chart.header + 1
+        )
+        .into(),
+    );
+}
+
+/// What a note writes to show chart `k`: `![[Work/Budget.sheet#Spending]]`, the
+/// spreadsheet by its path in the space.
+fn insertion(fe: &Feuille, k: usize) -> Option<String> {
+    Some(format!("![[{}#{}]]", fe.rel, fe.book.charts.get(k)?.name))
+}
+
+/// A change of a chart's settings; `quoi` without its `chart-`.
+fn action_graphique(f: &AppWindow, fe: &mut Feuille, quoi: &str) {
+    let (verbe, n) = match quoi.split_once(':') {
+        Some((v, n)) => (v, n),
+        None => (quoi, ""),
+    };
+    let i: usize = n.parse().unwrap_or(0);
+    if verbe == "new" {
+        let sel = fe.selection();
+        let c = iris_sheets::chart::guess(&fe.book, &fe.values, fe.sheet, sel);
+        fe.retenir();
+        fe.book.charts.push(c);
+        fe.chart = Some(fe.book.charts.len() - 1);
+        change(f, fe);
+        return;
+    }
+    let Some(k) = fe.chart.filter(|k| *k < fe.book.charts.len()) else {
+        return;
+    };
+    match verbe {
+        "copy" => {
+            if let Some(texte) = insertion(fe, k) {
+                if let Ok(mut presse) = crate::presse::Clipboard::new() {
+                    let _ = presse.set_text(texte);
+                }
+                f.set_toast("Copied: paste it in a note to show the chart there.".into());
+            }
+        }
+        "rename" if n.is_empty() && !quoi.contains(':') => {
+            f.set_notes_name(fe.book.charts[k].name.as_str().into());
+            f.set_notes_name_error(SharedString::default());
+            f.set_notes_name_asked("chart".into());
+        }
+        "rename" => {
+            let nom = n.trim();
+            let pris = fe.book.chart_index(nom).is_some_and(|j| j != k);
+            if !iris_sheets::chart::valid_name(nom) {
+                f.set_notes_name_error(
+                    "A chart's name cannot be empty, look like a cell (A1), or hold ] | [ #."
+                        .into(),
+                );
+            } else if pris {
+                f.set_notes_name_error("Another chart has that name.".into());
+            } else {
+                f.set_notes_name_asked(SharedString::default());
+                f.set_notes_name_error(SharedString::default());
+                let g = f.global::<SheetGrid>();
+                g.set_focus_serial(g.get_focus_serial() + 1);
+                if fe.book.charts[k].name != nom {
+                    fe.retenir();
+                    fe.book.charts[k].name = nom.to_string();
+                    change(f, fe);
+                    f.set_toast(
+                        "Renamed. Notes showing it by its old name need the new one.".into(),
+                    );
+                }
+            }
+        }
+        "duplicate" => {
+            fe.retenir();
+            let mut c = fe.book.charts[k].clone();
+            c.name = (2..)
+                .map(|j| format!("{} {j}", c.name))
+                .find(|n| fe.book.chart_index(n).is_none())
+                .unwrap_or_default();
+            fe.book.charts.insert(k + 1, c);
+            fe.chart = Some(k + 1);
+            change(f, fe);
+        }
+        "delete" => {
+            fe.retenir();
+            fe.book.charts.remove(k);
+            fe.chart = None;
+            change(f, fe);
+            f.set_toast("The chart is deleted. Ctrl+Z brings it back.".into());
+        }
+        _ => {
+            let mut c = fe.book.charts[k].clone();
+            match verbe {
+                "kind" => {
+                    c.kind = iris_sheets::chart::Kind::ALL
+                        .get(i)
+                        .copied()
+                        .unwrap_or_default();
+                }
+                "group-add" => {
+                    let col = i as u32;
+                    if !c.kind.many_groups() {
+                        c.groups.clear();
+                    }
+                    if !c.groups.contains(&col) {
+                        c.groups.push(col);
+                    }
+                }
+                "group-remove" if i < c.groups.len() => {
+                    c.groups.remove(i);
+                }
+                "value-add" => {
+                    let col = i as u32;
+                    if !c.kind.many_values() {
+                        c.values.clear();
+                    }
+                    if !c.values.contains(&col) {
+                        c.values.push(col);
+                    }
+                }
+                "value-remove" if i < c.values.len() => {
+                    c.values.remove(i);
+                }
+                "value-clear" => c.values.clear(),
+                _ => return,
+            }
+            c.fit();
+            if c != fe.book.charts[k] {
+                fe.retenir();
+                fe.book.charts[k] = c;
+                change(f, fe);
+            }
+        }
+    }
 }
 
 /// What was typed, put in cell `a`: a formula as typed, a date or a number read as
@@ -690,12 +945,22 @@ fn annuler(f: &AppWindow, fe: &mut Feuille, refaire: bool) {
     };
     vers.push((std::mem::replace(&mut fe.book, book), fe.sheet));
     fe.sheet = sheet.min(fe.book.sheets.len() - 1);
+    fe.chart = fe.chart.filter(|k| *k < fe.book.charts.len());
     change(f, fe);
 }
 
 /// A key while the grid has the keyboard; `true` when it did something.
 fn touche(f: &AppWindow, fe: &mut Feuille, texte: &str, shift: bool, ctrl: bool) -> bool {
     use slint::platform::Key;
+    // A chart shown: the grid's keys are not for it, but Undo and Redo.
+    if fe.chart.is_some() {
+        match (ctrl, texte.to_lowercase().as_str()) {
+            (true, "z") => annuler(f, fe, false),
+            (true, "y") => annuler(f, fe, true),
+            _ => return false,
+        }
+        return true;
+    }
     let k = |key: Key| -> SharedString { key.into() };
     let t = SharedString::from(texte);
     let page = ((fe.vue.3 / ROW_HEIGHT) as i64 - 1).max(1);
@@ -875,6 +1140,10 @@ fn pointer(f: &AppWindow, fe: &mut Feuille, a: Addr, etendre: bool) -> bool {
 fn action(f: &AppWindow, fe: &mut Feuille, quoi: &str) {
     let actif = fe.feuille().format(fe.cursor);
     let sel = fe.selection();
+    if let Some(reste) = quoi.strip_prefix("chart-") {
+        action_graphique(f, fe, reste);
+        return;
+    }
     match quoi {
         // A phone's Σ key: a sum started in the cell, its range to be tapped.
         "sum" => commencer(f, fe, "=SUM("),
@@ -1024,7 +1293,8 @@ fn action(f: &AppWindow, fe: &mut Feuille, quoi: &str) {
                 return;
             }
             fe.retenir();
-            fe.book.sheets.remove(fe.sheet);
+            fe.book.remove_sheet(fe.sheet);
+            fe.chart = None;
             fe.sheet = fe.sheet.min(fe.book.sheets.len() - 1);
             fe.anchor = Addr::default();
             fe.cursor = Addr::default();
@@ -1172,6 +1442,7 @@ pub(super) fn ouvrir(f: &AppWindow, e: &mut Etat, rel: &str) {
         dirty: false,
         copie: None,
         locale: locale(),
+        chart: None,
     });
     f.set_note_sheet_open(true);
     let g = f.global::<SheetGrid>();
@@ -1281,6 +1552,7 @@ pub(super) fn importer(f: &AppWindow, e: &mut Etat, rel: &str) -> Option<String>
             dirty: false,
             copie: None,
             locale: l,
+            chart: None,
         };
         for (r, ligne) in lignes.iter().enumerate() {
             for (c, v) in ligne.iter().enumerate() {
@@ -1469,8 +1741,30 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
     geste!(on_action, |f, fe, quoi| {
         action(&f, fe, &quoi);
     });
+    geste!(on_chart_chosen, |f, fe, i| {
+        let i = i.max(0) as usize;
+        if i < fe.book.charts.len() {
+            if let Some(t) = fe.editing.take() {
+                fe.retenir();
+                let c = fe.cursor;
+                poser(fe, c, &t);
+                finir(&f, fe);
+                fe.chart = Some(i);
+                change(&f, fe);
+                return;
+            }
+            fe.chart = Some(i);
+            montrer_graphique(&f, fe);
+        }
+    });
     geste!(on_sheet_chosen, |f, fe, i| {
         let i = i.max(0) as usize;
+        // Back from a chart to the sheet it was shown over.
+        if fe.chart.take().is_some() && i == fe.sheet {
+            montrer_graphique(&f, fe);
+            dessiner(&f, fe, true);
+            return;
+        }
         if i < fe.book.sheets.len() && i != fe.sheet {
             if let Some(t) = fe.editing.take() {
                 fe.retenir();
@@ -1518,7 +1812,32 @@ mod tests {
             dirty: false,
             copie: None,
             locale: Locale::french(),
+            chart: None,
         }
+    }
+
+    #[test]
+    fn a_chart_is_embedded_by_its_file_and_its_name() {
+        let mut fe = feuille();
+        fe.rel = "Work/Budget.sheet".into();
+        fe.book.sheets[0].set_input(Addr::new(0, 0), "Status");
+        fe.book.sheets[0].set_input(Addr::new(0, 1), "Sent");
+        fe.recompute();
+        let c = iris_sheets::chart::guess(&fe.book, &fe.values, 0, Range::single(Addr::new(0, 0)));
+        fe.book.charts.push(c);
+        assert_eq!(
+            insertion(&fe, 0).as_deref(),
+            Some("![[Work/Budget.sheet#Status]]")
+        );
+        assert_eq!(
+            super::super::render::graphique_nomme("Work/Budget.sheet#Status|60%"),
+            Some(("Work/Budget.sheet", "Status"))
+        );
+        assert_eq!(
+            super::super::render::graphique_nomme("Budget.sheet#A1:B4"),
+            None
+        );
+        assert_eq!(insertion(&fe, 1), None);
     }
 
     #[test]

@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.11.0 — 2026-11-05
+
+### New
+- Charts from your spreadsheets: flow, bars, columns, donut and line.
+- Show a chart in any note, where it follows its sheet as it changes.
+
+### Improved
+- Notes' tabs sit in one strip, the open one joined to its page.
+
 ## 7.10.1 — 2026-11-03
 
 ### Improved

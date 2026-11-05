@@ -5,6 +5,7 @@
 //! at the top. Values are not kept: they are computed when the file is opened.
 
 use crate::cell::{col_index, col_name, Addr, Range};
+use crate::chart::{Chart, Kind};
 use crate::eval::{literal, Value};
 use crate::format::Format;
 use crate::formula::{self, Change};
@@ -36,13 +37,13 @@ pub struct Sheet {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workbook {
     pub sheets: Vec<Sheet>,
+    /// The charts drawn from its sheets, by name.
+    pub charts: Vec<Chart>,
 }
 
 impl Default for Workbook {
     fn default() -> Self {
-        Self {
-            sheets: vec![Sheet::new("Sheet1")],
-        }
+        Self::of(vec![Sheet::new("Sheet1")])
     }
 }
 
@@ -177,6 +178,28 @@ fn deplacer_cles<V>(m: &mut BTreeMap<u32, V>, at: u32, n: u32, insert: bool) {
 }
 
 impl Workbook {
+    /// A workbook of these sheets, without charts.
+    pub fn of(sheets: Vec<Sheet>) -> Self {
+        Self {
+            sheets,
+            charts: Vec::new(),
+        }
+    }
+
+    pub fn chart_index(&self, name: &str) -> Option<usize> {
+        self.charts
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// A sheet deleted, and the charts that read it.
+    pub fn remove_sheet(&mut self, i: usize) {
+        if i < self.sheets.len() {
+            let nom = self.sheets.remove(i).name;
+            self.charts.retain(|c| !c.sheet.eq_ignore_ascii_case(&nom));
+        }
+    }
+
     /// The values of every cell of the workbook, computed now.
     pub fn compute(&self) -> Values {
         Values(crate::eval::recalc(
@@ -217,6 +240,11 @@ impl Workbook {
                 }
             }
         }
+        for c in &mut self.charts {
+            if c.sheet.eq_ignore_ascii_case(&ancien) {
+                c.sheet = name.to_string();
+            }
+        }
         self.sheets[i].name = name.to_string();
         true
     }
@@ -227,6 +255,11 @@ impl Workbook {
         let Some(nom) = self.sheets.get(i).map(|s| s.name.clone()) else {
             return;
         };
+        for c in &mut self.charts {
+            if c.sheet.eq_ignore_ascii_case(&nom) {
+                c.follow(change);
+            }
+        }
         for s in &mut self.sheets {
             let home = s.name.clone();
             for c in s.cells.values_mut() {
@@ -403,7 +436,30 @@ impl Workbook {
         if sheets.is_empty() {
             sheets.push(Sheet::new("Sheet1"));
         }
-        Ok(Workbook { sheets })
+        let mut charts: Vec<Chart> = Vec::new();
+        for g in brut.charts {
+            let cols = |v: &[String]| {
+                v.iter()
+                    .filter_map(|k| col_index(k.as_str()))
+                    .collect::<Vec<_>>()
+            };
+            if g.name.trim().is_empty()
+                || charts.iter().any(|c| c.name.eq_ignore_ascii_case(&g.name))
+            {
+                continue;
+            }
+            let mut c = Chart {
+                name: g.name,
+                kind: Kind::from_key(&g.kind),
+                sheet: g.sheet,
+                header: g.header.saturating_sub(1),
+                groups: cols(&g.groups),
+                values: cols(&g.values),
+            };
+            c.fit();
+            charts.push(c);
+        }
+        Ok(Workbook { sheets, charts })
     }
 
     pub fn to_json(&self) -> String {
@@ -443,6 +499,18 @@ impl Workbook {
                     },
                 })
                 .collect(),
+            charts: self
+                .charts
+                .iter()
+                .map(|c| BrutGraphique {
+                    name: c.name.clone(),
+                    kind: c.kind.key().to_string(),
+                    sheet: c.sheet.clone(),
+                    header: c.header + 1,
+                    groups: c.groups.iter().map(|k| col_name(*k)).collect(),
+                    values: c.values.iter().map(|k| col_name(*k)).collect(),
+                })
+                .collect(),
         };
         serde_json::to_string_pretty(&brut).unwrap_or_default()
     }
@@ -470,6 +538,24 @@ struct Brut {
     version: u32,
     #[serde(default)]
     sheets: Vec<BrutFeuille>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    charts: Vec<BrutGraphique>,
+}
+
+/// A chart as the file keeps it: its columns by letter, its header row from 1.
+#[derive(Serialize, Deserialize)]
+struct BrutGraphique {
+    name: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    sheet: String,
+    #[serde(default)]
+    header: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    groups: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    values: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -604,6 +690,37 @@ mod tests {
         assert!(!b.rename_sheet(0, "summary"));
         assert!(!b.rename_sheet(0, "a/b"));
         assert_eq!(b.new_sheet_name(), "Sheet1");
+    }
+
+    #[test]
+    fn charts_are_kept_in_the_file_and_follow_their_sheet() {
+        let mut b = classeur();
+        b.charts.push(Chart {
+            name: "Prices".into(),
+            kind: Kind::Columns,
+            sheet: "Sheet1".into(),
+            header: 0,
+            groups: vec![0],
+            values: vec![1],
+        });
+        let texte = b.to_json();
+        assert!(texte.contains("\"kind\": \"columns\""));
+        let lu = Workbook::from_json(&texte).unwrap();
+        assert_eq!(lu.charts, b.charts);
+        // A file from before charts reads as it did.
+        let ancien = Workbook::from_json("{\"version\":1,\"sheets\":[{\"name\":\"S\"}]}").unwrap();
+        assert!(ancien.charts.is_empty());
+        assert!(!Workbook::default().to_json().contains("charts"));
+        // The sheet renamed, a column inserted before the table: the chart follows.
+        assert!(b.rename_sheet(0, "Market"));
+        b.change(0, Change::InsertCols { at: 0, n: 1 });
+        assert_eq!(b.charts[0].sheet, "Market");
+        assert_eq!(
+            (b.charts[0].groups.clone(), b.charts[0].values.clone()),
+            (vec![1], vec![2])
+        );
+        b.remove_sheet(0);
+        assert!(b.charts.is_empty());
     }
 
     #[test]

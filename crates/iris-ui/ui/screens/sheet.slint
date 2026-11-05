@@ -3,8 +3,12 @@ import { Layout } from "@iris/theme/layout.slint";
 import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { TextField } from "@iris/controls/field.slint";
 import { FormatBar } from "@iris/controls/formatbar.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
-import { SheetCellData, SheetHeaderData } from "@iris/types.slint";
+import { SheetCellData, SheetHeaderData, ChartData } from "@iris/types.slint";
+import { Chart } from "@iris/controls/chart.slint";
+import { Segmented } from "@iris/controls/choice.slint";
+import { Button, Link, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
 
 // A spreadsheet open in Notes: its formats above, the formula bar, the grid with its
 // headers, the sheets' tabs and the selection's sum below.
@@ -67,10 +71,29 @@ export global SheetGrid {
     /// theme, given by Rust from the list the file's colours come from.
     in property <[color]> text-colours;
     in property <[color]> fill-colours;
-    // A menu over the window: "", "color", "fill", "number", "more", "sheet".
+    // A menu over the window: "", "color", "fill", "number", "more", "sheet", "chart"
+    // (a chart's tab), "chart-group" and "chart-value" (a column to add to it).
     in-out property <string> menu;
     in-out property <length> menu-x;
     in-out property <length> menu-y;
+
+    // The workbook's charts, by name, after its sheets; the one shown instead of the
+    // grid (−1: the grid).
+    in property <[string]> charts;
+    in property <int> chart: -1;
+    in property <ChartData> chart-data;
+    in property <int> chart-kind;
+    /// The columns it reads: of categories, then of numbers ("B · Status").
+    in property <[string]> chart-groups;
+    in property <[string]> chart-values;
+    /// The kind takes several columns of categories (a flow), several series.
+    in property <bool> chart-many-groups;
+    in property <bool> chart-many-values;
+    /// The table's columns, offered to add.
+    in property <[string]> chart-columns;
+    /// Where its table starts ("Headers in row 1").
+    in property <string> chart-source;
+    callback chart-chosen(int);
 
     /// The view: its offset in the content and its size.
     callback viewport(length, length, length, length);
@@ -166,6 +189,201 @@ component WordButton inherits Rectangle {
     }
 }
 
+// A column a chart reads, in its settings: its name, and a cross to take it away.
+component ChartColumn inherits Rectangle {
+    in property <string> text;
+    in property <string> remove-label;
+    callback removed();
+    height: 30px;
+    border-radius: Tokens.radius-small;
+    background: Tokens.surface-low;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 3px;
+        spacing: 4px;
+        Text {
+            text: root.text;
+            font-size: 12.5px;
+            color: Tokens.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.window-close;
+            label: root.remove-label;
+            button-size: 22px;
+            icon-size: 10px;
+            clicked => { root.removed(); }
+        }
+    }
+}
+
+// What a chart shows: its kind, the columns it groups by, the numbers it adds up, and
+// the way into a note.
+component ChartSettings inherits VerticalLayout {
+    callback menu(string, length, length);
+    spacing: 8px;
+    alignment: start;
+
+    Text {
+        text: "Kind";
+        font-size: 13px;
+        font-weight: 600;
+        color: Tokens.text;
+    }
+    Segmented {
+        options: ["Flow", "Bars", "Columns", "Donut", "Line"];
+        selected: SheetGrid.chart-kind;
+        chosen(i) => { SheetGrid.action("chart-kind:" + i); }
+    }
+
+    Rectangle { height: 6px; }
+    Text {
+        text: SheetGrid.chart-many-groups ? "Steps, in order" : "Categories";
+        font-size: 13px;
+        font-weight: 600;
+        color: Tokens.text;
+    }
+    for g[i] in SheetGrid.chart-groups: ChartColumn {
+        text: g;
+        remove-label: "Take this column away";
+        removed => { SheetGrid.action("chart-group-remove:" + i); }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Link {
+            text: SheetGrid.chart-many-groups || SheetGrid.chart-groups.length == 0 ? "Add a column" : "Another column";
+            label: "Pick a column of categories";
+            clicked => { root.menu("chart-group", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+        }
+    }
+
+    Rectangle { height: 6px; }
+    Text {
+        text: "Values";
+        font-size: 13px;
+        font-weight: 600;
+        color: Tokens.text;
+    }
+    if SheetGrid.chart-values.length == 0: Text {
+        text: "Each row counts as one.";
+        font-size: 12.5px;
+        color: Tokens.text-muted;
+        wrap: word-wrap;
+    }
+    for v[i] in SheetGrid.chart-values: ChartColumn {
+        text: v;
+        remove-label: "Count the rows instead";
+        removed => { SheetGrid.action("chart-value-remove:" + i); }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Link {
+            text: SheetGrid.chart-many-values || SheetGrid.chart-values.length == 0 ? "Add a column of numbers" : "Another column";
+            label: "Pick a column of numbers to add up";
+            clicked => { root.menu("chart-value", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
+        }
+    }
+    Text {
+        text: SheetGrid.chart-source;
+        font-size: 12px;
+        color: Tokens.text-muted;
+        wrap: word-wrap;
+    }
+
+    Rectangle { height: 10px; }
+    Button {
+        text: "Copy for a note";
+        icon: Icons.copy;
+        kind: ButtonKind.primary;
+        label: "Copy what shows this chart in a note";
+        clicked => { SheetGrid.action("chart-copy"); }
+    }
+    Text {
+        text: "Paste it in any note: the chart shows there, and follows the sheet.";
+        font-size: 12px;
+        color: Tokens.text-muted;
+        wrap: word-wrap;
+    }
+    Rectangle { height: 4px; }
+    HorizontalLayout {
+        alignment: start;
+        spacing: 6px;
+        Button {
+            text: "Rename…";
+            size: ButtonSize.sm;
+            clicked => { SheetGrid.action("chart-rename"); }
+        }
+        Button {
+            text: "Delete";
+            size: ButtonSize.sm;
+            kind: ButtonKind.ghost;
+            clicked => { SheetGrid.action("chart-delete"); }
+        }
+    }
+}
+
+// A chart shown instead of the grid: the drawing in its room, its settings in a column
+// docked on the right (under it on a phone).
+component ChartPane inherits Rectangle {
+    callback menu(string, length, length);
+    background: Tokens.surface;
+
+    HorizontalLayout {
+        defile := ScrollView {
+            horizontal-stretch: 1;
+            content-width: self.visible-width;
+            content-height: page.preferred-height;
+            page := VerticalLayout {
+                width: defile.visible-width;
+                padding: Layout.compact ? 16px : 32px;
+                spacing: 18px;
+                alignment: start;
+                Text {
+                    text: SheetGrid.chart >= 0 && SheetGrid.chart < SheetGrid.charts.length ? SheetGrid.charts[SheetGrid.chart] : "";
+                    font-family: Tokens.font-display;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Tokens.text;
+                    overflow: elide;
+                }
+                if SheetGrid.chart-data.message != "": Text {
+                    text: SheetGrid.chart-data.message;
+                    font-size: 13px;
+                    color: Tokens.text-muted;
+                    wrap: word-wrap;
+                }
+                if SheetGrid.chart-data.message == "": HorizontalLayout {
+                    alignment: center;
+                    Chart {
+                        width: min(860px, page.width - (Layout.compact ? 32px : 64px));
+                        data: SheetGrid.chart-data;
+                    }
+                }
+                if Layout.compact: ChartSettings {
+                    menu(k, x, y) => { root.menu(k, x, y); }
+                }
+            }
+        }
+        if !Layout.compact: Rectangle {
+            width: 1px;
+            background: Tokens.border;
+        }
+        if !Layout.compact: Rectangle {
+            width: 280px;
+            background: Tokens.surface-low;
+            VerticalLayout {
+                padding: 18px;
+                ChartSettings {
+                    menu(k, x, y) => { root.menu(k, x, y); }
+                }
+            }
+        }
+    }
+}
+
 component Separator inherits Rectangle {
     width: 9px;
     Rectangle {
@@ -222,7 +440,7 @@ export component SheetView inherits Rectangle {
     VerticalLayout {
         // The formats of the selection. A phone has its keys over the keyboard
         // instead, at the foot, and the rest in the top bar's menu.
-        if !Layout.compact: HorizontalLayout {
+        if !Layout.compact && SheetGrid.chart < 0: HorizontalLayout {
             height: 40px;
             padding-left: 10px;
             padding-right: 10px;
@@ -358,20 +576,28 @@ export component SheetView inherits Rectangle {
             }
             IconButton {
                 y: (parent.height - self.height) / 2;
+                icon: Icons.chart;
+                label: "Chart from the selection";
+                clicked => { SheetGrid.action("chart-new"); touches.focus(); }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
                 icon: Icons.more;
                 label: "Rows, columns, export";
                 clicked => { root.menu("more", self.absolute-position.x, self.absolute-position.y + self.height + 2px); }
             }
         }
-        if !Layout.compact: Rectangle {
+        if !Layout.compact && SheetGrid.chart < 0: Rectangle {
             height: 1px;
             background: Tokens.border;
         }
 
         // The formula bar: the address, and what the active cell holds. On a phone it
-        // heads the page: the address small and grey, the field taller on its well.
+        // heads the page: the address small and grey, the field taller on its well. A
+        // chart shown takes the bar's room and the grid's.
         HorizontalLayout {
-            height: Layout.compact ? 52px : 36px;
+            visible: SheetGrid.chart < 0;
+            height: SheetGrid.chart >= 0 ? 0px : Layout.compact ? 52px : 36px;
             padding-left: Layout.compact ? 14px : 10px;
             padding-right: Layout.compact ? 14px : 10px;
             padding-top: Layout.compact ? 6px : 4px;
@@ -412,13 +638,21 @@ export component SheetView inherits Rectangle {
             }
         }
         Rectangle {
-            height: 1px;
+            visible: SheetGrid.chart < 0;
+            height: SheetGrid.chart >= 0 ? 0px : 1px;
             background: Tokens.border;
+        }
+
+        if SheetGrid.chart >= 0: ChartPane {
+            vertical-stretch: 1;
+            menu(k, x, y) => { root.menu(k, x, y); }
         }
 
         // The grid.
         grille := Rectangle {
-            vertical-stretch: 1;
+            visible: SheetGrid.chart < 0;
+            vertical-stretch: SheetGrid.chart < 0 ? 1 : 0;
+            max-height: SheetGrid.chart < 0 ? 100000px : 0px;
             clip: true;
 
             // The corner: everything selected.
@@ -750,22 +984,23 @@ export component SheetView inherits Rectangle {
             padding-right: Layout.compact ? 10px : 12px;
             spacing: Layout.compact ? 6px : 2px;
             for s[i] in SheetGrid.sheets: Rectangle {
+                property <bool> actif: i == SheetGrid.sheet && SheetGrid.chart < 0;
                 y: Layout.compact ? 8px : 3px;
                 height: Layout.compact ? 30px : parent.height - 6px;
                 width: onglet.preferred-width + (Layout.compact ? 28px : 24px);
                 border-radius: Layout.compact ? 15px : Tokens.radius-small;
                 background: Layout.compact
-                    ? (i == SheetGrid.sheet ? Tokens.accent-soft : Tokens.surface)
-                    : (i == SheetGrid.sheet ? Tokens.surface-hover : zone.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent);
-                border-width: Layout.compact && i != SheetGrid.sheet ? 1px : 0px;
+                    ? (self.actif ? Tokens.accent-soft : Tokens.surface)
+                    : (self.actif ? Tokens.surface-hover : zone.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent);
+                border-width: Layout.compact && !self.actif ? 1px : 0px;
                 border-color: Tokens.border-strong;
                 onglet := Text {
                     text: s;
                     font-size: Layout.compact ? 13.5px : 12.5px;
-                    font-weight: i == SheetGrid.sheet ? 600 : 400;
+                    font-weight: parent.actif ? 600 : 400;
                     color: Layout.compact
-                        ? (i == SheetGrid.sheet ? Tokens.accent : Tokens.text-secondary)
-                        : (i == SheetGrid.sheet ? Tokens.text : Tokens.text-secondary);
+                        ? (parent.actif ? Tokens.accent : Tokens.text-secondary)
+                        : (parent.actif ? Tokens.text : Tokens.text-secondary);
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -781,6 +1016,52 @@ export component SheetView inherits Rectangle {
                         }
                     }
                     double-clicked => { root.menu("sheet", self.absolute-position.x, self.absolute-position.y - 80px); }
+                }
+            }
+            // The charts, after the sheets: a click shows one instead of the grid.
+            for c[i] in SheetGrid.charts: Rectangle {
+                property <bool> actif: i == SheetGrid.chart;
+                y: Layout.compact ? 8px : 3px;
+                height: Layout.compact ? 30px : parent.height - 6px;
+                width: nom-graphique.preferred-width + (Layout.compact ? 48px : 42px);
+                border-radius: Layout.compact ? 15px : Tokens.radius-small;
+                background: Layout.compact
+                    ? (self.actif ? Tokens.accent-soft : Tokens.surface)
+                    : (self.actif ? Tokens.surface-hover : zone-graphique.has-hover ? Tokens.surface-hover.transparentize(0.5) : transparent);
+                border-width: Layout.compact && !self.actif ? 1px : 0px;
+                border-color: Tokens.border-strong;
+                accessible-role: tab;
+                accessible-label: c;
+                accessible-item-selected: self.actif;
+                accessible-action-default => { SheetGrid.chart-chosen(i); }
+                Icon {
+                    x: Layout.compact ? 12px : 9px;
+                    y: (parent.height - self.height) / 2;
+                    data: Icons.chart;
+                    size: 13px;
+                    tint: parent.actif ? (Layout.compact ? Tokens.accent : Tokens.text) : Tokens.text-secondary;
+                }
+                nom-graphique := Text {
+                    x: Layout.compact ? 30px : 26px;
+                    height: parent.height;
+                    text: c;
+                    font-size: Layout.compact ? 13.5px : 12.5px;
+                    font-weight: parent.actif ? 600 : 400;
+                    color: Layout.compact
+                        ? (parent.actif ? Tokens.accent : Tokens.text-secondary)
+                        : (parent.actif ? Tokens.text : Tokens.text-secondary);
+                    vertical-alignment: center;
+                }
+                zone-graphique := TouchArea {
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                            SheetGrid.chart-chosen(i);
+                        }
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                            SheetGrid.chart-chosen(i);
+                            root.menu("chart", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                        }
+                    }
                 }
             }
             if !Layout.compact: IconButton {
@@ -827,7 +1108,7 @@ export component SheetView inherits Rectangle {
 
         // A phone's keys over the keyboard (the mockups' N5): =, Σ, bold, number,
         // percent, the formula bar, and ✓ to finish the cell.
-        if Layout.compact: FormatBar {
+        if Layout.compact && SheetGrid.chart < 0: FormatBar {
             sheet: true;
             vertical-stretch: 0;
             act(k) => {
@@ -1023,6 +1304,40 @@ export component SheetMenu inherits Rectangle {
                     icon: Icons.download;
                     label: "Export as CSV…";
                     activated => { root.chosen("export-csv"); }
+                }
+            }
+            if SheetGrid.menu == "chart": VerticalLayout {
+                MenuEntry {
+                    icon: Icons.pencil;
+                    label: "Rename the chart…";
+                    activated => { root.chosen("chart-rename"); }
+                }
+                MenuEntry {
+                    icon: Icons.copy;
+                    label: "Copy for a note";
+                    activated => { root.chosen("chart-copy"); }
+                }
+                MenuEntry {
+                    icon: Icons.layers;
+                    label: "Duplicate the chart";
+                    activated => { root.chosen("chart-duplicate"); }
+                }
+                MenuEntry {
+                    icon: Icons.trash;
+                    label: "Delete the chart";
+                    danger: true;
+                    activated => { root.chosen("chart-delete"); }
+                }
+            }
+            if SheetGrid.menu == "chart-group" || SheetGrid.menu == "chart-value": VerticalLayout {
+                if SheetGrid.menu == "chart-value": MenuEntry {
+                    label: "Count the rows";
+                    activated => { root.chosen("chart-value-clear"); }
+                }
+                if SheetGrid.menu == "chart-value": MenuSeparator { }
+                for c[i] in SheetGrid.chart-columns: MenuEntry {
+                    label: c;
+                    activated => { root.chosen(SheetGrid.menu + "-add:" + i); }
                 }
             }
             if SheetGrid.menu == "sheet": VerticalLayout {

@@ -226,6 +226,14 @@ them; an Obsidian vault opens as it is.
   a **graph** of them (`Ctrl`+`G`).
 - **Spreadsheets** (`.sheet`) with formulas, formats and Excel/CSV export, shown in a
   note with `![[Budget.sheet]]`.
+- **Charts** of a spreadsheet's table (the toolbar's chart button, from the cells
+  selected): a flow from a whole to its parts, bars, columns, a donut or a line, each
+  in a tab beside the sheets. They count the rows by a column of categories, or add up
+  a column of numbers, and take the colour of their cells' text. A flow goes through
+  several columns in turn; a category written `Sent > Interview` is two steps; two
+  columns naming each other (`Income → Net`, `Net → Rent`) chain their bands. **Copy
+  for a note** gives `![[Budget.sheet#Spending]]`, shown in any note and following the
+  sheet; `/chart` offers them too.
 - **Flashcards** (`Question :: Answer`), revised with spaced repetition.
 - **Tabs**, each back where you left it, a note **beside** another (`Ctrl`+`\`),
   reading mode (`Ctrl`+`R`), focus mode (`F11`), version history.
@@ -312,7 +320,9 @@ over a choice made before it arrived.
 - Sync between devices needs both on the same Wi-Fi; a note space added from elsewhere
   does not travel, nor does a task's link to its conversation.
 - Notes: input methods (Chinese, Japanese, Korean) do not type yet; spreadsheets have no
-  charts, merged cells or conditional formats.
+  merged cells or conditional formats; a chart reads one table of one sheet, shows at
+  most 12 shares or 10 steps per column (the rest as "Other"), and is not exported to
+  Excel.
 - Office hours are set in UTC. Filer reads an attachment's name only once the message's
   body has been fetched. Iris has no plugins since 7.0.
 - The command line only starts, checks (`iris doctor`) and registers Iris

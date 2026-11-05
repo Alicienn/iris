@@ -1,0 +1,44 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { ChartData } from "@iris/types.slint";
+
+// A chart Rust laid out (`iris_sheets::plot`): its shapes and its words in a box
+// `data.width` wide, scaled to the width it is given, as tall as that makes it. The
+// grid and the words take the theme's colours; the series bring their own.
+export component Chart inherits Rectangle {
+    in property <ChartData> data;
+
+    property <float> echelle: root.data.width > 0 ? root.width / 1px / root.data.width : 1;
+    height: root.data.width > 0 ? root.data.height * root.echelle * 1px : 0px;
+
+    for s in root.data.shapes: Path {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: root.data.width;
+        viewbox-height: root.data.height;
+        commands: s.commands;
+        fill: s.role == 0 ? s.color : s.role == 1 ? Tokens.border : transparent;
+        stroke: s.role == 2 ? s.color : transparent;
+        stroke-width: s.role == 2 ? s.stroke * root.echelle * 1px : 0px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+    for l in root.data.labels: Text {
+        x: l.x * root.echelle * 1px;
+        y: (l.y - l.size) * root.echelle * 1px;
+        width: l.width * root.echelle * 1px;
+        height: l.size * 2 * root.echelle * 1px;
+        text: l.text;
+        font-size: max(9px, l.size * root.echelle * 1px);
+        font-weight: l.strong ? 600 : 400;
+        color: l.muted ? Tokens.text-muted : Tokens.text;
+        horizontal-alignment: l.align == 1 ? TextHorizontalAlignment.center
+            : l.align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        vertical-alignment: center;
+        overflow: elide;
+        wrap: no-wrap;
+    }
+}

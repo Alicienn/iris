@@ -118,6 +118,8 @@ pub struct Dessin {
     pub rects: Vec<NoteRectData>,
     pub images: Vec<NoteImageData>,
     pub icones: Vec<NoteIconData>,
+    /// A chart's shapes.
+    pub traces: Vec<iris_ui::NotePathData>,
 }
 
 pub fn couleur(argb: u32) -> slint::Color {

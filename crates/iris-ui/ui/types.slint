@@ -809,6 +809,21 @@ export struct NoteIconData {
     tint: color,
 }
 
+// A shape of a chart: SVG path commands in a box `vw` by `vh`, drawn into the
+// rectangle x, y, w, h; filled with `fill`, or a line `stroke-width` wide.
+export struct NotePathData {
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    vw: float,
+    vh: float,
+    commands: string,
+    fill: color,
+    stroke: color,
+    stroke-width: length,
+}
+
 // A block of the note as the editor draws it, at its height in the page.
 export struct NoteViewBlock {
     y: length,
@@ -817,6 +832,39 @@ export struct NoteViewBlock {
     rects: [NoteRectData],
     images: [NoteImageData],
     icons: [NoteIconData],
+    paths: [NotePathData],
+}
+
+// A chart as laid out in Rust (`iris_sheets::plot`), in a box `width` by `height` the
+// window scales to the room it has.
+export struct ChartShapeData {
+    commands: string,
+    color: color,
+    // 0: filled with `color`; 1: the theme's grid; 2: a line of `color`, `stroke` wide.
+    role: int,
+    stroke: float,
+}
+
+// Words of a chart: a box `width` wide from x, its middle line at y.
+export struct ChartLabelData {
+    x: float,
+    y: float,
+    width: float,
+    text: string,
+    // 0 left, 1 centre, 2 right.
+    align: int,
+    size: float,
+    strong: bool,
+    muted: bool,
+}
+
+export struct ChartData {
+    width: float,
+    height: float,
+    shapes: [ChartShapeData],
+    labels: [ChartLabelData],
+    // Nothing to draw: why.
+    message: string,
 }
 
 // A note found by Quick open or search.

@@ -3,16 +3,19 @@
 //! A `.sheet` file is a workbook of sheets of cells. Each cell keeps what was typed in
 //! it (`12`, `Paris`, `=SUM(A1:A3)`) and its format; values are computed when the file
 //! is read, every formula after those it reads ([`eval::recalc`]). The same workbook
-//! is read from and written to CSV and Excel files.
+//! is read from and written to CSV and Excel files. Its charts ([`chart`]) read its
+//! tables and are laid out as paths and words ([`plot`]) any window can draw.
 
 #![forbid(unsafe_code)]
 
 pub mod cell;
+pub mod chart;
 pub mod csv;
 pub mod eval;
 pub mod file;
 pub mod format;
 pub mod formula;
+pub mod plot;
 pub mod xlsx;
 
 pub use cell::{col_name, Addr, Range};

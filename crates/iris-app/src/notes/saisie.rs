@@ -267,6 +267,7 @@ fn donnees(bv: &BlocVu) -> NoteViewBlock {
         rects: ModelRc::new(VecModel::from(bv.dessin.rects.clone())),
         images: ModelRc::new(VecModel::from(bv.dessin.images.clone())),
         icons: ModelRc::new(VecModel::from(bv.dessin.icones.clone())),
+        paths: ModelRc::new(VecModel::from(bv.dessin.traces.clone())),
     }
 }
 
