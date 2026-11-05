@@ -971,6 +971,9 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [x] **S52.24** Charts of a spreadsheet's tables (flow, bars, columns, donut, line), in
       tabs beside its sheets, shown in a note by `![[file.sheet#name]]` and offered by
       `/chart`; the notes' tabs in one strip, the open one joined to its page (7.11.0).
+- [x] **S52.25** Delete shows the next conversation at once, read from the store on the
+      window's side; a second Delete within 200 ms is a bounce and ignored; the list's
+      rows changed in place, so a click or a delete keeps where it is scrolled (7.11.1).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

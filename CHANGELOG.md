@@ -3,6 +3,15 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.11.1 — 2026-11-06
+
+### Improved
+- Delete shows the next mail at once.
+
+### Fixed
+- A key that bounces no longer deletes two mails.
+- The mail list stays where you scrolled when you open or delete a mail.
+
 ## 7.11.0 — 2026-11-05
 
 ### New

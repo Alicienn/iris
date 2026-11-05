@@ -555,6 +555,9 @@ pub fn wire_callbacks(fenetre: &AppWindow, controller: Arc<Controller>, keymap: 
         let c = Arc::clone(&controller);
         let faible = fenetre.as_weak();
         fenetre.on_thread_delete(move || {
+            if suppr_en_double() {
+                return;
+            }
             let n = c.send_counted(Request::Apply(iris_viewmodel::Action::Delete));
             if let Some(f) = faible.upgrade() {
                 retirer_sans_attendre(&f, Jetes::Choisi, n);
@@ -794,6 +797,9 @@ fn dispatch(controller: &Controller, kind: &CommandKind, fenetre: &slint::Weak<A
             )))
         }
         CommandKind::Thread(iris_viewmodel::Action::Delete) => {
+            if suppr_en_double() {
+                return;
+            }
             let n = controller.send_counted(Request::Apply(iris_viewmodel::Action::Delete));
             if let Some(f) = fenetre.upgrade() {
                 retirer_sans_attendre(&f, Jetes::Choisi, n);
@@ -908,12 +914,11 @@ fn retirer_sans_attendre(fenetre: &AppWindow, jetes: Jetes, demande: u64) {
     let restantes = sans_les_lignes(lignes, &ids);
 
     // The one read gone, the view-model takes the row now where it was, or the last.
-    if let Some(p) = position.filter(|_| ids.contains(&choisi)) {
-        let suivant = restantes
+    let suivant = position.filter(|_| ids.contains(&choisi)).map(|p| {
+        restantes
             .get(p.min(restantes.len().saturating_sub(1)))
-            .map_or(-1, |l| l.id);
-        fenetre.set_selected_thread(suivant);
-    }
+            .map_or(-1, |l| l.id)
+    });
     if coches {
         fenetre.set_marked_count(0);
         fenetre.set_marked_label(iris_ui::format::short_count(0).into());
@@ -921,7 +926,130 @@ fn retirer_sans_attendre(fenetre: &AppWindow, jetes: Jetes, demande: u64) {
     RETIREES.with(|r| {
         r.borrow_mut().extend(ids.iter().map(|id| (*id, demande)));
     });
-    fenetre.set_rows(ModelRc::new(VecModel::from(restantes)));
+    // In place: a new model would have the list measure its rows again and lose
+    // where it was scrolled.
+    poser_lignes(fenetre, restantes, false);
+    if let Some(suivant) = suivant {
+        fenetre.set_selected_thread(suivant);
+        montrer_sans_attendre(fenetre, suivant);
+    }
+}
+
+thread_local! {
+    /// What the reading column needs to show a conversation without waiting for a
+    /// snapshot: given by the first snapshot shown.
+    static LECTEUR: std::cell::RefCell<Option<(Services, Arc<dyn iris_htmlview::HtmlRenderer>)>> =
+        const { std::cell::RefCell::new(None) };
+
+    /// The list the rows shown belong to (folder, tab, filters, order, search): another
+    /// one is a new model, read from its top.
+    static LISTE_VUE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+
+    /// When the last delete asked for by a key or a button was taken.
+    static DERNIERE_SUPPR: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The shortest time between two deletes taken one after the other. A worn key sends
+/// a second press a few tens of milliseconds after the first, and two conversations
+/// went; no hand presses twice that fast on purpose.
+const SUPPR_REBOND: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Whether a delete comes too soon after the last one taken, and is a bounce.
+fn rebond(derniere: Option<std::time::Instant>, maintenant: std::time::Instant) -> bool {
+    derniere.is_some_and(|d| maintenant.saturating_duration_since(d) < SUPPR_REBOND)
+}
+
+/// The same, for a delete asked now: one that is not a bounce is remembered.
+fn suppr_en_double() -> bool {
+    let maintenant = std::time::Instant::now();
+    DERNIERE_SUPPR.with(|d| {
+        if rebond(d.get(), maintenant) {
+            return true;
+        }
+        d.set(Some(maintenant));
+        false
+    })
+}
+
+/// Shows a conversation in the reading column at once, read from the store here: after
+/// a delete, the next one came only with the view-model's answer, a beat after its row
+/// had lit. Its body was prepared ahead (`prepare_bodies_ahead`), so only its layout is
+/// left. The snapshot that follows still has the last word.
+fn montrer_sans_attendre(fenetre: &AppWindow, fil: i32) {
+    LECTEUR.with(|l| {
+        let lecteur = l.borrow();
+        let Some((services, renderer)) = lecteur.as_ref() else {
+            return;
+        };
+        let messages = if fil < 0 {
+            Vec::new()
+        } else {
+            services
+                .store
+                .conversation(ThreadId(fil as i64))
+                .unwrap_or_default()
+        };
+        if let Some(ligne) = fenetre.get_rows().iter().find(|r| r.id == fil) {
+            fenetre.set_selected_unread(ligne.unread);
+            fenetre.set_selected_starred(ligne.flagged);
+        }
+        let (dossier, tous, alarmant) = dossiers_du_fil(services, &messages);
+        fenetre.set_selected_folder_label(dossier.into());
+        fenetre.set_selected_folder_all(tous.into());
+        fenetre.set_selected_folder_alarming(alarmant);
+        fenetre.set_conversation_empty(messages.is_empty());
+        remplir_conversation(fenetre, services, renderer.as_ref(), &messages, now());
+    });
+}
+
+/// Puts the list's rows in the window. A list that is still the same one (same folder,
+/// tab, filters, order and search) is changed in place, row by row: a new model makes
+/// the list forget its rows and measure them again from the top, and with day titles
+/// making rows unequal, the place it was scrolled to landed elsewhere — after a click,
+/// after every snapshot. Another list is a new model, read from its top.
+fn poser_lignes(fenetre: &AppWindow, lignes: Vec<iris_ui::ThreadRowData>, autre_liste: bool) {
+    let modele = fenetre.get_rows();
+    match modele
+        .as_any()
+        .downcast_ref::<VecModel<iris_ui::ThreadRowData>>()
+    {
+        Some(vec) if !autre_liste => modifier_sur_place(vec, lignes),
+        _ => fenetre.set_rows(ModelRc::new(VecModel::from(lignes))),
+    }
+}
+
+/// Makes `vec` hold `lignes`, touching only the rows that changed: those gone are
+/// removed, those new inserted, those different rewritten.
+fn modifier_sur_place(vec: &VecModel<iris_ui::ThreadRowData>, lignes: Vec<iris_ui::ThreadRowData>) {
+    let gardees: std::collections::HashSet<i32> = lignes.iter().map(|l| l.id).collect();
+    for i in (0..vec.row_count()).rev() {
+        if vec.row_data(i).is_some_and(|l| !gardees.contains(&l.id)) {
+            vec.remove(i);
+        }
+    }
+    let n = lignes.len();
+    for (i, ligne) in lignes.into_iter().enumerate() {
+        match vec.row_data(i) {
+            Some(l) if l.id == ligne.id => {
+                if l != ligne {
+                    vec.set_row_data(i, ligne);
+                }
+            }
+            _ => {
+                // Moved: taken from where it was, put where it goes.
+                if let Some(j) = (i + 1..vec.row_count())
+                    .find(|j| vec.row_data(*j).is_some_and(|l| l.id == ligne.id))
+                {
+                    vec.remove(j);
+                }
+                vec.insert(i, ligne);
+            }
+        }
+    }
+    while vec.row_count() > n {
+        vec.remove(vec.row_count() - 1);
+    }
 }
 
 /// The rows without these, each day's title handed to the first row left under it.
@@ -1032,8 +1160,26 @@ pub fn apply_snapshot(
         refresh_accounts(fenetre, services, &[]);
     }
 
-    fenetre.set_rows(ModelRc::new(VecModel::from(lignes)));
+    let liste = format!(
+        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        snapshot.scope,
+        snapshot.active_tab,
+        snapshot.search.as_ref().map(|s| &s.query),
+        snapshot.filters,
+        snapshot.sort,
+        snapshot.accounts,
+    );
+    let autre_liste = LISTE_VUE.with(|l| {
+        let mut l = l.borrow_mut();
+        let autre = *l != liste;
+        *l = liste;
+        autre
+    });
+    poser_lignes(fenetre, lignes, autre_liste);
     fenetre.set_selected_thread(selection_vue);
+    // The window shows another conversation than this snapshot's: the next one after a
+    // delete, the one under a click. It keeps it until a snapshot has seen the request.
+    let lecture_en_avance = selection_vue != snapshot.selected.map_or(-1, |t| t.get() as i32);
     fenetre.set_active_tab(snapshot.active_tab.as_i64() as i32);
     fenetre.set_counts(ModelRc::new(VecModel::from(
         snapshot
@@ -1099,6 +1245,43 @@ pub fn apply_snapshot(
         _ => 0,
     });
 
+    if !lecture_en_avance {
+        montrer_selection(fenetre, services, snapshot, &adresses);
+    }
+
+    match &snapshot.search {
+        Some(recherche) => {
+            fenetre.set_searching(true);
+            fenetre.set_search_summary(recherche.summary.as_str().into());
+            fenetre.set_search_explanation(recherche.explanation.as_str().into());
+            fenetre.set_search_pills(ModelRc::new(VecModel::from(
+                PASTILLES
+                    .iter()
+                    .map(|(mots, _)| pastille_allumee(&recherche.query, mots))
+                    .collect::<Vec<_>>(),
+            )));
+            // Le champ n'est pas réécrit : l'utilisateur peut être en train d'y
+            // taper la requête suivante pendant que les résultats arrivent.
+        }
+        None => {
+            fenetre.set_searching(false);
+            fenetre.set_search_summary(Default::default());
+            fenetre.set_search_explanation(Default::default());
+        }
+    }
+
+    if !lecture_en_avance {
+        remplir_conversation(fenetre, services, renderer, &snapshot.messages, maintenant);
+    }
+}
+
+/// The conversation a snapshot selects, as the toolbar and the reader's header say it.
+fn montrer_selection(
+    fenetre: &AppWindow,
+    services: &Services,
+    snapshot: &Snapshot,
+    adresses: &HashMap<iris_types::AccountId, String>,
+) {
     // What the toolbar's two toggles should say. Taken from the row rather than the
     // message, because both are properties of the conversation as the list shows it.
     let selectionne = snapshot
@@ -1123,29 +1306,6 @@ pub fn apply_snapshot(
     fenetre.set_selected_folder_all(tous.into());
     fenetre.set_selected_folder_alarming(alarmant);
     fenetre.set_conversation_empty(snapshot.messages.is_empty());
-
-    match &snapshot.search {
-        Some(recherche) => {
-            fenetre.set_searching(true);
-            fenetre.set_search_summary(recherche.summary.as_str().into());
-            fenetre.set_search_explanation(recherche.explanation.as_str().into());
-            fenetre.set_search_pills(ModelRc::new(VecModel::from(
-                PASTILLES
-                    .iter()
-                    .map(|(mots, _)| pastille_allumee(&recherche.query, mots))
-                    .collect::<Vec<_>>(),
-            )));
-            // Le champ n'est pas réécrit : l'utilisateur peut être en train d'y
-            // taper la requête suivante pendant que les résultats arrivent.
-        }
-        None => {
-            fenetre.set_searching(false);
-            fenetre.set_search_summary(Default::default());
-            fenetre.set_search_explanation(Default::default());
-        }
-    }
-
-    remplir_conversation(fenetre, services, renderer, &snapshot.messages, maintenant);
 }
 
 /// The pills under the search field, in their order: the words each puts in the query,
@@ -2409,6 +2569,12 @@ pub fn snapshot_sink(
         // `upgrade_in_event_loop` est le passage obligé : toucher la fenêtre depuis
         // un autre fil est une faute que Slint refuse à l'exécution.
         let _ = faible.upgrade_in_event_loop(move |fenetre| {
+            LECTEUR.with(|l| {
+                let mut l = l.borrow_mut();
+                if l.is_none() {
+                    *l = Some((services.clone(), Arc::clone(&renderer)));
+                }
+            });
             apply_snapshot(&fenetre, &services, renderer.as_ref(), &snapshot);
         });
     }
@@ -6395,6 +6561,9 @@ pub fn wire_bulk(fenetre: &AppWindow, controller: Arc<Controller>) {
         let controller = Arc::clone(&controller);
         let faible = fenetre.as_weak();
         fenetre.on_bulk_delete(move || {
+            if suppr_en_double() {
+                return;
+            }
             let n = controller.send_counted(Request::ApplyToMarked(Action::Delete));
             if let Some(f) = faible.upgrade() {
                 retirer_sans_attendre(&f, Jetes::Lot, n);
@@ -8668,6 +8837,72 @@ fn serveur(hote: &str, port: u16, transport: iris_discover::Transport) -> String
 mod tests {
     use super::*;
     use iris_ui::commands::builtin_commands;
+
+    #[test]
+    fn a_second_delete_within_the_bounce_is_ignored() {
+        let t = std::time::Instant::now();
+        assert!(!rebond(None, t));
+        assert!(rebond(Some(t), t + std::time::Duration::from_millis(40)));
+        assert!(rebond(Some(t), t + SUPPR_REBOND / 2));
+        assert!(!rebond(Some(t), t + SUPPR_REBOND));
+        assert!(!rebond(Some(t), t + std::time::Duration::from_millis(600)));
+    }
+
+    #[test]
+    fn the_same_list_is_changed_in_place_row_by_row() {
+        let ligne = |id, subject: &str| iris_ui::ThreadRowData {
+            id,
+            subject: subject.into(),
+            ..Default::default()
+        };
+        let ids = |v: &VecModel<iris_ui::ThreadRowData>| {
+            v.iter()
+                .map(|l| (l.id, l.subject.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let modele = VecModel::from(vec![
+            ligne(1, "a"),
+            ligne(2, "b"),
+            ligne(3, "c"),
+            ligne(4, "d"),
+        ]);
+
+        // One gone, one changed, one new at the top, one more loaded at the end.
+        modifier_sur_place(
+            &modele,
+            vec![
+                ligne(9, "new"),
+                ligne(1, "a"),
+                ligne(3, "c, read"),
+                ligne(4, "d"),
+                ligne(5, "e"),
+            ],
+        );
+        assert_eq!(
+            ids(&modele),
+            [
+                (9, "new".to_string()),
+                (1, "a".to_string()),
+                (3, "c, read".to_string()),
+                (4, "d".to_string()),
+                (5, "e".to_string()),
+            ]
+        );
+
+        // A row moved up, and the end cut.
+        modifier_sur_place(&modele, vec![ligne(4, "d"), ligne(9, "new"), ligne(1, "a")]);
+        assert_eq!(
+            ids(&modele),
+            [
+                (4, "d".to_string()),
+                (9, "new".to_string()),
+                (1, "a".to_string())
+            ]
+        );
+
+        modifier_sur_place(&modele, Vec::new());
+        assert_eq!(modele.row_count(), 0);
+    }
 
     #[test]
     fn a_row_deleted_at_once_hands_its_day_title_to_the_row_under_it() {

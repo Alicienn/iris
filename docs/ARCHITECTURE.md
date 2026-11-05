@@ -875,6 +875,16 @@ These rules come from bugs users hit, and each has a scenario in
   every snapshot says how many it has seen (`Snapshot::served`): one made before the
   request keeps the window's rows and highlight, the first one after has the last word.
   A delete that changed nothing still answers, so a row not deleted after all comes back.
+  Since 7.11.1 the next conversation is shown at once too (`montrer_sans_attendre`): read
+  from the store on the window's thread, its body already prepared; a snapshot whose
+  selection is not the window's leaves the reading column alone. A delete from a key or
+  a button within 200 ms of the last one is a bounce (`suppr_en_double`) and dropped.
+- **The list's model is changed in place** (7.11.1, `poser_lignes`). Slint's virtual
+  list forgets its rows and measures them again from the top when it is given a new
+  model; with day titles making rows unequal, the place it was scrolled to landed
+  elsewhere after every snapshot. Rows of the same list (same scope, tab, filters,
+  order, search and accounts) are removed, inserted and rewritten one by one; another
+  list gets a new model, read from its top.
 - **Memory is given back in the tray.** When the window closes to the notification area,
   body tiles and painter caches are dropped (the layout is kept), then the working set
   is returned to Windows. Tiles repaint on demand when the window comes back.
