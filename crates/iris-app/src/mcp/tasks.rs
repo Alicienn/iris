@@ -747,7 +747,7 @@ fn list_tasks(ctx: &Ctx, a: &Args) -> ToolResult {
             .into_iter()
             .filter(StoredTask::is_done)
             .collect();
-        faites.sort_by(|x, y| y.done_at.cmp(&x.done_at));
+        faites.sort_by_key(|x| std::cmp::Reverse(x.done_at));
         taches.extend(faites);
     }
     let liste = a.opt_i64("list_id")?;
