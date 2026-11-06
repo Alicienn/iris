@@ -191,12 +191,11 @@ impl Controller {
         on_snapshot: impl Fn(Snapshot) + Send + 'static,
     ) -> (Self, std::thread::JoinHandle<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
-        let retour = tx.clone();
 
         let fil = std::thread::Builder::new()
             .name("iris-viewmodel".into())
             .spawn(move || {
-                run(store, index, workflow, now, rx, retour, on_snapshot);
+                run(store, index, workflow, now, rx, on_snapshot);
             })
             .expect("création du fil du vue-modèle");
 
@@ -238,7 +237,6 @@ fn run(
     workflow: Arc<Workflow>,
     now: Timestamp,
     requests: Receiver<Request>,
-    retour: Sender<Request>,
     on_snapshot: impl Fn(Snapshot),
 ) {
     let mut vm = ViewModel::new(Arc::clone(&store), now);
@@ -247,31 +245,55 @@ fn run(
     }
     let mut actions = Actions::new(workflow);
     let mut servies: u64 = 0;
+    // The bulk changes' answers, on a channel of their own: a sender of `requests`
+    // kept here would keep it open for ever, and the thread would never end once
+    // the controllers are gone.
+    let (bulk_tx, bulk_rx) = std::sync::mpsc::channel();
+    let arriere = Arriere {
+        retour: bulk_tx,
+        en_cours: std::cell::Cell::new(0),
+    };
 
     // Everything waiting is taken at once, its diffs folded together, and one snapshot
     // answers the lot. One at a time, a Gmail mailbox's first sync (twenty thousand
     // messages, a diff every 16 ms, each costing a reload and the counts) kept this
     // thread busy for minutes, with a click on the mailbox queued behind hundreds of
     // diffs and the window waiting on every snapshot in turn.
-    while let Ok(premiere) = requests.recv() {
+    loop {
+        // While a bulk change runs, its answer is looked for every 50 ms; otherwise
+        // the thread sleeps until a request comes.
+        let premiere = if arriere.en_cours.get() > 0 {
+            match requests.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(r) => Some(r),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        } else {
+            match requests.recv() {
+                Ok(r) => Some(r),
+                Err(_) => return,
+            }
+        };
         let mut a_montrer = false;
         let mut erreur = None;
         let mut avis = None;
-        let lot: Vec<Request> = std::iter::once(premiere)
-            .chain(requests.try_iter())
-            .collect();
-        // Counted as `send_counted` numbers them: a bulk change's answer comes from
-        // this side, not through it, and counting it would say a request was seen
-        // before it was.
-        servies += lot
-            .iter()
-            .filter(|r| !matches!(r, Request::BulkDone(..)))
-            .count() as u64;
+        let mut lot: Vec<Request> = premiere.into_iter().chain(requests.try_iter()).collect();
+        // Counted as `send_counted` numbers them: a bulk change's answer does not come
+        // through it, and counting it would say a request was seen before it was.
+        servies += lot.len() as u64;
+        let finis: Vec<Request> = bulk_rx.try_iter().collect();
+        arriere
+            .en_cours
+            .set(arriere.en_cours.get().saturating_sub(finis.len()));
+        lot.extend(finis);
+        if lot.is_empty() {
+            continue;
+        }
         for request in fold_diffs(lot.into_iter()) {
             if request == Request::Shutdown {
                 return;
             }
-            match handle(&mut vm, &mut actions, request, &mut avis, &retour) {
+            match handle(&mut vm, &mut actions, request, &mut avis, &arriere) {
                 Ok(montrer) => a_montrer |= montrer,
                 // Une erreur du vue-modèle ne doit pas emporter le fil : l'interface
                 // resterait figée sans explication. It is also carried out to the
@@ -319,7 +341,7 @@ fn handle(
     actions: &mut Actions,
     request: Request,
     avis: &mut Option<String>,
-    retour: &Sender<Request>,
+    retour: &Arriere,
 ) -> Result<bool> {
     match request {
         // A whole mailbox marked read or sent to a queue is thousands of writes. Done
@@ -560,10 +582,10 @@ fn appliquer(
 /// Runs a bulk change on a thread of its own, then hands the view-model what it did
 /// (`Request::BulkDone`); a failure is said in the status bar the same way.
 fn en_arriere_plan(
-    retour: &Sender<Request>,
+    arriere: &Arriere,
     travail: impl FnOnce() -> Result<(usize, String)> + Send + 'static,
 ) {
-    let retour = retour.clone();
+    let retour = arriere.retour.clone();
     let lance = std::thread::Builder::new()
         .name("iris-bulk".into())
         .spawn(move || {
@@ -576,9 +598,16 @@ fn en_arriere_plan(
             };
             let _ = retour.send(reponse);
         });
-    if let Err(e) = lance {
-        tracing::error!(error = %e, "bulk thread");
+    match lance {
+        Ok(_) => arriere.en_cours.set(arriere.en_cours.get() + 1),
+        Err(e) => tracing::error!(error = %e, "bulk thread"),
     }
+}
+
+/// Where the bulk changes answer, and how many are still running.
+struct Arriere {
+    retour: Sender<Request>,
+    en_cours: std::cell::Cell<usize>,
 }
 
 /// A conversation opened is read: its messages are marked so, here and on the server,
