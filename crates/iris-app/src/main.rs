@@ -55,6 +55,13 @@ fn run() -> Result<()> {
     };
     let demarre_reduit = args.first().map(String::as_str) == Some("--tray");
 
+    // An assistant's bridge to the running Iris. Before anything else: its standard
+    // output is the assistant's pipe, which a borrowed console would replace, and the
+    // log is the running Iris's file, which installing it here would rotate away.
+    if commande == "mcp" {
+        return iris_app::mcp::bridge::run(&Paths::system()?);
+    }
+
     // Anything but the graphical mode is meant to be read. Attach to the calling
     // terminal before the first line is logged: Rust caches its standard output
     // handle on first use, so borrowing the console afterwards would be too late.
@@ -183,6 +190,7 @@ fn print_help() {
          \x20 iris register                  Offer Iris to Windows as a mail client\n\
          \x20 iris unregister                Withdraw that offer\n\
          \x20 iris --tray                    Start into the notification area\n\
+         \x20 iris mcp                       Serve an AI assistant (MCP over stdio)\n\
          \x20 iris mailto:<address>          Start and compose to that address\n\
          \n\
          Accounts are added and synchronised in the application.\n"

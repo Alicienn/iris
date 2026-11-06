@@ -36,6 +36,7 @@ the first afternoon, and never forgive".
 | Mailing lists | Unsubscribe in one click beside the sender, as Gmail and Apple Mail offer (4.12.0) |
 | Own data | Calendars, tasks and goals backed up daily and restorable; exported as `.ics` (4.12.0) |
 | Notes | Markdown files in folders of your own (an Obsidian vault opens as it is), written as they look, with LaTeX drawn, links and backlinks, callouts, flashcards with spaced repetition, spreadsheets with formulas, and links to mail, events and tasks (4.15.0); blocks selected whole and moved together as in Notion, and a spreadsheet's cells edited inside the note (4.20.0); tables written as a grid, with Tab and Enter as in Notion (7.8.0); charts of a spreadsheet's tables, flows (Sankey) included, shown in a note and following their sheet (7.11.0) — Outlook and Thunderbird have no notes beside the mail, Apple's Notes no Markdown, LaTeX or spreadsheets |
+| AI assistant | Any MCP assistant (Claude and others) searches, sorts and sends mail, plans the calendar, runs tasks, habits and goals, and writes notes and spreadsheets, on the computer, through the running Iris (7.13.0) — Outlook and Gmail offer only their vendor's own assistant, in their cloud; Thunderbird and Apple Mail none |
 
 The queue is the point of the product, and none of the four has it. What follows is
 about the ordinary things they all have and Iris does not.

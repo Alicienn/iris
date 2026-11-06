@@ -1,0 +1,10 @@
+[package]
+name = "iris-mcp"
+description = "The Model Context Protocol spoken to an AI client: JSON-RPC over lines, tools, arguments"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }

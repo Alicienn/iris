@@ -336,6 +336,16 @@ pub fn run(options: GuiOptions, prepare: impl FnOnce() -> Result<Services>) -> R
         Err(e) => tracing::info!(reason = %e, "sending unavailable"),
     }
 
+    // An AI assistant's way in (Settings › System), with the same outbox as the window.
+    #[cfg(not(target_os = "android"))]
+    crate::mcp::wire_mcp(
+        &fenetre,
+        &services,
+        runtime.handle().clone(),
+        envoi_a_finir.clone(),
+        reglages.mcp_enabled,
+    );
+
     controller.send(Request::Bootstrap);
 
     // Le bus alimente le contrôleur, à travers la coalescence.

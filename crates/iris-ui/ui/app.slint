@@ -723,6 +723,13 @@ export component AppWindow inherits Window {
     in-out property <bool> keep-running: true;
     /// Settings › Appearance › Reduce effects (the shell turns it into `Motion.scale`).
     in-out property <bool> reduce-effects;
+    /// Settings › System › an AI assistant may use Iris (the MCP server).
+    in-out property <bool> mcp-enabled;
+    /// A desktop: the MCP server exists (never on a phone).
+    in property <bool> mcp-available;
+    /// What the toggle's hint says: running, or why not.
+    in property <string> mcp-status;
+    callback mcp-copy-setup();
     in-out property <bool> home-at-startup: true;
     in property <string> system-note;
     /// How long a sent message can be taken back, from the settings.
@@ -5085,6 +5092,10 @@ export component AppWindow inherits Window {
             handle-mailto <=> root.handle-mailto;
             keep-running <=> root.keep-running;
             reduce-effects <=> root.reduce-effects;
+            mcp-enabled <=> root.mcp-enabled;
+            mcp-available: root.mcp-available;
+            mcp-status: root.mcp-status;
+            mcp-copy-setup => { root.mcp-copy-setup(); }
             home-at-startup <=> root.home-at-startup;
             mac-buttons <=> root.window-mac-buttons;
             undo-send-seconds <=> root.undo-send-seconds;

@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 /// Les couleurs données aux nouvelles listes, tour à tour.
-const COULEURS: [&str; 8] = [
+pub(crate) const COULEURS: [&str; 8] = [
     "#5b8def", "#e0795b", "#4fb286", "#b67be6", "#e3b341", "#e0608c", "#3fb1c9", "#8a9a5b",
 ];
 
@@ -171,7 +171,7 @@ fn minute(t: &NewTask) -> Option<u32> {
 }
 
 /// Recalcule l'instant du rappel après un changement d'échéance ou de rappel.
-fn recalculer_rappel(t: &mut NewTask) {
+pub(crate) fn recalculer_rappel(t: &mut NewTask) {
     t.remind_at = match (jour(t), t.remind_before) {
         (Some(j), Some(avant)) => Some(vers_ms(remind_at(j, minute(t), avant as i64))),
         _ => None,

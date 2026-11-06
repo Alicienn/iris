@@ -984,3 +984,19 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.
+
+## E53 — An AI assistant in Iris (7.13.0)
+
+- [x] **S53.1** `iris-mcp`: the Model Context Protocol over JSON-RPC lines (initialize,
+      ping, tools, batches, notifications), tools with read-only and destructive hints,
+      lenient arguments (7.13.0).
+- [x] **S53.2** The server inside the running Iris on 127.0.0.1 with a token, started and
+      stopped by *Settings › System › Let an AI assistant use Iris*; **Copy setup**; the
+      `iris mcp` bridge, which starts Iris in the notification area or says the setting
+      is off; nothing on Android (7.13.0).
+- [x] **S53.3** The tools: the day's overview; mail search with every filter, lists,
+      conversations, marking, filing, snoozing, sending, attachments; the calendar by
+      day, week or range, events created, moved, changed and deleted with their notes,
+      meeting links and subtasks; tasks, lists, habits and goals; note spaces, notes read,
+      written and edited, the full syntax, search, links, versions; spreadsheets and
+      charts (7.13.0).

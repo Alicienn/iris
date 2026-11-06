@@ -169,6 +169,11 @@ pub struct Settings {
     /// The system's own "no animations" setting does the same without this one.
     #[serde(default)]
     pub reduce_effects: bool,
+    /// An AI assistant may use Iris: the MCP server listens while Iris runs. Off by
+    /// default: it opens the mail, the calendar, the tasks and the notes to a program
+    /// the user chose, and that is the user's to decide.
+    #[serde(default)]
+    pub mcp_enabled: bool,
     /// VIP, Office hours and Filer. Each does nothing until told something.
     #[serde(default)]
     pub triage: iris_rules::triage::Triage,
@@ -263,6 +268,7 @@ impl Default for Settings {
             notes_tabs: Vec::new(),
             text_size: 100,
             reduce_effects: false,
+            mcp_enabled: false,
             triage: Default::default(),
         }
     }
@@ -551,6 +557,7 @@ mod tests {
             notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
             text_size: 115,
             reduce_effects: true,
+            mcp_enabled: true,
             triage: iris_rules::triage::Triage {
                 vip: "marie@client.example\n@direction.example".into(),
                 office_hours: iris_rules::triage::OfficeHours {

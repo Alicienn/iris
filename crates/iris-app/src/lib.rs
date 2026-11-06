@@ -23,6 +23,8 @@ pub mod home;
 pub mod invite;
 pub mod later;
 pub mod logging;
+#[cfg(not(target_os = "android"))]
+pub mod mcp;
 pub mod mentions;
 pub mod modules;
 pub mod nav;

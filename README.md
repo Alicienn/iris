@@ -262,6 +262,25 @@ them; an Obsidian vault opens as it is.
 | `Question :: Answer` | A flashcard | |
 | `/` | Every block, with a preview | |
 
+## An AI assistant
+
+An assistant that speaks MCP (Claude Desktop, Claude Code and others) can work in Iris
+for you: search the mail with every filter, read conversations, mark, file, snooze and
+send; see the calendar by day or week, create, move and delete events with their notes,
+meeting links and subtasks; manage tasks, habits and goals; browse note spaces, read and
+write notes in Iris's full syntax, and fill spreadsheets and charts.
+
+1. *Settings › System › **Let an AI assistant use Iris***.
+2. **Copy setup**, and paste it into the assistant's MCP settings
+   (`claude_desktop_config.json` for Claude Desktop). For Claude Code:
+   `claude mcp add iris -- "<path to iris.exe>" mcp`.
+3. Restart the assistant. It starts `iris mcp`, which reaches the Iris that runs (and
+   starts it in the notification area if it does not).
+
+What the assistant changes shows in Iris at once and syncs like your own clicks; a mail
+it sends waits in the outbox for the undo delay. Turning the setting off cuts it off at
+once. Desktop only: there is no assistant access on Android.
+
 ## Sync between devices
 
 1. On one device: *Settings › Devices › **Pair a device…*** shows a QR code.
@@ -328,8 +347,11 @@ over a choice made before it arrived.
   Excel.
 - Office hours are set in UTC. Filer reads an attachment's name only once the message's
   body has been fetched. Iris has no plugins since 7.0.
-- The command line only starts, checks (`iris doctor`) and registers Iris
-  (`iris register`, `iris unregister`); accounts are added and synced in the window.
+- The command line only starts, checks (`iris doctor`), registers Iris
+  (`iris register`, `iris unregister`) and serves an assistant (`iris mcp`); accounts
+  are added and synced in the window.
+- An assistant reaches Iris only while Iris runs on the same computer; it cannot add
+  accounts, change settings or answer invitations.
 
 ## Privacy
 
@@ -343,6 +365,10 @@ over a choice made before it arrived.
   only they hold, and never leaves the Wi-Fi.
 - Backups and notes stay on your devices. Removing an account removes its mail, its
   passwords and its search index from the device.
+- With *Let an AI assistant use Iris* on (off by default), Iris listens on your
+  computer only (127.0.0.1) and answers only a program that holds the key it writes in
+  your profile. What the assistant reads is then sent to its AI service: turn it on only
+  for one you trust.
 - On Windows Iris registers the `iris-mail:` link type for your user (so a notification
   can open what it is about); uninstalling removes it.
 

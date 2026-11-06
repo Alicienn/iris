@@ -45,6 +45,8 @@ iris-notes = { path = "../iris-notes" }
 iris-vault = { path = "../iris-vault" }
 iris-math = { path = "../iris-math" }
 iris-sheets = { path = "../iris-sheets" }
+iris-mcp = { path = "../iris-mcp" }
+iris-search = { workspace = true }
 # The notes' editor lays its text out as Slint does (the same version, already in the
 # tree through Slint), to know where every character is.
 parley = "0.11"

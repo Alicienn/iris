@@ -41,6 +41,7 @@ iris doctor                    Check the installation
 iris register                  Offer Iris to Windows as a mail client
 iris unregister                Withdraw that offer
 iris --tray                    Start into the notification area
+iris mcp                       Serve an AI assistant (MCP over stdio)
 iris mailto:<address>          Start and compose to that address
 ```
 
@@ -193,6 +194,7 @@ contract of the one before it.
                  iris-discover · iris-secrets · iris-oauth
                  iris-caldav · iris-peer (device to device)
   Cross-cutting  iris-kernel (event bus) · iris-types
+  Protocol       iris-mcp (MCP: JSON-RPC lines, tools)       pure, no Iris type
   Assembly       iris-app                                    binary, wiring
                  iris-android (cdylib) + android/ (Gradle)  Android's entry point
 ```
@@ -1972,6 +1974,49 @@ authentication failure.
 
 ---
 
+## An AI assistant (MCP, 7.13.0)
+
+An assistant starts `iris mcp` and speaks the Model Context Protocol (revision
+2025-06-18, older ones accepted) on its standard input and output, one JSON-RPC message
+per line. The tools are answered by the Iris that is running, not by that process:
+
+```
+  assistant ──stdio──▶ iris mcp (bridge) ──TCP 127.0.0.1, token──▶ Iris (window)
+                                                                  └ mcp::IrisTools
+                                                                    store · workflow
+                                                                    outbox · vault
+```
+
+- **Why the running Iris.** Tantivy's writer lock keeps the search index to one
+  process, the sync engine writes the database, and a send goes through the outbox the
+  window shows. Inside, a tool goes through the same `Store`, `Workflow`, `SendService`
+  and `Vault` as a click: mail changes are journalled to IMAP and undoable, calendar
+  edits are marked dirty for CalDAV, and the screen follows (`workspace-changed` for the
+  place shown, the bus for the mail).
+- **The bridge** (`mcp::bridge`) reads `cache/mcp-endpoint.json` (port, token, pid),
+  connects, sends the token as its first line and relays bytes both ways. Iris not
+  running: it starts `iris --tray` detached and waits up to 45 s. The setting off: it
+  serves MCP itself with one tool, `iris_status`, that says where to turn it on. It
+  runs before the log is installed (installing it would rotate the running Iris's log)
+  and writes nothing but the protocol to its standard output.
+- **The server** (`mcp::Running`) is a `std::net::TcpListener` on 127.0.0.1, port chosen
+  by the system, one thread per connection, started and stopped by
+  `settings.mcp_enabled` (*Settings › System*). A new random 32-byte token each start;
+  a connection that does not send it within 10 s is closed. Stopping removes the
+  endpoint file and shuts every connection. Tools that wait on the network (a body to
+  download, a send) block their connection's thread on the application's runtime.
+- **The protocol** (`iris-mcp`) knows nothing of Iris: `initialize`, `ping`,
+  `tools/list`, `tools/call`, empty `resources/*` and `prompts/list`, batches, and
+  notifications answered with nothing. A tool's failure is a result with `isError`, so
+  the AI reads it and corrects its call; only a malformed request is a JSON-RPC error.
+  Every tool carries `readOnlyHint` / `destructiveHint`, which clients use to ask first.
+- **The tools**, by place (`mcp/mail.rs`, `calendar.rs`, `tasks.rs`, `notes.rs`), with
+  `iris_overview` for the day. Times are local ISO 8601 both ways (`mcp/time.rs`).
+  `notes_syntax` returns the notes' whole syntax, written from the parser, so an AI
+  writes notes Iris renders.
+- Not on Android (`#[cfg(not(target_os = "android"))]`): the module, the bridge and the
+  settings' rows (`mcp-available`).
+
 ## Privacy
 
 - Remote images blocked by default; merely loading them tells the sender when the
@@ -1986,6 +2031,8 @@ authentication failure.
   GitHub for the latest release, a request that carries nothing about mail or accounts.
   Once a device is paired: an mDNS announce of a random device id on the local
   network, and the exchanges with paired devices, sealed with a key only they hold.
+- The assistant's server (off by default) listens on the loopback only and answers a
+  connection only after it sends the token written in the user's own profile.
 - No telemetry.
 
 ---

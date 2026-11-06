@@ -13,7 +13,7 @@ use iris_ui::{AppWindow, GoalData, GoalLogData};
 use slint::{ModelRc, SharedString, VecModel};
 
 /// The colours given to new goals, in turn.
-const COULEURS: [&str; 7] = [
+pub(crate) const COULEURS: [&str; 7] = [
     "#8fa2ff", "#e8a45b", "#6fb7a4", "#e07a6a", "#b58ad6", "#5aa9c9", "#c9a14a",
 ];
 
@@ -58,7 +58,7 @@ fn avancement(services: &Services, g: &Goal) -> (i32, i32) {
     }
 }
 
-fn allure(services: &Services, g: &Goal, today: NaiveDate) -> (i32, i32, Pace) {
+pub(crate) fn allure(services: &Services, g: &Goal, today: NaiveDate) -> (i32, i32, Pace) {
     let (fait, cible) = avancement(services, g);
     let debut = local(g.created_at.millis());
     let fin = jour_de(&g.goal.due_day).unwrap_or(today);

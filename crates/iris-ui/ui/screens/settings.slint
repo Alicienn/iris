@@ -607,6 +607,11 @@ export component SettingsPanel inherits Rectangle {
     in-out property <bool> keep-running;
     /// Nothing slides, fades or springs.
     in-out property <bool> reduce-effects;
+    /// An AI assistant may use Iris through its MCP server (a desktop's only).
+    in-out property <bool> mcp-enabled;
+    in property <bool> mcp-available;
+    in property <string> mcp-status;
+    callback mcp-copy-setup();
     /// Iris opens on the Home screen.
     in-out property <bool> home-at-startup;
     /// The window's buttons as the Mac's three lights, or as Windows' three.
@@ -1280,6 +1285,14 @@ export component SettingsPanel inherits Rectangle {
                         label: "Offer Iris for mailto: links";
                         hint: "Windows still decides the default in its own settings.";
                         on <=> root.handle-mailto;
+                        toggled => { root.system-changed(); }
+                    }
+                    if root.mcp-available: PhoneToggle {
+                        icon: Icons.code;
+                        tint: Tokens.purple;
+                        label: "Let an AI assistant use Iris";
+                        hint: root.mcp-status;
+                        on <=> root.mcp-enabled;
                         toggled => { root.system-changed(); }
                     }
                 }
@@ -2284,6 +2297,27 @@ export component SettingsPanel inherits Rectangle {
                         hint: "Windows still decides the default in its own settings.";
                         value <=> root.handle-mailto;
                         toggled => { root.system-changed(); }
+                    }
+                    if root.mcp-available: ToggleRow {
+                        icon: Icons.code;
+                        tint: Tokens.purple;
+                        label: "Let an AI assistant use Iris";
+                        hint: root.mcp-status;
+                        value <=> root.mcp-enabled;
+                        toggled => { root.system-changed(); }
+                    }
+                    if root.mcp-available: SettingRow {
+                        icon: Icons.link;
+                        tint: Tokens.teal;
+                        label: "Connect an assistant";
+                        hint: "Copies the setup to paste into Claude or another MCP client.";
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "Copy setup";
+                            label: "Copy the assistant setup";
+                            size: ButtonSize.sm;
+                            clicked => { root.mcp-copy-setup(); }
+                        }
                     }
                 }
                 if root.large && root.system-note != "": GroupTitle {

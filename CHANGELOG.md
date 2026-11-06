@@ -3,6 +3,12 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.13.0 — 2026-11-06
+
+### New
+- Connect an AI assistant such as Claude to Iris: it can search and handle your mail, plan your calendar, manage tasks, habits and goals, and write notes and spreadsheets.
+- Turn it on or off in Settings › System; Copy setup gives the assistant what it needs.
+
 ## 7.12.1 — 2026-11-06
 
 ### Improved

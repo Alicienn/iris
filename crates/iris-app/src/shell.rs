@@ -3676,6 +3676,8 @@ pub fn wire_settings(
         fenetre.set_notifications(reglages.notifications);
         fenetre.set_keep_running(reglages.keep_running);
         fenetre.set_reduce_effects(reglages.reduce_effects);
+        fenetre.set_mcp_available(cfg!(not(target_os = "android")));
+        fenetre.set_mcp_enabled(reglages.mcp_enabled);
         appliquer_mouvement(fenetre, &reglages);
         fenetre.set_undo_send_seconds(reglages.undo_send_seconds as i32);
         fenetre.set_group_by_tags(reglages.accounts_by_tag);
@@ -3946,6 +3948,11 @@ pub fn wire_settings(
             reglages.keep_running = fenetre.get_keep_running();
             reglages.reduce_effects = fenetre.get_reduce_effects();
             appliquer_mouvement(&fenetre, &reglages);
+            if reglages.mcp_enabled != fenetre.get_mcp_enabled() {
+                reglages.mcp_enabled = fenetre.get_mcp_enabled();
+                #[cfg(not(target_os = "android"))]
+                crate::mcp::set_enabled(reglages.mcp_enabled);
+            }
             reglages.home_at_startup = fenetre.get_home_at_startup();
             reglages.mac_window_buttons = fenetre.get_window_mac_buttons();
 
@@ -8523,7 +8530,7 @@ fn show_attachments(fenetre: &AppWindow, pieces: &[iris_smtp::Attachment]) {
 /// Guessed from the name, because sniffing the content would mean reading files we
 /// have already read and getting a different answer for no benefit: the recipient's
 /// client trusts the extension too.
-fn mime_for(path: &std::path::Path) -> String {
+pub(crate) fn mime_for(path: &std::path::Path) -> String {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
