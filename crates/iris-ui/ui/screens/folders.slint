@@ -285,7 +285,7 @@ export component FolderTree inherits VerticalLayout {
         clip: true;
         Rectangle {
             visible: root.plaque-chemin != "" && root.plaque-chemin == root.selected-path;
-            y: dossiers.viewport-y + root.plaque-y;
+            y: dossiers.content-y + root.plaque-y;
             height: Nav.row-height;
             border-radius: Tokens.radius-medium;
             background: Nav.background(true, false);

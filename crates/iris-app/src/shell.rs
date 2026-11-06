@@ -4304,7 +4304,7 @@ thread_local! {
 /// système) ne veut pas de mouvement.
 pub fn appliquer_mouvement(fenetre: &AppWindow, reglages: &crate::settings::Settings) {
     fenetre
-        .global::<iris_ui::Motion>()
+        .global::<iris_ui::MotionScale>()
         .set_scale(reglages.motion_scale(crate::platform::system_reduces_motion()));
 }
 

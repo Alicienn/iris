@@ -7,9 +7,16 @@
 // Closing is always quicker than opening. Nothing here loops: the only endless
 // animation is the spinner, and it shows work under way.
 
-export global Motion {
-    /// 1: movement as designed. 0: reduced, every duration is nil. Set from the settings.
+/// What the application sets: 1, movement as designed; 0, reduced, every duration nil.
+/// A global of its own, the only one Rust sees: `Motion` holds curves, and a property of
+/// type `easing` cannot be part of the public API (Slint warns and leaves it out).
+export global MotionScale {
     in-out property <float> scale: 1.0;
+}
+
+export global Motion {
+    /// 1: movement as designed. 0: reduced, every duration is nil (`MotionScale`).
+    out property <float> scale: MotionScale.scale;
 
     /// A finger's feedback: a press, a hover.
     out property <duration> tap: 120ms * scale;

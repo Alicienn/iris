@@ -28,6 +28,7 @@ pub mod time;
 use crate::services::Services;
 use iris_mcp::{Args, Handler, Tool, ToolError, ToolResult};
 use serde_json::{json, Value};
+use slint::ComponentHandle;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};

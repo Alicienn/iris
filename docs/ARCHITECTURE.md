@@ -693,7 +693,8 @@ from 840 — and, from the platform, `touch-input`, the safe-area insets and the
 - Reduce effects: `Settings.reduce_effects` (default off, written by `system_changed`)
   or the system's own setting (`platform::system_reduces_motion`: Windows'
   `SPI_GETCLIENTAREAANIMATION`, Android's `animator_duration_scale` through
-  `IrisActivity.reducesMotion`) gives `Motion.scale` 0 (`shell::appliquer_mouvement`):
+  `IrisActivity.reducesMotion`) gives `Motion.scale` 0 (`shell::appliquer_mouvement` sets `MotionScale`, the one global
+  Rust sees: `Motion`'s `easing` curves cannot be public API, 7.13.0):
   every duration becomes 0 ms at once. `Settings::motion_scale` is tested. Only the
   spinner (work under way) still loops.
 - A single sliding plate: the tab bar and the rail (fixed slots, an animated `x`/`y`
