@@ -979,6 +979,8 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       double- and triple-click select a word and a paragraph of a painted body, and a
       drag from off the words starts at the nearest ones; the add-task bar centred
       (7.12.0).
+- [x] **S52.26** The body of the row under the one read laid out ahead while the window
+      is idle, so Delete shows the next mail's content at once (7.12.1).
 - [ ] **S52.5** Left: a sliding plate in the accounts and task lists, closing
       faster than opening, the empty/loading/offline illustrations, Mail and Tasks
       matched to the web edition.

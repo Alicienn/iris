@@ -3,6 +3,11 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.12.1 — 2026-11-06
+
+### Improved
+- Delete shows the next mail's content at once, newsletters included.
+
 ## 7.12.0 — 2026-11-06
 
 ### New

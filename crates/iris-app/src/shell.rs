@@ -1016,6 +1016,7 @@ fn montrer_sans_attendre(fenetre: &AppWindow, fil: i32) {
         fenetre.set_conversation_empty(messages.is_empty());
         remplir_conversation(fenetre, services, renderer.as_ref(), &messages, now());
     });
+    preparer_le_suivant(fenetre);
 }
 
 /// Puts the list's rows in the window. A list that is still the same one (same folder,
@@ -1288,6 +1289,7 @@ pub fn apply_snapshot(
     if !lecture_en_avance {
         remplir_conversation(fenetre, services, renderer, &snapshot.messages, maintenant);
     }
+    preparer_le_suivant(fenetre);
 }
 
 /// The conversation a snapshot selects, as the toolbar and the reader's header say it.
@@ -2028,6 +2030,8 @@ pub fn selected_body_text() -> Option<String> {
 /// Rend tout ce que la lecture a peint : tuiles et peintres. Les mises en page
 /// restent, pour que revenir ne coûte que les tuiles qu'on regarde.
 pub fn release_bodies() {
+    // The one laid out ahead goes whole: it is laid out again when next wanted.
+    EN_AVANCE.with(|e| *e.borrow_mut() = None);
     CORPS.with(|c| {
         for ouvert in c.borrow_mut().values_mut() {
             for i in 0..ouvert.tuiles.row_count() {
@@ -2407,6 +2411,20 @@ fn corps_du_message(
         })
     };
 
+    // Laid out ahead, while the window was idle: taken as it is.
+    let cle = cle_en_avance(message.id.get(), allow_remote, largeur, echelle);
+    let pret = EN_AVANCE.with(|e| {
+        let mut e = e.borrow_mut();
+        if e.as_ref().is_some_and(|(c, _)| *c == cle) {
+            e.take().map(|(_, r)| r)
+        } else {
+            None
+        }
+    });
+    if let Some(pret) = pret {
+        return pret;
+    }
+
     let (html, distant) = match corps_prepare(&services.blobs, message, allow_remote).as_ref() {
         CorpsPret::Apercu => return apercu(),
         CorpsPret::Html(html, distant) => (Arc::clone(html), *distant),
@@ -2417,6 +2435,82 @@ fn corps_du_message(
             tracing::warn!(error = %e, "rendering the body failed");
             apercu()
         })
+}
+
+/// What a layout is for: the message, remote content allowed, the width and the scale.
+type CleEnAvance = (i64, bool, u32, u32);
+
+fn cle_en_avance(message: i64, distant: bool, largeur: f32, echelle: f32) -> CleEnAvance {
+    (message, distant, largeur.to_bits(), echelle.to_bits())
+}
+
+thread_local! {
+    /// The body of the conversation under the one read, laid out ahead: Delete shows
+    /// that one next, and laying it out then (a newsletter takes a few hundred
+    /// milliseconds) left the deleted mail on the right after its row had gone. One
+    /// only, its tiles unpainted until shown.
+    static EN_AVANCE: std::cell::RefCell<Option<(CleEnAvance, iris_htmlview::Rendered)>> =
+        const { std::cell::RefCell::new(None) };
+    /// The conversation whose layout ahead was last asked for.
+    static EN_AVANCE_DEMANDE: std::cell::Cell<i32> = const { std::cell::Cell::new(-1) };
+}
+
+/// Asks for the body of the row under the one read (above it, for the last) to be
+/// laid out once the window has been idle a moment.
+fn preparer_le_suivant(fenetre: &AppWindow) {
+    let choisi = fenetre.get_selected_thread();
+    let lignes = fenetre.get_rows();
+    let Some(i) =
+        (0..lignes.row_count()).find(|i| lignes.row_data(*i).is_some_and(|l| l.id == choisi))
+    else {
+        return;
+    };
+    let Some(suivant) = lignes
+        .row_data(i + 1)
+        .or_else(|| i.checked_sub(1).and_then(|j| lignes.row_data(j)))
+        .map(|l| l.id)
+    else {
+        return;
+    };
+    if EN_AVANCE_DEMANDE.with(|d| d.replace(suivant)) == suivant {
+        return;
+    }
+    let faible = fenetre.as_weak();
+    slint::Timer::single_shot(std::time::Duration::from_millis(150), move || {
+        let Some(fenetre) = faible.upgrade() else {
+            return;
+        };
+        // Another mail read since: its own neighbour is asked for.
+        if fenetre.get_selected_thread() != choisi || fenetre.get_bodies_suspended() {
+            EN_AVANCE_DEMANDE.with(|d| d.set(-1));
+            return;
+        }
+        LECTEUR.with(|l| {
+            let lecteur = l.borrow();
+            let Some((services, renderer)) = lecteur.as_ref() else {
+                return;
+            };
+            let Some(dernier) = services
+                .store
+                .conversation(ThreadId(suivant as i64))
+                .ok()
+                .and_then(|m| m.into_iter().last())
+            else {
+                return;
+            };
+            let montrer = images_shown().contains(&dernier.id.get());
+            let place = (largeur_de_lecture(), fenetre.window().scale_factor());
+            let cle = cle_en_avance(dernier.id.get(), montrer, place.0, place.1);
+            if EN_AVANCE.with(|e| e.borrow().as_ref().is_some_and(|(c, _)| *c == cle)) {
+                return;
+            }
+            // Only the full engine's layout is worth keeping: rich text costs nothing.
+            let rendu = corps_du_message(services, renderer.as_ref(), &dernier, montrer, place);
+            if matches!(rendu, iris_htmlview::Rendered::Document(_)) {
+                EN_AVANCE.with(|e| *e.borrow_mut() = Some((cle, rendu)));
+            }
+        });
+    });
 }
 
 /// A body read and parsed, ready for the engine: everything before the layout.

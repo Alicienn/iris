@@ -879,6 +879,10 @@ These rules come from bugs users hit, and each has a scenario in
   from the store on the window's thread, its body already prepared; a snapshot whose
   selection is not the window's leaves the reading column alone. A delete from a key or
   a button within 200 ms of the last one is a bounce (`suppr_en_double`) and dropped.
+  Since 7.12.1 the body of the row under the one read (above it, for the last) is also
+  laid out ahead by Blitz, 150 ms after the window settles (`preparer_le_suivant`):
+  one document at most (`EN_AVANCE`), its tiles unpainted, keyed by message, remote
+  content, width and scale, taken whole when shown and dropped in the tray.
 - **Bulk changes of whole mailboxes run on an `iris-bulk` thread** (7.12.0). *Mark as
   read* on a mailbox or a folder and *Send all to* are thousands of writes; on the
   view-model's thread every click waited behind them. The thread answers with
