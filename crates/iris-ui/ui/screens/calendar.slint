@@ -101,6 +101,11 @@ component Chip inherits Rectangle {
 export component MiniMonth inherits VerticalLayout {
     in property <string> title;
     in property <[MonthCellData]> cells;
+    /// In the side column: the larger sizes of its rows (days 12.5 px in 25 px, rows of
+    /// 27). The date picker under a field keeps the tight ones: its card is sized to them.
+    in property <bool> roomy;
+    property <length> row-step: root.roomy ? 27px : 24px;
+    property <length> day-plate: root.roomy ? 25px : 22px;
 
     callback day-chosen(string);
     callback navigate(int);
@@ -108,11 +113,11 @@ export component MiniMonth inherits VerticalLayout {
     spacing: 1px;
 
     HorizontalLayout {
-        height: 28px;
+        height: root.roomy ? 30px : 28px;
         padding-left: 6px;
         Text {
             text: root.title;
-            font-size: 12.5px;
+            font-size: root.roomy ? 13.5px : 12.5px;
             font-weight: 600;
             color: Tokens.text;
             vertical-alignment: center;
@@ -122,25 +127,25 @@ export component MiniMonth inherits VerticalLayout {
             y: (parent.height - self.height) / 2;
             icon: Icons.chevron-left;
             label: "Previous month";
-            button-size: 26px;
-            icon-size: 14px;
+            button-size: root.roomy ? 28px : 26px;
+            icon-size: root.roomy ? 15px : 14px;
             clicked => { root.navigate(-1); }
         }
         IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.chevron-right;
             label: "Next month";
-            button-size: 26px;
-            icon-size: 14px;
+            button-size: root.roomy ? 28px : 26px;
+            icon-size: root.roomy ? 15px : 14px;
             clicked => { root.navigate(1); }
         }
     }
 
     HorizontalLayout {
-        height: 22px;
+        height: root.roomy ? 24px : 22px;
         for initiale in ["M", "T", "W", "T", "F", "S", "S"]: Text {
             text: initiale;
-            font-size: 10px;
+            font-size: root.roomy ? 11px : 10px;
             color: Tokens.text-faint;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -148,9 +153,10 @@ export component MiniMonth inherits VerticalLayout {
         }
     }
 
-    // Rows of 24, no gap between days: the week's band runs on unbroken.
+    // Rows of 24 (27 in the side column), no gap between days: the week's band runs on
+    // unbroken.
     for semaine in 6: HorizontalLayout {
-        height: 24px;
+        height: root.row-step;
         spacing: 0px;
         for colonne in 7: Rectangle {
             property <MonthCellData> cell: root.cells[semaine * 7 + colonne];
@@ -160,8 +166,8 @@ export component MiniMonth inherits VerticalLayout {
             border-radius: 0px;
 
             Rectangle {
-                width: min(parent.width, 22px);
-                height: 22px;
+                width: min(parent.width, root.day-plate);
+                height: root.day-plate;
                 border-radius: 6px;
                 background: cell.today ? Tokens.accent
                     : cell.selected ? Tokens.surface-active
@@ -174,7 +180,7 @@ export component MiniMonth inherits VerticalLayout {
 
             Text {
                 text: cell.day;
-                font-size: 11px;
+                font-size: root.roomy ? 12.5px : 11px;
                 font-weight: cell.today || cell.events.length > 0 ? 600 : 400;
                 color: cell.today ? Tokens.accent-text
                     : !cell.in-month ? Tokens.text-faint
@@ -223,7 +229,7 @@ component CalendarRow inherits Rectangle {
     HorizontalLayout {
         padding-left: 8px;
         padding-right: 6px;
-        spacing: 8px;
+        spacing: Nav.row-gap;
 
         // Its colour as a rounded square to tick, as the web edition lists them: filled
         // with the calendar's colour when it shows, a ring when hidden. The row
@@ -231,7 +237,7 @@ component CalendarRow inherits Rectangle {
         Check {
             y: (parent.height - self.height) / 2;
             shape: CheckShape.square;
-            size: 14px;
+            size: Nav.check-size;
             tint: root.cal.color;
             done: root.cal.visible;
             label: root.cal.name;
@@ -249,7 +255,7 @@ component CalendarRow inherits Rectangle {
 
         if root.cal.status != "" && !((root.cal.subscribed || root.cal.remote) && (touch.has-hover || Layout.touch-input)): Text {
             text: root.cal.status;
-            font-size: 11.5px;
+            font-size: Nav.count-size;
             color: root.cal.failed ? Tokens.error : Tokens.text-muted;
             vertical-alignment: center;
             overflow: elide;
@@ -1321,6 +1327,7 @@ export component CalendarView inherits Rectangle {
             visible: Layout.width-class == WidthClass.expanded;
             sidebar-width: Layout.width-class == WidthClass.expanded ? 232px : 0px;
             MiniMonth {
+                roomy: true;
                 title: root.mini-title;
                 cells: root.mini-cells;
                 day-chosen(d) => { root.day-chosen(d); }
@@ -1334,32 +1341,32 @@ export component CalendarView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.calendar;
                     label: "Connect calendars from a server…";
-                    button-size: 20px;
-                    icon-size: 13px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-icon;
                     clicked => { root.connect-requested(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.download;
                     label: "Import an .ics file…";
-                    button-size: 20px;
-                    icon-size: 13px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-icon;
                     clicked => { root.import-requested(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.link;
                     label: "Subscribe to a calendar…";
-                    button-size: 20px;
-                    icon-size: 13px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-icon;
                     clicked => { root.subscribe-requested(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.plus;
                     label: "New calendar";
-                    button-size: 20px;
-                    icon-size: 14px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-plus;
                     clicked => { root.calendar-new(); }
                 }
             }
@@ -1395,7 +1402,7 @@ export component CalendarView inherits Rectangle {
                     padding-left: 8px;
                     // Room for the clock button, when it shows.
                     padding-right: prise.has-hover ? 30px : 8px;
-                    spacing: 8px;
+                    spacing: Nav.row-gap;
                     Rectangle {
                         y: (parent.height - self.height) / 2;
                         width: 9px;
@@ -1413,7 +1420,7 @@ export component CalendarView inherits Rectangle {
                     }
                     Text {
                         text: t.meta;
-                        font-size: 12px;
+                        font-size: Nav.count-size;
                         color: Tokens.text-muted;
                         vertical-alignment: center;
                     }

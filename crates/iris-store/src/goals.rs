@@ -59,6 +59,8 @@ pub struct Goal {
     pub id: i64,
     pub goal: NewGoal,
     pub created_at: Timestamp,
+    /// Put away in the archive: out of the goals, its log and habits kept.
+    pub archived_at: Option<Timestamp>,
 }
 
 /// One logged step of a counted goal.
@@ -94,19 +96,34 @@ fn objectif(r: &Row<'_>) -> rusqlite::Result<Goal> {
             color: r.get(7)?,
         },
         created_at: Timestamp::from_millis(r.get(8)?),
+        archived_at: r.get::<_, Option<i64>>(9)?.map(Timestamp::from_millis),
     })
 }
 
-const COLONNES: &str = "id, title, why, kind, target, unit, due_day, color, created_at";
+const COLONNES: &str =
+    "id, title, why, kind, target, unit, due_day, color, created_at, archived_at";
 
 impl Store {
     /// The goals, in their order: the soonest due first among those of equal rank.
+    /// Not the archived ones.
     pub fn goals(&self) -> Result<Vec<Goal>> {
+        self.goals_where("WHERE archived_at IS NULL ORDER BY position, due_day, id")
+    }
+
+    /// The goals put away in the archive, the last archived first.
+    pub fn archived_goals(&self) -> Result<Vec<Goal>> {
+        self.goals_where("WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, id DESC")
+    }
+
+    /// Every goal, archived or not, in their order.
+    pub fn all_goals(&self) -> Result<Vec<Goal>> {
+        self.goals_where("ORDER BY position, due_day, id")
+    }
+
+    fn goals_where(&self, suite: &str) -> Result<Vec<Goal>> {
         self.with_conn(|c| {
             let mut stmt = c
-                .prepare(&format!(
-                    "SELECT {COLONNES} FROM goals ORDER BY position, due_day, id"
-                ))
+                .prepare(&format!("SELECT {COLONNES} FROM goals {suite}"))
                 .map_err(err("lecture des objectifs"))?;
             let lignes = stmt
                 .query_map([], objectif)
@@ -114,6 +131,33 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(err("lecture des objectifs"));
             lignes
+        })
+    }
+
+    /// Puts a goal away in the archive. Its log, milestones, tasks and habits stay as
+    /// they are; the habits keep counting.
+    pub fn archive_goal(&self, id: i64, now: Timestamp) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE goals SET archived_at = ?2 WHERE id = ?1 AND archived_at IS NULL",
+                params![id, now.millis()],
+            )
+            .map(|_| ())
+            .map_err(err("archivage d'un objectif"))
+        })
+    }
+
+    /// Brings an archived goal back among the goals, last in their order.
+    pub fn unarchive_goal(&self, id: i64) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "UPDATE goals SET archived_at = NULL, \
+                 position = (SELECT COALESCE(MAX(position), 0) + 1 FROM goals) \
+                 WHERE id = ?1 AND archived_at IS NOT NULL",
+                [id],
+            )
+            .map(|_| ())
+            .map_err(err("désarchivage d'un objectif"))
         })
     }
 
@@ -395,6 +439,58 @@ mod tests {
         assert_eq!(reste.task.goal_id, None);
         assert_eq!(reste.task.estimate, Some(45), "the rest of it is kept");
         assert!(s.goal_entries(g).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_archived_goal_leaves_the_goals_and_comes_back() {
+        let s = store();
+        let g = s.create_goal(&candidatures(), t(0)).unwrap();
+        let autre = s.create_goal(&candidatures(), t(1)).unwrap();
+        s.log_goal(g, "Studio Nord", t(2)).unwrap();
+        s.archive_goal(g, t(10)).unwrap();
+
+        let ids = |v: Vec<Goal>| v.iter().map(|g| g.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.goals().unwrap()), [autre]);
+        assert_eq!(ids(s.archived_goals().unwrap()), [g]);
+        assert_eq!(s.all_goals().unwrap().len(), 2);
+        let lu = s.goal(g).unwrap().unwrap();
+        assert_eq!(lu.archived_at, Some(t(10)), "still read by its id");
+        assert_eq!(s.goal_entries(g).unwrap().len(), 1, "its log is kept");
+
+        // Archived twice: the first day stays.
+        s.archive_goal(g, t(20)).unwrap();
+        assert_eq!(s.goal(g).unwrap().unwrap().archived_at, Some(t(10)));
+
+        s.unarchive_goal(g).unwrap();
+        assert_eq!(s.goal(g).unwrap().unwrap().archived_at, None);
+        assert_eq!(
+            ids(s.goals().unwrap()),
+            [autre, g],
+            "back last in the order"
+        );
+        assert!(s.archived_goals().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_habit_of_an_archived_goal_keeps_it() {
+        let s = store();
+        let g = s.create_goal(&candidatures(), t(0)).unwrap();
+        let h = s
+            .create_habit(
+                &crate::NewHabit {
+                    title: "Read".into(),
+                    color: "#000000".into(),
+                    schedule: "daily".into(),
+                    goal_id: Some(g),
+                    ..Default::default()
+                },
+                t(1),
+            )
+            .unwrap();
+        s.archive_goal(g, t(5)).unwrap();
+        let habitude = s.habit(h).unwrap().unwrap();
+        assert_eq!(habitude.habit.goal_id, Some(g), "the link stays");
+        assert_eq!(s.habits().unwrap().len(), 1, "and the habit with it");
     }
 
     #[test]

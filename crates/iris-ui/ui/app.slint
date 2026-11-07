@@ -55,6 +55,7 @@ import {
     TasksMenu
 } from "@iris/screens/tasks.slint";
 import { NewGoalPanel, MakeTimePanel, GoalDeletePanel } from "@iris/screens/goals.slint";
+import { TaskArchivePanel, TaskArchiveDeletePanel } from "@iris/screens/archive.slint";
 import { NewHabitPanel, HabitDeletePanel, HabitsView } from "@iris/screens/habits.slint";
 import {
     EventDetailPanel, EventEditorPanel, SubscribePanel, CalendarContextMenu, EventContextMenu,
@@ -842,6 +843,11 @@ export component AppWindow inherits Window {
     callback folder-selected(string);
     /// A folder's chevron: the folders under it folded away, or back.
     callback folder-fold-toggled(string);
+    /// Mail's left column: the Accounts and Folders sections folded by their titles to
+    /// the chosen row. Told to Rust ("accounts" or "folders", folded) to be remembered.
+    in-out property <bool> mail-accounts-folded;
+    in-out property <bool> mail-folders-folded;
+    callback mail-section-folded(string, bool);
     callback folder-cleared();
     callback new-folder-requested();
     callback folder-dropped(string);
@@ -1577,6 +1583,19 @@ export component AppWindow inherits Window {
     callback task-list-name-confirmed(bool, int, string);
     in-out property <bool> task-list-delete-open;
     callback task-list-delete-confirmed(int);
+    /// The archive: completed tasks cleared from the lists, by day, and archived goals.
+    /// Asked for (Rust fills it, then opens it), restored, deleted for good once
+    /// `task-archive-asked` (key "task" or "goal") was confirmed.
+    in-out property <bool> task-archive-open;
+    in-out property <int> task-archive-tab;
+    in property <[TaskRowData]> task-archive-tasks;
+    in property <[TaskRowData]> task-archive-goals;
+    in-out property <TaskRowData> task-archive-asked;
+    callback task-archive-requested(int);
+    callback task-archive-restore(string, int);
+    callback task-archive-delete(string, int);
+    /// The goal shown is archived (on its page), or comes back.
+    callback goal-archive-requested();
     /// The selected conversation, or the one right-clicked, becomes a task.
     callback thread-to-task(int);
 
@@ -1749,6 +1768,15 @@ export component AppWindow inherits Window {
         }
         if (root.tasks-menu != "") {
             root.tasks-menu = "";
+            return true;
+        }
+        // The question over the archive first, then the archive.
+        if (root.task-archive-asked.key != "") {
+            root.task-archive-asked.key = "";
+            return true;
+        }
+        if (root.task-archive-open) {
+            root.task-archive-open = false;
             return true;
         }
         // A recipient's card first: the message under it stays as it was.
@@ -2216,6 +2244,7 @@ export component AppWindow inherits Window {
         || root.reader-menu != ""
         || root.goal-new-open || root.goal-time-open || root.goal-delete-open
         || root.task-later-open || root.task-slot-open || root.tasks-menu != ""
+        || root.task-archive-open || root.task-archive-asked.key != ""
         || root.habit-new-open || root.habit-delete-open;
 
     // Closing a window hands the keyboard back to the shortcuts. Otherwise it stays
@@ -2716,6 +2745,12 @@ export component AppWindow inherits Window {
                             shortcuts.focus();
                         }
                         tag-fold-toggled(t) => { root.tag-fold-toggled(t); }
+                        accounts-folded: root.mail-accounts-folded;
+                        accounts-fold-toggled => {
+                            root.mail-accounts-folded = !root.mail-accounts-folded;
+                            root.mail-section-folded("accounts", root.mail-accounts-folded);
+                            shortcuts.focus();
+                        }
                         group-toggled => {
                             root.group-by-tags = !root.group-by-tags;
                             root.group-by-tags-changed();
@@ -2762,6 +2797,12 @@ export component AppWindow inherits Window {
                             }
                             folder-fold-toggled(p) => {
                                 root.folder-fold-toggled(p);
+                                shortcuts.focus();
+                            }
+                            folded: root.mail-folders-folded;
+                            fold-toggled => {
+                                root.mail-folders-folded = !root.mail-folders-folded;
+                                root.mail-section-folded("folders", root.mail-folders-folded);
                                 shortcuts.focus();
                             }
                             new-folder => { root.new-folder-requested(); }
@@ -3341,6 +3382,8 @@ export component AppWindow inherits Window {
             milestone-added(t) => { root.milestone-added(t); }
             make-time => { root.goal-time-requested(); }
             goal-delete => { root.goal-delete-open = true; }
+            goal-archive => { root.goal-archive-requested(); }
+            archive-requested(t) => { root.task-archive-requested(t); }
             goal-edit => { root.goal-edit-requested(); }
             goal-renamed(t) => { root.goal-renamed(t); }
             // The title's field closed: the keys go back to the shortcuts.
@@ -3824,10 +3867,36 @@ export component AppWindow inherits Window {
                     shortcuts.focus();
                 } else if (quoi == "delete-goal") {
                     root.goal-delete-open = true;
+                } else if (quoi == "archive-goal") {
+                    root.goal-archive-requested();
+                } else if (quoi == "archive") {
+                    root.task-archive-requested(0);
                 } else if (quoi == "delete-habit") {
                     root.habit-delete-open = true;
                 }
             }
+        }
+
+        // The archive, and the question before deleting from it for good.
+        if root.task-archive-open: TaskArchivePanel {
+            width: 100%;
+            height: 100%;
+            tab <=> root.task-archive-tab;
+            tasks: root.task-archive-tasks;
+            goals: root.task-archive-goals;
+            restore(quoi, id) => { root.task-archive-restore(quoi, id); }
+            delete-asked(r) => { root.task-archive-asked = r; }
+            dismissed => { root.task-archive-open = false; }
+        }
+        if root.task-archive-asked.key != "": TaskArchiveDeletePanel {
+            width: 100%;
+            height: 100%;
+            item: root.task-archive-asked;
+            confirmed => {
+                root.task-archive-delete(root.task-archive-asked.key, root.task-archive-asked.id);
+                root.task-archive-asked.key = "";
+            }
+            dismissed => { root.task-archive-asked.key = ""; }
         }
 
         if root.goal-new-open: NewGoalPanel {
@@ -4616,6 +4685,12 @@ export component AppWindow inherits Window {
                             shortcuts.focus();
                         }
                         tag-fold-toggled(t) => { root.tag-fold-toggled(t); }
+                        accounts-folded: root.mail-accounts-folded;
+                        accounts-fold-toggled => {
+                            root.mail-accounts-folded = !root.mail-accounts-folded;
+                            root.mail-section-folded("accounts", root.mail-accounts-folded);
+                            shortcuts.focus();
+                        }
                         group-toggled => {
                             root.group-by-tags = !root.group-by-tags;
                             root.group-by-tags-changed();
@@ -4662,6 +4737,12 @@ export component AppWindow inherits Window {
                             }
                             folder-fold-toggled(p) => {
                                 root.folder-fold-toggled(p);
+                                shortcuts.focus();
+                            }
+                            folded: root.mail-folders-folded;
+                            fold-toggled => {
+                                root.mail-folders-folded = !root.mail-folders-folded;
+                                root.mail-section-folded("folders", root.mail-folders-folded);
                                 shortcuts.focus();
                             }
                             new-folder => {

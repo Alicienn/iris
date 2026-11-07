@@ -298,7 +298,9 @@ mail_send to write (it waits in the outbox a few seconds, like a click on Send).
 - Calendar: calendar_day, calendar_week or calendar_events for a range; \
 calendar_create_event, calendar_update_event (moving is changing start/end), \
 calendar_delete_event, calendar_set_note; an event's subtasks are tasks with event_id.\n\
-- Tasks: tasks_list, tasks_create, tasks_update, tasks_complete; habits_* and goals_*.\n\
+- Tasks: tasks_list, tasks_create, tasks_update, tasks_complete; habits_* and goals_*. \
+Cleared tasks and archived goals are left out unless include_archived; tasks_recap \
+tells what was done over a period.\n\
 - Notes: notes_spaces, then notes_tree, notes_read, notes_write, notes_edit. Read \
 notes_syntax before writing a note: Iris has its own marks, callouts, embeds and \
 charts. Spreadsheets: sheets_read, sheets_write, sheets_add_chart.\n\

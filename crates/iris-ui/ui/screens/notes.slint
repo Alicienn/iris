@@ -630,7 +630,7 @@ component TreeRow inherits Rectangle {
                 root.pulled = false;
                 return;
             }
-            if (root.folder && self.mouse-x < 6px + root.item.depth * 14px + 18px) {
+            if (root.folder && self.mouse-x < 6px + root.item.depth * 16px + 19px) {
                 root.toggled(root.item.key);
             } else {
                 root.clicked(root.item.key);
@@ -642,16 +642,16 @@ component TreeRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 6px + root.item.depth * 14px;
+        padding-left: 6px + root.item.depth * 16px;
         padding-right: 6px;
-        spacing: 5px;
+        spacing: 6px;
 
         // The chevron of a folder; the room it takes, kept for a file, so names line up.
         Rectangle {
-            width: 14px;
+            width: 16px;
             if root.folder && root.item.has-children: Icon {
                 data: root.item.expanded ? Icons.chevron-down : Icons.chevron-right;
-                size: 11px;
+                size: 12px;
                 weight: 2.2;
                 tint: Nav.count-ink(root.item.selected);
             }
@@ -663,7 +663,7 @@ component TreeRow inherits Rectangle {
                 : root.item.kind == 2 ? Icons.table
                 : root.item.kind == 3 ? Icons.image
                 : Icons.paperclip;
-            size: 15px;
+            size: Nav.icon-size;
             tint: Nav.icon-ink(root.item.selected,
                 root.item.color.alpha > 0 ? root.item.color
                 : root.item.kind == 0 ? Tokens.accent : Tokens.text-muted);
@@ -1906,7 +1906,7 @@ export component NotesView inherits Rectangle {
                 : Layout.width-class == WidthClass.expanded ? 232px : 0px;
             // The space: its colour and name; a click lists the others.
             Rectangle {
-                height: 34px;
+                height: 38px;
                 border-radius: Tokens.radius-small;
                 background: choix.has-hover && !Layout.touch-input ? Tokens.surface-hover : transparent;
                 accessible-role: button;
@@ -1925,7 +1925,7 @@ export component NotesView inherits Rectangle {
                     }
                     Text {
                         text: root.space >= 0 && root.space < root.spaces.length ? root.spaces[root.space].name : "";
-                        font-size: 14px;
+                        font-size: 15px;
                         font-weight: 600;
                         color: Tokens.text;
                         vertical-alignment: center;
@@ -1946,7 +1946,8 @@ export component NotesView inherits Rectangle {
 
             Rectangle { height: 6px; }
             TextField {
-                height: 28px;
+                height: 32px;
+                font-size: 13.5px;
                 icon: Icons.search;
                 placeholder-text: "Filter";
                 text <=> root.filter;
@@ -1959,16 +1960,16 @@ export component NotesView inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.folder;
                     label: "New folder";
-                    button-size: 20px;
-                    icon-size: 13px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-icon;
                     clicked => { root.new-folder(); }
                 }
                 IconButton {
                     y: (parent.height - self.height) / 2;
                     icon: Icons.table;
                     label: "New spreadsheet";
-                    button-size: 20px;
-                    icon-size: 13px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-icon;
                     clicked => { root.new-sheet(); }
                 }
                 IconButton {
@@ -1976,8 +1977,8 @@ export component NotesView inherits Rectangle {
                     icon: Icons.plus;
                     label: "New note";
                     shortcut: "Ctrl+N";
-                    button-size: 20px;
-                    icon-size: 14px;
+                    button-size: Nav.section-button;
+                    icon-size: Nav.section-plus;
                     clicked => { root.new-note(); }
                 }
             }

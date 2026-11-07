@@ -81,7 +81,7 @@ impl Kind {
 }
 
 /// A chart of a workbook.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Chart {
     pub name: String,
     pub kind: Kind,
@@ -93,6 +93,9 @@ pub struct Chart {
     pub groups: Vec<u32>,
     /// The columns of numbers added up; none, and the rows are counted.
     pub values: Vec<u32>,
+    /// Where its card was put on the charts' canvas (its top left corner, in the
+    /// canvas's pixels at 100 %); none: placed after the others.
+    pub at: Option<(f32, f32)>,
 }
 
 impl Chart {
@@ -624,6 +627,7 @@ pub fn guess(book: &Workbook, values: &Values, sheet: usize, sel: crate::cell::R
             header,
             groups: Vec::new(),
             values: Vec::new(),
+            at: None,
         },
         groups[0],
         &Locale::english(),
@@ -650,6 +654,7 @@ pub fn guess(book: &Workbook, values: &Values, sheet: usize, sel: crate::cell::R
         header,
         groups,
         values: valeurs,
+        at: None,
     };
     chart.fit();
     chart
@@ -700,6 +705,7 @@ mod tests {
             header: 0,
             groups,
             values,
+            at: None,
         }
     }
 

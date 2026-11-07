@@ -15,8 +15,27 @@ import { Check, CheckShape } from "@iris/controls/choice.slint";
 export global Nav {
     /// A row of every side column, as Apple's source lists have them.
     // On a phone, the mockups' sheet rows: a finger's height, larger words.
-    out property <length> row-height: Layout.compact ? 46px : 28px;
-    out property <length> label-size: Layout.compact ? 15.5px : 13px;
+    out property <length> row-height: Layout.compact ? 46px : 32px;
+    out property <length> label-size: Layout.compact ? 15.5px : 14px;
+    /// What leads a row (a view's, a folder's icon), the room between a row's parts,
+    /// and its count.
+    out property <length> icon-size: 17px;
+    out property <length> row-gap: 9px;
+    out property <length> count-size: 12.5px;
+    /// A mailbox's, a to-plan task's dot; a calendar's square check.
+    out property <length> dot-size: 9px;
+    out property <length> check-size: 15px;
+
+    /// A section's title row (`SectionRow`): the title a real label, 13 px and darker
+    /// than the counts, its buttons a pointer's size.
+    out property <length> title-size: 13px;
+    out property <length> section-height: 36px;
+    out property <length> section-button: 26px;
+    out property <length> section-icon: 16px;
+    out property <length> section-plus: 17px;
+    /// The fold chevron before a section's title, and the room it is drawn in.
+    out property <length> fold-size: 12px;
+    out property <length> fold-room: 18px;
 
     /// On a phone, the mockups' sheet: the chosen row a grey plate, its words as they
     /// are (and bold), not the accent with white words.
@@ -42,28 +61,88 @@ export global Nav {
     }
 }
 
-/// The title over a group of rows: Favourites, Calendars, My Lists. Sentence case,
-/// small and grey, as a source list titles its sections.
+/// The title over a group of rows: Favourites, Calendars, My lists. Sentence case, a
+/// real label (13 px, the secondary ink), not a whisper over the rows.
 export component SectionTitle inherits Text {
-    font-size: 11px;
+    font-size: Nav.title-size;
     font-weight: 600;
-    color: Tokens.text-muted;
+    color: Tokens.text-secondary;
     vertical-alignment: center;
+    overflow: elide;
 }
 
-/// A section's title row, the same in every side column: 12 px above, 4 below, the
-/// rows' 8 px inset; what acts on the section (add, group) follows at the right.
+/// A section's title that folds the section: a click on it (the chevron before the
+/// words, the words, the room up to what acts on the section) folds the rows under it,
+/// or brings them back. The column decides what stays shown folded (the chosen row). No
+/// focus taken: the click reaches it at once, and the column hands the keyboard back.
+export component SectionFold inherits Rectangle {
+    in property <string> text;
+    in property <bool> folded;
+    callback toggled();
+
+    accessible-role: button;
+    accessible-label: (root.folded ? "Unfold " : "Fold ") + root.text;
+    accessible-action-default => { root.toggled(); }
+
+    HorizontalLayout {
+        spacing: 2px;
+        // Before the title, in a room of its own: the titles of a column line up
+        // whether or not their section folds (`SectionRow.chevron-room`).
+        // Centred by its box, not by `y`: the row's layout may have a top padding.
+        Rectangle {
+            width: Nav.fold-room;
+            Icon {
+                data: root.folded ? Icons.chevron-right : Icons.chevron-down;
+                size: Nav.fold-size;
+                weight: 2;
+                tint: plier.has-hover && !Layout.touch-input ? Tokens.text-secondary : Tokens.text-muted;
+            }
+        }
+        SectionTitle {
+            text: root.text;
+            color: plier.has-hover && !Layout.touch-input ? Tokens.text : Tokens.text-secondary;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+    }
+
+    plier := TouchArea {
+        clicked => { root.toggled(); }
+    }
+}
+
+/// A section's title row, the same in every side column: 36 px, 10 of them above, the
+/// rest the height of its buttons (`Nav.section-button`, which the column gives the
+/// buttons it puts here); what acts on the section (find, group, add) follows at the
+/// right. `foldable`, a chevron leads the title and folds the section (`SectionFold`).
+/// `chevron-room`, a title that does not fold keeps that room, so that it lines up with
+/// the ones that do in the same column (the mail's Favourites over its Accounts);
+/// otherwise it sits on the rows' 8 px inset.
 export component SectionRow inherits HorizontalLayout {
     in property <string> text;
-    height: 31px;
-    padding-top: 12px;
-    padding-bottom: 4px;
-    padding-left: 8px;
+    in property <bool> foldable;
+    in property <bool> folded;
+    in property <bool> chevron-room;
+    callback toggled();
+    height: Nav.section-height;
+    padding-top: Nav.section-height - Nav.section-button;
+    padding-bottom: 0px;
+    padding-left: root.foldable || root.chevron-room ? 2px : 8px;
     spacing: 2px;
     vertical-stretch: 0;
-    SectionTitle {
+    if root.chevron-room && !root.foldable: Rectangle {
+        width: Nav.fold-room;
+    }
+    if !root.foldable: SectionTitle {
         text: root.text;
         horizontal-stretch: 1;
+    }
+    if root.foldable: SectionFold {
+        text: root.text;
+        folded: root.folded;
+        horizontal-stretch: 1;
+        toggled => { root.toggled(); }
     }
     @children
 }
@@ -121,7 +200,7 @@ export component NavItem inherits Rectangle {
     HorizontalLayout {
         padding-left: root.compact ? 0px : root.nested ? 26px : root.group ? 4px : 8px;
         padding-right: 8px;
-        spacing: 8px;
+        spacing: Nav.row-gap;
         alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
 
         if root.group && !root.compact: Rectangle {
@@ -142,18 +221,18 @@ export component NavItem inherits Rectangle {
         if root.icon != "": Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon;
-            size: 16px;
+            size: Nav.icon-size;
             tint: Nav.icon-ink(root.selected, root.icon-tint);
         }
         if root.has-dot && !root.has-check: Dot {
             y: (parent.height - self.height) / 2;
             tint: root.dot;
-            size: 8px;
+            size: Nav.dot-size;
         }
         if root.has-check: Check {
             y: (parent.height - self.height) / 2;
             shape: CheckShape.square;
-            size: 14px;
+            size: Nav.check-size;
             tint: root.dot;
             done: root.checked;
             label: root.label;
@@ -174,7 +253,7 @@ export component NavItem inherits Rectangle {
         @children
         if !root.compact && root.count != "": Text {
             text: root.count;
-            font-size: 12px;
+            font-size: Nav.count-size;
             color: Nav.count-ink(root.selected);
             vertical-alignment: center;
         }

@@ -148,6 +148,8 @@ the Android Keystore holds.
   under the field.
 - **Folders** are one name across your mailboxes, made on all of them or the ones you
   tick.
+- **Accounts** and **Folders** fold by their titles, each on its own, down to the one
+  you are in; the other takes the room. Iris remembers it.
 - **Tags** group your mailboxes (*Clients*, *Personal*…); click one to see its mail
   only.
 - **All at once**: right-click a mailbox, a tag's title or a folder for **Mark all as
@@ -208,6 +210,8 @@ the message, event, task or habit it is about, even when Iris was closed.
 Keys: `N` new, `J` / `K` move, `Space` done, `D` due date, `L` later, `Delete`.
 Right-click a task to delete it or mark it done. **Clear** puts the completed tasks in
 an archive: they leave the list but still count in the statistics.
+The **Archive** (the box icon beside New task) shows them by the day they were done,
+with the goals you archived from their page: restore one, or delete it for good.
 
 ## Notes
 
@@ -237,6 +241,9 @@ them; an Obsidian vault opens as it is.
   columns naming each other (`Income → Net`, `Net → Rent`) chain their bands. **Copy
   for a note** gives `![[Budget.sheet#Spending]]`, shown in any note and following the
   sheet; `/chart` offers them too.
+  A workbook's charts share one canvas: drag the background to move around, `Ctrl` and
+  the wheel (or −, +) to zoom, **Fit** to frame them all, and drag a chart's card to
+  arrange it. The settings column folds away with the button at its top.
 - **Flashcards** (`Question :: Answer`), revised with spaced repetition.
 - **Tabs**, each back where you left it, a note **beside** another (`Ctrl`+`\`),
   reading mode (`Ctrl`+`R`), focus mode (`F11`), version history.

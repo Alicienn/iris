@@ -15,7 +15,7 @@ pub struct Migration {
 }
 
 /// Version courante du schéma.
-pub const CURRENT_VERSION: i64 = 33;
+pub const CURRENT_VERSION: i64 = 34;
 
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -187,7 +187,37 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "events of a subscribed calendar deleted or moved here",
         sql: SCHEMA_V33,
     },
+    Migration {
+        version: 34,
+        name: "goals are archived",
+        // Built at run time: `schema_v34`.
+        sql: "",
+    },
 ];
+
+/// A goal put away is archived: out of the goals, its log, tasks and habits kept. The
+/// column travels, so the sync triggers of `goals` are made again to watch it, as
+/// migration 32 did for the tasks.
+fn schema_v34(conn: &Connection) -> Result<String> {
+    let table = crate::sync::synced("goals").expect("goals travel");
+    let mut s = conn
+        .prepare("PRAGMA table_info(goals)")
+        .map_err(|e| Error::store(format!("migration 34: {e}")))?;
+    let mut colonnes = s
+        .query_map([], |r| r.get::<_, String>(1))
+        .and_then(|v| v.collect::<rusqlite::Result<Vec<_>>>())
+        .map_err(|e| Error::store(format!("migration 34: {e}")))?;
+    colonnes.push("archived_at".into());
+    let mut sql = String::from(
+        "ALTER TABLE goals ADD COLUMN archived_at INTEGER;
+DROP TRIGGER goals_sync_insert;
+DROP TRIGGER goals_sync_update;
+DROP TRIGGER goals_sync_delete;
+",
+    );
+    sql.push_str(&crate::sync::triggers_for(table, &colonnes));
+    Ok(sql)
+}
 
 /// A subscribed calendar is read again from its link and replaced whole: what one
 /// deleted or moved there is kept here and laid over each reading. `source_start` and
@@ -1279,6 +1309,9 @@ pub fn migrate(conn: &Connection) -> Result<i64> {
         } else if m.version == 32 {
             built = schema_v32(conn)?;
             built.as_str()
+        } else if m.version == 34 {
+            built = schema_v34(conn)?;
+            built.as_str()
         } else {
             m.sql
         };
@@ -1473,6 +1506,25 @@ mod tests {
              UPDATE goals SET title = 'Run far' WHERE title = 'Run';",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn archiving_a_goal_is_a_change_that_travels() {
+        let c = conn();
+        migrate(&c).unwrap();
+        c.execute(
+            "INSERT INTO goals (title, due_day, color, created_at) VALUES ('Run', '2026-12-31', '#000', 0)",
+            [],
+        )
+        .unwrap();
+        let avant: String = c
+            .query_row("SELECT sync_at FROM goals", [], |r| r.get(0))
+            .unwrap();
+        c.execute("UPDATE goals SET archived_at = 5", []).unwrap();
+        let apres: String = c
+            .query_row("SELECT sync_at FROM goals", [], |r| r.get(0))
+            .unwrap();
+        assert!(apres > avant, "{avant} then {apres}");
     }
 
     #[test]

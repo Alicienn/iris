@@ -751,6 +751,36 @@ mod tests {
     }
 
     #[test]
+    fn a_goal_archived_on_one_device_is_archived_on_the_other() {
+        let (a, b) = (Store::in_memory().unwrap(), Store::in_memory().unwrap());
+        let g = a
+            .create_goal(
+                &crate::NewGoal {
+                    title: "Run".into(),
+                    due_day: "2026-12-31".into(),
+                    color: "#000000".into(),
+                    ..Default::default()
+                },
+                iris_types::Timestamp::from_millis(0),
+            )
+            .unwrap();
+        envoyer(&a, &b);
+        assert_eq!(b.goals().unwrap().len(), 1);
+        a.archive_goal(g, iris_types::Timestamp::from_millis(9))
+            .unwrap();
+        envoyer(&a, &b);
+        assert!(b.goals().unwrap().is_empty());
+        assert_eq!(
+            b.archived_goals().unwrap()[0].archived_at,
+            Some(iris_types::Timestamp::from_millis(9))
+        );
+        // And back.
+        a.unarchive_goal(g).unwrap();
+        envoyer(&a, &b);
+        assert_eq!(b.goals().unwrap().len(), 1);
+    }
+
+    #[test]
     fn a_task_made_on_one_device_appears_on_the_other_with_its_list() {
         let (a, b) = (Store::in_memory().unwrap(), Store::in_memory().unwrap());
         sql(

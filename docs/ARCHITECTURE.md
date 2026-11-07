@@ -333,6 +333,11 @@ The window chrome lives in `shell/chrome.slint`:
   maximum height and the row of columns cut the window to it.
 - The mail's folder column hides the subfolders of a folded folder
   (`folders::visible`); the folded paths are the setting `folded_folders`.
+- The mail's Accounts and Folders sections fold by their titles (`SectionFold` in
+  `lists/nav.slint`, or `SectionRow { foldable }`), remembered in the setting
+  `mail_folded_sections`. Folded, a section keeps only its chosen row: the lists cannot
+  be searched from Slint, so unseen, sizeless rows of the model report it (`trouve`),
+  and a stretch takes the list's place so the column keeps no maximum height.
 - `WindowToolbar` is the 52 px bar over a place's content: it moves the window
   (double click maximises), holds the place's actions, and ends on Windows' three
   buttons unless the Mac's lights are chosen (*Settings › Window buttons*,
@@ -389,7 +394,7 @@ same wherever it lives. A layer only imports the ones above it in this list:
 | `theme/` | `Tokens` (colours, sizes, radii, fonts), `Type` (the named text styles and tones) |
 | `base/` | icons, surfaces (`Glass`, `Floating`, `Backdrop`, flat since 3.0.0), spinner, and the atoms: `Label`, `Dot`, `Kbd`, `Hairline`, `Avatar` |
 | `controls/` | `Button` (primary, secondary, ghost, danger; two sizes; its key), `Link`, `Segmented`, `QueueTabs`, `Pill`, `Check`, `Toggle`, `PriorityTag`, the text fields, and `pickers.slint`: `CheckBox`, `ComboBox` (a pop-up button) and `SpinBox` with the standard widgets' API, so no screen uses the style's Fluent ones (4.0.0) |
-| `lists/` | `NavItem`, `SectionTitle` and `SectionRow` (the side columns, one title row for all), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
+| `lists/` | `NavItem`, `SectionTitle`, `SectionFold` and `SectionRow` (the side columns, one title row for all, foldable), `SectionHeader`, `ListRow`, `TimeRow`, `NowLine`, `PropertyRow` |
 | `layout/` | `Rail`, `PageHeader`, `Plate`, `DetailPanel`, `Toolbar`, `EmptyState`, `Modal` + `ModalFooter`, `Popover`, menus |
 | `shell/` | the window chrome (`Chrome`, `SidebarFrame`, `WindowToolbar`), toast |
 | `screens/` | one file per screen, and its panels |
@@ -564,7 +569,13 @@ them, so the list keeps its scroll; `Escape` brings them back.
 
 The three side columns share `lists/nav.slint`: one selection (the active surface and a
 bold label, as on the web; the pill inside the edge went in 3.1.0), one hover, one
-section title in sentence case. Rows are 30 px everywhere. Panels docked to the
+section title in sentence case. The sizes are the `Nav` global's (the side columns'
+"clear labels"): rows 32 px with a 14 px label, a 17 px icon and a 12.5 px
+count (46 px and 15.5 px on a phone); a section's title row (`SectionRow`) 36 px, its
+title 13 px / 600 in the secondary ink, its buttons 26 px (icons 16, "+" 17), and a
+12 px fold chevron before the title (`SectionFold`). A title that does not fold keeps
+the chevron's room where its column has some that do (`chevron-room`). The mail's
+Folders title is a `SectionRow` like every other. Panels docked to the
 window's edge are square, with a hairline between them; only floating cards are rounded.
 
 ### One interface at every width (6.3.0)
@@ -1051,7 +1062,15 @@ whether a task belongs to a view, for the open tasks and the completed ones alik
 task checked from Today stays there struck through until the completed are cleared.
 Clearing archives them (`tasks.archived_at`, migration 32, travelling like the rest of
 the row): `shown_done_tasks` leaves them out, while `done_tasks`, which the statistics
-read, keeps them (7.10.0). A
+read, keeps them (7.10.0). The **Archive** (7.14.0) shows them: a modal
+(`screens/archive.slint`, `TaskArchivePanel`, in `modal-open` and `close-top`), opened
+from the archive icon of the Tasks toolbar, the *Archive* link of the goals' page or a
+phone's ⋯, with a Tasks / Goals switch. Its tasks are `Store::archived_tasks` under the
+local day they were done, newest first (`lignes_archivees`); *Restore* clears
+`archived_at` (`unarchive_task`: back in its list, still done), the bin deletes for
+good after a question (`TaskArchiveDeletePanel`). Unticking a task clears its
+`archived_at` too (`set_task_done`). A modal rather than a view: nothing to go back to,
+so `navigated` and `Place::after` stay as they were. A
 task made from a conversation keeps the thread's identifier *and* a "Sender: Subject"
 line, so it outlives the thread; there is at most one task per thread. Reminders use the
 same 30-second timer pattern as the calendar, with the due-reminder state stored in the
@@ -1212,6 +1231,18 @@ or deleting rows and columns, renaming or deleting a sheet carry the charts alon
 after `#` is a chart's name when it is not a range; the file found by its path, else by
 its name anywhere in the space), laid out from the file each time the block is.
 
+**The charts' canvas** (7.14.0). A chart tab opens every chart of the workbook on one
+canvas, each on a card (`ChartCanvas`, `ChartCard` in `sheet.slint`; `notes/sheet.rs`
+lays the cards out). Zoom (10–800 %, around the pointer) and pan scale and move the
+geometry itself: `transform-scale` does not reach paths in the software renderer. The
+renderer allocates a coverage mask the size of each `Path`'s whole box, so a chart at
+800 % would cost tens of megabytes a shape: `controls/chart.slint` cuts every path to
+the part in view (`view-x/y/width/height`, a view box for that part, strokes widened by
+half their width), and no path is rasterised larger than the canvas. A card moved by
+hand keeps its place in the file (`"at": [x, y]`, 100 % pixels, absent until moved);
+cards never moved stand in two columns under the moved ones. The settings column is
+300 px and folds (`sheet_chart_panel_folded`, this device's).
+
 **Blocks and cells selected** (4.20.0, drawn by the editor since 4.21.0). A selection
 running over several blocks makes Alt and an arrow, Tab and Ctrl+D act on those blocks
 whole (`notes/blocs.rs`, pure functions of `iris_notes::edit`: `move_blocks`,
@@ -1317,6 +1348,16 @@ A goal's page is the tasks' own view (`Vue::Goal`, steps, the add bar, a step's
 details), and the goals are a section of the Tasks column (6.1.0): its title is the
 place `"goals"`, each row `goal:{id}`, recorded by Back and forward as tasks places.
 Home, a habit's goal and Today's nudges open them through `tasks::open`.
+
+A goal is archived from its page or a phone's ⋯ (7.14.0, `goals.archived_at`,
+migration 34, travelling with the row): `Store::goals` leaves it out (the column, the
+overview, Home, the pickers), `archived_goals` lists it in the Archive's Goals tab,
+`unarchive_goal` puts it back last in the order, and `all_goals` is what still names
+it — a task's or a habit's goal, the assistant's `include_archived`. Its log,
+milestones, tasks and habits are untouched: a habit keeps counting and keeps its link
+(the habit window, which offers only goals not archived, leaves such a link alone). A
+goal's page whose goal was archived, here or on another device, gives way to all the
+goals.
 
 **The compass** (5.0.0, removed in 6.0.0). Areas of life, monthly scores, cycles and
 the vision were dropped from the interface in 6.0.0; the store's code for them
@@ -1720,6 +1761,7 @@ which keeps that term off any index, and a test pins the plan
 | 31 | `thread_states`, synced: a conversation's queue and snooze by mailbox address and the newest message's `Message-ID`; filled once from the threads not in To do or snoozed (clocks before every real one, Done above Waiting), every `sync_peers.last_clock` emptied again (7.9.0). Migrations 28 and 30 skip it (`sync::synced_until_v30`) |
 | 32 | `tasks.archived_at`: *Clear* archives the completed tasks instead of deleting them; the synced table's triggers made again so the column travels (7.10.0). Built at runtime (`schema_v32`) |
 | 33 | `subscription_edits`, local: what was deleted or changed here of a subscribed calendar's events, laid over each reading of its link (7.10.0) |
+| 34 | `goals.archived_at`: a goal is archived rather than only deleted; the synced table's triggers made again so the column travels, as 32 did for tasks (7.14.0). Built at runtime (`schema_v34`) |
 
 A new table or column always arrives as a new migration.
 
@@ -2014,7 +2056,11 @@ per line. The tools are answered by the Iris that is running, not by that proces
 - **The tools**, by place (`mcp/mail.rs`, `calendar.rs`, `tasks.rs`, `notes.rs`), with
   `iris_overview` for the day. Times are local ISO 8601 both ways (`mcp/time.rs`).
   `notes_syntax` returns the notes' whole syntax, written from the parser, so an AI
-  writes notes Iris renders.
+  writes notes Iris renders. `tasks_recap` (read, 7.14.0) is what was done over a
+  period: tasks completed by day and list (archived ones included), goals reached,
+  archived and logged, milestones ticked, each habit's days and streaks; nothing in
+  the app shows it. `goals_archive` archives or restores a goal; `goals_list` and
+  `tasks_list` leave the archived out unless `include_archived`.
 - Not on Android (`#[cfg(not(target_os = "android"))]`): the module, the bridge and the
   settings' rows (`mcp-available`).
 

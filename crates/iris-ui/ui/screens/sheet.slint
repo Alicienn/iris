@@ -5,7 +5,7 @@ import { TextField } from "@iris/controls/field.slint";
 import { FormatBar } from "@iris/controls/formatbar.slint";
 import { ScrollView } from "@iris/controls/scroll.slint";
 import { MenuEntry, MenuHeader, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
-import { SheetCellData, SheetHeaderData, ChartData } from "@iris/types.slint";
+import { SheetCellData, SheetHeaderData, ChartCardData } from "@iris/types.slint";
 import { Chart } from "@iris/controls/chart.slint";
 import { Segmented } from "@iris/controls/choice.slint";
 import { Button, Link, ButtonKind, ButtonSize } from "@iris/controls/button.slint";
@@ -77,11 +77,26 @@ export global SheetGrid {
     in-out property <length> menu-x;
     in-out property <length> menu-y;
 
-    // The workbook's charts, by name, after its sheets; the one shown instead of the
-    // grid (−1: the grid).
+    // The workbook's charts, by name, after its sheets; the one chosen (−1: the grid
+    // shows). A chart chosen shows the canvas of all of them, each on its card, the
+    // settings column editing the chosen one.
     in property <[string]> charts;
     in property <int> chart: -1;
-    in property <ChartData> chart-data;
+    /// The cards, in the charts' order, and the box around them all (canvas pixels).
+    in property <[ChartCardData]> chart-cards;
+    in property <float> chart-bounds-x;
+    in property <float> chart-bounds-y;
+    in property <float> chart-bounds-width;
+    in property <float> chart-bounds-height;
+    /// Raised by Rust: the canvas frames all the cards (a chart added), or the chosen
+    /// one (its tab clicked).
+    in property <int> chart-fit-serial;
+    in property <int> chart-focus-serial;
+    /// The settings column folded away; remembered in the settings.
+    in-out property <bool> chart-panel-folded;
+    callback chart-panel-toggled(bool);
+    /// A card dropped elsewhere on the canvas: its chart, its new top left corner.
+    callback chart-moved(int, float, float);
     in property <int> chart-kind;
     /// The columns it reads: of categories, then of numbers ("B · Status").
     in property <[string]> chart-groups;
@@ -228,14 +243,26 @@ component ChartSettings inherits VerticalLayout {
     alignment: start;
 
     Text {
+        text: SheetGrid.chart >= 0 && SheetGrid.chart < SheetGrid.charts.length ? SheetGrid.charts[SheetGrid.chart] : "";
+        font-family: Tokens.font-display;
+        font-size: 16px;
+        font-weight: 600;
+        color: Tokens.text;
+        overflow: elide;
+    }
+    Rectangle { height: 2px; }
+    Text {
         text: "Kind";
         font-size: 13px;
         font-weight: 600;
         color: Tokens.text;
     }
+    // Five words in a column 264 pixels wide: the segments' room narrowed so "Line"
+    // stays on the plate, even with the text made larger.
     Segmented {
         options: ["Flow", "Bars", "Columns", "Donut", "Line"];
         selected: SheetGrid.chart-kind;
+        segment-padding: 12px;
         chosen(i) => { SheetGrid.action("chart-kind:" + i); }
     }
 
@@ -325,65 +352,6 @@ component ChartSettings inherits VerticalLayout {
     }
 }
 
-// A chart shown instead of the grid: the drawing in its room, its settings in a column
-// docked on the right (under it on a phone).
-component ChartPane inherits Rectangle {
-    callback menu(string, length, length);
-    background: Tokens.surface;
-
-    HorizontalLayout {
-        defile := ScrollView {
-            horizontal-stretch: 1;
-            content-width: self.visible-width;
-            content-height: page.preferred-height;
-            page := VerticalLayout {
-                width: defile.visible-width;
-                padding: Layout.compact ? 16px : 32px;
-                spacing: 18px;
-                alignment: start;
-                Text {
-                    text: SheetGrid.chart >= 0 && SheetGrid.chart < SheetGrid.charts.length ? SheetGrid.charts[SheetGrid.chart] : "";
-                    font-family: Tokens.font-display;
-                    font-size: 20px;
-                    font-weight: 600;
-                    color: Tokens.text;
-                    overflow: elide;
-                }
-                if SheetGrid.chart-data.message != "": Text {
-                    text: SheetGrid.chart-data.message;
-                    font-size: 13px;
-                    color: Tokens.text-muted;
-                    wrap: word-wrap;
-                }
-                if SheetGrid.chart-data.message == "": HorizontalLayout {
-                    alignment: center;
-                    Chart {
-                        width: min(860px, page.width - (Layout.compact ? 32px : 64px));
-                        data: SheetGrid.chart-data;
-                    }
-                }
-                if Layout.compact: ChartSettings {
-                    menu(k, x, y) => { root.menu(k, x, y); }
-                }
-            }
-        }
-        if !Layout.compact: Rectangle {
-            width: 1px;
-            background: Tokens.border;
-        }
-        if !Layout.compact: Rectangle {
-            width: 280px;
-            background: Tokens.surface-low;
-            VerticalLayout {
-                padding: 18px;
-                ChartSettings {
-                    menu(k, x, y) => { root.menu(k, x, y); }
-                }
-            }
-        }
-    }
-}
-
 component Separator inherits Rectangle {
     width: 9px;
     Rectangle {
@@ -392,6 +360,401 @@ component Separator inherits Rectangle {
         width: 1px;
         height: parent.height - 14px;
         background: Tokens.border;
+    }
+}
+
+// A chart's card on the canvas: its name, its drawing, a frame in the accent when it is
+// the chosen one. Carried, it moves; dropped, Rust keeps its place. Its measures are in
+// the canvas's pixels at 100 % and scaled by the zoom: 24 around, a title 28 high, 12
+// under it (Rust lays the cards out with the same, `CARTE_*` in notes/sheet.rs).
+component ChartCard inherits Rectangle {
+    in property <ChartCardData> card;
+    in property <float> zoom: 1;
+    /// Where it stands at its place, in the canvas (before it is carried).
+    in property <length> place-x;
+    in property <length> place-y;
+    /// The canvas's size: the part of the drawing that shows.
+    in property <length> room-width;
+    in property <length> room-height;
+    callback menu(length, length);
+    /// The wheel over it: the event and where, in the canvas.
+    callback scrolled(PointerScrollEvent, length, length);
+
+    property <length> u: root.zoom * 1px;
+    property <bool> chosen: root.card.index == SheetGrid.chart;
+    property <length> drag-x;
+    property <length> drag-y;
+    property <bool> carried;
+
+    x: root.place-x + root.drag-x;
+    y: root.place-y + root.drag-y;
+    width: root.card.width * root.u;
+    height: root.card.height * root.u;
+    border-radius: max(2px, 12 * root.u);
+    background: Tokens.surface;
+    border-width: root.chosen ? 2px : 1px;
+    border-color: root.chosen ? Tokens.accent : Tokens.border;
+    accessible-role: button;
+    accessible-label: root.card.name;
+    accessible-item-selected: root.chosen;
+    accessible-action-default => { SheetGrid.action("chart-select:" + root.card.index); }
+
+    Text {
+        x: 24 * root.u;
+        y: 24 * root.u;
+        width: parent.width - 48 * root.u;
+        height: 28 * root.u;
+        text: root.card.name;
+        font-family: Tokens.font-display;
+        font-size: 18 * root.u;
+        font-weight: 600;
+        color: Tokens.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.card.data.message != "": Text {
+        x: 24 * root.u;
+        y: 64 * root.u;
+        width: parent.width - 48 * root.u;
+        text: root.card.data.message;
+        font-size: 13 * root.u;
+        color: Tokens.text-muted;
+        wrap: word-wrap;
+    }
+    Chart {
+        x: 24 * root.u;
+        y: 64 * root.u;
+        width: parent.width - 48 * root.u;
+        data: root.card.data;
+        min-font-size: 0px;
+        // Only what shows in the canvas is drawn.
+        view-x: -(root.x + self.x);
+        view-y: -(root.y + self.y);
+        view-width: root.room-width;
+        view-height: root.room-height;
+    }
+
+    zone := TouchArea {
+        mouse-cursor: root.carried ? MouseCursor.grabbing : MouseCursor.default;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.drag-x = 0px;
+                root.drag-y = 0px;
+                root.carried = false;
+                if (!root.chosen) {
+                    SheetGrid.action("chart-select:" + root.card.index);
+                }
+                if (event.button == PointerEventButton.right) {
+                    root.menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                } else {
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                let nx = root.card.x + root.drag-x / root.u;
+                let ny = root.card.y + root.drag-y / root.u;
+                let posee = root.carried;
+                root.drag-x = 0px;
+                root.drag-y = 0px;
+                root.carried = false;
+                if (posee) {
+                    SheetGrid.chart-moved(root.card.index, nx, ny);
+                }
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                // The card follows the pointer: it moves by what the pointer went
+                // from where it was pressed in it.
+                root.drag-x += self.mouse-x - self.pressed-x;
+                root.drag-y += self.mouse-y - self.pressed-y;
+                if (abs(root.drag-x) > 4px || abs(root.drag-y) > 4px) {
+                    root.carried = true;
+                }
+            }
+        }
+        double-clicked => { SheetGrid.action("chart-rename"); }
+        scroll-event(event) => {
+            root.scrolled(event, root.x + self.mouse-x, root.y + self.mouse-y);
+            accept
+        }
+    }
+}
+
+// The charts' canvas: every chart of the workbook on its card, as far as one likes in
+// every direction. Dragging the background moves the view, the wheel scrolls it,
+// Ctrl and the wheel (a touchpad's pinch) zoom around the pointer; the buttons at the
+// bottom right zoom, frame everything, and add a chart. Nothing is an image: zooming
+// scales the drawings themselves, so they stay sharp.
+component ChartCanvas inherits Rectangle {
+    callback menu(string, length, length);
+    background: Tokens.surface-low;
+    clip: true;
+
+    /// 1 is 100 %: from 10 % to 800 %.
+    in-out property <float> zoom: 1;
+    /// Where the canvas's origin is, in this view.
+    in-out property <length> pan-x;
+    in-out property <length> pan-y;
+    // The view moved by hand: a new size no longer frames the cards again.
+    property <bool> vu;
+    property <length> depart-x;
+    property <length> depart-y;
+    // Kept clear around what is framed; the buttons' strip at the foot besides.
+    property <length> marge: Layout.compact ? 16px : 48px;
+    property <length> pied: 44px;
+
+    function cadrer() {
+        let bw = SheetGrid.chart-bounds-width;
+        let bh = SheetGrid.chart-bounds-height;
+        if (bw <= 0 || bh <= 0 || root.width <= 0px || root.height <= 0px) {
+            return;
+        }
+        let z = clamp(min((root.width - 2 * root.marge) / 1px / bw,
+            (root.height - 2 * root.marge - root.pied) / 1px / bh), 0.1, 1.5);
+        root.zoom = z;
+        root.pan-x = (root.width - bw * z * 1px) / 2 - SheetGrid.chart-bounds-x * z * 1px;
+        root.pan-y = (root.height - root.pied - bh * z * 1px) / 2 - SheetGrid.chart-bounds-y * z * 1px;
+    }
+
+    // Card `k` brought to the middle, made smaller if it does not fit.
+    function viser(k: int) {
+        if (k < 0 || k >= SheetGrid.chart-cards.length || root.width <= 0px) {
+            return;
+        }
+        let c = SheetGrid.chart-cards[k];
+        if (c.width <= 0 || c.height <= 0) {
+            return;
+        }
+        let z = clamp(min(root.zoom, min((root.width - 2 * root.marge) / 1px / c.width,
+            (root.height - 2 * root.marge - root.pied) / 1px / c.height)), 0.1, 8);
+        root.zoom = z;
+        root.pan-x = (root.width - c.width * z * 1px) / 2 - c.x * z * 1px;
+        root.pan-y = (root.height - root.pied - c.height * z * 1px) / 2 - c.y * z * 1px;
+        root.vu = true;
+    }
+
+    // Zoomed to `z`, the point (px, py) of the view staying where it is.
+    function zoomer(z: float, px: length, py: length) {
+        let n = clamp(z, 0.1, 8);
+        root.pan-x = px - (px - root.pan-x) * (n / root.zoom);
+        root.pan-y = py - (py - root.pan-y) * (n / root.zoom);
+        root.zoom = n;
+        root.vu = true;
+    }
+
+    function molette(event: PointerScrollEvent, px: length, py: length) {
+        if (event.modifiers.control) {
+            root.zoomer(root.zoom * pow(1.0025, event.delta-y / 1px), px, py);
+        } else if (event.modifiers.shift && event.delta-x == 0px) {
+            root.pan-x += event.delta-y;
+            root.vu = true;
+        } else {
+            root.pan-x += event.delta-x;
+            root.pan-y += event.delta-y;
+            root.vu = true;
+        }
+    }
+
+    init => { root.cadrer(); }
+    changed width => {
+        if (!root.vu) {
+            root.cadrer();
+        }
+    }
+    changed height => {
+        if (!root.vu) {
+            root.cadrer();
+        }
+    }
+    property <int> cadrage: SheetGrid.chart-fit-serial;
+    changed cadrage => {
+        root.vu = false;
+        root.cadrer();
+    }
+    property <int> visee: SheetGrid.chart-focus-serial;
+    changed visee => { root.viser(SheetGrid.chart); }
+
+    // The background: carried, the view follows. The cards lie on it and hand it the
+    // wheel turned over them, with where the pointer is.
+    fond := TouchArea {
+        mouse-cursor: self.pressed ? MouseCursor.grabbing : MouseCursor.default;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.depart-x = root.pan-x;
+                root.depart-y = root.pan-y;
+                SheetGrid.focus-serial += 1;
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.pan-x = root.depart-x + self.mouse-x - self.pressed-x;
+                root.pan-y = root.depart-y + self.mouse-y - self.pressed-y;
+                root.vu = true;
+            }
+        }
+        scroll-event(event) => {
+            root.molette(event, self.mouse-x, self.mouse-y);
+            accept
+        }
+
+        for c in SheetGrid.chart-cards: ChartCard {
+            card: c;
+            zoom: root.zoom;
+            place-x: root.pan-x + c.x * root.zoom * 1px;
+            place-y: root.pan-y + c.y * root.zoom * 1px;
+            room-width: root.width;
+            room-height: root.height;
+            menu(x, y) => { root.menu("chart", x, y); }
+            scrolled(event, x, y) => { root.molette(event, x, y); }
+        }
+    }
+
+    // The settings column folded or not: its button stays at the top right.
+    Rectangle {
+        x: parent.width - self.width - 12px;
+        y: 12px;
+        width: 36px;
+        height: 36px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: Tokens.shadow-card-blur;
+        drop-shadow-offset-y: Tokens.shadow-card-y;
+        drop-shadow-color: Tokens.shadow-card;
+        IconButton {
+            x: 4px;
+            y: 4px;
+            icon: Icons.sidebar;
+            label: SheetGrid.chart-panel-folded ? "Show the chart's settings" : "Hide the chart's settings";
+            active: !SheetGrid.chart-panel-folded;
+            clicked => {
+                SheetGrid.chart-panel-folded = !SheetGrid.chart-panel-folded;
+                SheetGrid.chart-panel-toggled(SheetGrid.chart-panel-folded);
+                SheetGrid.focus-serial += 1;
+            }
+        }
+    }
+
+    // The view's buttons, at the bottom right: −, the zoom (100 % when clicked), +,
+    // everything framed, a chart added.
+    Rectangle {
+        x: parent.width - self.width - 12px;
+        y: parent.height - self.height - 12px;
+        width: boutons.preferred-width;
+        height: 36px;
+        border-radius: Tokens.radius-medium;
+        background: Tokens.surface;
+        border-width: 1px;
+        border-color: Tokens.border;
+        drop-shadow-blur: Tokens.shadow-card-blur;
+        drop-shadow-offset-y: Tokens.shadow-card-y;
+        drop-shadow-color: Tokens.shadow-card;
+        boutons := HorizontalLayout {
+            x: 0px;
+            width: self.preferred-width;
+            height: parent.height;
+            padding-left: 4px;
+            padding-right: 4px;
+            spacing: 1px;
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.minus;
+                label: "Zoom out";
+                enabled: root.zoom > 0.1;
+                clicked => {
+                    root.zoomer(root.zoom / 1.25, root.width / 2, (root.height - root.pied) / 2);
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+            WordButton {
+                y: (parent.height - self.height) / 2;
+                width: 52px;
+                text: "\{round(root.zoom * 100)} %";
+                label: "Zoom to 100 %";
+                clicked => {
+                    root.zoomer(1, root.width / 2, (root.height - root.pied) / 2);
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.plus;
+                label: "Zoom in";
+                enabled: root.zoom < 8;
+                clicked => {
+                    root.zoomer(root.zoom * 1.25, root.width / 2, (root.height - root.pied) / 2);
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+            Separator { }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.expand;
+                label: "Fit every chart in view";
+                clicked => {
+                    root.vu = false;
+                    root.cadrer();
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+            IconButton {
+                y: (parent.height - self.height) / 2;
+                icon: Icons.chart;
+                label: "Add a chart";
+                clicked => {
+                    SheetGrid.action("chart-add");
+                    SheetGrid.focus-serial += 1;
+                }
+            }
+        }
+    }
+}
+
+// The charts shown instead of the grid: the canvas, and the chosen chart's settings in
+// a column docked on the right (at the foot on a phone), which folds away.
+component ChartPane inherits Rectangle {
+    callback menu(string, length, length);
+    background: Tokens.surface;
+
+    property <bool> colonne: !SheetGrid.chart-panel-folded;
+    property <length> large: root.colonne && !Layout.compact ? 300px : 0px;
+    property <length> bas: root.colonne && Layout.compact ? min(340px, root.height * 0.45) : 0px;
+
+    ChartCanvas {
+        x: 0px;
+        y: 0px;
+        width: root.width - (root.large > 0px ? root.large + 1px : 0px);
+        height: root.height - (root.bas > 0px ? root.bas + 1px : 0px);
+        menu(k, x, y) => { root.menu(k, x, y); }
+    }
+    // The hairline beside the column (above it on a phone).
+    Rectangle {
+        visible: root.colonne;
+        x: Layout.compact ? 0px : root.width - root.large - 1px;
+        y: Layout.compact ? root.height - root.bas - 1px : 0px;
+        width: Layout.compact ? root.width : 1px;
+        height: Layout.compact ? 1px : root.height;
+        background: Tokens.border;
+    }
+    if root.colonne: Rectangle {
+        x: Layout.compact ? 0px : root.width - root.large;
+        y: Layout.compact ? root.height - root.bas : 0px;
+        width: Layout.compact ? root.width : root.large;
+        height: Layout.compact ? root.bas : root.height;
+        background: Tokens.surface;
+        defile := ScrollView {
+            content-width: self.visible-width;
+            content-height: page.preferred-height;
+            page := VerticalLayout {
+                width: defile.visible-width;
+                padding: Layout.compact ? 16px : 18px;
+                ChartSettings {
+                    menu(k, x, y) => { root.menu(k, x, y); }
+                }
+            }
+        }
     }
 }
 

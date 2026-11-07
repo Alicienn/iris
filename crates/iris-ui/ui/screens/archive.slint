@@ -1,0 +1,137 @@
+import { Tokens } from "@iris/theme/tokens.slint";
+import { Layout } from "@iris/theme/layout.slint";
+import { Icons, IconButton } from "@iris/base/icons.slint";
+import { Button, ButtonKind, Link } from "@iris/controls/button.slint";
+import { Segmented } from "@iris/controls/choice.slint";
+import { ScrollView } from "@iris/controls/scroll.slint";
+import { ListRow, SectionHeader } from "@iris/lists/rows.slint";
+import { Modal, ModalKind, ModalFooter, EmptyState } from "@iris/layout/frames.slint";
+import { TaskRowData } from "@iris/types.slint";
+
+// The archive of Tasks: the completed tasks cleared from the lists, by the day they
+// were done, and the goals put away. Each comes back with Restore, or goes for good
+// (asked first).
+
+export component TaskArchivePanel inherits Rectangle {
+    /// 0 the tasks, 1 the goals.
+    in-out property <int> tab;
+    /// Kind 1 a day's title ("Today", "Tue 3 Nov"), kind 0 a task: its list in `list`
+    /// and `color`, its goal in `goal`, when it was done in `meta`.
+    in property <[TaskRowData]> tasks;
+    /// Kind 0 a goal: where it stood in `list`, when it was archived in `meta`.
+    in property <[TaskRowData]> goals;
+    /// "task" or "goal", and its id.
+    callback restore(string, int);
+    /// Asks before deleting it for good.
+    callback delete-asked(TaskRowData);
+    callback dismissed();
+
+    /// What the tab shows.
+    property <[TaskRowData]> rows: root.tab == 0 ? root.tasks : root.goals;
+
+    Modal {
+        width: 100%;
+        height: 100%;
+        title: "Archive";
+        close-label: "Close the archive";
+        card-width: 520px;
+        card-height: 560px;
+        dismissed => { root.dismissed(); }
+
+        HorizontalLayout {
+            alignment: start;
+            vertical-stretch: 0;
+            Segmented {
+                options: ["Tasks", "Goals"];
+                selected: root.tab;
+                chosen(i) => { root.tab = i; }
+            }
+        }
+
+        if root.tab == 0 && root.tasks.length == 0: EmptyState {
+            vertical-stretch: 1;
+            text: "No archived task. Clear completed tasks from a list's Done section and they wait here.";
+        }
+        if root.tab == 1 && root.goals.length == 0: EmptyState {
+            vertical-stretch: 1;
+            text: "No archived goal. Archive a goal from its page once it is behind you.";
+        }
+
+        if root.rows.length > 0: liste := ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            VerticalLayout {
+                width: liste.visible-width;
+                alignment: start;
+                spacing: 2px;
+                for r in root.rows: VerticalLayout {
+                    if r.kind == 1: SectionHeader {
+                        title: r.title;
+                        count: r.meta;
+                    }
+                    if r.kind == 0: ListRow {
+                        title: r.title;
+                        subtitle: r.goal == "" ? r.list
+                            : r.list == "" ? r.goal : r.list + " · " + r.goal;
+                        has-mark: r.list != "";
+                        mark: r.color;
+                        meta: r.meta;
+                        done: root.tab == 0;
+                        interactive: false;
+                        Link {
+                            y: (parent.height - self.height) / 2;
+                            text: "Restore";
+                            label: "Restore “" + r.title + "”";
+                            clicked => { root.restore(r.key, r.id); }
+                        }
+                        IconButton {
+                            y: (parent.height - self.height) / 2;
+                            icon: Icons.trash;
+                            label: "Delete “" + r.title + "” for good";
+                            danger: true;
+                            button-size: Layout.touch-input ? 44px : 26px;
+                            icon-size: Layout.touch-input ? 20px : 15px;
+                            clicked => { root.delete-asked(r); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Deleting from the archive asks first: nothing brings it back.
+export component TaskArchiveDeletePanel inherits Rectangle {
+    in property <TaskRowData> item;
+    callback confirmed();
+    callback dismissed();
+
+    Modal {
+        kind: ModalKind.question;
+        width: 100%;
+        height: 100%;
+        title: root.item.key == "goal" ? "Delete this goal for good?" : "Delete this task for good?";
+        close-label: "Cancel";
+        fit: true;
+        dismissed => { root.dismissed(); }
+
+        Text {
+            text: root.item.key == "goal"
+                ? "“" + root.item.title + "”, its log and its milestones are deleted. Its tasks "
+                    + "and habits stay, without it. This cannot be undone."
+                : "“" + root.item.title + "” and its subtasks are deleted. It no longer counts "
+                    + "in what was done. This cannot be undone.";
+            font-size: 13px;
+            color: Tokens.text-secondary;
+            wrap: word-wrap;
+        }
+
+        ModalFooter {
+            Button {
+                text: "Delete";
+                kind: ButtonKind.danger;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}

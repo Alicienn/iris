@@ -57,6 +57,8 @@ pub struct StoredTask {
     pub task: NewTask,
     pub done_at: Option<Timestamp>,
     pub created_at: Timestamp,
+    /// Cleared from the lists once done: in the archive, still counted in what was done.
+    pub archived_at: Option<Timestamp>,
 }
 
 impl StoredTask {
@@ -72,7 +74,7 @@ fn err(quoi: &str) -> impl Fn(rusqlite::Error) -> Error + '_ {
 pub(crate) const COLONNES: &str =
     "id, list_id, parent_id, title, notes, due_day, due_minute, remind_before, \
      remind_at, priority, thread_id, source, done_at, created_at, event_uid, event_start, \
-     goal_id, estimate, postponed, repeat";
+     goal_id, estimate, postponed, repeat, archived_at";
 
 pub(crate) fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
     Ok(StoredTask {
@@ -98,6 +100,7 @@ pub(crate) fn tache(r: &Row<'_>) -> rusqlite::Result<StoredTask> {
         },
         done_at: r.get::<_, Option<i64>>(12)?.map(Timestamp::from_millis),
         created_at: Timestamp::from_millis(r.get(13)?),
+        archived_at: r.get::<_, Option<i64>>(20)?.map(Timestamp::from_millis),
     })
 }
 
@@ -223,6 +226,21 @@ impl Store {
                 rusqlite::params_from_iter(args),
             )
             .map_err(err("archivage des tâches"))
+        })
+    }
+
+    /// The tasks cleared away: done and archived, without their steps, the most
+    /// recently done first.
+    pub fn archived_tasks(&self, limit: u32) -> Result<Vec<StoredTask>> {
+        self.done_tasks_where(None, limit, " AND archived_at IS NOT NULL")
+    }
+
+    /// Takes a task out of the archive: back in its list, still done.
+    pub fn unarchive_task(&self, id: i64) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute("UPDATE tasks SET archived_at = NULL WHERE id = ?1", [id])
+                .map(|_| ())
+                .map_err(err("désarchivage d'une tâche"))
         })
     }
 
@@ -478,11 +496,13 @@ impl Store {
         })
     }
 
-    /// Coche ou décoche une tâche.
+    /// Coche ou décoche une tâche. Unticked, an archived task leaves the archive: it is
+    /// to do again.
     pub fn set_task_done(&self, id: i64, done: Option<Timestamp>) -> Result<()> {
         self.with_conn(|c| {
             c.execute(
-                "UPDATE tasks SET done_at = ?2 WHERE id = ?1",
+                "UPDATE tasks SET done_at = ?2, \
+                 archived_at = CASE WHEN ?2 IS NULL THEN NULL ELSE archived_at END WHERE id = ?1",
                 params![id, done.map(|t| t.millis())],
             )
             .map(|_| ())
@@ -592,6 +612,33 @@ mod tests {
         assert_eq!(faites[0].done_at, Some(t(50)));
         s.set_task_done(id, None).unwrap();
         assert_eq!(s.open_tasks().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_cleared_task_waits_in_the_archive_and_comes_back_done() {
+        let s = store();
+        let l = s.task_lists().unwrap()[0].id;
+        let a = s.insert_task(&nouvelle(l, "a"), t(1)).unwrap();
+        let b = s.insert_task(&nouvelle(l, "b"), t(2)).unwrap();
+        s.set_task_done(a, Some(t(10))).unwrap();
+        s.set_task_done(b, Some(t(20))).unwrap();
+        assert_eq!(s.archive_tasks(&[a, b], t(30)).unwrap(), 2);
+
+        assert!(s.shown_done_tasks(None, 10).unwrap().is_empty());
+        let archive: Vec<i64> = s.archived_tasks(10).unwrap().iter().map(|x| x.id).collect();
+        assert_eq!(archive, [b, a], "the last done first");
+        assert_eq!(s.task(a).unwrap().unwrap().archived_at, Some(t(30)));
+        assert_eq!(s.done_tasks(None, 10).unwrap().len(), 2, "still counted");
+
+        s.unarchive_task(a).unwrap();
+        let rendue = s.task(a).unwrap().unwrap();
+        assert_eq!((rendue.archived_at, rendue.done_at), (None, Some(t(10))));
+        assert_eq!(s.shown_done_tasks(None, 10).unwrap()[0].id, a);
+
+        // Unticked, an archived task is to do again, out of the archive.
+        s.set_task_done(b, None).unwrap();
+        assert_eq!(s.task(b).unwrap().unwrap().archived_at, None);
+        assert!(s.archived_tasks(10).unwrap().is_empty());
     }
 
     #[test]

@@ -3081,6 +3081,101 @@ fn le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre() {
     assert_eq!(plies.borrow().len(), 1);
 }
 
+// --- Mail's sections folded by their titles ---
+
+/// How many rows of the column are named so.
+fn lignes_nommees(f: &AppWindow, nom: &str) -> usize {
+    testing::ElementQuery::from_root(f)
+        .match_descendants()
+        .match_accessible_role(testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .filter(|b| b.accessible_label().as_deref() == Some(nom))
+        .count()
+}
+
+fn le_titre_des_dossiers_les_replie_sauf_le_choisi() {
+    let f = fenetre();
+    let dossier = |chemin: &str| iris_ui::FolderNodeData {
+        path: chemin.into(),
+        name: chemin.into(),
+        ..Default::default()
+    };
+    f.set_folders(ModelRc::new(VecModel::from(vec![
+        dossier("Clients"),
+        dossier("Quotes"),
+    ])));
+    f.set_selected_folder("Quotes".into());
+    let plies = Rc::new(RefCell::new(Vec::<(String, bool)>::new()));
+    let ouverts = Rc::new(RefCell::new(Vec::<String>::new()));
+    {
+        let p = Rc::clone(&plies);
+        f.on_mail_section_folded(move |s, plie| p.borrow_mut().push((s.to_string(), plie)));
+        let o = Rc::clone(&ouverts);
+        f.on_folder_selected(move |c| o.borrow_mut().push(c.to_string()));
+    }
+
+    clic(&bouton(&f, "Fold Folders"));
+    assert!(f.get_mail_folders_folded());
+    assert_eq!(*plies.borrow(), [("folders".to_string(), true)]);
+    // (This walk also builds the folded section's rows, which find the chosen one.)
+    assert_eq!(lignes_nommees(&f, "Clients"), 0, "folded, the others go");
+    let choisi = par_role(&f, testing::AccessibleRole::ListItem, "Quotes");
+    assert!(
+        choisi.accessible_item_selected().unwrap_or(false),
+        "the chosen folder stays, lit"
+    );
+    clic(&choisi);
+    assert_eq!(*ouverts.borrow(), ["Quotes"], "and opens, first click");
+
+    clic(&bouton(&f, "Unfold Folders"));
+    assert!(!f.get_mail_folders_folded());
+    assert_eq!(plies.borrow().last(), Some(&("folders".to_string(), false)));
+    assert_eq!(lignes_nommees(&f, "Clients"), 1, "unfolded, all are back");
+}
+
+fn le_titre_des_comptes_les_replie_sauf_le_choisi() {
+    let f = fenetre();
+    let compte = |id: i32, nom: &str| iris_ui::AccountRowData {
+        id,
+        label: nom.into(),
+        ..Default::default()
+    };
+    f.set_other_accounts(ModelRc::new(VecModel::from(vec![
+        compte(3, "a@example.com"),
+        compte(4, "b@example.com"),
+    ])));
+    f.set_selected_account(4);
+    let choisis = Rc::new(RefCell::new(Vec::<i32>::new()));
+    {
+        let c = Rc::clone(&choisis);
+        f.on_account_selected(move |id| c.borrow_mut().push(id));
+    }
+
+    clic(&bouton(&f, "Fold Accounts"));
+    assert!(f.get_mail_accounts_folded());
+    assert_eq!(
+        lignes_nommees(&f, "a@example.com"),
+        0,
+        "folded, the others go"
+    );
+    let choisi = ligne_de_compte(&f, "b@example.com");
+    assert!(
+        choisi.accessible_item_selected().unwrap_or(false),
+        "the chosen account stays, lit"
+    );
+    clic(&choisi);
+    assert_eq!(*choisis.borrow(), [4], "and opens, first click");
+
+    clic(&bouton(&f, "Unfold Accounts"));
+    assert!(!f.get_mail_accounts_folded());
+    assert_eq!(
+        lignes_nommees(&f, "a@example.com"),
+        1,
+        "unfolded, all are back"
+    );
+}
+
 // --- The reader's remote content, its Reply, and the phone's list ---
 
 /// A message read, whose sender put a tracker in it.
@@ -3278,6 +3373,14 @@ fn main() {
         (
             "le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre",
             le_chevron_d_un_dossier_le_replie_et_son_nom_l_ouvre,
+        ),
+        (
+            "le_titre_des_dossiers_les_replie_sauf_le_choisi",
+            le_titre_des_dossiers_les_replie_sauf_le_choisi,
+        ),
+        (
+            "le_titre_des_comptes_les_replie_sauf_le_choisi",
+            le_titre_des_comptes_les_replie_sauf_le_choisi,
         ),
         (
             "un_nouveau_dossier_s_ouvre_dans_son_nom_et_choisit_ses_boites",

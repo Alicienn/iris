@@ -420,7 +420,8 @@ fn detail(services: &Services, u: &Une, today: NaiveDate) -> HabitDetailData {
 fn remplir(f: &AppWindow, services: &Services, etat: &mut Etat) {
     let today = aujourdhui();
     let habitudes = charger(services);
-    let objectifs = services.store.goals().unwrap_or_default();
+    // Archived goals included: a habit still says the goal it supports.
+    let objectifs = services.store.all_goals().unwrap_or_default();
     if let Some(id) = etat.choisie {
         if !habitudes.iter().any(|u| u.h.id == id) {
             etat.choisie = None;
@@ -497,7 +498,7 @@ fn remplir(f: &AppWindow, services: &Services, etat: &mut Etat) {
 pub fn fill_home(f: &AppWindow, services: &Services) {
     let today = aujourdhui();
     let habitudes = charger(services);
-    let objectifs = services.store.goals().unwrap_or_default();
+    let objectifs = services.store.all_goals().unwrap_or_default();
     let dues: Vec<&Une> = habitudes
         .iter()
         .filter(|u| u.regles.due_today(today))
@@ -714,7 +715,12 @@ fn lire_fenetre(f: &AppWindow, etat: &Etat, services: &Services) -> Result<NewHa
     let objectifs = services.store.goals().unwrap_or_default();
     let goal_id = match f.get_habit_new_goal() {
         i if i >= 1 => objectifs.get(i as usize - 1).map(|g| g.id),
-        _ => None,
+        // A goal put away in the archive is not offered: the habit keeps it.
+        _ => etat
+            .editee
+            .and_then(|id| services.store.habit(id).ok().flatten())
+            .and_then(|h| h.habit.goal_id)
+            .filter(|g| !objectifs.iter().any(|o| o.id == *g)),
     };
     Ok(NewHabit {
         title,

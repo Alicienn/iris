@@ -3,6 +3,22 @@
 What changed in each version of Iris, newest first. Iris shows this same list from the
 **Changelog** button in its status bar.
 
+## 7.14.0 — 2026-11-07
+
+### New
+- A spreadsheet's charts share one canvas you can zoom, pan and arrange by dragging their cards.
+- Archive in Tasks: see the completed tasks you cleared, by day, and restore or delete them.
+- Archive a goal from its page; its habits keep counting and it can be restored from the Archive.
+- Fold the Accounts or Folders section in Mail by its title; the one you are in stays shown.
+- An AI assistant can archive goals and read a recap of everything you did over a period.
+
+### Improved
+- Side columns have larger titles, buttons and rows, easier to read and to click.
+- Chart settings fit in their column and fold away when you need the room.
+
+### Fixed
+- The Line option no longer spills out of the chart settings.
+
 ## 7.13.0 — 2026-11-06
 
 ### New

@@ -1000,3 +1000,18 @@ Plans: `docs/superpowers/plans/2026-10-26-iris-mobile-index.md`.
       meeting links and subtasks; tasks, lists, habits and goals; note spaces, notes read,
       written and edited, the full syntax, search, links, versions; spreadsheets and
       charts (7.13.0).
+- [x] **S53.4** The assistant's recap (`tasks_recap`) and archives: `goals_archive`,
+      archived tasks and goals listed only when asked (7.14.0).
+
+## E54 — Archives, a chart canvas, folding side columns (7.14.0)
+
+- [x] **S54.1** The Archive: cleared tasks by day and archived goals, restored or deleted
+      for good; a goal archived from its page, its habits still counting (7.14.0).
+- [x] **S54.2** A workbook's charts on one canvas: zoom, pan, Fit, cards dragged into
+      place and kept in the file; paths cut to the view; the settings column wider,
+      scrolled and foldable; `Segmented` takes a segment padding (7.14.0).
+- [x] **S54.3** Mail's Accounts and Folders fold by their title, the selected row kept
+      (7.14.0).
+- [x] **S54.4** Side columns made larger after the mockups' variant B: 13 px section
+      titles, 36 px title rows, 26 px buttons, 32 px rows; the accounts' search still
+      behind its button (7.14.0).

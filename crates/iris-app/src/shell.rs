@@ -6201,6 +6201,21 @@ pub fn wire_folders(fenetre: &AppWindow, services: &Services, controller: Arc<Co
         });
     }
     {
+        // The Accounts and Folders sections folded by their titles: as they were left.
+        let plies = crate::settings::current().mail_folded_sections;
+        fenetre.set_mail_accounts_folded(plies.iter().any(|k| k == "accounts"));
+        fenetre.set_mail_folders_folded(plies.iter().any(|k| k == "folders"));
+        fenetre.on_mail_section_folded(|section, plie| {
+            let section = section.to_string();
+            crate::settings::update(|s| {
+                s.mail_folded_sections.retain(|k| *k != section);
+                if plie {
+                    s.mail_folded_sections.push(section);
+                }
+            });
+        });
+    }
+    {
         let controller = Arc::clone(&controller);
         fenetre.on_folder_cleared(move || {
             controller.send(Request::ShowScope(iris_store::Scope::Queue))

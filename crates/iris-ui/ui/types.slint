@@ -867,6 +867,19 @@ export struct ChartData {
     message: string,
 }
 
+// A chart's card on a spreadsheet's charts canvas: where and how big, in the canvas's
+// pixels at 100 % (its top left corner, its whole size), and what it draws. `index` is
+// its place among the workbook's charts.
+export struct ChartCardData {
+    index: int,
+    name: string,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    data: ChartData,
+}
+
 // A note found by Quick open or search.
 export struct NoteFoundData {
     key: string,

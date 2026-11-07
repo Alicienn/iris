@@ -4,25 +4,49 @@ import { ChartData } from "@iris/types.slint";
 // A chart Rust laid out (`iris_sheets::plot`): its shapes and its words in a box
 // `data.width` wide, scaled to the width it is given, as tall as that makes it. The
 // grid and the words take the theme's colours; the series bring their own.
+//
+// Zoomed in on a canvas, a chart is far larger than the window. The software renderer
+// rasterises a path over its whole box, so each path is cut to the part that shows
+// (`view-*`, in the chart's own coordinates): its box is that part, its view box the
+// same part of the drawing. Nothing is ever rasterised wider than the window.
 export component Chart inherits Rectangle {
     in property <ChartData> data;
+    /// The part that shows, in the chart's coordinates: all of it unless told.
+    in property <length> view-x: 0px;
+    in property <length> view-y: 0px;
+    in property <length> view-width: root.width;
+    in property <length> view-height: root.height;
+    /// The words' smallest size. A chart zoomed out on a canvas shrinks them with it.
+    in property <length> min-font-size: 9px;
 
     property <float> echelle: root.data.width > 0 ? root.width / 1px / root.data.width : 1;
     height: root.data.width > 0 ? root.data.height * root.echelle * 1px : 0px;
 
+    // What shows, kept inside the chart.
+    property <length> x0: clamp(root.view-x, 0px, root.width);
+    property <length> x1: clamp(root.view-x + root.view-width, 0px, root.width);
+    property <length> y0: clamp(root.view-y, 0px, root.height);
+    property <length> y1: clamp(root.view-y + root.view-height, 0px, root.height);
+    property <bool> montre: root.x1 > root.x0 && root.y1 > root.y0 && root.echelle > 0;
+
     for s in root.data.shapes: Path {
-        x: 0px;
-        y: 0px;
-        width: root.width;
-        height: root.height;
-        viewbox-x: 0;
-        viewbox-y: 0;
-        viewbox-width: root.data.width;
-        viewbox-height: root.data.height;
+        // A line's box takes half its width more on each side: the path fits the view
+        // box inside the box less the stroke, so the drawing stays where it was.
+        property <length> epaisseur: s.role == 2 ? s.stroke * root.echelle * 1px : 0px;
+        visible: root.montre;
+        x: root.x0 - self.epaisseur / 2;
+        y: root.y0 - self.epaisseur / 2;
+        width: root.x1 - root.x0 + self.epaisseur;
+        height: root.y1 - root.y0 + self.epaisseur;
+        viewbox-x: root.x0 / 1px / root.echelle;
+        viewbox-y: root.y0 / 1px / root.echelle;
+        viewbox-width: (root.x1 - root.x0) / 1px / root.echelle;
+        viewbox-height: (root.y1 - root.y0) / 1px / root.echelle;
+        fit: fill;
         commands: s.commands;
         fill: s.role == 0 ? s.color : s.role == 1 ? Tokens.border : transparent;
         stroke: s.role == 2 ? s.color : transparent;
-        stroke-width: s.role == 2 ? s.stroke * root.echelle * 1px : 0px;
+        stroke-width: self.epaisseur;
         stroke-line-cap: round;
         stroke-line-join: round;
     }
@@ -32,7 +56,7 @@ export component Chart inherits Rectangle {
         width: l.width * root.echelle * 1px;
         height: l.size * 2 * root.echelle * 1px;
         text: l.text;
-        font-size: max(9px, l.size * root.echelle * 1px);
+        font-size: max(root.min-font-size, l.size * root.echelle * 1px);
         font-weight: l.strong ? 600 : 400;
         color: l.muted ? Tokens.text-muted : Tokens.text;
         horizontal-alignment: l.align == 1 ? TextHorizontalAlignment.center

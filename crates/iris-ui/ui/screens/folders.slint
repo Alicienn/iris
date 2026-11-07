@@ -8,7 +8,7 @@ import { Icon, Icons, IconButton } from "@iris/base/icons.slint";
 import { Floating } from "@iris/base/glass.slint";
 import { MenuEntry, MenuSeparator, MenuSurface } from "@iris/layout/menu.slint";
 import { ListView } from "std-widgets.slint";
-import { Nav, NavItem, SectionTitle } from "@iris/lists/nav.slint";
+import { Nav, NavItem, SectionTitle, SectionRow } from "@iris/lists/nav.slint";
 import { Button, ButtonKind } from "@iris/controls/button.slint";
 import { Modal, ModalKind, ModalFooter } from "@iris/layout/frames.slint";
 
@@ -22,13 +22,17 @@ component FolderRow inherits Rectangle {
     in property <FolderNodeData> node;
     in property <bool> selected;
     in property <int> accounts-total;
+    /// Alone under a folded section: no indent, no chevron.
+    in property <bool> flat;
+    property <int> depth: root.flat ? 0 : root.node.depth;
+    property <bool> branches: root.node.has-children && !root.flat;
 
     callback clicked();
     callback dropped();
     /// The chevron: the folders under this one folded away, or back.
     callback fold-toggled();
     /// Where the chevron's zone ends: a click left of it folds, anywhere else opens.
-    property <length> pli: root.node.depth * 14px + 13px;
+    property <length> pli: root.depth * 16px + 8px;
 
     /// On some mailboxes only, and not made so on purpose: worth a mark.
     property <bool> absent-elsewhere: !root.node.permanent && !root.node.restricted
@@ -87,10 +91,10 @@ component FolderRow inherits Rectangle {
     // In the indent, before the icon: the icons of a level stay in one column whether
     // or not a folder has some under it. Drawn only; the row's touch area reads where
     // it was hit, as a tag's title does in the accounts.
-    if root.node.has-children: Rectangle {
-        x: root.node.depth * 14px;
+    if root.branches: Rectangle {
+        x: root.depth * 16px - 2px;
         y: (parent.height - self.height) / 2;
-        width: 11px;
+        width: 12px;
         height: 18px;
         border-radius: 3px;
         background: touch.has-hover && touch.mouse-x < root.pli
@@ -102,20 +106,21 @@ component FolderRow inherits Rectangle {
 
         Icon {
             data: root.node.folded ? Icons.chevron-right : Icons.chevron-down;
-            size: 10px;
+            size: 12px;
+            weight: 2;
             tint: Nav.count-ink(root.selected);
         }
     }
 
     HorizontalLayout {
-        padding-left: 9px + root.node.depth * 14px;
+        padding-left: 8px + root.depth * 16px;
         padding-right: 9px;
-        spacing: 9px;
+        spacing: Nav.row-gap;
 
         Icon {
             y: (parent.height - self.height) / 2;
             data: root.icon-for-role;
-            size: 15px;
+            size: Nav.icon-size;
             tint: Nav.icon-ink(root.selected, Tokens.accent);
         }
 
@@ -148,7 +153,7 @@ component FolderRow inherits Rectangle {
 
         if root.node.count > 0: Text {
             text: root.node.count-label;
-            font-size: 11.5px;
+            font-size: Nav.count-size;
             color: Nav.count-ink(root.selected);
             vertical-alignment: center;
         }
@@ -166,7 +171,7 @@ component FolderRow inherits Rectangle {
             }
         }
         clicked => {
-            if (root.node.has-children && self.mouse-x < root.pli) {
+            if (root.branches && self.mouse-x < root.pli) {
                 root.fold-toggled();
             } else {
                 root.clicked();
@@ -201,34 +206,36 @@ export component FolderTree inherits VerticalLayout {
     callback folder-dropped(string);
     callback folder-menu(string, length, length);
     callback folder-fold-toggled(string);
+    /// The section folded by its title: only the chosen folder is left (or All
+    /// folders, when none is), and the accounts above take the room.
+    in property <bool> folded;
+    callback fold-toggled();
+    /// The chosen folder, found among the rows while folded (the list cannot be asked).
+    property <FolderNodeData> trouve;
+    property <bool> trouve-montre: root.selected-path != "" && root.trouve.path == root.selected-path;
 
     spacing: 1px;
 
-    // The section's title and its one action, as the accounts have theirs.
-    HorizontalLayout {
-        vertical-stretch: 0;
-        height: 26px;
-        padding-left: 9px;
-        padding-right: 2px;
-
-        SectionTitle {
-            text: "Folders";
-            horizontal-stretch: 1;
-        }
+    // The section's title and its one action: the same title row as the accounts'.
+    SectionRow {
+        text: "Folders";
+        foldable: true;
+        folded: root.folded;
+        toggled => { root.fold-toggled(); }
 
         IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.plus;
             label: "New folder";
-            button-size: 26px;
-            icon-size: 15px;
+            button-size: Nav.section-button;
+            icon-size: Nav.section-plus;
             clicked => { root.new-folder(); }
         }
     }
 
     // « Tous » d'abord : sans cette ligne, on entre dans un dossier et plus rien ne
-    // dit comment revenir à la vue complète.
-    Rectangle {
+    // dit comment revenir à la vue complète. Folded, it stays when it is where one is.
+    if !root.folded || root.selected-path == "": Rectangle {
         vertical-stretch: 0;
         height: Nav.row-height;
         border-radius: Tokens.radius-medium;
@@ -242,15 +249,15 @@ export component FolderTree inherits VerticalLayout {
         accessible-action-default => { root.all-selected(); }
 
         HorizontalLayout {
-            padding-left: 9px;
-            spacing: 9px;
+            padding-left: 8px;
+            spacing: Nav.row-gap;
 
             // A folder, not the inbox's tray (the Inbox row is just below) nor the
             // stack, which All accounts carries above.
             Icon {
                 y: (parent.height - self.height) / 2;
                 data: Icons.folder;
-                size: 15px;
+                size: Nav.icon-size;
                 tint: Tokens.accent;
             }
             Text {
@@ -269,7 +276,7 @@ export component FolderTree inherits VerticalLayout {
     }
 
     // Written, waiting for their time: there only while there are some.
-    if root.scheduled > 0: NavItem {
+    if root.scheduled > 0 && !root.folded: NavItem {
         vertical-stretch: 0;
         label: "Scheduled";
         icon: Icons.clock;
@@ -280,7 +287,7 @@ export component FolderTree inherits VerticalLayout {
     // One plate under the folders, sliding to the chosen one (the web edition's
     // `.nav-hl`). The chosen row tells where it sits in the list's content; the plate
     // follows the scroll. Under the list, so every click still reaches its row.
-    Rectangle {
+    if !root.folded: Rectangle {
         vertical-stretch: 1;
         clip: true;
         Rectangle {
@@ -319,6 +326,54 @@ export component FolderTree inherits VerticalLayout {
                 dropped => { root.folder-dropped(node.path); }
                 fold-toggled => { root.folder-fold-toggled(node.path); }
                 context-menu(mx, my) => { root.folder-menu(node.path, mx, my); }
+            }
+        }
+    }
+
+    // Folded: the chosen folder alone, on its plate, still a place to click and drop
+    // mail on.
+    if root.folded && root.trouve-montre: Rectangle {
+        vertical-stretch: 0;
+        height: Nav.row-height;
+        Rectangle {
+            border-radius: Tokens.radius-medium;
+            background: Nav.background(true, false);
+        }
+        FolderRow {
+            node: root.trouve;
+            flat: true;
+            selected: true;
+            accounts-total: root.accounts-total;
+            clicked => { root.folder-selected(root.trouve.path); }
+            dropped => { root.folder-dropped(root.trouve.path); }
+            context-menu(mx, my) => { root.folder-menu(root.trouve.path, mx, my); }
+        }
+    }
+
+    // Folded, the room under it stays free: one part of the column must be able to
+    // grow, or the window is shrunk to the column's height (see the Sidebar). The
+    // rows, unseen and sizeless, only say which one is chosen.
+    if root.folded: Rectangle {
+        vertical-stretch: 1;
+        for node in root.folders: Rectangle {
+            width: 0px;
+            height: 0px;
+            property <bool> choisi: node.path == root.selected-path;
+            property <FolderNodeData> ligne: node;
+            init => {
+                if (self.choisi) {
+                    root.trouve = node;
+                }
+            }
+            changed choisi => {
+                if (self.choisi) {
+                    root.trouve = self.ligne;
+                }
+            }
+            changed ligne => {
+                if (self.choisi) {
+                    root.trouve = self.ligne;
+                }
             }
         }
     }

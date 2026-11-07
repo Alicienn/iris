@@ -262,6 +262,130 @@ fn terminees(services: &Services, vue: Vue, today: NaiveDate) -> Vec<StoredTask>
         .collect()
 }
 
+/// A day of the archive: "Today", "Yesterday", "Tuesday 3 November", the year added
+/// when it is not this one.
+fn jour_d_archive(d: NaiveDate, today: NaiveDate) -> String {
+    match (today - d).num_days() {
+        0 => "Today".into(),
+        1 => "Yesterday".into(),
+        _ if d.year() == today.year() => d.format("%A %-d %B").to_string(),
+        _ => d.format("%A %-d %B %Y").to_string(),
+    }
+}
+
+fn jour_local(ms: i64) -> Option<NaiveDate> {
+    Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|d| d.date_naive())
+}
+
+/// The archive's tasks: those cleared away, under the day they were done, the latest
+/// day first. A day's title carries how many.
+fn lignes_archivees(services: &Services, today: NaiveDate) -> Vec<TaskRowData> {
+    let listes = services.store.task_lists().unwrap_or_default();
+    let objectifs = services.store.all_goals().unwrap_or_default();
+    let mut jours: Vec<(Option<NaiveDate>, Vec<StoredTask>)> = Vec::new();
+    for t in services.store.archived_tasks(2000).unwrap_or_default() {
+        let jour = t.done_at.and_then(|d| jour_local(d.millis()));
+        if let Some((j, taches)) = jours.last_mut() {
+            if *j == jour {
+                taches.push(t);
+                continue;
+            }
+        }
+        jours.push((jour, vec![t]));
+    }
+    let mut lignes = Vec::new();
+    for (jour, taches) in jours {
+        lignes.push(section_ligne(
+            &jour.map_or_else(|| "Earlier".to_string(), |j| jour_d_archive(j, today)),
+            taches.len(),
+            false,
+        ));
+        for t in taches {
+            let liste = listes.iter().find(|l| l.id == t.task.list_id);
+            let objectif = t
+                .task
+                .goal_id
+                .and_then(|g| objectifs.iter().find(|o| o.id == g));
+            lignes.push(TaskRowData {
+                kind: 0,
+                id: t.id as i32,
+                key: "task".into(),
+                title: t.task.title.as_str().into(),
+                // When it was done, that day.
+                meta: t
+                    .done_at
+                    .and_then(|d| Local.timestamp_millis_opt(d.millis()).single())
+                    .map(|d| d.format("%H:%M").to_string())
+                    .unwrap_or_default()
+                    .into(),
+                done: true,
+                list: liste.map(|l| l.name.as_str()).unwrap_or("").into(),
+                color: crate::calendar::couleur(liste.map(|l| l.color.as_str()).unwrap_or("")),
+                goal: objectif.map(|g| g.goal.title.as_str()).unwrap_or("").into(),
+                goal_color: objectif
+                    .map(|g| crate::calendar::couleur(&g.goal.color))
+                    .unwrap_or_default(),
+                ..Default::default()
+            });
+        }
+    }
+    lignes
+}
+
+/// The archive's goals, the last put away first: where each stood, and when.
+fn objectifs_archives(services: &Services, today: NaiveDate) -> Vec<TaskRowData> {
+    services
+        .store
+        .archived_goals()
+        .unwrap_or_default()
+        .iter()
+        .map(|g| {
+            let ou = crate::goals::for_id(services, g.id)
+                .map(|d| {
+                    let mut s = format!("{} {}", d.done, d.of_label);
+                    if d.status == 2 {
+                        s.push_str(" · Reached");
+                    }
+                    s
+                })
+                .unwrap_or_default();
+            TaskRowData {
+                kind: 0,
+                id: g.id as i32,
+                key: "goal".into(),
+                title: g.goal.title.as_str().into(),
+                meta: g
+                    .archived_at
+                    .and_then(|a| jour_local(a.millis()))
+                    .map(|j| match (today - j).num_days() {
+                        0 => "Archived today".to_string(),
+                        _ if j.year() == today.year() => j.format("Archived %-d %b").to_string(),
+                        _ => j.format("Archived %-d %b %Y").to_string(),
+                    })
+                    .unwrap_or_default()
+                    .into(),
+                list: ou.into(),
+                color: crate::calendar::couleur(&g.goal.color),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// Fills the archive's two lists.
+fn remplir_archive(f: &AppWindow, services: &Services) {
+    let today = maintenant_local().date();
+    f.set_task_archive_tasks(ModelRc::new(VecModel::from(lignes_archivees(
+        services, today,
+    ))));
+    f.set_task_archive_goals(ModelRc::new(VecModel::from(objectifs_archives(
+        services, today,
+    ))));
+}
+
 fn section_ligne(titre: &str, compte: usize, rouge: bool) -> TaskRowData {
     TaskRowData {
         kind: 1,
@@ -1038,8 +1162,10 @@ fn rafraichir(f: &AppWindow, services: &Services, etat: &mut Etat) {
             etat.vue = Vue::Today;
         }
     }
+    // A goal gone, or put away in the archive (here or on another device): all of them.
     if let Vue::Goal(id) = etat.vue {
-        if services.store.goal(id).ok().flatten().is_none() {
+        let objectif = services.store.goal(id).ok().flatten();
+        if objectif.is_none_or(|g| g.archived_at.is_some()) {
             etat.vue = Vue::Goals;
         }
     }
@@ -2456,11 +2582,117 @@ pub fn wire_tasks(f: &AppWindow, services: &Services, controller: Arc<Controller
             drop(e);
             f.set_status(
                 match faites.len() {
-                    1 => "1 completed task cleared.".to_string(),
-                    n => format!("{n} completed tasks cleared."),
+                    1 => "1 completed task cleared to the archive.".to_string(),
+                    n => format!("{n} completed tasks cleared to the archive."),
                 }
                 .into(),
             );
+            redessiner();
+        }
+    );
+
+    // --- The archive: what was cleared away, and the goals put away ---
+    geste!(
+        on_task_archive_requested,
+        [services, etat, redessiner, f, controller],
+        |onglet| {
+            remplir_archive(f, services);
+            f.set_task_archive_tab(onglet.clamp(0, 1));
+            f.set_task_archive_open(true);
+        }
+    );
+    geste!(
+        on_task_archive_restore,
+        [services, etat, redessiner, f, controller],
+        |quoi, id| {
+            let id = id as i64;
+            let message = if quoi.as_str() == "goal" {
+                let titre = services
+                    .store
+                    .goal(id)
+                    .ok()
+                    .flatten()
+                    .map(|g| g.goal.title)
+                    .unwrap_or_default();
+                services
+                    .store
+                    .unarchive_goal(id)
+                    .map(|()| format!("“{titre}” is back among your goals."))
+            } else {
+                let tache = services.store.task(id).ok().flatten();
+                let liste = tache
+                    .as_ref()
+                    .and_then(|t| {
+                        etat.borrow()
+                            .listes
+                            .iter()
+                            .find(|l| l.id == t.task.list_id)
+                            .map(|l| l.name.clone())
+                    })
+                    .unwrap_or_default();
+                let titre = tache.map(|t| t.task.title).unwrap_or_default();
+                services
+                    .store
+                    .unarchive_task(id)
+                    .map(|()| format!("“{titre}” is back in {liste}, done."))
+            };
+            match message {
+                Ok(m) => f.set_status(m.into()),
+                Err(e) => tracing::warn!(error = %e, "restoring from the archive"),
+            }
+            remplir_archive(f, services);
+            redessiner();
+        }
+    );
+    geste!(
+        on_task_archive_delete,
+        [services, etat, redessiner, f, controller],
+        |quoi, id| {
+            let id = id as i64;
+            let fait = if quoi.as_str() == "goal" {
+                services.store.delete_goal(id)
+            } else {
+                services.store.delete_task(id)
+            };
+            match fait {
+                Ok(()) => f.set_status(
+                    if quoi.as_str() == "goal" {
+                        "Goal deleted for good."
+                    } else {
+                        "Task deleted for good."
+                    }
+                    .into(),
+                ),
+                Err(e) => tracing::warn!(error = %e, "deleting from the archive"),
+            }
+            remplir_archive(f, services);
+            redessiner();
+        }
+    );
+    geste!(
+        on_goal_archive_requested,
+        [services, etat, redessiner, f, controller],
+        || {
+            let Some(g) = objectif_montre(etat) else {
+                return;
+            };
+            let titre = services
+                .store
+                .goal(g)
+                .ok()
+                .flatten()
+                .map(|o| o.goal.title)
+                .unwrap_or_default();
+            match services.store.archive_goal(g, now()) {
+                Ok(()) => {
+                    etat.borrow_mut().vue = Vue::Goals;
+                    f.set_status(
+                        format!("“{titre}” archived. Its habits and tasks stay as they are.")
+                            .into(),
+                    );
+                }
+                Err(e) => tracing::warn!(error = %e, "archiving a goal"),
+            }
             redessiner();
         }
     );

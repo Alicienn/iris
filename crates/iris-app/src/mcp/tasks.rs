@@ -12,7 +12,7 @@ use iris_mcp::{Args, Tool, ToolError, ToolResult};
 use iris_store::{Goal, GoalKind, NewGoal, NewHabit, NewTask, StoredTask};
 use iris_types::Timestamp;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 // --- Shared --------------------------------------------------------------------------
 
@@ -157,13 +157,14 @@ pub(super) fn tools() -> Vec<Tool> {
             "Tasks matching every filter given, open ones first in the list's order (due first), \
              then (include_done) the done ones, latest first. Subtasks are included, with \
              parent_id. Each task: id, title, list, due_day, due_time, overdue, priority, \
-             done/done_at, notes, subtasks {done,total}, repeat, estimate_minutes, goal, event \
-             link {uid, occurrence_start}, thread_id and source (where it came from). Returns \
-             {count, total, tasks}: total is how many matched before the limit.",
+             done/done_at, archived_at, notes, subtasks {done,total}, repeat, estimate_minutes, \
+             goal, event link {uid, occurrence_start}, thread_id and source (where it came \
+             from). Returns {count, total, tasks}: total is how many matched before the limit.",
             obj(
                 json!({
                     "list_id": id,
-                    "include_done": {"type": "boolean", "description": "Default false."},
+                    "include_done": {"type": "boolean", "description": "Default false. The done tasks still in the lists, not the archived ones."},
+                    "include_archived": {"type": "boolean", "description": "Default false. Also the done tasks the user cleared into the archive (implies done ones)."},
                     "due_on": {"type": "string", "description": "Only tasks due that day (2026-11-06, today, tomorrow)."},
                     "due_before": {"type": "string", "description": "Only tasks due on or before that day."},
                     "overdue": {"type": "boolean", "description": "Only open tasks past their due day or time."},
@@ -174,6 +175,22 @@ pub(super) fn tools() -> Vec<Tool> {
                     "event_start": {"type": "string", "description": "With event_id, for a repeating event: only that occurrence's tasks."},
                     "query": {"type": "string", "description": "Words in the title or notes (case does not matter)."},
                     "limit": {"type": "integer", "description": "Default 100, at most 500."},
+                }),
+                &[],
+            ),
+        ),
+        Tool::read(
+            "tasks_recap",
+            "What was done",
+            "Everything done over a period, from..to (days; default the last 7 days, today \
+             included), for a review: the tasks completed (archived or not, subtasks with \
+             parent_id) by day, oldest first, and by list in each day; the goals reached, \
+             archived, logged (entries with their notes) and milestones ticked in it; each \
+             habit's days done, rate and streaks; and the totals in summary.",
+            obj(
+                json!({
+                    "from": day,
+                    "to": {"type": "string", "description": "Default today."},
                 }),
                 &[],
             ),
@@ -268,8 +285,12 @@ pub(super) fn tools() -> Vec<Tool> {
             "Goals",
             "The goals with where they stand: kind (count or milestones), target, due_day, \
              progress {done, of, fraction, status on_track|behind|reached, badge, pace (a \
-             sentence), expected_by_now, behind, days_left, left} and open_tasks.",
-            obj(json!({}), &[]),
+             sentence), expected_by_now, behind, days_left, left}, open_tasks and archived. \
+             The archived goals are left out unless include_archived.",
+            obj(
+                json!({"include_archived": {"type": "boolean", "description": "Default false."}}),
+                &[],
+            ),
         ),
         Tool::read(
             "goals_get",
@@ -323,6 +344,17 @@ pub(super) fn tools() -> Vec<Tool> {
             obj(json!({"id": id}), &["id"]),
         ),
         Tool::write(
+            "goals_archive",
+            "Archive a goal",
+            "Puts a goal away in the archive (archived: true, the default) or brings it back \
+             (false). An archived goal leaves goals_list and the Tasks tab; its log, \
+             milestones, tasks and habits stay, and its habits keep counting. Returns the goal.",
+            obj(
+                json!({"id": id, "archived": {"type": "boolean", "description": "Default true."}}),
+                &["id"],
+            ),
+        ),
+        Tool::write(
             "goals_log",
             "Log progress on a goal",
             "For a count goal: logs count (default 1) steps done, with an optional note (\"Sent \
@@ -366,6 +398,7 @@ pub(super) fn call(ctx: &Ctx, name: &str, a: &Args) -> ToolResult {
         "tasks_rename_list" => rename_list(ctx, a),
         "tasks_delete_list" => delete_list(ctx, a),
         "tasks_list" => list_tasks(ctx, a),
+        "tasks_recap" => recap(ctx, a),
         "tasks_get" => get_task_tool(ctx, a),
         "tasks_create" => create_task(ctx, a),
         "tasks_update" => update_task(ctx, a),
@@ -376,11 +409,12 @@ pub(super) fn call(ctx: &Ctx, name: &str, a: &Args) -> ToolResult {
         "habits_update" => update_habit(ctx, a),
         "habits_delete" => delete_habit(ctx, a),
         "habits_check" => check_habit(ctx, a),
-        "goals_list" => list_goals(ctx),
+        "goals_list" => list_goals(ctx, a),
         "goals_get" => get_goal_tool(ctx, a),
         "goals_create" => create_goal(ctx, a),
         "goals_update" => update_goal(ctx, a),
         "goals_delete" => delete_goal(ctx, a),
+        "goals_archive" => archive_goal(ctx, a),
         "goals_log" => log_goal(ctx, a),
         "goals_milestone" => milestone(ctx, a),
         _ => Err(ToolError::new(format!("unknown tool: {name}"))),
@@ -453,8 +487,9 @@ impl Names {
                 .into_iter()
                 .map(|l| (l.id, l.name))
                 .collect(),
+            // Archived ones too: a task still names the goal it moved forward.
             goals: store(ctx)
-                .goals()?
+                .all_goals()?
                 .into_iter()
                 .map(|g| (g.id, g.goal.title))
                 .collect(),
@@ -487,6 +522,9 @@ fn task_json(ctx: &Ctx, t: &StoredTask, names: &Names) -> Value {
     }
     if let Some(at) = t.done_at {
         o.insert("done_at".into(), json!(time::format_ms(at.millis())));
+    }
+    if let Some(at) = t.archived_at {
+        o.insert("archived_at".into(), json!(time::format_ms(at.millis())));
     }
     match n.parent_id {
         Some(p) => {
@@ -741,11 +779,21 @@ fn delete_list(ctx: &Ctx, a: &Args) -> ToolResult {
 
 fn list_tasks(ctx: &Ctx, a: &Args) -> ToolResult {
     let mut taches = store(ctx).open_tasks()?;
-    if a.bool_or("include_done", false)? {
-        let mut faites: Vec<StoredTask> = store(ctx)
-            .all_tasks()?
+    let archivees = a.bool_or("include_archived", false)?;
+    if a.bool_or("include_done", false)? || archivees {
+        let toutes = store(ctx).all_tasks()?;
+        // Cleared away: archived, and the steps of an archived task with it.
+        let rangees: BTreeSet<i64> = toutes
+            .iter()
+            .filter(|t| t.archived_at.is_some())
+            .map(|t| t.id)
+            .collect();
+        let rangee = |t: &StoredTask| {
+            rangees.contains(&t.id) || t.task.parent_id.is_some_and(|p| rangees.contains(&p))
+        };
+        let mut faites: Vec<StoredTask> = toutes
             .into_iter()
-            .filter(StoredTask::is_done)
+            .filter(|t| t.is_done() && (archivees || !rangee(t)))
             .collect();
         faites.sort_by_key(|x| std::cmp::Reverse(x.done_at));
         taches.extend(faites);
@@ -1095,6 +1143,200 @@ fn delete_task(ctx: &Ctx, a: &Args) -> ToolResult {
     store(ctx).delete_task(id)?;
     ctx.refresh();
     Ok(json!({"deleted": id, "title": t.task.title, "subtasks_deleted": etapes}))
+}
+
+// --- What was done --------------------------------------------------------------------
+
+/// The day a goal was reached, if it was: the log entry that made its target, or the
+/// last of its milestones ticked once all are.
+fn reached_on(ctx: &Ctx, g: &Goal) -> Result<Option<NaiveDate>, ToolError> {
+    Ok(match g.goal.kind {
+        GoalKind::Count => store(ctx)
+            .goal_entries(g.id)?
+            .get(g.goal.target.max(1) as usize - 1)
+            .map(|e| time::day_of_ms(e.at.millis())),
+        GoalKind::Milestones => {
+            let m = store(ctx).milestones(g.id)?;
+            if m.is_empty() || m.iter().any(|m| m.done_at.is_none()) {
+                None
+            } else {
+                m.iter()
+                    .filter_map(|m| m.done_at)
+                    .max()
+                    .map(|t| time::day_of_ms(t.millis()))
+            }
+        }
+    })
+}
+
+/// Everything done from `from` to `to`, both included: tasks, goals, habits.
+fn recap(ctx: &Ctx, a: &Args) -> ToolResult {
+    let today = time::today();
+    let to = match a.opt_str("to")? {
+        Some(s) => time::parse_day(&s)?,
+        None => today,
+    };
+    let from = match a.opt_str("from")? {
+        Some(s) => time::parse_day(&s)?,
+        None => to - Duration::days(6),
+    };
+    if from > to {
+        return Err(ToolError::new("\"from\" must not come after \"to\""));
+    }
+    if (to - from).num_days() > 366 {
+        return Err(ToolError::new("a recap covers a year at most"));
+    }
+    let dans = |ms: i64| {
+        let d = time::day_of_ms(ms);
+        (from..=to).contains(&d)
+    };
+    let names = Names::load(ctx)?;
+
+    // The tasks done, by day then by list, in the order they were done.
+    let mut faites: Vec<StoredTask> = store(ctx)
+        .all_tasks()?
+        .into_iter()
+        .filter(|t| t.done_at.is_some_and(|d| dans(d.millis())))
+        .collect();
+    faites.sort_by_key(|t| t.done_at);
+    let mut jours: BTreeMap<NaiveDate, BTreeMap<String, Vec<Value>>> = BTreeMap::new();
+    for t in &faites {
+        let Some(fait) = t.done_at else { continue };
+        let liste = names
+            .lists
+            .get(&t.task.list_id)
+            .cloned()
+            .unwrap_or_default();
+        let mut v = json!({
+            "id": t.id,
+            "title": t.task.title,
+            "done_at": time::format_ms(fait.millis()),
+            "archived": t.archived_at.is_some(),
+        });
+        if let Some(p) = t.task.parent_id {
+            v["parent_id"] = json!(p);
+        }
+        if let Some(g) = t.task.goal_id {
+            v["goal_id"] = json!(g);
+            v["goal"] = json!(names.goals.get(&g));
+        }
+        if let Some(e) = t.task.estimate {
+            v["estimate_minutes"] = json!(e);
+        }
+        jours
+            .entry(time::day_of_ms(fait.millis()))
+            .or_default()
+            .entry(liste)
+            .or_default()
+            .push(v);
+    }
+    let par_jour: Vec<Value> = jours
+        .into_iter()
+        .map(|(jour, listes)| {
+            let n: usize = listes.values().map(Vec::len).sum();
+            json!({
+                "day": day_text(jour),
+                "done": n,
+                "lists": listes
+                    .into_iter()
+                    .map(|(liste, taches)| json!({"list": liste, "tasks": taches}))
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    // The goals: reached, archived, logged, milestones ticked in the period.
+    let mut atteints = Vec::new();
+    let mut archives = Vec::new();
+    let mut journal = Vec::new();
+    let mut etapes = Vec::new();
+    let (mut n_entrees, mut n_etapes) = (0, 0);
+    for g in store(ctx).all_goals()? {
+        if let Some(j) = reached_on(ctx, &g)?.filter(|j| (from..=to).contains(j)) {
+            atteints.push(json!({"id": g.id, "title": g.goal.title, "day": day_text(j)}));
+        }
+        if let Some(at) = g.archived_at.filter(|t| dans(t.millis())) {
+            archives.push(json!({
+                "id": g.id,
+                "title": g.goal.title,
+                "archived_at": time::format_ms(at.millis()),
+            }));
+        }
+        let entrees: Vec<Value> = store(ctx)
+            .goal_entries(g.id)?
+            .iter()
+            .filter(|e| dans(e.at.millis()))
+            .map(|e| json!({"at": time::format_ms(e.at.millis()), "note": e.note}))
+            .collect();
+        if !entrees.is_empty() {
+            n_entrees += entrees.len();
+            journal.push(json!({
+                "goal_id": g.id,
+                "title": g.goal.title,
+                "unit": g.goal.unit,
+                "count": entrees.len(),
+                "entries": entrees,
+            }));
+        }
+        for m in store(ctx).milestones(g.id)? {
+            if let Some(t) = m.done_at.filter(|t| dans(t.millis())) {
+                n_etapes += 1;
+                etapes.push(json!({
+                    "goal_id": g.id,
+                    "goal": g.goal.title,
+                    "milestone": m.title,
+                    "done_at": time::format_ms(t.millis()),
+                }));
+            }
+        }
+    }
+
+    // The habits: the days kept, the rate, the streaks as they stand at `to`.
+    let fin = to.min(today);
+    let mut jours_tenus = 0;
+    let habitudes: Vec<Value> = load_habits(ctx)?
+        .iter()
+        .map(|u| {
+            let tenus = u.r.done_between(from, to);
+            jours_tenus += tenus;
+            let serie = u.r.streak(fin);
+            json!({
+                "id": u.h.id,
+                "title": u.h.habit.title,
+                "kind": if u.h.habit.quit { "quit" } else { "build" },
+                "schedule": u.r.schedule.label(),
+                "days_done": tenus,
+                "checks": u.r.checks.range(from..=to).count(),
+                "rate": u.r.rate_between(from, to, today).map(round2),
+                "streak": {
+                    "current": serie.current,
+                    "best": serie.best,
+                    "unit": if serie.weeks { "weeks" } else { "days" },
+                },
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "from": day_text(from),
+        "to": day_text(to),
+        "summary": {
+            "tasks_done": faites.len(),
+            "goal_entries": n_entrees,
+            "milestones_done": n_etapes,
+            "goals_reached": atteints.len(),
+            "goals_archived": archives.len(),
+            "habit_days_done": jours_tenus,
+        },
+        "tasks": par_jour,
+        "goals": {
+            "reached": atteints,
+            "archived": archives,
+            "logged": journal,
+            "milestones_done": etapes,
+        },
+        "habits": habitudes,
+    }))
 }
 
 // --- Habits --------------------------------------------------------------------------
@@ -1459,6 +1701,8 @@ fn goal_json(ctx: &Ctx, g: &Goal, today: NaiveDate) -> Value {
             "left": p.left,
         },
         "open_tasks": ouvertes,
+        "archived": g.archived_at.is_some(),
+        "archived_at": g.archived_at.map(|t| time::format_ms(t.millis())),
     })
 }
 
@@ -1496,14 +1740,27 @@ fn goal_now(ctx: &Ctx, id: i64) -> ToolResult {
     Ok(v)
 }
 
-fn list_goals(ctx: &Ctx) -> ToolResult {
+fn list_goals(ctx: &Ctx, a: &Args) -> ToolResult {
     let today = time::today();
-    let objectifs: Vec<Value> = store(ctx)
-        .goals()?
-        .iter()
-        .map(|g| goal_json(ctx, g, today))
-        .collect();
+    let tous = if a.bool_or("include_archived", false)? {
+        store(ctx).all_goals()?
+    } else {
+        store(ctx).goals()?
+    };
+    let objectifs: Vec<Value> = tous.iter().map(|g| goal_json(ctx, g, today)).collect();
     Ok(json!({"today": day_text(today), "goals": objectifs}))
+}
+
+fn archive_goal(ctx: &Ctx, a: &Args) -> ToolResult {
+    let id = a.i64("id")?;
+    get_goal(ctx, id)?;
+    if a.bool_or("archived", true)? {
+        store(ctx).archive_goal(id, ctx.now())?;
+    } else {
+        store(ctx).unarchive_goal(id)?;
+    }
+    ctx.refresh();
+    goal_now(ctx, id)
 }
 
 fn get_goal_tool(ctx: &Ctx, a: &Args) -> ToolResult {
@@ -1690,7 +1947,7 @@ fn find_milestone(
 ) -> Result<(i64, iris_store::Milestone), ToolError> {
     let objectifs: Vec<i64> = match goal {
         Some(g) => vec![get_goal(ctx, g)?.id],
-        None => store(ctx).goals()?.iter().map(|g| g.id).collect(),
+        None => store(ctx).all_goals()?.iter().map(|g| g.id).collect(),
     };
     for g in objectifs {
         if let Some(m) = store(ctx).milestones(g)?.into_iter().find(|m| m.id == id) {
@@ -1914,5 +2171,124 @@ mod tests {
                 .map(Vec::len),
             Some(2)
         );
+    }
+
+    #[test]
+    fn an_archived_goal_leaves_the_list_and_comes_back() {
+        let (ctx, _dossier, _runtime) = super::super::test_ctx();
+        let dans_un_mois = day_text(time::today() + Duration::days(30));
+        let g = run(
+            &ctx,
+            "goals_create",
+            json!({"title": "Run 10 km", "target": 5, "due_day": dans_un_mois}),
+        );
+        let id = id_of(&g);
+        let h = run(
+            &ctx,
+            "habits_create",
+            json!({"title": "Run", "goal_id": id}),
+        );
+        let range = run(&ctx, "goals_archive", json!({"id": id}));
+        assert_eq!(range["archived"], true);
+        let liste = |args: Value| run(&ctx, "goals_list", args)["goals"].clone();
+        assert_eq!(liste(json!({})).as_array().map(Vec::len), Some(0));
+        assert_eq!(liste(json!({"include_archived": true}))[0]["id"], id);
+        // Its habit still supports it, and still ticks.
+        run(&ctx, "habits_check", json!({"habit_id": h["id"]}));
+        let habitude = &run(&ctx, "habits_list", json!({}))["habits"][0];
+        assert_eq!(habitude["goal_id"], id);
+        assert_eq!(habitude["today"]["done"], true);
+
+        let revenu = run(&ctx, "goals_archive", json!({"id": id, "archived": false}));
+        assert_eq!(revenu["archived"], false);
+        assert_eq!(liste(json!({})).as_array().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn cleared_tasks_show_only_when_asked() {
+        let (ctx, _dossier, _runtime) = super::super::test_ctx();
+        let t = run(&ctx, "tasks_create", json!({"title": "File the receipts"}));
+        let id = id_of(&t);
+        run(&ctx, "tasks_complete", json!({"id": id}));
+        store(&ctx).archive_tasks(&[id], ctx.now()).unwrap();
+
+        let faites = run(&ctx, "tasks_list", json!({"include_done": true}));
+        assert_eq!(faites["count"], 0, "cleared: not among the done ones");
+        let toutes = run(&ctx, "tasks_list", json!({"include_archived": true}));
+        assert_eq!(toutes["count"], 1);
+        assert!(toutes["tasks"][0]["archived_at"].is_string());
+    }
+
+    #[test]
+    fn the_recap_tells_what_was_done() {
+        let (ctx, _dossier, _runtime) = super::super::test_ctx();
+        let travail = id_of(&run(&ctx, "tasks_create_list", json!({"name": "Work"})));
+        let a = run(
+            &ctx,
+            "tasks_create",
+            json!({"title": "Send the report", "list_id": travail}),
+        );
+        let b = run(&ctx, "tasks_create", json!({"title": "Buy bread"}));
+        run(&ctx, "tasks_create", json!({"title": "Not done yet"}));
+        run(&ctx, "tasks_complete", json!({"id": a["id"]}));
+        run(&ctx, "tasks_complete", json!({"id": b["id"]}));
+        // Cleared into the archive: still counted.
+        store(&ctx).archive_tasks(&[id_of(&b)], ctx.now()).unwrap();
+
+        let dans_un_mois = day_text(time::today() + Duration::days(30));
+        let g = run(
+            &ctx,
+            "goals_create",
+            json!({"title": "Send 2 applications", "target": 2, "due_day": dans_un_mois}),
+        );
+        run(
+            &ctx,
+            "goals_log",
+            json!({"goal_id": g["id"], "count": 2, "note": "Studio Nord"}),
+        );
+        run(&ctx, "goals_archive", json!({"id": g["id"]}));
+        let h = run(&ctx, "habits_create", json!({"title": "Read"}));
+        run(&ctx, "habits_check", json!({"habit_id": h["id"]}));
+
+        let r = run(&ctx, "tasks_recap", json!({}));
+        assert_eq!(r["to"], day_text(time::today()));
+        assert_eq!(
+            r["from"],
+            day_text(time::today() - Duration::days(6)),
+            "the last 7 days"
+        );
+        let s = &r["summary"];
+        assert_eq!(s["tasks_done"], 2);
+        assert_eq!(s["goal_entries"], 2);
+        assert_eq!(s["goals_reached"], 1);
+        assert_eq!(s["goals_archived"], 1);
+        assert_eq!(s["habit_days_done"], 1);
+
+        let jour = &r["tasks"][0];
+        assert_eq!(jour["day"], day_text(time::today()));
+        assert_eq!(jour["done"], 2);
+        let listes: Vec<&str> = jour["lists"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|l| l["list"].as_str())
+            .collect();
+        assert!(listes.contains(&"Work"), "{listes:?}");
+        assert_eq!(r["goals"]["logged"][0]["entries"][0]["note"], "Studio Nord");
+        assert_eq!(r["habits"][0]["streak"]["current"], 1);
+
+        // A period with nothing in it.
+        let vide = run(
+            &ctx,
+            "tasks_recap",
+            json!({"from": "2020-01-01", "to": "2020-01-31"}),
+        );
+        assert_eq!(vide["summary"]["tasks_done"], 0);
+        assert!(call(
+            &ctx,
+            "tasks_recap",
+            &Args::new(json!({"from": "2026-02-01", "to": "2026-01-01"}))
+        )
+        .is_err());
     }
 }

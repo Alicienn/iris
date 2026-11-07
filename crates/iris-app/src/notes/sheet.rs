@@ -482,6 +482,7 @@ fn montrer_feuilles(f: &AppWindow, fe: &Feuille) {
         .collect();
     g.set_charts(ModelRc::new(VecModel::from(graphiques)));
     montrer_graphique(f, fe);
+    montrer_cartes(f, fe);
 }
 
 // --- Charts ----------------------------------------------------------------------------
@@ -562,7 +563,147 @@ fn nom_de_colonne(fe: &Feuille, chart: &iris_sheets::chart::Chart, col: u32) -> 
     }
 }
 
-/// The chart shown, drawn, and its settings.
+// The charts' canvas, in its pixels at 100 %. A card is `CARTE_L` wide: `CARTE_MARGE`
+// around, its name `CARTE_TITRE` high and `CARTE_ECART` under it, then the drawing
+// (ChartCard in sheet.slint draws it with the same). Cards never moved stand in two
+// columns, `CARTE_ESPACE` apart.
+const CARTE_L: f32 = 900.0;
+const CARTE_MARGE: f32 = 24.0;
+const CARTE_TITRE: f32 = 28.0;
+const CARTE_ECART: f32 = 12.0;
+const CARTE_ESPACE: f32 = 64.0;
+
+/// A card's height for a chart laid out: the drawing at the card's inner width.
+fn hauteur_carte(p: &iris_sheets::plot::Plot) -> f32 {
+    let interieur = CARTE_L - 2.0 * CARTE_MARGE;
+    let dessin = if p.width > 0.0 {
+        p.height * interieur / p.width
+    } else {
+        150.0
+    };
+    CARTE_MARGE + CARTE_TITRE + CARTE_ECART + dessin + CARTE_MARGE
+}
+
+/// Where each card stands, from each chart's place (if it was moved) and its card's
+/// height. Those never moved go in two columns, under the ones that were.
+fn places(cartes: &[(Option<(f32, f32)>, f32)]) -> Vec<(f32, f32)> {
+    let posees: Vec<(f32, f32, f32)> = cartes
+        .iter()
+        .filter_map(|(at, h)| at.map(|(x, y)| (x, y, *h)))
+        .collect();
+    let (gauche, haut) = if posees.is_empty() {
+        (0.0, 0.0)
+    } else {
+        (
+            posees.iter().map(|p| p.0).fold(f32::INFINITY, f32::min),
+            posees
+                .iter()
+                .map(|p| p.1 + p.2)
+                .fold(f32::NEG_INFINITY, f32::max)
+                + CARTE_ESPACE,
+        )
+    };
+    // The rows of those never moved: each as high as its tallest card.
+    let libres: Vec<f32> = cartes
+        .iter()
+        .filter(|(at, _)| at.is_none())
+        .map(|(_, h)| *h)
+        .collect();
+    let mut rangees = Vec::new();
+    let mut y = haut;
+    for rang in libres.chunks(2) {
+        rangees.push(y);
+        y += rang.iter().copied().fold(0.0, f32::max) + CARTE_ESPACE;
+    }
+    let mut j = 0;
+    cartes
+        .iter()
+        .map(|(at, _)| match at {
+            Some(p) => *p,
+            None => {
+                let p = (
+                    gauche + (j % 2) as f32 * (CARTE_L + CARTE_ESPACE),
+                    rangees[j / 2],
+                );
+                j += 1;
+                p
+            }
+        })
+        .collect()
+}
+
+/// Every chart laid out, and its card's place and height.
+fn disposer(fe: &Feuille) -> Vec<(iris_sheets::plot::Plot, (f32, f32), f32)> {
+    let traces: Vec<iris_sheets::plot::Plot> = fe
+        .book
+        .charts
+        .iter()
+        .map(|c| {
+            let series = iris_sheets::chart::series(&fe.book, &fe.values, c, &fe.locale);
+            iris_sheets::plot::plot(c.kind, &series, &fe.locale)
+        })
+        .collect();
+    let hauteurs: Vec<f32> = traces.iter().map(hauteur_carte).collect();
+    let ou = places(
+        &fe.book
+            .charts
+            .iter()
+            .map(|c| c.at)
+            .zip(hauteurs.iter().copied())
+            .collect::<Vec<_>>(),
+    );
+    traces
+        .into_iter()
+        .zip(ou)
+        .zip(hauteurs)
+        .map(|((p, o), h)| (p, o, h))
+        .collect()
+}
+
+/// The canvas's cards, while a chart is shown; none while the grid is.
+fn montrer_cartes(f: &AppWindow, fe: &Feuille) {
+    let g = f.global::<SheetGrid>();
+    if fe.chart.is_none() {
+        g.set_chart_cards(ModelRc::default());
+        return;
+    }
+    let mut boite: Option<(f32, f32, f32, f32)> = None;
+    let cartes: Vec<iris_ui::ChartCardData> = disposer(fe)
+        .into_iter()
+        .zip(&fe.book.charts)
+        .enumerate()
+        .map(|(k, ((p, (x, y), h), c))| {
+            let (x1, y1) = (x + CARTE_L, y + h);
+            boite = Some(match boite {
+                None => (x, y, x1, y1),
+                Some((g0, h0, g1, h1)) => (g0.min(x), h0.min(y), g1.max(x1), h1.max(y1)),
+            });
+            iris_ui::ChartCardData {
+                index: k as i32,
+                name: c.name.as_str().into(),
+                x,
+                y,
+                width: CARTE_L,
+                height: h,
+                data: donnees_graphique(&p),
+            }
+        })
+        .collect();
+    let (a, b, c, d) = boite.unwrap_or((0.0, 0.0, 0.0, 0.0));
+    g.set_chart_bounds_x(a);
+    g.set_chart_bounds_y(b);
+    g.set_chart_bounds_width(c - a);
+    g.set_chart_bounds_height(d - b);
+    g.set_chart_cards(ModelRc::new(VecModel::from(cartes)));
+}
+
+/// The canvas asked to frame every card (a chart added or gone).
+fn cadrer(f: &AppWindow) {
+    let g = f.global::<SheetGrid>();
+    g.set_chart_fit_serial(g.get_chart_fit_serial() + 1);
+}
+
+/// The chosen chart's settings.
 fn montrer_graphique(f: &AppWindow, fe: &Feuille) {
     let g = f.global::<SheetGrid>();
     let Some(chart) = fe.chart.and_then(|k| fe.book.charts.get(k)) else {
@@ -570,9 +711,6 @@ fn montrer_graphique(f: &AppWindow, fe: &Feuille) {
         return;
     };
     g.set_chart(fe.chart.map_or(-1, |k| k as i32));
-    let series = iris_sheets::chart::series(&fe.book, &fe.values, chart, &fe.locale);
-    let plot = iris_sheets::plot::plot(chart.kind, &series, &fe.locale);
-    g.set_chart_data(donnees_graphique(&plot));
     g.set_chart_kind(chart.kind.index() as i32);
     g.set_chart_many_groups(chart.kind.many_groups());
     g.set_chart_many_values(chart.kind.many_values());
@@ -621,12 +759,41 @@ fn action_graphique(f: &AppWindow, fe: &mut Feuille, quoi: &str) {
         fe.book.charts.push(c);
         fe.chart = Some(fe.book.charts.len() - 1);
         change(f, fe);
+        cadrer(f);
+        return;
+    }
+    // A card picked on the canvas: its settings in the column; the cards stay as they
+    // are (one is being pressed, perhaps carried).
+    if verbe == "select" {
+        if i < fe.book.charts.len() && fe.chart != Some(i) {
+            fe.chart = Some(i);
+            montrer_graphique(f, fe);
+        }
         return;
     }
     let Some(k) = fe.chart.filter(|k| *k < fe.book.charts.len()) else {
         return;
     };
     match verbe {
+        // The canvas's "Add a chart": one more of the chosen chart's table, its kind
+        // and columns guessed from what the table holds.
+        "add" => {
+            let (si, entete) = fe
+                .book
+                .sheet_index(&fe.book.charts[k].sheet)
+                .map_or((fe.sheet, 0), |si| (si, fe.book.charts[k].header));
+            let (cols, rows) = fe.book.sheets[si].extent();
+            let plage = Range::new(
+                Addr::new(0, entete),
+                Addr::new(cols.max(1) - 1, rows.saturating_sub(1).max(entete)),
+            );
+            let c = iris_sheets::chart::guess(&fe.book, &fe.values, si, plage);
+            fe.retenir();
+            fe.book.charts.push(c);
+            fe.chart = Some(fe.book.charts.len() - 1);
+            change(f, fe);
+            cadrer(f);
+        }
         "copy" => {
             if let Some(texte) = insertion(fe, k) {
                 if let Ok(mut presse) = crate::presse::Clipboard::new() {
@@ -672,15 +839,25 @@ fn action_graphique(f: &AppWindow, fe: &mut Feuille, quoi: &str) {
                 .map(|j| format!("{} {j}", c.name))
                 .find(|n| fe.book.chart_index(n).is_none())
                 .unwrap_or_default();
+            // Its card beside the one it copies when that one was moved; else with
+            // the cards never moved.
+            c.at = c.at.map(|(x, y)| (x + CARTE_L + CARTE_ESPACE, y));
             fe.book.charts.insert(k + 1, c);
             fe.chart = Some(k + 1);
             change(f, fe);
+            cadrer(f);
         }
         "delete" => {
             fe.retenir();
             fe.book.charts.remove(k);
-            fe.chart = None;
+            // The canvas stays while charts remain, the next one chosen.
+            fe.chart = if fe.book.charts.is_empty() {
+                None
+            } else {
+                Some(k.min(fe.book.charts.len() - 1))
+            };
             change(f, fe);
+            cadrer(f);
             f.set_toast("The chart is deleted. Ctrl+Z brings it back.".into());
         }
         _ => {
@@ -1753,15 +1930,48 @@ pub(super) fn wire(f: &AppWindow, etat: &Rc<RefCell<Etat>>) {
                 change(&f, fe);
                 return;
             }
+            let deja = fe.chart.is_some();
             fe.chart = Some(i);
             montrer_graphique(&f, fe);
+            if deja {
+                // Its tab clicked over the canvas: its card brought into view.
+                let g = f.global::<SheetGrid>();
+                g.set_chart_focus_serial(g.get_chart_focus_serial() + 1);
+            } else {
+                montrer_cartes(&f, fe);
+            }
         }
     });
+    geste!(on_chart_moved, |f, fe, i, x, y| {
+        let i = i.max(0) as usize;
+        if i >= fe.book.charts.len() || !x.is_finite() || !y.is_finite() {
+            return;
+        }
+        fe.retenir();
+        // The cards never moved keep where they stood: their places are written too,
+        // so moving one does not reflow the others.
+        let ou: Vec<(f32, f32)> = disposer(fe).into_iter().map(|(_, o, _)| o).collect();
+        for (c, o) in fe.book.charts.iter_mut().zip(ou) {
+            c.at.get_or_insert(o);
+        }
+        fe.book.charts[i].at = Some((x.round(), y.round()));
+        fe.dirty = true;
+        montrer_cartes(&f, fe);
+        super::planifier_ecriture(&f);
+    });
+    {
+        // The charts' settings column folded or not, as it was left.
+        g.set_chart_panel_folded(crate::settings::current().sheet_chart_panel_folded);
+        g.on_chart_panel_toggled(|plie| {
+            crate::settings::update(|s| s.sheet_chart_panel_folded = plie);
+        });
+    }
     geste!(on_sheet_chosen, |f, fe, i| {
         let i = i.max(0) as usize;
         // Back from a chart to the sheet it was shown over.
         if fe.chart.take().is_some() && i == fe.sheet {
             montrer_graphique(&f, fe);
+            montrer_cartes(&f, fe);
             dessiner(&f, fe, true);
             return;
         }
@@ -1838,6 +2048,26 @@ mod tests {
             None
         );
         assert_eq!(insertion(&fe, 1), None);
+    }
+
+    #[test]
+    fn cards_never_moved_stand_in_two_columns_under_the_moved_ones() {
+        let pas = CARTE_L + CARTE_ESPACE;
+        // None moved: two by two from the origin, each row as high as its tallest.
+        assert_eq!(
+            places(&[(None, 300.0), (None, 500.0), (None, 200.0)]),
+            vec![(0.0, 0.0), (pas, 0.0), (0.0, 500.0 + CARTE_ESPACE)]
+        );
+        // One moved: it stays, the others go under it, from its left edge.
+        assert_eq!(
+            places(&[(Some((-100.0, 40.0)), 300.0), (None, 200.0), (None, 250.0)]),
+            vec![
+                (-100.0, 40.0),
+                (-100.0, 340.0 + CARTE_ESPACE),
+                (-100.0 + pas, 340.0 + CARTE_ESPACE)
+            ]
+        );
+        assert!(places(&[]).is_empty());
     }
 
     #[test]

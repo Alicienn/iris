@@ -455,6 +455,10 @@ impl Workbook {
                 header: g.header.saturating_sub(1),
                 groups: cols(&g.groups),
                 values: cols(&g.values),
+                at: g
+                    .at
+                    .filter(|[x, y]| x.is_finite() && y.is_finite())
+                    .map(|[x, y]| (x, y)),
             };
             c.fit();
             charts.push(c);
@@ -509,6 +513,7 @@ impl Workbook {
                     header: c.header + 1,
                     groups: c.groups.iter().map(|k| col_name(*k)).collect(),
                     values: c.values.iter().map(|k| col_name(*k)).collect(),
+                    at: c.at.map(|(x, y)| [x, y]),
                 })
                 .collect(),
         };
@@ -556,6 +561,9 @@ struct BrutGraphique {
     groups: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     values: Vec<String>,
+    /// Its card's place on the charts' canvas, `[x, y]`; absent: after the others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    at: Option<[f32; 2]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -702,11 +710,21 @@ mod tests {
             header: 0,
             groups: vec![0],
             values: vec![1],
+            at: None,
         });
         let texte = b.to_json();
         assert!(texte.contains("\"kind\": \"columns\""));
+        assert!(
+            !texte.contains("\"at\""),
+            "a chart never moved keeps no place"
+        );
         let lu = Workbook::from_json(&texte).unwrap();
         assert_eq!(lu.charts, b.charts);
+        // Its card moved on the canvas: the place is kept.
+        let mut place = b.clone();
+        place.charts[0].at = Some((960.0, -40.0));
+        let lu = Workbook::from_json(&place.to_json()).unwrap();
+        assert_eq!(lu.charts[0].at, Some((960.0, -40.0)));
         // A file from before charts reads as it did.
         let ancien = Workbook::from_json("{\"version\":1,\"sheets\":[{\"name\":\"S\"}]}").unwrap();
         assert!(ancien.charts.is_empty());

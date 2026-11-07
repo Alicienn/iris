@@ -127,6 +127,10 @@ pub struct Settings {
     /// The folders whose subfolders are folded away in the folders' column, by key.
     #[serde(default)]
     pub folded_folders: Vec<String>,
+    /// The sections of Mail's left column folded to their chosen row: "accounts",
+    /// "folders".
+    #[serde(default)]
+    pub mail_folded_sections: Vec<String>,
     /// Iris opens on the Home screen. Off, it opens on the mail; Home stays one click
     /// away on the name in the title bar.
     #[serde(default = "vrai")]
@@ -162,6 +166,9 @@ pub struct Settings {
     /// The notes open in tabs (`<space folder>|<path>`), in order.
     #[serde(default)]
     pub notes_tabs: Vec<String>,
+    /// A spreadsheet's charts show without their settings column (folded to a button).
+    #[serde(default)]
+    pub sheet_chart_panel_folded: bool,
     /// The text size, in percent of the normal one: 85 to 130.
     #[serde(default = "cent")]
     pub text_size: u32,
@@ -255,6 +262,7 @@ impl Default for Settings {
             accounts_by_tag: true,
             folded_tags: Vec::new(),
             folded_folders: Vec::new(),
+            mail_folded_sections: Vec::new(),
             home_at_startup: true,
             calendar_view: semaine(),
             inbox_zero_day: String::new(),
@@ -266,6 +274,7 @@ impl Default for Settings {
             notes_last: String::new(),
             notes_math_preview: true,
             notes_tabs: Vec::new(),
+            sheet_chart_panel_folded: false,
             text_size: 100,
             reduce_effects: false,
             mcp_enabled: false,
@@ -544,6 +553,7 @@ mod tests {
             accounts_by_tag: false,
             folded_tags: vec![3, 7],
             folded_folders: vec!["INBOX.Clients".into()],
+            mail_folded_sections: vec!["folders".into()],
             home_at_startup: false,
             calendar_view: 0,
             inbox_zero_day: "2026-10-01".into(),
@@ -555,6 +565,7 @@ mod tests {
             notes_last: "D:\\Notes\\Cours|Analyse/Chapitre 1.md".into(),
             notes_math_preview: false,
             notes_tabs: vec!["D:\\Notes\\Cours|Analyse/Chapitre 1.md".into()],
+            sheet_chart_panel_folded: true,
             text_size: 115,
             reduce_effects: true,
             mcp_enabled: true,

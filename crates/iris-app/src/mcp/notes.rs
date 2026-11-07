@@ -1370,6 +1370,7 @@ fn add_chart(n: &Notes, a: &Args) -> ToolResult {
             header: 0,
             groups: Vec::new(),
             values: Vec::new(),
+            at: None,
         },
     };
     if let Some(h) = a.opt_i64("header_row")? {
@@ -1405,7 +1406,11 @@ fn add_chart(n: &Notes, a: &Args) -> ToolResult {
         remarques.push("only columns and line draw several series: the first is kept");
     }
     match deja {
-        Some(i) => book.charts[i] = c.clone(),
+        // Replaced: its card stays where it was put on the canvas.
+        Some(i) => {
+            c.at = book.charts[i].at;
+            book.charts[i] = c.clone();
+        }
         None => book.charts.push(c.clone()),
     }
     let resultat = s.write(&rel, &book.to_json(), Some(modifie))?;

@@ -14,6 +14,9 @@ export component Segmented inherits Rectangle {
     in property <int> selected;
     /// An option can carry its colour when chosen (priorities). Empty: neutral.
     in property <[color]> tints;
+    /// The room around each option's word, both sides together: less where many
+    /// options share a narrow column.
+    in property <length> segment-padding: 24px;
     callback chosen(int);
 
     // Apple's segmented control: a grey well, the chosen segment a white key raised in
@@ -52,7 +55,7 @@ export component Segmented inherits Rectangle {
         for option[i] in root.options: Rectangle {
             property <bool> on: i == root.selected;
             property <color> teinte: root.tints.length > i ? root.tints[i] : Tokens.text;
-            width: mot.preferred-width + 24px;
+            width: mot.preferred-width + root.segment-padding;
             border-radius: 5px;
             // A neutral segment is raised by the sliding key above; a tinted one
             // (a priority) takes its colour itself.
