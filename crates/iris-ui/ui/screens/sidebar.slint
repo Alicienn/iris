@@ -619,6 +619,9 @@ export component Sidebar inherits Rectangle {
 
             VerticalLayout {
                 spacing: 2px;
+                // The 28px buttons sit centred in the 30px foot when unfolded: the
+                // last one here ends where theirs do.
+                padding-bottom: 1px;
 
                 IconButton {
                     icon: Icons.refresh;
