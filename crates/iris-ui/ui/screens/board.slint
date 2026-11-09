@@ -99,20 +99,13 @@ export global Board {
     in-out property <length> menu-x;
     in-out property <length> menu-y;
 
-    // The colours, in `iris_board::COLOURS`'s order: nine soft fills, the same nine
-    // strong, the paper, the ink, a softer ink, the lines' grey. Each theme its own.
-    out property <[color]> palette: Tokens.dark
-        ? [#4a4120, #4d3519, #4f2522, #4c2230, #3d2a4b, #1d3352, #1b3f46, #1f4229, #333336,
-           #ffd60a, #ff9f0a, #ff453a, #ff375f, #bf5af2, #0a84ff, #40c8e0, #30d158, #98989d,
-           Tokens.surface, Tokens.text, Tokens.text-secondary, Tokens.border-strong]
-        : [#fff3bf, #ffe4cc, #ffdcd9, #ffd9e3, #eedcf8, #d9e9ff, #d4f1f6, #d9f5e0, #ececef,
-           #e0a800, #ff9500, #ff3b30, #ff2d55, #af52de, #007aff, #30b0c7, #34c759, #8e8e93,
-           Tokens.surface, Tokens.text, Tokens.text-secondary, Tokens.border-strong];
+    // The colours, in `iris_board::COLOURS`'s order, from the theme.
+    out property <[color]> palette: Tokens.board-palette;
     out property <[string]> colour-names: ["Yellow", "Orange", "Red", "Pink", "Purple", "Blue", "Teal", "Green", "Grey",
         "Yellow", "Orange", "Red", "Pink", "Purple", "Blue", "Teal", "Green", "Grey",
         "Paper", "Ink", "Soft ink", "Line"];
     /// The board's ground: a touch off the paper, so the paper shows on it.
-    out property <color> ground: Tokens.dark ? #19191b : #fafafa;
+    out property <color> ground: Tokens.board-ground;
 
     public pure function colour(i: int, custom: color) -> color {
         if (i == -2) {
@@ -643,7 +636,7 @@ export component BoardView inherits Rectangle {
         source: Board.grid-tile;
         horizontal-tiling: repeat;
         vertical-tiling: repeat;
-        colorize: Tokens.dark ? #ffffff2e : #0000002a;
+        colorize: Tokens.board-dot;
     }
 
     for it in Board.items: BoardItem {
@@ -1505,7 +1498,7 @@ export component BoardMenu inherits Rectangle {
                 TextField {
                     height: 30px;
                     font-size: 13px;
-                    placeholder-text: "Any colour: #3a7bd5";
+                    placeholder-text: "Any colour, as #rrggbb";
                     accepted(t) => { root.chosen(Board.menu + ":" + t); }
                 }
             }

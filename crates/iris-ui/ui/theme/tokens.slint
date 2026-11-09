@@ -59,6 +59,18 @@ export global Tokens {
     out property <color> purple: dark ? #bf5af2 : #af52de;
     out property <color> pink: dark ? #ff375f : #ff2d55;
     out property <color> grey: dark ? #98989d : #8e8e93;
+    // --- Whiteboards: the colours an item can take, in `iris_board::COLOURS`'s order
+    // (nine soft fills, the same nine strong, the paper, the ink, a softer ink, the
+    // lines' grey); the board's ground, a touch off the paper; its dots. ---
+    out property <[color]> board-palette: dark
+        ? [#4a4120, #4d3519, #4f2522, #4c2230, #3d2a4b, #1d3352, #1b3f46, #1f4229, #333336,
+           #ffd60a, #ff9f0a, #ff453a, #ff375f, #bf5af2, #0a84ff, #40c8e0, #30d158, #98989d,
+           surface, text, text-secondary, border-strong]
+        : [#fff3bf, #ffe4cc, #ffdcd9, #ffd9e3, #eedcf8, #d9e9ff, #d4f1f6, #d9f5e0, #ececef,
+           #e0a800, #ff9500, #ff3b30, #ff2d55, #af52de, #007aff, #30b0c7, #34c759, #8e8e93,
+           surface, text, text-secondary, border-strong];
+    out property <color> board-ground: dark ? #19191b : #fafafa;
+    out property <color> board-dot: dark ? #ffffff2e : #0000002a;
     /// A segmented control's well, and the search field's.
     out property <color> well: dark ? #1c1c1e : #e4e4e8;
     /// A control raised in it: the chosen segment, a push button.
